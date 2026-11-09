@@ -1098,41 +1098,13 @@
                 
                 <!-- COLUMNA IZQUIERDA: GALERÍA DE FOTOS MULTI-SLOT SEGÚN 'FOTO DE REFERENCIA' -->
                 <div class="lg:col-span-8 flex flex-col justify-between">
-                    <!-- BARRA DE CONTROL DE ORIENTACIÓN 3/4 Y PORTADA -->
-                    <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mb-2 shadow-sm">
-                        <div class="flex items-center space-x-1 sm:space-x-2">
-                            <span class="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                                <span>📐</span> <span class="hidden sm:inline">Orientación</span> <span>3/4:</span>
-                            </span>
-                            <button type="button" id="btnOrientLeft" onclick="setMainPhotoOrientation('left')" class="px-2 py-1 text-[11px] font-semibold rounded-lg border border-slate-300 bg-white hover:bg-amber-50 hover:border-amber-400 text-slate-700 flex items-center gap-1 shadow-sm transition" title="Orientar foto mirando a la izquierda">
-                                <span>⬅️</span> <span>Izquierda</span>
-                            </button>
-                            <button type="button" id="btnOrientRight" onclick="setMainPhotoOrientation('right')" class="px-2 py-1 text-[11px] font-semibold rounded-lg border border-slate-300 bg-white hover:bg-amber-50 hover:border-amber-400 text-slate-700 flex items-center gap-1 shadow-sm transition" title="Orientar foto mirando a la derecha">
-                                <span>➡️</span> <span>Derecha</span>
-                            </button>
-                            <button type="button" onclick="flipMainPhoto()" class="px-2 py-1 text-[11px] font-semibold rounded-lg border border-slate-300 bg-white hover:bg-amber-50 hover:border-amber-400 text-slate-700 flex items-center gap-1 shadow-sm transition" title="Voltear foto horizontalmente (Efecto espejo)">
-                                <span>↔️</span> <span>Voltear</span>
-                            </button>
-                        </div>
-                        <div class="flex items-center space-x-1.5">
-                            <button type="button" onclick="setMainPhotoAsHero()" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-sm flex items-center gap-1 transition" title="Fijar esta foto como Portada de Inicio del producto en el catálogo">
-                                <span>⭐</span> <span>Poner de Inicio</span>
-                            </button>
-                            <button type="button" onclick="setMainPhotoAsAmbiente()" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-slate-800 hover:bg-black text-white shadow-sm flex items-center gap-1 transition" title="Fijar como foto principal de Ambiente">
-                                <span>🖼️</span> <span>Fijar Ambiente</span>
-                            </button>
-                        </div>
-                    </div>
                     <div class="modal-gallery-grid">
                         <!-- #1 FOTO DEL AMBIENTE (TOP LEFT, 2 COLS X 2 ROWS) -->
                         <div class="gallery-slot slot-ambiente relative group"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
-                             ondrop="handleSlotDrop(event, 'ambiente')"
-                             onclick="if(!isEditMode) cycleMainPhoto();">
+                             ondrop="handleSlotDrop(event, 'ambiente')">
                             <div class="slot-actions-group">
-                                <button type="button" id="btnFlip_ambiente" class="slot-tool-btn hidden" title="Voltear foto horizontalmente (Der / Izq)" onclick="event.stopPropagation(); flipSlotPhoto('ambiente');">↔️</button>
-                                <button type="button" id="btnHero_ambiente" class="slot-tool-btn hidden" title="Poner como Foto de Inicio del catálogo" onclick="event.stopPropagation(); setSlotAsHero('ambiente');">⭐</button>
                                 <button type="button" id="btnDelete_ambiente" class="slot-delete-btn hidden" title="Eliminar foto de ambiente" onclick="event.stopPropagation(); deleteSlotPhoto('ambiente');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -1156,12 +1128,8 @@
                         <div class="gallery-slot slot-finish relative group"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
-                             ondrop="handleSlotDrop(event, 'finish')"
-                             onclick="if(!isEditMode) swapToMain('finish');">
+                             ondrop="handleSlotDrop(event, 'finish')">
                             <div class="slot-actions-group">
-                                <button type="button" id="btnFlip_finish" class="slot-tool-btn hidden" title="Voltear horizontalmente (Der / Izq)" onclick="event.stopPropagation(); flipSlotPhoto('finish');">↔️</button>
-                                <button type="button" id="btnHero_finish" class="slot-tool-btn hidden" title="Poner como Foto de Inicio" onclick="event.stopPropagation(); setSlotAsHero('finish');">⭐</button>
-                                <button type="button" id="btnMain_finish" class="slot-tool-btn hidden" title="Colocar en Foto Grande de Ambiente" onclick="event.stopPropagation(); setSlotAsAmbiente('finish');">⬆️</button>
                                 <button type="button" id="btnDelete_finish" class="slot-delete-btn hidden" title="Eliminar Acabado" onclick="event.stopPropagation(); deleteSlotPhoto('finish');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -1184,12 +1152,8 @@
                         <div class="gallery-slot slot-view1 relative group"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
-                             ondrop="handleSlotDrop(event, 'view1')"
-                             onclick="if(!isEditMode) swapToMain('view1');">
+                             ondrop="handleSlotDrop(event, 'view1')">
                             <div class="slot-actions-group">
-                                <button type="button" id="btnFlip_view1" class="slot-tool-btn hidden" title="Voltear horizontalmente (Der / Izq)" onclick="event.stopPropagation(); flipSlotPhoto('view1');">↔️</button>
-                                <button type="button" id="btnHero_view1" class="slot-tool-btn hidden" title="Poner como Foto de Inicio" onclick="event.stopPropagation(); setSlotAsHero('view1');">⭐</button>
-                                <button type="button" id="btnMain_view1" class="slot-tool-btn hidden" title="Colocar en Foto Grande de Ambiente" onclick="event.stopPropagation(); setSlotAsAmbiente('view1');">⬆️</button>
                                 <button type="button" id="btnDelete_view1" class="slot-delete-btn hidden" title="Eliminar Vista 1" onclick="event.stopPropagation(); deleteSlotPhoto('view1');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -1212,12 +1176,8 @@
                         <div class="gallery-slot slot-view2 relative group"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
-                             ondrop="handleSlotDrop(event, 'view2')"
-                             onclick="if(!isEditMode) swapToMain('view2');">
+                             ondrop="handleSlotDrop(event, 'view2')">
                             <div class="slot-actions-group">
-                                <button type="button" id="btnFlip_view2" class="slot-tool-btn hidden" title="Voltear horizontalmente (Der / Izq)" onclick="event.stopPropagation(); flipSlotPhoto('view2');">↔️</button>
-                                <button type="button" id="btnHero_view2" class="slot-tool-btn hidden" title="Poner como Foto de Inicio" onclick="event.stopPropagation(); setSlotAsHero('view2');">⭐</button>
-                                <button type="button" id="btnMain_view2" class="slot-tool-btn hidden" title="Colocar en Foto Grande de Ambiente" onclick="event.stopPropagation(); setSlotAsAmbiente('view2');">⬆️</button>
                                 <button type="button" id="btnDelete_view2" class="slot-delete-btn hidden" title="Eliminar Vista 2" onclick="event.stopPropagation(); deleteSlotPhoto('view2');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -1240,12 +1200,8 @@
                         <div class="gallery-slot slot-view3 relative group"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
-                             ondrop="handleSlotDrop(event, 'view3')"
-                             onclick="if(!isEditMode) swapToMain('view3');">
+                             ondrop="handleSlotDrop(event, 'view3')">
                             <div class="slot-actions-group">
-                                <button type="button" id="btnFlip_view3" class="slot-tool-btn hidden" title="Voltear horizontalmente (Der / Izq)" onclick="event.stopPropagation(); flipSlotPhoto('view3');">↔️</button>
-                                <button type="button" id="btnHero_view3" class="slot-tool-btn hidden" title="Poner como Foto de Inicio" onclick="event.stopPropagation(); setSlotAsHero('view3');">⭐</button>
-                                <button type="button" id="btnMain_view3" class="slot-tool-btn hidden" title="Colocar en Foto Grande de Ambiente" onclick="event.stopPropagation(); setSlotAsAmbiente('view3');">⬆️</button>
                                 <button type="button" id="btnDelete_view3" class="slot-delete-btn hidden" title="Eliminar Vista 3" onclick="event.stopPropagation(); deleteSlotPhoto('view3');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -1268,12 +1224,8 @@
                         <div class="gallery-slot slot-view4 relative group"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
-                             ondrop="handleSlotDrop(event, 'view4')"
-                             onclick="if(!isEditMode) swapToMain('view4');">
+                             ondrop="handleSlotDrop(event, 'view4')">
                             <div class="slot-actions-group">
-                                <button type="button" id="btnFlip_view4" class="slot-tool-btn hidden" title="Voltear horizontalmente (Der / Izq)" onclick="event.stopPropagation(); flipSlotPhoto('view4');">↔️</button>
-                                <button type="button" id="btnHero_view4" class="slot-tool-btn hidden" title="Poner como Foto de Inicio" onclick="event.stopPropagation(); setSlotAsHero('view4');">⭐</button>
-                                <button type="button" id="btnMain_view4" class="slot-tool-btn hidden" title="Colocar en Foto Grande de Ambiente" onclick="event.stopPropagation(); setSlotAsAmbiente('view4');">⬆️</button>
                                 <button type="button" id="btnDelete_view4" class="slot-delete-btn hidden" title="Eliminar Vista 4" onclick="event.stopPropagation(); deleteSlotPhoto('view4');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -1979,15 +1931,7 @@ async function initializeCatalog() {
             }
             populateSkuDatalist();
 
-            const g = v.gallery || {
-                ambiente: v.hero_b64,
-                finishes: [v.hero_b64],
-                all_views: [v.hero_b64]
-            };
-
-            const allViews = (g.all_views && g.all_views.length > 0)
-                ? g.all_views
-                : [g.view1 || v.hero_b64, g.view2 || v.hero_b64, g.view3 || v.hero_b64, g.view4 || v.hero_b64];
+            const g = v.gallery || {};
 
             const renderSlot = (imgId, phId, slotPrefix, src) => {
                 const imgEl = document.getElementById(imgId);
@@ -2003,30 +1947,31 @@ async function initializeCatalog() {
                     }
                 }
                 if (phEl) phEl.style.display = valid ? 'none' : 'flex';
-                ['btnDelete', 'btnFlip', 'btnHero', 'btnMain'].forEach(prefix => {
-                    const btn = document.getElementById(`${prefix}_${slotPrefix}`);
-                    if (btn) btn.style.display = valid ? 'inline-flex' : 'none';
-                });
+                const delBtn = document.getElementById(`btnDelete_${slotPrefix}`);
+                if (delBtn) delBtn.style.display = valid ? 'inline-flex' : 'none';
             };
 
-            // 1. Ambiente
-            renderSlot('slotImgAmbiente', 'ph_ambiente', 'ambiente', g.ambiente || v.hero_b64 || '');
+            // 1. Ambiente (slot independiente)
+            const ambienteSrc = (g.ambiente !== undefined) ? g.ambiente : (v.hero_b64 || '');
+            renderSlot('slotImgAmbiente', 'ph_ambiente', 'ambiente', ambienteSrc);
 
-            // 2. Acabado / Detalle
-            const finishSrc = (g.finishes && g.finishes.length > 0) ? g.finishes[0] : (g.fabric || '');
+            // 2. Acabado / Detalle (slot independiente)
+            const finishSrc = (g.finish !== undefined) 
+                ? g.finish 
+                : ((g.finishes && g.finishes.length > 0) ? g.finishes[0] : (g.fabric || ''));
             renderSlot('slotImgFinish', 'ph_finish', 'finish', finishSrc);
 
-            // 3. Vistas 1 a 4
-            const viewConfigs = [
-                { img: 'slotImgView1', ph: 'ph_view1', prefix: 'view1' },
-                { img: 'slotImgView2', ph: 'ph_view2', prefix: 'view2' },
-                { img: 'slotImgView3', ph: 'ph_view3', prefix: 'view3' },
-                { img: 'slotImgView4', ph: 'ph_view4', prefix: 'view4' }
-            ];
-            viewConfigs.forEach((cfg, idx) => {
-                const viewImg = (allViews.length > 0) ? allViews[(currentViewOffset + idx) % allViews.length] : '';
-                renderSlot(cfg.img, cfg.ph, cfg.prefix, viewImg);
-            });
+            // 3. Vistas 1 a 4 (slots 100% independientes sin repetición ni ciclo)
+            const getSlotView = (slotKey, idx) => {
+                if (g[slotKey] !== undefined) return g[slotKey];
+                if (g.all_views && g.all_views.length > idx) return g.all_views[idx];
+                return '';
+            };
+
+            renderSlot('slotImgView1', 'ph_view1', 'view1', getSlotView('view1', 0));
+            renderSlot('slotImgView2', 'ph_view2', 'view2', getSlotView('view2', 1));
+            renderSlot('slotImgView3', 'ph_view3', 'view3', getSlotView('view3', 2));
+            renderSlot('slotImgView4', 'ph_view4', 'view4', getSlotView('view4', 3));
 
             updateOrientationButtons(v.orientation);
 
@@ -2042,15 +1987,19 @@ async function initializeCatalog() {
                     el.innerText = cleanVal;
                 }
             };
-            setSpecBox('mWidth', v.width || p.width);
-            setSpecBox('mDepth', v.depth || p.depth);
-            setSpecBox('mHeight', v.height || p.height);
-            setSpecBox('mSeat', v.seat || p.seat);
-            setSpecBox('mPackages', v.packages || p.packages);
-            setSpecBox('mVolume', v.volume || p.volume);
+
+            // Lectura de variantes: Si la variante define el valor (incluso vacío ''), se respeta la ficha en blanco
+            const getVal = (vVal, pVal) => (vVal !== undefined && vVal !== null) ? vVal : (pVal || '');
+
+            setSpecBox('mWidth', getVal(v.width, p.width));
+            setSpecBox('mDepth', getVal(v.depth, p.depth));
+            setSpecBox('mHeight', getVal(v.height, p.height));
+            setSpecBox('mSeat', getVal(v.seat, p.seat));
+            setSpecBox('mPackages', getVal(v.packages, p.packages));
+            setSpecBox('mVolume', getVal(v.volume, p.volume));
 
             document.getElementById('mPrice').innerText = p.price || 'Consultar';
-            document.getElementById('mMaterials').innerText = v.materials || p.materials || 'Materiales de alta durabilidad y estructura reforzada.';
+            document.getElementById('mMaterials').innerText = getVal(v.materials, p.materials) || 'Materiales de alta durabilidad y estructura reforzada.';
 
             // Renderizar píldoras de telas y gestor visual de la tela seleccionada
             renderSwatchesRow();
@@ -2059,7 +2008,13 @@ async function initializeCatalog() {
 
             const driveBtn = document.getElementById('modalDriveBtn');
             if (driveBtn) {
-                driveBtn.href = p.drive_ficha_url || '#';
+                const fichaUrl = getVal(v.drive_ficha_url, p.drive_ficha_url);
+                driveBtn.href = fichaUrl || '#';
+                if (!fichaUrl || fichaUrl === '#') {
+                    driveBtn.classList.add('opacity-50', 'pointer-events-none');
+                } else {
+                    driveBtn.classList.remove('opacity-50', 'pointer-events-none');
+                }
             }
 
             // ACTUALIZACIÓN DE ESTADO ARCHIVADO EN MODAL
@@ -2221,7 +2176,6 @@ async function initializeCatalog() {
         async function addNewFinishOption(type = 'TELA') {
             const p = products[currentProdIndex];
             if (!p) return;
-            const currentV = p.variants ? p.variants[currentVariantIndex] : {};
             const promptMsg = type === 'MADERA' 
                 ? 'Nombre de la variable de madera (ej. ROBLE NATURAL, NOGAL AMERICANO, PAROTA):'
                 : 'Nombre de la variable de tela (ej. FOREVER BUTTERMILK, TERCIOPELO AZUL):';
@@ -2234,29 +2188,36 @@ async function initializeCatalog() {
                 color_label: name.trim().toUpperCase(),
                 swatch_hex: type === 'MADERA' ? '#A2703F' : '#8C8C8C',
                 swatch_img: '',
-                hero_b64: currentV.hero_b64 || '',
-                width: currentV.width || p.width,
-                depth: currentV.depth || p.depth,
-                height: currentV.height || p.height,
-                seat: currentV.seat || p.seat,
-                packages: currentV.packages || p.packages,
-                volume: currentV.volume || p.volume,
-                materials: currentV.materials || p.materials,
-                drive_ficha_url: currentV.drive_ficha_url || p.drive_ficha_url,
+                hero_b64: '',
+                width: '',
+                depth: '',
+                height: '',
+                seat: '',
+                packages: '',
+                volume: '',
+                materials: '',
+                drive_ficha_url: '',
                 gallery: {
-                    ambiente: currentV.gallery?.ambiente || currentV.hero_b64 || '',
+                    ambiente: '',
+                    finish: '',
                     finishes: [],
-                    all_views: currentV.gallery?.all_views ? [...currentV.gallery.all_views] : [currentV.hero_b64 || '']
+                    fabric: '',
+                    view1: '',
+                    view2: '',
+                    view3: '',
+                    view4: '',
+                    all_views: ['', '', '', '']
                 }
             };
 
+            if (!p.variants) p.variants = [];
             p.variants.push(newVariant);
             currentVariantIndex = p.variants.length - 1;
 
             await saveCatalogData();
             updateModalView(true);
             renderGrid(products);
-            showAdminToast(`${type === 'MADERA' ? 'Madera' : 'Tela'} "${newVariant.color_label}" agregada`, '✅');
+            showAdminToast(`${type === 'MADERA' ? 'Madera' : 'Tela'} "${newVariant.color_label}" agregada con ficha en blanco`, '✅');
         }
 
         async function addNewFabricOption() {
@@ -2531,15 +2492,16 @@ async function initializeCatalog() {
             if (!p) return;
             const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
             if (!v.gallery) v.gallery = {};
-            if (!v.gallery.all_views) v.gallery.all_views = [v.hero_b64 || ''];
+            if (!v.gallery.all_views) v.gallery.all_views = [];
 
             if (slotType === 'ambiente') {
                 v.gallery.ambiente = b64;
                 showAdminToast('Foto de Ambiente actualizada', '📸');
             } else if (slotType === 'finish') {
+                v.gallery.finish = b64;
+                v.gallery.fabric = b64;
                 if (!v.gallery.finishes) v.gallery.finishes = [];
                 v.gallery.finishes[0] = b64;
-                v.gallery.fabric = b64;
                 showAdminToast('Foto de Acabado actualizada', '📸');
             } else if (slotType.startsWith('view')) {
                 const vIdx = parseInt(slotType.replace('view', '')) - 1;
@@ -2548,7 +2510,7 @@ async function initializeCatalog() {
                 }
                 v.gallery.all_views[vIdx] = b64;
                 v.gallery[slotType] = b64;
-                if (vIdx === 0) v.hero_b64 = b64;
+                if (vIdx === 0 && !v.hero_b64) v.hero_b64 = b64;
                 showAdminToast(`Vista ${vIdx + 1} actualizada`, '📸');
             } else if (slotType === 'hero') {
                 v.hero_b64 = b64;
@@ -2639,26 +2601,30 @@ async function initializeCatalog() {
         async function deleteSlotPhoto(slotType) {
             const p = products[currentProdIndex];
             if (!p) return;
-            const v = p.variants ? p.variants[currentVariantIndex] : {};
-            if (!v.gallery) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
+            if (!v.gallery) v.gallery = {};
 
             if (!confirm(`¿Eliminar esta foto?`)) return;
 
             if (slotType === 'ambiente') {
                 v.gallery.ambiente = '';
+                if (v.hero_b64 === v.gallery.ambiente) v.hero_b64 = '';
                 showAdminToast('Foto de Ambiente eliminada', '🗑️');
             } else if (slotType === 'finish') {
+                v.gallery.finish = '';
+                v.gallery.fabric = '';
                 if (v.gallery.finishes && v.gallery.finishes.length > 0) {
                     v.gallery.finishes[0] = '';
                 }
-                v.gallery.fabric = '';
                 showAdminToast('Foto de Acabado eliminada', '🗑️');
             } else if (slotType.startsWith('view')) {
                 const vIdx = parseInt(slotType.replace('view', '')) - 1;
-                if (v.gallery.all_views && v.gallery.all_views.length > vIdx) {
-                    v.gallery.all_views.splice(vIdx, 1);
+                v.gallery[slotType] = '';
+                if (!v.gallery.all_views) v.gallery.all_views = [];
+                while (v.gallery.all_views.length <= vIdx) {
+                    v.gallery.all_views.push('');
                 }
-                delete v.gallery[slotType];
+                v.gallery.all_views[vIdx] = '';
                 showAdminToast(`Vista ${vIdx + 1} eliminada`, '🗑️');
             }
 
@@ -3152,7 +3118,7 @@ async function initializeCatalog() {
             isEditMode = (forceState !== null) ? forceState : !isEditMode;
             const p = products[currentProdIndex];
             if (!p) return;
-            const v = p.variants ? p.variants[currentVariantIndex] : {};
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
 
             const btnSave = document.getElementById('btnSaveModal');
             const btnIcon = document.getElementById('editBtnIcon');
@@ -3193,12 +3159,15 @@ async function initializeCatalog() {
                         el.innerHTML = `<input type="text" id="edit_${id}" class="editable-field-input text-center text-xs font-bold" value="${(val || '').replace(/"/g, '&quot;')}">`;
                     }
                 };
-                makeSpecInput('mWidth', v.width || p.width || '');
-                makeSpecInput('mDepth', v.depth || p.depth || '');
-                makeSpecInput('mHeight', v.height || p.height || '');
-                makeSpecInput('mSeat', v.seat || p.seat || '');
-                makeSpecInput('mPackages', v.packages || p.packages || '');
-                makeSpecInput('mVolume', v.volume || p.volume || '');
+
+                const getVal = (vVal, pVal) => (vVal !== undefined && vVal !== null) ? vVal : (pVal || '');
+
+                makeSpecInput('mWidth', getVal(v.width, p.width));
+                makeSpecInput('mDepth', getVal(v.depth, p.depth));
+                makeSpecInput('mHeight', getVal(v.height, p.height));
+                makeSpecInput('mSeat', getVal(v.seat, p.seat));
+                makeSpecInput('mPackages', getVal(v.packages, p.packages));
+                makeSpecInput('mVolume', getVal(v.volume, p.volume));
 
                 const priceEl = document.getElementById('mPrice');
                 if (priceEl) {
@@ -3207,7 +3176,7 @@ async function initializeCatalog() {
 
                 const matEl = document.getElementById('mMaterials');
                 if (matEl) {
-                    matEl.innerHTML = `<textarea id="edit_materials" rows="2" class="editable-field-input text-xs">${v.materials || p.materials || ''}</textarea>`;
+                    matEl.innerHTML = `<textarea id="edit_materials" rows="2" class="editable-field-input text-xs">${getVal(v.materials, p.materials)}</textarea>`;
                 }
 
                 const driveBtn = document.getElementById('modalDriveBtn');
@@ -3217,13 +3186,14 @@ async function initializeCatalog() {
                         driveInput = document.createElement('div');
                         driveInput.id = 'edit_drive_wrap';
                         driveInput.className = 'mt-2';
-                        driveInput.innerHTML = `<input type="url" id="edit_drive_url" class="editable-field-input text-[11px] text-blue-600" placeholder="Enlace de Ficha Técnica Google Drive" value="${p.drive_ficha_url || ''}">`;
+                        driveInput.innerHTML = `<input type="url" id="edit_drive_url" class="editable-field-input text-[11px] text-blue-600" placeholder="Enlace de Ficha Técnica Google Drive" value="${getVal(v.drive_ficha_url, p.drive_ficha_url)}">`;
                         driveBtn.parentElement.appendChild(driveInput);
+                    } else {
+                        const inEl = document.getElementById('edit_drive_url');
+                        if (inEl) inEl.value = getVal(v.drive_ficha_url, p.drive_ficha_url);
                     }
                     driveInput.style.display = '';
                 }
-
-                
 
             } else {
                 if (btnSave) btnSave.classList.add('hidden');
@@ -3233,15 +3203,13 @@ async function initializeCatalog() {
                 const driveInput = document.getElementById('edit_drive_wrap');
                 if (driveInput) driveInput.style.display = 'none';
 
-                
-
                 updateModalView(false);
             }
         }
 
         async function saveCurrentModalChanges() {
             const p = products[currentProdIndex];
-            const v = p.variants[currentVariantIndex];
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
 
             const titleInput = document.getElementById('edit_title');
             if (titleInput && titleInput.value.trim()) {
@@ -3270,26 +3238,26 @@ async function initializeCatalog() {
             const pkg = getSpecVal('mPackages');
             const vol = getSpecVal('mVolume');
 
-            if (w !== null) { p.width = w; v.width = w; }
-            if (d !== null) { p.depth = d; v.depth = d; }
-            if (h !== null) { p.height = h; v.height = h; }
-            if (s !== null) { p.seat = s; v.seat = s; }
-            if (pkg !== null) { p.packages = pkg; v.packages = pkg; }
-            if (vol !== null) { p.volume = vol; v.volume = vol; }
+            if (w !== null) { v.width = w; if (currentVariantIndex === 0) p.width = w; }
+            if (d !== null) { v.depth = d; if (currentVariantIndex === 0) p.depth = d; }
+            if (h !== null) { v.height = h; if (currentVariantIndex === 0) p.height = h; }
+            if (s !== null) { v.seat = s; if (currentVariantIndex === 0) p.seat = s; }
+            if (pkg !== null) { v.packages = pkg; if (currentVariantIndex === 0) p.packages = pkg; }
+            if (vol !== null) { v.volume = vol; if (currentVariantIndex === 0) p.volume = vol; }
 
             const priceInput = document.getElementById('edit_price');
             if (priceInput) p.price = priceInput.value.trim();
 
             const matInput = document.getElementById('edit_materials');
             if (matInput) {
-                p.materials = matInput.value.trim();
-                v.materials = p.materials;
+                v.materials = matInput.value.trim();
+                if (currentVariantIndex === 0) p.materials = v.materials;
             }
 
             const driveInput = document.getElementById('edit_drive_url');
             if (driveInput) {
-                p.drive_ficha_url = driveInput.value.trim();
-                v.drive_ficha_url = p.drive_ficha_url;
+                v.drive_ficha_url = driveInput.value.trim();
+                if (currentVariantIndex === 0) p.drive_ficha_url = v.drive_ficha_url;
             }
 
             await saveCatalogData();
