@@ -163,11 +163,11 @@
             flex-shrink: 0;
         }
         .swatch-dot-circle {
-            width: 18px;
-            height: 18px;
+            width: 22px;
+            height: 22px;
             border-radius: 50%;
-            border: 1px solid rgba(15, 23, 42, 0.25);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+            border: 1.5px solid rgba(15, 23, 42, 0.25);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.22);
             display: inline-block;
             background-size: 100% 100%;
             background-position: center center;
@@ -680,11 +680,17 @@
                 <!-- COLUMNA DERECHA: FICHA DEL PRODUCTO ACOMODADA ARRIBA SIN DESPLAZARSE -->
                 <div class="lg:col-span-5 modal-info-column">
                     <div class="flex flex-col gap-2.5 min-h-0">
-                        <!-- PROVEEDOR + CATEGORÍA -->
+                        <!-- PROVEEDOR + CATEGORÍA + SKU SEGÚN TELA/ACABADO -->
                         <div class="pr-8">
                             <div class="text-[10px] font-black text-[#B8893E] tracking-widest uppercase mb-0.5" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
                             <!-- TÍTULO DINÁMICO EN MAYÚSCULAS -->
                             <h2 class="text-base lg:text-lg font-black text-[#0F172A] uppercase tracking-wide leading-tight" id="modalTitle">-</h2>
+                            <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-mono font-bold text-slate-600">
+                                    SKU: <strong id="modalActiveSku" class="text-[#0F172A]">-</strong>
+                                </span>
+                                <span id="modalActiveFinishBadge" class="text-[9.5px] font-bold text-[#B8893E] uppercase tracking-wider"></span>
+                            </div>
                         </div>
 
                         <!-- 6 MEDIDAS EXACTAS EN CUADRÍCULA 3x2 COMPACTA -->
@@ -1011,27 +1017,20 @@
             const g = (variantObj && variantObj.gallery) ? variantObj.gallery : {};
             const st = (g.slot_styles && g.slot_styles[slotType]) ? g.slot_styles[slotType] : {};
             const scale = (typeof st.scale === 'number' && !isNaN(st.scale)) ? st.scale : 1;
-            const isCircle = !!st.circle;
+            const tx = (typeof st.tx === 'number' && !isNaN(st.tx)) ? st.tx : 0;
+            const ty = (typeof st.ty === 'number' && !isNaN(st.ty)) ? st.ty : 0;
 
             if (st.fit === 'cover' || st.fit === 'contain') {
                 imgEl.style.objectFit = st.fit;
             }
-            if (isCircle) {
-                imgEl.style.width = '126px';
-                imgEl.style.height = '126px';
-                imgEl.style.borderRadius = '50%';
-                imgEl.style.objectFit = 'cover';
-                imgEl.style.border = '2px solid rgba(184, 137, 62, 0.45)';
-                imgEl.style.boxShadow = '0 3px 10px rgba(15, 23, 42, 0.14)';
-                imgEl.style.padding = '0px';
-            } else {
-                imgEl.style.width = '100%';
-                imgEl.style.height = '100%';
-                imgEl.style.borderRadius = '0px';
-                imgEl.style.border = 'none';
-                imgEl.style.boxShadow = 'none';
-            }
-            imgEl.style.transform = scale !== 1 ? `scale(${scale})` : '';
+            imgEl.style.width = '100%';
+            imgEl.style.height = '100%';
+            imgEl.style.borderRadius = '0px';
+            imgEl.style.border = 'none';
+            imgEl.style.boxShadow = 'none';
+            imgEl.style.transform = (scale !== 1 || tx !== 0 || ty !== 0)
+                ? `translate(${tx}px, ${ty}px) scale(${scale})`
+                : '';
         }
 
         function autoFitSlotImage(imgEl, slotType, variantObj) {
@@ -1145,6 +1144,14 @@
 
             document.getElementById('modalProviderCat').innerText = `${p.provider_abbr || p.provider || 'CREATA'} · ${p.category}`;
             document.getElementById('modalTitle').innerText = p.model_name;
+            const activeSkuEl = document.getElementById('modalActiveSku');
+            if (activeSkuEl) {
+                activeSkuEl.innerText = v.sku || p.sku || p.id || '-';
+            }
+            const activeFinishBadgeEl = document.getElementById('modalActiveFinishBadge');
+            if (activeFinishBadgeEl) {
+                activeFinishBadgeEl.innerText = v.color_label ? `· ${v.color_label}` : '';
+            }
 
             const counterEl = document.getElementById('modalCounterText');
             if (counterEl) {
@@ -1241,15 +1248,17 @@
                     const vg = vItem.gallery || {};
                     const sImg = vItem.swatch_img || vg.finish || vg.fabric || (vg.finishes && vg.finishes[0]) || '';
                     const hasImg = !!sImg;
+                    const vSku = vItem.sku || p.sku || p.id || '';
                     const thumb = hasImg
                         ? `<span class="swatch-dot-circle" data-swatch-src="${sImg.startsWith('data:image/') ? sImg : ''}" style="background-image: url('${sImg}'); background-size: 100% 100%; background-position: center;"></span>`
                         : `<span class="swatch-dot-circle" style="background: ${vItem.swatch_hex || '#B8893E'};"></span>`;
                     return `
                     <button onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
-                            title="${vItem.color_label || 'Opción'}"
+                            title="${vItem.color_label || 'Opción'}${vSku ? ' · SKU: ' + vSku : ''}"
                             class="swatch-pill ${vIdx === currentVariantIndex ? 'active' : ''} flex items-center gap-1.5 px-2.5 py-1 rounded-full border">
                         ${thumb}
                         <span class="text-[10px] font-bold uppercase tracking-wider">${vItem.color_label || 'Opción'}</span>
+                        ${vSku ? `<span class="text-[8.5px] font-mono opacity-75">(${vSku})</span>` : ''}
                     </button>
                     `;
                 }).join('');

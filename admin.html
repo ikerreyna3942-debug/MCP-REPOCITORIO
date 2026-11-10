@@ -160,11 +160,11 @@
             flex-shrink: 0;
         }
         .swatch-dot-circle {
-            width: 18px;
-            height: 18px;
+            width: 22px;
+            height: 22px;
             border-radius: 50%;
-            border: 1px solid rgba(15, 23, 42, 0.25);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+            border: 1.5px solid rgba(15, 23, 42, 0.25);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.22);
             display: inline-block;
             background-size: 100% 100%;
             background-position: center center;
@@ -747,18 +747,19 @@
             transform: scale(1.15);
         }
 
-        /* BARRA FLOTANTE PARA CAMBIAR TAMAÑO Y AJUSTE DE FOTO EN CADA RECUADRO */
+        /* BARRA FLOTANTE PARA CAMBIAR TAMAÑO, MOVER Y AJUSTAR FOTO EN CADA RECUADRO */
         .slot-size-toolbar {
             position: absolute;
-            bottom: 6px;
+            bottom: 5px;
             left: 50%;
             transform: translateX(-50%);
             display: none;
             align-items: center;
-            gap: 3px;
-            background: rgba(15, 23, 42, 0.84);
+            justify-content: center;
+            gap: 2px;
+            background: rgba(15, 23, 42, 0.86);
             backdrop-filter: blur(4px);
-            padding: 3px 6px;
+            padding: 2.5px 5px;
             border-radius: 9999px;
             border: 1px solid rgba(255, 255, 255, 0.3);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
@@ -766,6 +767,7 @@
             opacity: 0.92;
             transition: opacity 0.2s ease;
             white-space: nowrap;
+            max-width: calc(100% - 8px);
         }
         .gallery-slot:hover .slot-size-toolbar {
             opacity: 1;
@@ -775,16 +777,17 @@
             color: #FFFFFF;
             border: none;
             border-radius: 9999px;
-            height: 20px;
-            min-width: 20px;
-            padding: 0 5px;
-            font-size: 10px;
+            height: 19px;
+            min-width: 19px;
+            padding: 0 4px;
+            font-size: 9.5px;
             font-weight: 800;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             transition: all 0.15s ease;
+            line-height: 1;
         }
         .slot-size-btn:hover {
             background: #B8893E;
@@ -1326,10 +1329,14 @@
                                 <button type="button" id="btnDelete_ambiente" class="slot-delete-btn hidden" title="Eliminar foto de ambiente" onclick="event.stopPropagation(); deleteSlotPhoto('ambiente');">✕</button>
                             </div>
                             <div id="sizeBar_ambiente" class="slot-size-toolbar" onclick="event.stopPropagation();">
-                                <button type="button" class="slot-size-btn" title="Reducir tamaño de la foto" onclick="adjustSlotScale('ambiente', -0.08)">➖</button>
-                                <button type="button" class="slot-size-btn" title="Aumentar tamaño de la foto" onclick="adjustSlotScale('ambiente', 0.08)">➕</button>
-                                <button type="button" id="btnFit_ambiente" class="slot-size-btn" title="Alternar entre Llenar recuadro y Ver completa" onclick="toggleSlotFitMode('ambiente')">⛶ Ajustar</button>
-                                <button type="button" class="slot-size-btn" title="Restablecer tamaño original" onclick="resetSlotStyle('ambiente')">↺</button>
+                                <button type="button" class="slot-size-btn" title="Alejar foto (-)" onclick="adjustSlotScale('ambiente', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Acercar foto (+)" onclick="adjustSlotScale('ambiente', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Mover foto a la izquierda" onclick="moveSlotOffset('ambiente', -14, 0)">⬅️</button>
+                                <button type="button" class="slot-size-btn" title="Mover foto hacia arriba" onclick="moveSlotOffset('ambiente', 0, -14)">⬆️</button>
+                                <button type="button" class="slot-size-btn" title="Mover foto hacia abajo" onclick="moveSlotOffset('ambiente', 0, 14)">⬇️</button>
+                                <button type="button" class="slot-size-btn" title="Mover foto a la derecha" onclick="moveSlotOffset('ambiente', 14, 0)">➡️</button>
+                                <button type="button" id="btnFit_ambiente" class="slot-size-btn" title="Alternar entre Llenar recuadro y Ver completa" onclick="toggleSlotFitMode('ambiente')">⛶</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer posición y tamaño" onclick="resetSlotStyle('ambiente')">↺</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-2xl">📥</span>
@@ -1345,7 +1352,7 @@
                                 <span class="text-xs font-bold text-slate-500">Foto de Ambiente</span>
                                 <span class="text-[9px] text-slate-400 font-medium">Arrastra una foto o haz clic</span>
                             </div>
-                            <img id="slotImgAmbiente" class="w-full h-full object-contain bg-white transition-transform duration-150" style="display:none;">
+                            <img id="slotImgAmbiente" onmousedown="startSlotDragPan(event, 'ambiente')" draggable="false" class="w-full h-full object-contain bg-white transition-transform duration-150 cursor-grab active:cursor-grabbing" style="display:none;">
                         </div>
 
                         <!-- #2 ACABADO / DETALLE (TOP RIGHT, COL 3 X ROW 1) -->
@@ -1357,11 +1364,14 @@
                                 <button type="button" id="btnDelete_finish" class="slot-delete-btn hidden" title="Eliminar Acabado" onclick="event.stopPropagation(); deleteSlotPhoto('finish');">✕</button>
                             </div>
                             <div id="sizeBar_finish" class="slot-size-toolbar" onclick="event.stopPropagation();">
-                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('finish', -0.08)">➖</button>
-                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('finish', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Alejar foto (-)" onclick="adjustSlotScale('finish', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Acercar foto (+)" onclick="adjustSlotScale('finish', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la izquierda" onclick="moveSlotOffset('finish', -12, 0)">⬅️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia arriba" onclick="moveSlotOffset('finish', 0, -12)">⬆️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia abajo" onclick="moveSlotOffset('finish', 0, 12)">⬇️</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la derecha" onclick="moveSlotOffset('finish', 12, 0)">➡️</button>
                                 <button type="button" id="btnFit_finish" class="slot-size-btn" title="Alternar entre Ver completa y Llenar recuadro" onclick="toggleSlotFitMode('finish')">⛶</button>
-                                <button type="button" id="btnCircle_finish" class="slot-size-btn" title="Adaptar foto de tela a Círculo" onclick="toggleSlotCircleMode('finish')">⭕</button>
-                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('finish')">↺</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer posición y tamaño" onclick="resetSlotStyle('finish')">↺</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-xl">📥</span>
@@ -1376,7 +1386,7 @@
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Acabado / Detalle</span>
                             </div>
-                            <img id="slotImgFinish" class="w-full h-full object-contain p-1 bg-white transition-transform duration-150" style="display:none;">
+                            <img id="slotImgFinish" onmousedown="startSlotDragPan(event, 'finish')" draggable="false" class="w-full h-full object-contain p-1 bg-white transition-transform duration-150 cursor-grab active:cursor-grabbing" style="display:none;">
                         </div>
 
                         <!-- #3 FOTO DE VISTA 1 (MIDDLE RIGHT, COL 3 X ROW 2) -->
@@ -1388,10 +1398,14 @@
                                 <button type="button" id="btnDelete_view1" class="slot-delete-btn hidden" title="Eliminar Vista 1" onclick="event.stopPropagation(); deleteSlotPhoto('view1');">✕</button>
                             </div>
                             <div id="sizeBar_view1" class="slot-size-toolbar" onclick="event.stopPropagation();">
-                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('view1', -0.08)">➖</button>
-                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('view1', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Alejar foto (-)" onclick="adjustSlotScale('view1', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Acercar foto (+)" onclick="adjustSlotScale('view1', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la izquierda" onclick="moveSlotOffset('view1', -12, 0)">⬅️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia arriba" onclick="moveSlotOffset('view1', 0, -12)">⬆️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia abajo" onclick="moveSlotOffset('view1', 0, 12)">⬇️</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la derecha" onclick="moveSlotOffset('view1', 12, 0)">➡️</button>
                                 <button type="button" id="btnFit_view1" class="slot-size-btn" title="Alternar ajuste Completa / Llenar" onclick="toggleSlotFitMode('view1')">⛶</button>
-                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('view1')">↺</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer posición y tamaño" onclick="resetSlotStyle('view1')">↺</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-xl">📥</span>
@@ -1406,7 +1420,7 @@
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 1</span>
                             </div>
-                            <img id="slotImgView1" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150" style="display:none;">
+                            <img id="slotImgView1" onmousedown="startSlotDragPan(event, 'view1')" draggable="false" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150 cursor-grab active:cursor-grabbing" style="display:none;">
                         </div>
 
                         <!-- #4 FOTO DE VISTA 2 (BOTTOM LEFT, COL 1 X ROW 3) -->
@@ -1418,10 +1432,14 @@
                                 <button type="button" id="btnDelete_view2" class="slot-delete-btn hidden" title="Eliminar Vista 2" onclick="event.stopPropagation(); deleteSlotPhoto('view2');">✕</button>
                             </div>
                             <div id="sizeBar_view2" class="slot-size-toolbar" onclick="event.stopPropagation();">
-                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('view2', -0.08)">➖</button>
-                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('view2', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Alejar foto (-)" onclick="adjustSlotScale('view2', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Acercar foto (+)" onclick="adjustSlotScale('view2', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la izquierda" onclick="moveSlotOffset('view2', -12, 0)">⬅️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia arriba" onclick="moveSlotOffset('view2', 0, -12)">⬆️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia abajo" onclick="moveSlotOffset('view2', 0, 12)">⬇️</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la derecha" onclick="moveSlotOffset('view2', 12, 0)">➡️</button>
                                 <button type="button" id="btnFit_view2" class="slot-size-btn" title="Alternar ajuste Completa / Llenar" onclick="toggleSlotFitMode('view2')">⛶</button>
-                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('view2')">↺</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer posición y tamaño" onclick="resetSlotStyle('view2')">↺</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
@@ -1436,7 +1454,7 @@
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 2</span>
                             </div>
-                            <img id="slotImgView2" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150" style="display:none;">
+                            <img id="slotImgView2" onmousedown="startSlotDragPan(event, 'view2')" draggable="false" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150 cursor-grab active:cursor-grabbing" style="display:none;">
                         </div>
 
                         <!-- #5 FOTO DE VISTA 3 (BOTTOM MIDDLE, COL 2 X ROW 3) -->
@@ -1448,10 +1466,14 @@
                                 <button type="button" id="btnDelete_view3" class="slot-delete-btn hidden" title="Eliminar Vista 3" onclick="event.stopPropagation(); deleteSlotPhoto('view3');">✕</button>
                             </div>
                             <div id="sizeBar_view3" class="slot-size-toolbar" onclick="event.stopPropagation();">
-                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('view3', -0.08)">➖</button>
-                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('view3', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Alejar foto (-)" onclick="adjustSlotScale('view3', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Acercar foto (+)" onclick="adjustSlotScale('view3', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la izquierda" onclick="moveSlotOffset('view3', -12, 0)">⬅️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia arriba" onclick="moveSlotOffset('view3', 0, -12)">⬆️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia abajo" onclick="moveSlotOffset('view3', 0, 12)">⬇️</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la derecha" onclick="moveSlotOffset('view3', 12, 0)">➡️</button>
                                 <button type="button" id="btnFit_view3" class="slot-size-btn" title="Alternar ajuste Completa / Llenar" onclick="toggleSlotFitMode('view3')">⛶</button>
-                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('view3')">↺</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer posición y tamaño" onclick="resetSlotStyle('view3')">↺</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
@@ -1466,7 +1488,7 @@
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 3</span>
                             </div>
-                            <img id="slotImgView3" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150" style="display:none;">
+                            <img id="slotImgView3" onmousedown="startSlotDragPan(event, 'view3')" draggable="false" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150 cursor-grab active:cursor-grabbing" style="display:none;">
                         </div>
 
                         <!-- #6 FOTO DE VISTA 4 (BOTTOM RIGHT, COL 3 X ROW 3) -->
@@ -1478,10 +1500,14 @@
                                 <button type="button" id="btnDelete_view4" class="slot-delete-btn hidden" title="Eliminar Vista 4" onclick="event.stopPropagation(); deleteSlotPhoto('view4');">✕</button>
                             </div>
                             <div id="sizeBar_view4" class="slot-size-toolbar" onclick="event.stopPropagation();">
-                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('view4', -0.08)">➖</button>
-                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('view4', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Alejar foto (-)" onclick="adjustSlotScale('view4', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Acercar foto (+)" onclick="adjustSlotScale('view4', 0.08)">➕</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la izquierda" onclick="moveSlotOffset('view4', -12, 0)">⬅️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia arriba" onclick="moveSlotOffset('view4', 0, -12)">⬆️</button>
+                                <button type="button" class="slot-size-btn" title="Mover hacia abajo" onclick="moveSlotOffset('view4', 0, 12)">⬇️</button>
+                                <button type="button" class="slot-size-btn" title="Mover a la derecha" onclick="moveSlotOffset('view4', 12, 0)">➡️</button>
                                 <button type="button" id="btnFit_view4" class="slot-size-btn" title="Alternar ajuste Completa / Llenar" onclick="toggleSlotFitMode('view4')">⛶</button>
-                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('view4')">↺</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer posición y tamaño" onclick="resetSlotStyle('view4')">↺</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
@@ -1496,7 +1522,7 @@
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 4</span>
                             </div>
-                            <img id="slotImgView4" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150" style="display:none;">
+                            <img id="slotImgView4" onmousedown="startSlotDragPan(event, 'view4')" draggable="false" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150 cursor-grab active:cursor-grabbing" style="display:none;">
                         </div>
                     </div>
 
@@ -1516,10 +1542,16 @@
                 <!-- COLUMNA DERECHA: FICHA DEL PRODUCTO ACOMODADA ARRIBA SIN DESPLAZARSE HACIA ABAJO -->
                 <div class="lg:col-span-5 modal-info-column modal-edit-column">
                     <div class="flex flex-col gap-2 min-h-0">
-                        <!-- PROVEEDOR + CATEGORÍA + TÍTULO -->
+                        <!-- PROVEEDOR + CATEGORÍA + TÍTULO + SKU ACTIVO POR TELA/ACABADO -->
                         <div>
                             <div class="text-[10px] font-black text-[#B8893E] tracking-widest uppercase mb-0.5" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
                             <h2 class="text-base lg:text-lg font-black text-[#0F172A] uppercase tracking-wide leading-tight" id="modalTitle">-</h2>
+                            <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-mono font-bold text-slate-600">
+                                    SKU: <strong id="modalActiveSku" class="text-[#0F172A]">-</strong>
+                                </span>
+                                <span id="modalActiveFinishBadge" class="text-[9.5px] font-bold text-[#B8893E] uppercase tracking-wider"></span>
+                            </div>
                         </div>
 
                         <!-- 6 MEDIDAS EXACTAS EN CUADRÍCULA 3x2 COMPACTA -->
@@ -1608,6 +1640,19 @@
 
         function handleSkuInput(val) {
             const cleanVal = val.trim().toUpperCase();
+            const p = products[currentProdIndex];
+            if (p && p.variants && p.variants[currentVariantIndex]) {
+                p.variants[currentVariantIndex].sku = cleanVal;
+                if (currentVariantIndex === 0) p.sku = cleanVal;
+                const activeSkuEl = document.getElementById('modalActiveSku');
+                if (activeSkuEl) activeSkuEl.innerText = cleanVal || p.sku || p.id || '-';
+                const fabSkuInp = document.getElementById('inputFabricSku');
+                if (fabSkuInp && document.activeElement !== fabSkuInp) fabSkuInp.value = cleanVal;
+                const inlineSkuInp = document.getElementById('edit_variant_sku');
+                if (inlineSkuInp && document.activeElement !== inlineSkuInp) inlineSkuInp.value = cleanVal;
+                renderSwatchesRow();
+                saveCatalogData();
+            }
             if (SKU_DATABASE[cleanVal]) {
                 executeSkuAutoFill(cleanVal);
             }
@@ -1657,14 +1702,15 @@
             if (found.seat) { p.seat = found.seat; v.seat = found.seat; }
             if (found.volume) { p.volume = found.volume; v.volume = found.volume; }
             if (found.packages) { p.packages = found.packages; v.packages = found.packages; }
-            if (found.price) p.price = found.price;
-            if (found.cost) p.cost = found.cost;
+            if (found.price) { p.price = found.price; v.price = found.price; }
+            if (found.cost) { p.cost = found.cost; v.cost = found.cost; }
             if (found.materials) { p.materials = found.materials; v.materials = found.materials; }
             if (found.drive_ficha_url && (!p.drive_ficha_url || p.drive_ficha_url === 'https://drive.google.com/')) {
                 p.drive_ficha_url = found.drive_ficha_url;
                 v.drive_ficha_url = found.drive_ficha_url;
             }
-            p.sku = found.sku;
+            v.sku = found.sku;
+            if (currentVariantIndex === 0) p.sku = found.sku;
 
             // Guardar especificaciones de referencia de la hoja "PRESENTACION"
             p.sheet_specs = {
@@ -2402,9 +2448,18 @@
                     titleEl.innerText = p.model_name;
                 }
             }
+            const activeSkuVal = v.sku || p.sku || p.id || '';
             const skuInput = document.getElementById('inputAutoSku');
             if (skuInput) {
-                skuInput.value = v.sku || p.sku || p.id || '';
+                skuInput.value = activeSkuVal;
+            }
+            const activeSkuEl = document.getElementById('modalActiveSku');
+            if (activeSkuEl) {
+                activeSkuEl.innerText = activeSkuVal || '-';
+            }
+            const activeFinishBadgeEl = document.getElementById('modalActiveFinishBadge');
+            if (activeFinishBadgeEl) {
+                activeFinishBadgeEl.innerText = v.color_label ? `· ${v.color_label}` : '';
             }
             populateSkuDatalist();
 
@@ -2560,16 +2615,18 @@
                 const vg = vItem.gallery || {};
                 const swImg = vItem.swatch_img || vg.finish || vg.fabric || ((vg.finishes && vg.finishes.length > 0) ? vg.finishes[0] : '');
                 const hasImg = !!swImg;
+                const vSku = vItem.sku || p.sku || p.id || '';
                 const typeIcon = vItem.finish_type === 'MADERA' ? '🪵' : '🧵';
                 const thumb = hasImg
                     ? `<span class="swatch-dot-circle" data-swatch-src="${swImg}" style="background-image: url('${swImg}'); background-size: 100% 100%; background-position: center;"></span>`
                     : `<span class="swatch-dot-circle" style="background: ${vItem.swatch_hex || '#B8893E'};"></span>`;
                 return `
                     <button type="button" onclick="selectModalVariant(${vIdx});"
-                            title="${vItem.color_label || 'ACABADO'} (Clic para ver o editar este acabado)"
+                            title="${vItem.color_label || 'ACABADO'}${vSku ? ' · SKU: ' + vSku : ''} (Clic para ver o editar este acabado)"
                             class="swatch-pill ${isAct ? 'active' : ''} flex items-center gap-1.5 px-2.5 py-1 rounded-full border">
                         ${thumb}
                         <span class="text-[10px] font-bold uppercase tracking-wider">${vItem.color_label || 'ACABADO'}</span>
+                        ${vSku ? `<span class="text-[8.5px] font-mono opacity-75">(${vSku})</span>` : ''}
                         <span class="text-[9px] opacity-70">${typeIcon}</span>
                     </button>
                 `;
@@ -2577,7 +2634,7 @@
             autoFitAllSwatchCircles();
         }
 
-        // REQUERIMIENTOS 3 Y 5: VARIABLES DE TELA O MADERA CON FOTO Y NOMBRE DE MUESTRA
+        // REQUERIMIENTOS 3 Y 5: VARIABLES DE TELA O MADERA CON FOTO, NOMBRE DE MUESTRA Y SKU PROPIO
         function renderFabricEditor() {
             const p = products[currentProdIndex];
             if (!p || !p.variants || p.variants.length === 0) return;
@@ -2592,6 +2649,7 @@
             const vg = v.gallery || {};
             const swImg = v.swatch_img || vg.finish || vg.fabric || ((vg.finishes && vg.finishes.length > 0) ? vg.finishes[0] : '');
             const hasSwatchImg = !!swImg;
+            const curVarSku = (v.sku || p.sku || p.id || '').replace(/"/g, '&quot;');
 
             container.innerHTML = `
                 <div class="fabric-editor-card mt-2.5 p-3 bg-slate-50 border border-slate-300 rounded-xl shadow-2xs">
@@ -2613,9 +2671,9 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+                    <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
                         <!-- 1. NOMBRE DE LA VARIABLE -->
-                        <div class="sm:col-span-5">
+                        <div class="sm:col-span-4">
                             <label class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Nombre (${v.finish_type}):</label>
                             <input type="text" id="inputFabricLabel"
                                    value="${(v.color_label || '').replace(/"/g, '&quot;')}"
@@ -2624,21 +2682,31 @@
                                    placeholder="Ej. FOREVER BUTTERMILK o ROBLE">
                         </div>
 
-                        <!-- 2. COLOR TONO (HEX) -->
+                        <!-- 2. SKU PROPIO DE ESTA TELA / ACABADO -->
                         <div class="sm:col-span-3">
-                            <label class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Color Tonalidad:</label>
-                            <div class="flex items-center gap-1.5">
+                            <label class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">SKU de este Acabado:</label>
+                            <input type="text" id="inputFabricSku"
+                                   value="${curVarSku}"
+                                   oninput="updateFabricSkuLive(this.value)"
+                                   class="w-full text-xs font-mono font-bold px-2 py-1.5 bg-white border border-slate-300 rounded focus:border-[#B8893E] outline-none uppercase shadow-xs"
+                                   placeholder="Ej. ARMMON3PFREFL">
+                        </div>
+
+                        <!-- 3. COLOR TONO (HEX) -->
+                        <div class="sm:col-span-2">
+                            <label class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Tono:</label>
+                            <div class="flex items-center gap-1">
                                 <input type="color" id="inputFabricHex"
                                        value="${v.swatch_hex || '#C2B8A3'}"
                                        onchange="updateFabricHexLive(this.value)"
                                        class="w-7 h-7 rounded border border-slate-300 cursor-pointer bg-white p-0.5">
-                                <span id="labelFabricHex" class="text-[10px] font-mono font-bold text-slate-600">${v.swatch_hex || '#C2B8A3'}</span>
+                                <span id="labelFabricHex" class="text-[9.5px] font-mono font-bold text-slate-600">${v.swatch_hex || '#C2B8A3'}</span>
                             </div>
                         </div>
 
-                        <!-- 3. FOTO DE MUESTRA Y TEXTURA -->
-                        <div class="sm:col-span-4">
-                            <label class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Foto de Muestra / Textura:</label>
+                        <!-- 4. FOTO DE MUESTRA Y TEXTURA -->
+                        <div class="sm:col-span-3">
+                            <label class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Muestra Circular:</label>
                             <div class="flex items-center gap-1.5">
                                 <div class="fabric-dropzone flex-1 relative flex items-center justify-center gap-1 py-1 px-2 bg-white border-2 border-dashed border-[#B8893E] rounded text-center cursor-pointer hover:bg-amber-50/70 transition group"
                                      ondragover="handleSlotDragOver(event)"
@@ -2647,7 +2715,7 @@
                                      onclick="document.getElementById('inputFabricPhoto').click()"
                                      title="Arrastra o selecciona la foto de la textura/color">
                                     <span class="text-xs">📷</span>
-                                    <span class="text-[9px] font-bold text-[#B8893E] group-hover:underline">${hasSwatchImg ? 'Cambiar Foto' : 'Subir Foto'}</span>
+                                    <span class="text-[9px] font-bold text-[#B8893E] group-hover:underline">${hasSwatchImg ? 'Cambiar' : 'Subir'}</span>
                                     <input type="file" id="inputFabricPhoto" accept="image/*" class="hidden" onchange="handleFabricPhotoUpload(event)">
                                 </div>
                                 ${hasSwatchImg ? `<button type="button" onclick="removeFabricPhoto()" class="px-1.5 py-1 text-[10px] text-red-600 hover:bg-red-50 rounded border border-red-200" title="Quitar foto y usar color plano">✕</button>` : ''}
@@ -2668,6 +2736,27 @@
             v.color_label = newLabel.trim().toUpperCase();
             const badge = document.getElementById('currentFabricBadge');
             if (badge) badge.innerText = v.color_label || 'ACABADO';
+            const activeFinishBadgeEl = document.getElementById('modalActiveFinishBadge');
+            if (activeFinishBadgeEl) activeFinishBadgeEl.innerText = v.color_label ? `· ${v.color_label}` : '';
+            renderSwatchesRow();
+            await saveCatalogData();
+        }
+
+        async function updateFabricSkuLive(newSku) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = p.variants ? p.variants[currentVariantIndex] : null;
+            if (!v) return;
+
+            const cleanSku = newSku.trim().toUpperCase();
+            v.sku = cleanSku;
+            if (currentVariantIndex === 0) p.sku = cleanSku;
+            const topSku = document.getElementById('inputAutoSku');
+            if (topSku && document.activeElement !== topSku) topSku.value = cleanSku;
+            const activeSkuEl = document.getElementById('modalActiveSku');
+            if (activeSkuEl) activeSkuEl.innerText = cleanSku || p.sku || p.id || '-';
+            const inlineSkuInp = document.getElementById('edit_variant_sku');
+            if (inlineSkuInp && document.activeElement !== inlineSkuInp) inlineSkuInp.value = cleanSku;
             renderSwatchesRow();
             await saveCatalogData();
         }
@@ -2693,11 +2782,15 @@
                 : 'Nombre de la variable de tela (ej. FOREVER BUTTERMILK, TERCIOPELO AZUL):';
             const name = prompt(promptMsg);
             if (!name || !name.trim()) return;
+            const cleanName = name.trim().toUpperCase();
+            const skuInput = prompt(`SKU para el acabado "${cleanName}" (opcional):`, p.sku || p.id || '');
+            const cleanSku = (skuInput !== null && skuInput.trim()) ? skuInput.trim().toUpperCase() : (p.sku || p.id || '');
 
             const newVariant = {
                 name: p.model_name,
                 finish_type: type,
-                color_label: name.trim().toUpperCase(),
+                color_label: cleanName,
+                sku: cleanSku,
                 swatch_hex: type === 'MADERA' ? '#A2703F' : '#8C8C8C',
                 swatch_img: '',
                 hero_b64: '',
@@ -2729,7 +2822,7 @@
             await saveCatalogData();
             updateModalView(true);
             renderGrid(products);
-            showAdminToast(`${type === 'MADERA' ? 'Madera' : 'Tela'} "${newVariant.color_label}" agregada con ficha en blanco`, '✅');
+            showAdminToast(`${type === 'MADERA' ? 'Madera' : 'Tela'} "${newVariant.color_label}" (SKU: ${cleanSku || 'S/N'}) agregada`, '✅');
         }
 
         async function addNewFabricOption() {
@@ -2814,7 +2907,7 @@
         }
 
         // ==========================================================================
-        // NORMALIZACIÓN AUTOMÁTICA Y CONTROLES DE TAMAÑO / ENCUADRE POR RECUADRO
+        // NORMALIZACIÓN AUTOMÁTICA Y CONTROLES DE TAMAÑO / MOVIMIENTO POR RECUADRO
         // ==========================================================================
         function getSlotImgElement(slotType) {
             const map = {
@@ -2831,35 +2924,25 @@
         function applySlotSavedStyle(imgEl, slotType, variantObj) {
             if (!imgEl) return;
             const st = (variantObj && variantObj.gallery && variantObj.gallery.slot_styles && variantObj.gallery.slot_styles[slotType]) || {};
-            const scale = st.scale || 1;
+            const scale = (typeof st.scale === 'number' && !isNaN(st.scale)) ? st.scale : 1;
+            const tx = (typeof st.tx === 'number' && !isNaN(st.tx)) ? st.tx : 0;
+            const ty = (typeof st.ty === 'number' && !isNaN(st.ty)) ? st.ty : 0;
             const fit = st.fit || imgEl.dataset.defaultFit || 'contain';
-            const isCircle = !!st.circle;
 
             imgEl.style.objectFit = fit;
             imgEl.style.objectPosition = 'center center';
-            imgEl.style.transform = scale !== 1 ? `scale(${scale})` : 'scale(1)';
-
-            if (isCircle) {
-                imgEl.style.width = '126px';
-                imgEl.style.height = '126px';
-                imgEl.style.margin = 'auto';
-                imgEl.style.borderRadius = '9999px';
-                imgEl.style.objectFit = 'cover';
-                imgEl.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.18)';
-                imgEl.style.border = '2px solid rgba(184, 137, 62, 0.45)';
-            } else {
-                imgEl.style.width = '100%';
-                imgEl.style.height = '100%';
-                imgEl.style.margin = '0';
-                imgEl.style.borderRadius = '0px';
-                imgEl.style.boxShadow = 'none';
-                imgEl.style.border = 'none';
-            }
+            imgEl.style.width = '100%';
+            imgEl.style.height = '100%';
+            imgEl.style.margin = '0';
+            imgEl.style.borderRadius = '0px';
+            imgEl.style.boxShadow = 'none';
+            imgEl.style.border = 'none';
+            imgEl.style.transform = (scale !== 1 || tx !== 0 || ty !== 0)
+                ? `translate(${tx}px, ${ty}px) scale(${scale})`
+                : 'scale(1)';
 
             const fitBtn = document.getElementById(`btnFit_${slotType}`);
-            if (fitBtn) fitBtn.classList.toggle('active-mode', fit === 'cover' && !isCircle);
-            const circleBtn = document.getElementById(`btnCircle_${slotType}`);
-            if (circleBtn) circleBtn.classList.toggle('active-mode', isCircle);
+            if (fitBtn) fitBtn.classList.toggle('active-mode', fit === 'cover');
         }
 
         async function adjustSlotScale(slotType, delta) {
@@ -2872,13 +2955,76 @@
             if (!v.gallery.slot_styles[slotType]) v.gallery.slot_styles[slotType] = {};
 
             const cur = v.gallery.slot_styles[slotType].scale || 1;
-            const next = Math.max(0.55, Math.min(2.4, Math.round((cur + delta) * 100) / 100));
+            const next = Math.max(0.55, Math.min(2.6, Math.round((cur + delta) * 100) / 100));
             v.gallery.slot_styles[slotType].scale = next;
 
             const imgEl = getSlotImgElement(slotType);
             applySlotSavedStyle(imgEl, slotType, v);
             await saveCatalogData();
-            showAdminToast(`Tamaño de foto: ${Math.round(next * 100)}%`, '🔍');
+            showAdminToast(`Zoom de foto: ${Math.round(next * 100)}%`, '🔍');
+        }
+
+        async function moveSlotOffset(slotType, dx, dy) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            if (!v.gallery) v.gallery = {};
+            if (!v.gallery.slot_styles) v.gallery.slot_styles = {};
+            if (!v.gallery.slot_styles[slotType]) v.gallery.slot_styles[slotType] = {};
+
+            const curTx = v.gallery.slot_styles[slotType].tx || 0;
+            const curTy = v.gallery.slot_styles[slotType].ty || 0;
+            v.gallery.slot_styles[slotType].tx = Math.max(-240, Math.min(240, Math.round(curTx + dx)));
+            v.gallery.slot_styles[slotType].ty = Math.max(-240, Math.min(240, Math.round(curTy + dy)));
+
+            const imgEl = getSlotImgElement(slotType);
+            applySlotSavedStyle(imgEl, slotType, v);
+            await saveCatalogData();
+        }
+
+        function startSlotDragPan(e, slotType) {
+            if (e.button !== 0) return;
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            const imgEl = getSlotImgElement(slotType);
+            if (!imgEl || imgEl.style.display === 'none') return;
+
+            e.preventDefault();
+            if (!v.gallery) v.gallery = {};
+            if (!v.gallery.slot_styles) v.gallery.slot_styles = {};
+            if (!v.gallery.slot_styles[slotType]) v.gallery.slot_styles[slotType] = {};
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const origTx = v.gallery.slot_styles[slotType].tx || 0;
+            const origTy = v.gallery.slot_styles[slotType].ty || 0;
+            let moved = false;
+
+            imgEl.style.transition = 'none';
+
+            const onMove = (ev) => {
+                const dx = ev.clientX - startX;
+                const dy = ev.clientY - startY;
+                if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
+                v.gallery.slot_styles[slotType].tx = Math.max(-240, Math.min(240, Math.round(origTx + dx)));
+                v.gallery.slot_styles[slotType].ty = Math.max(-240, Math.min(240, Math.round(origTy + dy)));
+                applySlotSavedStyle(imgEl, slotType, v);
+            };
+
+            const onUp = async () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+                imgEl.style.transition = '';
+                if (moved) {
+                    await saveCatalogData();
+                }
+            };
+
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
         }
 
         async function toggleSlotFitMode(slotType) {
@@ -2894,27 +3040,10 @@
             const curFit = v.gallery.slot_styles[slotType].fit || (imgEl && imgEl.dataset.defaultFit) || 'contain';
             const nextFit = curFit === 'cover' ? 'contain' : 'cover';
             v.gallery.slot_styles[slotType].fit = nextFit;
-            v.gallery.slot_styles[slotType].circle = false;
 
             applySlotSavedStyle(imgEl, slotType, v);
             await saveCatalogData();
             showAdminToast(nextFit === 'cover' ? 'Modo: Llenar recuadro completo' : 'Modo: Ver foto completa sin recorte', '⛶');
-        }
-
-        async function toggleSlotCircleMode(slotType) {
-            const p = products[currentProdIndex];
-            if (!p) return;
-            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
-            if (!v) return;
-            if (!v.gallery) v.gallery = {};
-            if (!v.gallery.slot_styles) v.gallery.slot_styles = {};
-            if (!v.gallery.slot_styles[slotType]) v.gallery.slot_styles[slotType] = {};
-
-            v.gallery.slot_styles[slotType].circle = !v.gallery.slot_styles[slotType].circle;
-            const imgEl = getSlotImgElement(slotType);
-            applySlotSavedStyle(imgEl, slotType, v);
-            await saveCatalogData();
-            showAdminToast(v.gallery.slot_styles[slotType].circle ? 'Vista circular activada' : 'Vista rectangular activada', '⭕');
         }
 
         async function resetSlotStyle(slotType) {
@@ -2928,7 +3057,7 @@
             const imgEl = getSlotImgElement(slotType);
             applySlotSavedStyle(imgEl, slotType, v);
             await saveCatalogData();
-            showAdminToast('Tamaño restablecido al ajuste automático', '↺');
+            showAdminToast('Posición y tamaño restablecidos', '↺');
         }
 
         function autoFitSlotImage(imgEl, slotType, variantObj) {
@@ -3941,7 +4070,7 @@
                             </div>
                             <div class="col-span-4">
                                 <label class="block text-[8px] font-bold uppercase text-slate-500">SKU de este Acabado</label>
-                                <input type="text" id="edit_variant_sku" value="${curSku}" class="editable-field-input !py-1 !px-2 text-[10.5px] font-mono font-bold uppercase" placeholder="SKU">
+                                <input type="text" id="edit_variant_sku" value="${curSku}" oninput="updateFabricSkuLive(this.value)" class="editable-field-input !py-1 !px-2 text-[10.5px] font-mono font-bold uppercase" placeholder="SKU">
                             </div>
                             <div class="col-span-2 flex flex-col items-center">
                                 <label class="block text-[8px] font-bold uppercase text-slate-500">Tono</label>
