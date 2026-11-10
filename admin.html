@@ -147,11 +147,30 @@
             gap: 6px;
         }
         .swatch-circle {
-            width: 13px;
-            height: 13px;
+            width: 15px;
+            height: 15px;
             border-radius: 50%;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.22);
+            border: 1px solid rgba(15, 23, 42, 0.2);
             display: inline-block;
+            background-size: 100% 100%;
+            background-position: center center;
+            background-repeat: no-repeat;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .swatch-dot-circle {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 1px solid rgba(15, 23, 42, 0.25);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+            display: inline-block;
+            background-size: 100% 100%;
+            background-position: center center;
+            background-repeat: no-repeat;
+            overflow: hidden;
+            flex-shrink: 0;
         }
         .options-count-text {
             font-size: 11px;
@@ -630,19 +649,28 @@
         }
         .photo-upload-overlay {
             position: absolute;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.65);
+            top: 6px;
+            left: 6px;
+            background: rgba(15, 23, 42, 0.82);
             color: #FFFFFF;
-            display: flex;
-            flex-direction: column;
+            display: inline-flex;
+            flex-direction: row;
             align-items: center;
             justify-content: center;
+            gap: 4px;
             opacity: 0;
-            transition: opacity 0.2s ease;
+            transition: opacity 0.2s ease, background 0.2s ease;
             cursor: pointer;
-            z-index: 15;
-            padding: 6px;
+            z-index: 25;
+            padding: 3px 9px;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
             text-align: center;
+            backdrop-filter: blur(3px);
+        }
+        .photo-upload-overlay:hover {
+            background: #B8893E;
         }
         .gallery-slot:hover .photo-upload-overlay {
             opacity: 1;
@@ -717,6 +745,55 @@
             opacity: 1;
             background: #B91C1C;
             transform: scale(1.15);
+        }
+
+        /* BARRA FLOTANTE PARA CAMBIAR TAMAÑO Y AJUSTE DE FOTO EN CADA RECUADRO */
+        .slot-size-toolbar {
+            position: absolute;
+            bottom: 6px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            align-items: center;
+            gap: 3px;
+            background: rgba(15, 23, 42, 0.84);
+            backdrop-filter: blur(4px);
+            padding: 3px 6px;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+            z-index: 26;
+            opacity: 0.92;
+            transition: opacity 0.2s ease;
+            white-space: nowrap;
+        }
+        .gallery-slot:hover .slot-size-toolbar {
+            opacity: 1;
+        }
+        .slot-size-btn {
+            background: rgba(255, 255, 255, 0.14);
+            color: #FFFFFF;
+            border: none;
+            border-radius: 9999px;
+            height: 20px;
+            min-width: 20px;
+            padding: 0 5px;
+            font-size: 10px;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .slot-size-btn:hover {
+            background: #B8893E;
+            color: #FFFFFF;
+            transform: scale(1.08);
+        }
+        .slot-size-btn.active-mode {
+            background: #B8893E;
+            color: #FFFFFF;
         }
 
         /* EFECTO DRAG & DROP EN SLOTS */
@@ -1248,13 +1325,19 @@
                             <div class="slot-actions-group">
                                 <button type="button" id="btnDelete_ambiente" class="slot-delete-btn hidden" title="Eliminar foto de ambiente" onclick="event.stopPropagation(); deleteSlotPhoto('ambiente');">✕</button>
                             </div>
+                            <div id="sizeBar_ambiente" class="slot-size-toolbar" onclick="event.stopPropagation();">
+                                <button type="button" class="slot-size-btn" title="Reducir tamaño de la foto" onclick="adjustSlotScale('ambiente', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Aumentar tamaño de la foto" onclick="adjustSlotScale('ambiente', 0.08)">➕</button>
+                                <button type="button" id="btnFit_ambiente" class="slot-size-btn" title="Alternar entre Llenar recuadro y Ver completa" onclick="toggleSlotFitMode('ambiente')">⛶ Ajustar</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer tamaño original" onclick="resetSlotStyle('ambiente')">↺</button>
+                            </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-2xl">📥</span>
                                 <span>Soltar Foto de Ambiente</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-base">📷</span>
-                                <span class="text-[10px] font-bold">Cambiar Foto de Ambiente</span>
+                                <span class="text-xs">📷</span>
+                                <span class="text-[9.5px] font-bold">Cambiar Foto</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'ambiente')" class="hidden">
                             </label>
                             <div id="ph_ambiente" class="empty-slot-placeholder">
@@ -1262,7 +1345,7 @@
                                 <span class="text-xs font-bold text-slate-500">Foto de Ambiente</span>
                                 <span class="text-[9px] text-slate-400 font-medium">Arrastra una foto o haz clic</span>
                             </div>
-                            <img id="slotImgAmbiente" class="w-full h-full object-contain bg-white" style="display:none;">
+                            <img id="slotImgAmbiente" class="w-full h-full object-contain bg-white transition-transform duration-150" style="display:none;">
                         </div>
 
                         <!-- #2 ACABADO / DETALLE (TOP RIGHT, COL 3 X ROW 1) -->
@@ -1273,20 +1356,27 @@
                             <div class="slot-actions-group">
                                 <button type="button" id="btnDelete_finish" class="slot-delete-btn hidden" title="Eliminar Acabado" onclick="event.stopPropagation(); deleteSlotPhoto('finish');">✕</button>
                             </div>
+                            <div id="sizeBar_finish" class="slot-size-toolbar" onclick="event.stopPropagation();">
+                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('finish', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('finish', 0.08)">➕</button>
+                                <button type="button" id="btnFit_finish" class="slot-size-btn" title="Alternar entre Ver completa y Llenar recuadro" onclick="toggleSlotFitMode('finish')">⛶</button>
+                                <button type="button" id="btnCircle_finish" class="slot-size-btn" title="Adaptar foto de tela a Círculo" onclick="toggleSlotCircleMode('finish')">⭕</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('finish')">↺</button>
+                            </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-xl">📥</span>
                                 <span>Soltar aquí</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Acabado</span>
+                                <span class="text-xs">📷</span>
+                                <span class="text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'finish')" class="hidden">
                             </label>
                             <div id="ph_finish" class="empty-slot-placeholder">
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Acabado / Detalle</span>
                             </div>
-                            <img id="slotImgFinish" class="w-full h-full object-cover bg-white" style="display:none;">
+                            <img id="slotImgFinish" class="w-full h-full object-contain p-1 bg-white transition-transform duration-150" style="display:none;">
                         </div>
 
                         <!-- #3 FOTO DE VISTA 1 (MIDDLE RIGHT, COL 3 X ROW 2) -->
@@ -1297,20 +1387,26 @@
                             <div class="slot-actions-group">
                                 <button type="button" id="btnDelete_view1" class="slot-delete-btn hidden" title="Eliminar Vista 1" onclick="event.stopPropagation(); deleteSlotPhoto('view1');">✕</button>
                             </div>
+                            <div id="sizeBar_view1" class="slot-size-toolbar" onclick="event.stopPropagation();">
+                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('view1', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('view1', 0.08)">➕</button>
+                                <button type="button" id="btnFit_view1" class="slot-size-btn" title="Alternar ajuste Completa / Llenar" onclick="toggleSlotFitMode('view1')">⛶</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('view1')">↺</button>
+                            </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-xl">📥</span>
                                 <span>Soltar aquí</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Vista 1</span>
+                                <span class="text-xs">📷</span>
+                                <span class="text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view1')" class="hidden">
                             </label>
                             <div id="ph_view1" class="empty-slot-placeholder">
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 1</span>
                             </div>
-                            <img id="slotImgView1" class="w-full h-full object-contain p-1.5 bg-white" style="display:none;">
+                            <img id="slotImgView1" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150" style="display:none;">
                         </div>
 
                         <!-- #4 FOTO DE VISTA 2 (BOTTOM LEFT, COL 1 X ROW 3) -->
@@ -1321,20 +1417,26 @@
                             <div class="slot-actions-group">
                                 <button type="button" id="btnDelete_view2" class="slot-delete-btn hidden" title="Eliminar Vista 2" onclick="event.stopPropagation(); deleteSlotPhoto('view2');">✕</button>
                             </div>
+                            <div id="sizeBar_view2" class="slot-size-toolbar" onclick="event.stopPropagation();">
+                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('view2', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('view2', 0.08)">➕</button>
+                                <button type="button" id="btnFit_view2" class="slot-size-btn" title="Alternar ajuste Completa / Llenar" onclick="toggleSlotFitMode('view2')">⛶</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('view2')">↺</button>
+                            </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
                                 <span>Soltar aquí</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Vista 2</span>
+                                <span class="text-xs">📷</span>
+                                <span class="text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view2')" class="hidden">
                             </label>
                             <div id="ph_view2" class="empty-slot-placeholder">
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 2</span>
                             </div>
-                            <img id="slotImgView2" class="w-full h-full object-contain p-1.5 bg-white" style="display:none;">
+                            <img id="slotImgView2" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150" style="display:none;">
                         </div>
 
                         <!-- #5 FOTO DE VISTA 3 (BOTTOM MIDDLE, COL 2 X ROW 3) -->
@@ -1345,20 +1447,26 @@
                             <div class="slot-actions-group">
                                 <button type="button" id="btnDelete_view3" class="slot-delete-btn hidden" title="Eliminar Vista 3" onclick="event.stopPropagation(); deleteSlotPhoto('view3');">✕</button>
                             </div>
+                            <div id="sizeBar_view3" class="slot-size-toolbar" onclick="event.stopPropagation();">
+                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('view3', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('view3', 0.08)">➕</button>
+                                <button type="button" id="btnFit_view3" class="slot-size-btn" title="Alternar ajuste Completa / Llenar" onclick="toggleSlotFitMode('view3')">⛶</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('view3')">↺</button>
+                            </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
                                 <span>Soltar aquí</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Vista 3</span>
+                                <span class="text-xs">📷</span>
+                                <span class="text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view3')" class="hidden">
                             </label>
                             <div id="ph_view3" class="empty-slot-placeholder">
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 3</span>
                             </div>
-                            <img id="slotImgView3" class="w-full h-full object-contain p-1.5 bg-white" style="display:none;">
+                            <img id="slotImgView3" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150" style="display:none;">
                         </div>
 
                         <!-- #6 FOTO DE VISTA 4 (BOTTOM RIGHT, COL 3 X ROW 3) -->
@@ -1369,20 +1477,26 @@
                             <div class="slot-actions-group">
                                 <button type="button" id="btnDelete_view4" class="slot-delete-btn hidden" title="Eliminar Vista 4" onclick="event.stopPropagation(); deleteSlotPhoto('view4');">✕</button>
                             </div>
+                            <div id="sizeBar_view4" class="slot-size-toolbar" onclick="event.stopPropagation();">
+                                <button type="button" class="slot-size-btn" title="Reducir tamaño" onclick="adjustSlotScale('view4', -0.08)">➖</button>
+                                <button type="button" class="slot-size-btn" title="Aumentar tamaño" onclick="adjustSlotScale('view4', 0.08)">➕</button>
+                                <button type="button" id="btnFit_view4" class="slot-size-btn" title="Alternar ajuste Completa / Llenar" onclick="toggleSlotFitMode('view4')">⛶</button>
+                                <button type="button" class="slot-size-btn" title="Restablecer tamaño" onclick="resetSlotStyle('view4')">↺</button>
+                            </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
                                 <span>Soltar aquí</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Vista 4</span>
+                                <span class="text-xs">📷</span>
+                                <span class="text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view4')" class="hidden">
                             </label>
                             <div id="ph_view4" class="empty-slot-placeholder">
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 4</span>
                             </div>
-                            <img id="slotImgView4" class="w-full h-full object-contain p-1.5 bg-white" style="display:none;">
+                            <img id="slotImgView4" class="w-full h-full object-contain p-1.5 bg-white transition-transform duration-150" style="display:none;">
                         </div>
                     </div>
 
@@ -1937,15 +2051,18 @@
                 const imgId = `grid_card_img_${realIdx}`;
 
                 const swatchesHtml = (p.variants || []).map((vItem, vIdx) => {
-                    const hasImg = !!vItem.swatch_img;
+                    const vg = vItem.gallery || {};
+                    const sImg = vItem.swatch_img || vg.finish || vg.fabric || (vg.finishes && vg.finishes[0]) || '';
+                    const hasImg = !!sImg;
                     const bgStyle = hasImg
-                        ? `background-image: url('${vItem.swatch_img}'); background-size: cover; background-position: center;`
+                        ? `background-image: url('${sImg}'); background-size: 100% 100%; background-position: center;`
                         : `background-color: ${vItem.swatch_hex || '#B8893E'};`;
                     return `
                     <span onmouseenter="if(products[${realIdx}].variants[${vIdx}].hero_b64) document.getElementById('${imgId}').src = products[${realIdx}].variants[${vIdx}].hero_b64;"
                           onclick="event.stopPropagation(); if(products[${realIdx}].variants[${vIdx}].hero_b64) document.getElementById('${imgId}').src = products[${realIdx}].variants[${vIdx}].hero_b64; openModal(${realIdx}, ${vIdx});" 
                           title="${vItem.color_label || 'Opción'}" 
                           class="swatch-circle"
+                          data-swatch-src="${hasImg && sImg.startsWith('data:image/') ? sImg : ''}"
                           style="${bgStyle}"></span>
                     `;
                 }).join('');
@@ -1982,6 +2099,51 @@
                     </div>
                 `;
                 grid.appendChild(card);
+            });
+            autoFitAllSwatchCircles();
+        }
+
+        function autoFitAllSwatchCircles() {
+            document.querySelectorAll('[data-swatch-src]').forEach(el => {
+                const src = el.getAttribute('data-swatch-src');
+                if (!src || !src.startsWith('data:image/') || el.dataset.swatchFitted === '1') return;
+                el.dataset.swatchFitted = '1';
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const w = img.naturalWidth || img.width;
+                        const h = img.naturalHeight || img.height;
+                        if (!w || !h) return;
+                        const c = document.createElement('canvas');
+                        c.width = w;
+                        c.height = h;
+                        const ctx = c.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        const d = ctx.getImageData(0, 0, w, h).data;
+                        let minX = w, minY = h, maxX = 0, maxY = 0, cnt = 0;
+                        for (let y = 0; y < h; y++) {
+                            for (let x = 0; x < w; x++) {
+                                const i = (y * w + x) * 4;
+                                if (d[i + 3] > 30 && (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245)) {
+                                    if (x < minX) minX = x;
+                                    if (x > maxX) maxX = x;
+                                    if (y < minY) minY = y;
+                                    if (y > maxY) maxY = y;
+                                    cnt++;
+                                }
+                            }
+                        }
+                        const bw = maxX - minX + 1, bh = maxY - minY + 1;
+                        if (cnt < 50 || bw < 10 || bh < 10) return;
+                        const out = document.createElement('canvas');
+                        out.width = 240;
+                        out.height = 240;
+                        out.getContext('2d').drawImage(c, minX, minY, bw, bh, 0, 0, 240, 240);
+                        el.style.backgroundImage = `url('${out.toDataURL('image/jpeg', 0.9)}')`;
+                        el.style.backgroundSize = '100% 100%';
+                    } catch (e) {}
+                };
+                img.src = src;
             });
         }
 
@@ -2250,8 +2412,8 @@
                 if (imgEl) {
                     if (valid) {
                         delete imgEl.dataset.croppedSrc;
-                        imgEl.style.objectFit = (slotPrefix === 'finish') ? 'cover' : 'contain';
-                        imgEl.style.padding = '0px';
+                        imgEl.style.objectFit = 'contain';
+                        imgEl.style.padding = (slotPrefix === 'finish') ? '4px' : '0px';
                         imgEl.onload = () => autoFitSlotImage(imgEl, slotPrefix, v);
                         imgEl.src = src;
                         imgEl.style.display = 'block';
@@ -2263,6 +2425,8 @@
                 if (phEl) phEl.style.display = valid ? 'none' : 'flex';
                 const delBtn = document.getElementById(`btnDelete_${slotPrefix}`);
                 if (delBtn) delBtn.style.display = valid ? 'inline-flex' : 'none';
+                const sizeBar = document.getElementById(`sizeBar_${slotPrefix}`);
+                if (sizeBar) sizeBar.style.display = valid ? 'inline-flex' : 'none';
             };
 
             // 1. Ambiente (slot independiente)
@@ -2368,12 +2532,13 @@
             if (!swatchesRow || !p || !p.variants) return;
             swatchesRow.innerHTML = p.variants.map((vItem, vIdx) => {
                 const isAct = vIdx === currentVariantIndex;
-                const hasImg = !!vItem.swatch_img;
+                const vg = vItem.gallery || {};
+                const swImg = vItem.swatch_img || vg.finish || vg.fabric || ((vg.finishes && vg.finishes.length > 0) ? vg.finishes[0] : '');
+                const hasImg = !!swImg;
                 const typeIcon = vItem.finish_type === 'MADERA' ? '🪵' : '🧵';
                 const thumb = hasImg
-                    ? `<span class="w-4 h-4 rounded-full inline-block border border-black/25 shadow-xs bg-cover bg-center shrink-0" style="background-image: url('${vItem.swatch_img}');"></span>`
-                    : `<span class="w-4 h-4 rounded-full inline-block border border-black/25 shadow-xs shrink-0" style="background: ${vItem.swatch_hex || '#B8893E'};
-"></span>`;
+                    ? `<span class="swatch-dot-circle" data-swatch-src="${swImg}" style="background-image: url('${swImg}'); background-size: 100% 100%; background-position: center;"></span>`
+                    : `<span class="swatch-dot-circle" style="background: ${vItem.swatch_hex || '#B8893E'};"></span>`;
                 return `
                     <button type="button" onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
                             title="${vItem.color_label || 'ACABADO'}"
@@ -2384,6 +2549,7 @@
                     </button>
                 `;
             }).join('');
+            autoFitAllSwatchCircles();
         }
 
         // REQUERIMIENTOS 3 Y 5: VARIABLES DE TELA O MADERA CON FOTO Y NOMBRE DE MUESTRA
@@ -2398,15 +2564,17 @@
                 v.finish_type = (v.color_label && /MADERA|ROBLE|NOGAL|TZALAM|PAROTA|ENCINO/i.test(v.color_label)) ? 'MADERA' : 'TELA';
             }
 
-            const hasSwatchImg = !!v.swatch_img;
+            const vg = v.gallery || {};
+            const swImg = v.swatch_img || vg.finish || vg.fabric || ((vg.finishes && vg.finishes.length > 0) ? vg.finishes[0] : '');
+            const hasSwatchImg = !!swImg;
 
             container.innerHTML = `
                 <div class="fabric-editor-card mt-2.5 p-3 bg-slate-50 border border-slate-300 rounded-xl shadow-2xs">
                     <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-200">
                         <div class="flex items-center gap-2">
                             ${hasSwatchImg 
-                                ? `<span class="w-5 h-5 rounded-full border border-black/20 inline-block shadow-xs bg-cover bg-center shrink-0" style="background-image: url('${v.swatch_img}')"></span>`
-                                : `<span class="w-5 h-5 rounded-full border border-black/20 inline-block shadow-xs shrink-0" style="background: ${v.swatch_hex || '#C2B8A3'}"></span>`
+                                ? `<span class="swatch-dot-circle" data-swatch-src="${swImg}" style="width: 24px; height: 24px; background-image: url('${swImg}'); background-size: 100% 100%; background-position: center;"></span>`
+                                : `<span class="swatch-dot-circle" style="width: 24px; height: 24px; background: ${v.swatch_hex || '#C2B8A3'}"></span>`
                             }
                             <span class="text-[11px] font-extrabold uppercase text-slate-800 tracking-wider">
                                 ${v.finish_type === 'MADERA' ? '🪵 Variable Madera:' : '🧵 Variable Tela:'}
@@ -2463,6 +2631,7 @@
                     </div>
                 </div>
             `;
+            autoFitAllSwatchCircles();
         }
 
         async function updateFabricLabelLive(newLabel) {
@@ -2620,16 +2789,134 @@
         }
 
         // ==========================================================================
-        // NORMALIZACIÓN AUTOMÁTICA Y AUTO-AJUSTE INTELIGENTE POR TIPO DE RECUADRO
+        // NORMALIZACIÓN AUTOMÁTICA Y CONTROLES DE TAMAÑO / ENCUADRE POR RECUADRO
         // ==========================================================================
+        function getSlotImgElement(slotType) {
+            const map = {
+                ambiente: 'slotImgAmbiente',
+                finish: 'slotImgFinish',
+                view1: 'slotImgView1',
+                view2: 'slotImgView2',
+                view3: 'slotImgView3',
+                view4: 'slotImgView4'
+            };
+            return document.getElementById(map[slotType] || '');
+        }
+
+        function applySlotSavedStyle(imgEl, slotType, variantObj) {
+            if (!imgEl) return;
+            const st = (variantObj && variantObj.gallery && variantObj.gallery.slot_styles && variantObj.gallery.slot_styles[slotType]) || {};
+            const scale = st.scale || 1;
+            const fit = st.fit || imgEl.dataset.defaultFit || 'contain';
+            const isCircle = !!st.circle;
+
+            imgEl.style.objectFit = fit;
+            imgEl.style.objectPosition = 'center center';
+            imgEl.style.transform = scale !== 1 ? `scale(${scale})` : 'scale(1)';
+
+            if (isCircle) {
+                imgEl.style.width = '126px';
+                imgEl.style.height = '126px';
+                imgEl.style.margin = 'auto';
+                imgEl.style.borderRadius = '9999px';
+                imgEl.style.objectFit = 'cover';
+                imgEl.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.18)';
+                imgEl.style.border = '2px solid rgba(184, 137, 62, 0.45)';
+            } else {
+                imgEl.style.width = '100%';
+                imgEl.style.height = '100%';
+                imgEl.style.margin = '0';
+                imgEl.style.borderRadius = '0px';
+                imgEl.style.boxShadow = 'none';
+                imgEl.style.border = 'none';
+            }
+
+            const fitBtn = document.getElementById(`btnFit_${slotType}`);
+            if (fitBtn) fitBtn.classList.toggle('active-mode', fit === 'cover' && !isCircle);
+            const circleBtn = document.getElementById(`btnCircle_${slotType}`);
+            if (circleBtn) circleBtn.classList.toggle('active-mode', isCircle);
+        }
+
+        async function adjustSlotScale(slotType, delta) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            if (!v.gallery) v.gallery = {};
+            if (!v.gallery.slot_styles) v.gallery.slot_styles = {};
+            if (!v.gallery.slot_styles[slotType]) v.gallery.slot_styles[slotType] = {};
+
+            const cur = v.gallery.slot_styles[slotType].scale || 1;
+            const next = Math.max(0.55, Math.min(2.4, Math.round((cur + delta) * 100) / 100));
+            v.gallery.slot_styles[slotType].scale = next;
+
+            const imgEl = getSlotImgElement(slotType);
+            applySlotSavedStyle(imgEl, slotType, v);
+            await saveCatalogData();
+            showAdminToast(`Tamaño de foto: ${Math.round(next * 100)}%`, '🔍');
+        }
+
+        async function toggleSlotFitMode(slotType) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            if (!v.gallery) v.gallery = {};
+            if (!v.gallery.slot_styles) v.gallery.slot_styles = {};
+            if (!v.gallery.slot_styles[slotType]) v.gallery.slot_styles[slotType] = {};
+
+            const imgEl = getSlotImgElement(slotType);
+            const curFit = v.gallery.slot_styles[slotType].fit || (imgEl && imgEl.dataset.defaultFit) || 'contain';
+            const nextFit = curFit === 'cover' ? 'contain' : 'cover';
+            v.gallery.slot_styles[slotType].fit = nextFit;
+            v.gallery.slot_styles[slotType].circle = false;
+
+            applySlotSavedStyle(imgEl, slotType, v);
+            await saveCatalogData();
+            showAdminToast(nextFit === 'cover' ? 'Modo: Llenar recuadro completo' : 'Modo: Ver foto completa sin recorte', '⛶');
+        }
+
+        async function toggleSlotCircleMode(slotType) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            if (!v.gallery) v.gallery = {};
+            if (!v.gallery.slot_styles) v.gallery.slot_styles = {};
+            if (!v.gallery.slot_styles[slotType]) v.gallery.slot_styles[slotType] = {};
+
+            v.gallery.slot_styles[slotType].circle = !v.gallery.slot_styles[slotType].circle;
+            const imgEl = getSlotImgElement(slotType);
+            applySlotSavedStyle(imgEl, slotType, v);
+            await saveCatalogData();
+            showAdminToast(v.gallery.slot_styles[slotType].circle ? 'Vista circular activada' : 'Vista rectangular activada', '⭕');
+        }
+
+        async function resetSlotStyle(slotType) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            if (v.gallery && v.gallery.slot_styles) {
+                delete v.gallery.slot_styles[slotType];
+            }
+            const imgEl = getSlotImgElement(slotType);
+            applySlotSavedStyle(imgEl, slotType, v);
+            await saveCatalogData();
+            showAdminToast('Tamaño restablecido al ajuste automático', '↺');
+        }
+
         function autoFitSlotImage(imgEl, slotType, variantObj) {
             if (!imgEl || !imgEl.src) return;
             if (!imgEl.src.startsWith('data:image/')) {
-                imgEl.style.objectFit = (slotType === 'finish') ? 'cover' : 'contain';
-                imgEl.style.objectPosition = 'center center';
+                imgEl.dataset.defaultFit = 'contain';
+                applySlotSavedStyle(imgEl, slotType, variantObj);
                 return;
             }
-            if (imgEl.dataset.croppedSrc === imgEl.src) return;
+            if (imgEl.dataset.croppedSrc === imgEl.src) {
+                applySlotSavedStyle(imgEl, slotType, variantObj);
+                return;
+            }
             try {
                 const srcW = imgEl.naturalWidth || imgEl.width;
                 const srcH = imgEl.naturalHeight || imgEl.height;
@@ -2660,16 +2947,17 @@
 
                 const boxArea = boxW * boxH;
                 const innerFillRatio = nonWhite / boxArea;
-                const hasWhiteBorder = (minX > srcW * 0.035) || (minY > srcH * 0.035) || ((srcW - maxX) > srcW * 0.035) || ((srcH - maxY) > srcH * 0.035);
-                const isFullBleed = (slotType === 'finish') || (slotType === 'ambiente' && innerFillRatio > 0.86);
+                const hasWhiteBorder = (minX > srcW * 0.03) || (minY > srcH * 0.03) || ((srcW - maxX) > srcW * 0.03) || ((srcH - maxY) > srcH * 0.03);
+                const isAmbientScene = (slotType === 'ambiente' && innerFillRatio > 0.86);
+                const isFinishSlot = (slotType === 'finish');
 
-                imgEl.style.objectFit = isFullBleed ? 'cover' : 'contain';
-                imgEl.style.objectPosition = 'center center';
-                imgEl.style.padding = '0px';
+                // En Acabado/Tela ('finish') mostramos TODA la foto completa ('contain') sin recortar arriba/abajo
+                imgEl.dataset.defaultFit = isAmbientScene ? 'cover' : 'contain';
+                imgEl.style.padding = isFinishSlot ? '4px' : '0px';
 
                 if (hasWhiteBorder) {
                     const out = document.createElement('canvas');
-                    if (isFullBleed) {
+                    if (isAmbientScene || isFinishSlot) {
                         const insetX = Math.min(4, Math.floor(boxW * 0.005));
                         const insetY = Math.min(4, Math.floor(boxH * 0.005));
                         const cw = Math.max(10, boxW - insetX * 2);
@@ -2704,9 +2992,12 @@
                         } else if (slotType === 'finish') {
                             variantObj.gallery.finish = newSrc;
                             variantObj.gallery.fabric = newSrc;
+                            variantObj.swatch_img = newSrc;
                             if (variantObj.gallery.finishes && variantObj.gallery.finishes.length > 0) {
                                 variantObj.gallery.finishes[0] = newSrc;
                             }
+                            renderSwatchesRow();
+                            renderFabricEditor();
                         } else if (slotType && slotType.startsWith('view')) {
                             const vIdx = parseInt(slotType.replace('view', '')) - 1;
                             variantObj.gallery[slotType] = newSrc;
@@ -2719,6 +3010,7 @@
                 } else {
                     imgEl.dataset.croppedSrc = imgEl.src;
                 }
+                applySlotSavedStyle(imgEl, slotType, variantObj);
             } catch (e) {
                 console.warn('AutoFit slot skipped:', e);
             }
@@ -2949,9 +3241,10 @@
             } else if (slotType === 'finish') {
                 v.gallery.finish = b64;
                 v.gallery.fabric = b64;
+                v.swatch_img = b64;
                 if (!v.gallery.finishes) v.gallery.finishes = [];
                 v.gallery.finishes[0] = b64;
-                showAdminToast('Foto de Acabado actualizada', '📸');
+                showAdminToast('Foto de Acabado y Muestra Circular actualizada', '📸');
             } else if (slotType.startsWith('view')) {
                 const vIdx = parseInt(slotType.replace('view', '')) - 1;
                 while (v.gallery.all_views.length <= vIdx) {
@@ -3161,7 +3454,7 @@
             }
         }
 
-        // Drag & Drop y carga de muestra en editor de tela
+        // Drag & Drop y carga de muestra en editor de tela (recorta bordes blancos para adaptarse al círculo y a #2 Acabado)
         async function handleFabricPhotoUpload(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -3169,15 +3462,17 @@
             if (!p) return;
             const v = p.variants ? p.variants[currentVariantIndex] : null;
             if (!v) return;
-            const b64 = await imageSourceToBase64(file);
+            const b64 = await imageSourceToBase64(file, 800, 800, 0.90, 'finish');
             if (b64) {
                 v.swatch_img = b64;
                 if (!v.gallery) v.gallery = {};
+                v.gallery.finish = b64;
+                v.gallery.fabric = b64;
                 v.gallery.finishes = [b64];
                 await saveCatalogData();
                 updateModalView(false);
                 filterCatalog();
-                showAdminToast(`Foto de muestra para "${v.color_label}" guardada`, '📸');
+                showAdminToast(`Foto de muestra para "${v.color_label}" adaptada al círculo y guardada`, '📸');
             }
         }
 
@@ -3194,15 +3489,17 @@
                 showAdminToast('Por favor suelta un archivo de imagen válido', '⚠️');
                 return;
             }
-            const b64 = await imageSourceToBase64(rawItem);
+            const b64 = await imageSourceToBase64(rawItem, 800, 800, 0.90, 'finish');
             if (b64) {
                 v.swatch_img = b64;
                 if (!v.gallery) v.gallery = {};
+                v.gallery.finish = b64;
+                v.gallery.fabric = b64;
                 v.gallery.finishes = [b64];
                 await saveCatalogData();
                 updateModalView(false);
                 filterCatalog();
-                showAdminToast(`Foto de muestra para "${v.color_label}" guardada`, '📸');
+                showAdminToast(`Foto de muestra para "${v.color_label}" adaptada al círculo y guardada`, '📸');
             }
         }
 

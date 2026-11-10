@@ -148,11 +148,30 @@
             gap: 6px;
         }
         .swatch-circle {
-            width: 13px;
-            height: 13px;
+            width: 15px;
+            height: 15px;
             border-radius: 50%;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.22);
+            border: 1px solid rgba(15, 23, 42, 0.2);
             display: inline-block;
+            background-size: 100% 100%;
+            background-position: center center;
+            background-repeat: no-repeat;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .swatch-dot-circle {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 1px solid rgba(15, 23, 42, 0.25);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+            display: inline-block;
+            background-size: 100% 100%;
+            background-position: center center;
+            background-repeat: no-repeat;
+            overflow: hidden;
+            flex-shrink: 0;
         }
         .options-count-text {
             font-size: 11px;
@@ -892,15 +911,18 @@
                 const imgId = `grid_card_img_${realIdx}`;
 
                 const swatchesHtml = (p.variants || []).map((vItem, vIdx) => {
-                    const hasImg = !!vItem.swatch_img;
+                    const vg = vItem.gallery || {};
+                    const sImg = vItem.swatch_img || vg.finish || vg.fabric || (vg.finishes && vg.finishes[0]) || '';
+                    const hasImg = !!sImg;
                     const bgStyle = hasImg
-                        ? `background-image: url('${vItem.swatch_img}'); background-size: cover; background-position: center;`
+                        ? `background-image: url('${sImg}'); background-size: 100% 100%; background-position: center;`
                         : `background-color: ${vItem.swatch_hex || '#B8893E'};`;
                     return `
                     <span onmouseenter="if(products[${realIdx}].variants[${vIdx}].hero_b64) document.getElementById('${imgId}').src = products[${realIdx}].variants[${vIdx}].hero_b64;"
                           onclick="event.stopPropagation(); if(products[${realIdx}].variants[${vIdx}].hero_b64) document.getElementById('${imgId}').src = products[${realIdx}].variants[${vIdx}].hero_b64; openModal(${realIdx}, ${vIdx});" 
                           title="${vItem.color_label || 'Opción'}" 
                           class="swatch-circle"
+                          data-swatch-src="${hasImg && sImg.startsWith('data:image/') ? sImg : ''}"
                           style="${bgStyle}"></span>
                     `;
                 }).join('');
@@ -920,6 +942,51 @@
                 `;
                 grid.appendChild(card);
             });
+            autoFitAllSwatchCircles();
+        }
+
+        function autoFitAllSwatchCircles() {
+            document.querySelectorAll('[data-swatch-src]').forEach(el => {
+                const src = el.getAttribute('data-swatch-src');
+                if (!src || !src.startsWith('data:image/') || el.dataset.swatchFitted === '1') return;
+                el.dataset.swatchFitted = '1';
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const w = img.naturalWidth || img.width;
+                        const h = img.naturalHeight || img.height;
+                        if (!w || !h) return;
+                        const c = document.createElement('canvas');
+                        c.width = w;
+                        c.height = h;
+                        const ctx = c.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        const d = ctx.getImageData(0, 0, w, h).data;
+                        let minX = w, minY = h, maxX = 0, maxY = 0, cnt = 0;
+                        for (let y = 0; y < h; y++) {
+                            for (let x = 0; x < w; x++) {
+                                const i = (y * w + x) * 4;
+                                if (d[i + 3] > 30 && (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245)) {
+                                    if (x < minX) minX = x;
+                                    if (x > maxX) maxX = x;
+                                    if (y < minY) minY = y;
+                                    if (y > maxY) maxY = y;
+                                    cnt++;
+                                }
+                            }
+                        }
+                        const bw = maxX - minX + 1, bh = maxY - minY + 1;
+                        if (cnt < 50 || bw < 10 || bh < 10) return;
+                        const out = document.createElement('canvas');
+                        out.width = 240;
+                        out.height = 240;
+                        out.getContext('2d').drawImage(c, minX, minY, bw, bh, 0, 0, 240, 240);
+                        el.style.backgroundImage = `url('${out.toDataURL('image/jpeg', 0.9)}')`;
+                        el.style.backgroundSize = '100% 100%';
+                    } catch (e) {}
+                };
+                img.src = src;
+            });
         }
 
         function openModal(prodIdx, variantIdx = 0, viewIdx = 0) {
@@ -937,10 +1004,45 @@
         let currentViewOffset = 0;
         let mainPhotoCycleIndex = -1;
 
-        function autoFitSlotImage(imgEl, slotType) {
+        function applySlotSavedStyle(imgEl, slotType, variantObj) {
+            if (!imgEl) return;
+            const g = (variantObj && variantObj.gallery) ? variantObj.gallery : {};
+            const st = (g.slot_styles && g.slot_styles[slotType]) ? g.slot_styles[slotType] : {};
+            const scale = (typeof st.scale === 'number' && !isNaN(st.scale)) ? st.scale : 1;
+            const isCircle = !!st.circle;
+
+            if (st.fit === 'cover' || st.fit === 'contain') {
+                imgEl.style.objectFit = st.fit;
+            }
+            if (isCircle) {
+                imgEl.style.width = '126px';
+                imgEl.style.height = '126px';
+                imgEl.style.borderRadius = '50%';
+                imgEl.style.objectFit = 'cover';
+                imgEl.style.border = '2px solid rgba(184, 137, 62, 0.45)';
+                imgEl.style.boxShadow = '0 3px 10px rgba(15, 23, 42, 0.14)';
+                imgEl.style.padding = '0px';
+            } else {
+                imgEl.style.width = '100%';
+                imgEl.style.height = '100%';
+                imgEl.style.borderRadius = '0px';
+                imgEl.style.border = 'none';
+                imgEl.style.boxShadow = 'none';
+            }
+            imgEl.style.transform = scale !== 1 ? `scale(${scale})` : '';
+        }
+
+        function autoFitSlotImage(imgEl, slotType, variantObj) {
             if (!imgEl || !imgEl.src) return;
             const src = imgEl.src;
-            if (!src.startsWith('data:image/') || imgEl.dataset.autofittedSrc === src) return;
+            if (!src.startsWith('data:image/')) {
+                applySlotSavedStyle(imgEl, slotType, variantObj);
+                return;
+            }
+            if (imgEl.dataset.autofittedSrc === src) {
+                applySlotSavedStyle(imgEl, slotType, variantObj);
+                return;
+            }
 
             const probe = new Image();
             probe.onload = () => {
@@ -972,14 +1074,21 @@
 
                     const boxW = maxX - minX + 1;
                     const boxH = maxY - minY + 1;
-                    if (nonWhite < 100 || boxW < 20 || boxH < 20) return;
+                    if (nonWhite < 100 || boxW < 20 || boxH < 20) {
+                        applySlotSavedStyle(imgEl, slotType, variantObj);
+                        return;
+                    }
 
                     const innerFillRatio = nonWhite / (boxW * boxH);
                     const hasWhiteMargin = (boxW < srcW * 0.96) || (boxH < srcH * 0.96);
-                    const isScenicOrTexture = (slotType === 'finish') || (slotType === 'ambiente' && innerFillRatio > 0.86);
+                    const isScenicAmbiente = (slotType === 'ambiente' && innerFillRatio > 0.86);
+                    const isFinishSlot = (slotType === 'finish');
 
-                    if (isScenicOrTexture) {
-                        imgEl.className = "w-full h-full object-cover bg-white transition-all duration-200";
+                    if (isScenicAmbiente || isFinishSlot) {
+                        // Ambiente escénico llena el recuadro (cover); Acabado/Tela muestra la foto completa sin recortar (contain)
+                        imgEl.className = isFinishSlot
+                            ? "w-full h-full object-contain p-1 bg-white transition-all duration-200"
+                            : "w-full h-full object-cover bg-white transition-all duration-200";
                         imgEl.style.mixBlendMode = 'normal';
                         if (hasWhiteMargin) {
                             const out = document.createElement('canvas');
@@ -1015,6 +1124,7 @@
                             imgEl.dataset.autofittedSrc = src;
                         }
                     }
+                    applySlotSavedStyle(imgEl, slotType, variantObj);
                 } catch (err) {
                     console.warn('AutoFit skipped:', err);
                 }
@@ -1057,17 +1167,17 @@
                 ambEl.className = "w-full h-full object-contain bg-white transition-all duration-200";
                 ambEl.style.mixBlendMode = '';
                 ambEl.src = g.ambiente || v.hero_b64 || '';
-                autoFitSlotImage(ambEl, 'ambiente');
+                autoFitSlotImage(ambEl, 'ambiente', v);
             }
             const finishSrc = g.finish || (g.finishes && g.finishes.length > 0 ? g.finishes[0] : '') || g.fabric || v.swatch_img || '';
             const finishEl = document.getElementById('slotImgFinish');
             if (finishEl) {
-                finishEl.className = "w-full h-full object-cover bg-white";
+                finishEl.className = "w-full h-full object-contain p-1 bg-white transition-all duration-200";
                 finishEl.style.mixBlendMode = 'normal';
                 if (finishSrc) {
                     finishEl.src = finishSrc;
                     finishEl.style.display = 'block';
-                    autoFitSlotImage(finishEl, 'finish');
+                    autoFitSlotImage(finishEl, 'finish', v);
                 } else {
                     finishEl.style.display = 'none';
                 }
@@ -1081,8 +1191,8 @@
                     const viewImg = allViews[idx];
                     if (el) {
                         el.src = viewImg;
-                        el.className = "w-full h-full object-contain p-1.5 bg-white";
-                        autoFitSlotImage(el, `view${idx + 1}`);
+                        el.className = "w-full h-full object-contain p-1.5 bg-white transition-all duration-200";
+                        autoFitSlotImage(el, `view${idx + 1}`, v);
                     }
                     if (parentBox) parentBox.style.display = 'flex';
                 } else {
@@ -1126,10 +1236,12 @@
             const swatchesRow = document.getElementById('modalSwatchesRow');
             if (swatchesRow && p.variants) {
                 swatchesRow.innerHTML = p.variants.map((vItem, vIdx) => {
-                    const hasImg = !!vItem.swatch_img;
+                    const vg = vItem.gallery || {};
+                    const sImg = vItem.swatch_img || vg.finish || vg.fabric || (vg.finishes && vg.finishes[0]) || '';
+                    const hasImg = !!sImg;
                     const thumb = hasImg
-                        ? `<span class="w-4 h-4 rounded-full inline-block border border-black/20 shadow-sm bg-cover bg-center shrink-0" style="background-image: url('${vItem.swatch_img}');"></span>`
-                        : `<span class="w-4 h-4 rounded-full inline-block border border-black/20 shadow-sm shrink-0" style="background: ${vItem.swatch_hex || '#B8893E'};"></span>`;
+                        ? `<span class="swatch-dot-circle" data-swatch-src="${sImg.startsWith('data:image/') ? sImg : ''}" style="background-image: url('${sImg}'); background-size: 100% 100%; background-position: center;"></span>`
+                        : `<span class="swatch-dot-circle" style="background: ${vItem.swatch_hex || '#B8893E'};"></span>`;
                     return `
                     <button onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
                             title="${vItem.color_label || 'Opción'}"
@@ -1139,6 +1251,7 @@
                     </button>
                     `;
                 }).join('');
+                autoFitAllSwatchCircles();
             }
 
             const driveBtn = document.getElementById('modalDriveBtn');
