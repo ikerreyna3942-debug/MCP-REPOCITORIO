@@ -411,6 +411,9 @@
         .product-card:hover .card-img-area img {
             transform: scale(1.04) !important;
         }
+        .card-img-area img.flipped {
+            transform: scaleX(-1) scale(1.03) !important;
+        }
 
         /* MODAL BODY LAYOUT (PC 2 COLS SIN SCROLL VERTICAL, MOBILE 1 COL) */
         .modal-body-grid {
@@ -1283,7 +1286,7 @@
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Acabado / Detalle</span>
                             </div>
-                            <img id="slotImgFinish" class="w-full h-full object-contain p-1.5 bg-white" style="display:none;">
+                            <img id="slotImgFinish" class="w-full h-full object-cover bg-white" style="display:none;">
                         </div>
 
                         <!-- #3 FOTO DE VISTA 1 (MIDDLE RIGHT, COL 3 X ROW 2) -->
@@ -1949,6 +1952,8 @@
 
                 card.innerHTML = `
                     <div class="card-img-area relative"
+                         onmouseenter="this.querySelector('img') && this.querySelector('img').classList.add('flipped')"
+                         onmouseleave="this.querySelector('img') && this.querySelector('img').classList.remove('flipped')"
                          ondragover="handleCardDragOver(event)"
                          ondragleave="handleCardDragLeave(event)"
                          ondrop="handleCardDrop(event, ${realIdx})">
@@ -2244,6 +2249,10 @@
                 const valid = src && typeof src === 'string' && src.trim().length > 0;
                 if (imgEl) {
                     if (valid) {
+                        delete imgEl.dataset.croppedSrc;
+                        imgEl.style.objectFit = (slotPrefix === 'finish') ? 'cover' : 'contain';
+                        imgEl.style.padding = '0px';
+                        imgEl.onload = () => autoFitSlotImage(imgEl, slotPrefix, v);
                         imgEl.src = src;
                         imgEl.style.display = 'block';
                     } else {
@@ -2611,9 +2620,111 @@
         }
 
         // ==========================================================================
-        // NORMALIZACIÓN AUTOMÁTICA DEL TAMAÑO VISUAL DEL MUEBLE AL SUBIR CUALQUIER FOTO
+        // NORMALIZACIÓN AUTOMÁTICA Y AUTO-AJUSTE INTELIGENTE POR TIPO DE RECUADRO
         // ==========================================================================
-        function autocropAndNormalizeImage(imgElement, targetWidth = 1200, targetHeight = 1200, scalePadding = 0.84) {
+        function autoFitSlotImage(imgEl, slotType, variantObj) {
+            if (!imgEl || !imgEl.src) return;
+            if (!imgEl.src.startsWith('data:image/')) {
+                imgEl.style.objectFit = (slotType === 'finish') ? 'cover' : 'contain';
+                imgEl.style.objectPosition = 'center center';
+                return;
+            }
+            if (imgEl.dataset.croppedSrc === imgEl.src) return;
+            try {
+                const srcW = imgEl.naturalWidth || imgEl.width;
+                const srcH = imgEl.naturalHeight || imgEl.height;
+                if (!srcW || !srcH) return;
+                const c = document.createElement('canvas');
+                c.width = srcW;
+                c.height = srcH;
+                const ctx = c.getContext('2d');
+                ctx.drawImage(imgEl, 0, 0);
+                const data = ctx.getImageData(0, 0, srcW, srcH).data;
+
+                let minX = srcW, minY = srcH, maxX = 0, maxY = 0, nonWhite = 0;
+                for (let y = 0; y < srcH; y++) {
+                    for (let x = 0; x < srcW; x++) {
+                        const i = (y * srcW + x) * 4;
+                        if (data[i + 3] > 30 && (data[i] < 245 || data[i + 1] < 245 || data[i + 2] < 245)) {
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                            nonWhite++;
+                        }
+                    }
+                }
+                const boxW = maxX - minX + 1;
+                const boxH = maxY - minY + 1;
+                if (nonWhite < 100 || boxW < 20 || boxH < 20) return;
+
+                const boxArea = boxW * boxH;
+                const innerFillRatio = nonWhite / boxArea;
+                const hasWhiteBorder = (minX > srcW * 0.035) || (minY > srcH * 0.035) || ((srcW - maxX) > srcW * 0.035) || ((srcH - maxY) > srcH * 0.035);
+                const isFullBleed = (slotType === 'finish') || (slotType === 'ambiente' && innerFillRatio > 0.86);
+
+                imgEl.style.objectFit = isFullBleed ? 'cover' : 'contain';
+                imgEl.style.objectPosition = 'center center';
+                imgEl.style.padding = '0px';
+
+                if (hasWhiteBorder) {
+                    const out = document.createElement('canvas');
+                    if (isFullBleed) {
+                        const insetX = Math.min(4, Math.floor(boxW * 0.005));
+                        const insetY = Math.min(4, Math.floor(boxH * 0.005));
+                        const cw = Math.max(10, boxW - insetX * 2);
+                        const ch = Math.max(10, boxH - insetY * 2);
+                        out.width = cw;
+                        out.height = ch;
+                        const octx = out.getContext('2d');
+                        octx.drawImage(c, minX + insetX, minY + insetY, cw, ch, 0, 0, cw, ch);
+                    } else {
+                        const targetW = 1200;
+                        const targetH = 900;
+                        out.width = targetW;
+                        out.height = targetH;
+                        const octx = out.getContext('2d');
+                        octx.fillStyle = '#FFFFFF';
+                        octx.fillRect(0, 0, targetW, targetH);
+                        const scale = Math.min((targetW * 0.92) / boxW, (targetH * 0.92) / boxH);
+                        const dw = Math.round(boxW * scale);
+                        const dh = Math.round(boxH * scale);
+                        const dx = Math.round((targetW - dw) / 2);
+                        const dy = Math.round((targetH - dh) / 2);
+                        octx.drawImage(c, minX, minY, boxW, boxH, dx, dy, dw, dh);
+                    }
+                    const newSrc = out.toDataURL('image/jpeg', 0.90);
+                    imgEl.dataset.croppedSrc = newSrc;
+                    imgEl.src = newSrc;
+
+                    // Guardar versión limpia sin bordes blancos en la variante actual
+                    if (variantObj && variantObj.gallery) {
+                        if (slotType === 'ambiente') {
+                            variantObj.gallery.ambiente = newSrc;
+                        } else if (slotType === 'finish') {
+                            variantObj.gallery.finish = newSrc;
+                            variantObj.gallery.fabric = newSrc;
+                            if (variantObj.gallery.finishes && variantObj.gallery.finishes.length > 0) {
+                                variantObj.gallery.finishes[0] = newSrc;
+                            }
+                        } else if (slotType && slotType.startsWith('view')) {
+                            const vIdx = parseInt(slotType.replace('view', '')) - 1;
+                            variantObj.gallery[slotType] = newSrc;
+                            if (variantObj.gallery.all_views && variantObj.gallery.all_views.length > vIdx) {
+                                variantObj.gallery.all_views[vIdx] = newSrc;
+                            }
+                        }
+                        saveCatalogData();
+                    }
+                } else {
+                    imgEl.dataset.croppedSrc = imgEl.src;
+                }
+            } catch (e) {
+                console.warn('AutoFit slot skipped:', e);
+            }
+        }
+
+        function autocropAndNormalizeImage(imgElement, targetWidth = 1200, targetHeight = 900, scalePadding = 0.92, slotType = '') {
             try {
                 const tempCanvas = document.createElement('canvas');
                 const srcW = imgElement.naturalWidth || imgElement.width;
@@ -2637,7 +2748,7 @@
                         const g = data[idx + 1];
                         const b = data[idx + 2];
                         const a = data[idx + 3];
-                        if (a > 30 && (r < 246 || g < 246 || b < 246)) {
+                        if (a > 30 && (r < 245 || g < 245 || b < 245)) {
                             if (x < minX) minX = x;
                             if (x > maxX) maxX = x;
                             if (y < minY) minY = y;
@@ -2647,14 +2758,43 @@
                     }
                 }
 
-                const boxW = maxX - minX;
-                const boxH = maxY - minY;
+                const boxW = maxX - minX + 1;
+                const boxH = maxY - minY + 1;
                 if (nonWhiteCount < 100 || boxW < 20 || boxH < 20) {
                     return null;
                 }
 
-                const padX = Math.round(boxW * 0.02);
-                const padY = Math.round(boxH * 0.02);
+                const innerFillRatio = nonWhiteCount / (boxW * boxH);
+                const isFullBleed = (slotType === 'finish') || (slotType === 'ambiente' && innerFillRatio > 0.86);
+
+                if (isFullBleed) {
+                    // Foto de ambiente (habitación completa) o textura: recortar al ras sin ningún margen blanco
+                    const insetX = Math.min(4, Math.floor(boxW * 0.005));
+                    const insetY = Math.min(4, Math.floor(boxH * 0.005));
+                    const cropX = minX + insetX;
+                    const cropY = minY + insetY;
+                    const cropW = Math.max(10, boxW - insetX * 2);
+                    const cropH = Math.max(10, boxH - insetY * 2);
+
+                    let outW = cropW;
+                    let outH = cropH;
+                    const maxDim = 1400;
+                    if (outW > maxDim || outH > maxDim) {
+                        const sc = Math.min(maxDim / outW, maxDim / outH);
+                        outW = Math.round(outW * sc);
+                        outH = Math.round(outH * sc);
+                    }
+                    const outCanvas = document.createElement('canvas');
+                    outCanvas.width = outW;
+                    outCanvas.height = outH;
+                    const outCtx = outCanvas.getContext('2d');
+                    outCtx.drawImage(tempCanvas, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+                    return outCanvas.toDataURL('image/jpeg', 0.90);
+                }
+
+                // Mueble recortado sobre fondo blanco: centrar al 92% en proporción 4:3 (1200x900)
+                const padX = Math.round(boxW * 0.015);
+                const padY = Math.round(boxH * 0.015);
                 const cropX = Math.max(0, minX - padX);
                 const cropY = Math.max(0, minY - padY);
                 const cropW = Math.min(srcW - cropX, boxW + (padX * 2));
@@ -2685,7 +2825,7 @@
         }
 
         // Convertir cualquier fuente de imagen (File, Blob, DataURL, URL externa) a Base64 JPEG optimizado con autocrop
-        function imageSourceToBase64(src, maxWidth = 1200, maxHeight = 1200, quality = 0.88) {
+        function imageSourceToBase64(src, maxWidth = 1200, maxHeight = 900, quality = 0.88, slotType = '') {
             return new Promise((resolve) => {
                 if (!src) { resolve(null); return; }
                 if (typeof src === 'string') {
@@ -2693,7 +2833,7 @@
                     img.crossOrigin = 'Anonymous';
                     img.onload = () => {
                         try {
-                            const normalized = autocropAndNormalizeImage(img, maxWidth, maxHeight, 0.84);
+                            const normalized = autocropAndNormalizeImage(img, maxWidth, maxHeight, 0.92, slotType);
                             if (normalized) { resolve(normalized); return; }
                             const canvas = document.createElement('canvas');
                             canvas.width = img.width;
@@ -2719,7 +2859,7 @@
                     const img = new Image();
                     img.onload = () => {
                         try {
-                            const normalized = autocropAndNormalizeImage(img, maxWidth, maxHeight, 0.84);
+                            const normalized = autocropAndNormalizeImage(img, maxWidth, maxHeight, 0.92, slotType);
                             if (normalized) { resolve(normalized); return; }
                             let w = img.width;
                             let h = img.height;
@@ -2752,8 +2892,8 @@
             });
         }
 
-        function compressImage(file, maxWidth = 1200, maxHeight = 1200, quality = 0.85) {
-            return imageSourceToBase64(file, maxWidth, maxHeight, quality);
+        function compressImage(file, maxWidth = 1200, maxHeight = 900, quality = 0.85, slotType = '') {
+            return imageSourceToBase64(file, maxWidth, maxHeight, quality, slotType);
         }
 
         // Manejadores de Drag & Drop para slots del modal
@@ -2784,7 +2924,7 @@
                     showAdminToast('Por favor suelta un archivo de imagen válido', '⚠️');
                     return;
                 }
-                const b64 = await imageSourceToBase64(rawItem);
+                const b64 = await imageSourceToBase64(rawItem, 1200, 900, 0.88, slotType);
                 if (!b64) {
                     showAdminToast('No se pudo leer la imagen', '❌');
                     return;
@@ -2837,7 +2977,7 @@
             if (!file) return;
             try {
                 showAdminToast('Procesando imagen...', '⏳');
-                const b64 = await imageSourceToBase64(file);
+                const b64 = await imageSourceToBase64(file, 1200, 900, 0.88, slotType);
                 if (b64) {
                     await assignImageToSlot(b64, slotType);
                 }
