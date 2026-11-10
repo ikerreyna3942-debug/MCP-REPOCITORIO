@@ -435,7 +435,7 @@
         .modal-body-grid {
             flex: 1;
             display: grid;
-            grid-template-columns: 7fr 5fr;
+            grid-template-columns: 8fr 4fr;
             gap: 24px;
             padding: 24px;
             overflow: hidden;
@@ -658,52 +658,52 @@
                 <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
                     <div>
                         <!-- PROVEEDOR + CATEGORÍA (SIN SKU) -->
-                        <div class="text-xs font-black text-[#B8893E] tracking-widest uppercase mb-1.5" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
+                        <div class="text-[10px] font-black text-[#B8893E] tracking-widest uppercase mb-1" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
                         <!-- TÍTULO DINÁMICO EN MAYÚSCULAS -->
-                        <h2 class="text-xl lg:text-2xl font-black text-[#0F172A] uppercase tracking-wide mb-3 leading-snug" id="modalTitle">-</h2>
+                        <h2 class="text-lg lg:text-xl font-black text-[#0F172A] uppercase tracking-wide mb-2 leading-snug" id="modalTitle">-</h2>
 
-                        <!-- 6 MEDIDAS EXACTAS EN CUADRÍCULA 3x2 AMPLIADA -->
-                        <div class="grid grid-cols-3 gap-2.5 text-center mb-3.5">
-                            <div class="bg-white border border-[#CBD5E1] p-3 rounded-xl shadow-xs flex flex-col justify-center items-center">
-                                <span class="block text-[9.5px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">Ancho</span>
-                                <strong class="text-base lg:text-lg font-black text-slate-800" id="mWidth">-</strong>
+                        <!-- 6 MEDIDAS EXACTAS EN CUADRÍCULA 3x2 (20% MÁS COMPACTA) -->
+                        <div class="grid grid-cols-3 gap-2 text-center mb-2.5">
+                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                                <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Ancho</span>
+                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mWidth">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-3 rounded-xl shadow-xs flex flex-col justify-center items-center">
-                                <span class="block text-[9.5px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">Fondo</span>
-                                <strong class="text-base lg:text-lg font-black text-slate-800" id="mDepth">-</strong>
+                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                                <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Fondo</span>
+                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mDepth">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-3 rounded-xl shadow-xs flex flex-col justify-center items-center">
-                                <span class="block text-[9.5px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">Alto</span>
-                                <strong class="text-base lg:text-lg font-black text-slate-800" id="mHeight">-</strong>
+                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                                <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Alto</span>
+                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mHeight">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-3 rounded-xl shadow-xs flex flex-col justify-center items-center">
-                                <span class="block text-[9.5px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">Asiento</span>
-                                <strong class="text-base lg:text-lg font-black text-slate-800" id="mSeat">-</strong>
+                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                                <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Asiento</span>
+                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mSeat">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-3 rounded-xl shadow-xs flex flex-col justify-center items-center">
-                                <span class="block text-[9.5px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">Bultos</span>
-                                <strong class="text-base lg:text-lg font-black text-slate-800" id="mPackages">-</strong>
+                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                                <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Bultos</span>
+                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mPackages">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-3 rounded-xl shadow-xs flex flex-col justify-center items-center">
-                                <span class="block text-[9.5px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">Cubitaje</span>
-                                <strong class="text-base lg:text-lg font-black text-slate-800" id="mVolume">-</strong>
+                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                                <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Cubitaje</span>
+                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mVolume">-</strong>
                             </div>
                         </div>
 
                         <!-- PRECIO DE LISTA OFICIAL EN VERDE AMPLIADO -->
-                        <div class="bg-[#EAF7EE] border border-green-200 rounded-2xl px-5 py-3.5 flex items-center justify-between mb-3.5 shadow-xs">
+                        <div class="bg-[#EAF7EE] border border-green-200 rounded-xl px-4 py-2.5 flex items-center justify-between mb-2.5 shadow-xs">
                             <span class="text-xs font-black uppercase tracking-wider text-[#1B7A3E]">Precio de Lista Oficial:</span>
-                            <span class="text-2xl lg:text-3xl font-black text-[#1B7A3E]" id="mPrice">$0.00</span>
+                            <span class="text-xl lg:text-2xl font-black text-[#1B7A3E]" id="mPrice">$0.00</span>
                         </div>
 
                         <!-- MATERIALES Y FABRICACIÓN AMPLIADO -->
-                        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-3.5 shadow-xs">
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-2.5 shadow-xs">
                             <span class="text-[11px] font-black text-[#B8893E] uppercase tracking-wider block mb-1.5">Materiales y Fabricación</span>
                             <p class="text-xs lg:text-[13px] text-slate-700 leading-relaxed font-medium" id="mMaterials">-</p>
                         </div>
 
                         <!-- SELECTOR DE TELAS / ACABADOS -->
-                        <div class="flex flex-wrap items-center justify-center gap-2 mb-3" id="modalSwatchesRow"></div>
+                        <div class="flex flex-wrap items-center justify-start gap-1.5 mb-2.5" id="modalSwatchesRow"></div>
                     </div>
 
                     <!-- BOTÓN DRIVE FICHA TÉCNICA PROMINENTE Y ANCHO COMPLETO -->
@@ -897,7 +897,7 @@
                 }).join('');
 
                 card.innerHTML = `
-                    <div class="card-img-area">
+                    <div class="card-img-area" onmouseenter="this.querySelector('img') && this.querySelector('img').classList.add('flipped')" onmouseleave="this.querySelector('img') && this.querySelector('img').classList.remove('flipped')">
                         <span class="badge-category">${p.category}</span>
                         <img id="${imgId}" src="${v.hero_b64 || ''}" alt="${p.model_name}">
                     </div>
@@ -1055,39 +1055,41 @@
         }
 
         function swapToMain(slotName) {
-            const p = products[currentProdIndex];
-            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
-            const g = v.gallery || {};
-            const allViews = (g.all_views && g.all_views.length > 0) ? g.all_views : [v.hero_b64];
-            
-            let chosenSrc = '';
-            if (slotName === 'finish') {
-                const finishEl = document.getElementById('slotImgFinish');
-                if (finishEl && finishEl.src) chosenSrc = finishEl.src;
-            } else {
-                let targetIdx = 0;
-                if (slotName === 'view1') targetIdx = 0;
-                if (slotName === 'view2') targetIdx = 1;
-                if (slotName === 'view3') targetIdx = 2;
-                if (slotName === 'view4') targetIdx = 3;
-                if (targetIdx < allViews.length) {
-                    chosenSrc = allViews[targetIdx];
-                }
-            }
+            const mainImg = document.getElementById('slotImgAmbiente');
+            if (!mainImg) return;
 
-            if (chosenSrc) {
-                const mainImg = document.getElementById('slotImgAmbiente');
-                if (mainImg) {
-                    mainImg.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease';
-                    mainImg.style.transform = 'scale(0.92) rotateY(-20deg)';
-                    mainImg.style.opacity = '0.5';
-                    setTimeout(() => {
-                        mainImg.src = chosenSrc;
-                        mainImg.style.transform = 'scale(1) rotateY(0deg)';
-                        mainImg.style.opacity = '1';
-                    }, 150);
-                }
-            }
+            let targetImg = null;
+            if (slotName === 'finish') targetImg = document.getElementById('slotImgFinish');
+            else if (slotName === 'view1') targetImg = document.getElementById('slotImgView1');
+            else if (slotName === 'view2') targetImg = document.getElementById('slotImgView2');
+            else if (slotName === 'view3') targetImg = document.getElementById('slotImgView3');
+            else if (slotName === 'view4') targetImg = document.getElementById('slotImgView4');
+
+            if (!targetImg || !targetImg.src) return;
+
+            const currentMainSrc = mainImg.src;
+            const currentTargetSrc = targetImg.src;
+
+            if (!currentTargetSrc || currentMainSrc === currentTargetSrc) return;
+
+            mainImg.style.transition = 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
+            targetImg.style.transition = 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
+
+            mainImg.style.transform = 'scale(0.92) rotateY(-18deg)';
+            mainImg.style.opacity = '0.5';
+            targetImg.style.transform = 'scale(0.92) rotateY(18deg)';
+            targetImg.style.opacity = '0.5';
+
+            setTimeout(() => {
+                // Intercambio bidireccional (ninguna foto desaparece)
+                mainImg.src = currentTargetSrc;
+                targetImg.src = currentMainSrc;
+
+                mainImg.style.transform = 'scale(1) rotateY(0deg)';
+                mainImg.style.opacity = '1';
+                targetImg.style.transform = 'scale(1) rotateY(0deg)';
+                targetImg.style.opacity = '1';
+            }, 130);
         }
 
         function prevProduct() {

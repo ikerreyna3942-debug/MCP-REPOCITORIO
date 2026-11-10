@@ -985,6 +985,22 @@
             transform: translateY(1px) scale(0.92) !important;
         }
 
+    
+        .modal-edit-column::-webkit-scrollbar {
+            width: 6px;
+        }
+        .modal-edit-column::-webkit-scrollbar-track {
+            background: #F1F5F9;
+            border-radius: 9999px;
+        }
+        .modal-edit-column::-webkit-scrollbar-thumb {
+            background: #CBD5E1;
+            border-radius: 9999px;
+        }
+        .modal-edit-column::-webkit-scrollbar-thumb:hover {
+            background: #94A3B8;
+        }
+
     </style>
 </head>
 <body>
@@ -1262,7 +1278,7 @@
                 </div>
 
                 <!-- COLUMNA DERECHA: INFORMACIÓN EXACTA SEGÚN 'FOTO DE REFERENCIA' -->
-                <div class="lg:col-span-4 flex flex-col justify-between space-y-3">
+                <div class="lg:col-span-4 flex flex-col justify-between space-y-3 overflow-y-auto max-h-[calc(96vh-80px)] pr-2 modal-edit-column">
                     <div>
                         <!-- BÚSQUEDA Y AUTOCOMPLETADO POR SKU (LLENADO AUTOMÁTICO) -->
                         <div id="skuAutoFillBox" class="mb-3 p-2.5 bg-amber-50/80 border border-[#B8893E]/40 rounded-xl flex items-center justify-between gap-2 shadow-2xs">
@@ -1882,7 +1898,7 @@
                 }).join('');
 
                 card.innerHTML = `
-                    <div class="card-img-area relative"
+                    <div class="card-img-area relative" onmouseenter="this.querySelector('img') && this.querySelector('img').classList.add('flipped')" onmouseleave="this.querySelector('img') && this.querySelector('img').classList.remove('flipped')"
                          ondragover="handleCardDragOver(event)"
                          ondragleave="handleCardDragLeave(event)"
                          ondrop="handleCardDrop(event, ${realIdx})">
@@ -2148,7 +2164,17 @@
 
             // REQUERIMIENTO 2: TÍTULO EXACTO AL NOMBRE DE LA TARJETA PRINCIPAL
             document.getElementById('modalProviderCat').innerText = `${p.provider_abbr} · ${p.category}`;
-            document.getElementById('modalTitle').innerText = p.model_name;
+            const titleEl = document.getElementById('modalTitle');
+            if (titleEl) {
+                if (isEditMode) {
+                    const existingInp = document.getElementById('edit_title');
+                    if (!existingInp) {
+                        titleEl.innerHTML = `<input type="text" id="edit_title" class="editable-field-input text-base font-bold uppercase" value="${(p.model_name || '').replace(/"/g, '&quot;')}">`;
+                    }
+                } else {
+                    titleEl.innerText = p.model_name;
+                }
+            }
             const skuInput = document.getElementById('inputAutoSku');
             if (skuInput) {
                 skuInput.value = p.sku || p.id || '';
@@ -3439,8 +3465,17 @@
 
             const titleInput = document.getElementById('edit_title');
             if (titleInput && titleInput.value.trim()) {
-                p.model_name = titleInput.value.trim();
-                v.name = p.model_name;
+                const updatedName = titleInput.value.trim();
+                p.model_name = updatedName;
+                v.name = updatedName;
+                (p.variants || []).forEach(vItem => {
+                    vItem.model_name = updatedName;
+                });
+                const rp = rawProducts.find(item => item.id === p.id);
+                if (rp) {
+                    rp.model_name = updatedName;
+                    (rp.variants || []).forEach(vItem => { vItem.model_name = updatedName; });
+                }
             }
 
             const provInput = document.getElementById('edit_prov');
