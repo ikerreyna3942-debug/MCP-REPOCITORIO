@@ -102,12 +102,12 @@
             height: 100%;
             max-height: 182px;
             object-fit: contain;
+            transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
-        .product-card:hover .card-img-area img {
-            width: 100%;
-            height: 100%;
-            max-height: 182px;
-            object-fit: contain;
+        .product-card:hover .card-img-area img,
+        .card-img-area:hover img,
+        .card-img-area img.flipped {
+            transform: scaleX(-1) scale(1.04) !important;
         }
 
         .badge-category {
@@ -424,14 +424,14 @@
             object-fit: contain !important;
             object-position: center bottom !important;
             mix-blend-mode: multiply;
-            transition: transform 0.27s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
             transform-origin: center center !important;
         }
-        .product-card:hover .card-img-area img {
-            transform: scale(1.04) !important;
-        }
+        .product-card:hover .card-img-area img,
+        .card-img-area:hover img,
+        .product-card .card-img-area img.flipped,
         .card-img-area img.flipped {
-            transform: scaleX(-1) scale(1.03) !important;
+            transform: scaleX(-1) scale(1.04) !important;
         }
 
         /* MODAL BODY LAYOUT (PC 2 COLS SIN SCROLL VERTICAL, MOBILE 1 COL) */
@@ -1566,9 +1566,14 @@
                         <div>
                             <div class="flex items-center justify-between mb-1">
                                 <span class="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Opciones de Acabado / Tapiz</span>
-                                <button type="button" onclick="toggleAdminToolsDrawer(true)" class="text-[9.5px] font-bold text-[#B8893E] hover:underline">✏️ Editar Tela / Módulos</button>
+                                <div class="flex items-center gap-2">
+                                    <button type="button" onclick="addNewFinishOption('TELA')" class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-[#B8893E] border border-[#B8893E]/40 transition">➕ Tela</button>
+                                    <button type="button" onclick="addNewFinishOption('MADERA')" class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-[#B8893E] border border-[#B8893E]/40 transition">➕ Madera</button>
+                                    <button type="button" onclick="toggleAdminToolsDrawer(true)" class="text-[9.5px] font-bold text-[#B8893E] hover:underline">🛠️ Módulos / Sheet</button>
+                                </div>
                             </div>
-                            <div class="flex flex-wrap items-center justify-start gap-1.5 max-h-24 overflow-y-auto pr-1" id="modalSwatchesRow"></div>
+                            <div class="flex flex-wrap items-center justify-start gap-1.5 max-h-20 overflow-y-auto pr-1" id="modalSwatchesRow"></div>
+                            <div id="inlineVariantEditBar" class="hidden mt-1.5"></div>
                         </div>
                     </div>
 
@@ -2399,7 +2404,7 @@
             }
             const skuInput = document.getElementById('inputAutoSku');
             if (skuInput) {
-                skuInput.value = p.sku || p.id || '';
+                skuInput.value = v.sku || p.sku || p.id || '';
             }
             populateSkuDatalist();
 
@@ -2524,6 +2529,26 @@
                 }
                 if (bannerArch) bannerArch.classList.add('hidden');
             }
+
+            // Si estamos en modo edición, mantener los campos editables activos para el acabado seleccionado
+            if (isEditMode) {
+                renderEditModeInputs();
+            } else {
+                const inlineBar = document.getElementById('inlineVariantEditBar');
+                if (inlineBar) inlineBar.classList.add('hidden');
+            }
+        }
+
+        async function selectModalVariant(vIdx) {
+            const p = products[currentProdIndex];
+            if (!p || !p.variants || !p.variants[vIdx]) return;
+            if (isEditMode) {
+                // Guardar automáticamente los cambios del acabado actual antes de pasar al otro acabado
+                captureCurrentEditInputsToVariant();
+                await saveCatalogData();
+            }
+            currentVariantIndex = vIdx;
+            updateModalView(true);
         }
 
         function renderSwatchesRow() {
@@ -2540,8 +2565,8 @@
                     ? `<span class="swatch-dot-circle" data-swatch-src="${swImg}" style="background-image: url('${swImg}'); background-size: 100% 100%; background-position: center;"></span>`
                     : `<span class="swatch-dot-circle" style="background: ${vItem.swatch_hex || '#B8893E'};"></span>`;
                 return `
-                    <button type="button" onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
-                            title="${vItem.color_label || 'ACABADO'}"
+                    <button type="button" onclick="selectModalVariant(${vIdx});"
+                            title="${vItem.color_label || 'ACABADO'} (Clic para ver o editar este acabado)"
                             class="swatch-pill ${isAct ? 'active' : ''} flex items-center gap-1.5 px-2.5 py-1 rounded-full border">
                         ${thumb}
                         <span class="text-[10px] font-bold uppercase tracking-wider">${vItem.color_label || 'ACABADO'}</span>
@@ -3833,8 +3858,7 @@
 
 
         
-        function toggleEditMode(forceState = null) {
-            isEditMode = (forceState !== null) ? forceState : !isEditMode;
+        function renderEditModeInputs() {
             const p = products[currentProdIndex];
             if (!p) return;
             const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
@@ -3842,92 +3866,118 @@
             const btnSave = document.getElementById('btnSaveModal');
             const btnIcon = document.getElementById('editBtnIcon');
             const btnText = document.getElementById('editBtnText');
+            if (btnSave) btnSave.classList.remove('hidden');
+            if (btnIcon) btnIcon.innerText = '👁️';
+            if (btnText) btnText.innerText = 'Ver Ficha';
 
-            if (isEditMode) {
-                if (btnSave) btnSave.classList.remove('hidden');
-                if (btnIcon) btnIcon.innerText = '👁️';
-                if (btnText) btnText.innerText = 'Ver Ficha';
+            const titleEl = document.getElementById('modalTitle');
+            if (titleEl) {
+                titleEl.innerHTML = `<input type="text" id="edit_title" class="editable-field-input text-base font-bold uppercase" value="${(p.model_name || '').replace(/"/g, '&quot;')}">`;
+            }
 
-                const titleEl = document.getElementById('modalTitle');
-                if (titleEl) {
-                    titleEl.innerHTML = `<input type="text" id="edit_title" class="editable-field-input text-base font-bold uppercase" value="${(p.model_name || '').replace(/"/g, '&quot;')}">`;
+            const provCatEl = document.getElementById('modalProviderCat');
+            if (provCatEl) {
+                provCatEl.innerHTML = `
+                    <div class="flex gap-2 mb-1">
+                        <input type="text" id="edit_prov" class="editable-field-input w-28 uppercase font-bold text-xs" value="${p.provider_abbr || ''}" placeholder="PROV">
+                        <select id="edit_cat" class="editable-field-input text-xs font-bold">
+                            <option value="SALAS & SOFÁS" ${p.category === 'SALAS & SOFÁS' ? 'selected' : ''}>SALAS & SOFÁS</option>
+                            <option value="SILLAS & SILLONES" ${p.category === 'SILLAS & SILLONES' ? 'selected' : ''}>SILLAS & SILLONES</option>
+                            <option value="COMEDORES" ${p.category === 'COMEDORES' ? 'selected' : ''}>COMEDORES</option>
+                            <option value="BUFETERAS & CREDENZAS" ${p.category === 'BUFETERAS & CREDENZAS' ? 'selected' : ''}>BUFETERAS & CREDENZAS</option>
+                            <option value="MESAS DE CENTRO" ${p.category === 'MESAS DE CENTRO' ? 'selected' : ''}>MESAS DE CENTRO</option>
+                            <option value="RECÁMARAS" ${p.category === 'RECÁMARAS' ? 'selected' : ''}>RECÁMARAS</option>
+                            <option value="COMPLEMENTOS" ${p.category === 'COMPLEMENTOS' ? 'selected' : ''}>COMPLEMENTOS</option>
+                        </select>
+                    </div>
+                `;
+            }
+
+            const makeSpecInput = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.parentElement.style.display = '';
+                    el.innerHTML = `<input type="text" id="edit_${id}" class="editable-field-input text-center text-xs font-bold" value="${(val || '').replace(/"/g, '&quot;')}">`;
                 }
+            };
 
-                const provCatEl = document.getElementById('modalProviderCat');
-                if (provCatEl) {
-                    provCatEl.innerHTML = `
-                        <div class="flex gap-2 mb-1">
-                            <input type="text" id="edit_prov" class="editable-field-input w-28 uppercase font-bold text-xs" value="${p.provider_abbr || ''}" placeholder="PROV">
-                            <select id="edit_cat" class="editable-field-input text-xs font-bold">
-                                <option value="SALAS & SOFÁS" ${p.category === 'SALAS & SOFÁS' ? 'selected' : ''}>SALAS & SOFÁS</option>
-                                <option value="SILLAS & SILLONES" ${p.category === 'SILLAS & SILLONES' ? 'selected' : ''}>SILLAS & SILLONES</option>
-                                <option value="COMEDORES" ${p.category === 'COMEDORES' ? 'selected' : ''}>COMEDORES</option>
-                                <option value="BUFETERAS & CREDENZAS" ${p.category === 'BUFETERAS & CREDENZAS' ? 'selected' : ''}>BUFETERAS & CREDENZAS</option>
-                                <option value="MESAS DE CENTRO" ${p.category === 'MESAS DE CENTRO' ? 'selected' : ''}>MESAS DE CENTRO</option>
-                                <option value="RECÁMARAS" ${p.category === 'RECÁMARAS' ? 'selected' : ''}>RECÁMARAS</option>
-                                <option value="COMPLEMENTOS" ${p.category === 'COMPLEMENTOS' ? 'selected' : ''}>COMPLEMENTOS</option>
-                            </select>
+            const getVal = (vVal, pVal) => (vVal !== undefined && vVal !== null && String(vVal).trim() !== '' && !String(vVal).toLowerCase().includes('none')) ? vVal : (pVal || '');
+
+            makeSpecInput('mWidth', getVal(v.width, p.width));
+            makeSpecInput('mDepth', getVal(v.depth, p.depth));
+            makeSpecInput('mHeight', getVal(v.height, p.height));
+            makeSpecInput('mSeat', getVal(v.seat, p.seat));
+            makeSpecInput('mPackages', getVal(v.packages, p.packages));
+            makeSpecInput('mVolume', getVal(v.volume, p.volume));
+
+            const priceEl = document.getElementById('mPrice');
+            if (priceEl) {
+                priceEl.innerHTML = `<input type="text" id="edit_price" class="editable-field-input text-right font-black text-emerald-700 text-sm" value="${(getVal(v.price, p.price) || '').replace(/"/g, '&quot;')}">`;
+            }
+
+            const matEl = document.getElementById('mMaterials');
+            if (matEl) {
+                matEl.innerHTML = `<textarea id="edit_materials" rows="2" class="editable-field-input text-xs">${getVal(v.materials, p.materials)}</textarea>`;
+            }
+
+            const inlineBar = document.getElementById('inlineVariantEditBar');
+            if (inlineBar) {
+                const totalVars = (p.variants || []).length;
+                const curLabel = (v.color_label || `OPCIÓN ${currentVariantIndex + 1}`).replace(/"/g, '&quot;');
+                const curSku = (v.sku || p.sku || p.id || '').replace(/"/g, '&quot;');
+                inlineBar.classList.remove('hidden');
+                inlineBar.innerHTML = `
+                    <div class="p-2 bg-amber-50/90 border border-[#B8893E]/50 rounded-xl space-y-1.5 shadow-2xs">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[9.5px] font-black uppercase text-amber-900 tracking-wider">
+                                ✏️ Editando Acabado ${currentVariantIndex + 1} de ${totalVars}:
+                            </span>
+                            ${totalVars > 1 ? `<button type="button" onclick="deleteCurrentFabricOption()" class="text-[9px] font-bold text-red-600 hover:underline">🗑️ Eliminar este acabado</button>` : ''}
                         </div>
-                    `;
+                        <div class="grid grid-cols-12 gap-1.5 items-center">
+                            <div class="col-span-6">
+                                <label class="block text-[8px] font-bold uppercase text-slate-500">Nombre de Tela / Acabado</label>
+                                <input type="text" id="edit_variant_label" value="${curLabel}" oninput="updateFabricLabelLive(this.value)" class="editable-field-input !py-1 !px-2 text-[10.5px] font-bold uppercase" placeholder="Ej. FOREVER BUTTERMILK">
+                            </div>
+                            <div class="col-span-4">
+                                <label class="block text-[8px] font-bold uppercase text-slate-500">SKU de este Acabado</label>
+                                <input type="text" id="edit_variant_sku" value="${curSku}" class="editable-field-input !py-1 !px-2 text-[10.5px] font-mono font-bold uppercase" placeholder="SKU">
+                            </div>
+                            <div class="col-span-2 flex flex-col items-center">
+                                <label class="block text-[8px] font-bold uppercase text-slate-500">Tono</label>
+                                <input type="color" id="edit_variant_hex" value="${v.swatch_hex || '#B8893E'}" onchange="updateFabricHexLive(this.value)" class="w-6 h-6 rounded border border-slate-300 cursor-pointer bg-white p-0.5">
+                            </div>
+                        </div>
+                        ${totalVars > 1 ? `
+                        <label class="flex items-center gap-1.5 pt-0.5 text-[9.5px] font-bold text-slate-700 cursor-pointer select-none">
+                            <input type="checkbox" id="edit_sync_all_variants" checked class="accent-[#B8893E]">
+                            <span>Aplicar medidas y materiales a los <strong>${totalVars} acabados</strong> (puedes tocar cualquier píldora arriba para editar cada acabado por separado)</span>
+                        </label>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            const driveBtn = document.getElementById('modalDriveBtn');
+            if (driveBtn) {
+                let driveInput = document.getElementById('edit_drive_wrap');
+                if (!driveInput) {
+                    driveInput = document.createElement('div');
+                    driveInput.id = 'edit_drive_wrap';
+                    driveInput.className = 'mt-1.5';
+                    driveInput.innerHTML = `<input type="url" id="edit_drive_url" class="editable-field-input text-[11px] text-blue-600" placeholder="Enlace de Ficha Técnica Google Drive" value="${getVal(v.drive_ficha_url, p.drive_ficha_url)}">`;
+                    driveBtn.parentElement.appendChild(driveInput);
+                } else {
+                    const inEl = document.getElementById('edit_drive_url');
+                    if (inEl) inEl.value = getVal(v.drive_ficha_url, p.drive_ficha_url);
                 }
-
-                const makeSpecInput = (id, val) => {
-                    const el = document.getElementById(id);
-                    if (el) {
-                        el.parentElement.style.display = '';
-                        el.innerHTML = `<input type="text" id="edit_${id}" class="editable-field-input text-center text-xs font-bold" value="${(val || '').replace(/"/g, '&quot;')}">`;
-                    }
-                };
-
-                const getVal = (vVal, pVal) => (vVal !== undefined && vVal !== null && String(vVal).trim() !== '' && !String(vVal).toLowerCase().includes('none')) ? vVal : (pVal || '');
-
-                makeSpecInput('mWidth', getVal(v.width, p.width));
-                makeSpecInput('mDepth', getVal(v.depth, p.depth));
-                makeSpecInput('mHeight', getVal(v.height, p.height));
-                makeSpecInput('mSeat', getVal(v.seat, p.seat));
-                makeSpecInput('mPackages', getVal(v.packages, p.packages));
-                makeSpecInput('mVolume', getVal(v.volume, p.volume));
-
-                const priceEl = document.getElementById('mPrice');
-                if (priceEl) {
-                    priceEl.innerHTML = `<input type="text" id="edit_price" class="editable-field-input text-right font-black text-emerald-700 text-sm" value="${(getVal(v.price, p.price) || '').replace(/"/g, '&quot;')}">`;
-                }
-
-                const matEl = document.getElementById('mMaterials');
-                if (matEl) {
-                    matEl.innerHTML = `<textarea id="edit_materials" rows="2" class="editable-field-input text-xs">${getVal(v.materials, p.materials)}</textarea>`;
-                }
-
-                const driveBtn = document.getElementById('modalDriveBtn');
-                if (driveBtn) {
-                    let driveInput = document.getElementById('edit_drive_wrap');
-                    if (!driveInput) {
-                        driveInput = document.createElement('div');
-                        driveInput.id = 'edit_drive_wrap';
-                        driveInput.className = 'mt-1.5';
-                        driveInput.innerHTML = `<input type="url" id="edit_drive_url" class="editable-field-input text-[11px] text-blue-600" placeholder="Enlace de Ficha Técnica Google Drive" value="${getVal(v.drive_ficha_url, p.drive_ficha_url)}">`;
-                        driveBtn.parentElement.appendChild(driveInput);
-                    } else {
-                        const inEl = document.getElementById('edit_drive_url');
-                        if (inEl) inEl.value = getVal(v.drive_ficha_url, p.drive_ficha_url);
-                    }
-                    driveInput.style.display = '';
-                }
-
-            } else {
-                if (btnSave) btnSave.classList.add('hidden');
-                if (btnIcon) btnIcon.innerText = '✏️';
-                if (btnText) btnText.innerText = 'Editar Ficha';
-
-                const driveInput = document.getElementById('edit_drive_wrap');
-                if (driveInput) driveInput.style.display = 'none';
-
-                updateModalView(false);
+                driveInput.style.display = '';
             }
         }
 
-        async function saveCurrentModalChanges() {
+        function captureCurrentEditInputsToVariant() {
             const p = products[currentProdIndex];
+            if (!p) return;
             const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
 
             const titleInput = document.getElementById('edit_title');
@@ -3954,6 +4004,22 @@
             const catSelect = document.getElementById('edit_cat');
             if (catSelect) p.category = catSelect.value;
 
+            const varLabelInp = document.getElementById('edit_variant_label');
+            if (varLabelInp && varLabelInp.value.trim()) {
+                v.color_label = varLabelInp.value.trim().toUpperCase();
+            }
+
+            const varSkuInp = document.getElementById('edit_variant_sku');
+            if (varSkuInp && varSkuInp.value.trim()) {
+                v.sku = varSkuInp.value.trim().toUpperCase();
+                if (currentVariantIndex === 0) p.sku = v.sku;
+                const topSku = document.getElementById('inputAutoSku');
+                if (topSku) topSku.value = v.sku;
+            }
+
+            const syncAllCheckbox = document.getElementById('edit_sync_all_variants');
+            const syncAllSpecs = syncAllCheckbox ? syncAllCheckbox.checked : false;
+
             const getSpecVal = (id) => {
                 const inp = document.getElementById('edit_' + id);
                 return inp ? inp.value.trim() : null;
@@ -3966,38 +4032,87 @@
             const pkg = getSpecVal('mPackages');
             const vol = getSpecVal('mVolume');
 
-            if (w !== null) { v.width = w; if (currentVariantIndex === 0) p.width = w; }
-            if (d !== null) { v.depth = d; if (currentVariantIndex === 0) p.depth = d; }
-            if (h !== null) { v.height = h; if (currentVariantIndex === 0) p.height = h; }
-            if (s !== null) { v.seat = s; if (currentVariantIndex === 0) p.seat = s; }
-            if (pkg !== null) { v.packages = pkg; if (currentVariantIndex === 0) p.packages = pkg; }
-            if (vol !== null) { v.volume = vol; if (currentVariantIndex === 0) p.volume = vol; }
+            const applySpec = (key, val) => {
+                if (val === null) return;
+                v[key] = val;
+                if (currentVariantIndex === 0 || syncAllSpecs) p[key] = val;
+                if (syncAllSpecs && p.variants) {
+                    p.variants.forEach(vItem => { vItem[key] = val; });
+                }
+            };
+
+            applySpec('width', w);
+            applySpec('depth', d);
+            applySpec('height', h);
+            applySpec('seat', s);
+            applySpec('packages', pkg);
+            applySpec('volume', vol);
 
             const priceInput = document.getElementById('edit_price');
             if (priceInput) {
                 const newPrice = priceInput.value.trim();
                 v.price = newPrice;
-                if (currentVariantIndex === 0 || !p.price) p.price = newPrice;
+                if (currentVariantIndex === 0 || !p.price || syncAllSpecs) p.price = newPrice;
+                if (syncAllSpecs && p.variants) {
+                    p.variants.forEach(vItem => {
+                        if (!vItem.price || vItem === v) vItem.price = newPrice;
+                    });
+                }
             }
 
             const matInput = document.getElementById('edit_materials');
             if (matInput) {
-                v.materials = matInput.value.trim();
-                if (currentVariantIndex === 0) p.materials = v.materials;
+                const newMat = matInput.value.trim();
+                v.materials = newMat;
+                if (currentVariantIndex === 0 || syncAllSpecs) p.materials = newMat;
+                if (syncAllSpecs && p.variants) {
+                    p.variants.forEach(vItem => { vItem.materials = newMat; });
+                }
             }
 
             const driveInput = document.getElementById('edit_drive_url');
             if (driveInput) {
-                v.drive_ficha_url = driveInput.value.trim();
-                if (currentVariantIndex === 0) p.drive_ficha_url = v.drive_ficha_url;
+                const newDrive = driveInput.value.trim();
+                v.drive_ficha_url = newDrive;
+                if (currentVariantIndex === 0 || syncAllSpecs) p.drive_ficha_url = newDrive;
+                if (syncAllSpecs && p.variants) {
+                    p.variants.forEach(vItem => {
+                        if (!vItem.drive_ficha_url || vItem === v) vItem.drive_ficha_url = newDrive;
+                    });
+                }
             }
+        }
 
+        function toggleEditMode(forceState = null) {
+            isEditMode = (forceState !== null) ? forceState : !isEditMode;
+            const btnSave = document.getElementById('btnSaveModal');
+            const btnIcon = document.getElementById('editBtnIcon');
+            const btnText = document.getElementById('editBtnText');
+
+            if (isEditMode) {
+                renderEditModeInputs();
+            } else {
+                if (btnSave) btnSave.classList.add('hidden');
+                if (btnIcon) btnIcon.innerText = '✏️';
+                if (btnText) btnText.innerText = 'Editar Ficha';
+
+                const driveInput = document.getElementById('edit_drive_wrap');
+                if (driveInput) driveInput.style.display = 'none';
+                const inlineBar = document.getElementById('inlineVariantEditBar');
+                if (inlineBar) inlineBar.classList.add('hidden');
+
+                updateModalView(false);
+            }
+        }
+
+        async function saveCurrentModalChanges() {
+            captureCurrentEditInputsToVariant();
             await saveCatalogData();
             toggleEditMode(false);
             updateCategoryCounts();
             filterCatalog();
             updateAdminBadge();
-            showAdminToast('¡Cambios guardados con éxito!', '✅');
+            showAdminToast('¡Cambios guardados en la ficha y sus acabados!', '✅');
         }
 
         async function deleteCurrentFurniture() {

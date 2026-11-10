@@ -105,10 +105,12 @@
             height: 100%;
             max-height: 182px;
             object-fit: contain;
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
-        .product-card:hover .card-img-area img {
-            transform: scale(1.05) !important;
+        .product-card:hover .card-img-area img,
+        .card-img-area:hover img,
+        .card-img-area img.flipped {
+            transform: scaleX(-1) scale(1.04) !important;
         }
 
         .badge-category {
@@ -429,14 +431,14 @@
             object-fit: contain !important;
             object-position: center bottom !important;
             mix-blend-mode: multiply !important;
-            transition: transform 0.27s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
             transform-origin: center center !important;
         }
-        .product-card:hover .card-img-area img {
-            transform: scale(1.05) !important;
-        }
+        .product-card:hover .card-img-area img,
+        .card-img-area:hover img,
+        .product-card .card-img-area img.flipped,
         .card-img-area img.flipped {
-            transform: scaleX(-1) scale(1.03) !important;
+            transform: scaleX(-1) scale(1.04) !important;
         }
 
         /* MODAL BODY LAYOUT (PC 2 COLS FIJAS SIN SCROLL, MOBILE 1 COL) */
