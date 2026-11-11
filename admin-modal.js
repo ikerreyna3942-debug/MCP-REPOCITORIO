@@ -46,20 +46,24 @@ function updateModalView(resetOffset = true) {
                 if (delBtn) delBtn.style.display = valid ? 'inline-flex' : 'none';
             };
 
-            // 1. Ambiente (slot independiente)
-            const ambienteSrc = (g.ambiente !== undefined) ? g.ambiente : (v.hero_b64 || '');
+            // 1. Ambiente (si solo hay portada 'hero_b64' sin otras vistas, mostrarla aquí también)
+            const hasOtherViews = !!(g.view1 || g.view2 || g.view3 || g.view4 || g.finish ||
+                (Array.isArray(g.all_views) && g.all_views.some(x => x && x.trim().length > 0)));
+            const ambienteSrc = (g.ambiente && g.ambiente.trim())
+                ? g.ambiente
+                : (!hasOtherViews && v.hero_b64 ? v.hero_b64 : '');
             renderSlot('slotImgAmbiente', 'ph_ambiente', 'ambiente', ambienteSrc);
 
             // 2. Acabado / Detalle (slot independiente)
-            const finishSrc = (g.finish !== undefined) 
-                ? g.finish 
-                : ((g.finishes && g.finishes.length > 0) ? g.finishes[0] : (g.fabric || ''));
+            const finishSrc = (g.finish && g.finish.trim())
+                ? g.finish
+                : ((g.finishes && g.finishes.length > 0 && g.finishes[0]) ? g.finishes[0] : (g.fabric || ''));
             renderSlot('slotImgFinish', 'ph_finish', 'finish', finishSrc);
 
             // 3. Vistas 1 a 4 (slots 100% independientes sin repetición ni ciclo)
             const getSlotView = (slotKey, idx) => {
-                if (g[slotKey] !== undefined) return g[slotKey];
-                if (g.all_views && g.all_views.length > idx) return g.all_views[idx];
+                if (g[slotKey] && typeof g[slotKey] === 'string' && g[slotKey].trim()) return g[slotKey];
+                if (g.all_views && g.all_views.length > idx && g.all_views[idx]) return g.all_views[idx];
                 return '';
             };
 
@@ -110,6 +114,7 @@ function updateModalView(resetOffset = true) {
             renderSwatchesRow();
             renderFabricEditor();
             renderPieceSkuComposer();
+            if (typeof renderSalaModulesUI === 'function') renderSalaModulesUI();
 
             const driveBtn = document.getElementById('modalDriveBtn');
             if (driveBtn) {
@@ -313,7 +318,7 @@ function updateModalView(resetOffset = true) {
                     view2: '',
                     view3: '',
                     view4: '',
-                    all_views: ['', '', '', '']
+                    all_views: []
                 }
             };
 
