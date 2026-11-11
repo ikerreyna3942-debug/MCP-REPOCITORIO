@@ -43,32 +43,32 @@
             const v = p.variants ? p.variants[currentVariantIndex] : null;
             const g = (v && v.gallery) ? v.gallery : {};
 
-            const pSku = (p.sku || p.id || '').toUpperCase();
-            const pModel = (p.model_name || '').toUpperCase();
-            let matchedKey = Object.keys(KNOWN_SALA_MODULES).find(k => pSku.includes(k) || pModel.includes(k.replace('CVVSAL', 'PIERO').replace('ARMMAT', 'MATERA')));
-
             let modules = [];
-            if (matchedKey) {
-                modules = JSON.parse(JSON.stringify(KNOWN_SALA_MODULES[matchedKey]));
+            if (window.CreataCloud && window.CreataCloud.detectProductPieces) {
+                const detected = window.CreataCloud.detectProductPieces(p, typeof SKU_DATABASE !== 'undefined' ? SKU_DATABASE : {}, KNOWN_SALA_MODULES);
+                modules = detected.modules || [];
             } else {
+                const pSku = (p.sku || p.id || '').toUpperCase();
                 const basePrice = parseCurrencyNum(p.price);
                 const halfPrice = basePrice > 0 ? Math.round(basePrice / 2) : 25000;
                 modules = [
-                    { name: 'Módulo Derecho', code: 'MOD-DER', sku: `${pSku}-DER`, price: halfPrice, photoSlot: 'view1' },
-                    { name: 'Módulo Izquierdo', code: 'MOD-IZQ', sku: `${pSku}-IZQ`, price: halfPrice, photoSlot: 'view2' }
+                    { name: 'Módulo Derecho', code: 'MOD-DER', sku: `${pSku}-DER`, price: halfPrice, qty: 1, photoSlot: 'view1' },
+                    { name: 'Módulo Izquierdo', code: 'MOD-IZQ', sku: `${pSku}-IZQ`, price: halfPrice, qty: 1, photoSlot: 'view2' }
                 ];
             }
 
             modules.forEach((mod, idx) => {
-                mod.checked = true;
+                mod.checked = mod.checked !== false;
+                mod.qty = mod.qty || 1;
                 if (idx === 0) mod.photoSrc = g.view1 || g.ambiente || '';
                 else if (idx === 1) mod.photoSrc = g.view2 || '';
                 else if (idx === 2) mod.photoSrc = g.view3 || '';
+                else if (idx === 3) mod.photoSrc = g.view4 || '';
             });
 
             p.sala_modules = modules;
             renderSalaModulesUI();
-            showAdminToast(`Análisis de fotos: ${modules.length} módulos detectados`, '🛋️');
+            showAdminToast(`Detección automática: ${modules.length} ${modules.length === 1 ? 'pieza' : 'piezas'}`, '🧩');
         }
 
         function renderSalaModulesUI() {
@@ -78,9 +78,17 @@
             const listEl = document.getElementById('salaModulesList');
             if (!panel || !listEl) return;
 
+            if (!p.sala_modules || p.sala_modules.length === 0) {
+                if (window.CreataCloud && window.CreataCloud.detectProductPieces) {
+                    const detected = window.CreataCloud.detectProductPieces(p, typeof SKU_DATABASE !== 'undefined' ? SKU_DATABASE : {}, KNOWN_SALA_MODULES);
+                    p.sala_modules = detected.modules || [];
+                }
+            }
+
+            const hasMultiplePieces = Array.isArray(p.sala_modules) && p.sala_modules.length > 1;
             const isSala = (p.category || '').toUpperCase().includes('SALA') || (p.model_name || '').toUpperCase().includes('SALA');
-            panel.style.display = isSala ? 'block' : 'none';
-            if (!isSala) return;
+            panel.style.display = (hasMultiplePieces || isSala) ? 'block' : 'none';
+            if (!hasMultiplePieces && !isSala) return;
 
             if (!p.sala_modules || p.sala_modules.length === 0) {
                 analyzeSalaPhotosAndModules();
@@ -88,16 +96,19 @@
             }
 
             listEl.innerHTML = p.sala_modules.map((m, idx) => `
-                <div class="flex items-center justify-between p-1.5 bg-white border ${m.checked ? 'border-amber-400 bg-amber-50/40' : 'border-slate-200'} rounded text-[9.5px]">
-                    <label class="flex items-center gap-1.5 flex-1 cursor-pointer">
-                        <input type="checkbox" ${m.checked ? 'checked' : ''} onchange="toggleSalaModuleChecked(${idx}, this.checked)" class="accent-amber-600">
-                        <div>
-                            <strong class="text-slate-800 block">${m.name}</strong>
-                            <span class="text-[8.5px] font-mono text-slate-500">SKU: ${m.sku}</span>
+                <div class="flex items-center justify-between gap-1.5 p-1.5 bg-white border ${m.checked !== false ? 'border-amber-400 bg-amber-50/40' : 'border-slate-200'} rounded text-[9.5px]">
+                    <label class="flex items-center gap-1.5 flex-1 min-w-0 cursor-pointer">
+                        <input type="checkbox" ${m.checked !== false ? 'checked' : ''} onchange="toggleSalaModuleChecked(${idx}, this.checked)" class="accent-amber-600 shrink-0">
+                        <div class="min-w-0 flex-1">
+                            <input type="text" value="${(m.name || '').replace(/"/g, '&quot;')}" onchange="updateSalaModuleField(${idx}, 'name', this.value)" class="w-full font-bold text-slate-800 bg-transparent border-b border-transparent focus:border-amber-400 outline-none text-[10px]">
+                            <div class="flex items-center gap-1.5 text-[8.5px] text-slate-500">
+                                <span class="font-mono">SKU: ${m.sku || '-'}</span>
+                                ${m.width ? `<span>· ${m.width}</span>` : ''}
+                            </div>
                         </div>
                     </label>
-                    <div class="flex items-center gap-2">
-                        <span class="text-[8px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold uppercase">${m.photoSlot || 'FOTO'}</span>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <input type="number" min="1" value="${m.qty || 1}" title="Cantidad" onchange="updateSalaModuleField(${idx}, 'qty', this.value)" class="w-10 text-center font-bold text-slate-700 px-1 py-0.5 bg-slate-50 border border-slate-200 rounded text-[9px] outline-none">
                         <div class="flex items-center">
                             <span class="text-[9px] text-slate-500 font-bold mr-0.5">$</span>
                             <input type="number" step="0.01" value="${m.price || 0}" onchange="updateSalaModulePrice(${idx}, this.value)" class="w-20 text-right font-mono font-bold text-slate-800 px-1 py-0.5 bg-slate-50 border border-slate-200 rounded text-[9.5px] outline-none">
@@ -109,16 +120,42 @@
             updateSalaCalculation();
         }
 
+        function updateSalaModuleField(idx, field, val) {
+            const p = products[currentProdIndex];
+            if (!p || !p.sala_modules || !p.sala_modules[idx]) return;
+            p.sala_modules[idx][field] = field === 'qty' ? Math.max(1, parseInt(val, 10) || 1) : val;
+            updateSalaCalculation();
+        }
+
+        function addSalaModuleManual() {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            if (!Array.isArray(p.sala_modules)) p.sala_modules = [];
+            const idx = p.sala_modules.length + 1;
+            const pSku = (p.sku || p.id || 'MUEBLE').split(' + ')[0];
+            p.sala_modules.push({
+                name: `Pieza ${idx}`,
+                code: `PZA-${idx}`,
+                sku: `${pSku}-P${idx}`,
+                price: 0,
+                width: '',
+                qty: 1,
+                checked: true,
+                photoSlot: `view${Math.min(4, idx)}`
+            });
+            renderSalaModulesUI();
+        }
+
         function updateSalaCalculation() {
             const p = products[currentProdIndex];
             if (!p || !p.sala_modules) return;
 
-            const activeMods = p.sala_modules.filter(m => m.checked);
-            const sumPrice = activeMods.reduce((acc, m) => acc + (parseFloat(m.price) || 0), 0);
+            const activeMods = p.sala_modules.filter(m => m.checked !== false);
+            const sumPrice = activeMods.reduce((acc, m) => acc + ((parseFloat(m.price) || 0) * (parseInt(m.qty, 10) || 1)), 0);
 
-            const pSku = (p.sku_base || p.sku || p.id || 'SALA').split(' + ')[0].split('-UNIF')[0].trim();
-            const modCodes = activeMods.map(m => m.code).join('+');
-            const tempSku = activeMods.length > 1 ? `${pSku}-UNIF-${modCodes}` : (activeMods.length === 1 ? activeMods[0].sku : pSku);
+            const pSku = (p.sku_base || p.sku || p.id || 'MUEBLE').split(' + ')[0].split('-UNIF')[0].trim();
+            const modCodes = activeMods.map(m => m.code || 'PZA').join('+');
+            const tempSku = activeMods.length > 1 ? `${pSku}-UNIF-${modCodes}` : (activeMods.length === 1 ? (activeMods[0].sku || pSku) : pSku);
 
             p.temp_unified_sku = tempSku;
             p.temp_unified_price = sumPrice;
@@ -148,35 +185,41 @@
             const p = products[currentProdIndex];
             if (!p || !p.temp_unified_sku) return;
 
-            const activeMods = (p.sala_modules || []).filter(m => m.checked);
+            const activeMods = (p.sala_modules || []).filter(m => m.checked !== false);
             if (activeMods.length === 0) {
-                showAdminToast('Selecciona al menos 1 módulo', '⚠️');
+                showAdminToast('Selecciona al menos 1 pieza o módulo', '⚠️');
                 return;
             }
 
-            // 1. Asignar precio sumado
+            // 1. Asignar precio sumado oficial
             p.price = '$' + p.temp_unified_price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             const mPriceEl = document.getElementById('mPrice');
             if (mPriceEl) mPriceEl.innerText = p.price;
 
-            // 2. Asignar SKU Temporal Unificado
+            // 2. Asignar medidas combinadas si las piezas tienen anchos definidos
+            const modWidths = activeMods.map(m => (m.width || '').trim()).filter(Boolean);
+            if (modWidths.length > 1) {
+                p.width = modWidths.join(' / ');
+                const mwEl = document.getElementById('mWidth');
+                if (mwEl) mwEl.innerText = p.width;
+            }
+
+            // 3. SKU interno unificado (oculto para el catálogo público)
             p.sku = p.temp_unified_sku;
             p.is_unified_sku = true;
             const skuInput = document.getElementById('inputAutoSku');
             if (skuInput) skuInput.value = p.sku;
 
-            // 3. Actualizar bultos
-            p.packages = `${activeMods.length} bultos / piezas`;
+            // 4. Actualizar bultos totales
+            const totalQty = activeMods.reduce((acc, m) => acc + (parseInt(m.qty, 10) || 1), 0);
+            p.packages = `${totalQty} ${totalQty === 1 ? 'bulto' : 'bultos'}`;
             const mPack = document.getElementById('mPackages');
             if (mPack) mPack.innerText = p.packages;
 
-            // 4. Detalle en especificaciones
-            const breakdown = activeMods.map(m => `${m.name} (${m.sku}): $${(parseFloat(m.price)||0).toLocaleString('es-MX', {minimumFractionDigits:2})}`).join(' + ');
-            p.materials = (p.materials ? p.materials.split('\n[Composición]')[0] : '') + `\n[Composición]: ${breakdown}`;
-            const mMat = document.getElementById('mMaterials');
-            if (mMat) mMat.innerText = p.materials;
-
             await saveCatalogData();
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                window.CreataCloud.cloudPost('save_product', { product: p });
+            }
             renderGrid(products);
-            showAdminToast(`¡Unificación aplicada! Precio: ${p.price} | SKU: ${p.sku}`, '⚡');
+            showAdminToast(`¡Suma de ${totalQty} piezas aplicada! Precio: ${p.price}`, '⚡');
         }
