@@ -4,7 +4,7 @@
  * ============================================================================
  * Instalación rápida (una sola vez dentro de tu Google Sheet):
  * 1. Abre tu Sheet:
- *    https://docs.google.com/spreadsheets/d/13ZwLgY_jXfOsGdjZqz-DDZjoGUvLBWApb_-M9Usir1M/edit
+ *    https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit
  * 2. Menú Extensiones -> Apps Script -> pega todo este archivo y guarda.
  * 3. En Configuración del proyecto (engrane) -> Propiedades del script, agrega:
  *    - GEMINI_API_KEY   : Tu clave de Gemini AI Studio (para leer PDFs nuevos de Drive)
@@ -22,7 +22,7 @@
  */
 
 const CONFIG = {
-  SHEET_ID: '13ZwLgY_jXfOsGdjZqz-DDZjoGUvLBWApb_-M9Usir1M',
+  SHEET_ID: '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8',
   DRIVE_FOLDER_ID: '1umQvzMJLXFiOwSyWL8d5v0aCWDpx8hQT',
   PHOTOS_DRIVE_FOLDER_NAME: 'CREATA_FOTOS_CATALOGO_WEB',
   GITHUB_OWNER: 'ikerreyna3942-debug',
