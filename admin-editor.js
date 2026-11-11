@@ -113,75 +113,15 @@ async function extractImageFromDropEvent(e) {
             }
         }
 
-        // Convertir cualquier fuente de imagen (File, Blob, DataURL, URL externa) a Base64 JPEG optimizado con autocrop
-        function imageSourceToBase64(src, maxWidth = 1200, maxHeight = 1200, quality = 0.88) {
-            return new Promise((resolve) => {
-                if (!src) { resolve(null); return; }
-                if (typeof src === 'string') {
-                    const img = new Image();
-                    img.crossOrigin = 'Anonymous';
-                    img.onload = () => {
-                        try {
-                            const normalized = autocropAndNormalizeImage(img, maxWidth, maxHeight, 0.84);
-                            if (normalized) { resolve(normalized); return; }
-                            const canvas = document.createElement('canvas');
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                            const ctx = canvas.getContext('2d');
-                            ctx.fillStyle = '#FFFFFF';
-                            ctx.fillRect(0, 0, canvas.width, canvas.height);
-                            ctx.drawImage(img, 0, 0);
-                            resolve(canvas.toDataURL('image/jpeg', quality));
-                        } catch (e) {
-                            resolve(src);
-                        }
-                    };
-                    img.onerror = () => resolve(src);
-                    img.src = src;
-                    return;
-                }
-
-                // File o Blob
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const rawB64 = e.target.result;
-                    const img = new Image();
-                    img.onload = () => {
-                        try {
-                            const normalized = autocropAndNormalizeImage(img, maxWidth, maxHeight, 0.84);
-                            if (normalized) { resolve(normalized); return; }
-                            let w = img.width;
-                            let h = img.height;
-                            if (w > maxWidth || h > maxHeight) {
-                                if (w > h) {
-                                    h = Math.round((h * maxWidth) / w);
-                                    w = maxWidth;
-                                } else {
-                                    w = Math.round((w * maxHeight) / h);
-                                    h = maxHeight;
-                                }
-                            }
-                            const canvas = document.createElement('canvas');
-                            canvas.width = w;
-                            canvas.height = h;
-                            const ctx = canvas.getContext('2d');
-                            ctx.fillStyle = '#FFFFFF';
-                            ctx.fillRect(0, 0, w, h);
-                            ctx.drawImage(img, 0, 0, w, h);
-                            resolve(canvas.toDataURL('image/jpeg', quality));
-                        } catch (err) {
-                            resolve(rawB64);
-                        }
-                    };
-                    img.onerror = () => resolve(rawB64);
-                    img.src = rawB64;
-                };
-                reader.onerror = () => resolve(null);
-                reader.readAsDataURL(src);
-            });
+        // Convertir cualquier fuente de imagen (File, Blob, DataURL, URL externa) a WebP/JPEG optimizado
+        function imageSourceToBase64(src, maxWidth = 1000, maxHeight = 1000, quality = 0.85) {
+            if (window.CreataCloud && window.CreataCloud.compressImageFast) {
+                return window.CreataCloud.compressImageFast(src, maxWidth, maxHeight, quality);
+            }
+            return Promise.resolve(typeof src === 'string' ? src : null);
         }
 
-        function compressImage(file, maxWidth = 1200, maxHeight = 1200, quality = 0.85) {
+        function compressImage(file, maxWidth = 1000, maxHeight = 1000, quality = 0.85) {
             return imageSourceToBase64(file, maxWidth, maxHeight, quality);
         }
 
@@ -225,39 +165,64 @@ async function extractImageFromDropEvent(e) {
             }
         }
 
+        async function uploadSlotPhotoToCloudIfConfigured(prod, varIdx, slotType, b64) {
+            let finalSrc = b64;
+            let cloudMsg = '';
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                const upRes = await window.CreataCloud.cloudUploadPhoto(prod, varIdx, slotType, b64);
+                if (upRes && upRes.ok && upRes.url) {
+                    finalSrc = upRes.url;
+                    cloudMsg = ' ☁️ (en vivo)';
+                } else if (upRes && upRes.error) {
+                    showAdminToast(`Aviso nube: ${upRes.error} (guardada localmente)`, '⚠️');
+                }
+            }
+            return { finalSrc, cloudMsg };
+        }
+
         async function assignImageToSlot(b64, slotType) {
             const p = products[currentProdIndex];
             if (!p) return;
-            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
+            if (!p.variants || p.variants.length === 0) {
+                p.variants = [{ name: p.model_name, color_label: 'Opción 1', swatch_hex: '#B8893E', hero_b64: '' }];
+                currentVariantIndex = 0;
+            }
+            const v = p.variants[currentVariantIndex] || p.variants[0];
             if (!v.gallery) v.gallery = {};
-            if (!v.gallery.all_views) v.gallery.all_views = [];
+            if (!Array.isArray(v.gallery.all_views)) v.gallery.all_views = [];
+
+            const { finalSrc, cloudMsg } = await uploadSlotPhotoToCloudIfConfigured(p, currentVariantIndex, slotType, b64);
 
             if (slotType === 'ambiente') {
-                v.gallery.ambiente = b64;
-                showAdminToast('Foto de Ambiente actualizada', '📸');
+                v.gallery.ambiente = finalSrc;
+                if (!v.hero_b64) v.hero_b64 = finalSrc;
+                showAdminToast(`Foto de Ambiente actualizada${cloudMsg}`, '📸');
             } else if (slotType === 'finish') {
-                v.gallery.finish = b64;
-                v.gallery.fabric = b64;
-                if (!v.gallery.finishes) v.gallery.finishes = [];
-                v.gallery.finishes[0] = b64;
-                showAdminToast('Foto de Acabado actualizada', '📸');
+                v.gallery.finish = finalSrc;
+                v.gallery.fabric = finalSrc;
+                v.gallery.finishes = [finalSrc];
+                if (!v.hero_b64) v.hero_b64 = finalSrc;
+                showAdminToast(`Foto de Acabado actualizada${cloudMsg}`, '📸');
             } else if (slotType.startsWith('view')) {
-                const vIdx = parseInt(slotType.replace('view', '')) - 1;
-                while (v.gallery.all_views.length <= vIdx) {
-                    v.gallery.all_views.push('');
-                }
-                v.gallery.all_views[vIdx] = b64;
-                v.gallery[slotType] = b64;
-                if (vIdx === 0 && !v.hero_b64) v.hero_b64 = b64;
-                showAdminToast(`Vista ${vIdx + 1} actualizada`, '📸');
+                const vIdx = parseInt(slotType.replace('view', ''), 10) - 1;
+                v.gallery.all_views[vIdx] = finalSrc;
+                v.gallery[slotType] = finalSrc;
+                if (!v.hero_b64) v.hero_b64 = finalSrc;
+                showAdminToast(`Vista ${vIdx + 1} actualizada${cloudMsg}`, '📸');
             } else if (slotType === 'hero') {
-                v.hero_b64 = b64;
-                showAdminToast('Foto de Inicio actualizada', '📸');
+                v.hero_b64 = finalSrc;
+                if (!v.gallery.ambiente || !v.gallery.ambiente.trim()) {
+                    v.gallery.ambiente = finalSrc;
+                }
+                showAdminToast(`Foto de Inicio actualizada${cloudMsg}`, '📸');
             }
 
             updateModalView(false);
             await saveCatalogData();
-            renderGrid(products);
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                window.CreataCloud.cloudPost('save_product', { product: p });
+            }
+            filterCatalog();
         }
 
         async function uploadSlotImage(event, slotType) {
@@ -290,20 +255,25 @@ async function extractImageFromDropEvent(e) {
                 if (rawItem) {
                     const b64 = await imageSourceToBase64(rawItem);
                     if (b64) {
-                        const p = products[currentProdIndex];
-                        const v = p.variants[currentVariantIndex];
-                        if (!v.gallery) v.gallery = {};
-                        if (!v.gallery.all_views) v.gallery.all_views = [];
-                        v.gallery.all_views.push(b64);
-                        await saveCatalogData();
-                        updateModalView(false);
-                        renderGrid(products);
-                        showAdminToast('Foto agregada a la galería', '📸');
+                        const targetSlot = findNextFreeGallerySlot();
+                        await assignImageToSlot(b64, targetSlot);
                     }
                 }
             } catch (err) {
                 console.error('Error en gallery drop:', err);
             }
+        }
+
+        function findNextFreeGallerySlot() {
+            const p = products[currentProdIndex];
+            const v = (p && p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : {};
+            const g = v.gallery || {};
+            const slots = ['view1', 'view2', 'view3', 'view4'];
+            for (let i = 0; i < slots.length; i++) {
+                const val = g[slots[i]] || (Array.isArray(g.all_views) ? g.all_views[i] : '');
+                if (!val || !val.trim()) return slots[i];
+            }
+            return 'view4';
         }
 
         async function handleGalleryMultiUpload(e) {
@@ -315,23 +285,17 @@ async function extractImageFromDropEvent(e) {
         async function processMultipleGalleryFiles(files) {
             const p = products[currentProdIndex];
             if (!p) return;
-            const v = p.variants ? p.variants[currentVariantIndex] : {};
-            if (!v.gallery) v.gallery = {};
-            if (!v.gallery.all_views) v.gallery.all_views = [];
-
             showAdminToast(`Procesando ${files.length} foto(s)...`, '⏳');
             let addedCount = 0;
             for (let i = 0; i < files.length; i++) {
                 const b64 = await imageSourceToBase64(files[i]);
                 if (b64) {
-                    v.gallery.all_views.push(b64);
+                    const targetSlot = findNextFreeGallerySlot();
+                    await assignImageToSlot(b64, targetSlot);
                     addedCount++;
                 }
             }
-            if (addedCount > 0) {
-                await saveCatalogData();
-                updateModalView(false);
-                renderGrid(products);
+            if (addedCount > 1) {
                 showAdminToast(`¡${addedCount} foto(s) agregadas a la galería!`, '📸');
             }
         }
@@ -340,35 +304,41 @@ async function extractImageFromDropEvent(e) {
             const p = products[currentProdIndex];
             if (!p) return;
             const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
-            if (!v.gallery) v.gallery = {};
+            if (!v || !v.gallery) return;
 
-            if (!confirm(`¿Eliminar esta foto?`)) return;
+            if (!confirm('¿Eliminar esta foto?')) return;
 
+            let deletedSrc = '';
             if (slotType === 'ambiente') {
+                deletedSrc = v.gallery.ambiente || '';
                 v.gallery.ambiente = '';
-                if (v.hero_b64 === v.gallery.ambiente) v.hero_b64 = '';
                 showAdminToast('Foto de Ambiente eliminada', '🗑️');
             } else if (slotType === 'finish') {
+                deletedSrc = v.gallery.finish || v.gallery.fabric || '';
                 v.gallery.finish = '';
                 v.gallery.fabric = '';
-                if (v.gallery.finishes && v.gallery.finishes.length > 0) {
-                    v.gallery.finishes[0] = '';
-                }
+                v.gallery.finishes = [];
                 showAdminToast('Foto de Acabado eliminada', '🗑️');
             } else if (slotType.startsWith('view')) {
-                const vIdx = parseInt(slotType.replace('view', '')) - 1;
+                const vIdx = parseInt(slotType.replace('view', ''), 10) - 1;
+                deletedSrc = v.gallery[slotType] || (Array.isArray(v.gallery.all_views) ? v.gallery.all_views[vIdx] : '') || '';
                 v.gallery[slotType] = '';
-                if (!v.gallery.all_views) v.gallery.all_views = [];
-                while (v.gallery.all_views.length <= vIdx) {
-                    v.gallery.all_views.push('');
-                }
+                if (!Array.isArray(v.gallery.all_views)) v.gallery.all_views = [];
                 v.gallery.all_views[vIdx] = '';
                 showAdminToast(`Vista ${vIdx + 1} eliminada`, '🗑️');
             }
 
+            if (deletedSrc && v.hero_b64 === deletedSrc) {
+                const fallback = v.gallery.ambiente || v.gallery.view1 || v.gallery.view2 || v.gallery.view3 || v.gallery.view4 || '';
+                v.hero_b64 = fallback;
+            }
+
             updateModalView(false);
             await saveCatalogData();
-            renderGrid(products);
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                window.CreataCloud.cloudPost('save_product', { product: p });
+            }
+            filterCatalog();
         }
 
         // Drag & Drop en tarjetas de inicio
@@ -385,6 +355,31 @@ async function extractImageFromDropEvent(e) {
             if (!e.currentTarget.contains(e.relatedTarget)) {
                 e.currentTarget.classList.remove('drag-over');
             }
+        }
+
+        async function applyCardHeroImage(realIdx, b64) {
+            const p = products[realIdx];
+            if (!p || !b64) return;
+            if (!p.variants || p.variants.length === 0) {
+                p.variants = [{ name: p.model_name, color_label: 'Opción 1', swatch_hex: '#B8893E', hero_b64: '' }];
+            }
+            const v = p.variants[0];
+            if (!v.gallery) v.gallery = {};
+            if (!Array.isArray(v.gallery.all_views)) v.gallery.all_views = [];
+
+            const { finalSrc, cloudMsg } = await uploadSlotPhotoToCloudIfConfigured(p, 0, 'hero', b64);
+            v.hero_b64 = finalSrc;
+            if (!v.gallery.ambiente || !String(v.gallery.ambiente).trim()) {
+                v.gallery.ambiente = finalSrc;
+            }
+
+            await saveCatalogData();
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                window.CreataCloud.cloudPost('save_product', { product: p });
+            }
+            filterCatalog();
+            updateAdminBadge();
+            showAdminToast(`¡Foto de inicio de "${p.model_name}" actualizada${cloudMsg}!`, '📸');
         }
 
         async function handleCardDrop(e, realIdx) {
@@ -406,21 +401,7 @@ async function extractImageFromDropEvent(e) {
                     showAdminToast('No se pudo procesar la foto', '❌');
                     return;
                 }
-
-                if (!p.variants || p.variants.length === 0) {
-                    p.variants = [{ name: p.model_name, color_label: 'Opción 1', swatch_hex: '#B8893E', hero_b64: '' }];
-                }
-                const v = p.variants[0];
-                v.hero_b64 = b64;
-                if (!v.gallery) v.gallery = {};
-                if (!v.gallery.ambiente) v.gallery.ambiente = b64;
-                if (!v.gallery.all_views) v.gallery.all_views = [b64];
-                else v.gallery.all_views[0] = b64;
-
-                await saveCatalogData();
-                filterCatalog();
-                updateAdminBadge();
-                showAdminToast(`¡Foto de inicio de "${p.model_name}" actualizada!`, '📸');
+                await applyCardHeroImage(realIdx, b64);
             } catch (err) {
                 console.error('Error en card drop:', err);
                 showAdminToast('Error al cargar la foto', '❌');
@@ -429,64 +410,75 @@ async function extractImageFromDropEvent(e) {
 
         async function uploadCardHeroImage(e, realIdx) {
             const file = e.target.files[0];
+            e.target.value = '';
             if (!file) return;
-            const p = products[realIdx];
-            if (!p) return;
-            const b64 = await imageSourceToBase64(file);
-            if (b64) {
-                if (!p.variants || p.variants.length === 0) {
-                    p.variants = [{ name: p.model_name, color_label: 'Opción 1', swatch_hex: '#B8893E', hero_b64: '' }];
+            try {
+                const p = products[realIdx];
+                if (!p) return;
+                showAdminToast(`Cargando foto de inicio para "${p.model_name}"...`, '⏳');
+                const b64 = await imageSourceToBase64(file);
+                if (!b64) {
+                    showAdminToast('No se pudo procesar la foto', '❌');
+                    return;
                 }
-                const v = p.variants[0];
-                v.hero_b64 = b64;
-                if (!v.gallery) v.gallery = {};
-                if (!v.gallery.ambiente) v.gallery.ambiente = b64;
-                if (!v.gallery.all_views) v.gallery.all_views = [b64];
-                else v.gallery.all_views[0] = b64;
-                await saveCatalogData();
-                filterCatalog();
-                updateAdminBadge();
-                showAdminToast(`¡Foto de inicio de "${p.model_name}" actualizada!`, '📸');
+                await applyCardHeroImage(realIdx, b64);
+            } catch (err) {
+                console.error('Error al subir foto de portada:', err);
+                showAdminToast('Error al cargar la foto', '❌');
             }
+        }
+
+        async function applyFabricPhoto(b64) {
+            const p = products[currentProdIndex];
+            if (!p || !b64) return;
+            if (!p.variants || p.variants.length === 0) {
+                p.variants = [{ name: p.model_name, color_label: 'Opción 1', swatch_hex: '#B8893E', hero_b64: '' }];
+                currentVariantIndex = 0;
+            }
+            const v = p.variants[currentVariantIndex] || p.variants[0];
+            if (!v.gallery) v.gallery = {};
+            if (!Array.isArray(v.gallery.all_views)) v.gallery.all_views = [];
+
+            const { finalSrc, cloudMsg } = await uploadSlotPhotoToCloudIfConfigured(p, currentVariantIndex, 'finish', b64);
+            v.swatch_img = finalSrc;
+            v.gallery.finish = finalSrc;
+            v.gallery.fabric = finalSrc;
+            v.gallery.finishes = [finalSrc];
+            if (!v.hero_b64) v.hero_b64 = finalSrc;
+
+            await saveCatalogData();
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                window.CreataCloud.cloudPost('save_product', { product: p });
+            }
+            updateModalView(false);
+            filterCatalog();
+            showAdminToast(`Foto de muestra para "${v.color_label}" guardada${cloudMsg}`, '📸');
         }
 
         async function handleFabricPhotoUpload(e) {
             const file = e.target.files[0];
+            e.target.value = '';
             if (!file) return;
-            const p = products[currentProdIndex];
-            if (!p) return;
-            const v = p.variants ? p.variants[currentVariantIndex] : null;
-            if (!v) return;
-            const b64 = await imageSourceToBase64(file);
-            if (b64) {
-                v.swatch_img = b64;
-                if (!v.gallery) v.gallery = {};
-                v.gallery.finishes = [b64];
-                await saveCatalogData();
-                updateModalView(false);
-                renderGrid(products);
-                showAdminToast(`Foto de muestra para "${v.color_label}" guardada`, '📸');
+            try {
+                const b64 = await imageSourceToBase64(file);
+                if (b64) await applyFabricPhoto(b64);
+            } catch (err) {
+                console.error('Error en carga de foto de tela:', err);
+                showAdminToast('Error al procesar la foto de acabado', '❌');
             }
         }
 
         async function handleFabricPhotoDrop(e) {
             e.preventDefault();
             e.stopPropagation();
-            const p = products[currentProdIndex];
-            if (!p) return;
-            const v = p.variants ? p.variants[currentVariantIndex] : null;
-            if (!v) return;
-            const rawItem = await extractImageFromDropEvent(e);
-            if (!rawItem) return;
-            const b64 = await imageSourceToBase64(rawItem);
-            if (b64) {
-                v.swatch_img = b64;
-                if (!v.gallery) v.gallery = {};
-                v.gallery.finishes = [b64];
-                await saveCatalogData();
-                updateModalView(false);
-                renderGrid(products);
-                showAdminToast(`Foto de muestra para "${v.color_label}" guardada`, '📸');
+            try {
+                const rawItem = await extractImageFromDropEvent(e);
+                if (!rawItem) return;
+                const b64 = await imageSourceToBase64(rawItem);
+                if (b64) await applyFabricPhoto(b64);
+            } catch (err) {
+                console.error('Error en drop de foto de tela:', err);
+                showAdminToast('Error al procesar la foto de acabado', '❌');
             }
         }
 
