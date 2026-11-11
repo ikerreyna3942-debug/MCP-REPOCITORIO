@@ -112,7 +112,7 @@ function populateSkuDatalist() {
                             view2: '',
                             view3: '',
                             view4: '',
-                            all_views: ['', '', '', '']
+                            all_views: []
                         }
                     };
                 });
@@ -280,30 +280,55 @@ function populateSkuDatalist() {
         
 
         async function initializeCatalog() {
-            const CATALOG_BUILD_VERSION = 'creata_catalog_v8_clean_no_photos';
-            if (!localStorage.getItem(CATALOG_BUILD_VERSION)) {
-                localStorage.setItem(CATALOG_BUILD_VERSION, 'true');
-                try {
-                    const db = await openCatalogDB();
-                    const tx = db.transaction(STORE_NAME, 'readwrite');
-                    tx.objectStore(STORE_NAME).put(rawProducts, 'catalog_data');
-                    await new Promise(r => tx.oncomplete = r);
-                    console.log('[Creata] Catálogo oficial limpio sincronizado con éxito.');
-                } catch (e) {
-                    console.warn('[Creata Sync Error]', e);
+            const CATALOG_BUILD_VERSION = 'creata_catalog_v9_cloud_ready';
+            let sourceList = null;
+
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                const cloudList = await window.CreataCloud.fetchCloudCatalog('admin');
+                if (Array.isArray(cloudList) && cloudList.length > 0) {
+                    sourceList = cloudList;
+                    try {
+                        const db = await openCatalogDB();
+                        const tx = db.transaction(STORE_NAME, 'readwrite');
+                        tx.objectStore(STORE_NAME).put(cloudList, 'catalog_data');
+                        await new Promise(r => tx.oncomplete = r);
+                    } catch (e) {}
                 }
             }
-            const custom = await loadCustomProducts();
-            const sourceList = (custom && Array.isArray(custom) && custom.length > 0) ? custom : rawProducts;
+
+            if (!sourceList) {
+                if (!localStorage.getItem(CATALOG_BUILD_VERSION)) {
+                    localStorage.setItem(CATALOG_BUILD_VERSION, 'true');
+                    const existing = await loadCustomProducts();
+                    if (!existing || existing.length === 0) {
+                        try {
+                            const db = await openCatalogDB();
+                            const tx = db.transaction(STORE_NAME, 'readwrite');
+                            tx.objectStore(STORE_NAME).put(rawProducts, 'catalog_data');
+                            await new Promise(r => tx.oncomplete = r);
+                        } catch (e) {
+                            console.warn('[Creata Sync Error]', e);
+                        }
+                    }
+                }
+                const custom = await loadCustomProducts();
+                sourceList = (custom && Array.isArray(custom) && custom.length > 0) ? custom : rawProducts;
+            }
+
+            // En el editor SÍ mostramos fichas archivadas (ej. nuevas de Drive) aunque estén pendientes de completar
             products = sourceList.filter(p =>
-                p.drive_ficha_url &&
-                p.width && p.width !== 'N/D' &&
-                p.depth && p.depth !== 'N/D' &&
-                p.height && p.height !== 'N/D' &&
-                p.price && !p.price.includes('Consultar')
+                p && (
+                    p.archived === true ||
+                    (p.drive_ficha_url &&
+                    p.width && p.width !== 'N/D' &&
+                    p.depth && p.depth !== 'N/D' &&
+                    p.height && p.height !== 'N/D' &&
+                    p.price && !p.price.includes('Consultar'))
+                )
             );
             updateCategoryCounts();
             updateAdminBadge();
+            if (typeof updateCloudStatusUI === 'function') updateCloudStatusUI();
             setFilter(currentFilter);
             const savedLogo = localStorage.getItem('creata_custom_logo');
             if (savedLogo) {
@@ -475,35 +500,41 @@ function populateSkuDatalist() {
             });
         }
 
-        async function toggleArchiveProductByIdx(realIdx) {
+        async function applyToggleArchiveProduct(realIdx, updateModal) {
             const p = products[realIdx];
             if (!p) return;
             p.archived = !p.archived;
             await saveCatalogData();
+            if (updateModal) updateModalView(false);
             updateCategoryCounts();
             filterCatalog();
             updateAdminBadge();
+
+            let cloudSuffix = '';
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                let res = await window.CreataCloud.cloudPost('toggle_archive', {
+                    productId: p.id,
+                    archived: !!p.archived
+                });
+                if (!res || !res.ok) {
+                    res = await window.CreataCloud.cloudPost('save_product', { product: p });
+                }
+                cloudSuffix = (res && res.ok) ? ' · ☁️ Sheets al día' : ' · ⚠️ Solo local';
+            }
+
             if (p.archived) {
-                showAdminToast(`"${p.model_name}" archivado (oculto del catálogo)`, '📦');
+                showAdminToast(`"${p.model_name}" archivado (oculto del catálogo)${cloudSuffix}`, '📦');
             } else {
-                showAdminToast(`"${p.model_name}" desarchivado (visible en catálogo)`, '👁️');
+                showAdminToast(`"${p.model_name}" desarchivado (visible en catálogo)${cloudSuffix}`, '👁️');
             }
         }
 
+        async function toggleArchiveProductByIdx(realIdx) {
+            await applyToggleArchiveProduct(realIdx, false);
+        }
+
         async function toggleArchiveCurrentProduct() {
-            const p = products[currentProdIndex];
-            if (!p) return;
-            p.archived = !p.archived;
-            await saveCatalogData();
-            updateModalView(false);
-            updateCategoryCounts();
-            filterCatalog();
-            updateAdminBadge();
-            if (p.archived) {
-                showAdminToast(`"${p.model_name}" archivado (oculto del catálogo)`, '📦');
-            } else {
-                showAdminToast(`"${p.model_name}" desarchivado (visible en catálogo)`, '👁️');
-            }
+            await applyToggleArchiveProduct(currentProdIndex, true);
         }
 
         function openModal(prodIdx, variantIdx = 0, viewIdx = 0, startInEdit = false) {
