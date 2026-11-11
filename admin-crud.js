@@ -164,12 +164,12 @@ function prevProduct() {
             const pkg = getSpecVal('mPackages');
             const vol = getSpecVal('mVolume');
 
-            if (w !== null) { v.width = w; if (currentVariantIndex === 0) p.width = w; }
-            if (d !== null) { v.depth = d; if (currentVariantIndex === 0) p.depth = d; }
-            if (h !== null) { v.height = h; if (currentVariantIndex === 0) p.height = h; }
-            if (s !== null) { v.seat = s; if (currentVariantIndex === 0) p.seat = s; }
-            if (pkg !== null) { v.packages = pkg; if (currentVariantIndex === 0) p.packages = pkg; }
-            if (vol !== null) { v.volume = vol; if (currentVariantIndex === 0) p.volume = vol; }
+            if (w !== null) { v.width = w; if (currentVariantIndex === 0 || !p.width) p.width = w; }
+            if (d !== null) { v.depth = d; if (currentVariantIndex === 0 || !p.depth) p.depth = d; }
+            if (h !== null) { v.height = h; if (currentVariantIndex === 0 || !p.height) p.height = h; }
+            if (s !== null) { v.seat = s; if (currentVariantIndex === 0 || !p.seat) p.seat = s; }
+            if (pkg !== null) { v.packages = pkg; if (currentVariantIndex === 0 || !p.packages) p.packages = pkg; }
+            if (vol !== null) { v.volume = vol; if (currentVariantIndex === 0 || !p.volume) p.volume = vol; }
 
             const priceInput = document.getElementById('edit_price');
             if (priceInput) p.price = priceInput.value.trim();
@@ -177,38 +177,56 @@ function prevProduct() {
             const matInput = document.getElementById('edit_materials');
             if (matInput) {
                 v.materials = matInput.value.trim();
-                if (currentVariantIndex === 0) p.materials = v.materials;
+                if (currentVariantIndex === 0 || !p.materials) p.materials = v.materials;
             }
 
             const driveInput = document.getElementById('edit_drive_url');
             if (driveInput) {
                 v.drive_ficha_url = driveInput.value.trim();
-                if (currentVariantIndex === 0) p.drive_ficha_url = v.drive_ficha_url;
+                if (currentVariantIndex === 0 || !p.drive_ficha_url) p.drive_ficha_url = v.drive_ficha_url;
             }
 
             await saveCatalogData();
+            let cloudMsg = '';
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                const syncRes = await window.CreataCloud.cloudPost('save_product', { product: p });
+                if (syncRes && syncRes.ok) {
+                    cloudMsg = ' · ☁️ Sheets en vivo';
+                } else if (syncRes && syncRes.error) {
+                    cloudMsg = ` · ⚠️ Error Sheets: ${syncRes.error}`;
+                }
+            }
             toggleEditMode(false);
-            renderGrid(products);
+            updateCategoryCounts();
+            filterCatalog();
             updateAdminBadge();
-            showAdminToast('¡Cambios guardados con éxito!', '✅');
+            showAdminToast(`¡Cambios guardados con éxito${cloudMsg}!`, '✅');
         }
 
         async function deleteCurrentFurniture() {
             const p = products[currentProdIndex];
-            if (!confirm(`¿Estás seguro de eliminar "${p.model_name}" del catálogo?\nEsta acción no se puede deshacer.`)) {
+            if (!p) return;
+            const deletedId = p.id;
+            const deletedName = p.model_name;
+            if (!confirm(`¿Estás seguro de eliminar "${deletedName}" del catálogo?\nEsta acción no se puede deshacer.`)) {
                 return;
             }
             products.splice(currentProdIndex, 1);
             await saveCatalogData();
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                await window.CreataCloud.cloudPost('delete_product', { productId: deletedId });
+            }
             closeModal();
-            renderGrid(products);
+            updateCategoryCounts();
+            filterCatalog();
             updateAdminBadge();
-            showAdminToast(`"${p.model_name}" eliminado correctamente`, '🗑️');
+            showAdminToast(`"${deletedName}" eliminado correctamente`, '🗑️');
         }
 
         function openNewFurnitureModal() {
             const newProd = {
                 id: 'PROD-' + Date.now(),
+                archived: true,
                 model_name: 'NUEVO MUEBLE',
                 provider_abbr: 'ARM',
                 provider: 'ARM',
@@ -222,6 +240,7 @@ function prevProduct() {
                 price: '$0.00',
                 cost: '$0.00',
                 drive_ficha_url: '',
+                drive_file_id: '',
                 materials: '',
                 variants: [
                     {
@@ -240,7 +259,7 @@ function prevProduct() {
                             view2: '',
                             view3: '',
                             view4: '',
-                            all_views: ['', '', '', '']
+                            all_views: []
                         }
                     }
                 ]
@@ -249,8 +268,12 @@ function prevProduct() {
             products.unshift(newProd);
             currentProdIndex = 0;
             currentVariantIndex = 0;
+            saveCatalogData();
+            updateCategoryCounts();
+            filterCatalog();
+            updateAdminBadge();
             openModal(0, 0, 0, true);
-            showAdminToast('Nuevo mueble creado con ficha limpia en blanco.', '➕');
+            showAdminToast('Ficha creada en ARCHIVADO. Agrega fotos/precio y desarchívala para publicar.', '📦');
         }
 
         function updateAdminBadge() {
@@ -329,4 +352,161 @@ function prevProduct() {
             showAdminToast(`Catálogo oficial recargado: ${products.length} fichas`, '🔄');
         }
 
+        // ==========================================================================
+        // CONEXIÓN EN VIVO CON GOOGLE SHEETS & DRIVE (APPS SCRIPT)
+        // ==========================================================================
+        function setCloudFeedback(msg, isError = false) {
+            const el = document.getElementById('cloudSyncFeedback');
+            if (!el) return;
+            el.textContent = msg;
+            el.className = isError
+                ? 'text-xs font-semibold text-red-400 mt-2'
+                : 'text-xs font-semibold text-emerald-400 mt-2';
+        }
+
+        function updateCloudStatusUI() {
+            const btn = document.getElementById('btnCloudSync');
+            const badge = document.getElementById('cloudStatusBadgeText');
+            const connected = !!(window.CreataCloud && window.CreataCloud.config.isConfigured());
+
+            if (btn) {
+                btn.innerHTML = connected
+                    ? '<span>🟢</span> Sheets En Vivo'
+                    : '<span>☁️</span> Conectar Sheets';
+                btn.classList.toggle('is-connected', connected);
+            }
+            if (badge) {
+                badge.textContent = connected
+                    ? 'Conectado a Google Sheets y Drive'
+                    : 'Pendiente de conectar URL de Apps Script';
+                badge.className = connected
+                    ? 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40';
+            }
+        }
+
+        function openCloudSetupModal() {
+            const modal = document.getElementById('cloudSetupModal');
+            if (!modal) return;
+            const urlInp = document.getElementById('cloudApiUrlInput');
+            const pinInp = document.getElementById('cloudPinInput');
+            if (urlInp && window.CreataCloud) urlInp.value = window.CreataCloud.config.getApiUrl();
+            if (pinInp && window.CreataCloud) pinInp.value = window.CreataCloud.config.getAdminPin();
+            setCloudFeedback('');
+            updateCloudStatusUI();
+            modal.classList.add('active');
+        }
+
+        function closeCloudSetupModal() {
+            const modal = document.getElementById('cloudSetupModal');
+            if (modal) modal.classList.remove('active');
+        }
+
+        async function refreshCatalogFromCloud() {
+            if (!window.CreataCloud || !window.CreataCloud.config.isConfigured()) return null;
+            const cloudList = await window.CreataCloud.fetchCloudCatalog('admin', 12000);
+            if (!Array.isArray(cloudList)) return null;
+            if (cloudList.length > 0) {
+                products = cloudList;
+                await saveCatalogData();
+                updateCategoryCounts();
+                filterCatalog();
+                updateAdminBadge();
+            }
+            return cloudList;
+        }
+
+        async function saveCloudSetupConfig() {
+            if (!window.CreataCloud) return;
+            const url = (document.getElementById('cloudApiUrlInput')?.value || '').trim();
+            const pin = (document.getElementById('cloudPinInput')?.value || '').trim();
+
+            if (url && !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/i.test(url)) {
+                setCloudFeedback('La URL debe terminar en /exec (de script.google.com/macros/s/...).', true);
+                return;
+            }
+
+            window.CreataCloud.config.setApiUrl(url);
+            window.CreataCloud.config.setAdminPin(pin);
+            updateCloudStatusUI();
+
+            if (!url) {
+                setCloudFeedback('Conexión desconectada. Modo local activo.', false);
+                showAdminToast('Modo local restaurado', 'ℹ️');
+                return;
+            }
+
+            setCloudFeedback('Probando conexión con Google Sheets...');
+            const cloudList = await refreshCatalogFromCloud();
+            if (cloudList === null) {
+                setCloudFeedback('No respondió el Web App. Verifica el PIN y que el acceso sea "Cualquier usuario".', true);
+                return;
+            }
+            if (cloudList.length === 0) {
+                setCloudFeedback('Conectado. Sheets está vacío: pulsa "Subir Base Actual a Sheets" para poblarlo.', false);
+                showAdminToast('Apps Script conectado correctamente ☁️', '✅');
+            } else {
+                setCloudFeedback(`Conectado en vivo (${cloudList.length} productos sincronizados).`, false);
+                showAdminToast(`Conectado: ${cloudList.length} fichas sincronizadas con Sheets ☁️`, '✅');
+            }
+        }
+
+        async function triggerCloudDriveSync() {
+            if (!window.CreataCloud || !window.CreataCloud.config.isConfigured()) {
+                openCloudSetupModal();
+                setCloudFeedback('Primero pega y guarda la URL /exec de Apps Script.', true);
+                return;
+            }
+            setCloudFeedback('Escaneando Drive con IA y creando filas ARCHIVADO en Sheets...');
+            showAdminToast('Buscando fichas nuevas en Drive...', '⏳');
+
+            const res = await window.CreataCloud.cloudPost('sync_drive', {}, 60000);
+            if (!res || !res.ok) {
+                const errMsg = (res && res.error) ? res.error : 'Error al sincronizar Drive';
+                setCloudFeedback(errMsg, true);
+                showAdminToast(errMsg, '❌');
+                return;
+            }
+
+            const cloudList = await refreshCatalogFromCloud();
+            const added = Number(res.added || 0);
+            const skipped = Number(res.skipped || 0);
+            if (added > 0) setFilter('ARCHIVED');
+
+            const summary = added > 0
+                ? `Se importaron ${added} fichas nuevas como ARCHIVADO (${skipped} ya existían).`
+                : `Drive al día: 0 fichas nuevas (${skipped} ya registradas en Sheets).`;
+            setCloudFeedback(summary + (cloudList ? ` Total en Sheets: ${cloudList.length}.` : ''));
+            showAdminToast(summary, added > 0 ? '📥' : '✅');
+        }
+
+        async function pushAllProductsToSheets() {
+            if (!window.CreataCloud || !window.CreataCloud.config.isConfigured()) {
+                openCloudSetupModal();
+                setCloudFeedback('Primero guarda la URL /exec de Apps Script.', true);
+                return;
+            }
+            if (!Array.isArray(products) || products.length === 0) {
+                setCloudFeedback('No hay productos cargados en el editor.', true);
+                return;
+            }
+
+            const batchSize = 15;
+            let uploaded = 0;
+            for (let i = 0; i < products.length; i += batchSize) {
+                const batch = products.slice(i, i + batchSize);
+                setCloudFeedback(`Subiendo bloque ${Math.floor(i / batchSize) + 1} (${uploaded}/${products.length})...`);
+                const res = await window.CreataCloud.cloudPost('bulk_seed', { products: batch }, 60000);
+                if (!res || !res.ok) {
+                    const errMsg = (res && res.error) ? res.error : 'Fallo durante bulk_seed';
+                    setCloudFeedback(errMsg, true);
+                    showAdminToast(errMsg, '❌');
+                    return;
+                }
+                uploaded += Number(res.count || batch.length);
+            }
+
+            setCloudFeedback(`¡Listo! ${uploaded} fichas sincronizadas en Google Sheets.`, false);
+            showAdminToast(`${uploaded} fichas cargadas en Google Sheets ☁️`, '✅');
+        }
         // ==========================================================================
