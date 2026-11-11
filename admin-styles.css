@@ -640,8 +640,15 @@
             padding: 6px;
             text-align: center;
         }
-        .gallery-slot:hover .photo-upload-overlay {
+        .gallery-slot:hover .photo-upload-overlay,
+        .gallery-slot:focus-within .photo-upload-overlay {
             opacity: 1;
+        }
+        @media (hover: none), (pointer: coarse) {
+            .photo-upload-overlay {
+                opacity: 0.72;
+                background: rgba(15, 23, 42, 0.45);
+            }
         }
         .editable-field-input {
             width: 100%;
@@ -986,4 +993,34 @@
         }
         .modal-edit-column::-webkit-scrollbar-thumb:hover {
             background: #94A3B8;
+        }
+
+        .admin-btn-cloud {
+            background: rgba(30, 41, 59, 0.9);
+            color: #FDE68A;
+            border: 1px solid rgba(184, 137, 62, 0.55);
+        }
+        .admin-btn-cloud:hover {
+            background: rgba(184, 137, 62, 0.25);
+            color: #FFFFFF;
+        }
+        .admin-btn-cloud.is-connected {
+            background: rgba(16, 185, 129, 0.16);
+            color: #6EE7B7;
+            border-color: rgba(16, 185, 129, 0.5);
+        }
+
+        #cloudSetupModal {
+            position: fixed;
+            inset: 0;
+            z-index: 260;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(4px);
+        }
+        #cloudSetupModal.active {
+            display: flex;
         }
