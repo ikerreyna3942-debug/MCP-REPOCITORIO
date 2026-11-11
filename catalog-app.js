@@ -1,6 +1,6 @@
 // INDEXEDDB DATABASE SYNC
         const DB_NAME = 'CreataCatalogDB';
-        const DB_VERSION = 2;
+        const DB_VERSION = 3;
         const STORE_NAME = 'products_store';
 
         function openCatalogDB() {
@@ -40,26 +40,38 @@
         let currentProdIndex = 0;
         let currentVariantIndex = 0;
 
-                async function initializeCatalog() {
-            // Purgar bases de datos y flags obsoletas de versiones previas en el navegador del cliente
-            try {
-                if (window.indexedDB) {
-                    window.indexedDB.deleteDatabase('CreataCatalogDB');
-                }
-            } catch (e) {}
-            try {
-                localStorage.removeItem('creata_catalog_v7_unified_fabrics');
-                localStorage.removeItem('creata_catalog_v8_enhanced_modal');
-            } catch (e) {}
+        async function initializeCatalog() {
+            let sourceList = rawProducts;
+            let isCloudSource = false;
 
-            // FUENTE DE VERDAD OFICIAL Y DIRECTA: rawProducts
-            products = rawProducts.filter(p =>
-                p.drive_ficha_url &&
-                p.width && p.width !== 'N/D' &&
-                p.depth && p.depth !== 'N/D' &&
-                p.height && p.height !== 'N/D' &&
-                p.price && !p.price.includes('Consultar')
-            );
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                const liveList = await window.CreataCloud.fetchCloudCatalog('public');
+                if (Array.isArray(liveList) && liveList.length > 0) {
+                    sourceList = liveList;
+                    isCloudSource = true;
+                }
+            }
+
+            if (!isCloudSource && localStorage.getItem('creata_catalog_v9_cloud_ready') === 'true') {
+                const localCustom = await loadCustomProducts();
+                if (Array.isArray(localCustom) && localCustom.length > 0) {
+                    sourceList = localCustom;
+                }
+            }
+
+            // FUENTE DE VERDAD SEGURA PARA CLIENTES (SIN ARCHIVADOS, SIN SKUs, SIN TEXTOS INVENTADOS)
+            products = sourceList
+                .map(p => window.CreataCloud ? window.CreataCloud.sanitizePublicProduct(p) : p)
+                .filter(p => {
+                    if (!p || p.archived || !p.model_name) return false;
+                    if (isCloudSource) return true;
+                    return !!(
+                        p.width && p.width !== 'N/D' &&
+                        p.depth && p.depth !== 'N/D' &&
+                        p.height && p.height !== 'N/D' &&
+                        p.price && !String(p.price).includes('Consultar')
+                    );
+                });
             updateCategoryCounts();
             setFilter(currentFilter);
             const savedLogo = localStorage.getItem('creata_custom_logo');
@@ -159,27 +171,28 @@
                         ? `background-image: url('${vItem.swatch_img}'); background-size: cover; background-position: center;`
                         : `background-color: ${vItem.swatch_hex || '#B8893E'};`;
                     return `
-                    <span onmouseenter="if(products[${realIdx}].variants[${vIdx}].hero_b64) document.getElementById('${imgId}').src = products[${realIdx}].variants[${vIdx}].hero_b64;"
-                          onclick="event.stopPropagation(); if(products[${realIdx}].variants[${vIdx}].hero_b64) document.getElementById('${imgId}').src = products[${realIdx}].variants[${vIdx}].hero_b64; openModal(${realIdx}, ${vIdx});" 
+                    <span onmouseenter="var img=document.getElementById('${imgId}'); if(img && products[${realIdx}].variants[${vIdx}].hero_b64){img.src=products[${realIdx}].variants[${vIdx}].hero_b64; img.style.display='block';}"
+                          onclick="event.stopPropagation(); var img=document.getElementById('${imgId}'); if(img && products[${realIdx}].variants[${vIdx}].hero_b64){img.src=products[${realIdx}].variants[${vIdx}].hero_b64; img.style.display='block';} openModal(${realIdx}, ${vIdx});" 
                           title="${vItem.color_label || 'Opción'}" 
                           class="swatch-circle"
                           style="${bgStyle}"></span>
                     `;
                 }).join('');
 
-                const hasHero = !!(v.hero_b64);
+                const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
+                const heroSrc = isPhotoValid(v.hero_b64) ? v.hero_b64 : '';
+                const hasHero = !!heroSrc;
                 card.innerHTML = `
                     <div class="card-img-area flex items-center justify-center bg-[#F8FAFC]">
                         <span class="badge-category">${p.category}</span>
-                        ${hasHero ? `<img id="${imgId}" src="${v.hero_b64}" alt="${p.model_name}">` : `
-                        <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px;">
+                        ${hasHero ? `<img id="${imgId}" src="${heroSrc}" alt="${p.model_name}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+                        <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px; ${hasHero ? 'display:none;' : ''}">
                             <div class="w-12 h-12 rounded-full bg-[#B8893E]/10 flex items-center justify-center mb-2">
                                 <svg class="w-6 h-6 text-[#B8893E]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                             </div>
                             <span class="text-[10px] font-bold text-slate-700 tracking-wider uppercase">${p.provider_abbr || 'CREATA'}</span>
                             <span class="text-[9px] text-[#B8893E] font-semibold mt-1">📄 Ver Ficha Técnica</span>
                         </div>
-                        `}
                     </div>
                     <div class="card-footer-info">
                         <div class="card-product-title">${p.model_name}</div>
@@ -220,31 +233,45 @@
             document.getElementById('modalProviderCat').innerText = `${p.provider_abbr} · ${p.category}`;
             document.getElementById('modalTitle').innerText = p.model_name;
 
-            const g = v.gallery || {
-                ambiente: v.hero_b64,
-                finishes: [v.hero_b64],
-                all_views: [v.hero_b64]
-            };
-
-            const allViews = (g.all_views && g.all_views.length > 0)
+            const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
+            const g = v.gallery || {};
+            const heroUrl = isPhotoValid(v.hero_b64) ? v.hero_b64 : '';
+            const ambUrl = isPhotoValid(g.ambiente) ? g.ambiente : heroUrl;
+            const rawViews = Array.isArray(g.all_views) && g.all_views.length > 0
                 ? g.all_views
-                : [g.view1 || v.hero_b64, g.view2 || v.hero_b64, g.view3 || v.hero_b64, g.view4 || v.hero_b64];
+                : [g.view1, g.view2, g.view3, g.view4];
+            const validViews = (rawViews || []).filter(isPhotoValid);
 
-            document.getElementById('slotImgAmbiente').src = g.ambiente || v.hero_b64 || '';
-            const finishSrc = g.finish || (g.finishes && g.finishes.length > 0 ? g.finishes[0] : '') || g.fabric || v.swatch_img || '';
+            const ambEl = document.getElementById('slotImgAmbiente');
+            if (ambEl) {
+                ambEl.className = "w-full h-full object-contain bg-white transition-all duration-200";
+                if (ambUrl) {
+                    ambEl.src = ambUrl;
+                    ambEl.style.display = 'block';
+                } else {
+                    ambEl.removeAttribute('src');
+                    ambEl.style.display = 'none';
+                }
+            }
+
+            const rawFinish = g.finish || (g.finishes && g.finishes.length > 0 ? g.finishes[0] : '') || g.fabric || v.swatch_img || '';
+            const finishSrc = isPhotoValid(rawFinish) ? rawFinish : '';
             const finishEl = document.getElementById('slotImgFinish');
             if (finishEl) {
+                const finishBox = finishEl.closest('.gallery-slot');
                 finishEl.className = "w-full h-full object-contain p-1.5 bg-white";
                 if (finishSrc) {
                     finishEl.src = finishSrc;
                     finishEl.style.display = 'block';
+                    if (finishBox) finishBox.style.display = 'block';
                 } else {
+                    finishEl.removeAttribute('src');
                     finishEl.style.display = 'none';
+                    if (finishBox) finishBox.style.display = 'none';
                 }
             }
-            document.getElementById('slotImgAmbiente').className = "w-full h-full object-contain bg-white transition-all duration-200";
 
-            const hasAnyPhoto = !!(g.ambiente || v.hero_b64 || (allViews && allViews.some(x => !!x)));
+            const hasAnyPhoto = !!(ambUrl || finishSrc || validViews.length > 0);
             const galleryGrid = document.querySelector('.modal-gallery-grid');
             let placeholderBox = document.getElementById('modalNoPhotoPlaceholder');
             if (!placeholderBox && galleryGrid && galleryGrid.parentElement) {
@@ -264,7 +291,7 @@
                         </div>
                         <span class="text-xs font-bold text-[#B8893E] tracking-widest uppercase mb-1">${p.provider_abbr || 'CREATA'} · FICHA TÉCNICA</span>
                         <h3 class="text-base font-extrabold text-slate-800 uppercase tracking-wide mb-6">${p.model_name}</h3>
-                                                <a href="${v.drive_ficha_url || p.drive_ficha_url || '#'}" target="_blank" class="px-6 py-3 bg-[#B8893E] hover:bg-[#9E7432] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-2">
+                        <a href="${v.drive_ficha_url || p.drive_ficha_url || '#'}" target="_blank" class="px-6 py-3 bg-[#B8893E] hover:bg-[#9E7432] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-2">
                             <span>Abrir Ficha Técnica en Drive</span>
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                         </a>
@@ -279,15 +306,19 @@
             vSlots.forEach((slotId, idx) => {
                 const el = document.getElementById(slotId);
                 const parentBox = el ? el.closest('.gallery-slot') : null;
-                if (idx < allViews.length) {
-                    const viewImg = allViews[idx];
+                const viewImg = validViews[idx] || '';
+                if (viewImg) {
                     if (el) {
-                        el.src = viewImg || '';
+                        el.src = viewImg;
+                        el.style.display = 'block';
                         el.className = "w-full h-full object-contain p-1.5";
                     }
                     if (parentBox) parentBox.style.display = 'block';
                 } else {
-                    if (el) el.src = '';
+                    if (el) {
+                        el.removeAttribute('src');
+                        el.style.display = 'none';
+                    }
                     if (parentBox) parentBox.style.display = 'none';
                 }
             });
@@ -350,12 +381,14 @@
 
         function cycleMainPhoto() {
             const p = products[currentProdIndex];
-            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : {});
+            const v = (p && p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p && p.variants ? p.variants[0] : {});
             const g = v.gallery || {};
-            const allViews = (g.all_views && g.all_views.length > 0) ? g.all_views : [v.hero_b64];
+            const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
+            const pool = [g.ambiente, v.hero_b64, ...(Array.isArray(g.all_views) ? g.all_views : [])].filter(isPhotoValid);
+            const allViews = [...new Set(pool)];
             if (allViews.length === 0) return;
 
-            mainPhotoCycleIndex = (mainPhotoCycleIndex + 1) % (allViews.length + 1);
+            mainPhotoCycleIndex = (mainPhotoCycleIndex + 1) % allViews.length;
             const mainImg = document.getElementById('slotImgAmbiente');
             if (!mainImg) return;
 
@@ -364,12 +397,7 @@
             mainImg.style.opacity = '0.5';
 
             setTimeout(() => {
-                if (mainPhotoCycleIndex === -1 || mainPhotoCycleIndex >= allViews.length) {
-                    mainImg.src = g.ambiente || v.hero_b64;
-                    mainPhotoCycleIndex = -1;
-                } else {
-                    mainImg.src = allViews[mainPhotoCycleIndex];
-                }
+                mainImg.src = allViews[mainPhotoCycleIndex];
                 mainImg.style.transform = 'scale(1) rotateY(0deg)';
                 mainImg.style.opacity = '1';
             }, 150);
