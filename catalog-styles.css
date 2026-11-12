@@ -254,13 +254,23 @@ grid-row: 1 / span 2;
 height: 460px;
 background: #FFFFFF;
 }
-.slot-finishes-wrap, .slot-finish {
+.slot-finishes-wrap {
 grid-column: 3;
 grid-row: 1;
 height: 224px;
 width: 100%;
 display: grid;
 gap: 8px;
+}
+.slot-finish {
+grid-column: 3;
+grid-row: 1;
+height: 224px;
+width: 100%;
+display: flex;
+align-items: center;
+justify-content: center;
+background: #FFFFFF;
 }
 .slot-finishes-wrap.count-1 {
 grid-template-columns: 1fr;
@@ -449,7 +459,7 @@ z-index: 15;
 pointer-events: none;
 }
 .card-img-area img.flipped {
-transform: scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
 }
 
 /* NATIVE LAYOUT & RESPONSIVE FALLBACKS (+10% EN CONTENEDOR Y FICHAS) */
@@ -487,12 +497,12 @@ object-fit: contain !important;
 object-position: center center !important;
 mix-blend-mode: normal !important;
 filter: drop-shadow(0 8px 14px rgba(37, 44, 50, 0.08));
-transform: scale(var(--img-scale, 1)) !important;
+transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scale(var(--img-scale, 1)) !important;
 transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1) !important;
 transform-origin: center center !important;
 }
 .product-card:hover .card-img-area img {
-transform: scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
 }
 
 /* MODAL BODY LAYOUT (PC 2 COLS, MOBILE 1 COL) */
