@@ -29,7 +29,6 @@
             min-height: 100vh;
             -webkit-font-smoothing: antialiased;
         }
-        /* LOGOTIPO INTACTO EN TAMAÑO Y DISEÑO CON SEPARACIÓN LIMPIA */
         .inv-header {
             background-color: var(--brand-charcoal);
             border-bottom: 1px solid var(--brand-sand);
@@ -112,17 +111,14 @@
 </head>
 <body>
 
-    <!-- CABECERA MINIMALISTA: ÚNICAMENTE LOGOTIPO INTACTO + TÍTULO + BUSCADOR -->
     <header class="inv-header sticky top-0 z-40">
         <div class="max-w-3xl mx-auto px-4 pt-6 pb-5">
-            <!-- LOGOTIPO INTACTO CON MAYOR SEPARACIÓN -->
             <div class="text-center mb-6">
                 <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img">
                 <script src="creata-logo.js"></script>
                 <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
             </div>
 
-            <!-- TÍTULO Y ACCESO AL CARRITO -->
             <div class="flex items-center justify-between mb-2.5">
                 <h1 class="text-sm sm:text-base font-bold tracking-wider uppercase text-white">Búsqueda de productos</h1>
                 <button type="button" onclick="openCartModal()" id="headerCartBtn"
@@ -133,12 +129,11 @@
                 </button>
             </div>
 
-            <!-- BARRA DE BÚSQUEDA + LECTOR BLUETOOTH ACTIVO -->
             <div class="relative">
                 <input
                     type="search"
                     id="invSearchInput"
-                    placeholder="Escanear SKU o buscar por nombre, madera, tela, medida..."
+                    placeholder="Buscar producto o escanear SKU..."
                     autocomplete="off"
                     class="w-full rounded-full pl-10 pr-10 py-3 text-sm font-medium outline-none border transition"
                     style="background:#FFFFFF; border-color:#E1DBC5; color:#252C32;"
@@ -152,26 +147,27 @@
         </div>
     </header>
 
-    <!-- LISTADO LIMPIO: ÚNICAMENTE NOMBRE, SKU Y BOTÓN + DE CARRITO -->
     <main class="max-w-3xl mx-auto px-4 py-4">
         <div id="invListContainer" class="space-y-2"></div>
         <div id="invLoadMoreWrap" class="text-center py-5 hidden">
             <button type="button" onclick="renderMoreItems()"
                     class="px-5 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider border transition"
                     style="border-color:#A38251; color:#252C32; background:#FFFFFF;">
-                Mostrar más productos
+                Mostrar más
             </button>
         </div>
     </main>
 
-    <!-- PESTAÑA / MODAL DE DETALLE DEL PRODUCTO SELECCIONADO O ESCANEADO -->
+    <!-- MODAL DE VARIANTES Y DETALLE DE PRODUCTO -->
     <div id="productDetailModal" class="modal-backdrop" onclick="if(event.target===this) closeProductDetail()">
         <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl border" style="border-color:#E1DBC5;">
-            <!-- Barra superior -->
             <div class="sticky top-0 z-10 bg-white px-5 py-3.5 border-b flex items-center justify-between" style="border-color:#E8E4DE;">
                 <div class="min-w-0 pr-3">
-                    <div id="detSku" class="text-[11px] font-extrabold tracking-widest uppercase" style="color:#A38251;">SKU</div>
-                    <h2 id="detName" class="text-base sm:text-lg font-extrabold uppercase leading-snug truncate" style="color:#252C32;">-</h2>
+                    <div id="detGroupCrumb" onclick="backToCurrentGroupVariants()"
+                         class="hidden text-[11px] font-extrabold tracking-wider uppercase cursor-pointer mb-0.5"
+                         style="color:#A38251;"></div>
+                    <div id="detSku" class="text-[11px] font-extrabold tracking-widest uppercase" style="color:#A38251;"></div>
+                    <h2 id="detName" class="text-base sm:text-lg font-extrabold uppercase leading-snug truncate" style="color:#252C32;"></h2>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                     <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
@@ -185,70 +181,53 @@
                 </div>
             </div>
 
-            <div class="p-5 space-y-5">
-                <!-- CUADRO DE 1 SOLA FOTO (VACÍO POR AHORA, LISTO PARA SUBIRSE EN LA HOJA) -->
+            <!-- PASO 1 (SOLO CUANDO EL MODELO TIENE VARIANTES): LISTADO DE VARIANTES DISPONIBLES -->
+            <div id="detVariantsStep" class="p-5 space-y-2 hidden">
+                <div id="detVariantsList" class="space-y-2"></div>
+            </div>
+
+            <!-- PASO 2: VISTA DEL PRODUCTO / VARIANTE SELECCIONADA -->
+            <div id="detSingleStep" class="p-5 space-y-5">
                 <div class="w-full h-60 sm:h-72 rounded-xl border flex items-center justify-center overflow-hidden relative"
                      style="background:#FFFFFF; border-color:#E1DBC5;">
-                    <img id="detPhotoImg" src="" alt="Foto de producto" class="w-full h-full object-contain hidden">
-                    <div id="detPhotoEmpty" class="text-center px-4 select-none">
-                        <div class="w-12 h-12 rounded-full mx-auto mb-2 flex items-center justify-center border"
+                    <img id="detPhotoImg" src="" alt="" class="w-full h-full object-contain hidden">
+                    <div id="detPhotoEmpty" class="flex items-center justify-center select-none">
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center border"
                              style="border-color:#E1DBC5; background:#E8E4DE; color:#A38251;">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                             </svg>
                         </div>
-                        <div class="text-xs font-bold uppercase tracking-wider" style="color:#252C32;">Espacio para foto del producto</div>
-                        <div class="text-[11px] mt-0.5" style="color:#A38251;">Pendiente de carga en hoja de inventario</div>
                     </div>
                 </div>
 
-                <!-- INVENTARIO EN VIVO: STOCK TOTAL + DESGLOSE POR BODEGA EN SEMÁFORO -->
                 <div class="rounded-xl border p-4 space-y-3" style="border-color:#E1DBC5; background:#FFFFFF;">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="flex items-center gap-2">
                             <span id="liveSyncDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
                             <span class="text-xs font-extrabold uppercase tracking-wider" style="color:#252C32;">Inventario en Vivo</span>
-                            <button type="button" onclick="refreshLiveSheetNow(true)" class="text-[11px] underline font-semibold" style="color:#A38251;">Actualizar</button>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="text-xs font-bold uppercase" style="color:#252C32;">Stock Total:</span>
-                            <span id="detTotalStock" class="px-3 py-1 rounded-full text-sm font-black" style="background:#252C32; color:#FFFFFF;">0 pzas</span>
-                            <button type="button" onclick="toggleThresholdsPanel()" title="Ajustar mínimos del semáforo por bodega"
-                                    class="px-2.5 py-1 rounded-lg text-[11px] font-bold border" style="border-color:#E1DBC5; color:#252C32;">
-                                Mínimos
-                            </button>
+                            <span id="detTotalStock" class="px-3 py-1 rounded-full text-sm font-black" style="background:#252C32; color:#FFFFFF;">0</span>
                         </div>
                     </div>
 
-                    <!-- Panel opcional para configurar el mínimo amarillo por cada bodega -->
-                    <div id="thresholdsPanel" class="hidden rounded-lg p-3 border space-y-2" style="background:#E8E4DE; border-color:#E1DBC5;">
-                        <div class="text-[11px] font-bold uppercase tracking-wider" style="color:#252C32;">
-                            Configurar piezas de alerta amarilla (Mínimo por bodega · 0 siempre es Rojo):
-                        </div>
-                        <div id="thresholdsInputsGrid" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
-                    </div>
-
-                    <!-- 5 Bodegas con Semáforo -->
                     <div id="detWarehousesGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
                 </div>
 
-                <!-- INFORMACIÓN TÉCNICA DEL PRODUCTO -->
-                <div class="rounded-xl border p-4 space-y-2.5" style="border-color:#E8E4DE; background:#FFFFFF;">
-                    <div class="text-xs font-extrabold uppercase tracking-wider mb-1" style="color:#A38251;">Información del Producto</div>
+                <div id="detSpecsWrap" class="rounded-xl border p-4 space-y-2.5 hidden" style="border-color:#E8E4DE; background:#FFFFFF;">
                     <div id="detSpecsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs"></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- MODAL DE CARRITO ABIERTO (PRE-COTIZACIÓN ETAPA 1) -->
+    <!-- MODAL DE CARRITO -->
     <div id="cartModal" class="modal-backdrop" onclick="if(event.target===this) closeCartModal()">
         <div class="bg-white rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-4 border-b flex items-center justify-between" style="background:#252C32; color:#FFFFFF;">
-                <div>
-                    <h2 class="text-sm font-extrabold uppercase tracking-wider">Carrito de Selección</h2>
-                    <p class="text-[11px] opacity-80">Pre-cotización abierta · Etapa 1</p>
-                </div>
+                <h2 class="text-sm font-extrabold uppercase tracking-wider">Carrito</h2>
                 <button type="button" onclick="closeCartModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg">✕</button>
             </div>
             <div id="cartItemsContainer" class="flex-1 overflow-y-auto p-4 space-y-2.5"></div>
@@ -257,18 +236,18 @@
                     Vaciar
                 </button>
                 <button type="button" onclick="copyCartSummary()" id="copyCartBtn" class="px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider" style="background:#A38251; color:#FFFFFF;">
-                    Copiar selección
+                    Copiar
                 </button>
             </div>
         </div>
     </div>
 
-    <script src="creata-finishes.js?v=18"></script>
-    <script src="creata-img.js?v=18"></script>
-    <script src="creata-cloud.js?v=18"></script>
-    <script src="inventario-data-1.js?v=18"></script>
-    <script src="inventario-data-2.js?v=18"></script>
-    <script src="inventario-data-3.js?v=18"></script>
-    <script src="inventario-app.js?v=18"></script>
+    <script src="creata-finishes.js?v=21"></script>
+    <script src="creata-img.js?v=21"></script>
+    <script src="creata-cloud.js?v=21"></script>
+    <script src="inventario-data-1.js?v=21"></script>
+    <script src="inventario-data-2.js?v=21"></script>
+    <script src="inventario-data-3.js?v=21"></script>
+    <script src="inventario-app.js?v=21"></script>
 </body>
 </html>
