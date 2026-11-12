@@ -2,6 +2,7 @@
 window.CREATA_INV_META = {
   sheetId: '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8',
   tabName: 'INVENTARIO_EN_VIVO',
+  gid: 690403633,
   fallbackSheetId: '1PSLq2QftivCNC5wr83A-hCvZDH2sdJ0J9t9NzTSKfxY',
   fallbackGid: 1757610943,
   warehouses: ['CEDIS', 'CASA CREATA', 'PUERTO CANCUN', 'COLOSIO', 'PLAYA']
