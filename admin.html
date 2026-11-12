@@ -10,24 +10,29 @@
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-    <link rel="stylesheet" href="admin-styles.css?v=17">
+    <link rel="stylesheet" href="admin-styles.css?v=18">
 
 </head>
 <body>
 
     <!-- BARRA SUPERIOR DE ADMINISTRACIÓN -->
     <div class="admin-top-bar sticky top-0 z-50 shadow-md">
-        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+        <div class="max-w-[1408px] mx-auto flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center space-x-2">
                 <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span class="font-bold text-xs tracking-wider uppercase text-amber-300">MODO ADMINISTRADOR</span>
+                <span class="font-bold text-xs tracking-wider uppercase text-[#E1DBC5]">MODO ADMINISTRADOR</span>
                 <span class="text-gray-400 text-xs hidden sm:inline">|</span>
                 <span class="text-xs text-gray-300 hidden sm:inline"><strong id="adminCountDisplay">47</strong> muebles</span>
             </div>
 
-            <div class="flex items-center gap-2 text-xs font-semibold text-emerald-300 select-none">
-                <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-                <span id="cloudLiveIndicator">Google Sheets Conectado</span>
+            <div class="flex items-center gap-3">
+                <button type="button" id="btnSyncDriveTop" onclick="syncDriveManualFromAdmin()" class="admin-btn admin-btn-gold text-[11px] py-1 px-3 shadow-xs" title="Detectar nuevas fichas PDF subidas a la carpeta de Google Drive">
+                    <span>🔄</span> <span>Sincronizar Drive</span>
+                </button>
+                <div class="flex items-center gap-2 text-xs font-semibold text-emerald-300 select-none">
+                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span id="cloudLiveIndicator">Google Sheets Conectado</span>
+                </div>
             </div>
         </div>
     </div>
@@ -35,82 +40,98 @@
 
     <!-- CABECERA -->
     <header class="relative z-40">
-        <div class="max-w-7xl mx-auto px-6 pt-6 pb-4">
-            <!-- LOGO OFICIAL EN BLANCO -->
-            <div class="text-center mb-4 relative inline-block group">
+        <div class="max-w-[1408px] mx-auto px-6 pt-6 pb-5">
+            <!-- LOGO OFICIAL EN BLANCO (100% INTACTO, MÁS ESPACIO INFERIOR) -->
+            <div class="text-center mb-6">
                 <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img">
                 <script src="creata-logo.js"></script>
                 <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
-                <div class="text-center mt-1">
-                    <label class="cursor-pointer text-[9.5px] font-bold text-amber-200 hover:text-white inline-flex items-center gap-1 bg-black/40 hover:bg-black/60 px-2.5 py-0.5 rounded-full transition shadow-xs">
-                        <span>📷</span> <span>Cambiar Logo de Inicio</span>
-                        <input type="file" accept="image/*" class="hidden" onchange="uploadHeaderLogo(event)">
-                    </label>
+            </div>
+
+            <!-- BUSCADOR RÁPIDO EN EDITOR -->
+            <div class="catalog-search-wrap">
+                <div class="catalog-search-box">
+                    <svg class="catalog-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    <input type="search"
+                           id="searchInput"
+                           oninput="filterCatalog()"
+                           placeholder="Buscar por modelo, SKU, proveedor o categoría..."
+                           autocomplete="off"
+                           class="catalog-search-input">
                 </div>
             </div>
 
-            <!-- BARRA DE CATEGORÍAS (20% MÁS PEQUEÑAS) -->
+            <!-- BARRA DE CATEGORÍAS IDÉNTICA AL GOOGLE SHEET -->
             <div class="flex items-center justify-center flex-wrap gap-2" id="categoryBar">
                 <button onclick="setFilter('ALL')" data-cat="ALL" id="flt-ALL" class="pill-btn active">TODOS (47)</button>
                 <button onclick="setFilter('SALAS & SOFÁS')" data-cat="SALAS & SOFÁS" id="flt-SALAS-SOF-S" class="pill-btn">SALAS & SOFÁS (13)</button>
                 <button onclick="setFilter('SILLAS & SILLONES')" data-cat="SILLAS & SILLONES" id="flt-SILLAS-SILLONES" class="pill-btn">SILLAS & SILLONES (11)</button>
                 <button onclick="setFilter('COMEDORES')" data-cat="COMEDORES" id="flt-COMEDORES" class="pill-btn">COMEDORES (3)</button>
                 <button onclick="setFilter('BUFETERAS & CREDENZAS')" data-cat="BUFETERAS & CREDENZAS" id="flt-BUFETERAS-CREDENZAS" class="pill-btn">BUFETERAS & CREDENZAS (7)</button>
-                <button onclick="setFilter('MESAS DE CENTRO')" data-cat="MESAS DE CENTRO" id="flt-MESAS-DE-CENTRO" class="pill-btn">MESAS DE CENTRO (4)</button>
+                <button onclick="setFilter('MESAS DE CENTRO & LATERALES')" data-cat="MESAS DE CENTRO & LATERALES" id="flt-MESAS-DE-CENTRO-LATERALES" class="pill-btn">MESAS DE CENTRO & LATERALES (4)</button>
                 <button onclick="setFilter('RECÁMARAS')" data-cat="RECÁMARAS" id="flt-REC-MARAS" class="pill-btn">RECÁMARAS (14)</button>
-                <button onclick="setFilter('COMPLEMENTOS')" data-cat="COMPLEMENTOS" id="flt-COMPLEMENTOS" class="pill-btn">COMPLEMENTOS (4)</button>
+                <button onclick="setFilter('COMPLEMENTOS')" data-cat="COMPLEMENTOS" id="flt-COMPLEMENTOS" class="pill-btn">COMPLEMENTOS</button>
                 <button onclick="setFilter('ARCHIVED')" data-cat="ARCHIVED" id="flt-ARCHIVED" class="pill-btn pill-btn-archive">📦 ARCHIVADOS (0)</button>
             </div>
         </div>
     </header>
 
-    <!-- CUADRÍCULA DE 51+ PRODUCTOS -->
-    <main class="catalog-container max-w-7xl mx-auto px-6 py-6">
+    <!-- CUADRÍCULA DE PRODUCTOS -->
+    <main class="catalog-container mx-auto px-6 py-6">
         <div class="mb-4">
-            <h2 id="activeCategoryTitle" class="text-xs font-bold tracking-widest text-[#F1F5F9] uppercase">TODOS LOS MUEBLES</h2>
+            <h2 id="activeCategoryTitle" class="text-xs font-bold tracking-widest text-[#252C32] uppercase">TODOS LOS MUEBLES</h2>
         </div>
 
         <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"></div>
     </main>
 
-    <!-- MODAL DE FICHA TÉCNICA CERO SCROLLBAR -->
-        <!-- MODAL FICHA TÉCNICA CERO SCROLLBAR CON LAYOUT EXACTO DE 'FOTO DE REFERENCIA' -->
+    <!-- MODAL DE FICHA TÉCNICA CON BARRA SUPERIOR SEPARADA (CERO BOTONES ENCIMADOS) -->
     <div id="slideModal" class="modal">
         <div class="modal-box">
-            <!-- BOTÓN CERRAR -->
-            
             <!-- BANNER DE ESTADO ARCHIVADO -->
-            <div id="modalArchiveBanner" class="modal-archive-banner hidden rounded-t-xl mb-1">
+            <div id="modalArchiveBanner" class="modal-archive-banner hidden">
                 <span class="flex items-center gap-1.5"><span>📦</span> <span>Esta ficha está <strong>ARCHIVADA / OCULTA</strong> para clientes en el catálogo.</span></span>
-                <button type="button" onclick="toggleArchiveCurrentProduct()" class="text-[10px] bg-amber-600 hover:bg-amber-700 text-white font-bold px-2.5 py-1 rounded transition">👁️ Hacer Visible</button>
+                <button type="button" onclick="toggleArchiveCurrentProduct()" class="text-[10px] bg-[#A38251] hover:bg-[#8B6D42] text-white font-bold px-2.5 py-1 rounded transition">👁️ Hacer Visible</button>
             </div>
 
-            <!-- BOTONES DE ACCIÓN ADMINISTRATIVA DEL MODAL -->
-            <div class="absolute top-3 right-4 z-50 flex items-center gap-2 flex-wrap justify-end max-w-[85%]">
-                <label class="admin-btn admin-btn-gold text-xs shadow cursor-pointer" title="Modificar la foto de portada que se ve en la pantalla de inicio">
-                    <span>📷</span> <span>Foto de Inicio</span>
-                    <input type="file" accept="image/*" class="hidden" onchange="uploadSlotImage(event, 'hero')">
-                </label>
-                <button type="button" id="btnArchiveModal" onclick="toggleArchiveCurrentProduct()" class="admin-btn text-xs shadow" style="background: #475569; color: #FFFFFF;" title="Ocultar o archivar esta ficha del catálogo público">
-                    <span id="btnArchiveModalIcon">📦</span> <span id="btnArchiveModalText">Archivar</span>
-                </button>
-                <button type="button" id="btnToggleEdit" onclick="toggleEditMode()" class="admin-btn admin-btn-gold text-xs shadow">
-                    <span id="editBtnIcon">✏️</span> <span id="editBtnText">Editar Ficha</span>
-                </button>
-                <button type="button" id="btnSaveModal" onclick="saveCurrentModalChanges()" class="admin-btn admin-btn-gold text-xs shadow hidden">
-                    <span>💾</span> Guardar
-                </button>
-                <button type="button" id="btnDeleteModal" onclick="deleteCurrentFurniture()" class="admin-btn admin-btn-danger text-xs shadow" title="Eliminar este mueble">
-                    <span>🗑️</span>
-                </button>
-                <button type="button" onclick="closeModal()" class="modal-close-btn" title="Cerrar ventana">✕</button>
+            <!-- BARRA DEDICADA DE CONTROLES DEL MODAL (SEPARADA DE LA GALERÍA Y SKU) -->
+            <div class="modal-admin-toolbar">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <label class="admin-btn admin-btn-gold text-xs shadow-xs cursor-pointer" title="Modificar la foto de portada que se ve en la pantalla de inicio">
+                        <span>📷</span> <span>Foto de Inicio</span>
+                        <input type="file" accept="image/*" class="hidden" onchange="uploadSlotImage(event, 'hero')">
+                    </label>
+                    <div class="scale-ctrl-pill" title="Escala de Foto de Inicio en catálogo (doble clic en % para restaurar 100%)">
+                        <span class="scale-ctrl-title">Zoom Portada:</span>
+                        <button type="button" onclick="adjustPhotoScale('hero', -0.08)">−</button>
+                        <span id="lblScale_hero" ondblclick="resetPhotoScale('hero')">100%</span>
+                        <button type="button" onclick="adjustPhotoScale('hero', 0.08)">+</button>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap justify-end">
+                    <button type="button" id="btnArchiveModal" onclick="toggleArchiveCurrentProduct()" class="admin-btn text-xs shadow-xs" style="background: #252C32; color: #FFFFFF;" title="Ocultar o archivar esta ficha del catálogo público">
+                        <span id="btnArchiveModalIcon">📦</span> <span id="btnArchiveModalText">Archivar</span>
+                    </button>
+                    <button type="button" id="btnToggleEdit" onclick="toggleEditMode()" class="admin-btn admin-btn-gold text-xs shadow-xs">
+                        <span id="editBtnIcon">✏️</span> <span id="editBtnText">Editar Ficha</span>
+                    </button>
+                    <button type="button" id="btnSaveModal" onclick="saveCurrentModalChanges()" class="admin-btn admin-btn-gold text-xs shadow-xs hidden">
+                        <span>💾</span> Guardar
+                    </button>
+                    <button type="button" id="btnDeleteModal" onclick="deleteCurrentFurniture()" class="admin-btn admin-btn-danger text-xs shadow-xs" title="Eliminar este mueble">
+                        <span>🗑️</span>
+                    </button>
+                    <button type="button" onclick="closeModal()" class="modal-close-btn" title="Cerrar ventana">✕</button>
+                </div>
             </div>
 
 
             <!-- CUERPO PRINCIPAL (2 COLUMNAS EN PC, 1 EN MÓVIL) -->
-            <div class="modal-body-grid flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-y-auto lg:overflow-hidden p-6 gap-6">
+            <div class="modal-body-grid flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-y-auto lg:overflow-hidden p-5 gap-6">
                 
-                <!-- COLUMNA IZQUIERDA: GALERÍA DE FOTOS MULTI-SLOT SEGÚN 'FOTO DE REFERENCIA' -->
+                <!-- COLUMNA IZQUIERDA: GALERÍA DE FOTOS MULTI-SLOT -->
                 <div class="lg:col-span-8 flex flex-col justify-between">
                     <div class="modal-gallery-grid">
                         <!-- #1 FOTO DEL AMBIENTE (TOP LEFT, 2 COLS X 2 ROWS) -->
@@ -119,6 +140,11 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'ambiente')">
                             <div class="slot-actions-group">
+                                <div id="scaleWrap_ambiente" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de esta foto">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('ambiente', -0.08)">−</button>
+                                    <span id="lblScale_ambiente" ondblclick="event.stopPropagation(); resetPhotoScale('ambiente')">100%</span>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('ambiente', 0.08)">+</button>
+                                </div>
                                 <button type="button" id="btnBgRemove_ambiente" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('ambiente');">✨</button>
                                 <button type="button" id="btnDelete_ambiente" class="slot-delete-btn hidden" title="Eliminar foto de ambiente" onclick="event.stopPropagation(); deleteSlotPhoto('ambiente');">✕</button>
                             </div>
@@ -144,7 +170,6 @@
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'finish')">
-                            <span id="slotFinishLabelBadge" class="slot-badge">🧵 TELA</span>
                             <div class="slot-actions-group">
                                 <button type="button" id="btnDelete_finish" class="slot-delete-btn hidden" title="Eliminar Tela / Acabado" onclick="event.stopPropagation(); deleteSlotPhoto('finish');">✕</button>
                             </div>
@@ -153,15 +178,15 @@
                                 <span>Soltar Tela / Acabado</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">🧵</span>
-                                <span class="text-[9px] font-bold">Cambiar Tela / Acabado</span>
+                                <span class="text-sm">📷</span>
+                                <span class="text-[9px] font-bold">Cambiar Acabado</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'finish')" class="hidden">
                             </label>
                             <div id="ph_finish" class="empty-slot-placeholder">
-                                <span class="text-xl mb-0.5 text-slate-400">🧵</span>
-                                <span class="text-[9px] font-bold text-slate-500">Tela / Acabado</span>
+                                <span class="text-xl mb-0.5 text-slate-400">📷</span>
+                                <span class="text-[9px] font-bold text-slate-500">Muestra de Acabado</span>
                             </div>
-                            <img id="slotImgFinish" class="w-full h-full object-cover p-1" style="display:none;">
+                            <img id="slotImgFinish" class="w-full h-full object-cover" style="display:none;">
                         </div>
 
                         <!-- #3 FOTO DE VISTA 1 (MIDDLE RIGHT, COL 3 X ROW 2) -->
@@ -170,6 +195,11 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view1')">
                             <div class="slot-actions-group">
+                                <div id="scaleWrap_view1" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de Vista 1">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view1', -0.08)">−</button>
+                                    <span id="lblScale_view1" ondblclick="event.stopPropagation(); resetPhotoScale('view1')">100%</span>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view1', 0.08)">+</button>
+                                </div>
                                 <button type="button" id="btnBgRemove_view1" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view1');">✨</button>
                                 <button type="button" id="btnDelete_view1" class="slot-delete-btn hidden" title="Eliminar Vista 1" onclick="event.stopPropagation(); deleteSlotPhoto('view1');">✕</button>
                             </div>
@@ -186,7 +216,7 @@
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 1</span>
                             </div>
-                            <img id="slotImgView1" class="w-full h-full object-contain p-1.5" style="display:none;">
+                            <img id="slotImgView1" class="w-full h-full object-contain" style="display:none;">
                         </div>
 
                         <!-- #4 FOTO DE VISTA 2 (BOTTOM LEFT, COL 1 X ROW 3) -->
@@ -195,6 +225,11 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view2')">
                             <div class="slot-actions-group">
+                                <div id="scaleWrap_view2" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de Vista 2">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view2', -0.08)">−</button>
+                                    <span id="lblScale_view2" ondblclick="event.stopPropagation(); resetPhotoScale('view2')">100%</span>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view2', 0.08)">+</button>
+                                </div>
                                 <button type="button" id="btnBgRemove_view2" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view2');">✨</button>
                                 <button type="button" id="btnDelete_view2" class="slot-delete-btn hidden" title="Eliminar Vista 2" onclick="event.stopPropagation(); deleteSlotPhoto('view2');">✕</button>
                             </div>
@@ -211,7 +246,7 @@
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 2</span>
                             </div>
-                            <img id="slotImgView2" class="w-full h-full object-contain p-1.5" style="display:none;">
+                            <img id="slotImgView2" class="w-full h-full object-contain" style="display:none;">
                         </div>
 
                         <!-- #5 FOTO DE VISTA 3 (BOTTOM MIDDLE, COL 2 X ROW 3) -->
@@ -220,6 +255,11 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view3')">
                             <div class="slot-actions-group">
+                                <div id="scaleWrap_view3" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de Vista 3">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view3', -0.08)">−</button>
+                                    <span id="lblScale_view3" ondblclick="event.stopPropagation(); resetPhotoScale('view3')">100%</span>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view3', 0.08)">+</button>
+                                </div>
                                 <button type="button" id="btnBgRemove_view3" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view3');">✨</button>
                                 <button type="button" id="btnDelete_view3" class="slot-delete-btn hidden" title="Eliminar Vista 3" onclick="event.stopPropagation(); deleteSlotPhoto('view3');">✕</button>
                             </div>
@@ -236,7 +276,7 @@
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 3</span>
                             </div>
-                            <img id="slotImgView3" class="w-full h-full object-contain p-1.5" style="display:none;">
+                            <img id="slotImgView3" class="w-full h-full object-contain" style="display:none;">
                         </div>
 
                         <!-- #6 FOTO DE VISTA 4 (BOTTOM RIGHT, COL 3 X ROW 3) -->
@@ -245,6 +285,11 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view4')">
                             <div class="slot-actions-group">
+                                <div id="scaleWrap_view4" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de Vista 4">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view4', -0.08)">−</button>
+                                    <span id="lblScale_view4" ondblclick="event.stopPropagation(); resetPhotoScale('view4')">100%</span>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view4', 0.08)">+</button>
+                                </div>
                                 <button type="button" id="btnBgRemove_view4" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view4');">✨</button>
                                 <button type="button" id="btnDelete_view4" class="slot-delete-btn hidden" title="Eliminar Vista 4" onclick="event.stopPropagation(); deleteSlotPhoto('view4');">✕</button>
                             </div>
@@ -261,25 +306,25 @@
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 4</span>
                             </div>
-                            <img id="slotImgView4" class="w-full h-full object-contain p-1.5" style="display:none;">
+                            <img id="slotImgView4" class="w-full h-full object-contain" style="display:none;">
                         </div>
                     </div>
 
-                    <!-- DROPZONE GENERAL PARA AGREGAR MÁS FOTOS A LA GALERÍA -->
+                    <!-- DROPZONE GENERAL PARA AGREGAR MÁS FOTOS A LA GALERÍA (SOPORTA NOMBRES portada, ambiente, acabado, vista1..4) -->
                     <div class="gallery-dropzone mt-2.5 flex items-center justify-center gap-2"
                          ondragover="handleSlotDragOver(event)"
                          ondragleave="handleSlotDragLeave(event)"
                          ondrop="handleGalleryDrop(event)"
                          onclick="document.getElementById('galleryMultiInput').click()">
                         <span class="text-base">📁</span>
-                        <span class="text-xs font-bold text-slate-700">Arrastra aquí fotos para agregarlas a la galería</span>
+                        <span class="text-xs font-bold text-[#252C32]">Arrastra aquí varias fotos a la vez (detecta nombre: portada, ambiente, acabado, vista1..4)</span>
                         <span class="text-[10px] text-slate-400 font-semibold">(o haz clic)</span>
                         <input type="file" id="galleryMultiInput" accept="image/*" multiple class="hidden" onchange="handleGalleryMultiUpload(event)">
                     </div>
                 </div>
 
-                <!-- COLUMNA DERECHA: INFORMACIÓN EXACTA SEGÚN 'FOTO DE REFERENCIA' -->
-                <div class="lg:col-span-4 flex flex-col justify-between space-y-3 overflow-y-auto max-h-[calc(96vh-80px)] pr-2 modal-edit-column">
+                <!-- COLUMNA DERECHA: INFORMACIÓN -->
+                <div class="lg:col-span-4 flex flex-col justify-between space-y-3 overflow-y-auto max-h-[calc(96vh-130px)] pr-2 modal-edit-column">
                     <div>
                         <!-- BÚSQUEDA Y AUTOCOMPLETADO POR SKU (LLENADO AUTOMÁTICO) -->
                         <div id="skuAutoFillBox" class="mb-3 p-2.5 bg-amber-50/80 border border-[#B8893E]/40 rounded-xl flex items-center justify-between gap-2 shadow-2xs">
@@ -401,35 +446,35 @@
                         </div>
 
                         <!-- PROVEEDOR + CATEGORÍA -->
-                        <div class="text-[11px] font-bold text-[#B8893E] tracking-widest uppercase mb-1" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
+                        <div class="text-[11px] font-bold text-[#A38251] tracking-widest uppercase mb-1" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
                         <!-- TÍTULO DINÁMICO EN MAYÚSCULAS -->
-                        <h2 class="text-lg lg:text-xl font-bold text-[#0F172A] uppercase tracking-wide mb-3 leading-snug" id="modalTitle">SALA PIERO EN TELA FOREVER BUTTERMILK</h2>
+                        <h2 class="text-lg lg:text-xl font-bold text-[#252C32] uppercase tracking-wide mb-3 leading-snug" id="modalTitle">SALA PIERO EN TELA FOREVER BUTTERMILK</h2>
 
                         <!-- 6 MEDIDAS EXACTAS EN CUADRÍCULA 3x2 -->
                         <div class="grid grid-cols-3 gap-1.5 text-center mb-3">
-                            <div class="bg-white border border-[#E2E8F0] p-1.5 rounded-lg">
+                            <div class="bg-white border border-[#E1DBC5] p-1.5 rounded-lg">
                                 <span class="block text-[8px] font-bold uppercase text-gray-400">Ancho</span>
-                                <strong class="text-xs text-[#0F172A]" id="mWidth">-</strong>
+                                <strong class="text-xs text-[#252C32]" id="mWidth">-</strong>
                             </div>
-                            <div class="bg-white border border-[#E2E8F0] p-1.5 rounded-lg">
+                            <div class="bg-white border border-[#E1DBC5] p-1.5 rounded-lg">
                                 <span class="block text-[8px] font-bold uppercase text-gray-400">Fondo</span>
-                                <strong class="text-xs text-[#0F172A]" id="mDepth">-</strong>
+                                <strong class="text-xs text-[#252C32]" id="mDepth">-</strong>
                             </div>
-                            <div class="bg-white border border-[#E2E8F0] p-1.5 rounded-lg">
+                            <div class="bg-white border border-[#E1DBC5] p-1.5 rounded-lg">
                                 <span class="block text-[8px] font-bold uppercase text-gray-400">Alto</span>
-                                <strong class="text-xs text-[#0F172A]" id="mHeight">-</strong>
+                                <strong class="text-xs text-[#252C32]" id="mHeight">-</strong>
                             </div>
-                            <div class="bg-white border border-[#E2E8F0] p-1.5 rounded-lg">
+                            <div class="bg-white border border-[#E1DBC5] p-1.5 rounded-lg">
                                 <span class="block text-[8px] font-bold uppercase text-gray-400">Asiento</span>
-                                <strong class="text-xs text-[#0F172A]" id="mSeat">-</strong>
+                                <strong class="text-xs text-[#252C32]" id="mSeat">-</strong>
                             </div>
-                            <div class="bg-white border border-[#E2E8F0] p-1.5 rounded-lg">
+                            <div class="bg-white border border-[#E1DBC5] p-1.5 rounded-lg">
                                 <span class="block text-[8px] font-bold uppercase text-gray-400">Bultos</span>
-                                <strong class="text-xs text-[#0F172A]" id="mPackages">-</strong>
+                                <strong class="text-xs text-[#252C32]" id="mPackages">-</strong>
                             </div>
-                            <div class="bg-white border border-[#E2E8F0] p-1.5 rounded-lg">
+                            <div class="bg-white border border-[#E1DBC5] p-1.5 rounded-lg">
                                 <span class="block text-[8px] font-bold uppercase text-gray-400">Cubitaje</span>
-                                <strong class="text-xs text-[#0F172A]" id="mVolume">-</strong>
+                                <strong class="text-xs text-[#252C32]" id="mVolume">-</strong>
                             </div>
                         </div>
 
@@ -440,13 +485,13 @@
                         </div>
 
                         <!-- MATERIALES Y FABRICACIÓN -->
-                        <div class="bg-white border border-[#E2E8F0] rounded-xl p-3 mb-3">
-                            <span class="text-[9px] font-bold text-[#B8893E] uppercase tracking-wider block mb-1">Materiales y Fabricación</span>
-                            <p class="text-[11px] text-gray-600 leading-relaxed" id="mMaterials">-</p>
+                        <div class="bg-white border border-[#E1DBC5] rounded-xl p-3 mb-3">
+                            <span class="text-[9px] font-bold text-[#A38251] uppercase tracking-wider block mb-1">Materiales y Fabricación</span>
+                            <p class="text-[11px] text-[#252C32] leading-relaxed" id="mMaterials">-</p>
                         </div>
 
-                        <!-- SELECTOR DE TELAS / ACABADOS (COLOCADO JUSTO AQUÍ SEGÚN LA FOTO) -->
-                        <div class="flex items-center justify-center gap-2.5 my-2" id="modalSwatchesRow"></div>
+                        <!-- SELECTOR DE TELAS / ACABADOS -->
+                        <div class="flex items-center justify-center gap-2.5 my-2 flex-wrap" id="modalSwatchesRow"></div>
                         <!-- GESTOR VISUAL DE TELA SELECCIONADA (NOMBRE Y FOTO) -->
                         <div id="fabricEditorSection"></div>
                     </div>
@@ -454,7 +499,7 @@
                     <!-- BOTÓN DRIVE OFICIAL COMPACTO Y CENTRADO -->
                     <div class="pt-2 flex items-center justify-center">
                         <a id="modalDriveBtn" href="#" target="_blank"
-                           class="py-2.5 px-6 rounded-xl bg-[#B8893E] hover:bg-[#9E7432] text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm text-center transition">
+                           class="py-2.5 px-6 rounded-xl bg-[#A38251] hover:bg-[#8B6D42] text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm text-center transition">
                             <span>📄</span> Ficha Técnica
                         </a>
                     </div>
@@ -462,25 +507,27 @@
             </div>
 
             <!-- NAVEGACIÓN CONTINUA ENTRE MUEBLES -->
-            <div class="bg-white border-t border-[#E2E8F0] px-6 py-2.5 flex items-center justify-between">
-                <button onclick="prevProduct()" class="pill-btn !bg-white !text-gray-700 !border-gray-300 hover:!border-gray-500 shadow-sm">← Mueble Anterior</button>
-                <button onclick="nextProduct()" class="pill-btn !bg-white !text-gray-700 !border-gray-300 hover:!border-gray-500 shadow-sm">Siguiente Mueble →</button>
+            <div class="bg-white border-t border-[#E1DBC5] px-6 py-2.5 flex items-center justify-between">
+                <button onclick="prevProduct()" class="pill-btn !bg-white !text-[#252C32] !border-[#E1DBC5] hover:!border-[#A38251] shadow-sm">← Mueble Anterior</button>
+                <button onclick="nextProduct()" class="pill-btn !bg-white !text-[#252C32] !border-[#E1DBC5] hover:!border-[#A38251] shadow-sm">Siguiente Mueble →</button>
             </div>
         </div>
     </div>
 
-    <script src="admin-sku-db-1.js"></script>
-    <script src="admin-sku-db-2.js"></script>
+    <script src="admin-sku-db-1.js?v=18"></script>
+    <script src="admin-sku-db-2.js?v=18"></script>
     <script>const SKU_DATABASE = Object.assign({}, window.ADMIN_SKU_DB_P1 || {}, window.ADMIN_SKU_DB_P2 || {});</script>
-    <script src="admin-data-1.js"></script>
-    <script src="admin-data-2.js"></script>
+    <script src="admin-data-1.js?v=18"></script>
+    <script src="admin-data-2.js?v=18"></script>
     <script>const rawProducts = [...(window.ADMIN_RAW_P1 || []), ...(window.ADMIN_RAW_P2 || [])];</script>
-    <script src="creata-cloud.js?v=17"></script>
-    <script src="admin-core.js?v=17"></script>
-    <script src="admin-modal.js?v=17"></script>
-    <script src="admin-editor.js?v=17"></script>
-    <script src="admin-crud.js?v=17"></script>
-    <script src="admin-salas.js?v=17"></script>
+    <script src="creata-finishes.js?v=18"></script>
+    <script src="creata-img.js?v=18"></script>
+    <script src="creata-cloud.js?v=18"></script>
+    <script src="admin-core.js?v=18"></script>
+    <script src="admin-modal.js?v=18"></script>
+    <script src="admin-editor.js?v=18"></script>
+    <script src="admin-crud.js?v=18"></script>
+    <script src="admin-salas.js?v=18"></script>
 
 <div id="adminToast"><span id="adminToastIcon">✅</span><span id="toastIcon" class="hidden"></span><span id="adminToastMsg">Éxito</span><span id="toastMsg" class="hidden"></span></div>
 </body>
