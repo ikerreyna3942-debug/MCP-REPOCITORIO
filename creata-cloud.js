@@ -114,7 +114,9 @@ if ((!inferredLbl || /^(EST[AÁ]NDAR|ACABADO|OPCI[OÓ]N\s*\d+|NATURAL)$/i.test(i
 vc.color_label = inferredLbl || 'NATURAL';
 vc.finish_type = vc.finish_type || inferFinishType(vc.color_label, vc.materials || clone.materials);
 vc.hero_scale = Number(v.hero_scale) || 1;
+vc.hero_pos = (v.hero_pos && typeof v.hero_pos === 'object') ? { x: Number(v.hero_pos.x) || 0, y: Number(v.hero_pos.y) || 0 } : { x: 0, y: 0 };
 vc.slot_scales = (v.slot_scales && typeof v.slot_scales === 'object') ? Object.assign({}, v.slot_scales) : {};
+vc.slot_pos = (v.slot_pos && typeof v.slot_pos === 'object') ? JSON.parse(JSON.stringify(v.slot_pos)) : {};
 vc.hero_b64 = isValidPhotoUrl(vc.hero_b64) ? vc.hero_b64.trim() : '';
 vc.swatch_img = isValidPhotoUrl(vc.swatch_img) ? vc.swatch_img.trim() : ((vIdx === 0 && ajProdFallback && ajProdFallback.img) ? ajProdFallback.img : '');
 if (vc.gallery && typeof vc.gallery === 'object') { const g = Object.assign({}, vc.gallery);
@@ -572,7 +574,9 @@ swatch_hex: sv.hex || baseVar0.swatch_hex || (vType === 'MADERA' ? '#A2703F' : '
 swatch_img: linkedFinish,
 hero_b64: vHero,
 hero_scale: Number(sv.hs) || 1,
+hero_pos: (sv.hp && typeof sv.hp === 'object') ? { x: Number(sv.hp.x) || 0, y: Number(sv.hp.y) || 0 } : { x: 0, y: 0 },
 slot_scales: (sv.ss && typeof sv.ss === 'object') ? sv.ss : {},
+slot_pos: (sv.sp && typeof sv.sp === 'object') ? sv.sp : {},
 width: sv.w !== undefined ? sv.w : (isFirst ? width : ''),
 depth: sv.d !== undefined ? sv.d : (isFirst ? depth : ''),
 height: sv.h !== undefined ? sv.h : (isFirst ? height : ''),
@@ -602,7 +606,9 @@ swatch_hex: baseVar0.swatch_hex || (resolvedType === 'MADERA' ? '#A2703F' : '#A3
 swatch_img: resolvedFinUrl,
 hero_b64: heroUrl,
 hero_scale: 1,
+hero_pos: { x: 0, y: 0 },
 slot_scales: {},
+slot_pos: {},
 width: width,
 depth: depth,
 height: height,
@@ -742,7 +748,9 @@ hero: isRemote(v && v.hero_b64) ? v.hero_b64 : '',
 amb: isRemote(g.ambiente) ? g.ambiente : '',
 vw: [g.view1 || '', g.view2 || '', g.view3 || '', g.view4 || ''].map((u) => (isRemote(u) ? u : '')),
 hs: (v && v.hero_scale && Number(v.hero_scale) !== 1) ? Number(v.hero_scale) : undefined,
+hp: (v && v.hero_pos && (Number(v.hero_pos.x) || Number(v.hero_pos.y))) ? { x: Number(v.hero_pos.x) || 0, y: Number(v.hero_pos.y) || 0 } : undefined,
 ss: (v && v.slot_scales && Object.keys(v.slot_scales).length > 0) ? v.slot_scales : undefined,
+sp: (v && v.slot_pos && Object.keys(v.slot_pos).length > 0) ? v.slot_pos : undefined,
 w: v && v.width !== undefined ? v.width : undefined,
 d: v && v.depth !== undefined ? v.depth : undefined,
 h: v && v.height !== undefined ? v.height : undefined,
