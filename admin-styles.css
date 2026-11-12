@@ -910,27 +910,95 @@
         }
 
     
-        /* BOTÓN PARA QUITAR FONDO (IA) Y BORRAR FOTO DE CADA SLOT */
-        .slot-bgremove-btn {
-            width: 26px;
-            height: 26px;
+        /* SELECTOR DE QUITAR O CONSERVAR FONDO EN EL EDITOR */
+        .bg-mode-switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            background: #FAF8F4;
+            border: 1px solid #E1DBC5;
             border-radius: 9999px;
-            background: linear-gradient(135deg, #C59A4E 0%, #9E7432 100%);
+            padding: 3px 5px 3px 10px;
+            box-shadow: 0 1px 2px rgba(37, 44, 50, 0.05);
+        }
+        .bg-mode-switch-dark {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(225, 219, 197, 0.28);
+        }
+        .bg-mode-label {
+            font-size: 9.5px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: #6B655B;
+            margin-right: 3px;
+            white-space: nowrap;
+        }
+        .bg-mode-switch-dark .bg-mode-label {
+            color: #E1DBC5;
+        }
+        .bg-mode-opt {
+            border: none;
+            border-radius: 9999px;
+            padding: 4px 10px;
+            font-size: 10px;
+            font-weight: 800;
+            cursor: pointer;
+            background: transparent;
+            color: #252C32;
+            transition: all 0.16s ease;
+            white-space: nowrap;
+            line-height: 1.1;
+        }
+        .bg-mode-switch-dark .bg-mode-opt {
+            color: #E2E8F0;
+        }
+        .bg-mode-opt:hover {
+            background: rgba(163, 130, 81, 0.16);
+        }
+        .bg-mode-opt.active {
+            background: var(--brand-gold) !important;
+            color: #FFFFFF !important;
+            box-shadow: 0 2px 6px rgba(163, 130, 81, 0.35);
+        }
+
+        /* BOTÓN PARA QUITAR O RESTAURAR FONDO Y BORRAR FOTO DE CADA SLOT */
+        .slot-bgremove-btn {
+            height: 24px;
+            padding: 0 9px;
+            border-radius: 9999px;
+            background: rgba(37, 44, 50, 0.88);
             color: #FFFFFF;
-            font-size: 12px;
+            font-size: 9.5px;
             font-weight: 800;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border: 1.5px solid rgba(255, 255, 255, 0.9);
-            box-shadow: 0 2px 6px rgba(0,0,0,0.28);
+            gap: 3px;
+            border: 1px solid rgba(255, 255, 255, 0.75);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.26);
             cursor: pointer;
             z-index: 25;
-            transition: all 0.2s ease;
+            opacity: 0;
+            transition: opacity 0.18s ease, background 0.18s ease, transform 0.18s ease;
+            white-space: nowrap;
+            backdrop-filter: blur(4px);
+        }
+        .gallery-slot:hover .slot-bgremove-btn,
+        .gallery-slot:focus-within .slot-bgremove-btn {
+            opacity: 1;
         }
         .slot-bgremove-btn:hover {
-            transform: scale(1.15);
-            box-shadow: 0 4px 10px rgba(184, 137, 62, 0.55);
+            background: var(--brand-gold);
+            transform: translateY(-1px) !important;
+        }
+        .slot-bgremove-btn.is-restore {
+            background: rgba(163, 130, 81, 0.95);
+        }
+        @media (hover: none), (pointer: coarse) {
+            .slot-bgremove-btn {
+                opacity: 0.94;
+            }
         }
         .slot-delete-btn {
             width: 26px;
