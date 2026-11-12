@@ -44,25 +44,55 @@ function updateModalView(resetOffset = true) {
                 if (phEl) phEl.style.display = valid ? 'none' : 'flex';
                 const delBtn = document.getElementById(`btnDelete_${slotPrefix}`);
                 if (delBtn) delBtn.style.display = valid ? 'inline-flex' : 'none';
+                const bgBtn = document.getElementById(`btnBgRemove_${slotPrefix}`);
+                if (bgBtn) bgBtn.style.display = valid ? 'inline-flex' : 'none';
             };
 
-            // 1. Ambiente (si solo hay portada 'hero_b64' sin otras vistas, mostrarla aquí también)
-            const hasOtherViews = !!(g.view1 || g.view2 || g.view3 || g.view4 || g.finish ||
+            if (!v.color_label || /^(ACABADO FICHA T[EÉ]CNICA|OPCI[OÓ]N\s*1|EST[AÁ]NDAR|ACABADO)$/i.test(v.color_label)) {
+                if (window.CreataCloud && window.CreataCloud.inferColorLabelFromData) {
+                    v.color_label = window.CreataCloud.inferColorLabelFromData(v.color_label, v.materials || p.materials, '');
+                }
+            }
+            if (!v.finish_type) {
+                v.finish_type = (window.CreataCloud && window.CreataCloud.inferFinishType)
+                    ? window.CreataCloud.inferFinishType(v.color_label, v.materials || p.materials)
+                    : ((v.color_label && /MADERA|ROBLE|NOGAL|TZALAM|PAROTA|ENCINO/i.test(v.color_label)) ? 'MADERA' : 'TELA');
+            }
+
+            // 1. Vinculación bidireccional 100%: recuadro Tela / Acabado <-> botón circular de muestra
+            const finishSrc = (g.finish && g.finish.trim())
+                ? g.finish.trim()
+                : ((g.finishes && g.finishes.length > 0 && g.finishes[0])
+                    ? g.finishes[0].trim()
+                    : ((g.fabric && g.fabric.trim()) ? g.fabric.trim() : ((v.swatch_img && v.swatch_img.trim()) ? v.swatch_img.trim() : '')));
+            if (finishSrc) {
+                v.swatch_img = finishSrc;
+                if (!v.gallery) v.gallery = {};
+                v.gallery.finish = finishSrc;
+                v.gallery.fabric = finishSrc;
+                v.gallery.finishes = [finishSrc];
+            }
+            renderSlot('slotImgFinish', 'ph_finish', 'finish', finishSrc);
+
+            const finishBadgeEl = document.getElementById('slotFinishLabelBadge');
+            if (finishBadgeEl) {
+                const icon = v.finish_type === 'MADERA' ? '🪵' : '🧵';
+                finishBadgeEl.textContent = `${icon} ${v.color_label || 'TELA'}`;
+                finishBadgeEl.style.display = 'inline-flex';
+            }
+
+            // 2. Ambiente (nunca usar foto de muestra de tela como portada/ambiente)
+            const hasFurnitureViews = !!(g.view1 || g.view2 || g.view3 || g.view4 ||
                 (Array.isArray(g.all_views) && g.all_views.some(x => x && x.trim().length > 0)));
+            const isCleanHero = v.hero_b64 && v.hero_b64 !== finishSrc && !/-finish-\d+\./i.test(v.hero_b64);
             const ambienteSrc = (g.ambiente && g.ambiente.trim())
                 ? g.ambiente
-                : (!hasOtherViews && v.hero_b64 ? v.hero_b64 : '');
+                : (!hasFurnitureViews && isCleanHero ? v.hero_b64 : '');
             renderSlot('slotImgAmbiente', 'ph_ambiente', 'ambiente', ambienteSrc);
-
-            // 2. Acabado / Detalle (slot independiente)
-            const finishSrc = (g.finish && g.finish.trim())
-                ? g.finish
-                : ((g.finishes && g.finishes.length > 0 && g.finishes[0]) ? g.finishes[0] : (g.fabric || ''));
-            renderSlot('slotImgFinish', 'ph_finish', 'finish', finishSrc);
 
             // 3. Vistas 1 a 4 (slots 100% independientes sin repetición ni ciclo)
             const getSlotView = (slotKey, idx) => {
-                if (g[slotKey] && typeof g[slotKey].trim === 'function' && g[slotKey].trim()) return g[slotKey];
+                if (g[slotKey] && typeof g[slotKey] === 'string' && g[slotKey].trim()) return g[slotKey];
                 if (g.all_views && g.all_views.length > idx && g.all_views[idx]) return g.all_views[idx];
                 return '';
             };
@@ -162,19 +192,23 @@ function updateModalView(resetOffset = true) {
             if (!swatchesRow || !p || !p.variants) return;
             swatchesRow.innerHTML = p.variants.map((vItem, vIdx) => {
                 const isAct = vIdx === currentVariantIndex;
-                const hasImg = !!vItem.swatch_img;
-                const typeIcon = vItem.finish_type === 'MADERA' ? '🪵' : '🧵';
-                const thumb = hasImg
-                    ? `<span class="w-4 h-4 rounded-full inline-block border border-black/25 shadow-xs bg-cover bg-center shrink-0" style="background-image: url('${vItem.swatch_img}');"></span>`
-                    : `<span class="w-4 h-4 rounded-full inline-block border border-black/25 shadow-xs shrink-0" style="background: ${vItem.swatch_hex || '#B8893E'};
-"></span>`;
+                const vg = vItem.gallery || {};
+                const linkedImg = vItem.swatch_img || vg.finish || vg.fabric || (Array.isArray(vg.finishes) && vg.finishes[0]) || '';
+                if (linkedImg && !vItem.swatch_img) vItem.swatch_img = linkedImg;
+                const fType = vItem.finish_type || (window.CreataCloud ? window.CreataCloud.inferFinishType(vItem.color_label, vItem.materials || p.materials) : 'TELA');
+                vItem.finish_type = fType;
+                const typeIcon = fType === 'MADERA' ? '🪵' : '🧵';
+                const lbl = (vItem.color_label || 'ACABADO OFICIAL').toUpperCase();
+                const thumb = linkedImg
+                    ? `<span class="swatch-pill-dot" style="background-image: url('${linkedImg}');"></span>`
+                    : `<span class="swatch-pill-dot" style="background-color: ${vItem.swatch_hex || '#B8893E'};"></span>`;
                 return `
                     <button type="button" onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
-                            title="${vItem.color_label || 'ACABADO'}"
-                            class="swatch-pill ${isAct ? 'active' : ''} flex items-center gap-1.5 px-2.5 py-1 rounded-full border">
+                            title="${lbl.replace(/"/g, '&quot;')}"
+                            class="swatch-pill ${isAct ? 'active' : ''}">
                         ${thumb}
-                        <span class="text-[10px] font-bold uppercase tracking-wider">${vItem.color_label || 'ACABADO'}</span>
-                        <span class="text-[9px] opacity-70">${typeIcon}</span>
+                        <span class="swatch-pill-label">${lbl}</span>
+                        <span class="swatch-pill-icon">${typeIcon}</span>
                     </button>
                 `;
             }).join('');
@@ -259,6 +293,15 @@ function updateModalView(resetOffset = true) {
             `;
         }
 
+        let __variantCloudSyncTimer = null;
+        function scheduleVariantCloudSave_(prod) {
+            if (!prod || !window.CreataCloud || !window.CreataCloud.config.isConfigured()) return;
+            clearTimeout(__variantCloudSyncTimer);
+            __variantCloudSyncTimer = setTimeout(async () => {
+                await window.CreataCloud.cloudPost('save_product', { product: prod });
+            }, 600);
+        }
+
         async function updateFabricLabelLive(newLabel) {
             const p = products[currentProdIndex];
             if (!p) return;
@@ -268,8 +311,14 @@ function updateModalView(resetOffset = true) {
             v.color_label = newLabel.trim().toUpperCase();
             const badge = document.getElementById('currentFabricBadge');
             if (badge) badge.innerText = v.color_label || 'ACABADO';
+            const slotBadge = document.getElementById('slotFinishLabelBadge');
+            if (slotBadge) {
+                const icon = v.finish_type === 'MADERA' ? '🪵' : '🧵';
+                slotBadge.textContent = `${icon} ${v.color_label || 'TELA'}`;
+            }
             renderSwatchesRow();
             await saveCatalogData();
+            scheduleVariantCloudSave_(p);
         }
 
         async function updateFabricHexLive(newHex) {
@@ -283,6 +332,7 @@ function updateModalView(resetOffset = true) {
             if (hexLabel) hexLabel.innerText = newHex;
             renderSwatchesRow();
             await saveCatalogData();
+            scheduleVariantCloudSave_(p);
         }
 
         async function addNewFinishOption(type = 'TELA') {
@@ -327,9 +377,12 @@ function updateModalView(resetOffset = true) {
             currentVariantIndex = p.variants.length - 1;
 
             await saveCatalogData();
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                await window.CreataCloud.cloudPost('save_product', { product: p });
+            }
             updateModalView(true);
-            renderGrid(products);
-            showAdminToast(`${type === 'MADERA' ? 'Madera' : 'Tela'} "${newVariant.color_label}" agregada con ficha en blanco`, '✅');
+            filterCatalog();
+            showAdminToast(`${type === 'MADERA' ? 'Madera' : 'Tela'} "${newVariant.color_label}" agregada y sincronizada`, '✅');
         }
 
         async function addNewFabricOption() {
@@ -341,12 +394,23 @@ function updateModalView(resetOffset = true) {
             if (!p) return;
             const v = p.variants ? p.variants[currentVariantIndex] : null;
             if (!v) return;
+            const oldFinish = v.swatch_img || (v.gallery && (v.gallery.finish || v.gallery.fabric)) || '';
             v.swatch_img = '';
-            if (v.gallery && v.gallery.finishes) v.gallery.finishes = [];
+            if (v.gallery) {
+                v.gallery.finish = '';
+                v.gallery.fabric = '';
+                v.gallery.finishes = [];
+            }
+            if (oldFinish && v.hero_b64 === oldFinish) {
+                v.hero_b64 = (v.gallery && (v.gallery.ambiente || v.gallery.view1)) || '';
+            }
             await saveCatalogData();
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                await window.CreataCloud.cloudPost('save_product', { product: p });
+            }
             updateModalView(false);
-            renderGrid(products);
-            showAdminToast('Foto de muestra retirada (usando color plano)', 'ℹ️');
+            filterCatalog();
+            showAdminToast('Foto de muestra desvinculada del botón y recuadro', 'ℹ️');
         }
 
         async function deleteCurrentFabricOption() {
@@ -362,9 +426,12 @@ function updateModalView(resetOffset = true) {
             currentVariantIndex = 0;
 
             await saveCatalogData();
+            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                await window.CreataCloud.cloudPost('save_product', { product: p });
+            }
             updateModalView(true);
-            renderGrid(products);
-            showAdminToast('Opción eliminada correctamente', '🗑️');
+            filterCatalog();
+            showAdminToast('Opción eliminada y sincronizada correctamente', '🗑️');
         }
         // REQUERIMIENTO 1: DRAG & DROP Y BORRADO DE FOTOS
         // ==========================================
