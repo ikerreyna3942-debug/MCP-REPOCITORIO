@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-    <link rel="stylesheet" href="admin-styles.css?v=21">
+    <link rel="stylesheet" href="admin-styles.css?v=22">
 
 </head>
 <body>
@@ -103,6 +103,13 @@
                         <span>📷</span> <span>Foto de Inicio</span>
                         <input type="file" accept="image/*" class="hidden" onchange="uploadSlotImage(event, 'hero')">
                     </label>
+                    <div class="scale-ctrl-pill" title="Ajustar zoom de la Foto de Inicio en las fichas principales (también puedes usar la rueda del mouse sobre la tarjeta)">
+                        <span class="scale-ctrl-title">Inicio</span>
+                        <button type="button" onclick="adjustPhotoScale('hero', -0.08)" title="Alejar Foto de Inicio">−</button>
+                        <span id="lblScale_hero" ondblclick="resetPhotoScale('hero')" title="Doble clic para restaurar a 100%">100%</span>
+                        <button type="button" onclick="adjustPhotoScale('hero', 0.08)" title="Acercar Foto de Inicio">+</button>
+                        <button type="button" onclick="resetPhotoScale('hero')" title="Centrar y restaurar 100%">↺</button>
+                    </div>
                     <div class="bg-mode-switch" title="Elige si al subir o soltar una foto nueva se le quita el fondo o se conserva su fondo original">
                         <button type="button" data-bg-mode-btn="cutout" onclick="setEditorBgMode('cutout')" class="bg-mode-opt active">Quitar fondo</button>
                         <button type="button" data-bg-mode-btn="keep" onclick="setEditorBgMode('keep')" class="bg-mode-opt">Conservar fondo</button>
@@ -494,14 +501,14 @@
     <script src="admin-data-1.js?v=18"></script>
     <script src="admin-data-2.js?v=18"></script>
     <script>const rawProducts = [...(window.ADMIN_RAW_P1 || []), ...(window.ADMIN_RAW_P2 || [])];</script>
-    <script src="creata-finishes.js?v=21"></script>
-    <script src="creata-img.js?v=21"></script>
-    <script src="creata-cloud.js?v=21"></script>
-    <script src="admin-core.js?v=21"></script>
-    <script src="admin-modal.js?v=21"></script>
-    <script src="admin-editor.js?v=21"></script>
-    <script src="admin-crud.js?v=21"></script>
-    <script src="admin-salas.js?v=21"></script>
+    <script src="creata-finishes.js?v=22"></script>
+    <script src="creata-img.js?v=22"></script>
+    <script src="creata-cloud.js?v=22"></script>
+    <script src="admin-core.js?v=22"></script>
+    <script src="admin-modal.js?v=22"></script>
+    <script src="admin-editor.js?v=22"></script>
+    <script src="admin-crud.js?v=22"></script>
+    <script src="admin-salas.js?v=22"></script>
 
 <div id="adminToast"><span id="adminToastIcon">✅</span><span id="toastIcon" class="hidden"></span><span id="adminToastMsg">Éxito</span><span id="toastMsg" class="hidden"></span></div>
 </body>

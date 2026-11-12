@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-    <link rel="stylesheet" href="catalog-styles.css?v=20">
+    <link rel="stylesheet" href="catalog-styles.css?v=22">
 </head>
 <body>
 
@@ -80,53 +80,53 @@
     <div id="slideModal" class="modal">
         <div class="modal-box">
             <!-- BOTÓN CERRAR -->
-            <button onclick="closeModal()" class="absolute top-4 right-4 z-50 text-gray-400 hover:text-black text-2xl font-light leading-none">✕</button>
+            <button type="button" onclick="closeModal()" class="modal-close-btn absolute top-3.5 right-3.5 z-50" title="Cerrar ventana">✕</button>
 
-            <!-- CUERPO PRINCIPAL (2 COLUMNAS EN PC, 1 EN MÓVIL) -->
-            <div class="flex-1 overflow-y-auto px-6 py-5 grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- CUERPO PRINCIPAL IDÉNTICO AL EDITOR (p-5 gap-6, lg:col-span-8 GALERÍA + lg:col-span-4 INFO) -->
+            <div class="modal-body-grid flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-y-auto lg:overflow-hidden p-5 gap-6">
                 
-                <!-- COLUMNA IZQUIERDA: GALERÍA DE FOTOS MULTI-SLOT SEGÚN 'FOTO DE REFERENCIA' -->
-                <div class="lg:col-span-7 flex flex-col justify-between">
+                <!-- COLUMNA IZQUIERDA: GALERÍA DE FOTOS MULTI-SLOT (MISMO ANCHO Y ALTURA EXACTA QUE EL EDITOR) -->
+                <div class="lg:col-span-8 flex flex-col justify-between">
                     <div class="modal-gallery-grid">
-                        <!-- #3F48CC FOTO DEL AMBIENTE (TOP LEFT, 2 COLS X 2 ROWS) -->
-                        <div class="gallery-slot slot-ambiente" onclick="cycleMainPhoto()" title="Haz clic para pasar a la siguiente foto o regresar a Ambiente">
-                            <img id="slotImgAmbiente" src="" alt="Ambiente" class="w-full h-full object-contain">
+                        <!-- #1 FOTO DEL AMBIENTE (TOP LEFT, 2 COLS X 2 ROWS) -->
+                        <div class="gallery-slot slot-ambiente" onclick="openPhotoLightbox('ambiente')" title="Haz clic para ampliar foto">
+                            <img id="slotImgAmbiente" draggable="false" src="" alt="Ambiente" class="w-full h-full object-contain">
                         </div>
 
-                        <!-- TELA / ACABADO VINCULADO AL BOTÓN DE MUESTRA -->
-                        <div class="gallery-slot slot-finish" onclick="swapToMain('finish')" title="Tela / Acabado">
-                            <img id="slotImgFinish" src="" alt="Tela / Acabado" class="w-full h-full object-cover">
+                        <!-- #2 TELA / ACABADO VINCULADO AL BOTÓN DE MUESTRA -->
+                        <div class="gallery-slot slot-finish" onclick="openPhotoLightbox('finish')" title="Haz clic para ampliar muestra de acabado">
+                            <img id="slotImgFinish" draggable="false" src="" alt="Tela / Acabado" class="w-full h-full object-cover">
                         </div>
 
-                        <!-- #22B14C FOTO DE VISTA 1 (MIDDLE RIGHT) -->
-                        <div class="gallery-slot slot-view1" onclick="swapToMain('view1')">
-                            <img id="slotImgView1" src="" alt="Vista 1" class="w-full h-full object-contain">
+                        <!-- #3 FOTO DE VISTA 1 (MIDDLE RIGHT) -->
+                        <div class="gallery-slot slot-view1" onclick="openPhotoLightbox('view1')" title="Haz clic para ampliar Vista 1">
+                            <img id="slotImgView1" draggable="false" src="" alt="Vista 1" class="w-full h-full object-contain">
                         </div>
 
-                        <!-- #22B14C FOTO DE VISTA 2 (BOTTOM LEFT) -->
-                        <div class="gallery-slot slot-view2" onclick="swapToMain('view2')">
-                            <img id="slotImgView2" src="" alt="Vista 2" class="w-full h-full object-contain">
+                        <!-- #4 FOTO DE VISTA 2 (BOTTOM LEFT) -->
+                        <div class="gallery-slot slot-view2" onclick="openPhotoLightbox('view2')" title="Haz clic para ampliar Vista 2">
+                            <img id="slotImgView2" draggable="false" src="" alt="Vista 2" class="w-full h-full object-contain">
                         </div>
 
-                        <!-- #22B14C FOTO DE VISTA 3 (BOTTOM MIDDLE) -->
-                        <div class="gallery-slot slot-view3" onclick="swapToMain('view3')">
-                            <img id="slotImgView3" src="" alt="Vista 3" class="w-full h-full object-contain">
+                        <!-- #5 FOTO DE VISTA 3 (BOTTOM MIDDLE) -->
+                        <div class="gallery-slot slot-view3" onclick="openPhotoLightbox('view3')" title="Haz clic para ampliar Vista 3">
+                            <img id="slotImgView3" draggable="false" src="" alt="Vista 3" class="w-full h-full object-contain">
                         </div>
 
-                        <!-- #22B14C FOTO DE VISTA 4 (BOTTOM RIGHT) -->
-                        <div class="gallery-slot slot-view4" onclick="swapToMain('view4')">
-                            <img id="slotImgView4" src="" alt="Vista 4" class="w-full h-full object-contain">
+                        <!-- #6 FOTO DE VISTA 4 (BOTTOM RIGHT) -->
+                        <div class="gallery-slot slot-view4" onclick="openPhotoLightbox('view4')" title="Haz clic para ampliar Vista 4">
+                            <img id="slotImgView4" draggable="false" src="" alt="Vista 4" class="w-full h-full object-contain">
                         </div>
                     </div>
                 </div>
 
-                <!-- COLUMNA DERECHA: INFORMACIÓN EXACTA SEGÚN 'FOTO DE REFERENCIA' -->
-                <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
+                <!-- COLUMNA DERECHA: INFORMACIÓN EXACTA (lg:col-span-4 IDÉNTICO AL EDITOR) -->
+                <div class="modal-info-column lg:col-span-4 flex flex-col justify-between h-full overflow-y-auto pr-1 space-y-3">
                     <div>
                         <!-- PROVEEDOR + CATEGORÍA (SIN SKU) -->
-                        <div class="text-[10px] font-black text-[#A38251] tracking-widest uppercase mb-1" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
+                        <div class="text-[10px] font-black text-[#A38251] tracking-widest uppercase mb-1 pr-8" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
                         <!-- TÍTULO DINÁMICO EN MAYÚSCULAS -->
-                        <h2 class="text-lg lg:text-xl font-black text-[#252C32] uppercase tracking-wide mb-2 leading-snug" id="modalTitle">-</h2>
+                        <h2 class="text-lg lg:text-xl font-black text-[#252C32] uppercase tracking-wide mb-2 leading-snug pr-6" id="modalTitle">-</h2>
 
                         <!-- 6 MEDIDAS EXACTAS EN CUADRÍCULA 3x2 -->
                         <div class="grid grid-cols-3 gap-2 text-center mb-2.5">
@@ -190,12 +190,20 @@
         </div>
     </div>
 
+    <!-- VISOR DE ZOOM PANTALLA COMPLETA -->
+    <div id="photoLightboxModal" onclick="closePhotoLightbox()">
+        <button type="button" onclick="event.stopPropagation(); closePhotoLightbox();" class="modal-close-btn absolute top-5 right-5 z-50 !w-10 !h-10 !text-lg" title="Cerrar zoom">✕</button>
+        <button type="button" id="lightboxPrevBtn" onclick="event.stopPropagation(); stepPhotoLightbox(-1);" class="lightbox-nav-btn left-4 sm:left-6" title="Foto anterior">‹</button>
+        <img id="lightboxImgEl" src="" alt="Zoom" onclick="event.stopPropagation();">
+        <button type="button" id="lightboxNextBtn" onclick="event.stopPropagation(); stepPhotoLightbox(1);" class="lightbox-nav-btn right-4 sm:right-6" title="Siguiente foto">›</button>
+    </div>
+
     <script src="catalog-data-1.js?v=18"></script>
     <script src="catalog-data-2.js?v=18"></script>
     <script>const rawProducts = [...(window.CREATA_CATALOG_P1 || []), ...(window.CREATA_CATALOG_P2 || [])];</script>
-    <script src="creata-finishes.js?v=19"></script>
-    <script src="creata-img.js?v=19"></script>
-    <script src="creata-cloud.js?v=19"></script>
-    <script src="catalog-app.js?v=19"></script>
+    <script src="creata-finishes.js?v=22"></script>
+    <script src="creata-img.js?v=22"></script>
+    <script src="creata-cloud.js?v=22"></script>
+    <script src="catalog-app.js?v=22"></script>
 </body>
 </html>

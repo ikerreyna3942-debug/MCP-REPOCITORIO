@@ -125,7 +125,8 @@ g.finish = isValidPhotoUrl(g.finish) ? g.finish.trim() : '';
 g.fabric = isValidPhotoUrl(g.fabric) ? g.fabric.trim() : '';
 ['view1', 'view2', 'view3', 'view4'].forEach((k) => { g[k] = isValidPhotoUrl(g[k]) ? g[k].trim() : ''; });
 if (Array.isArray(g.all_views)) {
-g.all_views = g.all_views.map((u) => (isValidPhotoUrl(u) ? u.trim() : '')).filter(Boolean); }
+g.all_views = g.all_views.map((u) => (isValidPhotoUrl(u) ? u.trim() : '')); }
+const hasAnyView = !!(g.view1 || g.view2 || g.view3 || g.view4 || (Array.isArray(g.all_views) && g.all_views.some(Boolean)));
 if (Array.isArray(g.finishes)) {
 g.finishes = g.finishes.map((u) => (isValidPhotoUrl(u) ? u.trim() : '')).filter(Boolean); }
 const linkedFinish = vc.swatch_img || g.finish || g.fabric || (g.finishes && g.finishes[0]) || '';
@@ -133,7 +134,7 @@ vc.swatch_img = linkedFinish;
 g.finish = linkedFinish;
 g.fabric = linkedFinish;
 if (linkedFinish) g.finishes = [linkedFinish];
-if (vc.hero_b64 && /-finish-\d+\./i.test(vc.hero_b64) && !g.ambiente && (!g.all_views || g.all_views.length === 0)) { vc.hero_b64 = ''; }
+if (vc.hero_b64 && /-finish-\d+\./i.test(vc.hero_b64) && !g.ambiente && !hasAnyView) { vc.hero_b64 = ''; }
 vc.gallery = g; }
 return vc; }); } else { clone.variants = []; }
 if (Array.isArray(clone.sala_modules)) {
@@ -521,8 +522,9 @@ let viewsArr = [];
 try { const rawJson = String(gvizCell(r, 20) || '[]').trim();
 const parsedV = JSON.parse(rawJson || '[]');
 if (Array.isArray(parsedV)) {
-viewsArr = parsedV.filter((u) => isValidPhotoUrl(String(u || ''))).map((u) => String(u).trim()); } } catch (e) {}
-if (heroUrl && /-finish-\d+\./i.test(heroUrl) && !ambUrl && viewsArr.length === 0) { if (!finUrl) finUrl = heroUrl;
+viewsArr = parsedV.map((u) => (isValidPhotoUrl(String(u || '')) ? String(u).trim() : '')); } } catch (e) {}
+const hasAnyViewArr = viewsArr.some(Boolean);
+if (heroUrl && /-finish-\d+\./i.test(heroUrl) && !ambUrl && !hasAnyViewArr) { if (!finUrl) finUrl = heroUrl;
 heroUrl = ''; }
 const rawMetaCell = String(gvizCell(r, 21) || '').trim();
 let unpackedDriveId = rawMetaCell;
@@ -593,7 +595,7 @@ view1: vViews[0] || '',
 view2: vViews[1] || '',
 view3: vViews[2] || '',
 view4: vViews[3] || '',
-all_views: vViews.filter(Boolean) } }; }); } else {
+all_views: [vViews[0] || '', vViews[1] || '', vViews[2] || '', vViews[3] || ''] } }; }); } else {
 const ajHit0 = resolveAjFinishClient_(id, modelName, sku, sKey, 0, baseVar0 && baseVar0.sku);
 const resolvedLabel = cleanFinishLabelClient_((ajHit0 && ajHit0.label) || inferColorLabelFromData('', materials, baseVar0.color_label), modelName) || 'NATURAL';
 const resolvedType = baseVar0.finish_type || inferFinishType(resolvedLabel, materials);
@@ -625,7 +627,7 @@ view1: viewsArr[0] || '',
 view2: viewsArr[1] || '',
 view3: viewsArr[2] || '',
 view4: viewsArr[3] || '',
-all_views: viewsArr }
+all_views: [viewsArr[0] || '', viewsArr[1] || '', viewsArr[2] || '', viewsArr[3] || ''] }
 }]; }
 const prodObj = { id: id,
 archived: isArchived,

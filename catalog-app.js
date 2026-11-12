@@ -126,35 +126,23 @@
                 }
             }
 
-            if (preferFreshLocal || (!isCloudSource && localStorage.getItem('creata_catalog_v12_linked') === 'true')) {
+            let hasRecentLocalSync = false;
+            try {
+                const rawPing = localStorage.getItem('creata_live_sync_ping');
+                if (rawPing) {
+                    const parsedPing = JSON.parse(rawPing);
+                    if (parsedPing && parsedPing.ts && (Date.now() - Number(parsedPing.ts) < 12000)) {
+                        hasRecentLocalSync = true;
+                    }
+                }
+            } catch (_) {}
+
+            if (preferFreshLocal || hasRecentLocalSync || (!isCloudSource && localStorage.getItem('creata_catalog_v12_linked') === 'true')) {
                 const localCustom = await loadCustomProducts();
                 if (Array.isArray(localCustom) && localCustom.length > 0) {
                     sourceList = isCloudSource
                         ? mergeFreshEditorEditsIntoPublic_(sourceList, localCustom)
                         : localCustom;
-                }
-            } else if (isCloudSource && localStorage.getItem('creata_catalog_v12_linked') === 'true') {
-                const localCustom = await loadCustomProducts();
-                if (Array.isArray(localCustom) && localCustom.length > 0) {
-                    const locById = {};
-                    const locByModel = {};
-                    localCustom.forEach((lp) => {
-                        if (!lp) return;
-                        if (lp.id) locById[lp.id] = lp;
-                        if (lp.model_name) locByModel[String(lp.model_name).trim().toUpperCase()] = lp;
-                    });
-                    sourceList.forEach((cp) => {
-                        const lp = (cp && cp.id && locById[cp.id]) || (cp && cp.model_name && locByModel[String(cp.model_name).trim().toUpperCase()]) || null;
-                        if (!lp || !Array.isArray(lp.variants) || !Array.isArray(cp.variants)) return;
-                        cp.variants.forEach((cv, vIdx) => {
-                            const lv = lp.variants[vIdx];
-                            if (!cv || !lv) return;
-                            if ((!cv.hero_scale || cv.hero_scale === 1) && lv.hero_scale && lv.hero_scale !== 1) cv.hero_scale = lv.hero_scale;
-                            if ((!cv.hero_pos || (!cv.hero_pos.x && !cv.hero_pos.y)) && lv.hero_pos && (lv.hero_pos.x || lv.hero_pos.y)) cv.hero_pos = lv.hero_pos;
-                            if ((!cv.slot_scales || Object.keys(cv.slot_scales).length === 0) && lv.slot_scales && Object.keys(lv.slot_scales).length > 0) cv.slot_scales = lv.slot_scales;
-                            if ((!cv.slot_pos || Object.keys(cv.slot_pos).length === 0) && lv.slot_pos && Object.keys(lv.slot_pos).length > 0) cv.slot_pos = lv.slot_pos;
-                        });
-                    });
                 }
             }
 
@@ -433,6 +421,8 @@
 
         let currentViewOffset = 0;
         let mainPhotoCycleIndex = -1;
+        let __lightboxPhotos = [];
+        let __lightboxIndex = 0;
 
         function updateModalView(resetOffset = true) {
             const p = products[currentProdIndex];
@@ -448,80 +438,104 @@
 
             const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
             const g = v.gallery || {};
-            const rawFinish = g.finish || (g.finishes && g.finishes.length > 0 ? g.finishes[0] : '') || g.fabric || v.swatch_img || '';
-            const finishSrc = isPhotoValid(rawFinish) ? rawFinish : '';
-            if (finishSrc && !v.swatch_img) v.swatch_img = finishSrc;
-
-            const rawHero = isPhotoValid(v.hero_b64) ? v.hero_b64 : '';
-            const cleanHeroUrl = (rawHero && rawHero !== finishSrc && !/-finish-\d+\./i.test(rawHero)) ? rawHero : '';
-            const ambUrl = isPhotoValid(g.ambiente) ? g.ambiente : cleanHeroUrl;
-            const rawViews = Array.isArray(g.all_views) && g.all_views.length > 0
-                ? g.all_views
-                : [g.view1, g.view2, g.view3, g.view4];
-            const validViews = (rawViews || []).filter(isPhotoValid);
-
             const slotScales = (v && v.slot_scales && typeof v.slot_scales === 'object') ? v.slot_scales : {};
             const slotPos = (v && v.slot_pos && typeof v.slot_pos === 'object') ? v.slot_pos : {};
-            const buildSlotTransform = (key) => {
-                const sc = Number(slotScales[key]) || 1;
-                const pos = (slotPos[key] && typeof slotPos[key] === 'object') ? slotPos[key] : { x: 0, y: 0 };
+
+            // Función idéntica 1:1 a renderSlot de admin-modal.js
+            const renderPublicSlot = (imgId, slotPrefix, src) => {
+                const imgEl = document.getElementById(imgId);
+                const slotBox = imgEl ? imgEl.closest('.gallery-slot') : null;
+                const valid = isPhotoValid(src);
+                const sc = Number(slotScales[slotPrefix]) || 1;
+                const pos = (slotPos[slotPrefix] && typeof slotPos[slotPrefix] === 'object') ? slotPos[slotPrefix] : { x: 0, y: 0 };
                 const px = Number(pos.x) || 0;
                 const py = Number(pos.y) || 0;
-                return {
-                    sc,
-                    px,
-                    py,
-                    css: (px !== 0 || py !== 0 || sc !== 1) ? `translate(${px}%, ${py}%) scale(${sc})` : ''
-                };
+
+                if (slotBox) {
+                    slotBox.classList.toggle('has-photo', valid);
+                    slotBox.style.display = valid ? 'flex' : 'none';
+                }
+                if (!imgEl) return;
+
+                if (valid) {
+                    imgEl.src = String(src).trim();
+                    imgEl.style.display = 'block';
+                    imgEl.style.opacity = '1';
+                    imgEl.style.transition = '';
+                    if (slotPrefix === 'finish') {
+                        imgEl.className = 'w-full h-full object-cover';
+                        if (sc < 0.995) {
+                            imgEl.style.objectFit = 'contain';
+                            imgEl.style.objectPosition = '50% 50%';
+                            imgEl.style.transformOrigin = '50% 50%';
+                            imgEl.style.transform = `translate(${px}%, ${py}%) scale(${sc})`;
+                        } else {
+                            const objX = Math.max(0, Math.min(100, Math.round((50 - px * 1.4) * 10) / 10));
+                            const objY = Math.max(0, Math.min(100, Math.round((50 - py * 1.4) * 10) / 10));
+                            imgEl.style.objectFit = 'cover';
+                            imgEl.style.objectPosition = `${objX}% ${objY}%`;
+                            imgEl.style.transformOrigin = `${objX}% ${objY}%`;
+                            imgEl.style.transform = sc > 1.005 ? `scale(${sc})` : '';
+                        }
+                    } else {
+                        imgEl.className = 'w-full h-full object-contain';
+                        imgEl.style.objectFit = 'contain';
+                        imgEl.style.objectPosition = '50% 50%';
+                        imgEl.style.transformOrigin = '50% 50%';
+                        imgEl.style.transform = (px !== 0 || py !== 0 || sc !== 1)
+                            ? `translate(${px}%, ${py}%) scale(${sc})`
+                            : '';
+                    }
+                } else {
+                    imgEl.removeAttribute('src');
+                    imgEl.style.display = 'none';
+                    imgEl.style.transform = '';
+                    imgEl.style.objectPosition = '50% 50%';
+                    imgEl.style.transformOrigin = '50% 50%';
+                    if (slotPrefix === 'finish') imgEl.style.objectFit = 'cover';
+                }
             };
 
-            const ambTr = buildSlotTransform('ambiente');
-            const ambEl = document.getElementById('slotImgAmbiente');
-            if (ambEl) {
-                ambEl.className = "w-full h-full object-contain transition-all duration-200";
-                ambEl.style.transform = ambTr.css;
-                if (ambUrl) {
-                    ambEl.src = ambUrl;
-                    ambEl.style.display = 'block';
-                } else {
-                    ambEl.removeAttribute('src');
-                    ambEl.style.display = 'none';
-                }
-            }
+            // 1. Muestra de Acabado (idéntico al Editor)
+            const rawFinish = (g.finish && String(g.finish).trim())
+                || (Array.isArray(g.finishes) && g.finishes.length > 0 && g.finishes[0] ? String(g.finishes[0]).trim() : '')
+                || (g.fabric && String(g.fabric).trim())
+                || (v.swatch_img && String(v.swatch_img).trim())
+                || '';
+            const finishSrc = isPhotoValid(rawFinish) ? String(rawFinish).trim() : '';
+            if (finishSrc && !v.swatch_img) v.swatch_img = finishSrc;
+            renderPublicSlot('slotImgFinish', 'finish', finishSrc);
 
-            const finTr = buildSlotTransform('finish');
-            const finishEl = document.getElementById('slotImgFinish');
-            if (finishEl) {
-                const finishBox = finishEl.closest('.gallery-slot');
-                finishEl.className = "w-full h-full";
-                if (finishSrc) {
-                    finishEl.src = finishSrc;
-                    finishEl.style.display = 'block';
-                    if (finTr.sc < 0.995) {
-                        finishEl.style.objectFit = 'contain';
-                        finishEl.style.objectPosition = '50% 50%';
-                        finishEl.style.transformOrigin = '50% 50%';
-                        finishEl.style.transform = `translate(${finTr.px}%, ${finTr.py}%) scale(${finTr.sc})`;
-                    } else {
-                        const objX = Math.max(0, Math.min(100, Math.round((50 - finTr.px * 1.4) * 10) / 10));
-                        const objY = Math.max(0, Math.min(100, Math.round((50 - finTr.py * 1.4) * 10) / 10));
-                        finishEl.style.objectFit = 'cover';
-                        finishEl.style.objectPosition = `${objX}% ${objY}%`;
-                        finishEl.style.transformOrigin = `${objX}% ${objY}%`;
-                        finishEl.style.transform = finTr.sc > 1.005 ? `scale(${finTr.sc})` : '';
-                    }
-                    if (finishBox) finishBox.style.display = 'flex';
-                } else {
-                    finishEl.removeAttribute('src');
-                    finishEl.style.display = 'none';
-                    finishEl.style.transform = '';
-                    finishEl.style.objectPosition = '50% 50%';
-                    finishEl.style.transformOrigin = '50% 50%';
-                    if (finishBox) finishBox.style.display = 'none';
+            // 2. Vistas 1 a 4 (slots 100% independientes en su posición exacta, sin corrimiento de índices)
+            const getSlotView = (slotKey, idx) => {
+                if (g[slotKey] && typeof g[slotKey] === 'string' && isPhotoValid(g[slotKey])) {
+                    return g[slotKey].trim();
                 }
-            }
+                if (Array.isArray(g.all_views) && g.all_views.length > idx && isPhotoValid(g.all_views[idx])) {
+                    return String(g.all_views[idx]).trim();
+                }
+                return '';
+            };
+            const view1Src = getSlotView('view1', 0);
+            const view2Src = getSlotView('view2', 1);
+            const view3Src = getSlotView('view3', 2);
+            const view4Src = getSlotView('view4', 3);
 
-            const hasAnyPhoto = !!(ambUrl || finishSrc || validViews.length > 0);
+            renderPublicSlot('slotImgView1', 'view1', view1Src);
+            renderPublicSlot('slotImgView2', 'view2', view2Src);
+            renderPublicSlot('slotImgView3', 'view3', view3Src);
+            renderPublicSlot('slotImgView4', 'view4', view4Src);
+
+            // 3. Ambiente (idéntico al Editor)
+            const hasFurnitureViews = !!(view1Src || view2Src || view3Src || view4Src);
+            const rawHero = isPhotoValid(v.hero_b64) ? String(v.hero_b64).trim() : '';
+            const cleanHeroUrl = (rawHero && rawHero !== finishSrc && !/-finish-\d+\./i.test(rawHero)) ? rawHero : '';
+            const ambUrl = isPhotoValid(g.ambiente)
+                ? String(g.ambiente).trim()
+                : (!hasFurnitureViews && cleanHeroUrl ? cleanHeroUrl : '');
+            renderPublicSlot('slotImgAmbiente', 'ambiente', ambUrl);
+
+            const hasAnyPhoto = !!(ambUrl || finishSrc || hasFurnitureViews);
             const galleryGrid = document.querySelector('.modal-gallery-grid');
             let placeholderBox = document.getElementById('modalNoPhotoPlaceholder');
             if (!placeholderBox && galleryGrid && galleryGrid.parentElement) {
@@ -552,31 +566,6 @@
                 if (placeholderBox) placeholderBox.style.display = 'none';
             }
 
-            const vSlots = ['slotImgView1', 'slotImgView2', 'slotImgView3', 'slotImgView4'];
-            vSlots.forEach((slotId, idx) => {
-                const el = document.getElementById(slotId);
-                const parentBox = el ? el.closest('.gallery-slot') : null;
-                const viewImg = validViews[idx] || '';
-                const vKey = `view${idx + 1}`;
-                const vTr = buildSlotTransform(vKey);
-                if (viewImg) {
-                    if (el) {
-                        el.src = viewImg;
-                        el.style.display = 'block';
-                        el.className = "w-full h-full object-contain";
-                        el.style.transform = vTr.css;
-                    }
-                    if (parentBox) parentBox.style.display = 'flex';
-                } else {
-                    if (el) {
-                        el.removeAttribute('src');
-                        el.style.display = 'none';
-                        el.style.transform = '';
-                    }
-                    if (parentBox) parentBox.style.display = 'none';
-                }
-            });
-
             const setSpecBox = (id, val) => {
                 const el = document.getElementById(id);
                 if (!el) return;
@@ -589,16 +578,17 @@
                     el.innerText = cleanVal;
                 }
             };
-            setSpecBox('mWidth', v.width || p.width);
-            setSpecBox('mDepth', v.depth || p.depth);
-            setSpecBox('mHeight', v.height || p.height);
-            setSpecBox('mSeat', v.seat || p.seat);
-            setSpecBox('mPackages', v.packages || p.packages);
-            setSpecBox('mVolume', v.volume || p.volume);
+            const getVal = (vVal, pVal) => (vVal !== undefined && vVal !== null) ? vVal : (pVal || '');
+            setSpecBox('mWidth', getVal(v.width, p.width));
+            setSpecBox('mDepth', getVal(v.depth, p.depth));
+            setSpecBox('mHeight', getVal(v.height, p.height));
+            setSpecBox('mSeat', getVal(v.seat, p.seat));
+            setSpecBox('mPackages', getVal(v.packages, p.packages));
+            setSpecBox('mVolume', getVal(v.volume, p.volume));
 
             document.getElementById('mPrice').innerText = v.price || p.price || 'Consultar';
             const matEl = document.getElementById('mMaterials');
-            const matText = (v.materials || p.materials || '').toString().trim();
+            const matText = (getVal(v.materials, p.materials) || '').toString().trim();
             if (matEl) {
                 const matBox = matEl.parentElement;
                 if (!matText || matText === '-') {
@@ -640,66 +630,47 @@
             }
         }
 
-        function cycleMainPhoto() {
-            const p = products[currentProdIndex];
-            const v = (p && p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p && p.variants ? p.variants[0] : {});
-            const g = v.gallery || {};
-            const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
-            const pool = [g.ambiente, v.hero_b64, ...(Array.isArray(g.all_views) ? g.all_views : [])].filter(isPhotoValid);
-            const allViews = [...new Set(pool)];
-            if (allViews.length === 0) return;
-
-            mainPhotoCycleIndex = (mainPhotoCycleIndex + 1) % allViews.length;
-            const mainImg = document.getElementById('slotImgAmbiente');
-            if (!mainImg) return;
-
-            mainImg.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease';
-            mainImg.style.transform = 'scale(0.92) rotateY(25deg)';
-            mainImg.style.opacity = '0.5';
-
-            setTimeout(() => {
-                mainImg.src = allViews[mainPhotoCycleIndex];
-                mainImg.style.transform = 'scale(1) rotateY(0deg)';
-                mainImg.style.opacity = '1';
-            }, 150);
+        function openPhotoLightbox(slotKey) {
+            const slotOrder = [
+                { key: 'ambiente', id: 'slotImgAmbiente' },
+                { key: 'view1', id: 'slotImgView1' },
+                { key: 'view2', id: 'slotImgView2' },
+                { key: 'view3', id: 'slotImgView3' },
+                { key: 'view4', id: 'slotImgView4' },
+                { key: 'finish', id: 'slotImgFinish' }
+            ];
+            __lightboxPhotos = [];
+            let clickedIdx = 0;
+            slotOrder.forEach((item) => {
+                const el = document.getElementById(item.id);
+                const src = el && el.style.display !== 'none' ? el.getAttribute('src') : '';
+                if (src && src.trim()) {
+                    if (item.key === slotKey) clickedIdx = __lightboxPhotos.length;
+                    __lightboxPhotos.push(src.trim());
+                }
+            });
+            if (__lightboxPhotos.length === 0) return;
+            __lightboxIndex = clickedIdx;
+            const lbModal = document.getElementById('photoLightboxModal');
+            const lbImg = document.getElementById('lightboxImgEl');
+            const prevBtn = document.getElementById('lightboxPrevBtn');
+            const nextBtn = document.getElementById('lightboxNextBtn');
+            if (lbImg) lbImg.src = __lightboxPhotos[__lightboxIndex];
+            if (prevBtn) prevBtn.style.display = __lightboxPhotos.length > 1 ? 'inline-flex' : 'none';
+            if (nextBtn) nextBtn.style.display = __lightboxPhotos.length > 1 ? 'inline-flex' : 'none';
+            if (lbModal) lbModal.classList.add('active');
         }
 
-        function swapToMain(slotName) {
-            const mainImg = document.getElementById('slotImgAmbiente');
-            if (!mainImg) return;
+        function stepPhotoLightbox(dir) {
+            if (!__lightboxPhotos || __lightboxPhotos.length <= 1) return;
+            __lightboxIndex = (__lightboxIndex + dir + __lightboxPhotos.length) % __lightboxPhotos.length;
+            const lbImg = document.getElementById('lightboxImgEl');
+            if (lbImg) lbImg.src = __lightboxPhotos[__lightboxIndex];
+        }
 
-            let targetImg = null;
-            if (slotName === 'finish') targetImg = document.getElementById('slotImgFinish');
-            else if (slotName === 'view1') targetImg = document.getElementById('slotImgView1');
-            else if (slotName === 'view2') targetImg = document.getElementById('slotImgView2');
-            else if (slotName === 'view3') targetImg = document.getElementById('slotImgView3');
-            else if (slotName === 'view4') targetImg = document.getElementById('slotImgView4');
-
-            if (!targetImg || !targetImg.src) return;
-
-            const currentMainSrc = mainImg.src;
-            const currentTargetSrc = targetImg.src;
-
-            if (!currentTargetSrc || currentMainSrc === currentTargetSrc) return;
-
-            mainImg.style.transition = 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
-            targetImg.style.transition = 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
-
-            mainImg.style.transform = 'scale(0.92) rotateY(-18deg)';
-            mainImg.style.opacity = '0.5';
-            targetImg.style.transform = 'scale(0.92) rotateY(18deg)';
-            targetImg.style.opacity = '0.5';
-
-            setTimeout(() => {
-                // Intercambio bidireccional (ninguna foto desaparece)
-                mainImg.src = currentTargetSrc;
-                targetImg.src = currentMainSrc;
-
-                mainImg.style.transform = 'scale(1) rotateY(0deg)';
-                mainImg.style.opacity = '1';
-                targetImg.style.transform = 'scale(1) rotateY(0deg)';
-                targetImg.style.opacity = '1';
-            }, 130);
+        function closePhotoLightbox() {
+            const lbModal = document.getElementById('photoLightboxModal');
+            if (lbModal) lbModal.classList.remove('active');
         }
 
         function prevProduct() {
@@ -715,6 +686,13 @@
         }
 
         document.addEventListener('keydown', (e) => {
+            const lbModal = document.getElementById('photoLightboxModal');
+            if (lbModal && lbModal.classList.contains('active')) {
+                if (e.key === 'Escape') closePhotoLightbox();
+                else if (e.key === 'ArrowRight') stepPhotoLightbox(1);
+                else if (e.key === 'ArrowLeft') stepPhotoLightbox(-1);
+                return;
+            }
             if (!document.getElementById('slideModal').classList.contains('active')) return;
             if (e.key === 'ArrowRight') nextProduct();
             if (e.key === 'ArrowLeft') prevProduct();

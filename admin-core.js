@@ -592,21 +592,23 @@ function populateSkuDatalist() {
                 }).join('');
 
                 const vg0 = (v && v.gallery) ? v.gallery : {};
-                const cleanHeroAdmin = (v.hero_b64 && v.hero_b64 !== v.swatch_img && !/-finish-\d+\./i.test(v.hero_b64))
+                const firstAnyView = Array.isArray(vg0.all_views) ? (vg0.all_views.find(u => u && String(u).trim()) || '') : '';
+                const cleanHeroAdmin = (v.hero_b64 && v.hero_b64 !== v.swatch_img && v.hero_b64 !== vg0.finish && !/-finish-\d+\./i.test(v.hero_b64))
                     ? v.hero_b64
-                    : (vg0.ambiente || vg0.view1 || '');
+                    : (vg0.ambiente || vg0.view1 || firstAnyView || '');
                 const heroScale = Number(v && v.hero_scale) || 1;
                 const heroPos = (v && v.hero_pos && typeof v.hero_pos === 'object') ? v.hero_pos : { x: 0, y: 0 };
                 const heroX = Number(heroPos.x) || 0;
                 const heroY = Number(heroPos.y) || 0;
                 card.innerHTML = `
                     <div class="card-img-area relative"
+                         onwheel="handleCardWheelZoom(event, ${realIdx})"
                          ondragover="handleCardDragOver(event)"
                          ondragleave="handleCardDragLeave(event)"
                          ondrop="handleCardDrop(event, ${realIdx})">
                         <div class="card-drag-overlay">
                             <span class="text-xl">📥</span>
-                            <span>Soltar para cambiar Foto de Inicio (Sin Fondo)</span>
+                            <span>Soltar para cambiar Foto de Inicio</span>
                         </div>
                         <span class="badge-category">${p.category}</span>
                         ${p.archived ? `<span class="badge-archived-status">📦 ARCHIVADO</span>` : ''}

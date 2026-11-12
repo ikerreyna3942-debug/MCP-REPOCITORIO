@@ -940,6 +940,91 @@ function readAllCatalogRows_(includePrivate) {
     const priceFormatted = numPrice > 0 ? formatMoney_(numPrice) : String(r[14] || '');
     const mods = piecesByParent[id] || [];
 
+    const rawMetaCell = String(r[21] || '').trim();
+    let unpackedDriveId = rawMetaCell;
+    let savedMetaVars = null;
+    if (rawMetaCell.startsWith('{')) {
+      try {
+        const parsedMeta = JSON.parse(rawMetaCell);
+        if (parsedMeta && parsedMeta._cm) {
+          unpackedDriveId = String(parsedMeta.did || '');
+          if (Array.isArray(parsedMeta.vars) && parsedMeta.vars.length > 0) {
+            savedMetaVars = parsedMeta.vars;
+          }
+        }
+      } catch (e) {}
+    }
+
+    let builtVars;
+    if (savedMetaVars && savedMetaVars.length > 0) {
+      builtVars = savedMetaVars.map(function (sv, vIdx) {
+        const isFirst = (vIdx === 0);
+        const vFin = String(sv.sw || sv.fin || (isFirst ? finUrl : '') || '');
+        const vViews = Array.isArray(sv.vw) ? sv.vw : (isFirst ? [views[0] || '', views[1] || '', views[2] || '', views[3] || ''] : ['', '', '', '']);
+        return {
+          color_label: String(sv.cl || 'ESTÁNDAR'),
+          finish_type: String(sv.ft || 'TELA'),
+          swatch_hex: String(sv.hex || '#B8893E'),
+          swatch_img: vFin,
+          price: priceFormatted,
+          width: sv.w !== undefined ? String(sv.w) : String(r[8] || ''),
+          depth: sv.d !== undefined ? String(sv.d) : String(r[9] || ''),
+          height: sv.h !== undefined ? String(sv.h) : String(r[10] || ''),
+          seat: sv.s !== undefined ? String(sv.s) : String(r[11] || ''),
+          packages: sv.pk !== undefined ? String(sv.pk) : String(r[12] || ''),
+          volume: sv.vl !== undefined ? String(sv.vl) : String(r[13] || ''),
+          materials: sv.mat !== undefined ? String(sv.mat) : String(r[15] || ''),
+          drive_ficha_url: String(sv.du || r[16] || ''),
+          hero_b64: String(sv.hero || (isFirst ? heroUrl : '') || ''),
+          hero_scale: Number(sv.hs) || 1,
+          hero_pos: (sv.hp && typeof sv.hp === 'object') ? { x: Number(sv.hp.x) || 0, y: Number(sv.hp.y) || 0 } : { x: 0, y: 0 },
+          slot_scales: (sv.ss && typeof sv.ss === 'object') ? sv.ss : {},
+          slot_pos: (sv.sp && typeof sv.sp === 'object') ? sv.sp : {},
+          gallery: {
+            ambiente: String(sv.amb || (isFirst ? ambUrl : '') || ''),
+            finish: vFin,
+            fabric: vFin,
+            finishes: vFin ? [vFin] : [],
+            view1: vViews[0] || '',
+            view2: vViews[1] || '',
+            view3: vViews[2] || '',
+            view4: vViews[3] || '',
+            all_views: [vViews[0] || '', vViews[1] || '', vViews[2] || '', vViews[3] || '']
+          }
+        };
+      });
+    } else {
+      builtVars = [{
+        color_label: 'ESTÁNDAR',
+        price: priceFormatted,
+        width: String(r[8] || ''),
+        depth: String(r[9] || ''),
+        height: String(r[10] || ''),
+        seat: String(r[11] || ''),
+        packages: String(r[12] || ''),
+        volume: String(r[13] || ''),
+        materials: String(r[15] || ''),
+        drive_ficha_url: String(r[16] || ''),
+        hero_b64: heroUrl,
+        hero_scale: 1,
+        hero_pos: { x: 0, y: 0 },
+        slot_scales: {},
+        slot_pos: {},
+        swatch_img: finUrl,
+        gallery: {
+          ambiente: ambUrl,
+          finish: finUrl,
+          fabric: finUrl,
+          finishes: finUrl ? [finUrl] : [],
+          view1: views[0] || '',
+          view2: views[1] || '',
+          view3: views[2] || '',
+          view4: views[3] || '',
+          all_views: [views[0] || '', views[1] || '', views[2] || '', views[3] || '']
+        }
+      }];
+    }
+
     const item = {
       id: id,
       archived: isArchived,
@@ -956,28 +1041,7 @@ function readAllCatalogRows_(includePrivate) {
       price: priceFormatted,
       materials: String(r[15] || ''),
       drive_ficha_url: String(r[16] || ''),
-      variants: [{
-        color_label: 'ESTÁNDAR',
-        price: priceFormatted,
-        width: String(r[8] || ''),
-        depth: String(r[9] || ''),
-        height: String(r[10] || ''),
-        seat: String(r[11] || ''),
-        packages: String(r[12] || ''),
-        volume: String(r[13] || ''),
-        materials: String(r[15] || ''),
-        drive_ficha_url: String(r[16] || ''),
-        hero_b64: heroUrl,
-        gallery: {
-          ambiente: ambUrl,
-          finish: finUrl,
-          view1: views[0] || '',
-          view2: views[1] || '',
-          view3: views[2] || '',
-          view4: views[3] || '',
-          all_views: views
-        }
-      }]
+      variants: builtVars
     };
 
     if (mods.length > 0) {
@@ -985,8 +1049,8 @@ function readAllCatalogRows_(includePrivate) {
     }
     if (includePrivate) {
       item.sku = String(r[3] || '');
-      item.variants[0].sku = item.sku;
-      item.drive_file_id = String(r[21] || '');
+      if (item.variants[0]) item.variants[0].sku = item.sku;
+      item.drive_file_id = unpackedDriveId;
       item.inventory = {
         cedis: r[23] || '',
         casa_creata: r[24] || '',

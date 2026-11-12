@@ -299,6 +299,8 @@ async function extractImageFromDropEvent(e) {
                 showAdminToast(`Vista ${vIdx + 1} actualizada${cloudMsg}`, '📸');
             } else if (slotType === 'hero') {
                 v.hero_b64 = finalSrc;
+                v.hero_scale = 1;
+                delete v.hero_pos;
                 if (!v.gallery.ambiente || !v.gallery.ambiente.trim()) {
                     v.gallery.ambiente = finalSrc;
                 }
@@ -777,6 +779,32 @@ async function extractImageFromDropEvent(e) {
             }
         }
 
+        async function handleCardWheelZoom(e, realIdx) {
+            const p = products[realIdx];
+            if (!p || !p.variants || !p.variants[0]) return;
+            const cardImg = document.getElementById(`grid_card_img_${realIdx}`);
+            if (!cardImg || !cardImg.getAttribute('src')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const v = p.variants[0];
+            const step = e.deltaY < 0 ? 0.06 : -0.06;
+            const cur = Number(v.hero_scale) || 1;
+            const next = Math.max(0.25, Math.min(2.5, Math.round((cur + step) * 100) / 100));
+            v.hero_scale = next;
+            const hp = (v.hero_pos && typeof v.hero_pos === 'object') ? v.hero_pos : { x: 0, y: 0 };
+            cardImg.style.setProperty('--img-scale', String(next));
+            cardImg.style.setProperty('--img-x', `${Number(hp.x) || 0}%`);
+            cardImg.style.setProperty('--img-y', `${Number(hp.y) || 0}%`);
+            if (currentProdIndex === realIdx && currentVariantIndex === 0) {
+                const lbl = document.getElementById('lblScale_hero');
+                if (lbl) lbl.textContent = `${Math.round(next * 100)}%`;
+            }
+            await saveCatalogData();
+            if (typeof scheduleVariantCloudSave_ === 'function') {
+                scheduleVariantCloudSave_(p);
+            }
+        }
+
         async function applyCardHeroImage(realIdx, b64) {
             const p = products[realIdx];
             if (!p || !b64) return;
@@ -789,6 +817,8 @@ async function extractImageFromDropEvent(e) {
 
             const { finalSrc, cloudMsg } = await uploadSlotPhotoToCloudIfConfigured(p, 0, 'hero', b64);
             v.hero_b64 = finalSrc;
+            v.hero_scale = 1;
+            delete v.hero_pos;
             if (!v.gallery.ambiente || !String(v.gallery.ambiente).trim()) {
                 v.gallery.ambiente = finalSrc;
             }
