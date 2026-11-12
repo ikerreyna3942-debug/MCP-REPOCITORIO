@@ -4,7 +4,8 @@
 (function (global) {
     'use strict';
 
-    const DEFAULT_WEBAPP_URL = '';
+    const DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwWdasvfk3W5FJVZvbEylibYXFxGAr0W4zVb3dq-ws0BqStyiSYQ8oZWLqOPagQBrxv/exec';
+    const DRIVE_ID_BY_KEY = {"SALA-CARRARA":"1P6ClsL9t4BVkJL3u7n3Uwf8rHvPGwDQE","ARMCAR1PDERAC":"1P6ClsL9t4BVkJL3u7n3Uwf8rHvPGwDQE","ARMCARESQCUAC":"1P6ClsL9t4BVkJL3u7n3Uwf8rHvPGwDQE","ARMCAR1PIZQAC":"1P6ClsL9t4BVkJL3u7n3Uwf8rHvPGwDQE","ARMCAR1PMODTC":"1P6ClsL9t4BVkJL3u7n3Uwf8rHvPGwDQE","SALA-CARRARA-TOTAL":"1P6ClsL9t4BVkJL3u7n3Uwf8rHvPGwDQE","SALA-DONATI":"1r-0hno7d2-nfxLQ0SCZe0XJw-Y88Xanz","ARMDON1PDERR1":"1r-0hno7d2-nfxLQ0SCZe0XJw-Y88Xanz","ARMDONCHIZQR1":"1r-0hno7d2-nfxLQ0SCZe0XJw-Y88Xanz","ARMDON1PIZQR1":"1r-0hno7d2-nfxLQ0SCZe0XJw-Y88Xanz","ARMDONCHDERR1":"1r-0hno7d2-nfxLQ0SCZe0XJw-Y88Xanz","SALA-DONATI-TOTAL":"1r-0hno7d2-nfxLQ0SCZe0XJw-Y88Xanz","SALA-DYLAN":"1EwBmnU2RE46hc-Uryn_0_2_6v8NxvH7t","ARMDYL1PDEMPE":"1EwBmnU2RE46hc-Uryn_0_2_6v8NxvH7t","ARMDYL1PMOMPE":"1EwBmnU2RE46hc-Uryn_0_2_6v8NxvH7t","ARMDYLESQMPE":"1EwBmnU2RE46hc-Uryn_0_2_6v8NxvH7t","ARMDYL1PIZMPE":"1EwBmnU2RE46hc-Uryn_0_2_6v8NxvH7t","ARMDYLOTTOMPE":"1EwBmnU2RE46hc-Uryn_0_2_6v8NxvH7t","SALA-DYLAN-TOTAL":"1EwBmnU2RE46hc-Uryn_0_2_6v8NxvH7t","SALA-LUGANO":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","ARMLUG1PDERNL":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","ARMLUG1PMODNL":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","ARMLUGESQCUNL":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","ARMLUGCHIZQNL":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","ARMLUG1PIZQNL":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","ARMLUGCHDERNL":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","ARMLUGESQNL":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","SALA-LUGANO-TOTAL":"1ummLABE7wAWSyogIt6nMxIZpXsXgCEYr","SALA-MARENO":"1LiYMLLZE-mu_djkyBm7uQCqN-vBCEFr5","ARMMAR3PKECO":"1LiYMLLZE-mu_djkyBm7uQCqN-vBCEFr5","ARMMAR2PKECO":"1LiYMLLZE-mu_djkyBm7uQCqN-vBCEFr5","SALA-MARENO-TOTAL":"1LiYMLLZE-mu_djkyBm7uQCqN-vBCEFr5","SALA-MATERA":"1MRuQaKKEcepx0QsjrR3BphNjDwJRLiv7","ARMMAT1PDERSP":"1MRuQaKKEcepx0QsjrR3BphNjDwJRLiv7","ARMMAT1PIZQSP":"1MRuQaKKEcepx0QsjrR3BphNjDwJRLiv7","ARMMATCHDERSP":"1MRuQaKKEcepx0QsjrR3BphNjDwJRLiv7","ARMMATCHIZQSP":"1MRuQaKKEcepx0QsjrR3BphNjDwJRLiv7","SALA-MATERA-TOTAL":"1MRuQaKKEcepx0QsjrR3BphNjDwJRLiv7","SALA-MONACO":"1cZ43t5VFZ0tRuJYi-Q7bdzBi5pv-PM52","ARMMONIZQELBL":"1cZ43t5VFZ0tRuJYi-Q7bdzBi5pv-PM52","ARMMON1PMODFA":"1cZ43t5VFZ0tRuJYi-Q7bdzBi5pv-PM52","ARMMONESQFAPE":"1cZ43t5VFZ0tRuJYi-Q7bdzBi5pv-PM52","ARMMONOTTFAPE":"1cZ43t5VFZ0tRuJYi-Q7bdzBi5pv-PM52","ARMMONESQELBL":"1cZ43t5VFZ0tRuJYi-Q7bdzBi5pv-PM52","SALA-MONACO-TOTAL":"1cZ43t5VFZ0tRuJYi-Q7bdzBi5pv-PM52","SALA-MONET":"1HQV-Cg1yDLmyb3YEqHbiTeeQ7s2o4bnM","ARMMON3PFREFL":"1HQV-Cg1yDLmyb3YEqHbiTeeQ7s2o4bnM","ARMMON2PFRFL":"1HQV-Cg1yDLmyb3YEqHbiTeeQ7s2o4bnM","SALA-MONET-TOTAL":"1HQV-Cg1yDLmyb3YEqHbiTeeQ7s2o4bnM","SALA-SHELBY":"1UI1PsAk7dUaQhTr-LVtkkMUd-pUIasD_","ARMSHE1PDERN1":"1UI1PsAk7dUaQhTr-LVtkkMUd-pUIasD_","ARMSHE1PMODN1":"1UI1PsAk7dUaQhTr-LVtkkMUd-pUIasD_","ARMSHEESQNA01":"1UI1PsAk7dUaQhTr-LVtkkMUd-pUIasD_","ARMSHE1PIZQN1":"1UI1PsAk7dUaQhTr-LVtkkMUd-pUIasD_","ARMSHEOTTNA01":"1UI1PsAk7dUaQhTr-LVtkkMUd-pUIasD_","SALA-SHELBY-TOTAL":"1UI1PsAk7dUaQhTr-LVtkkMUd-pUIasD_","ARM1PASCNACR":"1fFQ2ZCayQzhzWzTNb_TFWLsCGB9ltdYa","ATXCAMAUQSGMB":"1unUhnZmmAMmBUeUwH2m1ZH9iK5J7njQ1","ATXCAMAUQSREB":"1unUhnZmmAMmBUeUwH2m1ZH9iK5J7njQ1","ATXCAMSFEKSGM":"1W6tV65Hj6pZU7w_xhSjbFiHstmhfIcUw","ATXCAMSFEKSLC":"1W6tV65Hj6pZU7w_xhSjbFiHstmhfIcUw","ATXBUFBALSPHA":"1Ds9EgYu8X1Hx2MJT7th6TbarVhy21SJA","ATXBUFLUMBENT":"1ddFajKSRVlBYeP-9P-0ADuDlnLJWJQvG","ATXBUFSTHNONT":"1jKQqkrQC8H7gNyqWJQxRAkRQlJwtRP-K","ATXLIBMAZENCA":"1KbXzNwVLOJEoxOHdfHJMw2ZBpbkgso7E","ATXMDCKUNROEN":"13Jc7n8B7OH_EyXx0wUYEimQ3euH_dIu4","ATXCENRENLABE":"15-DLVX22k-0CWVG9jQMSF0YlTVz3woBK","ATXMESLUMBENT":"15LaFnAPbjannLGwmWE4YYOKnh-seEoiM","ATXMLAKUNROEN":"1W0LJ7XLhBWmhwDdhS1yw-hAOSb2_pgKy","ATXSILAURBKHA":"1_0w2p5ZRQ5OC6itB0EC7SnDB12602WC7","ATXSILSTHPLLB":"1Zmn1HGy-NvivnNIYpr4LSBVX8Gra3SFl","ATX1PBALBOLB":"1N2DX4CKJrpvAFHcZN0JNy9BUoAGpZY5h","ATX1PBALRNLB":"1YWS4D_3_xMC2dsKM4eUiQwbJZe6beuhT","ATX3PAURBLTA":"1JHlzHN6YE5B41m0M2o3z5iiYvSNg3OG0","ATX3PSFEGJLB":"18jVnUVhXctmztYGIjMwEu1b1rJlmb-g_","BARSILSANPLRM":"1UTErufzcbjVX2P2qT5D4z5neXFBhHbbk","BARSOCSANRMKP":"1fPE_f3XUXDz2KG2MpAxH-7EnmJl8jepS","BARBUSAN120RM":"1pEXMuZ3wk3ZyTewuWFHbnxbdrNSXYRI0","BARBUFSAN18RM":"1tmfYj47E7heyvnnHXP7KPVQuFaqrV3o8","BARBURSAN60RM":"1_MIu6S-oUZCkIzGAaHZBBqCIs2HQiwzE","BARBURSANIZRM":"18G9zhew9Tkv7ZYWx9M3P6rXJKbfP2egq","BARTOCSAN14RM":"1Mtwx_6LlVTAIg4NDyiGoapqLfcugXije","BARSANMATPLRM":"11KtRQADeVVeqbg8y1pq5uNSsPJRRrFv6","BARSANKSPLRM":"11KtRQADeVVeqbg8y1pq5uNSsPJRRrFv6","BARCRESAN14RM":"17eJa2o3TEgTtl0USeumvtvNdV7VyGwoV","BARESPSANRM18":"1sDeo5er-lf9VtF5269SKRmSSne_-fqdt","BARMDCSAN120R":"18668XDUGwfIRG2SPmNqegjMzf6IkXAW8","BARMDCSAN80RM":"1QlULQqhv8IkNxhCc7bVanHTbLvwSKL91","BARMLSANRM50":"1op5GSYWpEwth45MJhwss_5mGUc8A8kIn","BARMESSAN4PRM":"1r8IH_Jza6y2C1IFGflSUSjMUFQgJafc3","BARMESAN6PRM":"1r8IH_Jza6y2C1IFGflSUSjMUFQgJafc3","BARMESSAN8PRM":"1r8IH_Jza6y2C1IFGflSUSjMUFQgJafc3","CVVSALAARIOF":"1UlkgA_ncmutYpyez4AqbAdysbsxMcXmW","CVVSALAARIOI":"1gv3PG4ExZvYbX190kc9w75LWXL-6Jkeo","CVVSALLEXPROL":"1e3RcW3bKd-mjbu2WLGptNRwElH0B2xCK","CVVSALLUNBALI":"1Hlj0Bq-rpPM56X6XIDn9VEAK0ffwykrY","CVVSALLUNBAMU":"1gMJUMCCe5eSLEqEIVft7lYgmj7u1ysUA","CVVSALPIEFPBU":"1DNPEwh6PZK_XiLoPpq724HGJ6Yo2Xvbk","CVVSALPIEFPMO":"1xpErkahTfvxy1A5pfHrrUlDm8ym-Dzm-","KUDSALMAWHALI":"13c-yuej45wXcCmMB_2NKtqe8YMmkxgyB","KUDSCAASHBROA":"1BL7tHTVhb39OHTfLG2EtV0it5_MpIZ-K","KUDSCAUGABROA":"18P1W-ydM6nJ_7EqJfNKU24-eFfjUg5pI","GMM1PKATBEIWO":"1emgv3GRr89EULhY9XnTpbtZXDt-Cfdg7","GMM1PLEOBEI":"1t2CgTGgdsVKUMxezs-76CMKmL9Ab0pvL","GMMCAM9867":"18Wp_dynOuPujcpFrp3cFqlLASztNl67a","GMMCAM9866":"1PoVbSTeX7905HDoRZlknpVHfMvp2hPhn","GMMMTV7300":"1JLJ5M4q6Rau4uq1XHtqes53vuXAe8xMJ","GMMMES7141":"17gcx2wBilMdXRmDOIvTVGUyJeQdJsUCq","GMMMDC2818":"1ZQr3aocjjQZ4GsOmTUtuhmcoKIyztpax","GMMSIL7412":"1HCG4ufrsrJte0zwA92lV6WcLmaLkEVmi","GMMMES6908":"1QSKqVwG9vba4T9yBjkW7YVcO9Bn8Fvb6","GMMSIL2147":"1kxzKh4ccfYfq9f8AkSK1Bba2uOT0jecj","GMMSIL7411":"1k4RrYIX4k0nROyyIgSB9sI2ADG2FcFt4","GMM1P2010":"1gIwVUHmQfI9KitnAEy3y6f1WS-eI-psC","GMM1P2016":"1LqQ5s65NqkF_O7f5M1L-t7D3qmkEj4bE","GMM1P2017":"18n2AvhefvqJ91547W019Q9pOZNcFLjSW","LPCOMD36RMCL":"11d9QxIJVP7HlCOEKw6udpixUbKQuVIvd","LPBUR61RMCL":"1uCEEmLAmQxp6STDVGZKXj6ZWLNgKKsaF","MOBBASKSYUT":"1enK-6ZPBppLYZ8VGHaSbRECVc85Qf5Hs","MOBBURMADROMO":"11DmcfaobgXdvpyWvX_9h8vTG0UUbP8Zr","MOBBUFPLAPAR":"11DtR3y8LDp4WR_W_fDZv8Rgr8DC2ITm0","MOBCABMADKSRM":"1MtIuOFVYV6JUP1s-8hu3tqzejFqXwmWX","MOBCAJBARRMNU":"1HMVDzH4mSpvXXhBtorbMagxaqPwot8Ml","MOBCOMBEJROMO":"1mdTbd8mOVfFQiwTcWbZteL3gSeO-cpTD","MOBCTVPUERM":"1xlGqL1wm84d_74iYf-FiZyfU_SdlHPLR","MOBCREADA220":"19yMJuF7fl16yHwmzdBkcQKPknjzZtBiM","MOBCREBEJROMO":"1J4tolhHsfm_mq4TfyLvmaPbEx4M4GvF_","MOBESPESCPAR":"12CgDIdfi88DRHxm1pdq_QOxliTtGoT7h","MOBESPCOR45RM":"1eY5q3tzN-z5arEkcRqJnLQ8wxI8BsCRA","MOBMDCBEJROMO":"1z-HOmydgUDTPUhes_w9OfsV2GN55jzjl","MOBMESBAR8PRM":"16x-fvfbXMjn2Sm_T-NBFgrIDDdgLGcZi","MOBMESKAMRM":"16TPeZRbam9-Q5mZcLt4JcxEw2VDb8lEU","MOBJGOMESPARM":"19LaXGRYR4LCUbKq0-p2OumTh1VYvNz57","MOBSILCANROMO":"1LGXaQFpg3UjlcXryUBzx-p984NQ1K8_m","MOBSILNAISOL":"11cYSxbWjVStfzlJjM__4DjurfyxipbKp","MOBBURAFRROMO":"1FpioS7NVcWWuiRZ2FAPNDCuDX_wX2kb0","MOBBURBARLED":"192wek99TiVdkNv-WPZlsqp8CBUHzDLRs","MOBURBEJRROMO":"1KzyxLBbhSM0z3SqgD4w_S-KTiYGDOZDe","MOBCOMMADROMO":"1oEj-cO_wKWClT-vEG3AtqZakbCTCK38g","MOBBURPLAPAR":"1m4y2N2rLxIpspamau3JUySOg8GNzRsBN","MOBBURYUTROMO":"1hrLWDGNNidWxoog_eeXmKO-KQeOKFJdr","PICMDCSOTSB":"1V4-WM2Xsfe8mHXfoiq5EwkLciIL-bPRF","PAYCAMSALKSRI":"1hlzwZyy88C5XBPhkUX1zvM7DR2EVqKEK","PAYCAMSAJKS":"1BPDp29-t-gVT33XtPyJwVkfBId3sqO_b","REVMLZEUPAR46":"1OC-07UD_wZPj5Gmeddd86p127yHTTKEJ","YO3PZAMALUIV":"1sgqzbDqz1TuRcZ-DGXr-fD9yuXNCFRUX","YO1PUNIBRBOPC":"1ZTbM6GhOhSroyB4J8Sh1-CxCn--3STPg","YO1PAARNOGRRM":"1IDIzlwO03SR9r3qyHRy_bOWzZ4m1eGG5","YO1PAURRUNARM":"1BF_lySyOyYs9iygJQjI3wA0HXyKfgWQu","YO1PDUEPIJERM":"1mAh2LzkmKh3A_SbUnlHSj0cpfXsecu9B","YO1PZURPIERM":"12EjKdITrKv9Q8cp6UY00UQ--e4sp710c","YO1PZURSA07RM":"1bnvrclEjyC2-4D79V9Vs_T1tYuPSJQEP"};
 
     const CREATA_CLOUD_CONFIG = {
         sheetId: '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8',
@@ -183,13 +184,18 @@
         // 1. Coincidencia exacta en catálogo modular conocido
         if (knownCatalog && typeof knownCatalog === 'object') {
             const matchedKey = Object.keys(knownCatalog).find((k) => {
-                const modelAlias = k
-                    .replace('CVVSALAARIO', 'ARIA')
-                    .replace('CVVSALPIE', 'PIERO')
-                    .replace('ARMMAT', 'MATERA')
-                    .replace('ARMMAR', 'MARENO')
-                    .replace('ARMMON', 'MONET')
-                    .replace('ARMDON', 'DONATI');
+                const aliasMap = {
+                    'SALA-CARRARA': 'CARRARA', 'ARMCAR': 'CARRARA',
+                    'SALA-DONATI': 'DONATI', 'ARMDON': 'DONATI',
+                    'SALA-DYLAN': 'DYLAN', 'ARMDYL': 'DYLAN',
+                    'SALA-LUGANO': 'LUGANO', 'ARMLUG': 'LUGANO',
+                    'SALA-MARENO': 'MARENO', 'ARMMAR': 'MARENO',
+                    'SALA-MATERA': 'MATERA', 'ARMMAT': 'MATERA',
+                    'SALA-MONACO': 'MONACO', 'ARMMONACO': 'MONACO',
+                    'SALA-MONET': 'MONET', 'ARMMON': 'MONET',
+                    'SALA-SHELBY': 'SHELBY', 'ARMSHE': 'SHELBY'
+                };
+                const modelAlias = aliasMap[k] || k;
                 return pSku.includes(k) || pModel.includes(modelAlias);
             });
             if (matchedKey) {
@@ -567,13 +573,354 @@
         return s.toLowerCase().includes(unit.toLowerCase()) ? s : `${s} ${unit}`;
     }
 
-    async function fetchDirectGvizCatalog(mode = 'public', timeoutMs = 6500) {
-        const [prodTbl, pieceTbl] = await Promise.all([
-            gvizJsonpQuery('CATALOGO_PRODUCTOS', timeoutMs),
-            gvizJsonpQuery('PIEZAS_MODULOS', timeoutMs)
+    function normalizeCategoryClient_(cat) {
+        const c = String(cat || '').toUpperCase();
+        if (c.includes('SALA') || c.includes('SOF')) return 'SALAS & SOFÁS';
+        if (c.includes('SILLA') || c.includes('SILL')) return 'SILLAS & SILLONES';
+        if (c.includes('COMEDOR') || c.includes('COMED')) return 'COMEDORES';
+        if (c.includes('BUFET') || c.includes('CREDEN')) return 'BUFETERAS & CREDENZAS';
+        if (c.includes('CENTRO') || c.includes('LATERAL')) return 'MESAS DE CENTRO';
+        if (c.includes('REC') || c.includes('CAMA') || c.includes('BUR') || c.includes('CÓMODA') || c.includes('COMODA') || c.includes('CAJONERA')) return 'RECÁMARAS';
+        return 'COMPLEMENTOS';
+    }
+
+    function resolveDriveUrlClient_(rawVal, ...lookupKeys) {
+        const rawStr = String(rawVal || '').trim();
+        if (/^https?:\/\//i.test(rawStr)) return rawStr;
+        const candidates = [...lookupKeys, rawStr];
+        for (let i = 0; i < candidates.length; i++) {
+            const k = String(candidates[i] || '').trim().toUpperCase();
+            if (k && DRIVE_ID_BY_KEY[k]) {
+                return `https://drive.google.com/file/d/${DRIVE_ID_BY_KEY[k]}/view?usp=sharing`;
+            }
+        }
+        return '';
+    }
+
+    function parseMasterTabsFromGviz_(salasTbl, indivTbl) {
+        const invCols = CREATA_CLOUD_CONFIG.inventoryLocations || [];
+        const salasById = {};
+        const salasList = [];
+
+        if (salasTbl && Array.isArray(salasTbl.rows)) {
+            let curPieces = [];
+            salasTbl.rows.forEach((sr) => {
+                const sid = String(gvizCell(sr, 0) || '').trim();
+                if (!sid || sid.toUpperCase() === 'ID SALA') return;
+                const sname = scrubForbiddenPublicText(String(gvizCell(sr, 1) || '').trim());
+                const psku = String(gvizCell(sr, 2) || '').trim().toUpperCase();
+                const pname = scrubForbiddenPublicText(String(gvizCell(sr, 3) || '').trim());
+                const qtyRaw = gvizCell(sr, 4);
+                const qtyParsed = (qtyRaw === '' || qtyRaw === null || qtyRaw === undefined) ? 0 : Number(qtyRaw);
+                const sheetQty = isNaN(qtyParsed) ? 0 : qtyParsed;
+                const showFlag = String(gvizCell(sr, 12) || '').trim().toUpperCase();
+                const rawLinkCell = gvizCell(sr, 13);
+
+                const rowInv = {};
+                invCols.forEach((locName, idx) => {
+                    const rawInv = gvizCell(sr, 14 + idx);
+                    if (rawInv !== '' && rawInv !== null && rawInv !== undefined) {
+                        const n = Number(rawInv);
+                        if (!isNaN(n) && n > 0) rowInv[locName] = n;
+                    }
+                });
+
+                if (showFlag.includes('SÍ') || showFlag.includes('SI') || psku.includes('-TOTAL')) {
+                    const totalPrice = parseCurrencyValue(gvizCell(sr, 10));
+                    const sumChecked = curPieces
+                        .filter((x) => x.checked)
+                        .reduce((acc, x) => acc + (x.price * (x.qty || 1)), 0);
+                    const finalTotal = totalPrice > 0 ? totalPrice : sumChecked;
+                    const driveUrl = resolveDriveUrlClient_(rawLinkCell, sid, ...(curPieces.map((x) => x.sku)));
+                    const salaObj = {
+                        id: sid,
+                        name: sname || sid,
+                        totalPrice: finalTotal,
+                        dimsSummary: String(gvizCell(sr, 11) || '').trim(),
+                        driveUrl: driveUrl,
+                        pieces: curPieces.slice(),
+                        inventory: rowInv
+                    };
+                    salasById[sid.toUpperCase()] = salaObj;
+                    salasList.push(salaObj);
+                    curPieces = [];
+                } else if (psku) {
+                    curPieces.push({
+                        sku: psku,
+                        code: psku.slice(-6) || 'MOD',
+                        name: pname || psku,
+                        qty: sheetQty > 0 ? sheetQty : 1,
+                        sheetQty: sheetQty,
+                        checked: sheetQty > 0,
+                        optional: sheetQty === 0,
+                        width: fmtMeasureClient_(gvizCell(sr, 5), 'cm'),
+                        depth: fmtMeasureClient_(gvizCell(sr, 6), 'cm'),
+                        height: fmtMeasureClient_(gvizCell(sr, 7), 'cm'),
+                        price: parseCurrencyValue(gvizCell(sr, 8)),
+                        photoSlot: `view${Math.min(4, curPieces.length + 1)}`,
+                        inventory: rowInv
+                    });
+                }
+            });
+        }
+
+        const indivList = [];
+        const indivBySku = {};
+        if (indivTbl && Array.isArray(indivTbl.rows)) {
+            indivTbl.rows.forEach((ir, rIdx) => {
+                const sku = String(gvizCell(ir, 1) || '').trim().toUpperCase();
+                if (!sku || sku === 'SKU') return;
+                const prov = String(gvizCell(ir, 0) || 'CREATA').trim();
+                const name = scrubForbiddenPublicText(String(gvizCell(ir, 2) || '').trim());
+                if (!name) return;
+                const cat = normalizeCategoryClient_(gvizCell(ir, 3));
+                const rawFile = gvizCell(ir, 12);
+                const rawLink = gvizCell(ir, 13);
+                const driveUrl = resolveDriveUrlClient_(rawLink, sku, rawFile);
+                const rowInv = {};
+                invCols.forEach((locName, idx) => {
+                    const rawInv = gvizCell(ir, 14 + idx);
+                    if (rawInv !== '' && rawInv !== null && rawInv !== undefined) {
+                        const n = Number(rawInv);
+                        if (!isNaN(n) && n > 0) rowInv[locName] = n;
+                    }
+                });
+                const pkgRaw = String(gvizCell(ir, 9) || '1 bulto').trim();
+                const item = {
+                    rowIdx: rIdx,
+                    provider: prov,
+                    sku: sku,
+                    name: name,
+                    category: cat,
+                    width: fmtMeasureClient_(gvizCell(ir, 4), 'cm'),
+                    depth: fmtMeasureClient_(gvizCell(ir, 5), 'cm'),
+                    height: fmtMeasureClient_(gvizCell(ir, 6), 'cm'),
+                    seat: fmtMeasureClient_(gvizCell(ir, 7), 'cm'),
+                    volume: fmtMeasureClient_(gvizCell(ir, 8), 'm³'),
+                    packages: /bulto|pieza/i.test(pkgRaw) ? pkgRaw : `${pkgRaw} bultos`,
+                    priceNum: parseCurrencyValue(gvizCell(ir, 10)),
+                    materials: scrubForbiddenPublicText(String(gvizCell(ir, 11) || '').trim()),
+                    driveUrl: driveUrl,
+                    inventory: rowInv
+                };
+                indivList.push(item);
+                if (!indivBySku[sku]) indivBySku[sku] = [];
+                indivBySku[sku].push(item);
+            });
+        }
+
+        global.LIVE_SHEET_SALAS = salasById;
+        global.LIVE_SHEET_INDIV = indivBySku;
+        return { salasById, salasList, indivList, indivBySku };
+    }
+
+    function matchSalaKeyForProduct_(modelName, prodId, salasById) {
+        const upId = String(prodId || '').trim().toUpperCase();
+        if (salasById[upId]) return upId;
+        const upName = String(modelName || '').trim().toUpperCase();
+        if (upName.includes('MATERA') && salasById['SALA-MATERA']) return 'SALA-MATERA';
+        if (upName.includes('MARENO') && !upName.includes('LOVE') && salasById['SALA-MARENO']) return 'SALA-MARENO';
+        if (upName.includes('MONET') && !upName.includes('LOVE') && salasById['SALA-MONET']) return 'SALA-MONET';
+        const foundKey = Object.keys(salasById).find((k) => {
+            const s = salasById[k];
+            return s && s.name && upName === s.name.toUpperCase();
+        });
+        return foundKey || '';
+    }
+
+    function buildArchivedSalaProduct_(sdata) {
+        const pList = (sdata.pieces || []).map((x) => Object.assign({}, x));
+        const activeP = pList.filter((x) => x.checked !== false);
+        const totalQty = activeP.reduce((acc, x) => acc + (parseInt(x.qty, 10) || 1), 0) || pList.length || 1;
+        const allSkus = pList.map((x) => x.sku).filter(Boolean).join(' / ') || (sdata.id + '-SET');
+        const widthStr = pList.map((x) => x.width.replace(/\s*cm$/i, '').trim()).filter(Boolean).join(' / ');
+        const fullWidth = widthStr ? `${widthStr} cm` : '';
+        const depth = (pList[0] && pList[0].depth) || '';
+        const height = (pList[0] && pList[0].height) || '';
+        const priceFmt = formatCurrencyMXN(sdata.totalPrice || 0);
+        return {
+            id: sdata.id,
+            archived: true,
+            provider_abbr: 'ARM',
+            provider: 'ARM',
+            sku: allSkus,
+            model_name: sdata.name,
+            category: 'SALAS & SOFÁS',
+            is_multipiece: pList.length > 1,
+            width: fullWidth,
+            depth: depth,
+            height: height,
+            seat: '',
+            packages: `${totalQty} ${totalQty === 1 ? 'bulto' : 'bultos'}`,
+            volume: '',
+            price: priceFmt,
+            materials: scrubForbiddenPublicText(sdata.dimsSummary || ''),
+            drive_ficha_url: sdata.driveUrl || '',
+            sala_modules: pList,
+            inventory: sdata.inventory || {},
+            variants: [{
+                id: `${sdata.id}-v1`,
+                name: sdata.name,
+                color_label: 'Acabado Ficha Técnica',
+                swatch_hex: '#B8893E',
+                swatch_img: '',
+                hero_b64: '',
+                width: fullWidth,
+                depth: depth,
+                height: height,
+                seat: '',
+                packages: `${totalQty} ${totalQty === 1 ? 'bulto' : 'bultos'}`,
+                volume: '',
+                materials: scrubForbiddenPublicText(sdata.dimsSummary || ''),
+                drive_ficha_url: sdata.driveUrl || '',
+                gallery: { ambiente: '', finish: '', finishes: [], fabric: '', view1: '', view2: '', view3: '', view4: '', all_views: [] }
+            }]
+        };
+    }
+
+    function buildArchivedIndivProduct_(it) {
+        const pid = 'IND-' + it.sku;
+        const priceFmt = formatCurrencyMXN(it.priceNum || 0);
+        return {
+            id: pid,
+            archived: true,
+            provider_abbr: it.provider || 'CREATA',
+            provider: it.provider || 'CREATA',
+            sku: it.sku,
+            model_name: it.name,
+            category: it.category || 'COMPLEMENTOS',
+            is_multipiece: false,
+            width: it.width,
+            depth: it.depth,
+            height: it.height,
+            seat: it.seat,
+            packages: it.packages || '1 bulto',
+            volume: it.volume,
+            price: priceFmt,
+            materials: it.materials,
+            drive_ficha_url: it.driveUrl || '',
+            sala_modules: [],
+            inventory: it.inventory || {},
+            variants: [{
+                id: `${pid}-v1`,
+                name: it.name,
+                color_label: 'Acabado Ficha Técnica',
+                swatch_hex: '#B8893E',
+                swatch_img: '',
+                hero_b64: '',
+                width: it.width,
+                depth: it.depth,
+                height: it.height,
+                seat: it.seat,
+                packages: it.packages || '1 bulto',
+                volume: it.volume,
+                materials: it.materials,
+                drive_ficha_url: it.driveUrl || '',
+                gallery: { ambiente: '', finish: '', finishes: [], fabric: '', view1: '', view2: '', view3: '', view4: '', all_views: [] }
+            }]
+        };
+    }
+
+    async function fetchDirectGvizCatalog(mode = 'public', timeoutMs = 15000) {
+        const effTimeout = Math.max(Number(timeoutMs) || 0, 15000);
+        const [prodTbl, pieceTbl, salasTbl, indivTbl] = await Promise.all([
+            gvizJsonpQuery('CATALOGO_PRODUCTOS', effTimeout),
+            gvizJsonpQuery('PIEZAS_MODULOS', effTimeout),
+            gvizJsonpQuery('SALAS_MODULARES', effTimeout),
+            gvizJsonpQuery('MUEBLES_INDIVIDUALES', effTimeout)
         ]);
-        if (!prodTbl || !Array.isArray(prodTbl.rows) || prodTbl.rows.length === 0) {
-            return null;
+
+        const master = parseMasterTabsFromGviz_(salasTbl, indivTbl);
+        const hasCatalogRows = !!(prodTbl && Array.isArray(prodTbl.rows) && prodTbl.rows.some((r) => {
+            const id = String(gvizCell(r, 0) || '').trim();
+            return id && id.toUpperCase() !== 'ID_INTERNO';
+        }));
+
+        // Si CATALOGO_PRODUCTOS aún está vacío, construimos el catálogo EN VIVO directamente desde
+        // SALAS_MODULARES (=CALCULAR_MONTO_SKU) y MUEBLES_INDIVIDUALES (=CALCULAR_PRECIO_SKU)
+        if (!hasCatalogRows) {
+            if (master.salasList.length === 0 && master.indivList.length === 0) return null;
+
+            const baseRaw = (mode === 'admin' && (global.ADMIN_RAW_P1 || global.ADMIN_RAW_P2))
+                ? [...(global.ADMIN_RAW_P1 || []), ...(global.ADMIN_RAW_P2 || [])]
+                : [...(global.CREATA_CATALOG_P1 || global.ADMIN_RAW_P1 || []), ...(global.CREATA_CATALOG_P2 || global.ADMIN_RAW_P2 || [])];
+
+            const usedSalas = {};
+            const usedIndivRows = {};
+            const synthesized = [];
+
+            baseRaw.forEach((bp) => {
+                if (!bp) return;
+                const clone = JSON.parse(JSON.stringify(bp));
+                const pid = String(clone.id || '').trim();
+                const modelName = scrubForbiddenPublicText(String(clone.model_name || ''));
+                clone.model_name = modelName;
+                clone.category = normalizeCategoryClient_(clone.category);
+                clone.archived = false;
+
+                // Limpiar cualquier foto precargada antigua (0 fotos por defecto salvo subidas nuevas)
+                if (Array.isArray(clone.variants)) {
+                    clone.variants.forEach((v) => {
+                        v.hero_b64 = '';
+                        v.swatch_img = '';
+                        v.gallery = { ambiente: '', finish: '', finishes: [], fabric: '', view1: '', view2: '', view3: '', view4: '', all_views: [] };
+                    });
+                }
+
+                let rawSku = String(clone.sku || pid).trim().toUpperCase();
+                rawSku.split('/').forEach((part) => {
+                    const sk = part.trim().toUpperCase();
+                    if (master.indivBySku[sk]) {
+                        master.indivBySku[sk].forEach((m, mIdx) => {
+                            usedIndivRows[m.rowIdx] = true;
+                            if (mIdx === 0) {
+                                if (m.priceNum > 0) clone.price = formatCurrencyMXN(m.priceNum);
+                                if (!clone.drive_ficha_url && m.driveUrl) clone.drive_ficha_url = m.driveUrl;
+                                clone.inventory = m.inventory || {};
+                            }
+                        });
+                    }
+                });
+
+                const sKey = matchSalaKeyForProduct_(modelName, pid, master.salasById);
+                if (sKey && master.salasById[sKey]) {
+                    usedSalas[sKey] = true;
+                    const sdata = master.salasById[sKey];
+                    const pList = sdata.pieces.map((x) => Object.assign({}, x));
+                    clone.sala_modules = pList;
+                    clone.is_multipiece = pList.length > 1;
+                    rawSku = pList.map((x) => x.sku).filter(Boolean).join(' / ') || rawSku;
+                    if (sdata.totalPrice > 0) {
+                        clone.price = formatCurrencyMXN(sdata.totalPrice);
+                    }
+                    if (sdata.driveUrl) {
+                        clone.drive_ficha_url = sdata.driveUrl;
+                        if (clone.variants && clone.variants[0]) clone.variants[0].drive_ficha_url = sdata.driveUrl;
+                    }
+                    clone.inventory = sdata.inventory || {};
+                }
+
+                if (mode === 'admin') {
+                    clone.sku = rawSku;
+                    synthesized.push(clone);
+                } else {
+                    const pub = sanitizePublicProduct(clone);
+                    if (pub) synthesized.push(pub);
+                }
+            });
+
+            if (mode === 'admin') {
+                master.salasList.forEach((sdata) => {
+                    if (usedSalas[sdata.id.toUpperCase()]) return;
+                    synthesized.push(buildArchivedSalaProduct_(sdata));
+                });
+                master.indivList.forEach((it) => {
+                    if (usedIndivRows[it.rowIdx]) return;
+                    synthesized.push(buildArchivedIndivProduct_(it));
+                });
+            }
+
+            return synthesized;
         }
 
         const invCols = CREATA_CLOUD_CONFIG.inventoryLocations || [];
@@ -583,7 +930,8 @@
                 const parentId = String(gvizCell(pr, 0) || '').trim();
                 if (!parentId || parentId.toUpperCase() === 'ID_PADRE') return;
                 const qtyRaw = gvizCell(pr, 4);
-                const qtyNum = (qtyRaw === '' || qtyRaw === null || qtyRaw === undefined) ? 1 : (parseInt(qtyRaw, 10) || 0);
+                const qtyParsed = (qtyRaw === '' || qtyRaw === null || qtyRaw === undefined) ? 1 : Number(qtyRaw);
+                const sheetQty = isNaN(qtyParsed) ? 1 : qtyParsed;
                 const pieceInv = {};
                 invCols.forEach((locName, idx) => {
                     const rawInv = gvizCell(pr, 10 + idx);
@@ -592,36 +940,49 @@
                         if (!isNaN(n) && n > 0) pieceInv[locName] = n;
                     }
                 });
+                const pSku = String(gvizCell(pr, 2) || '').trim().toUpperCase();
                 if (!piecesByParent[parentId]) piecesByParent[parentId] = [];
                 piecesByParent[parentId].push({
-                    sku: String(gvizCell(pr, 2) || '').trim(),
-                    code: String(gvizCell(pr, 2) || '').trim().slice(-6) || 'MOD',
+                    sku: pSku,
+                    code: pSku.slice(-6) || 'MOD',
                     name: scrubForbiddenPublicText(String(gvizCell(pr, 3) || '').trim()),
-                    qty: qtyNum,
+                    qty: sheetQty > 0 ? sheetQty : 1,
+                    sheetQty: sheetQty,
                     width: fmtMeasureClient_(gvizCell(pr, 5), 'cm'),
                     depth: fmtMeasureClient_(gvizCell(pr, 6), 'cm'),
                     height: fmtMeasureClient_(gvizCell(pr, 7), 'cm'),
                     price: parseCurrencyValue(gvizCell(pr, 8)),
-                    checked: qtyNum > 0,
+                    checked: sheetQty > 0,
+                    optional: sheetQty === 0,
                     inventory: pieceInv
                 });
             });
         }
 
         const out = [];
+        const seenIds = new Set();
+        const seenSkus = new Set();
+        const usedSalasInCat = {};
+
         prodTbl.rows.forEach((r) => {
             const id = String(gvizCell(r, 0) || '').trim();
             if (!id || id.toUpperCase() === 'ID_INTERNO') return;
+            seenIds.add(id.toUpperCase());
+
             const estado = String(gvizCell(r, 1) || 'ARCHIVADO').trim().toUpperCase();
             const isArchived = estado !== 'VISIBLE';
             if (mode === 'public' && isArchived) return;
 
             const prov = String(gvizCell(r, 2) || 'CREATA').trim();
-            const sku = String(gvizCell(r, 3) || '').trim();
+            let sku = String(gvizCell(r, 3) || '').trim();
+            sku.split('/').forEach((s) => {
+                if (s.trim()) seenSkus.add(s.trim().toUpperCase());
+            });
+
             const modelName = scrubForbiddenPublicText(String(gvizCell(r, 4) || '').trim());
             if (!modelName) return;
 
-            const cat = String(gvizCell(r, 5) || 'COMPLEMENTOS').trim();
+            const cat = normalizeCategoryClient_(gvizCell(r, 5));
             const isMulti = String(gvizCell(r, 6) || '').trim().toUpperCase() === 'SI';
             const width = fmtMeasureClient_(gvizCell(r, 8), 'cm');
             const depth = fmtMeasureClient_(gvizCell(r, 9), 'cm');
@@ -630,9 +991,9 @@
             const pkgRaw = String(gvizCell(r, 12) || '1').trim();
             const packages = /bulto|pieza/i.test(pkgRaw) ? pkgRaw : `${pkgRaw} bultos`;
             const volume = fmtMeasureClient_(gvizCell(r, 13), 'm³');
-            const priceNum = parseCurrencyValue(gvizCell(r, 14));
+            let priceNum = parseCurrencyValue(gvizCell(r, 14));
             const materials = scrubForbiddenPublicText(String(gvizCell(r, 15) || '').trim());
-            const driveUrl = String(gvizCell(r, 16) || '').trim();
+            const driveUrl = resolveDriveUrlClient_(gvizCell(r, 16), id, sku);
             const heroUrl = isValidPhotoUrl(String(gvizCell(r, 17) || '')) ? String(gvizCell(r, 17)).trim() : '';
             const ambUrl = isValidPhotoUrl(String(gvizCell(r, 18) || '')) ? String(gvizCell(r, 18)).trim() : '';
             const finUrl = isValidPhotoUrl(String(gvizCell(r, 19) || '')) ? String(gvizCell(r, 19)).trim() : '';
@@ -655,6 +1016,28 @@
                 }
             });
 
+            let mods = piecesByParent[id] ? piecesByParent[id].slice() : [];
+            const sKey = matchSalaKeyForProduct_(modelName, id, master.salasById);
+            if (sKey && master.salasById[sKey]) {
+                usedSalasInCat[sKey] = true;
+                const masterPieces = master.salasById[sKey].pieces || [];
+                if (mods.length < masterPieces.length) {
+                    const existingPieceSkus = new Set(mods.map((m) => m.sku));
+                    masterPieces.forEach((mp) => {
+                        if (!existingPieceSkus.has(mp.sku)) {
+                            mods.push(Object.assign({}, mp));
+                        }
+                    });
+                }
+                if (mods.length > 0) {
+                    sku = mods.map((m) => m.sku).filter(Boolean).join(' / ') || sku;
+                    mods.forEach((m) => { if (m.sku) seenSkus.add(m.sku); });
+                }
+                if (priceNum <= 0 && master.salasById[sKey].totalPrice > 0) {
+                    priceNum = master.salasById[sKey].totalPrice;
+                }
+            }
+
             const prodObj = {
                 id: id,
                 archived: isArchived,
@@ -662,7 +1045,7 @@
                 provider: prov,
                 model_name: modelName,
                 category: cat,
-                is_multipiece: isMulti || !!(piecesByParent[id] && piecesByParent[id].length > 1),
+                is_multipiece: isMulti || mods.length > 1,
                 width: width,
                 depth: depth,
                 height: height,
@@ -672,7 +1055,7 @@
                 price: formatCurrencyMXN(priceNum),
                 materials: materials,
                 drive_ficha_url: driveUrl,
-                sala_modules: piecesByParent[id] || [],
+                sala_modules: mods,
                 variants: [{
                     id: `${id}-v1`,
                     name: modelName,
@@ -713,17 +1096,42 @@
             }
         });
 
+        // En modo admin, reflejar al instante cualquier fila nueva agregada en SALAS_MODULARES o MUEBLES_INDIVIDUALES
+        if (mode === 'admin') {
+            master.salasList.forEach((sdata) => {
+                const sKey = sdata.id.toUpperCase();
+                const hasAnyPiece = (sdata.pieces || []).some((p) => seenSkus.has(p.sku));
+                if (!usedSalasInCat[sKey] && !seenIds.has(sKey) && !hasAnyPiece) {
+                    out.push(buildArchivedSalaProduct_(sdata));
+                }
+            });
+            master.indivList.forEach((it) => {
+                if (!seenSkus.has(it.sku) && !seenIds.has('IND-' + it.sku) && !seenIds.has(it.sku)) {
+                    out.push(buildArchivedIndivProduct_(it));
+                    seenSkus.add(it.sku);
+                }
+            });
+        }
+
         return out;
     }
 
-    async function fetchCloudCatalog(mode = 'public', timeoutMs = 6000) {
+    async function fetchCloudCatalog(mode = 'public', timeoutMs = 15000) {
+        const effTimeout = Math.max(Number(timeoutMs) || 0, 15000);
         // Descubrir URL de escritura en segundo plano sin bloquear lectura
         discoverWebAppUrlFromSheet().catch(() => {});
 
+        // 1. Lectura directa en tiempo real desde las 4 pestañas del Google Sheet (preserva fórmulas vivas y los 4/5/7 SKUs de cada Sala)
+        const directRows = await fetchDirectGvizCatalog(mode, effTimeout);
+        if (Array.isArray(directRows) && directRows.length > 0) {
+            return directRows;
+        }
+
+        // 2. Respaldo por Web App si gviz no estuviera disponible
         const apiUrl = CREATA_CLOUD_CONFIG.getApiUrl();
         if (apiUrl) {
             const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+            const timer = controller ? setTimeout(() => controller.abort(), effTimeout) : null;
             try {
                 const sep = apiUrl.includes('?') ? '&' : '?';
                 let targetUrl = `${apiUrl}${sep}mode=${encodeURIComponent(mode)}&_t=${Date.now()}`;
@@ -746,12 +1154,6 @@
             } finally {
                 if (timer) clearTimeout(timer);
             }
-        }
-
-        // Lectura directa y automática desde Google Sheets (sin configuración manual)
-        const directRows = await fetchDirectGvizCatalog(mode, timeoutMs);
-        if (Array.isArray(directRows) && directRows.length > 0) {
-            return directRows;
         }
         return null;
     }
@@ -777,7 +1179,15 @@
                 signal: controller ? controller.signal : undefined
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            return await resp.json();
+            const resJson = await resp.json();
+            if (resJson && !resJson.ok && /PIN de administrador/i.test(resJson.error || '') && !payload?.__retriedPin && typeof global.prompt === 'function') {
+                const entered = global.prompt('Ingresa tu PIN de administrador configurado en Apps Script (se guardará automáticamente en este navegador):');
+                if (entered && entered.trim()) {
+                    CREATA_CLOUD_CONFIG.setAdminPin(entered.trim());
+                    return await cloudPost(action, Object.assign({}, payload || {}, { __retriedPin: true }), timeoutMs);
+                }
+            }
+            return resJson;
         } catch (err) {
             console.warn(`[Creata Cloud POST:${action}]`, err);
             return { ok: false, error: err.message || 'Error de red' };
