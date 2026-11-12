@@ -279,18 +279,49 @@ function populateSkuDatalist() {
         
         
 
-        async function initializeCatalog() {
-            const CATALOG_BUILD_VERSION = 'creata_catalog_v9_cloud_ready';
-            let sourceList = null;
+        function mergeLocalPhotosIntoCloud_(cloudItems, localItems) {
+            if (!Array.isArray(localItems) || localItems.length === 0) return cloudItems;
+            const localById = {};
+            localItems.forEach((lp) => {
+                if (lp && lp.id) localById[lp.id] = lp;
+            });
+            return cloudItems.map((cp) => {
+                const lp = cp && cp.id ? localById[cp.id] : null;
+                if (!lp || !Array.isArray(lp.variants) || !lp.variants[0]) return cp;
+                const cv = (cp.variants && cp.variants[0]) ? cp.variants[0] : null;
+                const lv = lp.variants[0];
+                if (!cv) return cp;
+                if (!cv.hero_b64 && lv.hero_b64) cv.hero_b64 = lv.hero_b64;
+                if (!cv.swatch_img && lv.swatch_img) cv.swatch_img = lv.swatch_img;
+                if (cv.gallery && lv.gallery) {
+                    if (!cv.gallery.ambiente && lv.gallery.ambiente) cv.gallery.ambiente = lv.gallery.ambiente;
+                    if (!cv.gallery.finish && lv.gallery.finish) cv.gallery.finish = lv.gallery.finish;
+                    if (!cv.gallery.fabric && lv.gallery.fabric) cv.gallery.fabric = lv.gallery.fabric;
+                    ['view1', 'view2', 'view3', 'view4'].forEach((k) => {
+                        if (!cv.gallery[k] && lv.gallery[k]) cv.gallery[k] = lv.gallery[k];
+                    });
+                    if ((!cv.gallery.all_views || cv.gallery.all_views.length === 0) && Array.isArray(lv.gallery.all_views) && lv.gallery.all_views.length > 0) {
+                        cv.gallery.all_views = lv.gallery.all_views.slice();
+                    }
+                }
+                return cp;
+            });
+        }
 
-            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+        async function initializeCatalog() {
+            const CATALOG_BUILD_VERSION = 'creata_catalog_v10_live_auto';
+            let sourceList = null;
+            const localSaved = await loadCustomProducts();
+
+            if (window.CreataCloud) {
                 const cloudList = await window.CreataCloud.fetchCloudCatalog('admin');
                 if (Array.isArray(cloudList) && cloudList.length > 0) {
-                    sourceList = cloudList;
+                    sourceList = mergeLocalPhotosIntoCloud_(cloudList, localSaved);
+                    localStorage.setItem(CATALOG_BUILD_VERSION, 'true');
                     try {
                         const db = await openCatalogDB();
                         const tx = db.transaction(STORE_NAME, 'readwrite');
-                        tx.objectStore(STORE_NAME).put(cloudList, 'catalog_data');
+                        tx.objectStore(STORE_NAME).put(sourceList, 'catalog_data');
                         await new Promise(r => tx.oncomplete = r);
                     } catch (e) {}
                 }
@@ -299,20 +330,18 @@ function populateSkuDatalist() {
             if (!sourceList) {
                 if (!localStorage.getItem(CATALOG_BUILD_VERSION)) {
                     localStorage.setItem(CATALOG_BUILD_VERSION, 'true');
-                    const existing = await loadCustomProducts();
-                    if (!existing || existing.length === 0) {
-                        try {
-                            const db = await openCatalogDB();
-                            const tx = db.transaction(STORE_NAME, 'readwrite');
-                            tx.objectStore(STORE_NAME).put(rawProducts, 'catalog_data');
-                            await new Promise(r => tx.oncomplete = r);
-                        } catch (e) {
-                            console.warn('[Creata Sync Error]', e);
-                        }
+                    try {
+                        const db = await openCatalogDB();
+                        const tx = db.transaction(STORE_NAME, 'readwrite');
+                        tx.objectStore(STORE_NAME).put(rawProducts, 'catalog_data');
+                        await new Promise(r => tx.oncomplete = r);
+                    } catch (e) {
+                        console.warn('[Creata Sync Error]', e);
                     }
+                    sourceList = JSON.parse(JSON.stringify(rawProducts));
+                } else {
+                    sourceList = (localSaved && Array.isArray(localSaved) && localSaved.length > 0) ? localSaved : rawProducts;
                 }
-                const custom = await loadCustomProducts();
-                sourceList = (custom && Array.isArray(custom) && custom.length > 0) ? custom : rawProducts;
             }
 
             // En el editor SÍ mostramos fichas archivadas (ej. nuevas de Drive) aunque estén pendientes de completar
@@ -420,17 +449,9 @@ function populateSkuDatalist() {
                 } else {
                     grid.innerHTML = `
                         <div class="col-span-full py-20 text-center flex flex-col items-center justify-center">
-                            <div class="w-16 h-16 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-3xl mb-4">📝</div>
-                            <h3 class="text-xl font-bold text-white mb-2">Catálogo vacío y limpio</h3>
-                            <p class="text-sm text-slate-400 max-w-md mb-6">Todas las fichas anteriores han sido eliminadas para ingresar las correctas. Comienza creando un nuevo mueble o importa tu archivo.</p>
-                            <div class="flex flex-wrap items-center justify-center gap-3">
-                                <button type="button" onclick="openNewFurnitureModal()" class="px-5 py-2.5 rounded-xl bg-[#B8893E] hover:bg-[#9E7432] text-white font-semibold text-sm shadow-lg inline-flex items-center gap-2 transition">
-                                    <span>➕</span> Crear Nuevo Mueble
-                                </button>
-                                <button type="button" onclick="resetDefaultCatalog()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium text-sm inline-flex items-center gap-2 transition" title="Recargar las 47 fichas oficiales limpias">
-                                    <span>🔄</span> Recargar Catálogo Base
-                                </button>
-                            </div>
+                            <div class="w-16 h-16 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-3xl mb-4">🛋️</div>
+                            <h3 class="text-xl font-bold text-white mb-2">Sin muebles en esta categoría</h3>
+                            <p class="text-sm text-slate-400 max-w-md">Selecciona otra categoría o revisa la pestaña de Archivados.</p>
                         </div>
                     `;
                 }
