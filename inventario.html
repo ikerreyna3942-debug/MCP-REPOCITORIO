@@ -122,10 +122,10 @@
             <div class="flex items-center justify-between mb-2.5">
                 <h1 class="text-sm sm:text-base font-bold tracking-wider uppercase text-white">Búsqueda de productos</h1>
                 <button type="button" onclick="openCartModal()" id="headerCartBtn"
-                        class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold transition"
+                        class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-extrabold uppercase tracking-wider transition"
                         style="background:#A38251; color:#FFFFFF;">
-                    <span>🛒</span>
-                    <span id="headerCartCount">0</span>
+                    <span>Cotización</span>
+                    <span id="headerCartCount" class="px-2 py-0.5 rounded-full text-[11px] font-black" style="background:#252C32; color:#FFFFFF;">0</span>
                 </button>
             </div>
 
@@ -167,13 +167,13 @@
                          class="hidden text-[11px] font-extrabold tracking-wider uppercase cursor-pointer mb-0.5"
                          style="color:#A38251;"></div>
                     <div id="detSku" class="text-[11px] font-extrabold tracking-widest uppercase" style="color:#A38251;"></div>
-                    <h2 id="detName" class="text-base sm:text-lg font-extrabold uppercase leading-snug truncate" style="color:#252C32;"></h2>
+                    <h2 id="detName" class="text-base sm:text-lg font-extrabold uppercase leading-snug" style="color:#252C32;"></h2>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                     <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
                             class="px-3.5 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition"
                             style="background:#A38251; color:#FFFFFF;">
-                        + Carrito
+                        + Cotización
                     </button>
                     <button type="button" onclick="closeProductDetail()"
                             class="w-9 h-9 rounded-full flex items-center justify-center text-lg font-light border"
@@ -223,31 +223,35 @@
         </div>
     </div>
 
-    <!-- MODAL DE CARRITO -->
+    <!-- MODAL DE COTIZACIÓN -->
     <div id="cartModal" class="modal-backdrop" onclick="if(event.target===this) closeCartModal()">
         <div class="bg-white rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-4 border-b flex items-center justify-between" style="background:#252C32; color:#FFFFFF;">
-                <h2 class="text-sm font-extrabold uppercase tracking-wider">Carrito</h2>
+                <h2 class="text-sm font-extrabold uppercase tracking-wider">Cotización</h2>
                 <button type="button" onclick="closeCartModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg">✕</button>
             </div>
             <div id="cartItemsContainer" class="flex-1 overflow-y-auto p-4 space-y-2.5"></div>
+            <div id="cartTotalBar" class="px-4 py-2.5 border-t flex items-center justify-between text-xs font-extrabold uppercase hidden" style="border-color:#E8E4DE; background:#FAFAFA; color:#252C32;">
+                <span>Total Cotización:</span>
+                <span id="cartTotalAmount" class="text-sm font-black" style="color:#A38251;">$0.00</span>
+            </div>
             <div class="p-4 border-t flex items-center justify-between gap-2" style="border-color:#E8E4DE; background:#FFFFFF;">
                 <button type="button" onclick="clearCart()" class="px-3.5 py-2 rounded-lg text-xs font-bold border" style="border-color:#E1DBC5; color:#252C32;">
                     Vaciar
                 </button>
                 <button type="button" onclick="copyCartSummary()" id="copyCartBtn" class="px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider" style="background:#A38251; color:#FFFFFF;">
-                    Copiar
+                    Copiar Cotización
                 </button>
             </div>
         </div>
     </div>
 
-    <script src="creata-finishes.js?v=23"></script>
-    <script src="creata-img.js?v=23"></script>
-    <script src="creata-cloud.js?v=23"></script>
-    <script src="inventario-data-1.js?v=23"></script>
-    <script src="inventario-data-2.js?v=23"></script>
-    <script src="inventario-data-3.js?v=23"></script>
-    <script src="inventario-app.js?v=23"></script>
+    <script src="creata-finishes.js?v=24"></script>
+    <script src="creata-img.js?v=24"></script>
+    <script src="creata-cloud.js?v=24"></script>
+    <script src="inventario-data-1.js?v=24"></script>
+    <script src="inventario-data-2.js?v=24"></script>
+    <script src="inventario-data-3.js?v=24"></script>
+    <script src="inventario-app.js?v=24"></script>
 </body>
 </html>
