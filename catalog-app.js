@@ -40,7 +40,81 @@
         let currentProdIndex = 0;
         let currentVariantIndex = 0;
 
-        async function initializeCatalog() {
+        function normalizeSearchStr(str) {
+            if (!str) return '';
+            return String(str)
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function buildPublicSearchHaystack(p) {
+            if (!p) return '';
+            const parts = [
+                p.model_name || '',
+                p.category || '',
+                p.provider_abbr || '',
+                p.provider || '',
+                p.materials || '',
+                p.width || '',
+                p.depth || '',
+                p.height || '',
+                p.seat || '',
+                p.packages || '',
+                p.volume || '',
+                p.price || ''
+            ];
+            if (Array.isArray(p.variants)) {
+                p.variants.forEach((v) => {
+                    if (!v) return;
+                    parts.push(
+                        v.color_label || '',
+                        v.finish_type || '',
+                        v.materials || '',
+                        v.width || '',
+                        v.depth || '',
+                        v.height || ''
+                    );
+                });
+            }
+            if (Array.isArray(p.sala_modules)) {
+                p.sala_modules.forEach((m) => {
+                    if (!m) return;
+                    parts.push(m.name || '', m.width || '', m.depth || '', m.height || '');
+                });
+            }
+            return normalizeSearchStr(parts.join(' '));
+        }
+
+        function matchesPublicSearch(p, rawQuery) {
+            const normQ = normalizeSearchStr(rawQuery);
+            if (!normQ) return true;
+            const tokens = normQ.split(' ').filter(Boolean);
+            if (tokens.length === 0) return true;
+            const haystack = buildPublicSearchHaystack(p);
+            return tokens.every((tok) => haystack.includes(tok));
+        }
+
+        function mergeFreshEditorEditsIntoPublic_(cloudItems, localItems) {
+            if (!Array.isArray(localItems) || localItems.length === 0) return cloudItems;
+            const localByModel = {};
+            const localById = {};
+            localItems.forEach((lp) => {
+                if (!lp) return;
+                if (lp.id) localById[lp.id] = lp;
+                if (lp.model_name) localByModel[String(lp.model_name).trim().toUpperCase()] = lp;
+            });
+            const merged = cloudItems.map((cp) => {
+                const lp = (cp && cp.id && localById[cp.id]) || (cp && cp.model_name && localByModel[String(cp.model_name).trim().toUpperCase()]) || null;
+                if (!lp) return cp;
+                return JSON.parse(JSON.stringify(lp));
+            });
+            return merged;
+        }
+
+        async function initializeCatalog(preferFreshLocal = false) {
             let sourceList = rawProducts;
             let isCloudSource = false;
 
@@ -52,10 +126,12 @@
                 }
             }
 
-            if (!isCloudSource && localStorage.getItem('creata_catalog_v11_live_4skus') === 'true') {
+            if (preferFreshLocal || (!isCloudSource && localStorage.getItem('creata_catalog_v12_linked') === 'true')) {
                 const localCustom = await loadCustomProducts();
                 if (Array.isArray(localCustom) && localCustom.length > 0) {
-                    sourceList = localCustom;
+                    sourceList = isCloudSource
+                        ? mergeFreshEditorEditsIntoPublic_(sourceList, localCustom)
+                        : localCustom;
                 }
             }
 
@@ -74,6 +150,11 @@
                 });
             updateCategoryCounts();
             setFilter(currentFilter);
+            const modalEl = document.getElementById('slideModal');
+            if (modalEl && modalEl.classList.contains('active') && products.length > 0) {
+                if (currentProdIndex >= products.length) currentProdIndex = 0;
+                updateModalView(false);
+            }
             const savedLogo = localStorage.getItem('creata_custom_logo');
             if (savedLogo) {
                 const logoEl = document.getElementById('headerLogoImg');
@@ -81,10 +162,27 @@
             }
         }
 
+        // Vinculación en tiempo real Editor (admin.html) -> Cliente (index.html)
+        let __liveSyncRefreshTimer = null;
+        function handleLiveEditorSyncSignal_() {
+            initializeCatalog(true);
+            clearTimeout(__liveSyncRefreshTimer);
+            __liveSyncRefreshTimer = setTimeout(() => initializeCatalog(false), 4500);
+        }
+        try {
+            if (typeof BroadcastChannel !== 'undefined') {
+                const bc = new BroadcastChannel('creata_live_sync');
+                bc.onmessage = () => handleLiveEditorSyncSignal_();
+            }
+        } catch (e) {}
+        window.addEventListener('storage', (ev) => {
+            if (ev && ev.key === 'creata_live_sync_ping') handleLiveEditorSyncSignal_();
+        });
+
         if (document.readyState === 'loading') {
-            window.addEventListener('DOMContentLoaded', initializeCatalog);
+            window.addEventListener('DOMContentLoaded', () => initializeCatalog(false));
         } else {
-            initializeCatalog();
+            initializeCatalog(false);
         }
 
 
@@ -106,6 +204,32 @@
             setBtnText('flt-COMPLEMENTOS', 'COMPLEMENTOS', activeProds.filter(p => p.category === 'COMPLEMENTOS').length);
         }
 
+        function handlePublicSearch(val) {
+            const rawQ = (val || '').trim();
+            const clearBtn = document.getElementById('clearSearchBtn');
+            if (clearBtn) clearBtn.style.display = rawQ.length > 0 ? 'inline-flex' : 'none';
+
+            if (rawQ.length > 0 && currentFilter !== 'ALL') {
+                const hitsInCurrent = products.filter(p => !p.archived && p.category === currentFilter && matchesPublicSearch(p, rawQ));
+                const hitsGlobal = products.filter(p => !p.archived && matchesPublicSearch(p, rawQ));
+                if (hitsInCurrent.length === 0 && hitsGlobal.length > 0) {
+                    currentFilter = 'ALL';
+                }
+            }
+            setFilter(currentFilter);
+        }
+
+        function clearPublicSearch() {
+            const searchEl = document.getElementById('searchInput');
+            if (searchEl) {
+                searchEl.value = '';
+                searchEl.focus();
+            }
+            const clearBtn = document.getElementById('clearSearchBtn');
+            if (clearBtn) clearBtn.style.display = 'none';
+            setFilter(currentFilter);
+        }
+
         function setFilter(cat) {
             currentFilter = cat;
             document.querySelectorAll('#categoryBar .pill-btn').forEach(btn => {
@@ -114,12 +238,24 @@
             });
 
             const searchEl = document.getElementById('searchInput');
-            const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+            const rawQ = searchEl ? searchEl.value.trim() : '';
+            const clearBtn = document.getElementById('clearSearchBtn');
+            if (clearBtn) clearBtn.style.display = rawQ.length > 0 ? 'inline-flex' : 'none';
+
             const titleEl = document.getElementById('activeCategoryTitle');
             const activeProds = products.filter(p => !p.archived);
 
+            const filtered = activeProds.filter(p => {
+                const matchCat = (currentFilter === 'ALL' || p.category === currentFilter);
+                const matchQ = matchesPublicSearch(p, rawQ);
+                return matchCat && matchQ;
+            });
+
             if (titleEl) {
-                if (cat === 'ALL') {
+                if (rawQ) {
+                    const catSuffix = currentFilter === 'ALL' ? '' : ` EN ${currentFilter}`;
+                    titleEl.innerText = `RESULTADOS PARA "${rawQ.toUpperCase()}"${catSuffix} (${filtered.length})`;
+                } else if (cat === 'ALL') {
                     titleEl.innerText = `TODOS LOS MUEBLES (${activeProds.length})`;
                 } else {
                     const catCount = activeProds.filter(p => p.category === cat).length;
@@ -127,32 +263,40 @@
                 }
             }
 
-            const filtered = products.filter(p => {
-                if (p.archived) return false;
-                const matchCat = (currentFilter === 'ALL' || p.category === currentFilter);
-                const matchQ = !q || p.model_name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || (p.provider && p.provider.toLowerCase().includes(q));
-                return matchCat && matchQ;
-            });
-            renderGrid(filtered);
+            renderGrid(filtered, rawQ);
         }
 
         function filterCatalog() {
             setFilter(currentFilter);
         }
 
-        function renderGrid(items) {
+        function renderGrid(items, activeSearchQuery = '') {
             const grid = document.getElementById('grid');
             if (!grid) return;
             grid.innerHTML = '';
 
             if (items.length === 0) {
-                grid.innerHTML = `
-                    <div class="col-span-full py-20 text-center flex flex-col items-center justify-center">
-                        <div class="w-16 h-16 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-3xl mb-4">🛋️</div>
-                        <h3 class="text-xl font-bold text-white mb-2">Próximamente nuevos modelos</h3>
-                        <p class="text-sm text-slate-400 max-w-md">Catálogo en actualización. Los nuevos productos y colecciones estarán disponibles muy pronto.</p>
-                    </div>
-                `;
+                if (activeSearchQuery) {
+                    const safeQ = activeSearchQuery.replace(/[<>&"]/g, '');
+                    grid.innerHTML = `
+                        <div class="col-span-full py-16 text-center flex flex-col items-center justify-center">
+                            <div class="w-16 h-16 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-2xl mb-4">🔍</div>
+                            <h3 class="text-lg font-bold text-white mb-2">Sin coincidencias para "${safeQ}"</h3>
+                            <p class="text-sm text-slate-300 max-w-md mb-4">Prueba con otra palabra clave (modelo, categoría, tela, madera, material o medida).</p>
+                            <button type="button" onclick="currentFilter='ALL'; clearPublicSearch();" class="px-5 py-2 rounded-full bg-[#B8893E] hover:bg-[#9E7432] text-white text-xs font-bold uppercase tracking-wider shadow transition">
+                                Ver todos los muebles
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    grid.innerHTML = `
+                        <div class="col-span-full py-20 text-center flex flex-col items-center justify-center">
+                            <div class="w-16 h-16 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-3xl mb-4">🛋️</div>
+                            <h3 class="text-xl font-bold text-white mb-2">Próximamente nuevos modelos</h3>
+                            <p class="text-sm text-slate-400 max-w-md">Catálogo en actualización. Los nuevos productos y colecciones estarán disponibles muy pronto.</p>
+                        </div>
+                    `;
+                }
                 return;
             }
 
@@ -164,28 +308,46 @@
                 card.onclick = () => openModal(realIdx, 0);
 
                 const imgId = `grid_card_img_${realIdx}`;
+                const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
+
+                const resolveCleanCover = (variantObj) => {
+                    if (!variantObj) return '';
+                    const vg = variantObj.gallery || {};
+                    const rawHero = isPhotoValid(variantObj.hero_b64) ? variantObj.hero_b64 : '';
+                    const isSwatchHero = rawHero && (rawHero === variantObj.swatch_img || rawHero === vg.finish || /-finish-\d+\./i.test(rawHero));
+                    if (rawHero && !isSwatchHero) return rawHero;
+                    if (isPhotoValid(vg.ambiente)) return vg.ambiente;
+                    if (isPhotoValid(vg.view1)) return vg.view1;
+                    if (Array.isArray(vg.all_views)) {
+                        const firstV = vg.all_views.find(isPhotoValid);
+                        if (firstV) return firstV;
+                    }
+                    return '';
+                };
 
                 const swatchesHtml = (p.variants || []).map((vItem, vIdx) => {
-                    const hasImg = !!vItem.swatch_img;
+                    const vg = vItem.gallery || {};
+                    const swImg = vItem.swatch_img || vg.finish || vg.fabric || '';
+                    const hasImg = isPhotoValid(swImg);
                     const bgStyle = hasImg
-                        ? `background-image: url('${vItem.swatch_img}'); background-size: cover; background-position: center;`
+                        ? `background-image: url('${swImg}'); background-size: cover; background-position: center;`
                         : `background-color: ${vItem.swatch_hex || '#B8893E'};`;
+                    const vCover = resolveCleanCover(vItem).replace(/'/g, "\\'");
                     return `
-                    <span onmouseenter="var img=document.getElementById('${imgId}'); if(img && products[${realIdx}].variants[${vIdx}].hero_b64){img.src=products[${realIdx}].variants[${vIdx}].hero_b64; img.style.display='block';}"
-                          onclick="event.stopPropagation(); var img=document.getElementById('${imgId}'); if(img && products[${realIdx}].variants[${vIdx}].hero_b64){img.src=products[${realIdx}].variants[${vIdx}].hero_b64; img.style.display='block';} openModal(${realIdx}, ${vIdx});" 
-                          title="${vItem.color_label || 'Opción'}" 
+                    <span onmouseenter="var img=document.getElementById('${imgId}'); if(img && '${vCover}'){img.src='${vCover}'; img.style.display='block';}"
+                          onclick="event.stopPropagation(); openModal(${realIdx}, ${vIdx});" 
+                          title="${(vItem.color_label || 'Opción').replace(/"/g, '&quot;')}" 
                           class="swatch-circle"
                           style="${bgStyle}"></span>
                     `;
                 }).join('');
 
-                const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
-                const heroSrc = isPhotoValid(v.hero_b64) ? v.hero_b64 : '';
+                const heroSrc = resolveCleanCover(v);
                 const hasHero = !!heroSrc;
                 card.innerHTML = `
-                    <div class="card-img-area flex items-center justify-center bg-[#F8FAFC]">
+                    <div class="card-img-area">
                         <span class="badge-category">${p.category}</span>
-                        ${hasHero ? `<img id="${imgId}" src="${heroSrc}" alt="${p.model_name}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+                        ${hasHero ? `<img id="${imgId}" src="${heroSrc}" alt="${p.model_name.replace(/"/g, '&quot;')}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
                         <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px; ${hasHero ? 'display:none;' : ''}">
                             <div class="w-12 h-12 rounded-full bg-[#B8893E]/10 flex items-center justify-center mb-2">
                                 <svg class="w-6 h-6 text-[#B8893E]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
@@ -235,8 +397,13 @@
 
             const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
             const g = v.gallery || {};
-            const heroUrl = isPhotoValid(v.hero_b64) ? v.hero_b64 : '';
-            const ambUrl = isPhotoValid(g.ambiente) ? g.ambiente : heroUrl;
+            const rawFinish = g.finish || (g.finishes && g.finishes.length > 0 ? g.finishes[0] : '') || g.fabric || v.swatch_img || '';
+            const finishSrc = isPhotoValid(rawFinish) ? rawFinish : '';
+            if (finishSrc && !v.swatch_img) v.swatch_img = finishSrc;
+
+            const rawHero = isPhotoValid(v.hero_b64) ? v.hero_b64 : '';
+            const cleanHeroUrl = (rawHero && rawHero !== finishSrc && !/-finish-\d+\./i.test(rawHero)) ? rawHero : '';
+            const ambUrl = isPhotoValid(g.ambiente) ? g.ambiente : cleanHeroUrl;
             const rawViews = Array.isArray(g.all_views) && g.all_views.length > 0
                 ? g.all_views
                 : [g.view1, g.view2, g.view3, g.view4];
@@ -244,7 +411,7 @@
 
             const ambEl = document.getElementById('slotImgAmbiente');
             if (ambEl) {
-                ambEl.className = "w-full h-full object-contain bg-white transition-all duration-200";
+                ambEl.className = "w-full h-full object-contain transition-all duration-200";
                 if (ambUrl) {
                     ambEl.src = ambUrl;
                     ambEl.style.display = 'block';
@@ -254,20 +421,27 @@
                 }
             }
 
-            const rawFinish = g.finish || (g.finishes && g.finishes.length > 0 ? g.finishes[0] : '') || g.fabric || v.swatch_img || '';
-            const finishSrc = isPhotoValid(rawFinish) ? rawFinish : '';
+            const vFinishType = v.finish_type || (window.CreataCloud ? window.CreataCloud.inferFinishType(v.color_label, v.materials || p.materials) : 'TELA');
+            const vFinishLabel = (v.color_label || 'ACABADO OFICIAL').toUpperCase();
+            const finishBadgeEl = document.getElementById('slotFinishLabelBadge');
+
             const finishEl = document.getElementById('slotImgFinish');
             if (finishEl) {
                 const finishBox = finishEl.closest('.gallery-slot');
-                finishEl.className = "w-full h-full object-contain p-1.5 bg-white";
+                finishEl.className = "w-full h-full object-cover p-1";
                 if (finishSrc) {
                     finishEl.src = finishSrc;
                     finishEl.style.display = 'block';
-                    if (finishBox) finishBox.style.display = 'block';
+                    if (finishBox) finishBox.style.display = 'flex';
+                    if (finishBadgeEl) {
+                        finishBadgeEl.textContent = `${vFinishType === 'MADERA' ? '🪵' : '🧵'} ${vFinishLabel}`;
+                        finishBadgeEl.style.display = 'inline-flex';
+                    }
                 } else {
                     finishEl.removeAttribute('src');
                     finishEl.style.display = 'none';
                     if (finishBox) finishBox.style.display = 'none';
+                    if (finishBadgeEl) finishBadgeEl.style.display = 'none';
                 }
             }
 
@@ -358,16 +532,23 @@
             const swatchesRow = document.getElementById('modalSwatchesRow');
             if (swatchesRow && p.variants) {
                 swatchesRow.innerHTML = p.variants.map((vItem, vIdx) => {
-                    const hasImg = !!vItem.swatch_img;
-                    const thumb = hasImg
-                        ? `<span class="w-4 h-4 rounded-full inline-block border border-black/20 shadow-sm bg-cover bg-center shrink-0" style="background-image: url('${vItem.swatch_img}');"></span>`
-                        : `<span class="w-4 h-4 rounded-full inline-block border border-black/20 shadow-sm shrink-0" style="background: ${vItem.swatch_hex || '#B8893E'};"></span>`;
+                    const isAct = vIdx === currentVariantIndex;
+                    const vg = vItem.gallery || {};
+                    const linkedImg = vItem.swatch_img || vg.finish || vg.fabric || (Array.isArray(vg.finishes) && vg.finishes[0]) || '';
+                    if (linkedImg && !vItem.swatch_img) vItem.swatch_img = linkedImg;
+                    const fType = vItem.finish_type || (window.CreataCloud ? window.CreataCloud.inferFinishType(vItem.color_label, vItem.materials || p.materials) : 'TELA');
+                    const typeIcon = fType === 'MADERA' ? '🪵' : '🧵';
+                    const lbl = (vItem.color_label || 'ACABADO OFICIAL').toUpperCase();
+                    const thumb = isPhotoValid(linkedImg)
+                        ? `<span class="swatch-pill-dot" style="background-image: url('${linkedImg}');"></span>`
+                        : `<span class="swatch-pill-dot" style="background-color: ${vItem.swatch_hex || '#B8893E'};"></span>`;
                     return `
-                    <button onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
-                            title="${vItem.color_label || 'Opción'}"
-                            class="swatch-pill ${vIdx === currentVariantIndex ? 'active' : ''} flex items-center gap-1.5 px-3 py-1 rounded-full border">
+                    <button type="button" onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
+                            title="${lbl.replace(/"/g, '&quot;')}"
+                            class="swatch-pill ${isAct ? 'active' : ''}">
                         ${thumb}
-                        <span class="text-[10px] font-bold uppercase tracking-wider">${vItem.color_label || 'Opción'}</span>
+                        <span class="swatch-pill-label">${lbl}</span>
+                        <span class="swatch-pill-icon">${typeIcon}</span>
                     </button>
                     `;
                 }).join('');
