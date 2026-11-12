@@ -10,16 +10,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-    <link rel="stylesheet" href="catalog-styles.css?v=17">
+    <link rel="stylesheet" href="catalog-styles.css?v=18">
 </head>
 <body>
 
     <!-- CABECERA -->
     <header class="sticky top-0 z-40">
-        <div class="max-w-7xl mx-auto px-6 pt-6 pb-4 relative">
+        <div class="max-w-[1408px] mx-auto px-6 pt-6 pb-5 relative">
 
-            <!-- LOGO OFICIAL EN BLANCO -->
-            <div class="text-center mb-3.5">
+            <!-- LOGO OFICIAL EN BLANCO (INTACTO, CON MAYOR SEPARACIÓN INFERIOR) -->
+            <div class="text-center mb-6">
                 <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img">
                 <script src="creata-logo.js"></script>
                 <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
@@ -59,17 +59,17 @@
                 <button onclick="setFilter('SILLAS & SILLONES')" data-cat="SILLAS & SILLONES" id="flt-SILLAS-SILLONES" class="pill-btn">SILLAS & SILLONES (11)</button>
                 <button onclick="setFilter('COMEDORES')" data-cat="COMEDORES" id="flt-COMEDORES" class="pill-btn">COMEDORES (3)</button>
                 <button onclick="setFilter('BUFETERAS & CREDENZAS')" data-cat="BUFETERAS & CREDENZAS" id="flt-BUFETERAS-CREDENZAS" class="pill-btn">BUFETERAS & CREDENZAS (7)</button>
-                <button onclick="setFilter('MESAS DE CENTRO')" data-cat="MESAS DE CENTRO" id="flt-MESAS-DE-CENTRO" class="pill-btn">MESAS DE CENTRO (4)</button>
+                <button onclick="setFilter('MESAS DE CENTRO & LATERALES')" data-cat="MESAS DE CENTRO & LATERALES" id="flt-MESAS-DE-CENTRO-LATERALES" class="pill-btn">MESAS DE CENTRO & LATERALES (4)</button>
                 <button onclick="setFilter('RECÁMARAS')" data-cat="RECÁMARAS" id="flt-REC-MARAS" class="pill-btn">RECÁMARAS (14)</button>
                 <button onclick="setFilter('COMPLEMENTOS')" data-cat="COMPLEMENTOS" id="flt-COMPLEMENTOS" class="pill-btn">COMPLEMENTOS (4)</button>
             </div>
         </div>
     </header>
 
-    <!-- CUADRÍCULA DE 51+ PRODUCTOS -->
-    <main class="catalog-container max-w-7xl mx-auto px-6 py-6">
-        <div class="mb-4">
-            <h2 id="activeCategoryTitle" class="text-xs font-bold tracking-widest text-[#F1F5F9] uppercase">TODOS LOS MUEBLES</h2>
+    <!-- CUADRÍCULA DE PRODUCTOS -->
+    <main class="catalog-container mx-auto px-6 py-7">
+        <div class="mb-5">
+            <h2 id="activeCategoryTitle" class="text-xs font-bold tracking-widest text-[#252C32] uppercase">TODOS LOS MUEBLES</h2>
         </div>
 
         <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"></div>
@@ -95,31 +95,27 @@
 
                         <!-- TELA / ACABADO VINCULADO AL BOTÓN DE MUESTRA -->
                         <div class="gallery-slot slot-finish" onclick="swapToMain('finish')" title="Tela / Acabado">
-                            <span id="slotFinishLabelBadge" class="slot-badge" style="display:none;"></span>
-                            <img id="slotImgFinish" src="" alt="Tela / Acabado" class="w-full h-full object-cover p-1">
+                            <img id="slotImgFinish" src="" alt="Tela / Acabado" class="w-full h-full object-cover">
                         </div>
 
                         <!-- #22B14C FOTO DE VISTA 1 (MIDDLE RIGHT) -->
                         <div class="gallery-slot slot-view1" onclick="swapToMain('view1')">
-                            <img id="slotImgView1" src="" alt="Vista 1" class="w-full h-full object-contain p-1.5">
+                            <img id="slotImgView1" src="" alt="Vista 1" class="w-full h-full object-contain">
                         </div>
 
                         <!-- #22B14C FOTO DE VISTA 2 (BOTTOM LEFT) -->
                         <div class="gallery-slot slot-view2" onclick="swapToMain('view2')">
-                            
-                            <img id="slotImgView2" src="" alt="Vista 2" class="w-full h-full object-contain p-2">
+                            <img id="slotImgView2" src="" alt="Vista 2" class="w-full h-full object-contain">
                         </div>
 
                         <!-- #22B14C FOTO DE VISTA 3 (BOTTOM MIDDLE) -->
                         <div class="gallery-slot slot-view3" onclick="swapToMain('view3')">
-                            
-                            <img id="slotImgView3" src="" alt="Vista 3" class="w-full h-full object-contain p-2">
+                            <img id="slotImgView3" src="" alt="Vista 3" class="w-full h-full object-contain">
                         </div>
 
                         <!-- #22B14C FOTO DE VISTA 4 (BOTTOM RIGHT) -->
                         <div class="gallery-slot slot-view4" onclick="swapToMain('view4')">
-                            
-                            <img id="slotImgView4" src="" alt="Vista 4" class="w-full h-full object-contain p-2">
+                            <img id="slotImgView4" src="" alt="Vista 4" class="w-full h-full object-contain">
                         </div>
                     </div>
                 </div>
@@ -128,35 +124,35 @@
                 <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
                     <div>
                         <!-- PROVEEDOR + CATEGORÍA (SIN SKU) -->
-                        <div class="text-[10px] font-black text-[#B8893E] tracking-widest uppercase mb-1" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
+                        <div class="text-[10px] font-black text-[#A38251] tracking-widest uppercase mb-1" id="modalProviderCat">CVV · SALAS & SOFÁS</div>
                         <!-- TÍTULO DINÁMICO EN MAYÚSCULAS -->
-                        <h2 class="text-lg lg:text-xl font-black text-[#0F172A] uppercase tracking-wide mb-2 leading-snug" id="modalTitle">-</h2>
+                        <h2 class="text-lg lg:text-xl font-black text-[#252C32] uppercase tracking-wide mb-2 leading-snug" id="modalTitle">-</h2>
 
-                        <!-- 6 MEDIDAS EXACTAS EN CUADRÍCULA 3x2 (20% MÁS COMPACTA) -->
+                        <!-- 6 MEDIDAS EXACTAS EN CUADRÍCULA 3x2 -->
                         <div class="grid grid-cols-3 gap-2 text-center mb-2.5">
-                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                            <div class="bg-white border border-[#E1DBC5] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
                                 <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Ancho</span>
-                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mWidth">-</strong>
+                                <strong class="text-sm lg:text-base font-black text-[#252C32]" id="mWidth">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                            <div class="bg-white border border-[#E1DBC5] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
                                 <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Fondo</span>
-                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mDepth">-</strong>
+                                <strong class="text-sm lg:text-base font-black text-[#252C32]" id="mDepth">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                            <div class="bg-white border border-[#E1DBC5] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
                                 <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Alto</span>
-                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mHeight">-</strong>
+                                <strong class="text-sm lg:text-base font-black text-[#252C32]" id="mHeight">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                            <div class="bg-white border border-[#E1DBC5] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
                                 <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Asiento</span>
-                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mSeat">-</strong>
+                                <strong class="text-sm lg:text-base font-black text-[#252C32]" id="mSeat">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                            <div class="bg-white border border-[#E1DBC5] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
                                 <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Bultos</span>
-                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mPackages">-</strong>
+                                <strong class="text-sm lg:text-base font-black text-[#252C32]" id="mPackages">-</strong>
                             </div>
-                            <div class="bg-white border border-[#CBD5E1] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
+                            <div class="bg-white border border-[#E1DBC5] p-2 rounded-lg shadow-xs flex flex-col justify-center items-center">
                                 <span class="block text-[8px] font-extrabold uppercase tracking-wider text-slate-400 mb-0.5">Cubitaje</span>
-                                <strong class="text-sm lg:text-base font-black text-slate-800" id="mVolume">-</strong>
+                                <strong class="text-sm lg:text-base font-black text-[#252C32]" id="mVolume">-</strong>
                             </div>
                         </div>
 
@@ -167,9 +163,9 @@
                         </div>
 
                         <!-- MATERIALES Y FABRICACIÓN AMPLIADO -->
-                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-2.5 shadow-xs">
-                            <span class="text-[11px] font-black text-[#B8893E] uppercase tracking-wider block mb-1.5">Materiales y Fabricación</span>
-                            <p class="text-xs lg:text-[13px] text-slate-700 leading-relaxed font-medium" id="mMaterials">-</p>
+                        <div class="bg-[#E8E4DE]/45 border border-[#E1DBC5] rounded-xl p-3 mb-2.5 shadow-xs">
+                            <span class="text-[11px] font-black text-[#A38251] uppercase tracking-wider block mb-1.5">Materiales y Fabricación</span>
+                            <p class="text-xs lg:text-[13px] text-[#252C32] leading-relaxed font-medium" id="mMaterials">-</p>
                         </div>
 
                         <!-- SELECTOR DE TELAS / ACABADOS (IDÉNTICO AL EDITOR) -->
@@ -179,7 +175,7 @@
                     <!-- BOTÓN DRIVE FICHA TÉCNICA PROMINENTE Y ANCHO COMPLETO -->
                     <div class="pt-2 w-full">
                         <a id="modalDriveBtn" href="#" target="_blank"
-                           class="w-full py-3.5 px-6 rounded-xl bg-[#B8893E] hover:bg-[#9E7432] text-white text-sm font-black uppercase tracking-wider inline-flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition transform hover:-translate-y-0.5 active:translate-y-0 text-center">
+                           class="w-full py-3.5 px-6 rounded-xl bg-[#A38251] hover:bg-[#8B6D42] text-white text-sm font-black uppercase tracking-wider inline-flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition transform hover:-translate-y-0.5 active:translate-y-0 text-center">
                             <span class="text-base">📄</span> Ficha Técnica Oficial
                         </a>
                     </div>
@@ -187,17 +183,19 @@
             </div>
 
             <!-- NAVEGACIÓN CONTINUA ENTRE MUEBLES -->
-            <div class="bg-white border-t border-[#E2E8F0] px-6 py-2.5 flex items-center justify-between">
-                <button onclick="prevProduct()" class="pill-btn !bg-white !text-gray-700 !border-gray-300 hover:!border-gray-500 shadow-sm">← Mueble Anterior</button>
-                <button onclick="nextProduct()" class="pill-btn !bg-white !text-gray-700 !border-gray-300 hover:!border-gray-500 shadow-sm">Siguiente Mueble →</button>
+            <div class="bg-white border-t border-[#E1DBC5] px-6 py-2.5 flex items-center justify-between">
+                <button onclick="prevProduct()" class="pill-btn !bg-white !text-[#252C32] !border-[#E1DBC5] hover:!border-[#A38251] shadow-sm">← Mueble Anterior</button>
+                <button onclick="nextProduct()" class="pill-btn !bg-white !text-[#252C32] !border-[#E1DBC5] hover:!border-[#A38251] shadow-sm">Siguiente Mueble →</button>
             </div>
         </div>
     </div>
 
-    <script src="catalog-data-1.js"></script>
-    <script src="catalog-data-2.js"></script>
+    <script src="catalog-data-1.js?v=18"></script>
+    <script src="catalog-data-2.js?v=18"></script>
     <script>const rawProducts = [...(window.CREATA_CATALOG_P1 || []), ...(window.CREATA_CATALOG_P2 || [])];</script>
-    <script src="creata-cloud.js?v=17"></script>
-    <script src="catalog-app.js?v=17"></script>
+    <script src="creata-finishes.js?v=18"></script>
+    <script src="creata-img.js?v=18"></script>
+    <script src="creata-cloud.js?v=18"></script>
+    <script src="catalog-app.js?v=18"></script>
 </body>
 </html>
