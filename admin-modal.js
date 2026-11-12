@@ -62,7 +62,7 @@ function updateModalView(resetOffset = true) {
 
             // 3. Vistas 1 a 4 (slots 100% independientes sin repetición ni ciclo)
             const getSlotView = (slotKey, idx) => {
-                if (g[slotKey] && typeof g[slotKey] === 'string' && g[slotKey].trim()) return g[slotKey];
+                if (g[slotKey] && typeof g[slotKey].trim === 'function' && g[slotKey].trim()) return g[slotKey];
                 if (g.all_views && g.all_views.length > idx && g.all_views[idx]) return g.all_views[idx];
                 return '';
             };
@@ -113,8 +113,8 @@ function updateModalView(resetOffset = true) {
             // Renderizar píldoras de telas y gestor visual de la tela seleccionada
             renderSwatchesRow();
             renderFabricEditor();
-            renderPieceSkuComposer();
             if (typeof renderSalaModulesUI === 'function') renderSalaModulesUI();
+            renderPieceSkuComposer();
 
             const driveBtn = document.getElementById('modalDriveBtn');
             if (driveBtn) {
