@@ -1,22 +1,20 @@
 /**
  * ============================================================================
- * CREATA MUEBLES — AUTOMATIZACIÓN DRIVE -> GOOGLE SHEETS -> WEB EN VIVO
+ * CREATA MUEBLES — AUTOMATIZACIÓN DRIVE -> GOOGLE SHEETS -> CATÁLOGO EN VIVO
  * ============================================================================
- * Instalación rápida (una sola vez dentro de tu Google Sheet):
- * 1. Abre tu Sheet:
- *    https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit
- * 2. Menú Extensiones -> Apps Script -> pega todo este archivo y guarda.
- * 3. En Configuración del proyecto (engrane) -> Propiedades del script, agrega:
- *    - GEMINI_API_KEY   : Tu clave de Gemini AI Studio (para leer PDFs nuevos de Drive)
- *    - GITHUB_TOKEN     : (Opcional) Token de GitHub con permiso Contents:Write para
- *                         guardar fotos directo en ikerreyna3942-debug/MCP-REPOCITORIO/fotos/
- *    - ADMIN_PIN        : (Opcional) PIN secreto para proteger cambios desde admin.html
- * 4. Recarga el Sheet -> verás el menú "CREATA Catálogo":
- *    - Ejecuta "1. Dejar Todo Listo (Catálogo + Inventario Vacío, Sin Fotos)"
- * 5. En Apps Script -> Implementar -> Nueva implementación -> Aplicación web:
- *    - Ejecutar como: "Yo"
- *    - Quién tiene acceso: "Cualquier usuario"
- *    (admin.html e index.html se conectan automáticamente a este Sheet sin pegar URLs).
+ * Este script:
+ * - Respeta al 100% las fórmulas existentes en SALAS_MODULARES
+ *   (=CALCULAR_MONTO_SKU($C$2:$C,$E$2:$E), =E*I, =SUM(...)) y en
+ *   MUEBLES_INDIVIDUALES (=CALCULAR_PRECIO_SKU($B$2:$B)).
+ * - Conecta CATALOGO_PRODUCTOS y PIEZAS_MODULOS con fórmulas en vivo (VLOOKUP / SUMIF)
+ *   hacia MUEBLES_INDIVIDUALES y SALAS_MODULARES para nunca perder precios dinámicos.
+ * - Crea las 5 columnas de inventario vacías (CEDIS, CASA CREATA, COLOSIO,
+ *   PLAYA, PUERTO CANCUN) coloreadas en verde ÚNICAMENTE cuando hay existencia (> 0).
+ * - Cuando entra una nueva ficha PDF a Drive:
+ *   1) La agrega primero a MUEBLES_INDIVIDUALES (1 pieza) o SALAS_MODULARES (>1 pieza)
+ *      dejando libre la columna de derrame para que tus fórmulas calculen el precio.
+ *   2) La agrega automáticamente a CATALOGO_PRODUCTOS (y PIEZAS_MODULOS) conectada
+ *      por fórmula para aparecer en el editor y publicarse en el catálogo.
  * ============================================================================
  */
 
@@ -29,6 +27,8 @@ const CONFIG = {
   GITHUB_BRANCH: 'main',
   TAB_PRODUCTS: 'CATALOGO_PRODUCTOS',
   TAB_PIECES: 'PIEZAS_MODULOS',
+  TAB_SALAS_SRC: 'SALAS_MODULARES',
+  TAB_INDIV_SRC: 'MUEBLES_INDIVIDUALES',
   INVENTORY_COLS: ['CEDIS', 'CASA CREATA', 'COLOSIO', 'PLAYA', 'PUERTO CANCUN'],
   IGNORED_DRIVE_IDS: [
     '1gieOXN5gEVWaDcO9NqbywzAot7tW3pxA',
@@ -38,13 +38,14 @@ const CONFIG = {
 };
 
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('CREATA Catálogo')
-    .addItem('1. Dejar Todo Listo (Catálogo + Inventario Vacío, Sin Fotos)', 'dejarTodoListoSinFotos')
-    .addItem('2. Inicializar Solo Columnas e Inventario', 'setupSheetsStructure')
-    .addItem('3. Sincronizar Fichas Nuevas desde Drive ahora', 'syncDriveFolderToSheet')
-    .addItem('4. Activar Sincronización Automática (cada 10 min)', 'installSyncTrigger')
-    .addToUi();
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('CREATA Catálogo')
+      .addItem('1. Dejar Todo Listo (Fórmulas + Inventario Vacío, Sin Fotos)', 'dejarTodoListoSinFotos')
+      .addItem('2. Sincronizar Fichas Nuevas (Drive + Hojas -> Catálogo)', 'syncDriveFolderToSheet')
+      .addItem('3. Activar Automatización Cada 10 Minutos', 'installSyncTrigger')
+      .addToUi();
+  } catch (e) {}
 }
 
 function getProp_(key) {
@@ -72,8 +73,24 @@ function publishWebAppUrlToConfigSheet_(ss) {
   } catch (e) {}
 }
 
+function buildPieceUnitPriceFormula_(zRowNum, fallbackPrice) {
+  const fb = Number(fallbackPrice || 0);
+  const vlookup = 'VLOOKUP(C' + zRowNum + ', ' + CONFIG.TAB_SALAS_SRC + '!$C:$I, 7, FALSE)';
+  return '=IF(IFNA(N(' + vlookup + '), 0) > 0, ' + vlookup + ', ' + fb + ')';
+}
+
+function buildProductPriceFormula_(pRowNum, isMulti, fallbackPrice) {
+  if (isMulti) {
+    return '=SUMIF(' + CONFIG.TAB_PIECES + '!A:A, A' + pRowNum + ', ' + CONFIG.TAB_PIECES + '!J:J)';
+  }
+  const fb = Number(fallbackPrice || 0);
+  const vlookup = 'VLOOKUP(TRIM(INDEX(SPLIT(D' + pRowNum + ', "/"), 1)), ' + CONFIG.TAB_INDIV_SRC + '!$B:$K, 10, FALSE)';
+  return '=IF(IFNA(N(' + vlookup + '), 0) > 0, ' + vlookup + ', ' + fb + ')';
+}
+
 /**
- * Crea las pestañas CATALOGO_PRODUCTOS y PIEZAS_MODULOS con formato, inventario vacío y color condicional (> 0)
+ * Aplica las 5 columnas de inventario vacías (sin tocar columnas previas ni fórmulas)
+ * y colorea en verde ÚNICAMENTE cuando hay existencia (> 0).
  */
 function applyInventoryColumnsAndColor_(sh, startCol1Based, maxRows) {
   if (!sh) return;
@@ -82,6 +99,11 @@ function applyInventoryColumnsAndColor_(sh, startCol1Based, maxRows) {
   if (sh.getMaxColumns() < endCol1Based) {
     sh.insertColumnsAfter(sh.getMaxColumns(), endCol1Based - sh.getMaxColumns());
   }
+  const safeRows = Math.max(maxRows, Math.max(sh.getLastRow(), 2));
+  if (sh.getMaxRows() < safeRows + 1) {
+    sh.insertRowsAfter(sh.getMaxRows(), safeRows + 1 - sh.getMaxRows());
+  }
+
   sh.getRange(1, startCol1Based, 1, invCols.length)
     .setValues([invCols])
     .setFontWeight('bold')
@@ -89,14 +111,13 @@ function applyInventoryColumnsAndColor_(sh, startCol1Based, maxRows) {
     .setFontColor('#FFFFFF')
     .setHorizontalAlignment('center');
 
-  const invRange = sh.getRange(2, startCol1Based, maxRows, invCols.length);
+  const invRange = sh.getRange(2, startCol1Based, safeRows, invCols.length);
   invRange.setHorizontalAlignment('center').setNumberFormat('#,##0');
 
   for (let c = startCol1Based; c <= endCol1Based; c++) {
     sh.setColumnWidth(c, 128);
   }
 
-  // Regla condicional: colorear en verde ÚNICAMENTE si existen piezas (> 0)
   const existingRules = sh.getConditionalFormatRules().filter((r) => {
     const rngs = r.getRanges();
     return !rngs.some((rg) => rg.getColumn() === startCol1Based && rg.getNumColumns() === invCols.length);
@@ -188,14 +209,31 @@ function setupSheetsStructure() {
   shPiece.setFrozenRows(1);
   applyInventoryColumnsAndColor_(shPiece, 11, 500);
 
-  // Asegurar las 5 columnas de inventario vacías también en SALAS_MODULARES y MUEBLES_INDIVIDUALES si existen
-  const shSalas = ss.getSheetByName('SALAS_MODULARES');
+  // Agregar únicamente las 5 columnas de inventario (O..S) en SALAS_MODULARES y MUEBLES_INDIVIDUALES
+  // SIN TOCAR las columnas A..N ni sus fórmulas (=CALCULAR_MONTO_SKU y =CALCULAR_PRECIO_SKU)
+  const shSalas = ss.getSheetByName(CONFIG.TAB_SALAS_SRC);
   if (shSalas) applyInventoryColumnsAndColor_(shSalas, 15, 300);
-  const shIndiv = ss.getSheetByName('MUEBLES_INDIVIDUALES');
+  const shIndiv = ss.getSheetByName(CONFIG.TAB_INDIV_SRC);
   if (shIndiv) applyInventoryColumnsAndColor_(shIndiv, 15, 300);
 
   publishWebAppUrlToConfigSheet_(ss);
   return { ok: true };
+}
+
+function ensureAutoSyncTrigger_() {
+  try {
+    const existing = ScriptApp.getProjectTriggers();
+    const hasTrigger = existing.some((t) => t.getHandlerFunction() === 'syncDriveFolderToSheet');
+    if (!hasTrigger) {
+      ScriptApp.newTrigger('syncDriveFolderToSheet')
+        .timeBased()
+        .everyMinutes(10)
+        .create();
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function installSyncTrigger() {
@@ -209,32 +247,228 @@ function installSyncTrigger() {
     .timeBased()
     .everyMinutes(10)
     .create();
-  SpreadsheetApp.getUi().alert('Sincronización automática activada cada 10 minutos.');
+  try {
+    SpreadsheetApp.getUi().alert('Sincronización automática activada cada 10 minutos.');
+  } catch (e) {}
+  return { ok: true };
+}
+
+function setDriveLinkCell_(sheet, row1Based, col1Based, labelText, url) {
+  if (!url) {
+    sheet.getRange(row1Based, col1Based).setValue(labelText || '');
+    return;
+  }
+  try {
+    const rich = SpreadsheetApp.newRichTextValue()
+      .setText(labelText || url)
+      .setLinkUrl(url)
+      .build();
+    sheet.getRange(row1Based, col1Based).setRichTextValue(rich);
+  } catch (e) {
+    sheet.getRange(row1Based, col1Based).setFormula('=HYPERLINK("' + url.replace(/"/g, '""') + '", "' + String(labelText || 'Ver ficha PDF').replace(/"/g, '""') + '")');
+  }
 }
 
 /**
- * Escanea recursivamente la carpeta de Drive y agrega nuevas fichas como ARCHIVADO
+ * Encuentra la última fila con datos reales en columnas A..N (ignorando celdas vacías de inventario)
  */
-function syncDriveFolderToSheet() {
-  setupSheetsStructure();
-  const ss = getSpreadsheet_();
+function getLastContentRow_(sh, checkCols) {
+  if (!sh) return 1;
+  const last = sh.getLastRow();
+  if (last <= 1) return 1;
+  const vals = sh.getRange(1, 1, last, checkCols).getValues();
+  for (let r = vals.length - 1; r >= 1; r--) {
+    if (vals[r].some((cell) => String(cell === null || cell === undefined ? '' : cell).trim() !== '')) {
+      return r + 1;
+    }
+  }
+  return 1;
+}
+
+/**
+ * Sincroniza cualquier fila agregada manualmente en SALAS_MODULARES o MUEBLES_INDIVIDUALES
+ * hacia CATALOGO_PRODUCTOS y PIEZAS_MODULOS usando fórmulas en vivo (sin sobrescribir lo existente).
+ */
+function syncDocumentTabsToCatalog_(ss) {
   const shProd = ss.getSheetByName(CONFIG.TAB_PRODUCTS);
   const shPiece = ss.getSheetByName(CONFIG.TAB_PIECES);
+  const shSalas = ss.getSheetByName(CONFIG.TAB_SALAS_SRC);
+  const shIndiv = ss.getSheetByName(CONFIG.TAB_INDIV_SRC);
+  if (!shProd || !shPiece) return 0;
 
-  const existingRows = shProd.getDataRange().getValues();
+  const pVals = shProd.getDataRange().getValues();
+  const knownIds = new Set();
+  const knownSkus = new Set();
+  for (let i = 1; i < pVals.length; i++) {
+    const pid = String(pVals[i][0] || '').trim().toUpperCase();
+    const skuCell = String(pVals[i][3] || '').trim().toUpperCase();
+    if (pid) knownIds.add(pid);
+    if (skuCell) {
+      skuCell.split('/').forEach((s) => {
+        if (s.trim()) knownSkus.add(s.trim());
+      });
+    }
+  }
+
+  let synced = 0;
+  const nowIso = new Date().toISOString();
+
+  // 1) Revisar SALAS_MODULARES (desde fila 3 para respetar fila 2 de fórmula =CALCULAR_MONTO_SKU)
+  if (shSalas && shSalas.getLastRow() >= 3) {
+    const sVals = shSalas.getRange(1, 1, shSalas.getLastRow(), 14).getValues();
+    const sRich = shSalas.getRange(1, 14, shSalas.getLastRow(), 1).getRichTextValues();
+    let curPieces = [];
+    for (let r = 2; r < sVals.length; r++) {
+      const row = sVals[r];
+      const sid = String(row[0] || '').trim();
+      if (!sid) continue;
+      const sname = scrubPublicText_(String(row[1] || ''));
+      const psku = String(row[2] || '').trim().toUpperCase();
+      const pname = scrubPublicText_(String(row[3] || ''));
+      const qty = Number(row[4] || 0);
+      const showFlag = String(row[12] || '').trim().toUpperCase();
+      const furl = getRichUrl_(sRich[r][0], row[13]);
+
+      if (showFlag.indexOf('SÍ') >= 0 || showFlag.indexOf('SI') >= 0 || psku.indexOf('-TOTAL') > 0) {
+        if (!knownIds.has(sid.toUpperCase()) && !knownSkus.has((sid + '-SET').toUpperCase())) {
+          curPieces.forEach((pz) => {
+            const zRow = shPiece.getLastRow() + 1;
+            shPiece.appendRow([
+              sid, sname, pz.sku, pz.name, pz.qty, pz.width, pz.depth, pz.height,
+              buildPieceUnitPriceFormula_(zRow, pz.fallbackPrice),
+              '=E' + zRow + '*I' + zRow,
+              '', '', '', '', ''
+            ]);
+          });
+          const pRow = shProd.getLastRow() + 1;
+          const activeP = curPieces.filter((x) => x.qty > 0);
+          const totalQty = activeP.reduce((acc, x) => acc + (Number(x.qty) || 1), 0) || curPieces.length;
+          shProd.appendRow([
+            sid, 'ARCHIVADO', 'ARM', sid + '-SET', sname, 'SALAS & SOFÁS', 'SI',
+            activeP.map((x) => x.qty + 'x ' + x.name).join(' + '),
+            curPieces.map((x) => x.width).filter(Boolean).join(' / '),
+            (curPieces[0] && curPieces[0].depth) || '',
+            (curPieces[0] && curPieces[0].height) || '',
+            '',
+            String(totalQty),
+            '',
+            buildProductPriceFormula_(pRow, true, 0),
+            String(row[11] || '').trim(),
+            furl,
+            '', '', '', '[]',
+            extractDriveIdFromUrl_(furl),
+            nowIso,
+            '', '', '', '', ''
+          ]);
+          knownIds.add(sid.toUpperCase());
+          synced++;
+        }
+        curPieces = [];
+      } else {
+        curPieces.push({
+          sku: psku,
+          name: pname,
+          qty: isNaN(qty) ? 1 : qty,
+          width: String(row[5] || '').trim(),
+          depth: String(row[6] || '').trim(),
+          height: String(row[7] || '').trim(),
+          fallbackPrice: parseMoney_(row[8])
+        });
+      }
+    }
+  }
+
+  // 2) Revisar MUEBLES_INDIVIDUALES (desde fila 3 para respetar fila 2 de fórmula =CALCULAR_PRECIO_SKU)
+  if (shIndiv && shIndiv.getLastRow() >= 3) {
+    const iVals = shIndiv.getRange(1, 1, shIndiv.getLastRow(), 14).getValues();
+    const iRich = shIndiv.getRange(1, 14, shIndiv.getLastRow(), 1).getRichTextValues();
+    for (let r = 2; r < iVals.length; r++) {
+      const row = iVals[r];
+      const sku = String(row[1] || '').trim().toUpperCase();
+      if (!sku) continue;
+      if (knownSkus.has(sku) || knownIds.has(sku) || knownIds.has('IND-' + sku)) continue;
+
+      const furl = getRichUrl_(iRich[r][0], row[13]);
+      const pid = 'IND-' + sku;
+      const pRow = shProd.getLastRow() + 1;
+      shProd.appendRow([
+        pid,
+        'ARCHIVADO',
+        String(row[0] || 'CREATA').trim(),
+        sku,
+        scrubPublicText_(String(row[2] || '')),
+        normalizeCategory_(String(row[3] || '')),
+        'NO',
+        '1 pieza',
+        String(row[4] || '').trim(),
+        String(row[5] || '').trim(),
+        String(row[6] || '').trim(),
+        String(row[7] || '').trim(),
+        String(row[9] || '1').trim(),
+        String(row[8] || '').trim(),
+        buildProductPriceFormula_(pRow, false, parseMoney_(row[10])),
+        scrubPublicText_(String(row[11] || '')),
+        furl,
+        '', '', '', '[]',
+        extractDriveIdFromUrl_(furl),
+        nowIso,
+        '', '', '', '', ''
+      ]);
+      knownIds.add(pid);
+      knownSkus.add(sku);
+      synced++;
+    }
+  }
+
+  return synced;
+}
+
+/**
+ * Escanea recursivamente la carpeta de Drive:
+ * 1) Si CATALOGO_PRODUCTOS aún está vacío, inicializa automáticamente todo el catálogo + inventario vacío.
+ * 2) Si encuentra un PDF nuevo en Drive, lo agrega PRIMERO a MUEBLES_INDIVIDUALES o SALAS_MODULARES
+ *    respetando al 100% las fórmulas de derrame (=CALCULAR_PRECIO_SKU y =CALCULAR_MONTO_SKU)
+ *    y DESPUÉS lo agrega a CATALOGO_PRODUCTOS (y PIEZAS_MODULOS) conectado por fórmula.
+ * 3) También sincroniza cualquier fila nueva agregada directamente en el documento.
+ */
+function syncDriveFolderToSheet() {
+  const ss = getSpreadsheet_();
+  let shProd = ss.getSheetByName(CONFIG.TAB_PRODUCTS);
+  if (!shProd || shProd.getLastRow() <= 1) {
+    dejarTodoListoSinFotos({ silentUi: true });
+    shProd = ss.getSheetByName(CONFIG.TAB_PRODUCTS);
+  } else {
+    setupSheetsStructure();
+  }
+
+  const shPiece = ss.getSheetByName(CONFIG.TAB_PIECES);
+  const shSalas = ss.getSheetByName(CONFIG.TAB_SALAS_SRC);
+  const shIndiv = ss.getSheetByName(CONFIG.TAB_INDIV_SRC);
+
+  // Recolectar todos los Drive File IDs ya registrados en cualquiera de las pestañas
   const knownFileIds = new Set(CONFIG.IGNORED_DRIVE_IDS || []);
+  const existingRows = shProd.getDataRange().getValues();
   for (let i = 1; i < existingRows.length; i++) {
     const fIdRaw = String(existingRows[i][21] || '').trim();
     if (fIdRaw) {
       fIdRaw.split(',').forEach((part) => {
-        const cleanId = part.trim();
-        if (cleanId) knownFileIds.add(cleanId);
+        if (part.trim()) knownFileIds.add(part.trim());
       });
     }
-    const driveUrlCell = String(existingRows[i][16] || '');
-    const mUrl = driveUrlCell.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if (mUrl && mUrl[1]) knownFileIds.add(mUrl[1]);
+    const dId = extractDriveIdFromUrl_(existingRows[i][16]);
+    if (dId) knownFileIds.add(dId);
   }
+  [shSalas, shIndiv].forEach((srcSh) => {
+    if (srcSh && srcSh.getLastRow() >= 3) {
+      const richCol = srcSh.getRange(1, 14, srcSh.getLastRow(), 1).getRichTextValues();
+      const valCol = srcSh.getRange(1, 14, srcSh.getLastRow(), 1).getValues();
+      for (let r = 2; r < richCol.length; r++) {
+        const u = getRichUrl_(richCol[r][0], valCol[r][0]);
+        const id = extractDriveIdFromUrl_(u);
+        if (id) knownFileIds.add(id);
+      }
+    }
+  });
 
   const rootFolder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
   const files = collectPdfFilesRecursive_(rootFolder, '');
@@ -246,13 +480,13 @@ function syncDriveFolderToSheet() {
     const fileId = file.getId();
     if (knownFileIds.has(fileId)) return;
 
-    // Asegura enlace compartible de solo lectura para la ficha
     try {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (err) {}
 
+    const pdfName = file.getName();
     const driveUrl = 'https://drive.google.com/file/d/' + fileId + '/view?usp=sharing';
-    const baseName = file.getName().replace(/\.pdf$/i, '').trim();
+    const baseName = pdfName.replace(/\.pdf$/i, '').trim();
     const provHint = (entry.folderPath.split('/')[0] || 'CREATA').toUpperCase().slice(0, 6);
 
     let parsed = null;
@@ -260,28 +494,117 @@ function syncDriveFolderToSheet() {
       parsed = extractFichaWithGemini_(file, geminiKey, provHint);
     }
 
-    const itemId = 'DRV-' + fileId.slice(0, 10);
-    const modelName = (parsed && parsed.modelo ? parsed.modelo : baseName).toUpperCase();
-    const provider = (parsed && parsed.proveedor ? parsed.proveedor : provHint).toUpperCase();
-    const skuInternal = (parsed && parsed.sku ? parsed.sku : (provider + '-' + fileId.slice(0, 6))).toUpperCase();
+    const modelName = scrubPublicText_((parsed && parsed.modelo ? parsed.modelo : baseName).toUpperCase());
+    const provider = String((parsed && parsed.proveedor) ? parsed.proveedor : provHint).toUpperCase().trim();
+    const skuInternal = String((parsed && parsed.sku) ? parsed.sku : (provider + '-' + fileId.slice(0, 6))).toUpperCase().trim();
     const category = normalizeCategory_(parsed && parsed.categoria);
     const pieces = (parsed && Array.isArray(parsed.piezas)) ? parsed.piezas : [];
     const isMulti = pieces.length > 1;
+    const fallbackTotal = (parsed && parsed.precio_total) ? Number(parsed.precio_total) : 0;
 
-    let priceCellValue = (parsed && parsed.precio_total) ? Number(parsed.precio_total) : 0;
-    if (isMulti) {
+    // PASO 1: Agregar PRIMERO a las pestañas maestras del documento sin romper fórmulas de derrame
+    let itemId = 'IND-' + skuInternal;
+    if (isMulti && shSalas) {
+      const slug = modelName.replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 18);
+      itemId = slug.indexOf('SALA-') === 0 ? slug : ('SALA-' + slug);
+
+      let nextSalaRow = getLastContentRow_(shSalas, 14) + 1;
+      if (nextSalaRow > 3) {
+        // Fila separadora en blanco para mantener el formato limpio de SALAS_MODULARES
+        nextSalaRow += 1;
+      }
+      const firstPieceRow = nextSalaRow;
       pieces.forEach((pz, idx) => {
-        const pieceRowNum = shPiece.getLastRow() + 1;
-        shPiece.appendRow([
+        const rNum = firstPieceRow + idx;
+        const pSku = String(pz.sku_pieza || (skuInternal + '-P' + (idx + 1))).toUpperCase().trim();
+        const pName = scrubPublicText_(String(pz.nombre || ('Pieza ' + (idx + 1))));
+        const pQty = Number(pz.cantidad === undefined ? 1 : pz.cantidad);
+        if (shSalas.getMaxRows() < rNum + 3) {
+          shSalas.insertRowsAfter(shSalas.getMaxRows(), rNum + 5 - shSalas.getMaxRows());
+        }
+        // Columna I (índice 9, PRECIO UNITARIO) va VACÍA '' para que =CALCULAR_MONTO_SKU($C$2:$C,$E$2:$E) derrame sola
+        shSalas.getRange(rNum, 1, 1, 13).setValues([[
           itemId,
           modelName,
-          String(pz.sku_pieza || (skuInternal + '-P' + (idx + 1))).toUpperCase(),
-          String(pz.nombre || ('Pieza ' + (idx + 1))),
-          Number(pz.cantidad || 1),
+          pSku,
+          pName,
+          isNaN(pQty) ? 1 : pQty,
           String(pz.ancho_cm || ''),
           String(pz.fondo_cm || ''),
           String(pz.alto_cm || ''),
-          Number(pz.precio_unitario || 0),
+          '',
+          '=E' + rNum + '*I' + rNum,
+          '',
+          '',
+          'NO (PIEZA)'
+        ]]);
+        setDriveLinkCell_(shSalas, rNum, 14, pdfName, driveUrl);
+      });
+
+      const lastPieceRow = firstPieceRow + pieces.length - 1;
+      const totalRow = lastPieceRow + 1;
+      const dimsSummary = [
+        (parsed && parsed.ancho_cm) ? parsed.ancho_cm : '',
+        (parsed && parsed.fondo_cm) ? parsed.fondo_cm : '',
+        (parsed && parsed.alto_cm) ? parsed.alto_cm : ''
+      ].filter(Boolean).join(' × ');
+
+      shSalas.getRange(totalRow, 1, 1, 13).setValues([[
+        itemId,
+        modelName,
+        itemId + '-TOTAL',
+        'TOTAL SALA (' + modelName + ')',
+        '=SUM(E' + firstPieceRow + ':E' + lastPieceRow + ')',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '=SUM(J' + firstPieceRow + ':J' + lastPieceRow + ')',
+        dimsSummary ? (dimsSummary + ' cm') : '',
+        'SÍ (TOTAL)'
+      ]]);
+      setDriveLinkCell_(shSalas, totalRow, 14, pdfName, driveUrl);
+    } else if (!isMulti && shIndiv) {
+      const nextIndivRow = Math.max(3, getLastContentRow_(shIndiv, 14) + 1);
+      if (shIndiv.getMaxRows() < nextIndivRow + 2) {
+        shIndiv.insertRowsAfter(shIndiv.getMaxRows(), nextIndivRow + 5 - shIndiv.getMaxRows());
+      }
+      // Columna K (índice 11, PRECIO DE LISTA) va VACÍA '' para que =CALCULAR_PRECIO_SKU($B$2:$B) derrame sola
+      shIndiv.getRange(nextIndivRow, 1, 1, 13).setValues([[
+        provider,
+        skuInternal,
+        modelName,
+        category,
+        String((parsed && parsed.ancho_cm) || ''),
+        String((parsed && parsed.fondo_cm) || ''),
+        String((parsed && parsed.alto_cm) || ''),
+        String((parsed && parsed.asiento_cm) || ''),
+        String((parsed && parsed.cubitaje_m3) || ''),
+        String((parsed && parsed.bultos) || '1 bulto'),
+        '',
+        scrubPublicText_(String((parsed && parsed.materiales) || '')),
+        pdfName
+      ]]);
+      setDriveLinkCell_(shIndiv, nextIndivRow, 14, pdfName, driveUrl);
+    }
+
+    // PASO 2: Agregar a PIEZAS_MODULOS y CATALOGO_PRODUCTOS conectado con fórmulas en vivo
+    if (isMulti) {
+      pieces.forEach((pz, idx) => {
+        const pieceRowNum = shPiece.getLastRow() + 1;
+        const pSku = String(pz.sku_pieza || (skuInternal + '-P' + (idx + 1))).toUpperCase().trim();
+        const fbUnit = Number(pz.precio_unitario || 0);
+        shPiece.appendRow([
+          itemId,
+          modelName,
+          pSku,
+          scrubPublicText_(String(pz.nombre || ('Pieza ' + (idx + 1)))),
+          Number(pz.cantidad === undefined ? 1 : pz.cantidad),
+          String(pz.ancho_cm || ''),
+          String(pz.fondo_cm || ''),
+          String(pz.alto_cm || ''),
+          buildPieceUnitPriceFormula_(pieceRowNum, fbUnit),
           '=E' + pieceRowNum + '*I' + pieceRowNum,
           '', '', '', '', ''
         ]);
@@ -289,13 +612,12 @@ function syncDriveFolderToSheet() {
     }
 
     const rowIdx = shProd.getLastRow() + 1;
-    const priceFormulaOrValue = isMulti
-      ? '=SUMIF(' + CONFIG.TAB_PIECES + '!A:A, A' + rowIdx + ', ' + CONFIG.TAB_PIECES + '!J:J)'
-      : priceCellValue;
-
+    const priceFormula = buildProductPriceFormula_(rowIdx, isMulti, fallbackTotal);
     const piecesSummary = isMulti
-      ? (pieces.length + ' piezas (' + pieces.map((x) => x.nombre).join(' + ') + ')')
-      : '';
+      ? pieces.filter((x) => Number(x.cantidad === undefined ? 1 : x.cantidad) > 0)
+          .map((x) => Number(x.cantidad === undefined ? 1 : x.cantidad) + 'x ' + scrubPublicText_(x.nombre || 'Pieza'))
+          .join(' + ')
+      : '1 pieza';
 
     shProd.appendRow([
       itemId,
@@ -304,7 +626,7 @@ function syncDriveFolderToSheet() {
       skuInternal,
       modelName,
       category,
-      isMulti ? 'SÍ' : 'NO',
+      isMulti ? 'SI' : 'NO',
       piecesSummary,
       String((parsed && parsed.ancho_cm) || ''),
       String((parsed && parsed.fondo_cm) || ''),
@@ -312,8 +634,8 @@ function syncDriveFolderToSheet() {
       String((parsed && parsed.asiento_cm) || ''),
       String((parsed && parsed.bultos) || (isMulti ? pieces.length + ' bultos' : '1 bulto')),
       String((parsed && parsed.cubitaje_m3) || ''),
-      priceFormulaOrValue,
-      String((parsed && parsed.materiales) || ''),
+      priceFormula,
+      scrubPublicText_(String((parsed && parsed.materiales) || '')),
       driveUrl,
       '',
       '',
@@ -323,11 +645,17 @@ function syncDriveFolderToSheet() {
       new Date().toISOString(),
       '', '', '', '', ''
     ]);
+    shProd.getRange(rowIdx, 15).setNumberFormat('$#,##0.00');
 
+    knownFileIds.add(fileId);
     addedCount++;
   });
 
-  return { ok: true, scanned: files.length, added: addedCount };
+  // PASO 3: Sincronizar cualquier renglón que se haya agregado directo en las hojas maestras
+  const syncedFromTabs = syncDocumentTabsToCatalog_(ss);
+  publishWebAppUrlToConfigSheet_(ss);
+
+  return { ok: true, scanned: files.length, addedFromDrive: addedCount, syncedFromSheet: syncedFromTabs };
 }
 
 function collectPdfFilesRecursive_(folder, prefix) {
@@ -402,8 +730,8 @@ function normalizeCategory_(cat) {
   if (c.includes('SILLA') || c.includes('SILL')) return 'SILLAS & SILLONES';
   if (c.includes('COMEDOR') || c.includes('COMED')) return 'COMEDORES';
   if (c.includes('BUFET') || c.includes('CREDEN')) return 'BUFETERAS & CREDENZAS';
-  if (c.includes('CENTRO')) return 'MESAS DE CENTRO';
-  if (c.includes('REC') || c.includes('CAMA') || c.includes('BUR') || c.includes('CÓMODA')) return 'RECÁMARAS';
+  if (c.includes('CENTRO') || c.includes('LATERAL')) return 'MESAS DE CENTRO';
+  if (c.includes('REC') || c.includes('CAMA') || c.includes('BUR') || c.includes('CÓMODA') || c.includes('COMODA') || c.includes('CAJONERA')) return 'RECÁMARAS';
   return 'COMPLEMENTOS';
 }
 
@@ -414,17 +742,49 @@ function formatMoney_(num) {
 }
 
 /**
- * Endpoint GET para lectura en vivo desde index.html (?mode=public) y admin.html (?mode=admin)
+ * Endpoint GET: lectura en vivo + inicialización automática en cuanto el Sheet tenga permiso de edición
  */
 function doGet(e) {
-  try { publishWebAppUrlToConfigSheet_(getSpreadsheet_()); } catch (err) {}
+  const action = (e && e.parameter && e.parameter.action) || '';
   const mode = (e && e.parameter && e.parameter.mode) || 'public';
   const reqPin = (e && e.parameter && e.parameter.pin) || '';
   const adminPin = getProp_('ADMIN_PIN');
 
+  if (action === 'init_now') {
+    try {
+      const initRes = dejarTodoListoSinFotos({ silentUi: true });
+      ensureAutoSyncTrigger_();
+      return jsonResponse_({ ok: true, action: 'init_now', result: initRes });
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  if (action === 'sync_now') {
+    try {
+      const syncRes = syncDriveFolderToSheet();
+      ensureAutoSyncTrigger_();
+      return jsonResponse_({ ok: true, action: 'sync_now', result: syncRes });
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
   if (mode === 'admin' && adminPin && reqPin !== adminPin) {
     return jsonResponse_({ ok: false, error: 'PIN de administrador inválido' });
   }
+
+  try {
+    const ss = getSpreadsheet_();
+    publishWebAppUrlToConfigSheet_(ss);
+    const shProd = ss.getSheetByName(CONFIG.TAB_PRODUCTS);
+    if (!shProd || shProd.getLastRow() <= 1) {
+      try {
+        dejarTodoListoSinFotos({ silentUi: true });
+        ensureAutoSyncTrigger_();
+      } catch (autoErr) {}
+    }
+  } catch (err) {}
 
   const includePrivate = (mode === 'admin');
   const products = readAllCatalogRows_(includePrivate);
@@ -463,6 +823,9 @@ function doPost(e) {
     if (action === 'sync_drive') {
       return jsonResponse_(syncDriveFolderToSheet());
     }
+    if (action === 'init_all') {
+      return jsonResponse_(dejarTodoListoSinFotos({ silentUi: true }));
+    }
     if (action === 'bulk_seed') {
       return jsonResponse_(handleBulkSeed_(body.products));
     }
@@ -500,7 +863,7 @@ function readAllCatalogRows_(includePrivate) {
       width: String(r[5] || ''),
       depth: String(r[6] || ''),
       height: String(r[7] || ''),
-      price: Number(r[8] || 0),
+      price: parseMoney_(r[8]),
       checked: qtyNum > 0
     };
     if (includePrivate) {
@@ -535,7 +898,8 @@ function readAllCatalogRows_(includePrivate) {
     const heroUrl = String(r[17] || '').trim();
     const ambUrl = String(r[18] || '').trim();
     const finUrl = String(r[19] || '').trim();
-    const priceFormatted = typeof r[14] === 'number' ? formatMoney_(r[14]) : String(r[14] || '');
+    const numPrice = parseMoney_(r[14]);
+    const priceFormatted = numPrice > 0 ? formatMoney_(numPrice) : String(r[14] || '');
     const mods = piecesByParent[id] || [];
 
     const item = {
@@ -648,7 +1012,7 @@ function handleUploadPhoto_(body) {
     publicUrl = 'https://lh3.googleusercontent.com/d/' + uploaded.getId() + '=w1000';
   }
 
-  // Actualizar celda correspondiente si el producto existe en CATALOGO_PRODUCTOS
+  // Actualizar únicamente la celda del slot subido (cada foto es 100% independiente)
   const pid = String(body.productId || '').trim();
   if (pid) {
     const sh = getSpreadsheet_().getSheetByName(CONFIG.TAB_PRODUCTS);
@@ -657,11 +1021,9 @@ function handleUploadPhoto_(body) {
       if (String(rows[i][0] || '').trim() === pid) {
         const rowNum = i + 1;
         if (slot === 'hero') sh.getRange(rowNum, 18).setValue(publicUrl);
-        else if (slot === 'ambiente') {
-          sh.getRange(rowNum, 19).setValue(publicUrl);
-        } else if (slot === 'finish') {
-          sh.getRange(rowNum, 20).setValue(publicUrl);
-        } else if (slot.startsWith('view')) {
+        else if (slot === 'ambiente') sh.getRange(rowNum, 19).setValue(publicUrl);
+        else if (slot === 'finish') sh.getRange(rowNum, 20).setValue(publicUrl);
+        else if (slot.startsWith('view')) {
           const idx = parseInt(slot.replace('view', ''), 10) - 1;
           let views = [];
           try { views = JSON.parse(String(rows[i][20] || '[]')); } catch (e) { views = []; }
@@ -689,10 +1051,10 @@ function handleSaveProduct_(p) {
   const g = v.gallery || {};
   const views = [g.view1 || '', g.view2 || '', g.view3 || '', g.view4 || ''];
   const allMods = Array.isArray(p.sala_modules) ? p.sala_modules : [];
-  const activeMods = allMods.filter((m) => m.checked !== false && Number(m.qty ?? 1) > 0);
+  const activeMods = allMods.filter((m) => m.checked !== false && Number(m.qty === undefined ? 1 : m.qty) > 0);
   const isMulti = allMods.length > 1;
 
-  // Actualizar piezas hijas en PIEZAS_MODULOS preservando inventario en K..O
+  // Actualizar piezas hijas en PIEZAS_MODULOS preservando inventario en K..O y fórmulas en I..J
   const zRows = shPiece.getDataRange().getValues();
   const prevPieceInv = {};
   for (let r = zRows.length; r >= 2; r--) {
@@ -700,13 +1062,7 @@ function handleSaveProduct_(p) {
     if (String(rowArr[0] || '').trim() === p.id) {
       const pSkuKey = String(rowArr[2] || '').trim().toUpperCase();
       if (pSkuKey) {
-        prevPieceInv[pSkuKey] = [
-          rowArr[10] === undefined ? '' : rowArr[10],
-          rowArr[11] === undefined ? '' : rowArr[11],
-          rowArr[12] === undefined ? '' : rowArr[12],
-          rowArr[13] === undefined ? '' : rowArr[13],
-          rowArr[14] === undefined ? '' : rowArr[14]
-        ];
+        prevPieceInv[pSkuKey] = normInv5_(rowArr.slice(10, 15));
       }
       shPiece.deleteRow(r);
     }
@@ -717,6 +1073,7 @@ function handleSaveProduct_(p) {
       const pieceSku = String(m.sku || ((p.sku || p.id) + '-P' + (idx + 1))).toUpperCase();
       const savedInv = prevPieceInv[pieceSku] || ['', '', '', '', ''];
       const qtyVal = m.checked === false ? 0 : (m.qty === 0 ? 0 : Number(m.qty || 1));
+      const unitFormula = buildPieceUnitPriceFormula_(pieceRowNum, parseMoney_(m.price));
       shPiece.appendRow([
         p.id,
         p.model_name || '',
@@ -726,7 +1083,7 @@ function handleSaveProduct_(p) {
         String(m.width || ''),
         String(m.depth || ''),
         String(m.height || ''),
-        Number(m.price || 0),
+        unitFormula,
         '=E' + pieceRowNum + '*I' + pieceRowNum
       ].concat(savedInv));
     });
@@ -745,10 +1102,17 @@ function handleSaveProduct_(p) {
     targetRow = shProd.getLastRow() + 1;
   }
 
-  const numericPrice = Number(String(p.price || '0').replace(/[^0-9.-]/g, '')) || 0;
-  const priceFormulaOrValue = isMulti
-    ? '=SUMIF(' + CONFIG.TAB_PIECES + '!A:A, A' + targetRow + ', ' + CONFIG.TAB_PIECES + '!J:J)'
-    : numericPrice;
+  const numericPrice = parseMoney_(p.price);
+  let priceFormulaOrValue = buildProductPriceFormula_(targetRow, isMulti, numericPrice);
+  if (!isNewRow && !isMulti) {
+    const existingFormula = shProd.getRange(targetRow, 15).getFormula();
+    const prevEval = parseMoney_(pRows[targetRow - 1][14]);
+    if (existingFormula && Math.abs(numericPrice - prevEval) <= 0.05) {
+      priceFormulaOrValue = existingFormula;
+    } else if (numericPrice > 0 && Math.abs(numericPrice - prevEval) > 0.05) {
+      priceFormulaOrValue = buildProductPriceFormula_(targetRow, false, numericPrice);
+    }
+  }
 
   const rowValues = [
     p.id,
@@ -757,8 +1121,8 @@ function handleSaveProduct_(p) {
     p.sku || p.id,
     p.model_name || '',
     p.category || 'COMPLEMENTOS',
-    isMulti ? 'SÍ' : 'NO',
-    isMulti ? (activeMods.length + ' piezas') : '',
+    isMulti ? 'SI' : 'NO',
+    isMulti ? (activeMods.length + ' piezas') : '1 pieza',
     p.width || '',
     p.depth || '',
     p.height || '',
@@ -869,8 +1233,6 @@ function normInv5_(arr) {
   return out;
 }
 
-const RETAIL_PRICES_BY_SKU_ = {"ARM1PASCNACR":19820.7,"ARMCAR1PDERAC":26630.1,"ARMCAR1PIZQAC":26630.1,"ARMCAR1PMODTC":17354.6,"ARMCARESQCUAC":27163.8,"ARMDON1PDERR1":29169.8,"ARMDON1PIZQR1":29169.8,"ARMDONCHDERR1":34249.2,"ARMDONCHIZQR1":34249.2,"ARMDYL1PDEMPE":25470.6,"ARMDYL1PIZMPE":25470.6,"ARMDYL1PMOMPE":22618.1,"ARMDYLESQMPE":21366.6,"ARMDYLOTTOMPE":15790.3,"ARMLUG1PDERNL":21182.6,"ARMLUG1PIZQNL":21182.6,"ARMLUG1PMODNL":17041.8,"ARMLUGCHDERNL":31985.5,"ARMLUGCHIZQNL":31985.5,"ARMLUGESQCUNL":17649.1,"ARMLUGESQNL":17649.1,"ARMMAR2PKECO":29501.0,"ARMMAR3PKECO":37893.1,"ARMMAT1PDERSP":35243.0,"ARMMAT1PIZQSP":35243.0,"ARMMATCHDERSP":40396.0,"ARMMATCHIZQSP":40396.0,"ARMMON1PMODFA":14575.7,"ARMMON2PFRFL":40377.6,"ARMMON3PFREFL":50886.0,"ARMMONESQELBL":18624.5,"ARMMONESQFAPE":17686.6,"ARMMONIZQELBL":19931.1,"ARMMONOTTFAPE":12146.4,"ARMSHE1PDERN1":24771.3,"ARMSHE1PIZQN1":24771.3,"ARMSHE1PMODN1":20648.9,"ARMSHEESQNA01":21569.1,"ARMSHEOTTNA01":15900.7,"ATX1PBALBOLB":22496.0,"ATX1PBALRNLB":22496.0,"ATX3PAURBLTA":38653.6,"ATX3PSFEGJLB":35962.3,"ATXBUFBALSPHA":40208.2,"ATXBUFLUMBENT":29335.4,"ATXBUFSTHNONT":44537.3,"ATXCAMAUQSGMB":34529.8,"ATXCAMAUQSREB":29919.6,"ATXCAMSFEKSGM":47025.7,"ATXCAMSFEKSLC":45006.6,"ATXCENRENLABE":11530.3,"ATXLIBMAZENCA":57776.2,"ATXMDCKUNROEN":18885.5,"ATXMESLUMBENT":32168.5,"ATXMLAKUNROEN":11078.1,"ATXSILAURBKHA":10383.9,"ATXSILSTHPLLB":10239.7,"BARBUFSAN18RM":23871.0,"BARBURSAN60RM":8503.5,"BARBURSANIZRM":8503.5,"BARBUSAN120RM":17075.2,"BARCRESAN14RM":14309.0,"BARESPSANRM18":10228.0,"BARMDCSAN120R":11577.0,"BARMDCSAN80RM":9391.4,"BARMESAN6PRM":20831.7,"BARMESSAN4PRM":13626.0,"BARMESSAN8PRM":22539.3,"BARMLSANRM50":6317.8,"BARSANKSPLRM":24500.0,"BARSANMATPLRM":22675.9,"BARSILSANPLRM":9528.0,"BARSOCSANRMKP":13147.9,"BARTOCSAN14RM":16904.5,"CVVSALAARIOF":49297.0,"CVVSALAARIOI":42724.0,"CVVSALLEXPROL":23626.7,"CVVSALLUNBALI":53883.7,"CVVSALLUNBAMU":46699.2,"CVVSALPIEFPBU":50149.9,"CVVSALPIEFPMO":50149.9,"GMM1P2010":32608.9,"GMM1P2016":31215.6,"GMM1P2017":31215.6,"GMM1PKATBEIWO":23284.5,"GMM1PLEOBEI":21442.1,"GMMCAM9866":30443.6,"GMMCAM9867":36431.2,"GMMMDC2818":14236.1,"GMMMES6908":69308.6,"GMMMES7141":63278.6,"GMMMTV7300":77147.7,"GMMSIL2147":9228.4,"GMMSIL7411":15076.3,"GMMSIL7412":5138.6,"KUDSALMAWHALI":48490.4,"KUDSCAASHBROA":53421.7,"KUDSCAUGABROA":33833.7,"LPBUR61RMCL":17088.4,"LPCOMD36RMCL":43662.7,"MOBBASKSYUT":18096.9,"MOBBUFPLAPAR":48769.6,"MOBBURAFRROMO":13802.7,"MOBBURBARLED":16563.3,"MOBBURMADROMO":27298.7,"MOBBURPLAPAR":12269.1,"MOBBURYUTROMO":15643.1,"MOBCABMADKSRM":27298.7,"MOBCAJBARRMNU":57971.4,"MOBCOMBEJROMO":56744.5,"MOBCOMMADROMO":12269.1,"MOBCREADA220":24231.5,"MOBCREBEJROMO":30366.0,"MOBCTVPUERM":98152.7,"MOBESPCOR45RM":24231.5,"MOBESPESCPAR":18722.2,"MOBJGOMESPARM":23924.7,"MOBMDCBEJROMO":22084.4,"MOBMESBAR8PRM":67480.0,"MOBMESKAMRM":36807.3,"MOBSILCANROMO":12537.0,"MOBSILNAISOL":11655.6,"MOBURBEJRROMO":16870.0,"PAYCAMSAJKS":83862.6,"PAYCAMSALKSRI":60360.5,"PICMDCSOTSB":15302.3,"REVMLZEUPAR46":5793.7,"YO1PAARNOGRRM":34227.7,"YO1PAURRUNARM":29086.2,"YO1PDUEPIJERM":26148.2,"YO1PUNIBRBOPC":30261.4,"YO1PZURPIERM":45245.2,"YO1PZURSA07RM":32024.2,"YO3PZAMALUIV":43776.2};
-
 function extractDriveIdFromUrl_(url) {
   const m = String(url || '').match(/\/d\/([a-zA-Z0-9_-]+)/);
   return m ? m[1] : '';
@@ -904,18 +1266,20 @@ function fetchGithubJsonArray_(fileName) {
 }
 
 /**
- * 1 clic: Carga los 100 muebles (47 VISIBLE + 53 ARCHIVADO), 38 piezas modulares,
- * 0 fotos precargadas, precios oficiales de venta y las 5 columnas de inventario vacías.
+ * Inicializa CATALOGO_PRODUCTOS y PIEZAS_MODULOS conectando los precios con FÓRMULAS EN VIVO
+ * hacia MUEBLES_INDIVIDUALES (=CALCULAR_PRECIO_SKU) y SALAS_MODULARES (=CALCULAR_MONTO_SKU),
+ * sin fotos precargadas, sin perder una sola fórmula, y con las 5 columnas de inventario vacías.
  */
-function dejarTodoListoSinFotos() {
+function dejarTodoListoSinFotos(opts) {
+  const silentUi = !!(opts && opts.silentUi);
   setupSheetsStructure();
   const ss = getSpreadsheet_();
   const shProd = ss.getSheetByName(CONFIG.TAB_PRODUCTS);
   const shPiece = ss.getSheetByName(CONFIG.TAB_PIECES);
-  const shSalas = ss.getSheetByName('SALAS_MODULARES');
-  const shIndiv = ss.getSheetByName('MUEBLES_INDIVIDUALES');
+  const shSalas = ss.getSheetByName(CONFIG.TAB_SALAS_SRC);
+  const shIndiv = ss.getSheetByName(CONFIG.TAB_INDIV_SRC);
 
-  // Conservar inventario existente (> 0) si el usuario ya escribió piezas en alguna fila
+  // Conservar inventario existente (> 0) si el usuario ya capturó piezas en alguna celda
   const prevProdInv = {};
   const oldPRows = shProd.getDataRange().getValues();
   for (let i = 1; i < oldPRows.length; i++) {
@@ -929,13 +1293,13 @@ function dejarTodoListoSinFotos() {
     if (zKey !== '|') prevPieceInv[zKey] = normInv5_(oldZRows[i].slice(10, 15));
   }
 
-  // Leer SALAS_MODULARES con hipervínculos reales y precios de venta oficiales
+  // Leer SALAS_MODULARES (sin tocar ni modificar sus fórmulas en I2, J y K)
   const salasMap = {};
-  if (shSalas && shSalas.getLastRow() > 1) {
+  if (shSalas && shSalas.getLastRow() >= 3) {
     const sVals = shSalas.getRange(1, 1, shSalas.getLastRow(), 14).getValues();
     const sRich = shSalas.getRange(1, 14, shSalas.getLastRow(), 1).getRichTextValues();
     let curPieces = [];
-    for (let r = 1; r < sVals.length; r++) {
+    for (let r = 2; r < sVals.length; r++) {
       const row = sVals[r];
       const sid = String(row[0] || '').trim();
       if (!sid) continue;
@@ -943,9 +1307,9 @@ function dejarTodoListoSinFotos() {
       const psku = String(row[2] || '').trim().toUpperCase();
       const pname = scrubPublicText_(String(row[3] || ''));
       const qty = Number(row[4] || 0);
-      const showFlag = String(row[12] || '').trim();
+      const showFlag = String(row[12] || '').trim().toUpperCase();
       const furl = getRichUrl_(sRich[r][0], row[13]);
-      if (showFlag.indexOf('SÍ') >= 0 || psku.indexOf('-TOTAL') > 0) {
+      if (showFlag.indexOf('SÍ') >= 0 || showFlag.indexOf('SI') >= 0 || psku.indexOf('-TOTAL') > 0) {
         salasMap[sid] = {
           id: sid,
           name: sname,
@@ -963,19 +1327,19 @@ function dejarTodoListoSinFotos() {
           width: String(row[5] || '').trim(),
           depth: String(row[6] || '').trim(),
           height: String(row[7] || '').trim(),
-          price: Number(RETAIL_PRICES_BY_SKU_[psku] || 0)
+          fallbackPrice: parseMoney_(row[8])
         });
       }
     }
   }
 
-  // Leer MUEBLES_INDIVIDUALES con hipervínculos reales y precios de venta oficiales
+  // Leer MUEBLES_INDIVIDUALES (sin tocar ni modificar su fórmula en K2)
   const indivList = [];
   const skuToIndiv = {};
-  if (shIndiv && shIndiv.getLastRow() > 1) {
+  if (shIndiv && shIndiv.getLastRow() >= 3) {
     const iVals = shIndiv.getRange(1, 1, shIndiv.getLastRow(), 14).getValues();
     const iRich = shIndiv.getRange(1, 14, shIndiv.getLastRow(), 1).getRichTextValues();
-    for (let r = 1; r < iVals.length; r++) {
+    for (let r = 2; r < iVals.length; r++) {
       const row = iVals[r];
       const sku = String(row[1] || '').trim().toUpperCase();
       if (!sku) continue;
@@ -992,7 +1356,7 @@ function dejarTodoListoSinFotos() {
         seat: String(row[7] || '').trim(),
         volume: String(row[8] || '').trim(),
         packages: String(row[9] || '1').trim(),
-        price: Number(RETAIL_PRICES_BY_SKU_[sku] || 0),
+        fallbackPrice: parseMoney_(row[10]),
         materials: scrubPublicText_(String(row[11] || '')),
         driveUrl: furl,
         driveId: extractDriveIdFromUrl_(furl)
@@ -1010,7 +1374,7 @@ function dejarTodoListoSinFotos() {
   const usedSalas = {};
   const usedIndivRow = {};
 
-  // 1) 47 muebles activos del catálogo (VISIBLE, 0 fotos)
+  // 1) 47 muebles activos del catálogo (VISIBLE, 0 fotos, conectados por FÓRMULA en vivo)
   adminProds.forEach((ap) => {
     const pid = String(ap.id || '').trim();
     const modelName = scrubPublicText_(String(ap.model_name || ''));
@@ -1027,6 +1391,7 @@ function dejarTodoListoSinFotos() {
       if (skuToIndiv[sk]) {
         skuToIndiv[sk].forEach((m) => {
           usedIndivRow[m.rowNum] = true;
+          if (!driveUrl && m.driveUrl) driveUrl = m.driveUrl;
           if (m.driveId && driveIds.indexOf(m.driveId) < 0) driveIds.push(m.driveId);
         });
       }
@@ -1041,9 +1406,10 @@ function dejarTodoListoSinFotos() {
     else if (upName.indexOf('MARENO') >= 0 && upName.indexOf('LOVE') < 0) salaKey = 'SALA-MARENO';
     else if (upName.indexOf('MONET') >= 0 && upName.indexOf('LOVE') < 0) salaKey = 'SALA-MONET';
 
+    const pRowNum = outProds.length + 2;
     let isMulti = 'NO';
     let summary = '1 pieza';
-    let priceCell = parseMoney_(ap.price);
+    let priceCell = buildProductPriceFormula_(pRowNum, false, parseMoney_(ap.price));
 
     if (salaKey && salasMap[salaKey]) {
       usedSalas[salaKey] = true;
@@ -1051,26 +1417,26 @@ function dejarTodoListoSinFotos() {
       if (sdata.driveUrl) driveUrl = sdata.driveUrl;
       if (sdata.driveId && driveIds.indexOf(sdata.driveId) < 0) driveIds.push(sdata.driveId);
 
-      let pList = sdata.pieces.map((x) => Object.assign({}, x));
-      if (salaKey === 'SALA-MATERA') {
-        pList = [
-          { sku: 'ARMMAT1PDERSP', name: 'Sillón brazo derecho (Scar Putty)', qty: 1, width: '155', depth: '134', height: '94', price: 35242.96 },
-          { sku: 'ARMMAT1PIZQSP', name: 'Sillón brazo izquierdo (Scar Putty)', qty: 1, width: '155', depth: '134', height: '94', price: 35242.95 },
-          { sku: 'ARMMATCHDERSP', name: 'Chaise longue derecho (Opción)', qty: 0, width: '139', depth: '182', height: '94', price: Number(RETAIL_PRICES_BY_SKU_.ARMMATCHDERSP || 40396) },
-          { sku: 'ARMMATCHIZQSP', name: 'Chaise longue izquierdo (Opción)', qty: 0, width: '139', depth: '182', height: '94', price: Number(RETAIL_PRICES_BY_SKU_.ARMMATCHIZQSP || 40396) }
-        ];
-      }
+      const pList = sdata.pieces.map((x) => Object.assign({}, x));
       pList.forEach((pz) => {
         const zRowNum = outPieces.length + 2;
         const zInv = prevPieceInv[pid + '|' + pz.sku] || ['', '', '', '', ''];
         outPieces.push([
-          pid, modelName, pz.sku, pz.name, pz.qty, pz.width, pz.depth, pz.height, pz.price,
+          pid,
+          modelName,
+          pz.sku,
+          pz.name,
+          pz.qty,
+          pz.width,
+          pz.depth,
+          pz.height,
+          buildPieceUnitPriceFormula_(zRowNum, pz.fallbackPrice),
           '=E' + zRowNum + '*I' + zRowNum
         ].concat(zInv));
       });
       isMulti = 'SI';
       summary = pList.filter((x) => x.qty > 0).map((x) => x.qty + 'x ' + x.name).join(' + ');
-      priceCell = '=SUMIF(PIEZAS_MODULOS!A:A, A' + (outProds.length + 2) + ', PIEZAS_MODULOS!J:J)';
+      priceCell = buildProductPriceFormula_(pRowNum, true, 0);
     }
 
     const pInv = prevProdInv[pid] || ['', '', '', '', ''];
@@ -1091,7 +1457,7 @@ function dejarTodoListoSinFotos() {
     ].concat(pInv));
   });
 
-  // 2) Salas modulares restantes -> ARCHIVADO
+  // 2) Salas modulares restantes -> ARCHIVADO (conectadas por FÓRMULA a SALAS_MODULARES)
   Object.keys(salasMap).forEach((sid) => {
     if (usedSalas[sid]) return;
     const sdata = salasMap[sid];
@@ -1101,12 +1467,21 @@ function dejarTodoListoSinFotos() {
       const zRowNum = outPieces.length + 2;
       const zInv = prevPieceInv[pid + '|' + pz.sku] || ['', '', '', '', ''];
       outPieces.push([
-        pid, sdata.name, pz.sku, pz.name, pz.qty, pz.width, pz.depth, pz.height, pz.price,
+        pid,
+        sdata.name,
+        pz.sku,
+        pz.name,
+        pz.qty,
+        pz.width,
+        pz.depth,
+        pz.height,
+        buildPieceUnitPriceFormula_(zRowNum, pz.fallbackPrice),
         '=E' + zRowNum + '*I' + zRowNum
       ].concat(zInv));
     });
     const activeP = pList.filter((x) => x.qty > 0);
     const totalQty = activeP.reduce((acc, x) => acc + (Number(x.qty) || 1), 0) || pList.length;
+    const pRowNum = outProds.length + 2;
     const pInv = prevProdInv[pid] || ['', '', '', '', ''];
     outProds.push([
       pid, 'ARCHIVADO', 'ARM', sid + '-SET', sdata.name, 'SALAS & SOFÁS', 'SI',
@@ -1117,7 +1492,7 @@ function dejarTodoListoSinFotos() {
       '',
       String(totalQty),
       '',
-      '=SUMIF(PIEZAS_MODULOS!A:A, A' + (outProds.length + 2) + ', PIEZAS_MODULOS!J:J)',
+      buildProductPriceFormula_(pRowNum, true, 0),
       sdata.dimsSummary || '',
       sdata.driveUrl || '',
       '', '', '', '[]',
@@ -1126,15 +1501,17 @@ function dejarTodoListoSinFotos() {
     ].concat(pInv));
   });
 
-  // 3) Muebles individuales restantes -> ARCHIVADO
+  // 3) Muebles individuales restantes -> ARCHIVADO (conectados por FÓRMULA a MUEBLES_INDIVIDUALES)
   indivList.forEach((it) => {
     if (usedIndivRow[it.rowNum]) return;
     const pid = 'IND-' + it.sku;
+    const pRowNum = outProds.length + 2;
     const pInv = prevProdInv[pid] || ['', '', '', '', ''];
     outProds.push([
       pid, 'ARCHIVADO', it.provider, it.sku, it.name, it.category, 'NO', '1 pieza',
       it.width, it.depth, it.height, it.seat, it.packages, it.volume,
-      it.price, it.materials, it.driveUrl,
+      buildProductPriceFormula_(pRowNum, false, it.fallbackPrice),
+      it.materials, it.driveUrl,
       '', '', '', '[]',
       it.driveId || '',
       nowIso
@@ -1162,25 +1539,20 @@ function dejarTodoListoSinFotos() {
     shPiece.getRange(2, 9, outPieces.length, 2).setNumberFormat('$#,##0.00');
   }
 
-  // Asegurar activación automática cada 10 min para nuevas fichas de Drive
-  try {
-    const existing = ScriptApp.getProjectTriggers();
-    const hasTrigger = existing.some((t) => t.getHandlerFunction() === 'syncDriveFolderToSheet');
-    if (!hasTrigger) {
-      ScriptApp.newTrigger('syncDriveFolderToSheet').timeBased().everyMinutes(10).create();
-    }
-  } catch (e) {}
-
+  ensureAutoSyncTrigger_();
   publishWebAppUrlToConfigSheet_(ss);
 
-  try {
-    SpreadsheetApp.getUi().alert(
-      '¡Todo listo!\n\n' +
-      '• Muebles cargados en CATALOGO_PRODUCTOS: ' + outProds.length + ' (47 VISIBLES + ' + (outProds.length - 47) + ' ARCHIVADOS, 0 fotos)\n' +
-      '• Piezas modulares en PIEZAS_MODULOS: ' + outPieces.length + '\n' +
-      '• Columnas de inventario vacías creadas: CEDIS, CASA CREATA, COLOSIO, PLAYA y PUERTO CANCUN (se colorean en verde únicamente cuando hay piezas > 0).'
-    );
-  } catch (e) {}
+  if (!silentUi) {
+    try {
+      SpreadsheetApp.getUi().alert(
+        '¡Todo conectado en automático y sin perder fórmulas!\n\n' +
+        '• Muebles en CATALOGO_PRODUCTOS: ' + outProds.length + ' (47 VISIBLES + ' + (outProds.length - 47) + ' ARCHIVADOS, 0 fotos)\n' +
+        '• Piezas modulares en PIEZAS_MODULOS: ' + outPieces.length + '\n' +
+        '• Fórmulas conservadas al 100% (=CALCULAR_PRECIO_SKU y =CALCULAR_MONTO_SKU)\n' +
+        '• Inventario vacío creado: CEDIS, CASA CREATA, COLOSIO, PLAYA y PUERTO CANCUN.'
+      );
+    } catch (e) {}
+  }
 
   return { ok: true, products: outProds.length, pieces: outPieces.length };
 }
