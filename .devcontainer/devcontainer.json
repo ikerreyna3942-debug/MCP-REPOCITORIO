@@ -1,0 +1,12 @@
+{
+  "name": "CREATA Muebles — Cloud Workspace",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": {
+      "label": "Vista Previa Catálogo & Inventario",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "postStartCommand": "npx -y http-server . -p 8080 -c-1 --silent &"
+}
