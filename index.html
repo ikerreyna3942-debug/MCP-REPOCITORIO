@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-    <link rel="stylesheet" href="catalog-styles.css">
+    <link rel="stylesheet" href="catalog-styles.css?v=17">
 </head>
 <body>
 
@@ -19,10 +19,37 @@
         <div class="max-w-7xl mx-auto px-6 pt-6 pb-4 relative">
 
             <!-- LOGO OFICIAL EN BLANCO -->
-            <div class="text-center mb-4">
+            <div class="text-center mb-3.5">
                 <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img">
                 <script src="creata-logo.js"></script>
                 <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
+            </div>
+
+            <!-- BARRA DE BÚSQUEDA INTELIGENTE DEL CLIENTE -->
+            <div class="catalog-search-wrap">
+                <div class="catalog-search-box">
+                    <svg class="catalog-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"></path>
+                    </svg>
+                    <input
+                        type="search"
+                        id="searchInput"
+                        class="catalog-search-input"
+                        placeholder="Buscar mueble, categoría, tela, madera, material o medida..."
+                        autocomplete="off"
+                        aria-label="Buscar en el catálogo"
+                        oninput="handlePublicSearch(this.value)"
+                        onkeydown="if(event.key === 'Escape'){ clearPublicSearch(); }"
+                    >
+                    <button
+                        type="button"
+                        id="clearSearchBtn"
+                        class="catalog-search-clear"
+                        style="display:none;"
+                        onclick="clearPublicSearch()"
+                        title="Limpiar búsqueda"
+                    >✕</button>
+                </div>
             </div>
 
             <!-- BARRA DE CATEGORÍAS (20% MÁS PEQUEÑAS) -->
@@ -63,19 +90,18 @@
                     <div class="modal-gallery-grid">
                         <!-- #3F48CC FOTO DEL AMBIENTE (TOP LEFT, 2 COLS X 2 ROWS) -->
                         <div class="gallery-slot slot-ambiente" onclick="cycleMainPhoto()" title="Haz clic para pasar a la siguiente foto o regresar a Ambiente">
-                            
-                            <img id="slotImgAmbiente" src="" alt="Ambiente" class="w-full h-full object-contain bg-white">
+                            <img id="slotImgAmbiente" src="" alt="Ambiente" class="w-full h-full object-contain">
                         </div>
 
-                        <!-- ACABADOS DINÁMICOS (1 O 2 RECUADROS SEPARADOS: TELA / MADERA) -->
-                        <div class="gallery-slot slot-finish" onclick="swapToMain('finish')" title="Acabado / Detalle">
-                            <img id="slotImgFinish" src="" alt="Acabado" class="w-full h-full object-contain p-1.5 bg-white">
+                        <!-- TELA / ACABADO VINCULADO AL BOTÓN DE MUESTRA -->
+                        <div class="gallery-slot slot-finish" onclick="swapToMain('finish')" title="Tela / Acabado">
+                            <span id="slotFinishLabelBadge" class="slot-badge" style="display:none;"></span>
+                            <img id="slotImgFinish" src="" alt="Tela / Acabado" class="w-full h-full object-cover p-1">
                         </div>
 
                         <!-- #22B14C FOTO DE VISTA 1 (MIDDLE RIGHT) -->
                         <div class="gallery-slot slot-view1" onclick="swapToMain('view1')">
-                            
-                            <img id="slotImgView1" src="" alt="Vista 1" class="w-full h-full object-contain p-1.5 bg-white">
+                            <img id="slotImgView1" src="" alt="Vista 1" class="w-full h-full object-contain p-1.5">
                         </div>
 
                         <!-- #22B14C FOTO DE VISTA 2 (BOTTOM LEFT) -->
@@ -146,8 +172,8 @@
                             <p class="text-xs lg:text-[13px] text-slate-700 leading-relaxed font-medium" id="mMaterials">-</p>
                         </div>
 
-                        <!-- SELECTOR DE TELAS / ACABADOS -->
-                        <div class="flex flex-wrap items-center justify-start gap-1.5 mb-2.5" id="modalSwatchesRow"></div>
+                        <!-- SELECTOR DE TELAS / ACABADOS (IDÉNTICO AL EDITOR) -->
+                        <div class="flex flex-wrap items-center justify-center gap-2.5 my-2" id="modalSwatchesRow"></div>
                     </div>
 
                     <!-- BOTÓN DRIVE FICHA TÉCNICA PROMINENTE Y ANCHO COMPLETO -->
@@ -171,7 +197,7 @@
     <script src="catalog-data-1.js"></script>
     <script src="catalog-data-2.js"></script>
     <script>const rawProducts = [...(window.CREATA_CATALOG_P1 || []), ...(window.CREATA_CATALOG_P2 || [])];</script>
-    <script src="creata-cloud.js?v=11"></script>
-    <script src="catalog-app.js?v=11"></script>
+    <script src="creata-cloud.js?v=17"></script>
+    <script src="catalog-app.js?v=17"></script>
 </body>
 </html>
