@@ -29,6 +29,11 @@
     const LPPT_SHEET_ID = META.lpptSheetId || '1t78KDg_DMbGfauNWRrjUc3ULh-SzrxO9XwOHPrtJtWE';
     const LPPT_GID = META.lpptGid || 1025729459;
 
+    const MONTHS_ES = [
+        'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+    ];
+
     const PAGE_SIZE = 80;
     const CART_KEY = 'creata_inv_open_cart_v1';
     const DEFAULT_MIN_STOCK = 2;
@@ -65,16 +70,6 @@
         return total;
     }
 
-    function getLpptStock(it) {
-        if (!it || !Array.isArray(it.st)) return 0;
-        for (let i = 0; i < WAREHOUSES.length; i++) {
-            if (isLpptWarehouse(WAREHOUSES[i])) {
-                return Math.max(0, Number(it.st[i]) || 0);
-            }
-        }
-        return 0;
-    }
-
     function parsePriceNum(raw) {
         if (raw === null || raw === undefined) return 0;
         if (typeof raw === 'number') return isFinite(raw) && raw > 0 ? raw : 0;
@@ -98,7 +93,7 @@
             parts[i] = [
                 it.s, it.tp, it.mo, it.n, it.vr, it.f, it.c,
                 it.tl, it.ct, it.md, it.cm, it.mt, it.m, it.p,
-                it.lt, it.pr, it.fe, it.oc, it.fc, st
+                it.lt, it.pr, it.fe, st
             ].join('\x1f');
         }
         return parts.join('\n');
@@ -214,35 +209,69 @@
         return cleanTitle + ' — ' + cleanPr;
     }
 
-    function buildAvailabilitySublineHtml(skuText, bodegaQty, lpptQty, ltDays, feStr) {
-        const bQty = Math.max(0, Number(bodegaQty) || 0);
-        const lQty = Math.max(0, Number(lpptQty) || 0);
-        const parts = [];
-        if (skuText) {
-            parts.push('<span class="font-bold tracking-wider" style="color:#A38251;">' + escapeHtml(skuText) + '</span>');
+    function parseSheetDate(rawStr) {
+        const s = cleanStr(rawStr);
+        if (!s) return null;
+        const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if (m1) {
+            const d = parseInt(m1[1], 10);
+            const m = parseInt(m1[2], 10) - 1;
+            let y = parseInt(m1[3], 10);
+            if (y < 100) y += 2000;
+            const dt = new Date(y, m, d);
+            dt.setHours(0, 0, 0, 0);
+            return isNaN(dt.getTime()) ? null : dt;
         }
-        const bColor = bQty > DEFAULT_MIN_STOCK ? '#065F46' : (bQty > 0 ? '#92400E' : '#991B1B');
-        const bBg = bQty > DEFAULT_MIN_STOCK ? '#ECFDF5' : (bQty > 0 ? '#FFFBEB' : '#FEF2F2');
-        parts.push(
-            '<span class="px-2 py-0.5 rounded-full text-[11px] font-extrabold" style="background:' + bBg + '; color:' + bColor + ';">' +
-                bQty + (bQty === 1 ? ' pza disponible' : ' pzas disponibles') +
-            '</span>'
-        );
-        if (lQty > 0) {
-            let lpptText = 'LPPT: ' + lQty + (lQty === 1 ? ' pza' : ' pzas');
-            const dNum = Number(ltDays);
-            if (!isNaN(dNum) && isFinite(dNum) && ltDays !== '') {
-                lpptText += dNum > 0 ? (' · Faltan ' + dNum + (dNum === 1 ? ' día' : ' días')) : ' · En llegada';
-            } else if (feStr && feStr !== 'Sin piezas solicitadas') {
-                lpptText += ' · Llegada: ' + feStr;
+        const m2 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+        if (m2) {
+            const dt = new Date(parseInt(m2[1], 10), parseInt(m2[2], 10) - 1, parseInt(m2[3], 10));
+            dt.setHours(0, 0, 0, 0);
+            return isNaN(dt.getTime()) ? null : dt;
+        }
+        return null;
+    }
+
+    function formatDateDMY(dt) {
+        if (!dt || isNaN(dt.getTime())) return '';
+        const dd = String(dt.getDate()).padStart(2, '0');
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const yyyy = dt.getFullYear();
+        return dd + '/' + mm + '/' + yyyy;
+    }
+
+    function formatSpanishDayMonth(dt) {
+        if (!dt || isNaN(dt.getTime())) return '';
+        const dayNum = dt.getDate();
+        const monthName = MONTHS_ES[dt.getMonth()] || '';
+        return dayNum + ' de ' + monthName;
+    }
+
+    // Construye el mensaje limpio para LPPT cuando existen piezas disponibles (> 0); vacío si no hay piezas
+    function formatLpptArrivalText(it, lpptQty) {
+        const qty = Math.max(0, Number(lpptQty) || 0);
+        if (qty <= 0) return '';
+
+        let arrivalDate = null;
+        const feRaw = cleanStr(it && it.fe);
+        if (feRaw && feRaw !== 'Sin piezas solicitadas') {
+            arrivalDate = parseSheetDate(feRaw);
+        }
+        if (!arrivalDate && it && it.lt !== '' && it.lt !== null && it.lt !== undefined) {
+            const ltNum = Number(it.lt);
+            if (!isNaN(ltNum) && isFinite(ltNum) && ltNum >= 0) {
+                const d = new Date();
+                d.setHours(0, 0, 0, 0);
+                d.setDate(d.getDate() + Math.round(ltNum));
+                arrivalDate = d;
             }
-            parts.push(
-                '<span class="px-2 py-0.5 rounded-full text-[11px] font-extrabold" style="background:#FFFBEB; color:#92400E;">' +
-                    escapeHtml(lpptText) +
-                '</span>'
-            );
         }
-        return '<div class="flex flex-wrap items-center gap-1.5 mt-1">' + parts.join('') + '</div>';
+
+        const dispWord = qty === 1 ? 'disponible' : 'disponibles';
+        const dayMonth = arrivalDate ? formatSpanishDayMonth(arrivalDate) : '';
+        if (dayMonth) {
+            return 'LPPT ' + qty + ' ' + dispWord + ' llega disponible para entregar a partir del día ' + dayMonth;
+        }
+        return 'LPPT ' + qty + ' ' + dispWord;
     }
 
     function indexItemsAndGroups() {
@@ -300,43 +329,6 @@
             delete grp._plainParts;
             delete grp._searchParts;
         }
-    }
-
-    function getGroupPriceLabel(grp) {
-        if (!grp || !Array.isArray(grp.items) || grp.items.length === 0) return '';
-        let minP = Infinity;
-        let maxP = 0;
-        for (let i = 0; i < grp.items.length; i++) {
-            const p = parsePriceNum(grp.items[i].pr);
-            if (p > 0) {
-                if (p < minP) minP = p;
-                if (p > maxP) maxP = p;
-            }
-        }
-        if (!isFinite(minP) || minP <= 0) return '';
-        if (Math.abs(maxP - minP) < 0.01) return formatPrice(minP);
-        return formatPrice(minP);
-    }
-
-    function getGroupTotals(grp) {
-        let bodegaTotal = 0;
-        let lpptTotal = 0;
-        let minLt = null;
-        if (grp && Array.isArray(grp.items)) {
-            for (let i = 0; i < grp.items.length; i++) {
-                const it = grp.items[i];
-                bodegaTotal += getBodegaPisoStock(it);
-                const lq = getLpptStock(it);
-                lpptTotal += lq;
-                if (lq > 0 && it.lt !== '' && it.lt !== null && it.lt !== undefined) {
-                    const d = Number(it.lt);
-                    if (!isNaN(d) && isFinite(d) && (minLt === null || d < minLt)) {
-                        minLt = d;
-                    }
-                }
-            }
-        }
-        return { bodegaTotal, lpptTotal, minLt };
     }
 
     function loadCart() {
@@ -442,15 +434,11 @@
             row.className = 'inv-row';
 
             if (grp.items.length > 1) {
-                const grpPrice = getGroupPriceLabel(grp);
-                const totals = getGroupTotals(grp);
+                // Listado limpio sin precio afuera (el precio se muestra adentro al abrir el inventario del producto)
                 row.onclick = function () { openGroupModal(grp.key); };
                 row.innerHTML =
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
-                            formatTitleWithPriceHtml(grp.title, grpPrice) +
-                        '</div>' +
-                        buildAvailabilitySublineHtml(grp.items.length + ' variantes', totals.bodegaTotal, totals.lpptTotal, totals.minLt, '') +
+                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.title) + '</div>' +
                     '</div>' +
                     '<svg class="w-4 h-4 shrink-0" style="color:#A38251;" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
                         '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 5l7 7-7 7"></path>' +
@@ -459,16 +447,11 @@
                 const it = grp.items[0];
                 const skuKey = String(it.s || '').toUpperCase();
                 const inCartQty = cart[skuKey] ? cart[skuKey].qty : 0;
-                const displayName = cleanStr(it.n) || grp.title || it.s;
-                const bStock = getBodegaPisoStock(it);
-                const lStock = getLpptStock(it);
                 row.onclick = function () { openProductDetail(it.s, false); };
                 row.innerHTML =
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
-                            formatTitleWithPriceHtml(displayName, it.pr) +
-                        '</div>' +
-                        buildAvailabilitySublineHtml(it.s, bStock, lStock, it.lt, it.fe) +
+                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.title || it.n || it.s) + '</div>' +
+                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
                     '<button type="button" title="Agregar a Cotización" data-sku-btn="' + escapeHtml(skuKey) + '" class="cart-plus-btn ' + (inCartQty > 0 ? 'in-cart' : '') + '">' +
                         (inCartQty > 0 ? ('+' + inCartQty) : '+') +
@@ -512,6 +495,7 @@
         const crumbEl = document.getElementById('detGroupCrumb');
         const skuEl = document.getElementById('detSku');
         const nameEl = document.getElementById('detName');
+        const priceEl = document.getElementById('detPrice');
         const addBtn = document.getElementById('detAddCartBtn');
         const varStep = document.getElementById('detVariantsStep');
         const singleStep = document.getElementById('detSingleStep');
@@ -526,7 +510,11 @@
             skuEl.classList.add('hidden');
         }
         if (nameEl) {
-            nameEl.innerHTML = formatTitleWithPriceHtml(grp.title, getGroupPriceLabel(grp));
+            nameEl.textContent = grp.title;
+        }
+        if (priceEl) {
+            priceEl.textContent = '';
+            priceEl.classList.add('hidden');
         }
         if (addBtn) addBtn.classList.add('hidden');
 
@@ -534,15 +522,11 @@
             varList.innerHTML = grp.items.map(it => {
                 const skuKey = String(it.s || '').toUpperCase();
                 const inCartQty = cart[skuKey] ? cart[skuKey].qty : 0;
-                const varLabel = cleanStr(it.n) || cleanStr(it.vr) || cleanStr(it.tl) || cleanStr(it.md) || it.s;
-                const bStock = getBodegaPisoStock(it);
-                const lStock = getLpptStock(it);
+                const varLabel = cleanStr(it.vr) || cleanStr(it.tl) || cleanStr(it.md) || cleanStr(it.n) || it.s;
                 return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
-                            formatTitleWithPriceHtml(varLabel, it.pr) +
-                        '</div>' +
-                        buildAvailabilitySublineHtml(it.s, bStock, lStock, it.lt, it.fe) +
+                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(varLabel) + '</div>' +
+                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
                     '<button type="button" title="Agregar a Cotización" data-sku-btn="' + escapeHtml(skuKey) + '" class="cart-plus-btn ' + (inCartQty > 0 ? 'in-cart' : '') + '">' +
                         (inCartQty > 0 ? ('+' + inCartQty) : '+') +
@@ -628,6 +612,7 @@
         const crumbEl = document.getElementById('detGroupCrumb');
         const skuEl = document.getElementById('detSku');
         const nameEl = document.getElementById('detName');
+        const priceEl = document.getElementById('detPrice');
         const addBtn = document.getElementById('detAddCartBtn');
 
         if (crumbEl) {
@@ -644,10 +629,23 @@
             skuEl.textContent = it.s || '';
             skuEl.classList.toggle('hidden', !it.s);
         }
+
+        // Precio adentro cuando muestra el inventario, a un costado del nombre
+        const baseTitle = cleanStr(it.n) || cleanStr(it._groupTitle) || it.s || '';
+        const formattedPrice = formatPrice(it.pr);
         if (nameEl) {
-            const baseTitle = cleanStr(it.n) || cleanStr(it._groupTitle) || it.s || '';
-            nameEl.innerHTML = formatTitleWithPriceHtml(baseTitle, it.pr);
+            nameEl.textContent = baseTitle;
         }
+        if (priceEl) {
+            if (formattedPrice) {
+                priceEl.textContent = formattedPrice;
+                priceEl.classList.remove('hidden');
+            } else {
+                priceEl.textContent = '';
+                priceEl.classList.add('hidden');
+            }
+        }
+
         if (addBtn) {
             addBtn.classList.remove('hidden');
             const key = String(it.s || '').toUpperCase();
@@ -681,7 +679,7 @@
             emptyEl.classList.remove('hidden');
         }
 
-        // Stock Total (solo las 10 bodegas/pisos físicos) y Semáforo por Ubicación + LPPT (como en EJEMPLO.png)
+        // Stock Total (solo las 10 ubicaciones físicas Bodega/Piso) y Semáforo + LPPT
         const stocks = Array.isArray(it.st) ? it.st : emptyStocks();
         let totalBodegaPiso = 0;
         const whHtml = [];
@@ -709,48 +707,19 @@
                 : '';
 
             if (isLppt) {
-                const detailBadges = [];
-                detailBadges.push(qty + (qty === 1 ? ' pieza disponible' : ' piezas disponibles'));
-                if (qty > 0 || cleanStr(it.oc)) {
-                    if (cleanStr(it.oc)) {
-                        detailBadges.push('OC: ' + cleanStr(it.oc) + (cleanStr(it.fc) ? (' (' + cleanStr(it.fc) + ')') : ''));
-                    }
-                    const ltNum = Number(it.lt);
-                    if (it.lt !== '' && it.lt !== null && it.lt !== undefined && !isNaN(ltNum) && isFinite(ltNum)) {
-                        detailBadges.push(
-                            ltNum > 0
-                                ? ('Tiempo de entrega: Faltan ' + ltNum + (ltNum === 1 ? ' día' : ' días'))
-                                : 'Tiempo de entrega: En llegada (0 días)'
-                        );
-                    }
-                    if (cleanStr(it.fe) && cleanStr(it.fe) !== 'Sin piezas solicitadas') {
-                        detailBadges.push('Fecha estimada de llegada: ' + cleanStr(it.fe));
-                    }
-                } else {
-                    detailBadges.push('Sin piezas solicitadas');
-                    const baseNum = Number(it.baseLt || it.lt);
-                    if (!isNaN(baseNum) && baseNum > 0) {
-                        detailBadges.push('Tiempo de entrega (sobre pedido): ' + baseNum + ' días');
-                    }
-                }
-
-                whHtml.push(
-                    '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between gap-3 ' + semClass + spanClass + '">' +
-                        '<div class="min-w-0 flex-1 pr-2">' +
-                            '<div class="flex items-center gap-2">' +
+                // Si no hay piezas en LPPT (qty <= 0), no colocar nada de LPPT
+                if (qty > 0) {
+                    const lpptMsg = formatLpptArrivalText(it, qty);
+                    whHtml.push(
+                        '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between gap-3 ' + semClass + spanClass + '">' +
+                            '<div class="flex items-center gap-2 min-w-0 pr-2">' +
                                 '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
-                                '<span class="text-xs font-extrabold uppercase tracking-wide">' + escapeHtml(whName) + '</span>' +
+                                '<span class="text-xs font-extrabold leading-snug">' + escapeHtml(lpptMsg) + '</span>' +
                             '</div>' +
-                            '<div class="text-[11px] font-bold mt-1 leading-snug opacity-90">' +
-                                escapeHtml(detailBadges.join(' · ')) +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="text-right shrink-0">' +
-                            '<span class="block text-lg font-black leading-none">' + qty + '</span>' +
-                            '<span class="block text-[10px] font-extrabold uppercase tracking-wide mt-0.5 opacity-80">disponibles</span>' +
-                        '</div>' +
-                    '</div>'
-                );
+                            '<span class="text-lg font-black shrink-0">' + qty + '</span>' +
+                        '</div>'
+                    );
+                }
             } else {
                 whHtml.push(
                     '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between ' + semClass + spanClass + '">' +
@@ -758,19 +727,16 @@
                             '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
                             '<span class="text-xs font-extrabold uppercase tracking-wide truncate">' + escapeHtml(whName) + '</span>' +
                         '</div>' +
-                        '<div class="text-right shrink-0">' +
-                            '<span class="block text-lg font-black leading-none">' + qty + '</span>' +
-                            '<span class="block text-[10px] font-extrabold uppercase tracking-wide mt-0.5 opacity-80">disponibles</span>' +
-                        '</div>' +
+                        '<span class="text-lg font-black shrink-0">' + qty + '</span>' +
                     '</div>'
                 );
             }
         }
 
-        document.getElementById('detTotalStock').textContent = totalBodegaPiso + (totalBodegaPiso === 1 ? ' disponible' : ' disponibles');
+        document.getElementById('detTotalStock').textContent = String(totalBodegaPiso);
         document.getElementById('detWarehousesGrid').innerHTML = whHtml.join('');
 
-        // Se eliminan los cuadros de Proveedor y Tiempo de entrega de la parte inferior (BORRAR.png)
+        // Sin cuadros inferiores de Proveedor / Tiempo de entrega (BORRAR.png)
         const specsWrap = document.getElementById('detSpecsWrap');
         const specsGrid = document.getElementById('detSpecsGrid');
         if (specsGrid) specsGrid.innerHTML = '';
@@ -979,8 +945,7 @@
     });
 
     // ------------------------------------------------------------------------
-    // LECTURA EN VIVO (SOLO LECTURA) DE LPPT (ORDEN DE COMPRA COL D + FECHA COMPRA COL C)
-    // Y SINCRONIZACIÓN EN VIVO CON INVENTARIO_EN_VIVO
+    // LECTURA EN VIVO (SOLO LECTURA) DE LPPT Y SINCRONIZACIÓN CON INVENTARIO_EN_VIVO
     // ------------------------------------------------------------------------
     let liveSyncInFlight = false;
 
@@ -1034,38 +999,6 @@
             rows.push(row);
         }
         return rows;
-    }
-
-    function parseSheetDate(rawStr) {
-        const s = cleanStr(rawStr);
-        if (!s) return null;
-        // Formato DD/MM/YYYY o D/M/YYYY
-        const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-        if (m1) {
-            const d = parseInt(m1[1], 10);
-            const m = parseInt(m1[2], 10) - 1;
-            let y = parseInt(m1[3], 10);
-            if (y < 100) y += 2000;
-            const dt = new Date(y, m, d);
-            dt.setHours(0, 0, 0, 0);
-            return isNaN(dt.getTime()) ? null : dt;
-        }
-        // Formato YYYY-MM-DD
-        const m2 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-        if (m2) {
-            const dt = new Date(parseInt(m2[1], 10), parseInt(m2[2], 10) - 1, parseInt(m2[3], 10));
-            dt.setHours(0, 0, 0, 0);
-            return isNaN(dt.getTime()) ? null : dt;
-        }
-        return null;
-    }
-
-    function formatDateDMY(dt) {
-        if (!dt || isNaN(dt.getTime())) return '';
-        const dd = String(dt.getDate()).padStart(2, '0');
-        const mm = String(dt.getMonth() + 1).padStart(2, '0');
-        const yyyy = dt.getFullYear();
-        return dd + '/' + mm + '/' + yyyy;
     }
 
     async function fetchLiveLpptOrders() {
@@ -1166,14 +1099,11 @@
 
         if (entries && entries.length > 0) {
             let lpptQty = 0;
-            const ocs = [];
             let bestArr = null;
-            let bestFc = null;
 
             for (let k = 0; k < entries.length; k++) {
                 const e = entries[k];
                 lpptQty += e.free;
-                if (e.oc && ocs.indexOf(e.oc) === -1) ocs.push(e.oc);
 
                 let dCompraLt = null;
                 if (e.fc && validBaseLt) {
@@ -1191,10 +1121,7 @@
                         (arr < today && bestArr < today && arr > bestArr)
                     ) {
                         bestArr = arr;
-                        bestFc = e.fc;
                     }
-                } else if (e.fc && !bestFc) {
-                    bestFc = e.fc;
                 }
             }
 
@@ -1204,9 +1131,6 @@
             const feFormatted = bestArr
                 ? formatDateDMY(bestArr)
                 : (cleanStr(invFeStr) || 'Sin piezas solicitadas');
-            const fcFormatted = bestFc
-                ? formatDateDMY(bestFc)
-                : (entries[0].fcStr || '');
             const remDays = bestArr
                 ? Math.max(0, Math.round((bestArr.getTime() - today.getTime()) / 86400000))
                 : validBaseLt;
@@ -1215,13 +1139,10 @@
                 lpptQty: lpptQty,
                 lt: remDays,
                 baseLt: validBaseLt,
-                fe: feFormatted,
-                oc: ocs.join(', '),
-                fc: fcFormatted
+                fe: feFormatted
             };
         }
 
-        // Si aún no se descargó el CSV en vivo de LPPT, usar los datos pre-empacados o de INVENTARIO_EN_VIVO
         const fallbackQty = Math.max(0, Number(invLpptVal) || 0);
         const feClean = cleanStr(invFeStr) || (prevItem && cleanStr(prevItem.fe)) || 'Sin piezas solicitadas';
         const parsedFe = parseSheetDate(feClean);
@@ -1236,9 +1157,7 @@
             lpptQty: fallbackQty,
             lt: ltOut,
             baseLt: validBaseLt || (prevItem && prevItem.baseLt) || '',
-            fe: feClean,
-            oc: (prevItem && prevItem.oc) || '',
-            fc: (prevItem && prevItem.fc) || ''
+            fe: feClean
         };
     }
 
@@ -1345,8 +1264,6 @@
                 lt: lpptInfo.lt,
                 baseLt: lpptInfo.baseLt,
                 fe: lpptInfo.fe,
-                oc: lpptInfo.oc,
-                fc: lpptInfo.fc,
                 st: st
             });
         }
@@ -1457,8 +1374,6 @@
     window.refreshLiveSheetNow = async function () {
         if (liveSyncInFlight) return;
         liveSyncInFlight = true;
-        const dot = document.getElementById('liveSyncDot');
-        if (dot) dot.style.opacity = '0.4';
         try {
             await fetchLiveLpptOrders();
             let ok = false;
@@ -1472,7 +1387,6 @@
                 await tryWebAppLiveSync();
             }
         } finally {
-            if (dot) dot.style.opacity = '1';
             liveSyncInFlight = false;
         }
     };
@@ -1512,8 +1426,6 @@
                             st: Array.isArray(cols[15][i]) ? cols[15][i] : emptyStocks(),
                             pr: cols.length > 16 ? formatPrice(cols[16][i]) : '',
                             fe: cols.length > 17 ? cleanStr(cols[17][i]) : '',
-                            oc: cols.length > 18 ? cleanStr(cols[18][i]) : '',
-                            fc: cols.length > 19 ? cleanStr(cols[19][i]) : '',
                             baseLt: cols.length > 20 ? normalizeLeadTimeVal(cols[20][i]) : normalizeLeadTimeVal(cols[14][i])
                         };
                     }
