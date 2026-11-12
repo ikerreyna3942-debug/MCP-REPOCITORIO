@@ -324,27 +324,102 @@ async function extractImageFromDropEvent(e) {
             return 'view4';
         }
 
+        function inferGallerySlotFromFileName_(fileName) {
+            if (!fileName || typeof fileName !== 'string') return '';
+            const base = fileName.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim();
+            if (/(?:^|[\s_\-.])(portada|inicio|hero|cover|principal|01)(?:$|[\s_\-.])/i.test(base)) return 'hero';
+            if (/(?:^|[\s_\-.])(ambiente|amb|lifestyle|escena|02)(?:$|[\s_\-.])/i.test(base)) return 'ambiente';
+            if (/(?:^|[\s_\-.])(tela|acabado|finish|swatch|textura|madera|muestra)(?:$|[\s_\-.])/i.test(base)) return 'finish';
+            if (/(?:^|[\s_\-.])(vista\s*1|view\s*1|v1|angulo\s*1|03)(?:$|[\s_\-.])/i.test(base)) return 'view1';
+            if (/(?:^|[\s_\-.])(vista\s*2|view\s*2|v2|angulo\s*2|04)(?:$|[\s_\-.])/i.test(base)) return 'view2';
+            if (/(?:^|[\s_\-.])(vista\s*3|view\s*3|v3|angulo\s*3|05)(?:$|[\s_\-.])/i.test(base)) return 'view3';
+            if (/(?:^|[\s_\-.])(vista\s*4|view\s*4|v4|angulo\s*4|06)(?:$|[\s_\-.])/i.test(base)) return 'view4';
+            return '';
+        }
+
+        async function adjustPhotoScale(targetKey, delta) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            if (!v.slot_scales || typeof v.slot_scales !== 'object') v.slot_scales = {};
+
+            if (targetKey === 'hero') {
+                const cur = Number(v.hero_scale) || 1;
+                const next = Math.max(0.5, Math.min(1.8, Math.round((cur + delta) * 100) / 100));
+                v.hero_scale = next;
+                const lbl = document.getElementById('lblScale_hero');
+                if (lbl) lbl.textContent = `${Math.round(next * 100)}%`;
+                const cardImg = document.getElementById(`grid_card_img_${currentProdIndex}`);
+                if (cardImg) cardImg.style.setProperty('--img-scale', String(next));
+            } else {
+                const cur = Number(v.slot_scales[targetKey]) || 1;
+                const next = Math.max(0.5, Math.min(1.8, Math.round((cur + delta) * 100) / 100));
+                v.slot_scales[targetKey] = next;
+                const lbl = document.getElementById(`lblScale_${targetKey}`);
+                if (lbl) lbl.textContent = `${Math.round(next * 100)}%`;
+                const imgMap = {
+                    ambiente: 'slotImgAmbiente',
+                    view1: 'slotImgView1',
+                    view2: 'slotImgView2',
+                    view3: 'slotImgView3',
+                    view4: 'slotImgView4'
+                };
+                const slotEl = document.getElementById(imgMap[targetKey]);
+                if (slotEl) slotEl.style.transform = next !== 1 ? `scale(${next})` : '';
+            }
+
+            await saveCatalogData();
+            if (typeof scheduleVariantCloudSave_ === 'function') {
+                scheduleVariantCloudSave_(p);
+            }
+        }
+
+        async function resetPhotoScale(targetKey) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            if (targetKey === 'hero') {
+                v.hero_scale = 1;
+            } else if (v.slot_scales) {
+                delete v.slot_scales[targetKey];
+            }
+            updateModalView(false);
+            filterCatalog();
+            await saveCatalogData();
+            if (typeof scheduleVariantCloudSave_ === 'function') {
+                scheduleVariantCloudSave_(p);
+            }
+            showAdminToast('Escala restaurada al 100%', '🔍');
+        }
+
         async function handleGalleryMultiUpload(e) {
             const files = e.target.files;
             if (!files || files.length === 0) return;
             await processMultipleGalleryFiles(files);
+            e.target.value = '';
         }
 
         async function processMultipleGalleryFiles(files) {
             const p = products[currentProdIndex];
             if (!p) return;
-            showAdminToast(`Quitando fondo y ajustando ${files.length} foto(s)...`, '✨');
+            showAdminToast(`Procesando ${files.length} foto(s) y asignando espacios...`, '✨');
             let addedCount = 0;
             for (let i = 0; i < files.length; i++) {
-                const targetSlot = findNextFreeGallerySlot();
-                const b64 = await imageSourceToBase64(files[i], 1000, 750, 0.90, getSlotCompressionOptions(targetSlot));
+                const f = files[i];
+                const namedSlot = inferGallerySlotFromFileName_(f && f.name);
+                const targetSlot = namedSlot || findNextFreeGallerySlot();
+                const maxW = targetSlot === 'finish' ? 600 : 1000;
+                const maxH = targetSlot === 'finish' ? 600 : 750;
+                const b64 = await imageSourceToBase64(f, maxW, maxH, 0.90, getSlotCompressionOptions(targetSlot));
                 if (b64) {
                     await assignImageToSlot(b64, targetSlot);
                     addedCount++;
                 }
             }
             if (addedCount > 1) {
-                showAdminToast(`¡${addedCount} foto(s) sin fondo agregadas a la galería!`, '✨');
+                showAdminToast(`¡${addedCount} foto(s) organizadas y cargadas en la galería!`, '✨');
             }
         }
 
