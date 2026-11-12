@@ -93,8 +93,7 @@ async function extractImageFromDropEvent(e) {
                 outCanvas.width = targetWidth;
                 outCanvas.height = targetHeight;
                 const outCtx = outCanvas.getContext('2d');
-                outCtx.fillStyle = '#FFFFFF';
-                outCtx.fillRect(0, 0, targetWidth, targetHeight);
+                outCtx.clearRect(0, 0, targetWidth, targetHeight);
 
                 const maxTargetDimW = targetWidth * scalePadding;
                 const maxTargetDimH = targetHeight * scalePadding;
@@ -106,23 +105,29 @@ async function extractImageFromDropEvent(e) {
                 const drawY = Math.round((targetHeight - drawH) / 2);
 
                 outCtx.drawImage(tempCanvas, cropX, cropY, cropW, cropH, drawX, drawY, drawW, drawH);
-                return outCanvas.toDataURL('image/jpeg', 0.88);
+                return outCanvas.toDataURL('image/webp', 0.90);
             } catch (e) {
                 console.warn('Autocrop skipped:', e);
                 return null;
             }
         }
 
-        // Convertir cualquier fuente de imagen (File, Blob, DataURL, URL externa) a WebP/JPEG optimizado
-        function imageSourceToBase64(src, maxWidth = 1000, maxHeight = 1000, quality = 0.85) {
+        function getSlotCompressionOptions(slotType) {
+            if (slotType === 'finish' || slotType === 'fabric') return { mode: 'swatch' };
+            if (slotType === 'ambiente') return { mode: 'auto' };
+            return { mode: 'cutout' };
+        }
+
+        // Convertir cualquier fuente de imagen (File, Blob, DataURL, URL externa) a WebP transparente/optimizado
+        function imageSourceToBase64(src, maxWidth = 1000, maxHeight = 750, quality = 0.90, options = {}) {
             if (window.CreataCloud && window.CreataCloud.compressImageFast) {
-                return window.CreataCloud.compressImageFast(src, maxWidth, maxHeight, quality);
+                return window.CreataCloud.compressImageFast(src, maxWidth, maxHeight, quality, options);
             }
             return Promise.resolve(typeof src === 'string' ? src : null);
         }
 
-        function compressImage(file, maxWidth = 1000, maxHeight = 1000, quality = 0.85) {
-            return imageSourceToBase64(file, maxWidth, maxHeight, quality);
+        function compressImage(file, maxWidth = 1000, maxHeight = 750, quality = 0.90, options = {}) {
+            return imageSourceToBase64(file, maxWidth, maxHeight, quality, options);
         }
 
         // Manejadores de Drag & Drop para slots del modal
@@ -147,13 +152,14 @@ async function extractImageFromDropEvent(e) {
             e.currentTarget.classList.remove('drag-over');
 
             try {
-                showAdminToast('Procesando foto...', '⏳');
+                const isCutout = slotType !== 'finish' && slotType !== 'fabric';
+                showAdminToast(isCutout ? 'Quitando fondo y ajustando proporción...' : 'Procesando foto de tela/acabado...', '✨');
                 const rawItem = await extractImageFromDropEvent(e);
                 if (!rawItem) {
                     showAdminToast('Por favor suelta un archivo de imagen válido', '⚠️');
                     return;
                 }
-                const b64 = await imageSourceToBase64(rawItem);
+                const b64 = await imageSourceToBase64(rawItem, 1000, 750, 0.90, getSlotCompressionOptions(slotType));
                 if (!b64) {
                     showAdminToast('No se pudo leer la imagen', '❌');
                     return;
@@ -184,7 +190,7 @@ async function extractImageFromDropEvent(e) {
             const p = products[currentProdIndex];
             if (!p) return;
             if (!p.variants || p.variants.length === 0) {
-                p.variants = [{ name: p.model_name, color_label: 'Opción 1', swatch_hex: '#B8893E', hero_b64: '' }];
+                p.variants = [{ name: p.model_name, finish_type: 'TELA', color_label: 'ACABADO OFICIAL', swatch_hex: '#B8893E', hero_b64: '' }];
                 currentVariantIndex = 0;
             }
             const v = p.variants[currentVariantIndex] || p.variants[0];
@@ -195,34 +201,75 @@ async function extractImageFromDropEvent(e) {
 
             if (slotType === 'ambiente') {
                 v.gallery.ambiente = finalSrc;
-                if (!v.hero_b64) v.hero_b64 = finalSrc;
+                if (!v.hero_b64 || v.hero_b64 === v.swatch_img || /-finish-\d+\./i.test(v.hero_b64)) {
+                    v.hero_b64 = finalSrc;
+                }
                 showAdminToast(`Foto de Ambiente actualizada${cloudMsg}`, '📸');
             } else if (slotType === 'finish') {
+                // Vinculación bidireccional 100%: recuadro Tela/Acabado <-> botón circular de muestra de tela
+                v.swatch_img = finalSrc;
                 v.gallery.finish = finalSrc;
                 v.gallery.fabric = finalSrc;
                 v.gallery.finishes = [finalSrc];
-                if (!v.hero_b64) v.hero_b64 = finalSrc;
-                showAdminToast(`Foto de Acabado actualizada${cloudMsg}`, '📸');
+                showAdminToast(`Foto de Tela / Acabado vinculada${cloudMsg}`, '🧵');
             } else if (slotType.startsWith('view')) {
                 const vIdx = parseInt(slotType.replace('view', ''), 10) - 1;
                 v.gallery.all_views[vIdx] = finalSrc;
                 v.gallery[slotType] = finalSrc;
-                if (!v.hero_b64) v.hero_b64 = finalSrc;
-                showAdminToast(`Vista ${vIdx + 1} actualizada${cloudMsg}`, '📸');
+                if (!v.hero_b64 || v.hero_b64 === v.swatch_img || /-finish-\d+\./i.test(v.hero_b64)) {
+                    v.hero_b64 = finalSrc;
+                }
+                showAdminToast(`Vista ${vIdx + 1} sin fondo actualizada${cloudMsg}`, '✨');
             } else if (slotType === 'hero') {
                 v.hero_b64 = finalSrc;
                 if (!v.gallery.ambiente || !v.gallery.ambiente.trim()) {
                     v.gallery.ambiente = finalSrc;
                 }
-                showAdminToast(`Foto de Inicio actualizada${cloudMsg}`, '📸');
+                showAdminToast(`Foto de Inicio sin fondo actualizada${cloudMsg}`, '✨');
             }
 
             updateModalView(false);
             await saveCatalogData();
             if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
-                window.CreataCloud.cloudPost('save_product', { product: p });
+                await window.CreataCloud.cloudPost('save_product', { product: p });
             }
             filterCatalog();
+        }
+
+        async function removeSlotBackgroundManual(slotType) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v || !v.gallery) return;
+            let currentSrc = '';
+            if (slotType === 'ambiente') currentSrc = v.gallery.ambiente || v.hero_b64 || '';
+            else if (slotType.startsWith('view')) {
+                const vIdx = parseInt(slotType.replace('view', ''), 10) - 1;
+                currentSrc = v.gallery[slotType] || (Array.isArray(v.gallery.all_views) ? v.gallery.all_views[vIdx] : '') || '';
+            }
+            if (!currentSrc) {
+                showAdminToast('Primero sube una foto en este espacio', '⚠️');
+                return;
+            }
+            try {
+                showAdminToast('✨ Quitando fondo con IA (puede tardar unos segundos)...', '⏳');
+                const cleanB64 = await imageSourceToBase64(currentSrc, 1000, 750, 0.92, { mode: 'cutout', forceAi: true });
+                if (cleanB64) {
+                    const prevHero = v.hero_b64;
+                    await assignImageToSlot(cleanB64, slotType);
+                    if (slotType === 'ambiente' && prevHero === currentSrc) {
+                        v.hero_b64 = v.gallery.ambiente;
+                        await saveCatalogData();
+                        if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                            await window.CreataCloud.cloudPost('save_product', { product: p });
+                        }
+                        filterCatalog();
+                    }
+                }
+            } catch (err) {
+                console.error('Error quitando fondo IA:', err);
+                showAdminToast('No se pudo quitar el fondo de esta imagen', '❌');
+            }
         }
 
         async function uploadSlotImage(event, slotType) {
@@ -230,8 +277,9 @@ async function extractImageFromDropEvent(e) {
             event.target.value = '';
             if (!file) return;
             try {
-                showAdminToast('Procesando imagen...', '⏳');
-                const b64 = await imageSourceToBase64(file);
+                const isCutout = slotType !== 'finish' && slotType !== 'fabric';
+                showAdminToast(isCutout ? 'Quitando fondo y ajustando proporción...' : 'Procesando foto de tela/acabado...', '✨');
+                const b64 = await imageSourceToBase64(file, 1000, 750, 0.90, getSlotCompressionOptions(slotType));
                 if (b64) {
                     await assignImageToSlot(b64, slotType);
                 }
@@ -253,9 +301,9 @@ async function extractImageFromDropEvent(e) {
                 }
                 const rawItem = await extractImageFromDropEvent(e);
                 if (rawItem) {
-                    const b64 = await imageSourceToBase64(rawItem);
+                    const targetSlot = findNextFreeGallerySlot();
+                    const b64 = await imageSourceToBase64(rawItem, 1000, 750, 0.90, getSlotCompressionOptions(targetSlot));
                     if (b64) {
-                        const targetSlot = findNextFreeGallerySlot();
                         await assignImageToSlot(b64, targetSlot);
                     }
                 }
@@ -285,18 +333,18 @@ async function extractImageFromDropEvent(e) {
         async function processMultipleGalleryFiles(files) {
             const p = products[currentProdIndex];
             if (!p) return;
-            showAdminToast(`Procesando ${files.length} foto(s)...`, '⏳');
+            showAdminToast(`Quitando fondo y ajustando ${files.length} foto(s)...`, '✨');
             let addedCount = 0;
             for (let i = 0; i < files.length; i++) {
-                const b64 = await imageSourceToBase64(files[i]);
+                const targetSlot = findNextFreeGallerySlot();
+                const b64 = await imageSourceToBase64(files[i], 1000, 750, 0.90, getSlotCompressionOptions(targetSlot));
                 if (b64) {
-                    const targetSlot = findNextFreeGallerySlot();
                     await assignImageToSlot(b64, targetSlot);
                     addedCount++;
                 }
             }
             if (addedCount > 1) {
-                showAdminToast(`¡${addedCount} foto(s) agregadas a la galería!`, '📸');
+                showAdminToast(`¡${addedCount} foto(s) sin fondo agregadas a la galería!`, '✨');
             }
         }
 
@@ -314,11 +362,12 @@ async function extractImageFromDropEvent(e) {
                 v.gallery.ambiente = '';
                 showAdminToast('Foto de Ambiente eliminada', '🗑️');
             } else if (slotType === 'finish') {
-                deletedSrc = v.gallery.finish || v.gallery.fabric || '';
+                deletedSrc = v.gallery.finish || v.gallery.fabric || v.swatch_img || '';
+                v.swatch_img = '';
                 v.gallery.finish = '';
                 v.gallery.fabric = '';
                 v.gallery.finishes = [];
-                showAdminToast('Foto de Acabado eliminada', '🗑️');
+                showAdminToast('Foto de Tela / Acabado desvinculada', '🗑️');
             } else if (slotType.startsWith('view')) {
                 const vIdx = parseInt(slotType.replace('view', ''), 10) - 1;
                 deletedSrc = v.gallery[slotType] || (Array.isArray(v.gallery.all_views) ? v.gallery.all_views[vIdx] : '') || '';
@@ -336,7 +385,7 @@ async function extractImageFromDropEvent(e) {
             updateModalView(false);
             await saveCatalogData();
             if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
-                window.CreataCloud.cloudPost('save_product', { product: p });
+                await window.CreataCloud.cloudPost('save_product', { product: p });
             }
             filterCatalog();
         }
@@ -361,7 +410,7 @@ async function extractImageFromDropEvent(e) {
             const p = products[realIdx];
             if (!p || !b64) return;
             if (!p.variants || p.variants.length === 0) {
-                p.variants = [{ name: p.model_name, color_label: 'Opción 1', swatch_hex: '#B8893E', hero_b64: '' }];
+                p.variants = [{ name: p.model_name, finish_type: 'TELA', color_label: 'ACABADO OFICIAL', swatch_hex: '#B8893E', hero_b64: '' }];
             }
             const v = p.variants[0];
             if (!v.gallery) v.gallery = {};
@@ -375,11 +424,11 @@ async function extractImageFromDropEvent(e) {
 
             await saveCatalogData();
             if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
-                window.CreataCloud.cloudPost('save_product', { product: p });
+                await window.CreataCloud.cloudPost('save_product', { product: p });
             }
             filterCatalog();
             updateAdminBadge();
-            showAdminToast(`¡Foto de inicio de "${p.model_name}" actualizada${cloudMsg}!`, '📸');
+            showAdminToast(`¡Foto de inicio sin fondo de "${p.model_name}" actualizada${cloudMsg}!`, '✨');
         }
 
         async function handleCardDrop(e, realIdx) {
@@ -390,13 +439,13 @@ async function extractImageFromDropEvent(e) {
             try {
                 const p = products[realIdx];
                 if (!p) return;
-                showAdminToast(`Cargando foto de inicio para "${p.model_name}"...`, '⏳');
+                showAdminToast(`Quitando fondo y ajustando foto de inicio para "${p.model_name}"...`, '✨');
                 const rawItem = await extractImageFromDropEvent(e);
                 if (!rawItem) {
                     showAdminToast('Por favor suelta un archivo de imagen válido', '⚠️');
                     return;
                 }
-                const b64 = await imageSourceToBase64(rawItem);
+                const b64 = await imageSourceToBase64(rawItem, 1000, 750, 0.90, { mode: 'cutout' });
                 if (!b64) {
                     showAdminToast('No se pudo procesar la foto', '❌');
                     return;
@@ -415,8 +464,8 @@ async function extractImageFromDropEvent(e) {
             try {
                 const p = products[realIdx];
                 if (!p) return;
-                showAdminToast(`Cargando foto de inicio para "${p.model_name}"...`, '⏳');
-                const b64 = await imageSourceToBase64(file);
+                showAdminToast(`Quitando fondo y ajustando foto de inicio para "${p.model_name}"...`, '✨');
+                const b64 = await imageSourceToBase64(file, 1000, 750, 0.90, { mode: 'cutout' });
                 if (!b64) {
                     showAdminToast('No se pudo procesar la foto', '❌');
                     return;
@@ -432,7 +481,7 @@ async function extractImageFromDropEvent(e) {
             const p = products[currentProdIndex];
             if (!p || !b64) return;
             if (!p.variants || p.variants.length === 0) {
-                p.variants = [{ name: p.model_name, color_label: 'Opción 1', swatch_hex: '#B8893E', hero_b64: '' }];
+                p.variants = [{ name: p.model_name, finish_type: 'TELA', color_label: 'ACABADO OFICIAL', swatch_hex: '#B8893E', hero_b64: '' }];
                 currentVariantIndex = 0;
             }
             const v = p.variants[currentVariantIndex] || p.variants[0];
@@ -440,19 +489,22 @@ async function extractImageFromDropEvent(e) {
             if (!Array.isArray(v.gallery.all_views)) v.gallery.all_views = [];
 
             const { finalSrc, cloudMsg } = await uploadSlotPhotoToCloudIfConfigured(p, currentVariantIndex, 'finish', b64);
+            // Vinculación bidireccional 100%: muestra circular de tela <-> recuadro Tela/Acabado (sin sobreescribir la foto del mueble)
             v.swatch_img = finalSrc;
             v.gallery.finish = finalSrc;
             v.gallery.fabric = finalSrc;
             v.gallery.finishes = [finalSrc];
-            if (!v.hero_b64) v.hero_b64 = finalSrc;
+            if (v.hero_b64 && /-finish-\d+\./i.test(v.hero_b64) && !v.gallery.ambiente) {
+                v.hero_b64 = '';
+            }
 
             await saveCatalogData();
             if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
-                window.CreataCloud.cloudPost('save_product', { product: p });
+                await window.CreataCloud.cloudPost('save_product', { product: p });
             }
             updateModalView(false);
             filterCatalog();
-            showAdminToast(`Foto de muestra para "${v.color_label}" guardada${cloudMsg}`, '📸');
+            showAdminToast(`Foto de tela "${v.color_label}" vinculada al botón y al recuadro${cloudMsg}`, '🧵');
         }
 
         async function handleFabricPhotoUpload(e) {
@@ -460,7 +512,8 @@ async function extractImageFromDropEvent(e) {
             e.target.value = '';
             if (!file) return;
             try {
-                const b64 = await imageSourceToBase64(file);
+                showAdminToast('Vinculando foto de tela / acabado...', '⏳');
+                const b64 = await imageSourceToBase64(file, 600, 600, 0.90, { mode: 'swatch' });
                 if (b64) await applyFabricPhoto(b64);
             } catch (err) {
                 console.error('Error en carga de foto de tela:', err);
@@ -472,9 +525,10 @@ async function extractImageFromDropEvent(e) {
             e.preventDefault();
             e.stopPropagation();
             try {
+                showAdminToast('Vinculando foto de tela / acabado...', '⏳');
                 const rawItem = await extractImageFromDropEvent(e);
                 if (!rawItem) return;
-                const b64 = await imageSourceToBase64(rawItem);
+                const b64 = await imageSourceToBase64(rawItem, 600, 600, 0.90, { mode: 'swatch' });
                 if (b64) await applyFabricPhoto(b64);
             } catch (err) {
                 console.error('Error en drop de foto de tela:', err);
