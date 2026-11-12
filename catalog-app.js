@@ -133,6 +133,29 @@
                         ? mergeFreshEditorEditsIntoPublic_(sourceList, localCustom)
                         : localCustom;
                 }
+            } else if (isCloudSource && localStorage.getItem('creata_catalog_v12_linked') === 'true') {
+                const localCustom = await loadCustomProducts();
+                if (Array.isArray(localCustom) && localCustom.length > 0) {
+                    const locById = {};
+                    const locByModel = {};
+                    localCustom.forEach((lp) => {
+                        if (!lp) return;
+                        if (lp.id) locById[lp.id] = lp;
+                        if (lp.model_name) locByModel[String(lp.model_name).trim().toUpperCase()] = lp;
+                    });
+                    sourceList.forEach((cp) => {
+                        const lp = (cp && cp.id && locById[cp.id]) || (cp && cp.model_name && locByModel[String(cp.model_name).trim().toUpperCase()]) || null;
+                        if (!lp || !Array.isArray(lp.variants) || !Array.isArray(cp.variants)) return;
+                        cp.variants.forEach((cv, vIdx) => {
+                            const lv = lp.variants[vIdx];
+                            if (!cv || !lv) return;
+                            if ((!cv.hero_scale || cv.hero_scale === 1) && lv.hero_scale && lv.hero_scale !== 1) cv.hero_scale = lv.hero_scale;
+                            if ((!cv.hero_pos || (!cv.hero_pos.x && !cv.hero_pos.y)) && lv.hero_pos && (lv.hero_pos.x || lv.hero_pos.y)) cv.hero_pos = lv.hero_pos;
+                            if ((!cv.slot_scales || Object.keys(cv.slot_scales).length === 0) && lv.slot_scales && Object.keys(lv.slot_scales).length > 0) cv.slot_scales = lv.slot_scales;
+                            if ((!cv.slot_pos || Object.keys(cv.slot_pos).length === 0) && lv.slot_pos && Object.keys(lv.slot_pos).length > 0) cv.slot_pos = lv.slot_pos;
+                        });
+                    });
+                }
             }
 
             // FUENTE DE VERDAD SEGURA PARA CLIENTES (SIN ARCHIVADOS, SIN SKUs, SIN TEXTOS INVENTADOS)
@@ -354,8 +377,11 @@
                         : `background-color: ${vItem.swatch_hex || '#A38251'};`;
                     const vCover = resolveCleanCover(vItem).replace(/'/g, "\\'");
                     const vScale = Number(vItem.hero_scale) || 1;
+                    const vHp = (vItem.hero_pos && typeof vItem.hero_pos === 'object') ? vItem.hero_pos : { x: 0, y: 0 };
+                    const vx = Number(vHp.x) || 0;
+                    const vy = Number(vHp.y) || 0;
                     return `
-                    <span onmouseenter="var img=document.getElementById('${imgId}'); if(img && '${vCover}'){img.src='${vCover}'; img.style.setProperty('--img-scale','${vScale}'); img.style.display='block';}"
+                    <span onmouseenter="var img=document.getElementById('${imgId}'); if(img && '${vCover}'){img.src='${vCover}'; img.style.setProperty('--img-scale','${vScale}'); img.style.setProperty('--img-x','${vx}%'); img.style.setProperty('--img-y','${vy}%'); img.style.display='block';}"
                           onclick="event.stopPropagation(); openModal(${realIdx}, ${vIdx});" 
                           title="${(vItem.color_label || 'Opción').replace(/"/g, '&quot;')}" 
                           class="swatch-circle"
@@ -365,11 +391,14 @@
 
                 const heroSrc = resolveCleanCover(v);
                 const heroScale = Number(v && v.hero_scale) || 1;
+                const heroPos = (v && v.hero_pos && typeof v.hero_pos === 'object') ? v.hero_pos : { x: 0, y: 0 };
+                const heroX = Number(heroPos.x) || 0;
+                const heroY = Number(heroPos.y) || 0;
                 const hasHero = !!heroSrc;
                 card.innerHTML = `
                     <div class="card-img-area">
                         <span class="badge-category">${p.category}</span>
-                        ${hasHero ? `<img id="${imgId}" src="${heroSrc}" style="--img-scale: ${heroScale};" alt="${p.model_name.replace(/"/g, '&quot;')}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+                        ${hasHero ? `<img id="${imgId}" src="${heroSrc}" style="--img-scale: ${heroScale}; --img-x: ${heroX}%; --img-y: ${heroY}%;" alt="${p.model_name.replace(/"/g, '&quot;')}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
                         <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px; ${hasHero ? 'display:none;' : ''}">
                             <div class="w-12 h-12 rounded-full bg-[#A38251]/10 flex items-center justify-center mb-2">
                                 <svg class="w-6 h-6 text-[#A38251]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
@@ -432,11 +461,25 @@
             const validViews = (rawViews || []).filter(isPhotoValid);
 
             const slotScales = (v && v.slot_scales && typeof v.slot_scales === 'object') ? v.slot_scales : {};
-            const ambScale = Number(slotScales.ambiente) || 1;
+            const slotPos = (v && v.slot_pos && typeof v.slot_pos === 'object') ? v.slot_pos : {};
+            const buildSlotTransform = (key) => {
+                const sc = Number(slotScales[key]) || 1;
+                const pos = (slotPos[key] && typeof slotPos[key] === 'object') ? slotPos[key] : { x: 0, y: 0 };
+                const px = Number(pos.x) || 0;
+                const py = Number(pos.y) || 0;
+                return {
+                    sc,
+                    px,
+                    py,
+                    css: (px !== 0 || py !== 0 || sc !== 1) ? `translate(${px}%, ${py}%) scale(${sc})` : ''
+                };
+            };
+
+            const ambTr = buildSlotTransform('ambiente');
             const ambEl = document.getElementById('slotImgAmbiente');
             if (ambEl) {
                 ambEl.className = "w-full h-full object-contain transition-all duration-200";
-                ambEl.style.transform = ambScale !== 1 ? `scale(${ambScale})` : '';
+                ambEl.style.transform = ambTr.css;
                 if (ambUrl) {
                     ambEl.src = ambUrl;
                     ambEl.style.display = 'block';
@@ -446,17 +489,34 @@
                 }
             }
 
+            const finTr = buildSlotTransform('finish');
             const finishEl = document.getElementById('slotImgFinish');
             if (finishEl) {
                 const finishBox = finishEl.closest('.gallery-slot');
-                finishEl.className = "w-full h-full object-cover";
+                finishEl.className = "w-full h-full";
                 if (finishSrc) {
                     finishEl.src = finishSrc;
                     finishEl.style.display = 'block';
+                    if (finTr.sc < 0.995) {
+                        finishEl.style.objectFit = 'contain';
+                        finishEl.style.objectPosition = '50% 50%';
+                        finishEl.style.transformOrigin = '50% 50%';
+                        finishEl.style.transform = `translate(${finTr.px}%, ${finTr.py}%) scale(${finTr.sc})`;
+                    } else {
+                        const objX = Math.max(0, Math.min(100, Math.round((50 - finTr.px * 1.4) * 10) / 10));
+                        const objY = Math.max(0, Math.min(100, Math.round((50 - finTr.py * 1.4) * 10) / 10));
+                        finishEl.style.objectFit = 'cover';
+                        finishEl.style.objectPosition = `${objX}% ${objY}%`;
+                        finishEl.style.transformOrigin = `${objX}% ${objY}%`;
+                        finishEl.style.transform = finTr.sc > 1.005 ? `scale(${finTr.sc})` : '';
+                    }
                     if (finishBox) finishBox.style.display = 'flex';
                 } else {
                     finishEl.removeAttribute('src');
                     finishEl.style.display = 'none';
+                    finishEl.style.transform = '';
+                    finishEl.style.objectPosition = '50% 50%';
+                    finishEl.style.transformOrigin = '50% 50%';
                     if (finishBox) finishBox.style.display = 'none';
                 }
             }
@@ -498,13 +558,13 @@
                 const parentBox = el ? el.closest('.gallery-slot') : null;
                 const viewImg = validViews[idx] || '';
                 const vKey = `view${idx + 1}`;
-                const vScale = Number(slotScales[vKey]) || 1;
+                const vTr = buildSlotTransform(vKey);
                 if (viewImg) {
                     if (el) {
                         el.src = viewImg;
                         el.style.display = 'block';
                         el.className = "w-full h-full object-contain";
-                        el.style.transform = vScale !== 1 ? `scale(${vScale})` : '';
+                        el.style.transform = vTr.css;
                     }
                     if (parentBox) parentBox.style.display = 'flex';
                 } else {
