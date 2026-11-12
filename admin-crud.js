@@ -365,23 +365,14 @@ function prevProduct() {
         }
 
         function updateCloudStatusUI() {
-            const btn = document.getElementById('btnCloudSync');
-            const badge = document.getElementById('cloudStatusBadgeText');
+            const indicator = document.getElementById('cloudLiveIndicator');
             const connected = !!(window.CreataCloud && window.CreataCloud.config.isConfigured());
+            const hasWrite = !!(window.CreataCloud && window.CreataCloud.config.hasWriteApi && window.CreataCloud.config.hasWriteApi());
 
-            if (btn) {
-                btn.innerHTML = connected
-                    ? '<span>🟢</span> Sheets En Vivo'
-                    : '<span>☁️</span> Conectar Sheets';
-                btn.classList.toggle('is-connected', connected);
-            }
-            if (badge) {
-                badge.textContent = connected
-                    ? 'Conectado a Google Sheets y Drive'
-                    : 'Pendiente de conectar URL de Apps Script';
-                badge.className = connected
-                    ? 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40';
+            if (indicator) {
+                indicator.textContent = hasWrite
+                    ? 'Google Sheets En Vivo'
+                    : (connected ? 'Google Sheets Conectado' : 'Modo Local');
             }
         }
 
