@@ -167,10 +167,7 @@
                          class="hidden text-[11px] font-extrabold tracking-wider uppercase cursor-pointer mb-0.5"
                          style="color:#A38251;"></div>
                     <div id="detSku" class="text-[11px] font-extrabold tracking-widest uppercase" style="color:#A38251;"></div>
-                    <div class="flex flex-wrap items-baseline gap-2.5">
-                        <h2 id="detName" class="text-base sm:text-lg font-extrabold uppercase leading-snug" style="color:#252C32;"></h2>
-                        <span id="detPrice" class="hidden text-base sm:text-lg font-black whitespace-nowrap" style="color:#A38251;"></span>
-                    </div>
+                    <h2 id="detName" class="text-base sm:text-lg font-extrabold uppercase leading-snug" style="color:#252C32;"></h2>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                     <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
@@ -205,9 +202,15 @@
                 </div>
 
                 <div class="rounded-xl border p-4 space-y-3" style="border-color:#E1DBC5; background:#FFFFFF;">
-                    <div class="flex items-center justify-end gap-2">
-                        <span class="text-xs font-bold uppercase" style="color:#252C32;">Stock Total:</span>
-                        <span id="detTotalStock" class="px-3 py-1 rounded-full text-sm font-black" style="background:#252C32; color:#FFFFFF;">0</span>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div id="detPriceWrap" class="hidden flex items-center gap-2">
+                            <span class="text-xs font-bold uppercase" style="color:#252C32;">Precio:</span>
+                            <span id="detPrice" class="px-3 py-1 rounded-full text-sm font-black" style="background:#A38251; color:#FFFFFF;"></span>
+                        </div>
+                        <div class="flex items-center gap-2 ml-auto">
+                            <span class="text-xs font-bold uppercase" style="color:#252C32;">Stock Total:</span>
+                            <span id="detTotalStock" class="px-3 py-1 rounded-full text-sm font-black" style="background:#252C32; color:#FFFFFF;">0</span>
+                        </div>
                     </div>
 
                     <div id="detWarehousesGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
@@ -243,12 +246,12 @@
         </div>
     </div>
 
-    <script src="creata-finishes.js?v=25"></script>
-    <script src="creata-img.js?v=25"></script>
-    <script src="creata-cloud.js?v=25"></script>
-    <script src="inventario-data-1.js?v=25"></script>
-    <script src="inventario-data-2.js?v=25"></script>
-    <script src="inventario-data-3.js?v=25"></script>
-    <script src="inventario-app.js?v=25"></script>
+    <script src="creata-finishes.js?v=26"></script>
+    <script src="creata-img.js?v=26"></script>
+    <script src="creata-cloud.js?v=26"></script>
+    <script src="inventario-data-1.js?v=26"></script>
+    <script src="inventario-data-2.js?v=26"></script>
+    <script src="inventario-data-3.js?v=26"></script>
+    <script src="inventario-app.js?v=26"></script>
 </body>
 </html>

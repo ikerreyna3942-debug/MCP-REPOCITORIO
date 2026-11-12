@@ -495,6 +495,7 @@
         const crumbEl = document.getElementById('detGroupCrumb');
         const skuEl = document.getElementById('detSku');
         const nameEl = document.getElementById('detName');
+        const priceWrapEl = document.getElementById('detPriceWrap');
         const priceEl = document.getElementById('detPrice');
         const addBtn = document.getElementById('detAddCartBtn');
         const varStep = document.getElementById('detVariantsStep');
@@ -512,10 +513,8 @@
         if (nameEl) {
             nameEl.textContent = grp.title;
         }
-        if (priceEl) {
-            priceEl.textContent = '';
-            priceEl.classList.add('hidden');
-        }
+        if (priceEl) priceEl.textContent = '';
+        if (priceWrapEl) priceWrapEl.classList.add('hidden');
         if (addBtn) addBtn.classList.add('hidden');
 
         if (varList) {
@@ -612,6 +611,7 @@
         const crumbEl = document.getElementById('detGroupCrumb');
         const skuEl = document.getElementById('detSku');
         const nameEl = document.getElementById('detName');
+        const priceWrapEl = document.getElementById('detPriceWrap');
         const priceEl = document.getElementById('detPrice');
         const addBtn = document.getElementById('detAddCartBtn');
 
@@ -630,19 +630,19 @@
             skuEl.classList.toggle('hidden', !it.s);
         }
 
-        // Precio adentro cuando muestra el inventario, a un costado del nombre
         const baseTitle = cleanStr(it.n) || cleanStr(it._groupTitle) || it.s || '';
         const formattedPrice = formatPrice(it.pr);
         if (nameEl) {
             nameEl.textContent = baseTitle;
         }
-        if (priceEl) {
+        // Precio adentro del recuadro de inventario (junto a Stock Total)
+        if (priceEl && priceWrapEl) {
             if (formattedPrice) {
                 priceEl.textContent = formattedPrice;
-                priceEl.classList.remove('hidden');
+                priceWrapEl.classList.remove('hidden');
             } else {
                 priceEl.textContent = '';
-                priceEl.classList.add('hidden');
+                priceWrapEl.classList.add('hidden');
             }
         }
 
