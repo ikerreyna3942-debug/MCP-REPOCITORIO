@@ -337,6 +337,65 @@ async function extractImageFromDropEvent(e) {
             return '';
         }
 
+        function getSlotDomElement_(targetKey) {
+            const imgMap = {
+                ambiente: 'slotImgAmbiente',
+                finish: 'slotImgFinish',
+                view1: 'slotImgView1',
+                view2: 'slotImgView2',
+                view3: 'slotImgView3',
+                view4: 'slotImgView4'
+            };
+            return document.getElementById(imgMap[targetKey] || '');
+        }
+
+        function syncSlotVisualTransform_(v, targetKey) {
+            if (!v) return;
+            if (targetKey === 'hero') {
+                const sc = Number(v.hero_scale) || 1;
+                const hp = (v.hero_pos && typeof v.hero_pos === 'object') ? v.hero_pos : { x: 0, y: 0 };
+                const lbl = document.getElementById('lblScale_hero');
+                if (lbl) lbl.textContent = `${Math.round(sc * 100)}%`;
+                const cardImg = document.getElementById(`grid_card_img_${currentProdIndex}`);
+                if (cardImg) {
+                    cardImg.style.setProperty('--img-scale', String(sc));
+                    cardImg.style.setProperty('--img-x', `${Number(hp.x) || 0}%`);
+                    cardImg.style.setProperty('--img-y', `${Number(hp.y) || 0}%`);
+                }
+                return;
+            }
+            const sc = Number(v.slot_scales && v.slot_scales[targetKey]) || 1;
+            const sp = (v.slot_pos && v.slot_pos[targetKey]) ? v.slot_pos[targetKey] : { x: 0, y: 0 };
+            const px = Number(sp.x) || 0;
+            const py = Number(sp.y) || 0;
+            const lbl = document.getElementById(`lblScale_${targetKey}`);
+            if (lbl) lbl.textContent = `${Math.round(sc * 100)}%`;
+            const slotEl = getSlotDomElement_(targetKey);
+            if (slotEl) {
+                if (targetKey === 'finish') {
+                    if (sc < 0.995) {
+                        slotEl.style.objectFit = 'contain';
+                        slotEl.style.objectPosition = '50% 50%';
+                        slotEl.style.transformOrigin = '50% 50%';
+                        slotEl.style.transform = `translate(${px}%, ${py}%) scale(${sc})`;
+                    } else {
+                        const objX = Math.max(0, Math.min(100, Math.round((50 - px * 1.4) * 10) / 10));
+                        const objY = Math.max(0, Math.min(100, Math.round((50 - py * 1.4) * 10) / 10));
+                        slotEl.style.objectFit = 'cover';
+                        slotEl.style.objectPosition = `${objX}% ${objY}%`;
+                        slotEl.style.transformOrigin = `${objX}% ${objY}%`;
+                        slotEl.style.transform = sc > 1.005 ? `scale(${sc})` : '';
+                    }
+                } else {
+                    slotEl.style.objectPosition = '50% 50%';
+                    slotEl.style.transformOrigin = '50% 50%';
+                    slotEl.style.transform = (px !== 0 || py !== 0 || sc !== 1)
+                        ? `translate(${px}%, ${py}%) scale(${sc})`
+                        : '';
+                }
+            }
+        }
+
         async function adjustPhotoScale(targetKey, delta) {
             const p = products[currentProdIndex];
             if (!p) return;
@@ -346,33 +405,71 @@ async function extractImageFromDropEvent(e) {
 
             if (targetKey === 'hero') {
                 const cur = Number(v.hero_scale) || 1;
-                const next = Math.max(0.5, Math.min(1.8, Math.round((cur + delta) * 100) / 100));
-                v.hero_scale = next;
-                const lbl = document.getElementById('lblScale_hero');
-                if (lbl) lbl.textContent = `${Math.round(next * 100)}%`;
-                const cardImg = document.getElementById(`grid_card_img_${currentProdIndex}`);
-                if (cardImg) cardImg.style.setProperty('--img-scale', String(next));
+                v.hero_scale = Math.max(0.25, Math.min(2.5, Math.round((cur + delta) * 100) / 100));
             } else {
                 const cur = Number(v.slot_scales[targetKey]) || 1;
-                const next = Math.max(0.5, Math.min(1.8, Math.round((cur + delta) * 100) / 100));
-                v.slot_scales[targetKey] = next;
-                const lbl = document.getElementById(`lblScale_${targetKey}`);
-                if (lbl) lbl.textContent = `${Math.round(next * 100)}%`;
-                const imgMap = {
-                    ambiente: 'slotImgAmbiente',
-                    view1: 'slotImgView1',
-                    view2: 'slotImgView2',
-                    view3: 'slotImgView3',
-                    view4: 'slotImgView4'
-                };
-                const slotEl = document.getElementById(imgMap[targetKey]);
-                if (slotEl) slotEl.style.transform = next !== 1 ? `scale(${next})` : '';
+                v.slot_scales[targetKey] = Math.max(0.25, Math.min(2.5, Math.round((cur + delta) * 100) / 100));
             }
+            syncSlotVisualTransform_(v, targetKey);
 
             await saveCatalogData();
             if (typeof scheduleVariantCloudSave_ === 'function') {
                 scheduleVariantCloudSave_(p);
             }
+        }
+
+        async function toggleFitFinishPhoto() {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            if (!v.slot_scales || typeof v.slot_scales !== 'object') v.slot_scales = {};
+            if (!v.slot_pos || typeof v.slot_pos !== 'object') v.slot_pos = {};
+            const cur = Number(v.slot_scales.finish) || 1;
+            if (cur >= 0.995) {
+                v.slot_scales.finish = 0.92;
+                v.slot_pos.finish = { x: 0, y: 0 };
+                showAdminToast('Foto ajustada completa (sin recorte)', '⊡');
+            } else {
+                v.slot_scales.finish = 1;
+                v.slot_pos.finish = { x: 0, y: 0 };
+                showAdminToast('Foto llenando recuadro al 100%', '🖼️');
+            }
+            syncSlotVisualTransform_(v, 'finish');
+            await saveCatalogData();
+            if (typeof scheduleVariantCloudSave_ === 'function') {
+                scheduleVariantCloudSave_(p);
+            }
+        }
+
+        async function adjustPhotoPosition(targetKey, dx, dy) {
+            const p = products[currentProdIndex];
+            if (!p) return;
+            const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
+            if (!v) return;
+            const clampPos = (val) => Math.max(-80, Math.min(80, Math.round(val * 10) / 10));
+            if (targetKey === 'hero') {
+                const cur = (v.hero_pos && typeof v.hero_pos === 'object') ? v.hero_pos : { x: 0, y: 0 };
+                v.hero_pos = { x: clampPos((Number(cur.x) || 0) + dx), y: clampPos((Number(cur.y) || 0) + dy) };
+            } else {
+                if (!v.slot_pos || typeof v.slot_pos !== 'object') v.slot_pos = {};
+                const cur = (v.slot_pos[targetKey] && typeof v.slot_pos[targetKey] === 'object') ? v.slot_pos[targetKey] : { x: 0, y: 0 };
+                v.slot_pos[targetKey] = { x: clampPos((Number(cur.x) || 0) + dx), y: clampPos((Number(cur.y) || 0) + dy) };
+            }
+            syncSlotVisualTransform_(v, targetKey);
+            await saveCatalogData();
+            if (typeof scheduleVariantCloudSave_ === 'function') {
+                scheduleVariantCloudSave_(p);
+            }
+        }
+
+        function handleSlotWheelZoom(e, slotKey) {
+            const el = getSlotDomElement_(slotKey);
+            if (!el || el.style.display === 'none' || !el.getAttribute('src')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const step = e.deltaY < 0 ? 0.06 : -0.06;
+            adjustPhotoScale(slotKey, step);
         }
 
         async function resetPhotoScale(targetKey) {
@@ -382,8 +479,10 @@ async function extractImageFromDropEvent(e) {
             if (!v) return;
             if (targetKey === 'hero') {
                 v.hero_scale = 1;
-            } else if (v.slot_scales) {
-                delete v.slot_scales[targetKey];
+                delete v.hero_pos;
+            } else {
+                if (v.slot_scales) delete v.slot_scales[targetKey];
+                if (v.slot_pos) delete v.slot_pos[targetKey];
             }
             updateModalView(false);
             filterCatalog();
@@ -391,8 +490,78 @@ async function extractImageFromDropEvent(e) {
             if (typeof scheduleVariantCloudSave_ === 'function') {
                 scheduleVariantCloudSave_(p);
             }
-            showAdminToast('Escala restaurada al 100%', '🔍');
+            showAdminToast('Foto centrada y restaurada al 100%', '↺');
         }
+
+        // ARRASTRAR CON EL MOUSE / TÁCTIL PARA ACOMODAR CUALQUIER FOTO DE LA GALERÍA
+        (function initSlotDragToPan_() {
+            let activePan = null;
+            document.addEventListener('pointerdown', (e) => {
+                if (e.button !== undefined && e.button !== 0) return;
+                const imgEl = e.target && e.target.closest ? e.target.closest('.slot-pannable-img[data-pan-slot]') : null;
+                if (!imgEl || imgEl.style.display === 'none' || !imgEl.getAttribute('src')) return;
+                const slotKey = imgEl.getAttribute('data-pan-slot');
+                const p = products[currentProdIndex];
+                const v = (p && p.variants) ? (p.variants[currentVariantIndex] || p.variants[0]) : null;
+                if (!v || !slotKey) return;
+                if (!v.slot_pos || typeof v.slot_pos !== 'object') v.slot_pos = {};
+                const startPos = v.slot_pos[slotKey] || { x: 0, y: 0 };
+                const box = imgEl.parentElement ? imgEl.parentElement.getBoundingClientRect() : imgEl.getBoundingClientRect();
+                activePan = {
+                    imgEl,
+                    slotKey,
+                    prod: p,
+                    variant: v,
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
+                    startX: Number(startPos.x) || 0,
+                    startY: Number(startPos.y) || 0,
+                    boxW: Math.max(80, box.width || 200),
+                    boxH: Math.max(80, box.height || 200),
+                    moved: false
+                };
+                imgEl.classList.add('is-panning');
+                try { imgEl.setPointerCapture(e.pointerId); } catch (_) {}
+                e.preventDefault();
+            });
+
+            document.addEventListener('pointermove', (e) => {
+                if (!activePan) return;
+                const dxPx = e.clientX - activePan.startClientX;
+                const dyPx = e.clientY - activePan.startClientY;
+                if (Math.abs(dxPx) > 1.5 || Math.abs(dyPx) > 1.5) activePan.moved = true;
+                const nx = Math.max(-80, Math.min(80, Math.round((activePan.startX + (dxPx / activePan.boxW) * 100) * 10) / 10));
+                const ny = Math.max(-80, Math.min(80, Math.round((activePan.startY + (dyPx / activePan.boxH) * 100) * 10) / 10));
+                activePan.variant.slot_pos[activePan.slotKey] = { x: nx, y: ny };
+                syncSlotVisualTransform_(activePan.variant, activePan.slotKey);
+            });
+
+            const finishPan = async (e) => {
+                if (!activePan) return;
+                const finished = activePan;
+                activePan = null;
+                finished.imgEl.classList.remove('is-panning');
+                try { if (e && e.pointerId !== undefined) finished.imgEl.releasePointerCapture(e.pointerId); } catch (_) {}
+                if (finished.moved) {
+                    await saveCatalogData();
+                    if (typeof scheduleVariantCloudSave_ === 'function') {
+                        scheduleVariantCloudSave_(finished.prod);
+                    }
+                }
+            };
+            document.addEventListener('pointerup', finishPan);
+            document.addEventListener('pointercancel', finishPan);
+
+            document.addEventListener('dblclick', (e) => {
+                const imgEl = e.target && e.target.closest ? e.target.closest('.slot-pannable-img[data-pan-slot]') : null;
+                if (!imgEl || imgEl.style.display === 'none') return;
+                const slotKey = imgEl.getAttribute('data-pan-slot');
+                if (slotKey) {
+                    e.preventDefault();
+                    resetPhotoScale(slotKey);
+                }
+            });
+        })();
 
         async function handleGalleryMultiUpload(e) {
             const files = e.target.files;
