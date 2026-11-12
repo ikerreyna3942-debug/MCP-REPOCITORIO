@@ -293,38 +293,45 @@ function populateSkuDatalist() {
             });
             return cloudItems.map((cp) => {
                 const lp = (cp && cp.id && localById[cp.id]) || (cp && cp.model_name && localByModel[String(cp.model_name).trim().toUpperCase()]) || null;
-                if (!lp || !Array.isArray(lp.variants) || !lp.variants[0]) return cp;
-                const cv = (cp.variants && cp.variants[0]) ? cp.variants[0] : null;
-                const lv = lp.variants[0];
-                if (!cv) return cp;
-                const isCleanLocalHero = lv.hero_b64 && !/-finish-\d+\./i.test(lv.hero_b64) && lv.hero_b64 !== lv.swatch_img;
-                if (!cv.hero_b64 && isCleanLocalHero) cv.hero_b64 = lv.hero_b64;
-                if (!cv.swatch_img && lv.swatch_img) cv.swatch_img = lv.swatch_img;
-                if ((!cv.hero_scale || cv.hero_scale === 1) && lv.hero_scale && lv.hero_scale !== 1) {
-                    cv.hero_scale = lv.hero_scale;
-                }
-                if ((!cv.slot_scales || Object.keys(cv.slot_scales).length === 0) && lv.slot_scales && Object.keys(lv.slot_scales).length > 0) {
-                    cv.slot_scales = Object.assign({}, lv.slot_scales);
-                }
-                if (cv.gallery && lv.gallery) {
-                    if (!cv.gallery.ambiente && lv.gallery.ambiente) cv.gallery.ambiente = lv.gallery.ambiente;
-                    if (!cv.gallery.finish && lv.gallery.finish) cv.gallery.finish = lv.gallery.finish;
-                    if (!cv.gallery.fabric && lv.gallery.fabric) cv.gallery.fabric = lv.gallery.fabric;
-                    ['view1', 'view2', 'view3', 'view4'].forEach((k) => {
-                        if (!cv.gallery[k] && lv.gallery[k]) cv.gallery[k] = lv.gallery[k];
-                    });
-                    if ((!cv.gallery.all_views || cv.gallery.all_views.length === 0) && Array.isArray(lv.gallery.all_views) && lv.gallery.all_views.length > 0) {
-                        cv.gallery.all_views = lv.gallery.all_views.slice();
+                if (!lp || !Array.isArray(lp.variants) || !Array.isArray(cp.variants)) return cp;
+                cp.variants.forEach((cv, vIdx) => {
+                    const lv = lp.variants[vIdx];
+                    if (!cv || !lv) return;
+                    const isCleanLocalHero = lv.hero_b64 && !/-finish-\d+\./i.test(lv.hero_b64) && lv.hero_b64 !== lv.swatch_img;
+                    if (!cv.hero_b64 && isCleanLocalHero) cv.hero_b64 = lv.hero_b64;
+                    if (!cv.swatch_img && lv.swatch_img) cv.swatch_img = lv.swatch_img;
+                    if ((!cv.hero_scale || cv.hero_scale === 1) && lv.hero_scale && lv.hero_scale !== 1) {
+                        cv.hero_scale = lv.hero_scale;
                     }
-                }
-                if (cv.gallery) {
-                    const linkedFinish = cv.swatch_img || cv.gallery.finish || cv.gallery.fabric || '';
-                    if (linkedFinish) {
-                        cv.swatch_img = linkedFinish;
-                        cv.gallery.finish = linkedFinish;
-                        cv.gallery.fabric = linkedFinish;
+                    if ((!cv.hero_pos || (!cv.hero_pos.x && !cv.hero_pos.y)) && lv.hero_pos && (lv.hero_pos.x || lv.hero_pos.y)) {
+                        cv.hero_pos = { x: Number(lv.hero_pos.x) || 0, y: Number(lv.hero_pos.y) || 0 };
                     }
-                }
+                    if ((!cv.slot_scales || Object.keys(cv.slot_scales).length === 0) && lv.slot_scales && Object.keys(lv.slot_scales).length > 0) {
+                        cv.slot_scales = Object.assign({}, lv.slot_scales);
+                    }
+                    if ((!cv.slot_pos || Object.keys(cv.slot_pos).length === 0) && lv.slot_pos && Object.keys(lv.slot_pos).length > 0) {
+                        cv.slot_pos = JSON.parse(JSON.stringify(lv.slot_pos));
+                    }
+                    if (cv.gallery && lv.gallery) {
+                        if (!cv.gallery.ambiente && lv.gallery.ambiente) cv.gallery.ambiente = lv.gallery.ambiente;
+                        if (!cv.gallery.finish && lv.gallery.finish) cv.gallery.finish = lv.gallery.finish;
+                        if (!cv.gallery.fabric && lv.gallery.fabric) cv.gallery.fabric = lv.gallery.fabric;
+                        ['view1', 'view2', 'view3', 'view4'].forEach((k) => {
+                            if (!cv.gallery[k] && lv.gallery[k]) cv.gallery[k] = lv.gallery[k];
+                        });
+                        if ((!cv.gallery.all_views || cv.gallery.all_views.length === 0) && Array.isArray(lv.gallery.all_views) && lv.gallery.all_views.length > 0) {
+                            cv.gallery.all_views = lv.gallery.all_views.slice();
+                        }
+                    }
+                    if (cv.gallery) {
+                        const linkedFinish = cv.swatch_img || cv.gallery.finish || cv.gallery.fabric || '';
+                        if (linkedFinish) {
+                            cv.swatch_img = linkedFinish;
+                            cv.gallery.finish = linkedFinish;
+                            cv.gallery.fabric = linkedFinish;
+                        }
+                    }
+                });
                 return cp;
             });
         }
@@ -572,8 +579,11 @@ function populateSkuDatalist() {
                         ? `background-image: url('${vItem.swatch_img}'); background-size: cover; background-position: center;`
                         : `background-color: ${vItem.swatch_hex || '#A38251'};`;
                     const vScale = Number(vItem.hero_scale) || 1;
+                    const vHp = (vItem.hero_pos && typeof vItem.hero_pos === 'object') ? vItem.hero_pos : { x: 0, y: 0 };
+                    const vx = Number(vHp.x) || 0;
+                    const vy = Number(vHp.y) || 0;
                     return `
-                    <span onmouseenter="var el=document.getElementById('${imgId}'); if(el && products[${realIdx}].variants[${vIdx}].hero_b64){ el.src = products[${realIdx}].variants[${vIdx}].hero_b64; el.style.setProperty('--img-scale','${vScale}'); }"
+                    <span onmouseenter="var el=document.getElementById('${imgId}'); if(el && products[${realIdx}].variants[${vIdx}].hero_b64){ el.src = products[${realIdx}].variants[${vIdx}].hero_b64; el.style.setProperty('--img-scale','${vScale}'); el.style.setProperty('--img-x','${vx}%'); el.style.setProperty('--img-y','${vy}%'); }"
                           onclick="event.stopPropagation(); openModal(${realIdx}, ${vIdx});" 
                           title="${(vItem.color_label || 'Opción').replace(/"/g, '&quot;')}" 
                           class="swatch-circle"
@@ -586,6 +596,9 @@ function populateSkuDatalist() {
                     ? v.hero_b64
                     : (vg0.ambiente || vg0.view1 || '');
                 const heroScale = Number(v && v.hero_scale) || 1;
+                const heroPos = (v && v.hero_pos && typeof v.hero_pos === 'object') ? v.hero_pos : { x: 0, y: 0 };
+                const heroX = Number(heroPos.x) || 0;
+                const heroY = Number(heroPos.y) || 0;
                 card.innerHTML = `
                     <div class="card-img-area relative"
                          ondragover="handleCardDragOver(event)"
@@ -602,7 +615,7 @@ function populateSkuDatalist() {
                                 ✏️
                             </button>
                         </div>
-                        ${cleanHeroAdmin ? `<img id="${imgId}" src="${cleanHeroAdmin}" style="--img-scale: ${heroScale};" alt="${p.model_name.replace(/"/g, '&quot;')}">` : `
+                        ${cleanHeroAdmin ? `<img id="${imgId}" src="${cleanHeroAdmin}" style="--img-scale: ${heroScale}; --img-x: ${heroX}%; --img-y: ${heroY}%;" alt="${p.model_name.replace(/"/g, '&quot;')}">` : `
                         <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px;">
                             <div class="w-12 h-12 rounded-full bg-[#A38251]/10 flex items-center justify-center mb-2">
                                 <svg class="w-6 h-6 text-[#A38251]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
