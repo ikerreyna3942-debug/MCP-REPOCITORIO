@@ -80,12 +80,6 @@ function updateModalView(resetOffset = true) {
                 if (phEl) phEl.style.display = valid ? 'none' : 'flex';
                 const delBtn = document.getElementById(`btnDelete_${slotPrefix}`);
                 if (delBtn) delBtn.style.display = valid ? 'inline-flex' : 'none';
-                const bgBtn = document.getElementById(`btnBgRemove_${slotPrefix}`);
-                if (bgBtn) bgBtn.style.display = valid ? 'inline-flex' : 'none';
-                const scaleWrap = document.getElementById(`scaleWrap_${slotPrefix}`);
-                if (scaleWrap) scaleWrap.classList.toggle('hidden', !valid);
-                const scaleLbl = document.getElementById(`lblScale_${slotPrefix}`);
-                if (scaleLbl) scaleLbl.textContent = `${Math.round(sc * 100)}%`;
             };
 
             const ajMatch = (window.CreataCloud && window.CreataCloud.resolveAjFinish)
