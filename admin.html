@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-    <link rel="stylesheet" href="admin-styles.css">
+    <link rel="stylesheet" href="admin-styles.css?v=17">
 
 </head>
 <body>
@@ -119,6 +119,7 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'ambiente')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnBgRemove_ambiente" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('ambiente');">✨</button>
                                 <button type="button" id="btnDelete_ambiente" class="slot-delete-btn hidden" title="Eliminar foto de ambiente" onclick="event.stopPropagation(); deleteSlotPhoto('ambiente');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -135,31 +136,32 @@
                                 <span class="text-xs font-bold text-slate-500">Foto de Ambiente</span>
                                 <span class="text-[9px] text-slate-400 font-medium">Arrastra una foto o haz clic</span>
                             </div>
-                            <img id="slotImgAmbiente" class="w-full h-full object-contain bg-white" style="display:none;">
+                            <img id="slotImgAmbiente" class="w-full h-full object-contain" style="display:none;">
                         </div>
 
-                        <!-- #2 ACABADO / DETALLE (TOP RIGHT, COL 3 X ROW 1) -->
+                        <!-- #2 TELA / ACABADO VINCULADO AL BOTÓN DE MUESTRA (TOP RIGHT, COL 3 X ROW 1) -->
                         <div class="gallery-slot slot-finish relative group"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'finish')">
+                            <span id="slotFinishLabelBadge" class="slot-badge">🧵 TELA</span>
                             <div class="slot-actions-group">
-                                <button type="button" id="btnDelete_finish" class="slot-delete-btn hidden" title="Eliminar Acabado" onclick="event.stopPropagation(); deleteSlotPhoto('finish');">✕</button>
+                                <button type="button" id="btnDelete_finish" class="slot-delete-btn hidden" title="Eliminar Tela / Acabado" onclick="event.stopPropagation(); deleteSlotPhoto('finish');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-xl">📥</span>
-                                <span>Soltar aquí</span>
+                                <span>Soltar Tela / Acabado</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Acabado</span>
+                                <span class="text-sm">🧵</span>
+                                <span class="text-[9px] font-bold">Cambiar Tela / Acabado</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'finish')" class="hidden">
                             </label>
                             <div id="ph_finish" class="empty-slot-placeholder">
-                                <span class="text-xl mb-0.5 text-slate-400">📷</span>
-                                <span class="text-[9px] font-bold text-slate-500">Acabado / Detalle</span>
+                                <span class="text-xl mb-0.5 text-slate-400">🧵</span>
+                                <span class="text-[9px] font-bold text-slate-500">Tela / Acabado</span>
                             </div>
-                            <img id="slotImgFinish" class="w-full h-full object-contain p-1.5 bg-white" style="display:none;">
+                            <img id="slotImgFinish" class="w-full h-full object-cover p-1" style="display:none;">
                         </div>
 
                         <!-- #3 FOTO DE VISTA 1 (MIDDLE RIGHT, COL 3 X ROW 2) -->
@@ -168,22 +170,23 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view1')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnBgRemove_view1" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view1');">✨</button>
                                 <button type="button" id="btnDelete_view1" class="slot-delete-btn hidden" title="Eliminar Vista 1" onclick="event.stopPropagation(); deleteSlotPhoto('view1');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-xl">📥</span>
-                                <span>Soltar aquí</span>
+                                <span>Soltar aquí (se quita fondo)</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Vista 1</span>
+                                <span class="text-sm">✨</span>
+                                <span class="text-[9px] font-bold">Subir Vista 1 (Sin Fondo)</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view1')" class="hidden">
                             </label>
                             <div id="ph_view1" class="empty-slot-placeholder">
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 1</span>
                             </div>
-                            <img id="slotImgView1" class="w-full h-full object-contain p-1.5 bg-white" style="display:none;">
+                            <img id="slotImgView1" class="w-full h-full object-contain p-1.5" style="display:none;">
                         </div>
 
                         <!-- #4 FOTO DE VISTA 2 (BOTTOM LEFT, COL 1 X ROW 3) -->
@@ -192,15 +195,16 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view2')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnBgRemove_view2" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view2');">✨</button>
                                 <button type="button" id="btnDelete_view2" class="slot-delete-btn hidden" title="Eliminar Vista 2" onclick="event.stopPropagation(); deleteSlotPhoto('view2');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
-                                <span>Soltar aquí</span>
+                                <span>Soltar aquí (se quita fondo)</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Vista 2</span>
+                                <span class="text-sm">✨</span>
+                                <span class="text-[9px] font-bold">Subir Vista 2 (Sin Fondo)</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view2')" class="hidden">
                             </label>
                             <div id="ph_view2" class="empty-slot-placeholder">
@@ -216,15 +220,16 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view3')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnBgRemove_view3" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view3');">✨</button>
                                 <button type="button" id="btnDelete_view3" class="slot-delete-btn hidden" title="Eliminar Vista 3" onclick="event.stopPropagation(); deleteSlotPhoto('view3');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
-                                <span>Soltar aquí</span>
+                                <span>Soltar aquí (se quita fondo)</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Vista 3</span>
+                                <span class="text-sm">✨</span>
+                                <span class="text-[9px] font-bold">Subir Vista 3 (Sin Fondo)</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view3')" class="hidden">
                             </label>
                             <div id="ph_view3" class="empty-slot-placeholder">
@@ -240,15 +245,16 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view4')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnBgRemove_view4" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view4');">✨</button>
                                 <button type="button" id="btnDelete_view4" class="slot-delete-btn hidden" title="Eliminar Vista 4" onclick="event.stopPropagation(); deleteSlotPhoto('view4');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
                                 <span class="text-lg">📥</span>
-                                <span>Soltar aquí</span>
+                                <span>Soltar aquí (se quita fondo)</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Vista 4</span>
+                                <span class="text-sm">✨</span>
+                                <span class="text-[9px] font-bold">Subir Vista 4 (Sin Fondo)</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view4')" class="hidden">
                             </label>
                             <div id="ph_view4" class="empty-slot-placeholder">
@@ -469,12 +475,12 @@
     <script src="admin-data-1.js"></script>
     <script src="admin-data-2.js"></script>
     <script>const rawProducts = [...(window.ADMIN_RAW_P1 || []), ...(window.ADMIN_RAW_P2 || [])];</script>
-    <script src="creata-cloud.js?v=11"></script>
-    <script src="admin-core.js?v=11"></script>
-    <script src="admin-modal.js?v=11"></script>
-    <script src="admin-editor.js?v=11"></script>
-    <script src="admin-crud.js?v=11"></script>
-    <script src="admin-salas.js?v=11"></script>
+    <script src="creata-cloud.js?v=17"></script>
+    <script src="admin-core.js?v=17"></script>
+    <script src="admin-modal.js?v=17"></script>
+    <script src="admin-editor.js?v=17"></script>
+    <script src="admin-crud.js?v=17"></script>
+    <script src="admin-salas.js?v=17"></script>
 
 <div id="adminToast"><span id="adminToastIcon">✅</span><span id="toastIcon" class="hidden"></span><span id="adminToastMsg">Éxito</span><span id="toastMsg" class="hidden"></span></div>
 </body>
