@@ -250,13 +250,23 @@
             background: #FFFFFF;
         }
         /* CONTENEDOR DINÁMICO DE ACABADOS */
-        .slot-finishes-wrap, .slot-finish {
+        .slot-finishes-wrap {
             grid-column: 3;
             grid-row: 1;
             height: 220px;
             width: 100%;
             display: grid;
             gap: 8px;
+        }
+        .slot-finish {
+            grid-column: 3;
+            grid-row: 1;
+            height: 220px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #FFFFFF;
         }
         .slot-finishes-wrap.count-1 {
             grid-template-columns: 1fr;
@@ -402,10 +412,10 @@
 
     
         .product-card:hover .card-img-area img {
-            transform: scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
         }
         .card-img-area img.flipped {
-            transform: scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
         }
 
     
@@ -444,15 +454,15 @@
             object-position: center center !important;
             mix-blend-mode: normal !important;
             filter: drop-shadow(0 8px 14px rgba(37, 44, 50, 0.08));
-            transform: scale(var(--img-scale, 1)) !important;
+            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scale(var(--img-scale, 1)) !important;
             transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1) !important;
             transform-origin: center center !important;
         }
         .product-card:hover .card-img-area img {
-            transform: scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
         }
         .card-img-area img.flipped {
-            transform: scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
         }
 
         /* MODAL BODY LAYOUT (PC 2 COLS, MOBILE 1 COL) */
@@ -483,16 +493,16 @@
             }
             .modal-gallery-grid {
                 height: auto !important;
-                grid-template-rows: 160px 160px 125px !important;
+                grid-template-rows: 170px 170px 132px !important;
             }
             .slot-ambiente {
-                height: 270px !important;
+                height: 352px !important;
             }
-            .slot-finishes-wrap, .slot-view1 {
-                height: 130px !important;
+            .slot-finishes-wrap, .slot-finish, .slot-view1 {
+                height: 170px !important;
             }
             .slot-view2, .slot-view3, .slot-view4 {
-                height: 100px !important;
+                height: 132px !important;
             }
         }
 
@@ -569,18 +579,18 @@
             }
             .modal-gallery-grid {
                 grid-template-columns: 1fr 1fr 1fr !important;
-                grid-template-rows: 120px 120px 95px !important;
+                grid-template-rows: 125px 125px 98px !important;
                 gap: 6px !important;
                 height: auto !important;
             }
             .slot-ambiente {
-                height: 216px !important;
+                height: 256px !important;
             }
-            .slot-finishes-wrap, .slot-view1 {
-                height: 105px !important;
+            .slot-finishes-wrap, .slot-finish, .slot-view1 {
+                height: 125px !important;
             }
             .slot-view2, .slot-view3, .slot-view4 {
-                height: 82px !important;
+                height: 98px !important;
             }
             #modalSwatchesRow {
                 flex-wrap: wrap !important;
