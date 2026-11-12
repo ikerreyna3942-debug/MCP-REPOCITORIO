@@ -800,7 +800,8 @@ function doGet(e) {
         sincronizarPestanaInventarioEnVivo({ silentUi: true });
         shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
       }
-      const rows = shInv ? shInv.getDataRange().getValues() : [];
+      const rawRows = shInv ? shInv.getDataRange().getValues() : [];
+      const rows = rawRows.filter((r, idx) => idx === 0 || String((r && r[0]) || '').trim() !== '');
       return jsonResponse_({ ok: true, tab: CONFIG.TAB_INVENTORY, rows: rows });
     } catch (err) {
       return jsonResponse_({ ok: false, error: err.message || String(err) });
@@ -1601,6 +1602,21 @@ function dejarTodoListoSinFotos(opts) {
 function sincronizarPestanaInventarioEnVivo(opts) {
   const silentUi = !!(opts && opts.silentUi);
   const ss = getSpreadsheet_();
+  let sh = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+
+  // Si INVENTARIO_EN_VIVO ya existe con sus datos y fórmulas en vivo, respetarla como fuente maestra
+  if (sh && sh.getLastRow() > 2 && !(opts && opts.forceRebuild)) {
+    const numExisting = sh.getLastRow() - 1;
+    if (!silentUi) {
+      try {
+        SpreadsheetApp.getUi().alert(
+          'La pestaña INVENTARIO_EN_VIVO ya está activa (' + numExisting + ' filas) y conectada en vivo a inventario.html.'
+        );
+      } catch (e) {}
+    }
+    return { ok: true, rows: numExisting, preserved: true };
+  }
+
   const csvUrl = 'https://raw.githubusercontent.com/' +
     CONFIG.GITHUB_OWNER + '/' + CONFIG.GITHUB_REPO + '/' + CONFIG.GITHUB_BRANCH + '/INVENTARIO_EN_VIVO.csv';
 
@@ -1626,16 +1642,16 @@ function sincronizarPestanaInventarioEnVivo(opts) {
       const headers = [
         'SKU', 'TIPO DE PRODUCTO', 'MODELO', 'NOMBRE', 'VARIANTE', 'FOTO', 'CATEGORIA',
         'TELA', 'COLOR DE TELA', 'MADERA', 'COLOR DE MADERA', 'MATERIALES', 'MEDIDAS',
-        'PROVEEDOR', 'TIEMPO DE ENTREGA (DIAS)', 'CEDIS', 'CASA CREATA', 'PUERTO CANCUN', 'COLOSIO', 'PLAYA'
+        'PROVEEDOR', 'TIEMPO DE ENTREGA (DIAS)', 'LLPT', 'CEDIS', 'CASA CREATA', 'PUERTO CANCUN', 'COLOSIO', 'PLAYA'
       ];
       parsed = [headers];
       for (let i = 0; i < cols[0].length; i++) {
-        const st = cols[15][i] || [0, 0, 0, 0, 0];
+        const st = cols[15][i] || [0, 0, 0, 0, 0, 0];
         parsed.push([
           cols[0][i] || '', cols[1][i] || '', cols[2][i] || '', cols[3][i] || '', cols[4][i] || '',
           cols[5][i] || '', cols[6][i] || '', cols[7][i] || '', cols[8][i] || '', cols[9][i] || '',
           cols[10][i] || '', cols[11][i] || '', cols[12][i] || '', cols[13][i] || '', cols[14][i] || '',
-          st[0] || 0, st[1] || 0, st[2] || 0, st[3] || 0, st[4] || 0
+          st[0] || 0, st[1] || 0, st[2] || 0, st[3] || 0, st[4] || 0, st[5] || 0
         ]);
       }
     }
@@ -1644,7 +1660,6 @@ function sincronizarPestanaInventarioEnVivo(opts) {
     throw new Error('No se pudieron obtener datos para INVENTARIO_EN_VIVO');
   }
 
-  let sh = ss.getSheetByName(CONFIG.TAB_INVENTORY);
   const prevBySku = {};
   if (sh && sh.getLastRow() > 1) {
     const prevVals = sh.getDataRange().getValues();
@@ -1654,37 +1669,39 @@ function sincronizarPestanaInventarioEnVivo(opts) {
       if (!sk) continue;
       prevBySku[sk] = {
         foto: String(r[5] || '').trim(),
-        stocks: [r[15], r[16], r[17], r[18], r[19]]
+        stocks: [r[15], r[16], r[17], r[18], r[19], r[20]]
       };
     }
   } else if (!sh) {
     sh = ss.insertSheet(CONFIG.TAB_INVENTORY);
   }
 
-  const outRows = [parsed[0]];
+  const outRows = [parsed[0].slice(0, 21)];
+  while (outRows[0].length < 21) outRows[0].push('');
+
   for (let i = 1; i < parsed.length; i++) {
-    const r = parsed[i].slice(0, 20);
-    while (r.length < 20) r.push('');
+    const r = parsed[i].slice(0, 21);
+    while (r.length < 21) r.push('');
     const sk = String(r[0] || '').trim().toUpperCase();
     if (!sk) continue;
     const prev = prevBySku[sk];
     if (prev) {
       if (!r[5] && prev.foto) r[5] = prev.foto;
-      for (let w = 0; w < 5; w++) {
+      for (let w = 0; w < 6; w++) {
         const pv = prev.stocks[w];
         if (pv !== '' && pv !== null && pv !== undefined && Number(pv) !== 0) {
           r[15 + w] = Number(pv);
         }
       }
     }
-    for (let w = 0; w < 5; w++) {
+    for (let w = 0; w < 6; w++) {
       r[15 + w] = Number(r[15 + w]) || 0;
     }
     outRows.push(r);
   }
 
   const numRows = outRows.length;
-  const numCols = 20;
+  const numCols = 21;
   if (sh.getMaxRows() < numRows + 5) {
     sh.insertRowsAfter(sh.getMaxRows(), numRows + 5 - sh.getMaxRows());
   }
@@ -1701,14 +1718,14 @@ function sincronizarPestanaInventarioEnVivo(opts) {
     .setFontColor('#FFFFFF')
     .setFontWeight('bold')
     .setHorizontalAlignment('center');
-  sh.getRange(1, 16, 1, 5)
+  sh.getRange(1, 16, 1, 6)
     .setBackground('#A38251')
     .setFontColor('#FFFFFF')
     .setFontWeight('bold')
     .setHorizontalAlignment('center');
 
   if (numRows > 1) {
-    const stockRange = sh.getRange(2, 16, numRows - 1, 5);
+    const stockRange = sh.getRange(2, 16, numRows - 1, 6);
     stockRange.setHorizontalAlignment('center').setNumberFormat('#,##0');
 
     const redRule = SpreadsheetApp.newConditionalFormatRule()
