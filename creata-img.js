@@ -463,6 +463,13 @@
                 return rawDataUrl;
             }
         }
+        if (mode === 'keep' || mode === 'original') {
+            try {
+                return encodeOpaqueSwatchOrScene(img, Math.max(maxWidth || 1200, 1200), quality);
+            } catch (e) {
+                return rawDataUrl;
+            }
+        }
         try {
             let stripResult = null;
             if (!forceAi) {
