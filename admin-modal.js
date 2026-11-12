@@ -28,6 +28,7 @@ function updateModalView(resetOffset = true) {
 
             const g = v.gallery || {};
             const slotScales = (v && v.slot_scales && typeof v.slot_scales === 'object') ? v.slot_scales : {};
+            const slotPos = (v && v.slot_pos && typeof v.slot_pos === 'object') ? v.slot_pos : {};
             const heroScaleVal = Number(v && v.hero_scale) || 1;
             const heroScaleLbl = document.getElementById('lblScale_hero');
             if (heroScaleLbl) heroScaleLbl.textContent = `${Math.round(heroScaleVal * 100)}%`;
@@ -35,17 +36,45 @@ function updateModalView(resetOffset = true) {
             const renderSlot = (imgId, phId, slotPrefix, src) => {
                 const imgEl = document.getElementById(imgId);
                 const phEl = document.getElementById(phId);
-                const valid = src && typeof src === 'string' && src.trim().length > 0;
+                const slotBox = imgEl ? imgEl.closest('.gallery-slot') : null;
+                const valid = !!(src && typeof src === 'string' && src.trim().length > 0);
                 const sc = Number(slotScales[slotPrefix]) || 1;
+                const pos = (slotPos[slotPrefix] && typeof slotPos[slotPrefix] === 'object') ? slotPos[slotPrefix] : { x: 0, y: 0 };
+                const px = Number(pos.x) || 0;
+                const py = Number(pos.y) || 0;
+                if (slotBox) slotBox.classList.toggle('has-photo', valid);
                 if (imgEl) {
                     if (valid) {
                         imgEl.src = src;
                         imgEl.style.display = 'block';
-                        imgEl.style.transform = sc !== 1 ? `scale(${sc})` : '';
+                        if (slotPrefix === 'finish') {
+                            if (sc < 0.995) {
+                                imgEl.style.objectFit = 'contain';
+                                imgEl.style.objectPosition = '50% 50%';
+                                imgEl.style.transformOrigin = '50% 50%';
+                                imgEl.style.transform = `translate(${px}%, ${py}%) scale(${sc})`;
+                            } else {
+                                const objX = Math.max(0, Math.min(100, Math.round((50 - px * 1.4) * 10) / 10));
+                                const objY = Math.max(0, Math.min(100, Math.round((50 - py * 1.4) * 10) / 10));
+                                imgEl.style.objectFit = 'cover';
+                                imgEl.style.objectPosition = `${objX}% ${objY}%`;
+                                imgEl.style.transformOrigin = `${objX}% ${objY}%`;
+                                imgEl.style.transform = sc > 1.005 ? `scale(${sc})` : '';
+                            }
+                        } else {
+                            imgEl.style.objectPosition = '50% 50%';
+                            imgEl.style.transformOrigin = '50% 50%';
+                            imgEl.style.transform = (px !== 0 || py !== 0 || sc !== 1)
+                                ? `translate(${px}%, ${py}%) scale(${sc})`
+                                : '';
+                        }
                     } else {
                         imgEl.removeAttribute('src');
                         imgEl.style.display = 'none';
                         imgEl.style.transform = '';
+                        imgEl.style.objectPosition = '50% 50%';
+                        imgEl.style.transformOrigin = '50% 50%';
+                        if (slotPrefix === 'finish') imgEl.style.objectFit = 'cover';
                     }
                 }
                 if (phEl) phEl.style.display = valid ? 'none' : 'flex';
