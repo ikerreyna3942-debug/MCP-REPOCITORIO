@@ -155,11 +155,6 @@
                 if (currentProdIndex >= products.length) currentProdIndex = 0;
                 updateModalView(false);
             }
-            const savedLogo = localStorage.getItem('creata_custom_logo');
-            if (savedLogo) {
-                const logoEl = document.getElementById('headerLogoImg');
-                if (logoEl) logoEl.src = savedLogo;
-            }
         }
 
         // Vinculación en tiempo real Editor (admin.html) -> Cliente (index.html)
@@ -194,14 +189,39 @@
                 if (btn) btn.innerText = `${label} (${count})`;
             };
 
+            const baseCategories = [
+                { id: 'flt-SALAS-SOF-S', label: 'SALAS & SOFÁS' },
+                { id: 'flt-SILLAS-SILLONES', label: 'SILLAS & SILLONES' },
+                { id: 'flt-COMEDORES', label: 'COMEDORES' },
+                { id: 'flt-BUFETERAS-CREDENZAS', label: 'BUFETERAS & CREDENZAS' },
+                { id: 'flt-MESAS-DE-CENTRO-LATERALES', label: 'MESAS DE CENTRO & LATERALES' },
+                { id: 'flt-REC-MARAS', label: 'RECÁMARAS' },
+                { id: 'flt-COMPLEMENTOS', label: 'COMPLEMENTOS' }
+            ];
+
             setBtnText('flt-ALL', 'TODOS', activeProds.length);
-            setBtnText('flt-SALAS-SOF-S', 'SALAS & SOFÁS', activeProds.filter(p => p.category === 'SALAS & SOFÁS').length);
-            setBtnText('flt-SILLAS-SILLONES', 'SILLAS & SILLONES', activeProds.filter(p => p.category === 'SILLAS & SILLONES').length);
-            setBtnText('flt-COMEDORES', 'COMEDORES', activeProds.filter(p => p.category === 'COMEDORES').length);
-            setBtnText('flt-BUFETERAS-CREDENZAS', 'BUFETERAS & CREDENZAS', activeProds.filter(p => p.category === 'BUFETERAS & CREDENZAS').length);
-            setBtnText('flt-MESAS-DE-CENTRO', 'MESAS DE CENTRO', activeProds.filter(p => p.category === 'MESAS DE CENTRO').length);
-            setBtnText('flt-REC-MARAS', 'RECÁMARAS', activeProds.filter(p => p.category === 'RECÁMARAS').length);
-            setBtnText('flt-COMPLEMENTOS', 'COMPLEMENTOS', activeProds.filter(p => p.category === 'COMPLEMENTOS').length);
+            const knownSet = new Set(baseCategories.map(c => c.label));
+            baseCategories.forEach(c => {
+                setBtnText(c.id, c.label, activeProds.filter(p => p.category === c.label).length);
+            });
+
+            const bar = document.getElementById('categoryBar');
+            if (bar) {
+                const extraCats = [...new Set(activeProds.map(p => p.category).filter(c => c && !knownSet.has(c)))];
+                extraCats.forEach(cat => {
+                    const safeId = 'flt-dyn-' + cat.replace(/[^A-Z0-9]/gi, '-');
+                    let btn = document.getElementById(safeId);
+                    if (!btn) {
+                        btn = document.createElement('button');
+                        btn.id = safeId;
+                        btn.className = 'pill-btn';
+                        btn.setAttribute('data-cat', cat);
+                        btn.onclick = () => setFilter(cat);
+                        bar.appendChild(btn);
+                    }
+                    btn.innerText = `${cat} (${activeProds.filter(p => p.category === cat).length})`;
+                });
+            }
         }
 
         function handlePublicSearch(val) {
@@ -280,10 +300,10 @@
                     const safeQ = activeSearchQuery.replace(/[<>&"]/g, '');
                     grid.innerHTML = `
                         <div class="col-span-full py-16 text-center flex flex-col items-center justify-center">
-                            <div class="w-16 h-16 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-2xl mb-4">🔍</div>
-                            <h3 class="text-lg font-bold text-white mb-2">Sin coincidencias para "${safeQ}"</h3>
-                            <p class="text-sm text-slate-300 max-w-md mb-4">Prueba con otra palabra clave (modelo, categoría, tela, madera, material o medida).</p>
-                            <button type="button" onclick="currentFilter='ALL'; clearPublicSearch();" class="px-5 py-2 rounded-full bg-[#B8893E] hover:bg-[#9E7432] text-white text-xs font-bold uppercase tracking-wider shadow transition">
+                            <div class="w-16 h-16 rounded-full bg-[#E8E4DE] border border-[#E1DBC5] flex items-center justify-center text-2xl mb-4">🔍</div>
+                            <h3 class="text-lg font-bold text-[#252C32] mb-2">Sin coincidencias para "${safeQ}"</h3>
+                            <p class="text-sm text-[#64748B] max-w-md mb-4">Prueba con otra palabra clave (modelo, categoría, tela, madera, material o medida).</p>
+                            <button type="button" onclick="currentFilter='ALL'; clearPublicSearch();" class="px-5 py-2 rounded-full bg-[#A38251] hover:bg-[#8B6D42] text-white text-xs font-bold uppercase tracking-wider shadow transition">
                                 Ver todos los muebles
                             </button>
                         </div>
@@ -291,9 +311,9 @@
                 } else {
                     grid.innerHTML = `
                         <div class="col-span-full py-20 text-center flex flex-col items-center justify-center">
-                            <div class="w-16 h-16 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-3xl mb-4">🛋️</div>
-                            <h3 class="text-xl font-bold text-white mb-2">Próximamente nuevos modelos</h3>
-                            <p class="text-sm text-slate-400 max-w-md">Catálogo en actualización. Los nuevos productos y colecciones estarán disponibles muy pronto.</p>
+                            <div class="w-16 h-16 rounded-full bg-[#E8E4DE] border border-[#E1DBC5] flex items-center justify-center text-3xl mb-4">🛋️</div>
+                            <h3 class="text-xl font-bold text-[#252C32] mb-2">Próximamente nuevos modelos</h3>
+                            <p class="text-sm text-[#64748B] max-w-md">Catálogo en actualización. Los nuevos productos y colecciones estarán disponibles muy pronto.</p>
                         </div>
                     `;
                 }
@@ -331,10 +351,11 @@
                     const hasImg = isPhotoValid(swImg);
                     const bgStyle = hasImg
                         ? `background-image: url('${swImg}'); background-size: cover; background-position: center;`
-                        : `background-color: ${vItem.swatch_hex || '#B8893E'};`;
+                        : `background-color: ${vItem.swatch_hex || '#A38251'};`;
                     const vCover = resolveCleanCover(vItem).replace(/'/g, "\\'");
+                    const vScale = Number(vItem.hero_scale) || 1;
                     return `
-                    <span onmouseenter="var img=document.getElementById('${imgId}'); if(img && '${vCover}'){img.src='${vCover}'; img.style.display='block';}"
+                    <span onmouseenter="var img=document.getElementById('${imgId}'); if(img && '${vCover}'){img.src='${vCover}'; img.style.setProperty('--img-scale','${vScale}'); img.style.display='block';}"
                           onclick="event.stopPropagation(); openModal(${realIdx}, ${vIdx});" 
                           title="${(vItem.color_label || 'Opción').replace(/"/g, '&quot;')}" 
                           class="swatch-circle"
@@ -343,17 +364,18 @@
                 }).join('');
 
                 const heroSrc = resolveCleanCover(v);
+                const heroScale = Number(v && v.hero_scale) || 1;
                 const hasHero = !!heroSrc;
                 card.innerHTML = `
                     <div class="card-img-area">
                         <span class="badge-category">${p.category}</span>
-                        ${hasHero ? `<img id="${imgId}" src="${heroSrc}" alt="${p.model_name.replace(/"/g, '&quot;')}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
+                        ${hasHero ? `<img id="${imgId}" src="${heroSrc}" style="--img-scale: ${heroScale};" alt="${p.model_name.replace(/"/g, '&quot;')}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
                         <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px; ${hasHero ? 'display:none;' : ''}">
-                            <div class="w-12 h-12 rounded-full bg-[#B8893E]/10 flex items-center justify-center mb-2">
-                                <svg class="w-6 h-6 text-[#B8893E]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            <div class="w-12 h-12 rounded-full bg-[#A38251]/10 flex items-center justify-center mb-2">
+                                <svg class="w-6 h-6 text-[#A38251]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                             </div>
-                            <span class="text-[10px] font-bold text-slate-700 tracking-wider uppercase">${p.provider_abbr || 'CREATA'}</span>
-                            <span class="text-[9px] text-[#B8893E] font-semibold mt-1">📄 Ver Ficha Técnica</span>
+                            <span class="text-[10px] font-bold text-[#252C32] tracking-wider uppercase">${p.provider_abbr || 'CREATA'}</span>
+                            <span class="text-[9px] text-[#A38251] font-semibold mt-1">📄 Ver Ficha Técnica</span>
                         </div>
                     </div>
                     <div class="card-footer-info">
@@ -409,9 +431,12 @@
                 : [g.view1, g.view2, g.view3, g.view4];
             const validViews = (rawViews || []).filter(isPhotoValid);
 
+            const slotScales = (v && v.slot_scales && typeof v.slot_scales === 'object') ? v.slot_scales : {};
+            const ambScale = Number(slotScales.ambiente) || 1;
             const ambEl = document.getElementById('slotImgAmbiente');
             if (ambEl) {
                 ambEl.className = "w-full h-full object-contain transition-all duration-200";
+                ambEl.style.transform = ambScale !== 1 ? `scale(${ambScale})` : '';
                 if (ambUrl) {
                     ambEl.src = ambUrl;
                     ambEl.style.display = 'block';
@@ -421,27 +446,18 @@
                 }
             }
 
-            const vFinishType = v.finish_type || (window.CreataCloud ? window.CreataCloud.inferFinishType(v.color_label, v.materials || p.materials) : 'TELA');
-            const vFinishLabel = (v.color_label || 'ACABADO OFICIAL').toUpperCase();
-            const finishBadgeEl = document.getElementById('slotFinishLabelBadge');
-
             const finishEl = document.getElementById('slotImgFinish');
             if (finishEl) {
                 const finishBox = finishEl.closest('.gallery-slot');
-                finishEl.className = "w-full h-full object-cover p-1";
+                finishEl.className = "w-full h-full object-cover";
                 if (finishSrc) {
                     finishEl.src = finishSrc;
                     finishEl.style.display = 'block';
                     if (finishBox) finishBox.style.display = 'flex';
-                    if (finishBadgeEl) {
-                        finishBadgeEl.textContent = `${vFinishType === 'MADERA' ? '🪵' : '🧵'} ${vFinishLabel}`;
-                        finishBadgeEl.style.display = 'inline-flex';
-                    }
                 } else {
                     finishEl.removeAttribute('src');
                     finishEl.style.display = 'none';
                     if (finishBox) finishBox.style.display = 'none';
-                    if (finishBadgeEl) finishBadgeEl.style.display = 'none';
                 }
             }
 
@@ -451,7 +467,7 @@
             if (!placeholderBox && galleryGrid && galleryGrid.parentElement) {
                 placeholderBox = document.createElement('div');
                 placeholderBox.id = 'modalNoPhotoPlaceholder';
-                placeholderBox.className = 'w-full h-full min-h-[380px] flex flex-col items-center justify-center p-8 text-center bg-slate-50 border border-slate-200 rounded-xl';
+                placeholderBox.className = 'w-full h-full min-h-[380px] flex flex-col items-center justify-center p-8 text-center bg-[#FAF8F4] border border-[#E1DBC5] rounded-xl';
                 galleryGrid.parentElement.appendChild(placeholderBox);
             }
 
@@ -460,12 +476,12 @@
                 if (placeholderBox) {
                     placeholderBox.style.display = 'flex';
                     placeholderBox.innerHTML = `
-                        <div class="w-20 h-20 rounded-full bg-[#B8893E]/10 flex items-center justify-center mb-4 text-[#B8893E]">
+                        <div class="w-20 h-20 rounded-full bg-[#A38251]/10 flex items-center justify-center mb-4 text-[#A38251]">
                             <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                         </div>
-                        <span class="text-xs font-bold text-[#B8893E] tracking-widest uppercase mb-1">${p.provider_abbr || 'CREATA'} · FICHA TÉCNICA</span>
-                        <h3 class="text-base font-extrabold text-slate-800 uppercase tracking-wide mb-6">${p.model_name}</h3>
-                        <a href="${v.drive_ficha_url || p.drive_ficha_url || '#'}" target="_blank" class="px-6 py-3 bg-[#B8893E] hover:bg-[#9E7432] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-2">
+                        <span class="text-xs font-bold text-[#A38251] tracking-widest uppercase mb-1">${p.provider_abbr || 'CREATA'} · FICHA TÉCNICA</span>
+                        <h3 class="text-base font-extrabold text-[#252C32] uppercase tracking-wide mb-6">${p.model_name}</h3>
+                        <a href="${v.drive_ficha_url || p.drive_ficha_url || '#'}" target="_blank" class="px-6 py-3 bg-[#A38251] hover:bg-[#8B6D42] text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-2">
                             <span>Abrir Ficha Técnica en Drive</span>
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                         </a>
@@ -481,17 +497,21 @@
                 const el = document.getElementById(slotId);
                 const parentBox = el ? el.closest('.gallery-slot') : null;
                 const viewImg = validViews[idx] || '';
+                const vKey = `view${idx + 1}`;
+                const vScale = Number(slotScales[vKey]) || 1;
                 if (viewImg) {
                     if (el) {
                         el.src = viewImg;
                         el.style.display = 'block';
-                        el.className = "w-full h-full object-contain p-1.5";
+                        el.className = "w-full h-full object-contain";
+                        el.style.transform = vScale !== 1 ? `scale(${vScale})` : '';
                     }
-                    if (parentBox) parentBox.style.display = 'block';
+                    if (parentBox) parentBox.style.display = 'flex';
                 } else {
                     if (el) {
                         el.removeAttribute('src');
                         el.style.display = 'none';
+                        el.style.transform = '';
                     }
                     if (parentBox) parentBox.style.display = 'none';
                 }
@@ -536,19 +556,19 @@
                     const vg = vItem.gallery || {};
                     const linkedImg = vItem.swatch_img || vg.finish || vg.fabric || (Array.isArray(vg.finishes) && vg.finishes[0]) || '';
                     if (linkedImg && !vItem.swatch_img) vItem.swatch_img = linkedImg;
-                    const fType = vItem.finish_type || (window.CreataCloud ? window.CreataCloud.inferFinishType(vItem.color_label, vItem.materials || p.materials) : 'TELA');
-                    const typeIcon = fType === 'MADERA' ? '🪵' : '🧵';
-                    const lbl = (vItem.color_label || 'ACABADO OFICIAL').toUpperCase();
+                    const rawLbl = (window.CreataCloud && window.CreataCloud.cleanFinishLabel)
+                        ? window.CreataCloud.cleanFinishLabel(vItem.color_label, p.model_name)
+                        : (vItem.color_label || '');
+                    const lbl = (rawLbl || 'NATURAL').toUpperCase();
                     const thumb = isPhotoValid(linkedImg)
                         ? `<span class="swatch-pill-dot" style="background-image: url('${linkedImg}');"></span>`
-                        : `<span class="swatch-pill-dot" style="background-color: ${vItem.swatch_hex || '#B8893E'};"></span>`;
+                        : `<span class="swatch-pill-dot" style="background-color: ${vItem.swatch_hex || '#A38251'};"></span>`;
                     return `
                     <button type="button" onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
                             title="${lbl.replace(/"/g, '&quot;')}"
                             class="swatch-pill ${isAct ? 'active' : ''}">
                         ${thumb}
                         <span class="swatch-pill-label">${lbl}</span>
-                        <span class="swatch-pill-icon">${typeIcon}</span>
                     </button>
                     `;
                 }).join('');
