@@ -44,7 +44,7 @@
             let sourceList = rawProducts;
             let isCloudSource = false;
 
-            if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+            if (window.CreataCloud) {
                 const liveList = await window.CreataCloud.fetchCloudCatalog('public');
                 if (Array.isArray(liveList) && liveList.length > 0) {
                     sourceList = liveList;
@@ -52,7 +52,7 @@
                 }
             }
 
-            if (!isCloudSource && localStorage.getItem('creata_catalog_v9_cloud_ready') === 'true') {
+            if (!isCloudSource && localStorage.getItem('creata_catalog_v10_live_auto') === 'true') {
                 const localCustom = await loadCustomProducts();
                 if (Array.isArray(localCustom) && localCustom.length > 0) {
                     sourceList = localCustom;
