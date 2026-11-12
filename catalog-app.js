@@ -52,7 +52,7 @@
                 }
             }
 
-            if (!isCloudSource && localStorage.getItem('creata_catalog_v10_live_auto') === 'true') {
+            if (!isCloudSource && localStorage.getItem('creata_catalog_v11_live_4skus') === 'true') {
                 const localCustom = await loadCustomProducts();
                 if (Array.isArray(localCustom) && localCustom.length > 0) {
                     sourceList = localCustom;
