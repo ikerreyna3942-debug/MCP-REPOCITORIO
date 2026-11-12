@@ -808,6 +808,22 @@ function doGet(e) {
     }
   }
 
+  if (action === 'inv_users_directory') {
+    try {
+      return jsonResponse_(handleInvUsersDirectory_());
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  if (action === 'inv_plantilla_status') {
+    try {
+      return jsonResponse_(handleInvPlantillaStatus_());
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
   if (mode === 'admin' && adminPin && reqPin !== adminPin) {
     return jsonResponse_({ ok: false, error: 'PIN de administrador inválido' });
   }
@@ -835,17 +851,32 @@ function doGet(e) {
 }
 
 /**
- * Endpoint POST para admin.html: subir foto, guardar ficha, archivar/publicar, sincronizar Drive
+ * Endpoint POST para admin.html e inventario.html (usuarios y plantilla de cotización)
  */
 function doPost(e) {
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    const action = body.action || '';
+
+    // Acciones públicas exclusivas de inventario.html (autenticación de asesores y plantilla S Mueblería)
+    if (action === 'inv_login') {
+      return jsonResponse_(handleInvLogin_(body));
+    }
+    if (action === 'inv_update_key') {
+      return jsonResponse_(handleInvUpdateKey_(body));
+    }
+    if (action === 'inv_submit_quote') {
+      return jsonResponse_(handleInvSubmitQuote_(body));
+    }
+    if (action === 'inv_plantilla_status') {
+      return jsonResponse_(handleInvPlantillaStatus_());
+    }
+
     const adminPin = getProp_('ADMIN_PIN');
     if (adminPin && String(body.pin || '') !== adminPin) {
       return jsonResponse_({ ok: false, error: 'PIN de administrador incorrecto' });
     }
 
-    const action = body.action || '';
     if (action === 'upload_photo') {
       return jsonResponse_(handleUploadPhoto_(body));
     }
@@ -1824,3 +1855,395 @@ function sincronizarPestanaInventarioEnVivo(opts) {
   }
   return { ok: true, rows: numRows - 1 };
 }
+
+// ============================================================================
+// USUARIOS POR SUCURSAL Y PLANTILLA DE COTIZACIÓN VINCULADA A S MUEBLERÍA
+// (Exclusivo para inventario.html — no altera index.html ni admin.html)
+// ============================================================================
+
+const INV_USER_TABS_ = [
+  { tab: 'PLAYA', label: 'Playa del Carmen', erpStore: 'CREATA LIVING PLAYA' },
+  { tab: 'COLOCIO', label: 'Colosio', erpStore: 'CREATA LIVING COLOSIO' },
+  { tab: 'PTC', label: 'Puerto Cancún (PTC)', erpStore: 'CREATA PUERTO CANCUN' },
+  { tab: 'CASA CREATA', label: 'Casa Creata', erpStore: 'CASA CREATA BONAMPAK' },
+  { tab: 'PROYECTOS', label: 'Proyectos', erpStore: 'PROYECTOS ANIPA INTERIOR' },
+  { tab: 'CUENTAS ADMINISTRATIVAS', label: 'Administración / Todas', erpStore: 'CEDIS' }
+];
+
+function cleanSheetKeyCell_(val) {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'number') {
+    return Number.isInteger(val) ? String(val) : String(Math.trunc(val));
+  }
+  let s = String(val).trim();
+  if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
+  return s;
+}
+
+function normAdvisorTokens_(txt) {
+  const clean = String(txt || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/\bLUPITA\b/g, 'GUADALUPE')
+    .replace(/\bDADVID\b/g, 'DAVID')
+    .replace(/\bJOHANNA\b/g, 'JOHANA')
+    .replace(/\bRODRIGUEZ\b/g, 'RODRIGEZ');
+  const m = clean.match(/[A-Z]+/g) || [];
+  const stop = { DE: 1, LA: 1, DEL: 1, LOS: 1, LAS: 1, Y: 1, PROYECTOS: 1, OUTLET: 1, ADMON: 1 };
+  return m.filter((w) => w.length >= 2 && !stop[w]);
+}
+
+function readErpAdvisorsFromPlantilla_(ss) {
+  const sh = ss.getSheetByName('plantilla');
+  const stores = [];
+  const advisors = [];
+  if (!sh || sh.getLastRow() < 2 || sh.getLastColumn() < 30) {
+    return { stores: stores, advisors: advisors };
+  }
+  const maxR = Math.min(sh.getLastRow(), 250);
+  const vals = sh.getRange(2, 27, maxR - 1, 4).getValues(); // AA..AD
+  for (let i = 0; i < vals.length; i++) {
+    const storeItem = String(vals[i][0] || '').trim();
+    if (storeItem) stores.push(storeItem);
+    const label = String(vals[i][1] || '').trim();
+    const branch = String(vals[i][2] || '').trim();
+    const rawId = vals[i][3];
+    const idStr = rawId !== '' && rawId !== null && rawId !== undefined ? cleanSheetKeyCell_(rawId) : '';
+    if (label) {
+      const namePart = label.split('|')[0].trim();
+      advisors.push({
+        label: label,
+        branch: branch,
+        id: idStr,
+        name: namePart,
+        tokens: normAdvisorTokens_(namePart)
+      });
+    }
+  }
+  return { stores: stores, advisors: advisors };
+}
+
+function matchBestErpAdvisor_(userName, targetErpStore, erpAdvisors) {
+  const uToks = normAdvisorTokens_(userName);
+  if (!uToks.length || !erpAdvisors.length) return null;
+  const uSet = {};
+  uToks.forEach((t) => { uSet[t] = true; });
+
+  let best = null;
+  let bestScore = -1;
+  for (let i = 0; i < erpAdvisors.length; i++) {
+    const a = erpAdvisors[i];
+    let overlap = 0;
+    for (let j = 0; j < a.tokens.length; j++) {
+      if (uSet[a.tokens[j]]) overlap++;
+    }
+    if (overlap <= 0) continue;
+    const sameStore = (a.branch.toUpperCase() === String(targetErpStore || '').toUpperCase()) ? 1 : 0;
+    const ratio = overlap / Math.max(1, Math.min(uToks.length, a.tokens.length));
+    const score = (sameStore * 100) + (overlap * 10) + ratio;
+    if (score > bestScore) {
+      bestScore = score;
+      best = a;
+    }
+  }
+  return best;
+}
+
+function readAllBranchUsers_(ss, erpAdvisors) {
+  const list = [];
+  for (let t = 0; t < INV_USER_TABS_.length; t++) {
+    const cfg = INV_USER_TABS_[t];
+    let sh = ss.getSheetByName(cfg.tab);
+    if (!sh && cfg.tab === 'COLOCIO') sh = ss.getSheetByName('COLOSIO');
+    if (!sh || sh.getLastRow() < 3) continue;
+    const actualTabName = sh.getName();
+    const numRows = sh.getLastRow() - 2;
+    const vals = sh.getRange(3, 1, numRows, 7).getValues(); // A..G desde fila 3
+    for (let i = 0; i < vals.length; i++) {
+      const r = vals[i];
+      const nombre = String(r[2] || '').trim();
+      const puesto = String(r[3] || '').trim();
+      const correo = String(r[4] || '').trim().toLowerCase();
+      if (!correo || correo.indexOf('@') === -1) continue;
+      const tempKey = cleanSheetKeyCell_(r[5]);
+      const defKey = cleanSheetKeyCell_(r[6]);
+      const matchedErp = matchBestErpAdvisor_(nombre, cfg.erpStore, erpAdvisors);
+      list.push({
+        sheetTab: actualTabName,
+        rowNum: i + 3,
+        branchKey: cfg.tab === 'COLOCIO' ? 'COLOSIO' : cfg.tab,
+        branchLabel: cfg.label,
+        erpStore: cfg.erpStore,
+        nombre: nombre,
+        puesto: puesto,
+        correo: correo,
+        tempKey: tempKey,
+        defKey: defKey,
+        mustChangeKey: !defKey && !!tempKey,
+        erpAdvisorLabel: matchedErp ? matchedErp.label : '',
+        erpAdvisorId: matchedErp ? matchedErp.id : '',
+        erpAdvisorBranch: matchedErp ? matchedErp.branch : ''
+      });
+    }
+  }
+  return list;
+}
+
+function sanitizeUserForClient_(u) {
+  return {
+    sheetTab: u.sheetTab,
+    rowNum: u.rowNum,
+    branchKey: u.branchKey,
+    branchLabel: u.branchLabel,
+    erpStore: u.erpStore,
+    nombre: u.nombre,
+    puesto: u.puesto,
+    correo: u.correo,
+    mustChangeKey: !!u.mustChangeKey,
+    erpAdvisorLabel: u.erpAdvisorLabel || '',
+    erpAdvisorId: u.erpAdvisorId || '',
+    erpAdvisorBranch: u.erpAdvisorBranch || ''
+  };
+}
+
+function handleInvUsersDirectory_() {
+  const ss = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+  const users = readAllBranchUsers_(ss, erpMeta.advisors);
+  return {
+    ok: true,
+    stores: erpMeta.stores,
+    advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id })),
+    users: users.map(sanitizeUserForClient_)
+  };
+}
+
+function keysEqualNormalized_(inputVal, storedVal) {
+  const a = String(inputVal || '').trim();
+  const b = String(storedVal || '').trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const aCompact = a.replace(/\s+/g, '');
+  const bCompact = b.replace(/\s+/g, '');
+  return !!aCompact && aCompact === bCompact;
+}
+
+function handleInvLogin_(body) {
+  const email = String(body.email || '').trim().toLowerCase();
+  const inputKey = String(body.accessKey || '').trim();
+  const selectedTab = String(body.sheetTab || '').trim();
+  if (!email || !inputKey) {
+    return { ok: false, error: 'Ingresa tu correo y tu contraseña.' };
+  }
+
+  const ss = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+  const allUsers = readAllBranchUsers_(ss, erpMeta.advisors);
+  const emailMatches = allUsers.filter((u) => u.correo === email);
+  if (!emailMatches.length) {
+    return { ok: false, error: 'El correo ingresado no está registrado en ninguna ubicación.' };
+  }
+
+  const validMatches = emailMatches.filter((u) => {
+    if (u.defKey) {
+      return keysEqualNormalized_(inputKey, u.defKey);
+    }
+    if (u.tempKey) {
+      return keysEqualNormalized_(inputKey, u.tempKey);
+    }
+    return false;
+  });
+
+  if (!validMatches.length) {
+    return { ok: false, error: 'Contraseña incorrecta. Verifica tu contraseña temporal o definitiva.' };
+  }
+
+  // Si el correo está repetido en varias hojas y aún no eligió en cuál estará:
+  if (validMatches.length > 1 && !selectedTab) {
+    return {
+      ok: true,
+      chooseBranch: true,
+      locations: validMatches.map(sanitizeUserForClient_),
+      stores: erpMeta.stores,
+      advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id }))
+    };
+  }
+
+  const chosen = selectedTab
+    ? (validMatches.find((u) => u.sheetTab.toUpperCase() === selectedTab.toUpperCase() || u.branchKey.toUpperCase() === selectedTab.toUpperCase()) || validMatches[0])
+    : validMatches[0];
+
+  const usedTemp = !chosen.defKey && !!chosen.tempKey && keysEqualNormalized_(inputKey, chosen.tempKey);
+  const userOut = sanitizeUserForClient_(chosen);
+  userOut.mustChangeKey = usedTemp;
+
+  return {
+    ok: true,
+    chooseBranch: false,
+    user: userOut,
+    allLocationsForEmail: emailMatches.map(sanitizeUserForClient_),
+    stores: erpMeta.stores,
+    advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id }))
+  };
+}
+
+function handleInvUpdateKey_(body) {
+  const email = String(body.email || '').trim().toLowerCase();
+  const currentKey = String(body.currentKey || '').trim();
+  const newKey = String(body.newKey || '').trim();
+  if (!email || !newKey) {
+    return { ok: false, error: 'Datos incompletos para actualizar la contraseña.' };
+  }
+  if (newKey.length < 4) {
+    return { ok: false, error: 'La nueva contraseña debe tener al menos 4 caracteres.' };
+  }
+
+  const ss = getSpreadsheet_();
+  const matchedTargets = [];
+  let anyAuthorized = !currentKey;
+
+  for (let t = 0; t < INV_USER_TABS_.length; t++) {
+    const cfg = INV_USER_TABS_[t];
+    let sh = ss.getSheetByName(cfg.tab);
+    if (!sh && cfg.tab === 'COLOCIO') sh = ss.getSheetByName('COLOSIO');
+    if (!sh || sh.getLastRow() < 3) continue;
+    const numRows = sh.getLastRow() - 2;
+    const vals = sh.getRange(3, 1, numRows, 7).getValues();
+    for (let i = 0; i < vals.length; i++) {
+      const rowEmail = String(vals[i][4] || '').trim().toLowerCase();
+      if (rowEmail !== email) continue;
+      const tempKey = cleanSheetKeyCell_(vals[i][5]);
+      const defKey = cleanSheetKeyCell_(vals[i][6]);
+      if (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey)) {
+        anyAuthorized = true;
+      }
+      matchedTargets.push({ sh: sh, rowNum: i + 3 });
+    }
+  }
+
+  if (!matchedTargets.length || !anyAuthorized) {
+    return { ok: false, error: 'No fue posible validar el usuario para actualizar la contraseña en la hoja.' };
+  }
+
+  for (let k = 0; k < matchedTargets.length; k++) {
+    const tgt = matchedTargets[k];
+    // Borrar la contraseña temporal (Columna F = 6) y guardar la nueva definitiva (Columna G = 7)
+    tgt.sh.getRange(tgt.rowNum, 6).clearContent();
+    tgt.sh.getRange(tgt.rowNum, 7).setNumberFormat('@').setValue(newKey);
+  }
+
+  SpreadsheetApp.flush();
+  return { ok: true, updatedRows: matchedTargets.length };
+}
+
+function handleInvSubmitQuote_(body) {
+  const ss = getSpreadsheet_();
+  const sh = ss.getSheetByName('plantilla');
+  if (!sh) {
+    return { ok: false, error: 'No se encontró la hoja "plantilla" en CONTROL DE PRODUCTOS PRESENTACIÓN.' };
+  }
+
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length) {
+    return { ok: false, error: 'Agrega al menos un producto a la cotización.' };
+  }
+  if (items.length > 15) {
+    return { ok: false, error: 'La plantilla admite máximo 15 partidas por cotización (tienes ' + items.length + ').' };
+  }
+
+  const erpStore = String(body.erpStore || 'CREATA PUERTO CANCUN').trim();
+  const erpAdvisorLabel = String(body.erpAdvisorLabel || '').trim();
+  const categoryLabel = String(body.categoryLabel || 'COTIZACIONES [ID: 2]').trim();
+  const clientMode = String(body.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)').trim();
+  const clientName = String(body.clientName || 'PROSPECTO PRESENTACION DISENO').trim();
+  const clientPhone = String(body.clientPhone || '').trim();
+  const deliveryDate = String(body.deliveryDate || '').trim();
+  const notes = String(body.notes || '').trim();
+  const extraDiscount = Math.max(0, Number(body.extraDiscount) || 0);
+  const sendToErp = body.sendToErp !== false;
+
+  // 1) Poner primero K5 en SOLO REVISIÓN mientras cargamos los datos
+  sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
+  sh.getRange('K7').clearContent();
+  sh.getRange('M7').clearContent();
+
+  // 2) Encabezado de Tienda, Usuario/Asesor ERP y Datos del Cliente
+  sh.getRange('C5').setValue(erpStore);
+  if (erpAdvisorLabel) {
+    sh.getRange('C6').setValue(erpAdvisorLabel);
+  }
+  sh.getRange('C7').setValue(categoryLabel);
+  sh.getRange('C9').setValue(clientMode);
+  sh.getRange('G9').setNumberFormat('@').setValue(clientPhone);
+  sh.getRange('C10').setValue(clientName);
+  if (deliveryDate) {
+    sh.getRange('G10').setValue(deliveryDate);
+  }
+  sh.getRange('C11').setValue(notes);
+  sh.getRange('H30').setValue(extraDiscount);
+
+  // 3) Limpiar y escribir únicamente las columnas editables de las filas 15..29 (B = SKU, D = CANT, F = % DESC)
+  // preservando al 100% las fórmulas XLOOKUP de C, E, G, H, I, J, K, L, M
+  const bVals = [];
+  const dVals = [];
+  const fVals = [];
+  for (let i = 0; i < 15; i++) {
+    if (i < items.length) {
+      const it = items[i] || {};
+      const sku = String(it.sku || '').trim().toUpperCase();
+      const qty = Math.max(1, Math.round(Number(it.qty) || 1));
+      let discPct = Number(it.discountPct) || 0;
+      if (discPct > 1) discPct = discPct / 100;
+      discPct = Math.max(0, Math.min(1, discPct));
+      bVals.push([sku]);
+      dVals.push([qty]);
+      fVals.push([discPct]);
+    } else {
+      bVals.push(['']);
+      dVals.push(['']);
+      fVals.push(['']);
+    }
+  }
+  sh.getRange(15, 2, 15, 1).setNumberFormat('@').setValues(bVals);
+  sh.getRange(15, 4, 15, 1).setValues(dVals);
+  sh.getRange(15, 6, 15, 1).setValues(fVals);
+
+  SpreadsheetApp.flush();
+
+  // 4) Si el asesor indicó enviar al sistema S Mueblería, activar K5 = 'ENVIAR COTIZACIÓN A S MUEBLERÍA'
+  if (sendToErp) {
+    sh.getRange('K6').setValue('⏳ ENVIANDO COTIZACIÓN A S MUEBLERÍA...');
+    sh.getRange('K5').setValue('ENVIAR COTIZACIÓN A S MUEBLERÍA');
+    SpreadsheetApp.flush();
+  }
+
+  return handleInvPlantillaStatus_();
+}
+
+function handleInvPlantillaStatus_() {
+  const ss = getSpreadsheet_();
+  const sh = ss.getSheetByName('plantilla');
+  if (!sh) {
+    return { ok: false, error: 'Hoja plantilla no encontrada.' };
+  }
+  const topVals = sh.getRange('A5:M11').getDisplayValues();
+  const totVals = sh.getRange('F30:H33').getDisplayValues();
+  return {
+    ok: true,
+    erpStore: topVals[0][2] || '',
+    erpAdvisor: topVals[1][2] || '',
+    erpUserId: topVals[1][6] || '',
+    actionState: topVals[0][10] || '',
+    erpStatus: topVals[1][10] || '',
+    quoteId: topVals[2][10] || '',
+    folio: topVals[2][12] || '',
+    subjectRef: topVals[3][10] || '',
+    lastSync: topVals[4][10] || '',
+    extraDiscount: totVals[0][2] || '',
+    subtotal: totVals[1][2] || '',
+    iva: totVals[2][2] || '',
+    total: totVals[3][2] || ''
+  };
+}
+

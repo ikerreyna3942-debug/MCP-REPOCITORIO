@@ -796,8 +796,894 @@
     }
 
     // ------------------------------------------------------------------------
-    // COTIZACIÓN DE PRODUCTOS (ANTES CARRITO)
+    // USUARIOS POR UBICACIÓN, CONTRASEÑA TEMPORAL Y PLANTILLA S MUEBLERÍA
     // ------------------------------------------------------------------------
+    const AUTH_SESSION_KEY = 'creata_inv_advisor_session_v1';
+    const PENDING_KEYS_STORAGE = 'creata_inv_updated_keys_v1';
+    const QUOTE_META_STORAGE = 'creata_inv_quote_draft_meta_v1';
+
+    const USER_BRANCH_TABS = [
+        { tab: 'PLAYA', branchKey: 'PLAYA', label: 'Playa del Carmen', erpStore: 'CREATA LIVING PLAYA' },
+        { tab: 'COLOCIO', branchKey: 'COLOSIO', label: 'Colosio', erpStore: 'CREATA LIVING COLOSIO' },
+        { tab: 'PTC', branchKey: 'PTC', label: 'Puerto Cancún (PTC)', erpStore: 'CREATA PUERTO CANCUN' },
+        { tab: 'CASA CREATA', branchKey: 'CASA CREATA', label: 'Casa Creata', erpStore: 'CASA CREATA BONAMPAK' },
+        { tab: 'PROYECTOS', branchKey: 'PROYECTOS', label: 'Proyectos', erpStore: 'PROYECTOS ANIPA INTERIOR' },
+        { tab: 'CUENTAS ADMINISTRATIVAS', branchKey: 'ADMIN', label: 'Administración / Todas', erpStore: 'CEDIS' }
+    ];
+
+    const DEFAULT_ERP_STORES = [
+        'CREATA PUERTO CANCUN',
+        'CASA CREATA BONAMPAK',
+        'CREATA LIVING COLOSIO',
+        'CREATA LIVING PLAYA',
+        'OUTLET COLOSIO',
+        'PROYECTOS ANIPA INTERIOR',
+        'CEDIS'
+    ];
+
+    let erpStoresCatalog = DEFAULT_ERP_STORES.slice();
+    let erpAdvisorsCatalog = [];
+    let activeAdvisorSession = loadAdvisorSession();
+    let pendingAuthContext = null; // { email, inputKey, locations, switchingFromActive }
+    let quoteDraftMeta = loadQuoteDraftMeta();
+    let quoteSubmitInFlight = false;
+
+    function loadAdvisorSession() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null');
+            if (raw && typeof raw === 'object' && raw.correo && raw.branchLabel) {
+                return raw;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function saveAdvisorSession(sess) {
+        activeAdvisorSession = sess || null;
+        try {
+            if (sess) localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sess));
+            else localStorage.removeItem(AUTH_SESSION_KEY);
+        } catch (e) {}
+    }
+
+    function loadUpdatedKeysMap() {
+        try {
+            const obj = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}');
+            return (obj && typeof obj === 'object') ? obj : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function saveUpdatedKeysMap(mapObj) {
+        try {
+            localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(mapObj || {}));
+        } catch (e) {}
+    }
+
+    function getDefaultDeliveryIsoDate() {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return yyyy + '-' + mm + '-' + dd;
+    }
+
+    function isoDateToDMY(isoStr) {
+        const s = cleanStr(isoStr);
+        const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (m) return m[3] + '/' + m[2] + '/' + m[1];
+        return s;
+    }
+
+    function loadQuoteDraftMeta() {
+        const fallback = {
+            erpStore: '',
+            erpAdvisorLabel: '',
+            clientMode: 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)',
+            categoryLabel: 'COTIZACIONES [ID: 2]',
+            clientName: '',
+            clientPhone: '',
+            deliveryDateIso: getDefaultDeliveryIsoDate(),
+            notes: '',
+            extraDiscount: 0
+        };
+        try {
+            const saved = JSON.parse(localStorage.getItem(QUOTE_META_STORAGE) || 'null');
+            if (saved && typeof saved === 'object') {
+                return Object.assign(fallback, saved, {
+                    deliveryDateIso: saved.deliveryDateIso || getDefaultDeliveryIsoDate()
+                });
+            }
+        } catch (e) {}
+        return fallback;
+    }
+
+    window.saveQuoteDraftMeta = function () {
+        const storeEl = document.getElementById('quoteErpStoreSelect');
+        const advEl = document.getElementById('quoteErpAdvisorSelect');
+        const modeEl = document.getElementById('quoteClientModeSelect');
+        const catEl = document.getElementById('quoteCategorySelect');
+        const nameEl = document.getElementById('quoteClientNameInput');
+        const phoneEl = document.getElementById('quoteClientPhoneInput');
+        const dateEl = document.getElementById('quoteDeliveryDateInput');
+        const notesEl = document.getElementById('quoteNotesInput');
+        const extraEl = document.getElementById('quoteExtraDiscountInput');
+
+        if (storeEl) quoteDraftMeta.erpStore = storeEl.value;
+        if (advEl) quoteDraftMeta.erpAdvisorLabel = advEl.value;
+        if (modeEl) quoteDraftMeta.clientMode = modeEl.value;
+        if (catEl) quoteDraftMeta.categoryLabel = catEl.value;
+        if (nameEl) quoteDraftMeta.clientName = nameEl.value;
+        if (phoneEl) quoteDraftMeta.clientPhone = phoneEl.value;
+        if (dateEl && dateEl.value) quoteDraftMeta.deliveryDateIso = dateEl.value;
+        if (notesEl) quoteDraftMeta.notes = notesEl.value;
+        if (extraEl) quoteDraftMeta.extraDiscount = Math.max(0, Number(extraEl.value) || 0);
+
+        try {
+            localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
+        } catch (e) {}
+    };
+
+    function cleanKeyCellValue(val) {
+        if (val === null || val === undefined) return '';
+        if (typeof val === 'number') {
+            return Number.isInteger(val) ? String(val) : String(Math.trunc(val));
+        }
+        let s = String(val).trim();
+        if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
+        return s;
+    }
+
+    function keysMatchNormalized(a, b) {
+        const s1 = String(a || '').trim();
+        const s2 = String(b || '').trim();
+        if (!s1 || !s2) return false;
+        if (s1 === s2) return true;
+        const c1 = s1.replace(/\s+/g, '');
+        const c2 = s2.replace(/\s+/g, '');
+        return !!c1 && c1 === c2;
+    }
+
+    function normAdvisorTokens(txt) {
+        const clean = String(txt || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/\bLUPITA\b/g, 'GUADALUPE')
+            .replace(/\bDADVID\b/g, 'DAVID')
+            .replace(/\bJOHANNA\b/g, 'JOHANA')
+            .replace(/\bRODRIGUEZ\b/g, 'RODRIGEZ');
+        const words = clean.match(/[A-Z]+/g) || [];
+        const stop = { DE: 1, LA: 1, DEL: 1, LOS: 1, LAS: 1, Y: 1, PROYECTOS: 1, OUTLET: 1, ADMON: 1 };
+        return words.filter(w => w.length >= 2 && !stop[w]);
+    }
+
+    function matchBestErpAdvisorClient(userName, targetErpStore, advisorsList) {
+        const uToks = normAdvisorTokens(userName);
+        if (!uToks.length || !Array.isArray(advisorsList) || !advisorsList.length) return null;
+        const uSet = new Set(uToks);
+        let best = null;
+        let bestScore = -1;
+        for (let i = 0; i < advisorsList.length; i++) {
+            const a = advisorsList[i];
+            const aToks = a.tokens || normAdvisorTokens((a.label || '').split('|')[0]);
+            let overlap = 0;
+            for (let j = 0; j < aToks.length; j++) {
+                if (uSet.has(aToks[j])) overlap++;
+            }
+            if (overlap <= 0) continue;
+            const sameStore = String(a.branch || '').toUpperCase() === String(targetErpStore || '').toUpperCase() ? 1 : 0;
+            const ratio = overlap / Math.max(1, Math.min(uToks.length, aToks.length));
+            const score = (sameStore * 100) + (overlap * 10) + ratio;
+            if (score > bestScore) {
+                bestScore = score;
+                best = a;
+            }
+        }
+        return best;
+    }
+
+    function extractErpIdFromLabel(label) {
+        const m = String(label || '').match(/\[ID:\s*(\d+)\]/i);
+        return m ? m[1] : '';
+    }
+
+    async function callInvWebAppPost(action, payloadObj, timeoutMs) {
+        const apiUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
+            ? window.CREATA_CLOUD_CONFIG.getApiUrl()
+            : '';
+        if (!apiUrl) return { ok: false, unavailable: true };
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
+        try {
+            const body = Object.assign({}, payloadObj || {}, { action: action });
+            const resp = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(body),
+                signal: controller ? controller.signal : undefined
+            });
+            if (!resp.ok) return { ok: false, unavailable: true, httpStatus: resp.status };
+            const json = await resp.json();
+            if (json && !json.ok && /PIN de administrador|Acci[óo]n no reconocida/i.test(String(json.error || ''))) {
+                return { ok: false, needsRedeploy: true, error: json.error };
+            }
+            return json || { ok: false, unavailable: true };
+        } catch (err) {
+            return { ok: false, unavailable: true, error: err && err.message ? err.message : String(err) };
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
+    async function fetchSheetCsvRows(sheetName, extraParams) {
+        if (!META.sheetId) return null;
+        const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(META.sheetId) +
+            '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(sheetName) +
+            (extraParams ? ('&' + extraParams) : '') + '&_t=' + Date.now();
+        try {
+            const resp = await fetch(url, { cache: 'no-store' });
+            if (!resp.ok) return null;
+            const txt = await resp.text();
+            if (!txt || txt.trim().startsWith('<!DOCTYPE') || txt.trim().startsWith('<html')) return null;
+            return parseCsvText(txt);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function loadErpCatalogLiveFromSheet() {
+        const rows = await fetchSheetCsvRows('plantilla', 'range=AA2:AD200');
+        if (!rows || !rows.length) return;
+        const stores = [];
+        const advisors = [];
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i] || [];
+            const st = cleanStr(r[0]);
+            if (st && stores.indexOf(st) === -1) stores.push(st);
+            const label = cleanStr(r[1]);
+            const branch = cleanStr(r[2]);
+            const idVal = cleanKeyCellValue(r[3]) || extractErpIdFromLabel(label);
+            if (label && label.toUpperCase() !== 'ASESOR_ERP_ETIQUETA') {
+                advisors.push({
+                    label: label,
+                    branch: branch,
+                    id: idVal,
+                    tokens: normAdvisorTokens(label.split('|')[0])
+                });
+            }
+        }
+        if (stores.length > 0) erpStoresCatalog = stores;
+        if (advisors.length > 0) erpAdvisorsCatalog = advisors;
+    }
+
+    async function fetchAllAdvisorRowsLiveGviz() {
+        await loadErpCatalogLiveFromSheet();
+        const localKeyUpdates = loadUpdatedKeysMap();
+        const results = await Promise.all(USER_BRANCH_TABS.map(async (cfg) => {
+            const rows = await fetchSheetCsvRows(cfg.tab);
+            if (!rows || rows.length < 3) return [];
+            const tabUsers = [];
+            for (let i = 2; i < rows.length; i++) {
+                const r = rows[i] || [];
+                const nombre = cleanStr(r[2]);
+                const puesto = cleanStr(r[3]);
+                const correo = cleanStr(r[4]).toLowerCase();
+                if (!correo || correo.indexOf('@') === -1) continue;
+                let tempKey = cleanKeyCellValue(r[5]);
+                let defKey = cleanKeyCellValue(r[6]);
+
+                // Si la hoja ya tiene clave definitiva en Col G, limpiar caché pendiente local
+                const localUpd = localKeyUpdates[correo];
+                if (defKey && localUpd && keysMatchNormalized(defKey, localUpd.newKey)) {
+                    delete localKeyUpdates[correo];
+                    saveUpdatedKeysMap(localKeyUpdates);
+                } else if (!defKey && localUpd && localUpd.newKey) {
+                    defKey = localUpd.newKey;
+                    tempKey = '';
+                }
+
+                const matchedErp = matchBestErpAdvisorClient(nombre, cfg.erpStore, erpAdvisorsCatalog);
+                tabUsers.push({
+                    sheetTab: cfg.tab,
+                    rowNum: i + 1,
+                    branchKey: cfg.branchKey,
+                    branchLabel: cfg.label,
+                    erpStore: cfg.erpStore,
+                    nombre: nombre,
+                    puesto: puesto,
+                    correo: correo,
+                    tempKey: tempKey,
+                    defKey: defKey,
+                    mustChangeKey: !defKey && !!tempKey,
+                    erpAdvisorLabel: matchedErp ? matchedErp.label : '',
+                    erpAdvisorId: matchedErp ? matchedErp.id : '',
+                    erpAdvisorBranch: matchedErp ? matchedErp.branch : ''
+                });
+            }
+            return tabUsers;
+        }));
+        return results.flat();
+    }
+
+    async function syncPendingKeyUpdatesToCloud() {
+        const mapObj = loadUpdatedKeysMap();
+        const emails = Object.keys(mapObj);
+        if (!emails.length) return;
+        let changed = false;
+        for (let i = 0; i < emails.length; i++) {
+            const em = emails[i];
+            const item = mapObj[em];
+            if (!item || !item.newKey) continue;
+            const res = await callInvWebAppPost('inv_update_key', {
+                email: em,
+                currentKey: item.prevKey || '',
+                newKey: item.newKey
+            }, 9000);
+            if (res && res.ok) {
+                delete mapObj[em];
+                changed = true;
+            }
+        }
+        if (changed) saveUpdatedKeysMap(mapObj);
+    }
+
+    function showAuthBanner(elId, text, tone) {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        if (!text) {
+            el.textContent = '';
+            el.classList.add('hidden');
+            return;
+        }
+        el.textContent = text;
+        el.className = 'rounded-xl border px-3.5 py-2.5 text-xs font-bold ' +
+            (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
+    }
+
+    function setAuthStepVisible(stepName) {
+        const sLogin = document.getElementById('authStepLogin');
+        const sBranch = document.getElementById('authStepBranch');
+        const sNewKey = document.getElementById('authStepNewKey');
+        if (sLogin) sLogin.classList.toggle('hidden', stepName !== 'login');
+        if (sBranch) sBranch.classList.toggle('hidden', stepName !== 'branch');
+        if (sNewKey) sNewKey.classList.toggle('hidden', stepName !== 'newkey');
+    }
+
+    window.toggleAuthInputVisibility = function (inputId, btnEl) {
+        const inp = document.getElementById(inputId);
+        if (!inp) return;
+        const isHidden = inp.type === 'password';
+        inp.type = isHidden ? 'text' : 'password';
+        if (btnEl) btnEl.textContent = isHidden ? 'Ocultar' : 'Ver';
+    };
+
+    function renderAdvisorHeaderBar() {
+        const bar = document.getElementById('advisorSessionBar');
+        const nameEl = document.getElementById('sessionUserName');
+        const branchEl = document.getElementById('sessionBranchBadge');
+        const erpEl = document.getElementById('sessionErpBadge');
+        const switchBtn = document.getElementById('sessionSwitchBranchBtn');
+
+        if (!bar) return;
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            bar.classList.add('hidden');
+            return;
+        }
+
+        if (nameEl) nameEl.textContent = activeAdvisorSession.nombre || activeAdvisorSession.correo;
+        if (branchEl) branchEl.textContent = activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '';
+        if (erpEl) {
+            if (activeAdvisorSession.erpAdvisorId) {
+                erpEl.textContent = 'Usuario Sistema #' + activeAdvisorSession.erpAdvisorId;
+                erpEl.classList.remove('hidden');
+            } else {
+                erpEl.textContent = '';
+                erpEl.classList.add('hidden');
+            }
+        }
+        const multiLocs = Array.isArray(activeAdvisorSession.allLocations) ? activeAdvisorSession.allLocations : [];
+        if (switchBtn) {
+            switchBtn.classList.toggle('hidden', multiLocs.length <= 1);
+        }
+        bar.classList.remove('hidden');
+    }
+
+    function applyAdvisorDefaultsToQuoteForm(forceOverwriteStoreAndUser) {
+        if (!activeAdvisorSession) return;
+        if (forceOverwriteStoreAndUser || !quoteDraftMeta.erpStore) {
+            quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || 'CREATA PUERTO CANCUN';
+        }
+        if (forceOverwriteStoreAndUser || !quoteDraftMeta.erpAdvisorLabel) {
+            quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
+        }
+        try {
+            localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
+        } catch (e) {}
+        populateQuoteAdvisorControls();
+    }
+
+    function openAuthModalForStartup() {
+        const modal = document.getElementById('authModal');
+        if (!modal) return;
+        showAuthBanner('authLoginMsg', '', 'err');
+        showAuthBanner('authNewKeyMsg', '', 'err');
+
+        if (activeAdvisorSession && activeAdvisorSession.mustChangeKey) {
+            setAuthStepVisible('newkey');
+            modal.classList.add('open');
+            return;
+        }
+        if (!activeAdvisorSession) {
+            setAuthStepVisible('login');
+            modal.classList.add('open');
+            const emInp = document.getElementById('authEmailInput');
+            if (emInp) setTimeout(() => emInp.focus(), 60);
+            return;
+        }
+        modal.classList.remove('open');
+        renderAdvisorHeaderBar();
+    }
+
+    function renderBranchChoicesStep(locations, subtitleText) {
+        const subEl = document.getElementById('authBranchSubtitle');
+        const listEl = document.getElementById('authBranchOptionsList');
+        if (subEl && subtitleText) subEl.textContent = subtitleText;
+        if (!listEl) return;
+
+        listEl.innerHTML = locations.map((loc, idx) => {
+            const isCurrent = activeAdvisorSession &&
+                activeAdvisorSession.sheetTab === loc.sheetTab &&
+                activeAdvisorSession.correo === loc.correo;
+            return '<button type="button" data-branch-idx="' + idx + '" ' +
+                'class="w-full text-left rounded-xl border p-3.5 transition flex items-center justify-between gap-3 hover:shadow-sm" ' +
+                'style="border-color:' + (isCurrent ? '#A38251' : '#E1DBC5') + '; background:' + (isCurrent ? '#FAF9F6' : '#FFFFFF') + ';">' +
+                '<div class="min-w-0">' +
+                    '<div class="text-xs font-extrabold uppercase tracking-wider" style="color:#252C32;">' + escapeHtml(loc.branchLabel || loc.sheetTab) + '</div>' +
+                    '<div class="text-[11px] font-semibold mt-0.5" style="color:#A38251;">' +
+                        escapeHtml((loc.puesto ? (loc.puesto + ' · ') : '') + (loc.erpStore || '')) +
+                    '</div>' +
+                '</div>' +
+                '<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase shrink-0" style="background:#A38251; color:#FFFFFF;">Elegir</span>' +
+            '</button>';
+        }).join('');
+
+        listEl.querySelectorAll('button[data-branch-idx]').forEach(btn => {
+            btn.onclick = function () {
+                const idx = parseInt(btn.getAttribute('data-branch-idx'), 10) || 0;
+                const chosen = locations[idx];
+                if (chosen) finalizeLocationChoice(chosen, locations);
+            };
+        });
+
+        setAuthStepVisible('branch');
+        const modal = document.getElementById('authModal');
+        if (modal) modal.classList.add('open');
+    }
+
+    function finalizeLocationChoice(chosenLoc, allLocs) {
+        const cleanAll = (allLocs || [chosenLoc]).map(u => ({
+            sheetTab: u.sheetTab,
+            rowNum: u.rowNum,
+            branchKey: u.branchKey,
+            branchLabel: u.branchLabel,
+            erpStore: u.erpStore,
+            nombre: u.nombre,
+            puesto: u.puesto,
+            correo: u.correo,
+            mustChangeKey: !!u.mustChangeKey,
+            erpAdvisorLabel: u.erpAdvisorLabel || '',
+            erpAdvisorId: u.erpAdvisorId || '',
+            erpAdvisorBranch: u.erpAdvisorBranch || ''
+        }));
+
+        const sessionObj = {
+            sheetTab: chosenLoc.sheetTab,
+            rowNum: chosenLoc.rowNum,
+            branchKey: chosenLoc.branchKey,
+            branchLabel: chosenLoc.branchLabel,
+            erpStore: chosenLoc.erpStore,
+            nombre: chosenLoc.nombre,
+            puesto: chosenLoc.puesto,
+            correo: chosenLoc.correo,
+            mustChangeKey: !!chosenLoc.mustChangeKey,
+            erpAdvisorLabel: chosenLoc.erpAdvisorLabel || '',
+            erpAdvisorId: chosenLoc.erpAdvisorId || '',
+            erpAdvisorBranch: chosenLoc.erpAdvisorBranch || '',
+            allLocations: cleanAll
+        };
+
+        saveAdvisorSession(sessionObj);
+        applyAdvisorDefaultsToQuoteForm(true);
+
+        if (sessionObj.mustChangeKey) {
+            showAuthBanner('authNewKeyMsg', '', 'err');
+            const nk = document.getElementById('authNewKeyInput');
+            const ck = document.getElementById('authConfirmKeyInput');
+            if (nk) nk.value = '';
+            if (ck) ck.value = '';
+            setAuthStepVisible('newkey');
+            const modal = document.getElementById('authModal');
+            if (modal) modal.classList.add('open');
+            if (nk) setTimeout(() => nk.focus(), 60);
+            return;
+        }
+
+        pendingAuthContext = null;
+        const modal = document.getElementById('authModal');
+        if (modal) modal.classList.remove('open');
+        renderAdvisorHeaderBar();
+        const searchInp = document.getElementById('invSearchInput');
+        if (searchInp) setTimeout(() => searchInp.focus(), 60);
+    }
+
+    window.submitAdvisorLogin = async function (ev) {
+        if (ev && ev.preventDefault) ev.preventDefault();
+        const emailEl = document.getElementById('authEmailInput');
+        const keyEl = document.getElementById('authKeyInput');
+        const btnEl = document.getElementById('authLoginSubmitBtn');
+
+        const email = cleanStr(emailEl ? emailEl.value : '').toLowerCase();
+        const inputKey = cleanStr(keyEl ? keyEl.value : '');
+        if (!email || !inputKey) {
+            showAuthBanner('authLoginMsg', 'Ingresa tu correo electrónico y tu contraseña.', 'err');
+            return;
+        }
+
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.textContent = 'Verificando cuenta...';
+        }
+        showAuthBanner('authLoginMsg', '', 'err');
+
+        try {
+            // 1) Intentar validación directa vía Apps Script WebApp si ya está actualizada
+            const cloudRes = await callInvWebAppPost('inv_login', {
+                email: email,
+                accessKey: inputKey
+            }, 9000);
+
+            if (cloudRes && cloudRes.ok) {
+                if (Array.isArray(cloudRes.stores) && cloudRes.stores.length > 0) {
+                    erpStoresCatalog = cloudRes.stores;
+                }
+                if (Array.isArray(cloudRes.advisors) && cloudRes.advisors.length > 0) {
+                    erpAdvisorsCatalog = cloudRes.advisors.map(a => ({
+                        label: a.label,
+                        branch: a.branch,
+                        id: a.id || extractErpIdFromLabel(a.label),
+                        tokens: normAdvisorTokens((a.label || '').split('|')[0])
+                    }));
+                }
+
+                if (cloudRes.chooseBranch && Array.isArray(cloudRes.locations) && cloudRes.locations.length > 1) {
+                    pendingAuthContext = {
+                        email: email,
+                        inputKey: inputKey,
+                        locations: cloudRes.locations,
+                        switchingFromActive: false
+                    };
+                    renderBranchChoicesStep(
+                        cloudRes.locations,
+                        'Hola ' + (cloudRes.locations[0].nombre || '') + '. Tu correo está registrado en varias hojas; selecciona en cuál ubicación estarás:'
+                    );
+                    return;
+                }
+
+                if (cloudRes.user) {
+                    pendingAuthContext = {
+                        email: email,
+                        inputKey: inputKey,
+                        locations: cloudRes.allLocationsForEmail || [cloudRes.user],
+                        switchingFromActive: false
+                    };
+                    finalizeLocationChoice(cloudRes.user, cloudRes.allLocationsForEmail || [cloudRes.user]);
+                    return;
+                }
+            } else if (cloudRes && !cloudRes.unavailable && !cloudRes.needsRedeploy && cloudRes.error) {
+                showAuthBanner('authLoginMsg', cloudRes.error, 'err');
+                return;
+            }
+
+            // 2) Lectura directa en vivo desde las hojas PLAYA, COLOCIO, PTC, CASA CREATA, PROYECTOS y plantilla
+            const allUsers = await fetchAllAdvisorRowsLiveGviz();
+            if (!allUsers.length) {
+                showAuthBanner('authLoginMsg', 'No fue posible consultar las hojas de usuarios. Verifica tu conexión a internet.', 'err');
+                return;
+            }
+
+            const emailMatches = allUsers.filter(u => u.correo === email);
+            if (!emailMatches.length) {
+                showAuthBanner('authLoginMsg', 'El correo ingresado no aparece registrado en ninguna hoja de sucursal.', 'err');
+                return;
+            }
+
+            const validMatches = emailMatches.filter(u => {
+                if (u.defKey) return keysMatchNormalized(inputKey, u.defKey);
+                if (u.tempKey) return keysMatchNormalized(inputKey, u.tempKey);
+                return false;
+            });
+
+            if (!validMatches.length) {
+                showAuthBanner('authLoginMsg', 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.', 'err');
+                return;
+            }
+
+            const preparedLocs = validMatches.map(u => {
+                const usedTemp = !u.defKey && !!u.tempKey && keysMatchNormalized(inputKey, u.tempKey);
+                return Object.assign({}, u, { mustChangeKey: usedTemp });
+            });
+
+            pendingAuthContext = {
+                email: email,
+                inputKey: inputKey,
+                locations: preparedLocs,
+                switchingFromActive: false
+            };
+
+            if (preparedLocs.length > 1) {
+                renderBranchChoicesStep(
+                    preparedLocs,
+                    'Hola ' + (preparedLocs[0].nombre || '') + '. Tu correo aparece en varias hojas; selecciona en cuál ubicación estarás:'
+                );
+            } else {
+                finalizeLocationChoice(preparedLocs[0], emailMatches);
+            }
+        } finally {
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.textContent = 'Ingresar';
+            }
+        }
+    };
+
+    window.cancelBranchSelection = function () {
+        if (pendingAuthContext && pendingAuthContext.switchingFromActive && activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
+            pendingAuthContext = null;
+            const modal = document.getElementById('authModal');
+            if (modal) modal.classList.remove('open');
+            return;
+        }
+        setAuthStepVisible('login');
+    };
+
+    window.openSwitchBranchSelector = function () {
+        if (!activeAdvisorSession || !Array.isArray(activeAdvisorSession.allLocations) || activeAdvisorSession.allLocations.length <= 1) {
+            return;
+        }
+        pendingAuthContext = {
+            email: activeAdvisorSession.correo,
+            inputKey: '',
+            locations: activeAdvisorSession.allLocations,
+            switchingFromActive: true
+        };
+        renderBranchChoicesStep(
+            activeAdvisorSession.allLocations,
+            'Selecciona la ubicación en la que operarás para tus cotizaciones:'
+        );
+    };
+
+    window.submitNewPersonalKey = async function (ev) {
+        if (ev && ev.preventDefault) ev.preventDefault();
+        if (!activeAdvisorSession) return;
+
+        const newKeyEl = document.getElementById('authNewKeyInput');
+        const confKeyEl = document.getElementById('authConfirmKeyInput');
+        const saveBtn = document.getElementById('authSaveNewKeyBtn');
+
+        const newKey = cleanStr(newKeyEl ? newKeyEl.value : '');
+        const confKey = cleanStr(confKeyEl ? confKeyEl.value : '');
+        const prevTempKey = (pendingAuthContext && pendingAuthContext.inputKey) ? pendingAuthContext.inputKey : '';
+
+        if (newKey.length < 4) {
+            showAuthBanner('authNewKeyMsg', 'La nueva contraseña debe tener mínimo 4 caracteres.', 'err');
+            return;
+        }
+        if (newKey !== confKey) {
+            showAuthBanner('authNewKeyMsg', 'Las contraseñas no coinciden. Verifícalas por favor.', 'err');
+            return;
+        }
+        if (prevTempKey && keysMatchNormalized(newKey, prevTempKey)) {
+            showAuthBanner('authNewKeyMsg', 'Elige una contraseña nueva diferente a la contraseña temporal.', 'err');
+            return;
+        }
+
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Guardando nueva contraseña...';
+        }
+        showAuthBanner('authNewKeyMsg', '', 'err');
+
+        try {
+            const res = await callInvWebAppPost('inv_update_key', {
+                email: activeAdvisorSession.correo,
+                currentKey: prevTempKey,
+                newKey: newKey
+            }, 12000);
+
+            if (!res || !res.ok) {
+                // Guardar actualización pendiente para sincronizar apenas responda el WebApp y reemplazar la temporal de inmediato
+                const mapObj = loadUpdatedKeysMap();
+                mapObj[activeAdvisorSession.correo] = {
+                    prevKey: prevTempKey,
+                    newKey: newKey,
+                    updatedAt: new Date().toISOString()
+                };
+                saveUpdatedKeysMap(mapObj);
+            }
+
+            activeAdvisorSession.mustChangeKey = false;
+            if (Array.isArray(activeAdvisorSession.allLocations)) {
+                activeAdvisorSession.allLocations = activeAdvisorSession.allLocations.map(l =>
+                    Object.assign({}, l, { mustChangeKey: false })
+                );
+            }
+            saveAdvisorSession(activeAdvisorSession);
+            pendingAuthContext = null;
+
+            const keyInp = document.getElementById('authKeyInput');
+            if (keyInp) keyInp.value = '';
+
+            const modal = document.getElementById('authModal');
+            if (modal) modal.classList.remove('open');
+            renderAdvisorHeaderBar();
+            const searchInp = document.getElementById('invSearchInput');
+            if (searchInp) setTimeout(() => searchInp.focus(), 60);
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Guardar nueva contraseña y continuar';
+            }
+        }
+    };
+
+    window.logoutAdvisorSession = function () {
+        saveAdvisorSession(null);
+        pendingAuthContext = null;
+        renderAdvisorHeaderBar();
+        const keyInp = document.getElementById('authKeyInput');
+        if (keyInp) keyInp.value = '';
+        openAuthModalForStartup();
+    };
+
+    // ------------------------------------------------------------------------
+    // PLANTILLA DE COTIZACIÓN · VINCULADA AL USUARIO Y SISTEMA S MUEBLERÍA
+    // ------------------------------------------------------------------------
+    function populateQuoteAdvisorControls() {
+        const storeSel = document.getElementById('quoteErpStoreSelect');
+        const advSel = document.getElementById('quoteErpAdvisorSelect');
+        const idBadge = document.getElementById('quoteErpUserIdBadge');
+        const hdrInfo = document.getElementById('quoteHeaderAdvisorInfo');
+        const modeSel = document.getElementById('quoteClientModeSelect');
+        const catSel = document.getElementById('quoteCategorySelect');
+        const nameInp = document.getElementById('quoteClientNameInput');
+        const phoneInp = document.getElementById('quoteClientPhoneInput');
+        const dateInp = document.getElementById('quoteDeliveryDateInput');
+        const notesInp = document.getElementById('quoteNotesInput');
+        const extraInp = document.getElementById('quoteExtraDiscountInput');
+
+        if (hdrInfo) {
+            if (activeAdvisorSession) {
+                hdrInfo.textContent = (activeAdvisorSession.nombre || activeAdvisorSession.correo) +
+                    ' · Ubicación: ' + (activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '');
+            } else {
+                hdrInfo.textContent = '';
+            }
+        }
+
+        const targetStore = quoteDraftMeta.erpStore ||
+            (activeAdvisorSession && activeAdvisorSession.erpStore) ||
+            'CREATA PUERTO CANCUN';
+
+        if (storeSel) {
+            const storesList = erpStoresCatalog.length ? erpStoresCatalog : DEFAULT_ERP_STORES;
+            storeSel.innerHTML = storesList.map(st =>
+                '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + '</option>'
+            ).join('');
+            if (storesList.indexOf(targetStore) !== -1) {
+                storeSel.value = targetStore;
+            }
+        }
+
+        if (advSel) {
+            const selectedStore = storeSel ? storeSel.value : targetStore;
+            const list = erpAdvisorsCatalog.slice();
+            // Ordenar poniendo primero los asesores de la sucursal seleccionada
+            list.sort((a, b) => {
+                const aSame = String(a.branch || '').toUpperCase() === String(selectedStore || '').toUpperCase() ? 0 : 1;
+                const bSame = String(b.branch || '').toUpperCase() === String(selectedStore || '').toUpperCase() ? 0 : 1;
+                if (aSame !== bSame) return aSame - bSame;
+                return String(a.label || '').localeCompare(String(b.label || ''));
+            });
+
+            let targetAdvisor = quoteDraftMeta.erpAdvisorLabel ||
+                (activeAdvisorSession && activeAdvisorSession.erpAdvisorLabel) || '';
+
+            if (targetAdvisor && !list.some(a => a.label === targetAdvisor)) {
+                list.unshift({
+                    label: targetAdvisor,
+                    branch: selectedStore,
+                    id: extractErpIdFromLabel(targetAdvisor)
+                });
+            }
+
+            if (list.length > 0) {
+                advSel.innerHTML = list.map(a =>
+                    '<option value="' + escapeHtml(a.label) + '">' + escapeHtml(a.label) + '</option>'
+                ).join('');
+                if (targetAdvisor && list.some(a => a.label === targetAdvisor)) {
+                    advSel.value = targetAdvisor;
+                } else if (activeAdvisorSession) {
+                    const matched = matchBestErpAdvisorClient(activeAdvisorSession.nombre, selectedStore, list);
+                    if (matched) advSel.value = matched.label;
+                }
+            } else if (activeAdvisorSession) {
+                const fallbackLbl = (activeAdvisorSession.nombre || activeAdvisorSession.correo).toUpperCase() +
+                    ' | ' + selectedStore;
+                advSel.innerHTML = '<option value="' + escapeHtml(fallbackLbl) + '">' + escapeHtml(fallbackLbl) + '</option>';
+            }
+        }
+
+        if (idBadge && advSel) {
+            const uid = extractErpIdFromLabel(advSel.value) ||
+                (activeAdvisorSession && activeAdvisorSession.erpAdvisorId) || '';
+            idBadge.textContent = uid ? ('ID ERP: ' + uid) : 'Asesor Activo';
+        }
+
+        if (modeSel && quoteDraftMeta.clientMode) modeSel.value = quoteDraftMeta.clientMode;
+        if (catSel && quoteDraftMeta.categoryLabel) catSel.value = quoteDraftMeta.categoryLabel;
+        if (nameInp && document.activeElement !== nameInp) nameInp.value = quoteDraftMeta.clientName || '';
+        if (phoneInp && document.activeElement !== phoneInp) phoneInp.value = quoteDraftMeta.clientPhone || '';
+        if (dateInp && document.activeElement !== dateInp) {
+            dateInp.value = quoteDraftMeta.deliveryDateIso || getDefaultDeliveryIsoDate();
+        }
+        if (notesInp && document.activeElement !== notesInp) notesInp.value = quoteDraftMeta.notes || '';
+        if (extraInp && document.activeElement !== extraInp) {
+            extraInp.value = String(Math.max(0, Number(quoteDraftMeta.extraDiscount) || 0));
+        }
+    }
+
+    window.onQuoteStoreChange = function () {
+        const storeSel = document.getElementById('quoteErpStoreSelect');
+        if (storeSel) {
+            quoteDraftMeta.erpStore = storeSel.value;
+            if (activeAdvisorSession && erpAdvisorsCatalog.length > 0) {
+                const matched = matchBestErpAdvisorClient(activeAdvisorSession.nombre, storeSel.value, erpAdvisorsCatalog);
+                if (matched) quoteDraftMeta.erpAdvisorLabel = matched.label;
+            }
+        }
+        populateQuoteAdvisorControls();
+        saveQuoteDraftMeta();
+    };
+
+    window.onQuoteAdvisorChange = function () {
+        const advSel = document.getElementById('quoteErpAdvisorSelect');
+        const idBadge = document.getElementById('quoteErpUserIdBadge');
+        if (advSel && idBadge) {
+            const uid = extractErpIdFromLabel(advSel.value);
+            idBadge.textContent = uid ? ('ID ERP: ' + uid) : 'Asesor Activo';
+        }
+        saveQuoteDraftMeta();
+    };
+
+    window.onExtraDiscountChange = function () {
+        saveQuoteDraftMeta();
+        renderQuoteTotalsOnly();
+    };
+
+    window.setCartItemDiscount = function (skuRaw, rawPct) {
+        const key = String(skuRaw || '').trim().toUpperCase();
+        if (!cart[key]) return;
+        let pct = Number(rawPct);
+        if (isNaN(pct) || !isFinite(pct)) pct = 0;
+        pct = Math.max(0, Math.min(100, pct));
+        cart[key].discountPct = pct;
+        saveCart();
+        renderCartItems();
+    };
+
     window.addToCart = function (skuRaw, delta) {
         const key = String(skuRaw || '').trim().toUpperCase();
         const it = bySkuMap.get(key);
@@ -807,7 +1693,8 @@
                 sku: it.s,
                 name: cleanStr(it.n) || it.s,
                 price: formatPrice(it.pr),
-                qty: 0
+                qty: 0,
+                discountPct: 0
             };
         } else if (it.pr) {
             cart[key].price = formatPrice(it.pr);
@@ -840,7 +1727,11 @@
         addToCart(currentDetailItem.s, 1);
     };
 
-    window.openCartModal = function () {
+    window.openCartModal = async function () {
+        if (!erpAdvisorsCatalog.length) {
+            loadErpCatalogLiveFromSheet().then(() => populateQuoteAdvisorControls());
+        }
+        populateQuoteAdvisorControls();
         renderCartItems();
         document.getElementById('cartModal').classList.add('open');
     };
@@ -852,87 +1743,405 @@
     window.clearCart = function () {
         cart = {};
         saveCart();
+        const statusBox = document.getElementById('quoteSystemStatusBox');
+        if (statusBox) {
+            statusBox.innerHTML = '';
+            statusBox.classList.add('hidden');
+        }
         renderCartItems();
         const inp = document.getElementById('invSearchInput');
         applyFilter(inp ? inp.value : '');
     };
 
-    function renderCartItems() {
-        const wrap = document.getElementById('cartItemsContainer');
-        const totalBar = document.getElementById('cartTotalBar');
-        const totalAmtEl = document.getElementById('cartTotalAmount');
-        if (!wrap) return;
+    function computeQuoteBreakdown() {
         const entries = Object.values(cart);
-        if (!entries.length) {
-            wrap.innerHTML = '<div class="text-center py-6 text-xs font-semibold opacity-60">No hay productos en la cotización.</div>';
-            if (totalBar) totalBar.classList.add('hidden');
-            return;
-        }
-        let grandTotal = 0;
-        wrap.innerHTML = entries.map(row => {
-            const key = String(row.sku).toUpperCase();
+        const lines = [];
+        let sumLines = 0;
+
+        for (let i = 0; i < entries.length; i++) {
+            const row = entries[i];
+            const key = String(row.sku || '').toUpperCase();
             const liveIt = bySkuMap.get(key);
             const itemName = (liveIt && cleanStr(liveIt.n)) || row.name || row.sku;
             const itemPriceStr = (liveIt && formatPrice(liveIt.pr)) || formatPrice(row.price);
-            const unitNum = parsePriceNum(itemPriceStr);
-            const qty = Number(row.qty) || 0;
-            const subTotal = unitNum * qty;
-            grandTotal += subTotal;
-            const subTotalStr = subTotal > 0 ? formatPrice(subTotal) : '';
+            const unitList = parsePriceNum(itemPriceStr);
+            const qty = Math.max(1, Number(row.qty) || 1);
+            const discPct = Math.max(0, Math.min(100, Number(row.discountPct) || 0));
+            const unitFinal = unitList * (1 - (discPct / 100));
+            const lineSubtotal = unitFinal * qty;
+            sumLines += lineSubtotal;
 
-            return '<div class="rounded-xl border p-3 flex items-center justify-between gap-2" style="border-color:#E8E4DE;">' +
-                '<div class="min-w-0 flex-1 cursor-pointer" onclick="closeCartModal(); openProductDetail(\'' + escapeHtml(key) + '\', false)">' +
+            lines.push({
+                key: key,
+                sku: row.sku,
+                name: itemName,
+                qty: qty,
+                discountPct: discPct,
+                unitList: unitList,
+                unitFinal: unitFinal,
+                lineSubtotal: lineSubtotal
+            });
+        }
+
+        const extraDiscount = Math.max(0, Number(quoteDraftMeta.extraDiscount) || 0);
+        const totalWithIva = Math.max(0, sumLines - extraDiscount);
+        const subtotalNoIva = totalWithIva / 1.16;
+        const ivaAmount = totalWithIva - subtotalNoIva;
+
+        return {
+            lines: lines,
+            sumLines: sumLines,
+            extraDiscount: extraDiscount,
+            subtotalNoIva: subtotalNoIva,
+            ivaAmount: ivaAmount,
+            totalWithIva: totalWithIva
+        };
+    }
+
+    function renderQuoteTotalsOnly() {
+        const totalBar = document.getElementById('cartTotalBar');
+        const subEl = document.getElementById('quoteSubtotalNoIva');
+        const ivaEl = document.getElementById('quoteIvaAmount');
+        const totalAmtEl = document.getElementById('cartTotalAmount');
+        const bd = computeQuoteBreakdown();
+
+        if (!bd.lines.length) {
+            if (totalBar) totalBar.classList.add('hidden');
+            return;
+        }
+        if (totalBar) totalBar.classList.remove('hidden');
+        if (subEl) subEl.textContent = formatPrice(bd.subtotalNoIva) || '$0.00';
+        if (ivaEl) ivaEl.textContent = formatPrice(bd.ivaAmount) || '$0.00';
+        if (totalAmtEl) totalAmtEl.textContent = formatPrice(bd.totalWithIva) || '$0.00';
+    }
+
+    function renderCartItems() {
+        const wrap = document.getElementById('cartItemsContainer');
+        const countLbl = document.getElementById('quoteItemsCountLabel');
+        if (!wrap) return;
+
+        const bd = computeQuoteBreakdown();
+        if (countLbl) {
+            countLbl.textContent = bd.lines.length + (bd.lines.length === 1 ? ' partida' : ' partidas') +
+                (bd.lines.length > 15 ? ' (excede límite de 15)' : '');
+            countLbl.style.color = bd.lines.length > 15 ? '#991B1B' : '#252C32';
+        }
+
+        if (!bd.lines.length) {
+            wrap.innerHTML = '<div class="text-center py-6 rounded-xl border text-xs font-semibold opacity-60" style="border-color:#E8E4DE;">No hay productos agregados a la plantilla de cotización.</div>';
+            renderQuoteTotalsOnly();
+            return;
+        }
+
+        wrap.innerHTML = bd.lines.map((ln, idx) => {
+            const unitStr = ln.unitList > 0 ? formatPrice(ln.unitList) : 'Sin precio';
+            const lineSubStr = ln.lineSubtotal > 0 ? formatPrice(ln.lineSubtotal) : '$0.00';
+            return '<div class="rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5" style="border-color:#E8E4DE; background:#FFFFFF;">' +
+                '<div class="min-w-0 flex-1 cursor-pointer" onclick="closeCartModal(); openProductDetail(\'' + escapeHtml(ln.key) + '\', false)">' +
                     '<div class="text-xs font-extrabold uppercase leading-snug" style="color:#252C32;">' +
-                        formatTitleWithPriceHtml(itemName, itemPriceStr) +
+                        '<span class="opacity-50 mr-1">' + (idx + 1) + '.</span>' +
+                        escapeHtml(ln.name) +
                     '</div>' +
-                    '<div class="text-[11px] font-bold mt-0.5" style="color:#A38251;">' +
-                        escapeHtml(row.sku) +
-                        (subTotalStr && qty > 1 ? (' · Subtotal: ' + escapeHtml(subTotalStr)) : '') +
+                    '<div class="text-[11px] font-bold mt-0.5 flex flex-wrap items-center gap-2" style="color:#A38251;">' +
+                        '<span>' + escapeHtml(ln.sku) + '</span>' +
+                        '<span>· P. Lista: ' + escapeHtml(unitStr) + '</span>' +
+                        '<span style="color:#252C32;">· Importe: ' + escapeHtml(lineSubStr) + '</span>' +
                     '</div>' +
                 '</div>' +
-                '<div class="flex items-center gap-1.5 shrink-0">' +
-                    '<button type="button" onclick="addToCart(\'' + escapeHtml(key) + '\', -1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#E1DBC5;">−</button>' +
-                    '<span class="w-7 text-center text-xs font-extrabold">' + qty + '</span>' +
-                    '<button type="button" onclick="addToCart(\'' + escapeHtml(key) + '\', 1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#A38251; background:#A38251; color:#FFF;">+</button>' +
+                '<div class="flex items-center gap-2 shrink-0 ml-auto">' +
+                    '<div class="flex items-center gap-1" title="Porcentaje de descuento en esta partida">' +
+                        '<span class="text-[10px] font-bold uppercase opacity-70">Desc%</span>' +
+                        '<input type="number" min="0" max="100" step="0.5" value="' + (ln.discountPct || 0) + '" ' +
+                               'onchange="setCartItemDiscount(\'' + escapeHtml(ln.key) + '\', this.value)" ' +
+                               'class="w-14 rounded-lg border px-1.5 py-1 text-center text-xs font-bold outline-none" ' +
+                               'style="border-color:#E1DBC5; color:#252C32;">' +
+                    '</div>' +
+                    '<div class="flex items-center gap-1">' +
+                        '<button type="button" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#E1DBC5;">−</button>' +
+                        '<span class="w-6 text-center text-xs font-extrabold">' + ln.qty + '</span>' +
+                        '<button type="button" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#A38251; background:#A38251; color:#FFF;">+</button>' +
+                    '</div>' +
                 '</div>' +
             '</div>';
         }).join('');
 
-        if (totalBar && totalAmtEl) {
-            if (grandTotal > 0) {
-                totalAmtEl.textContent = formatPrice(grandTotal);
-                totalBar.classList.remove('hidden');
-            } else {
-                totalBar.classList.add('hidden');
-            }
+        renderQuoteTotalsOnly();
+    }
+
+    function collectQuoteSubmissionPayload(sendToErp) {
+        saveQuoteDraftMeta();
+        const bd = computeQuoteBreakdown();
+        const storeSel = document.getElementById('quoteErpStoreSelect');
+        const advSel = document.getElementById('quoteErpAdvisorSelect');
+        const erpStore = (storeSel && storeSel.value) || quoteDraftMeta.erpStore ||
+            (activeAdvisorSession && activeAdvisorSession.erpStore) || 'CREATA PUERTO CANCUN';
+        const erpAdvisorLabel = (advSel && advSel.value) || quoteDraftMeta.erpAdvisorLabel ||
+            (activeAdvisorSession && activeAdvisorSession.erpAdvisorLabel) || '';
+
+        return {
+            sendToErp: !!sendToErp,
+            advisorEmail: activeAdvisorSession ? activeAdvisorSession.correo : '',
+            advisorName: activeAdvisorSession ? activeAdvisorSession.nombre : '',
+            branchLabel: activeAdvisorSession ? activeAdvisorSession.branchLabel : '',
+            erpStore: erpStore,
+            erpAdvisorLabel: erpAdvisorLabel,
+            categoryLabel: quoteDraftMeta.categoryLabel || 'COTIZACIONES [ID: 2]',
+            clientMode: quoteDraftMeta.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)',
+            clientName: cleanStr(quoteDraftMeta.clientName) || 'PROSPECTO EN TIENDA',
+            clientPhone: cleanStr(quoteDraftMeta.clientPhone),
+            deliveryDate: isoDateToDMY(quoteDraftMeta.deliveryDateIso || getDefaultDeliveryIsoDate()),
+            notes: cleanStr(quoteDraftMeta.notes),
+            extraDiscount: bd.extraDiscount,
+            items: bd.lines.map(ln => ({
+                sku: ln.sku,
+                name: ln.name,
+                qty: ln.qty,
+                discountPct: ln.discountPct,
+                unitList: ln.unitList,
+                lineSubtotal: ln.lineSubtotal
+            })),
+            breakdown: bd
+        };
+    }
+
+    function buildFormattedQuoteText(payload) {
+        const bd = payload.breakdown;
+        const lines = [
+            'PLANTILLA DE COTIZACIÓN — CREATA MUEBLES',
+            'Sucursal Sistema: ' + payload.erpStore,
+            'Usuario / Asesor: ' + (payload.erpAdvisorLabel || payload.advisorName || ''),
+            'Correo Asesor: ' + (payload.advisorEmail || '') + (payload.branchLabel ? (' (' + payload.branchLabel + ')') : ''),
+            'Categoría: ' + payload.categoryLabel,
+            'Modalidad Cliente: ' + payload.clientMode,
+            'Cliente / Prospecto: ' + payload.clientName,
+            payload.clientPhone ? ('Teléfono: ' + payload.clientPhone) : '',
+            'Entrega Tentativa: ' + payload.deliveryDate,
+            payload.notes ? ('Notas: ' + payload.notes) : '',
+            '----------------------------------------',
+            'PARTIDAS:'
+        ].filter(Boolean);
+
+        bd.lines.forEach((ln, i) => {
+            const discTxt = ln.discountPct > 0 ? (' (-' + ln.discountPct + '%)') : '';
+            lines.push(
+                (i + 1) + '. [' + ln.sku + '] ' + ln.name +
+                ' | Cant: ' + ln.qty +
+                ' | P. Lista: ' + (formatPrice(ln.unitList) || '$0.00') +
+                discTxt +
+                ' | Importe: ' + (formatPrice(ln.lineSubtotal) || '$0.00')
+            );
+        });
+
+        lines.push('----------------------------------------');
+        if (bd.extraDiscount > 0) {
+            lines.push('Descuento Extra: -' + formatPrice(bd.extraDiscount));
         }
+        lines.push('Subtotal (sin IVA): ' + (formatPrice(bd.subtotalNoIva) || '$0.00'));
+        lines.push('IVA (16%): ' + (formatPrice(bd.ivaAmount) || '$0.00'));
+        lines.push('TOTAL COTIZACIÓN: ' + (formatPrice(bd.totalWithIva) || '$0.00'));
+        return lines.join('\n');
     }
 
     window.copyCartSummary = function () {
-        const entries = Object.values(cart);
-        if (!entries.length) return;
-        let grandTotal = 0;
-        const lines = entries.map(r => {
-            const key = String(r.sku).toUpperCase();
-            const liveIt = bySkuMap.get(key);
-            const itemName = (liveIt && cleanStr(liveIt.n)) || r.name || r.sku;
-            const itemPriceStr = (liveIt && formatPrice(liveIt.pr)) || formatPrice(r.price);
-            const unitNum = parsePriceNum(itemPriceStr);
-            const qty = Number(r.qty) || 0;
-            grandTotal += unitNum * qty;
-            return qty + 'x [' + r.sku + '] ' + formatTitleWithPricePlain(itemName, itemPriceStr);
-        });
-        if (grandTotal > 0) {
-            lines.push('TOTAL COTIZACIÓN: ' + formatPrice(grandTotal));
-        }
+        const bd = computeQuoteBreakdown();
+        if (!bd.lines.length) return;
+        const payload = collectQuoteSubmissionPayload(false);
+        const text = buildFormattedQuoteText(payload);
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(lines.join('\n'));
+            navigator.clipboard.writeText(text);
         }
         const btn = document.getElementById('copyCartBtn');
         if (btn) {
             const prev = btn.textContent;
             btn.textContent = '✓ Copiado';
-            setTimeout(() => { btn.textContent = prev; }, 900);
+            setTimeout(() => { btn.textContent = prev; }, 1100);
+        }
+    };
+
+    window.printQuoteTemplate = function () {
+        const bd = computeQuoteBreakdown();
+        if (!bd.lines.length) return;
+        const payload = collectQuoteSubmissionPayload(false);
+        const todayStr = formatDateDMY(new Date());
+        const logoSrc = window.CREATA_LOGO_B64 || '';
+
+        const rowsHtml = bd.lines.map((ln, idx) =>
+            '<tr>' +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (idx + 1) + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;font-weight:700;">' + escapeHtml(ln.sku) + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;">' + escapeHtml(ln.name) + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;font-weight:700;">' + ln.qty + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:right;">' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (ln.discountPct > 0 ? (ln.discountPct + '%') : '0%') + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:right;font-weight:700;">' + escapeHtml(formatPrice(ln.lineSubtotal) || '$0.00') + '</td>' +
+            '</tr>'
+        ).join('');
+
+        const win = window.open('', '_blank');
+        if (!win) return;
+        win.document.write(
+            '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Cotización — ' + escapeHtml(payload.clientName) + '</title>' +
+            '<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700;800&display=swap" rel="stylesheet">' +
+            '<style>body{font-family:Raleway,sans-serif;color:#252C32;margin:28px;font-size:12px;} ' +
+            'table{width:100%;border-collapse:collapse;margin-top:16px;} th{background:#252C32;color:#FFF;padding:9px 8px;text-transform:uppercase;font-size:11px;letter-spacing:0.04em;} ' +
+            '.box{border:1px solid #E1DBC5;border-radius:10px;padding:12px 14px;margin-top:12px;background:#FAF9F6;} ' +
+            '@media print{.no-print{display:none!important;}}</style></head><body>' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;background:#252C32;color:#FFF;padding:16px 20px;border-radius:12px;">' +
+                '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:48px;object-fit:contain;">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+                '<div style="text-align:right;">' +
+                    '<div style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">Plantilla de Cotización</div>' +
+                    '<div style="color:#E1DBC5;font-size:11px;margin-top:3px;">Fecha: ' + escapeHtml(todayStr) + ' · ' + escapeHtml(payload.erpStore) + '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="box" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+                '<div><strong>Cliente / Prospecto:</strong> ' + escapeHtml(payload.clientName) + '</div>' +
+                '<div><strong>Modalidad:</strong> ' + escapeHtml(payload.clientMode) + '</div>' +
+                '<div><strong>Teléfono:</strong> ' + escapeHtml(payload.clientPhone || 'Por definir') + '</div>' +
+                '<div><strong>Entrega Tentativa:</strong> ' + escapeHtml(payload.deliveryDate) + '</div>' +
+                '<div><strong>Asesor / Usuario Sistema:</strong> ' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</div>' +
+                '<div><strong>Categoría:</strong> ' + escapeHtml(payload.categoryLabel) + '</div>' +
+                (payload.notes ? ('<div style="grid-column:span 2;"><strong>Notas:</strong> ' + escapeHtml(payload.notes) + '</div>') : '') +
+            '</div>' +
+            '<table><thead><tr><th>#</th><th>SKU</th><th style="text-align:left;">Descripción</th><th>Cant.</th><th style="text-align:right;">Precio Lista</th><th>% Desc.</th><th style="text-align:right;">Importe</th></tr></thead>' +
+            '<tbody>' + rowsHtml + '</tbody></table>' +
+            '<div style="margin-left:auto;max-width:300px;margin-top:16px;border:1px solid #E1DBC5;border-radius:10px;padding:12px 14px;background:#FAF9F6;">' +
+                (bd.extraDiscount > 0 ? ('<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Descuento Extra:</span><strong>-' + escapeHtml(formatPrice(bd.extraDiscount)) + '</strong></div>') : '') +
+                '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Subtotal (sin IVA):</span><strong>' + escapeHtml(formatPrice(bd.subtotalNoIva) || '$0.00') + '</strong></div>' +
+                '<div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>IVA (16%):</span><strong>' + escapeHtml(formatPrice(bd.ivaAmount) || '$0.00') + '</strong></div>' +
+                '<div style="display:flex;justify-content:space-between;border-top:1px solid #E1DBC5;padding-top:8px;font-size:14px;font-weight:800;color:#A38251;"><span>TOTAL COTIZACIÓN:</span><span>' + escapeHtml(formatPrice(bd.totalWithIva) || '$0.00') + '</span></div>' +
+            '</div>' +
+            '<div class="no-print" style="margin-top:20px;text-align:right;">' +
+                '<button onclick="window.print()" style="background:#A38251;color:#FFF;border:none;padding:10px 20px;border-radius:999px;font-weight:800;cursor:pointer;text-transform:uppercase;">Imprimir / Guardar PDF</button>' +
+            '</div>' +
+            '</body></html>'
+        );
+        win.document.close();
+    };
+
+    function renderQuoteStatusBanner(tone, htmlContent) {
+        const box = document.getElementById('quoteSystemStatusBox');
+        if (!box) return;
+        if (!htmlContent) {
+            box.innerHTML = '';
+            box.classList.add('hidden');
+            return;
+        }
+        box.className = 'rounded-xl border p-3.5 text-xs space-y-1.5 ' +
+            (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
+        box.innerHTML = htmlContent;
+        box.classList.remove('hidden');
+    }
+
+    async function readLivePlantillaHeaderStatus() {
+        const rows = await fetchSheetCsvRows('plantilla', 'range=A5:M11');
+        if (!rows || rows.length < 5) return null;
+        return {
+            ok: true,
+            erpStore: cleanStr(rows[0] && rows[0][2]),
+            erpAdvisor: cleanStr(rows[1] && rows[1][2]),
+            erpUserId: cleanStr(rows[1] && rows[1][6]),
+            actionState: cleanStr(rows[0] && rows[0][10]),
+            erpStatus: cleanStr(rows[1] && rows[1][10]),
+            quoteId: cleanStr(rows[2] && rows[2][10]),
+            folio: cleanStr(rows[2] && rows[2][12]),
+            lastSync: cleanStr(rows[4] && rows[4][10])
+        };
+    }
+
+    window.submitQuoteToSystem = async function (sendToErp) {
+        if (quoteSubmitInFlight) return;
+        const bd = computeQuoteBreakdown();
+        if (!bd.lines.length) {
+            renderQuoteStatusBanner('err', '<div>Agrega al menos un producto antes de generar o enviar la cotización.</div>');
+            return;
+        }
+        if (bd.lines.length > 15) {
+            renderQuoteStatusBanner('err', '<div>La hoja <strong>plantilla</strong> admite máximo 15 partidas por cotización (actualmente tienes ' + bd.lines.length + ').</div>');
+            return;
+        }
+
+        const nameInp = document.getElementById('quoteClientNameInput');
+        if (nameInp && !cleanStr(nameInp.value)) {
+            nameInp.focus();
+            renderQuoteStatusBanner('warn', '<div>Ingresa el <strong>Nombre del Cliente / Prospecto</strong> para registrar la cotización.</div>');
+            return;
+        }
+
+        const payload = collectQuoteSubmissionPayload(sendToErp);
+        const btnRev = document.getElementById('btnLoadPlantillaReview');
+        const btnSend = document.getElementById('btnSendQuoteErp');
+        quoteSubmitInFlight = true;
+        if (btnRev) btnRev.disabled = true;
+        if (btnSend) btnSend.disabled = true;
+
+        renderQuoteStatusBanner(
+            'warn',
+            '<div class="font-extrabold uppercase">' +
+                (sendToErp ? 'Enviando cotización al sistema S Mueblería...' : 'Cargando datos en la hoja Plantilla...') +
+            '</div>' +
+            '<div>Usuario asignado: <strong>' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</strong> · ' + escapeHtml(payload.erpStore) + '</div>'
+        );
+
+        try {
+            const res = await callInvWebAppPost('inv_submit_quote', payload, 18000);
+            if (res && res.ok) {
+                if (!sendToErp) {
+                    renderQuoteStatusBanner(
+                        'ok',
+                        '<div class="font-extrabold uppercase">✓ Plantilla cargada en revisión en Google Sheets</div>' +
+                        '<div>Sucursal: <strong>' + escapeHtml(res.erpStore || payload.erpStore) + '</strong> · Usuario ERP: <strong>' + escapeHtml(res.erpAdvisor || payload.erpAdvisorLabel) + '</strong></div>' +
+                        (res.erpStatus ? ('<div>Estado: ' + escapeHtml(res.erpStatus) + '</div>') : '')
+                    );
+                    return;
+                }
+
+                // Esperar confirmación de Folio ERP generado por servicio_en_vivo.py (hasta ~24s)
+                let latest = res;
+                for (let attempt = 0; attempt < 8; attempt++) {
+                    if (latest && (cleanStr(latest.folio) || cleanStr(latest.quoteId) || /COTIZACI[ÓO]N CREADA|ERROR/i.test(String(latest.erpStatus || '')))) {
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 3000));
+                    const polled = await readLivePlantillaHeaderStatus();
+                    if (polled) latest = polled;
+                }
+
+                const folioTxt = cleanStr(latest && latest.folio);
+                const qidTxt = cleanStr(latest && latest.quoteId);
+                const stTxt = cleanStr(latest && latest.erpStatus);
+
+                if (folioTxt || qidTxt) {
+                    renderQuoteStatusBanner(
+                        'ok',
+                        '<div class="font-extrabold uppercase">✓ Cotización registrada en S Mueblería</div>' +
+                        '<div>Folio ERP: <strong>' + escapeHtml(folioTxt || 'Generado') + '</strong>' +
+                            (qidTxt ? (' · ID Cotización: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') +
+                        '</div>' +
+                        (stTxt ? ('<div>' + escapeHtml(stTxt) + '</div>') : '')
+                    );
+                } else {
+                    renderQuoteStatusBanner(
+                        'ok',
+                        '<div class="font-extrabold uppercase">✓ Solicitud enviada a la hoja Plantilla (S Mueblería)</div>' +
+                        '<div>La orden quedó marcada en <strong>ENVIAR COTIZACIÓN A S MUEBLERÍA</strong> con tu usuario <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong>.</div>' +
+                        (stTxt ? ('<div>Estado actual en hoja: ' + escapeHtml(stTxt) + '</div>') : '')
+                    );
+                }
+                return;
+            }
+
+            // Si el Apps Script de Google Sheets requiere publicar su nueva versión:
+            window.copyCartSummary();
+            renderQuoteStatusBanner(
+                'warn',
+                '<div class="font-extrabold uppercase">Plantilla generada y copiada al portapapeles</div>' +
+                '<div>Para que el botón escriba automáticamente en la pestaña <strong>plantilla</strong> y actualice contraseñas directo en Google Sheets, publica la nueva versión de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Nueva implementación</em>.</div>' +
+                '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / PDF de esta Cotización →</button></div>'
+            );
+        } finally {
+            quoteSubmitInFlight = false;
+            if (btnRev) btnRev.disabled = false;
+            if (btnSend) btnSend.disabled = false;
         }
     };
 
@@ -943,6 +2152,11 @@
     let lastKeyTime = 0;
 
     document.addEventListener('keydown', function (ev) {
+        const authModalEl = document.getElementById('authModal');
+        if (authModalEl && authModalEl.classList.contains('open')) {
+            return;
+        }
+
         if (ev.key === 'Escape') {
             closeProductDetail();
             closeCartModal();
@@ -969,7 +2183,7 @@
             }
         }
 
-        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
 
         const now = Date.now();
         if (now - lastKeyTime > 120) {
@@ -1427,6 +2641,7 @@
         if (liveSyncInFlight) return;
         liveSyncInFlight = true;
         try {
+            syncPendingKeyUpdatesToCloud().catch(() => {});
             await fetchLiveLpptOrders();
             let ok = false;
             if (META.gid != null) {
@@ -1491,6 +2706,23 @@
     }
 
     document.addEventListener('DOMContentLoaded', async function () {
+        openAuthModalForStartup();
+        loadErpCatalogLiveFromSheet().then(() => {
+            if (activeAdvisorSession) {
+                if (!activeAdvisorSession.erpAdvisorLabel && erpAdvisorsCatalog.length > 0) {
+                    const matched = matchBestErpAdvisorClient(activeAdvisorSession.nombre, activeAdvisorSession.erpStore, erpAdvisorsCatalog);
+                    if (matched) {
+                        activeAdvisorSession.erpAdvisorLabel = matched.label;
+                        activeAdvisorSession.erpAdvisorId = matched.id;
+                        activeAdvisorSession.erpAdvisorBranch = matched.branch;
+                        saveAdvisorSession(activeAdvisorSession);
+                        renderAdvisorHeaderBar();
+                    }
+                }
+                populateQuoteAdvisorControls();
+            }
+        });
+
         await unpackInitialInventoryIfNeeded();
         lastLiveSignature = computeItemsSignature(allItems);
         indexItemsAndGroups();
@@ -1500,7 +2732,9 @@
             inp.addEventListener('input', function () {
                 applyFilter(this.value);
             });
-            inp.focus();
+            if (activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
+                inp.focus();
+            }
         }
         applyFilter('');
         refreshLiveSheetNow();

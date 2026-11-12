@@ -119,6 +119,31 @@
                 <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
             </div>
 
+            <!-- BARRA DE SESIÓN DEL ASESOR Y UBICACIÓN ACTIVA -->
+            <div id="advisorSessionBar" class="hidden mb-3 px-3.5 py-2 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs"
+                 style="background:rgba(255,255,255,0.08); border-color:rgba(225,219,197,0.3); color:#FFFFFF;">
+                <div class="flex flex-wrap items-center gap-2 min-w-0">
+                    <span class="inline-block w-2 h-2 rounded-full shrink-0" style="background:#10B981;"></span>
+                    <span id="sessionUserName" class="font-extrabold uppercase tracking-wide truncate"></span>
+                    <span id="sessionBranchBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wider"
+                          style="background:#A38251; color:#FFFFFF;"></span>
+                    <span id="sessionErpBadge" class="hidden px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+                          style="background:rgba(225,219,197,0.18); color:#E1DBC5;"></span>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0 ml-auto">
+                    <button type="button" id="sessionSwitchBranchBtn" onclick="openSwitchBranchSelector()"
+                            class="hidden px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border transition hover:opacity-90"
+                            style="border-color:#E1DBC5; color:#E1DBC5; background:transparent;">
+                        Cambiar ubicación
+                    </button>
+                    <button type="button" onclick="logoutAdvisorSession()"
+                            class="px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border transition hover:opacity-90"
+                            style="border-color:rgba(255,255,255,0.35); color:#FFFFFF; background:transparent;">
+                        Salir
+                    </button>
+                </div>
+            </div>
+
             <div class="flex items-center justify-between mb-2.5">
                 <h1 class="text-sm sm:text-base font-bold tracking-wider uppercase text-white">Búsqueda de productos</h1>
                 <button type="button" onclick="openCartModal()" id="headerCartBtn"
@@ -223,35 +248,266 @@
         </div>
     </div>
 
-    <!-- MODAL DE COTIZACIÓN -->
+    <!-- MODAL DE PLANTILLA DE COTIZACIÓN · VINCULADA AL SISTEMA -->
     <div id="cartModal" class="modal-backdrop" onclick="if(event.target===this) closeCartModal()">
-        <div class="bg-white rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
-            <div class="px-5 py-4 border-b flex items-center justify-between" style="background:#252C32; color:#FFFFFF;">
-                <h2 class="text-sm font-extrabold uppercase tracking-wider">Cotización</h2>
-                <button type="button" onclick="closeCartModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg">✕</button>
+        <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
+            <div class="px-5 py-4 border-b flex items-center justify-between gap-3" style="background:#252C32; color:#FFFFFF;">
+                <div class="min-w-0">
+                    <h2 class="text-sm sm:text-base font-extrabold uppercase tracking-wider">Plantilla de Cotización</h2>
+                    <div id="quoteHeaderAdvisorInfo" class="text-[11px] font-semibold truncate mt-0.5" style="color:#E1DBC5;"></div>
+                </div>
+                <button type="button" onclick="closeCartModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0">✕</button>
             </div>
-            <div id="cartItemsContainer" class="flex-1 overflow-y-auto p-4 space-y-2.5"></div>
-            <div id="cartTotalBar" class="px-4 py-2.5 border-t flex items-center justify-between text-xs font-extrabold uppercase hidden" style="border-color:#E8E4DE; background:#FAFAFA; color:#252C32;">
-                <span>Total Cotización:</span>
-                <span id="cartTotalAmount" class="text-sm font-black" style="color:#A38251;">$0.00</span>
+
+            <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+                <!-- SECCIÓN 1: CUENTA DE USUARIO DEL SISTEMA Y UBICACIÓN -->
+                <div class="rounded-xl border p-3.5 space-y-3" style="border-color:#E1DBC5; background:#FAF9F6;">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">1. Cuenta de Usuario y Sucursal del Sistema</span>
+                        <span id="quoteErpUserIdBadge" class="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full" style="background:#252C32; color:#FFFFFF;"></span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Tienda / Sucursal</label>
+                            <select id="quoteErpStoreSelect" onchange="onQuoteStoreChange()"
+                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                                <option value="CREATA PUERTO CANCUN">CREATA PUERTO CANCUN</option>
+                                <option value="CASA CREATA BONAMPAK">CASA CREATA BONAMPAK</option>
+                                <option value="CREATA LIVING COLOSIO">CREATA LIVING COLOSIO</option>
+                                <option value="CREATA LIVING PLAYA">CREATA LIVING PLAYA</option>
+                                <option value="OUTLET COLOSIO">OUTLET COLOSIO</option>
+                                <option value="PROYECTOS ANIPA INTERIOR">PROYECTOS ANIPA INTERIOR</option>
+                                <option value="CEDIS">CEDIS</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Usuario / Asesor Sistema (S Mueblería)</label>
+                            <select id="quoteErpAdvisorSelect" onchange="onQuoteAdvisorChange()"
+                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN 2: DATOS DEL CLIENTE Y CONDICIONES DE LA COTIZACIÓN -->
+                <div class="rounded-xl border p-3.5 space-y-3" style="border-color:#E8E4DE; background:#FFFFFF;">
+                    <div class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">2. Datos Necesarios para la Cotización</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Modalidad de Cliente</label>
+                            <select id="quoteClientModeSelect" onchange="saveQuoteDraftMeta()"
+                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                                <option value="PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)">Prospecto provisional (solo nombre)</option>
+                                <option value="PUBLICO EN GENERAL [ID CLIENTE: 3558954]">Público en General [ID: 3558954]</option>
+                                <option value="MOSTRADOR CREATA [ID CLIENTE: 2730703]">Mostrador Creata [ID: 2730703]</option>
+                                <option value="VENTA GENERAL [ID CLIENTE: 3149126]">Venta General [ID: 3149126]</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Categoría de Cotización</label>
+                            <select id="quoteCategorySelect" onchange="saveQuoteDraftMeta()"
+                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                                <option value="COTIZACIONES [ID: 2]">COTIZACIONES [ID: 2]</option>
+                                <option value="COTIZACION A CREDITO [ID: 304]">COTIZACIÓN A CRÉDITO [ID: 304]</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Nombre del Cliente / Prospecto *</label>
+                            <input id="quoteClientNameInput" type="text" oninput="saveQuoteDraftMeta()"
+                                   placeholder="Nombre completo o proyecto..."
+                                   class="w-full rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
+                                   style="border-color:#E1DBC5; color:#252C32;">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Teléfono (Opcional)</label>
+                                <input id="quoteClientPhoneInput" type="tel" oninput="saveQuoteDraftMeta()"
+                                       placeholder="998 000 0000"
+                                       class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                       style="border-color:#E1DBC5; color:#252C32;">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Entrega Tentativa</label>
+                                <input id="quoteDeliveryDateInput" type="date" onchange="saveQuoteDraftMeta()"
+                                       class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                       style="border-color:#E1DBC5; color:#252C32;">
+                            </div>
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Notas / Observaciones</label>
+                            <input id="quoteNotesInput" type="text" oninput="saveQuoteDraftMeta()"
+                                   placeholder="Acabados especiales, comentarios de entrega o referencias..."
+                                   class="w-full rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
+                                   style="border-color:#E1DBC5; color:#252C32;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN 3: PARTIDAS SELECCIONADAS -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">3. Productos en la Cotización (Máx. 15 partidas en plantilla)</span>
+                        <span id="quoteItemsCountLabel" class="text-[11px] font-bold" style="color:#252C32;">0 partidas</span>
+                    </div>
+                    <div id="cartItemsContainer" class="space-y-2"></div>
+                </div>
+
+                <!-- SECCIÓN 4: TOTALES Y DESCUENTO EXTRA -->
+                <div id="cartTotalBar" class="rounded-xl border p-3.5 space-y-2 hidden" style="border-color:#E1DBC5; background:#FAF9F6; color:#252C32;">
+                    <div class="flex items-center justify-between gap-2 text-xs">
+                        <label for="quoteExtraDiscountInput" class="font-bold uppercase">Descuento Extra ($):</label>
+                        <input id="quoteExtraDiscountInput" type="number" min="0" step="1" value="0" oninput="onExtraDiscountChange()"
+                               class="w-32 rounded-lg border px-2.5 py-1 text-right text-xs font-extrabold outline-none"
+                               style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                    </div>
+                    <div class="flex items-center justify-between text-xs font-semibold">
+                        <span>Subtotal (sin IVA):</span>
+                        <span id="quoteSubtotalNoIva">$0.00</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs font-semibold">
+                        <span>IVA (16%):</span>
+                        <span id="quoteIvaAmount">$0.00</span>
+                    </div>
+                    <div class="pt-2 border-t flex items-center justify-between text-xs sm:text-sm font-extrabold uppercase" style="border-color:#E1DBC5;">
+                        <span>Total Cotización:</span>
+                        <span id="cartTotalAmount" class="text-base font-black" style="color:#A38251;">$0.00</span>
+                    </div>
+                </div>
+
+                <!-- ESTADO DE ENVÍO AL SISTEMA / HOJA PLANTILLA -->
+                <div id="quoteSystemStatusBox" class="hidden rounded-xl border p-3.5 text-xs space-y-1.5"></div>
             </div>
-            <div class="p-4 border-t flex items-center justify-between gap-2" style="border-color:#E8E4DE; background:#FFFFFF;">
-                <button type="button" onclick="clearCart()" class="px-3.5 py-2 rounded-lg text-xs font-bold border" style="border-color:#E1DBC5; color:#252C32;">
-                    Vaciar
-                </button>
-                <button type="button" onclick="copyCartSummary()" id="copyCartBtn" class="px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider" style="background:#A38251; color:#FFFFFF;">
-                    Copiar Cotización
-                </button>
+
+            <div class="p-4 border-t flex flex-wrap items-center justify-between gap-2" style="border-color:#E8E4DE; background:#FFFFFF;">
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="clearCart()" class="px-3 py-2 rounded-lg text-xs font-bold border" style="border-color:#E1DBC5; color:#252C32;">
+                        Vaciar
+                    </button>
+                    <button type="button" onclick="printQuoteTemplate()" class="px-3 py-2 rounded-lg text-xs font-bold border" style="border-color:#A38251; color:#252C32;">
+                        Vista / PDF
+                    </button>
+                    <button type="button" onclick="copyCartSummary()" id="copyCartBtn" class="px-3 py-2 rounded-lg text-xs font-bold border" style="border-color:#E1DBC5; color:#252C32;">
+                        Copiar
+                    </button>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 ml-auto">
+                    <button type="button" id="btnLoadPlantillaReview" onclick="submitQuoteToSystem(false)"
+                            class="px-3.5 py-2 rounded-lg text-xs font-extrabold uppercase tracking-wider border transition"
+                            style="border-color:#252C32; background:#252C32; color:#FFFFFF;">
+                        Cargar en Plantilla
+                    </button>
+                    <button type="button" id="btnSendQuoteErp" onclick="submitQuoteToSystem(true)"
+                            class="px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-wider transition"
+                            style="background:#A38251; color:#FFFFFF;">
+                        Enviar Cotización al Sistema
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
-    <script src="creata-finishes.js?v=28"></script>
-    <script src="creata-img.js?v=28"></script>
-    <script src="creata-cloud.js?v=28"></script>
-    <script src="inventario-data-1.js?v=28"></script>
-    <script src="inventario-data-2.js?v=28"></script>
-    <script src="inventario-data-3.js?v=28"></script>
-    <script src="inventario-app.js?v=28"></script>
+    <!-- MODAL DE INGRESO DE USUARIO, SELECCIÓN DE UBICACIÓN Y CAMBIO DE CONTRASEÑA TEMPORAL -->
+    <div id="authModal" class="modal-backdrop" style="z-index:85; background:rgba(37, 44, 50, 0.90);">
+        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
+            <div class="px-6 py-5 text-center border-b" style="background:#252C32; border-color:#A38251;">
+                <img id="authLogoImg" src="" alt="CREATA MUEBLES" class="h-14 mx-auto object-contain mb-2">
+                <script>if(window.CREATA_LOGO_B64){document.getElementById("authLogoImg").src=window.CREATA_LOGO_B64;}</script>
+                <div class="text-xs font-extrabold uppercase tracking-widest text-white">Acceso de Asesores y Cotizaciones</div>
+            </div>
+
+            <!-- PASO 1: INGRESO CON CORREO Y CONTRASEÑA -->
+            <form id="authStepLogin" onsubmit="submitAdvisorLogin(event)" class="p-6 space-y-4">
+                <div>
+                    <label for="authEmailInput" class="block text-xs font-extrabold uppercase mb-1.5" style="color:#252C32;">Correo electrónico</label>
+                    <input id="authEmailInput" type="email" required autocomplete="username"
+                           placeholder="nombre@casacreata.com"
+                           class="w-full rounded-xl border px-3.5 py-2.5 text-sm font-medium outline-none"
+                           style="border-color:#E1DBC5; color:#252C32;">
+                </div>
+                <div>
+                    <label for="authKeyInput" class="block text-xs font-extrabold uppercase mb-1.5" style="color:#252C32;">Contraseña (temporal o personal)</label>
+                    <div class="relative">
+                        <input id="authKeyInput" type="password" required autocomplete="current-password"
+                               placeholder="Ingresa tu contraseña..."
+                               class="w-full rounded-xl border pl-3.5 pr-16 py-2.5 text-sm font-medium outline-none"
+                               style="border-color:#E1DBC5; color:#252C32;">
+                        <button type="button" onclick="toggleAuthInputVisibility('authKeyInput', this)"
+                                class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-extrabold uppercase"
+                                style="color:#A38251;">Ver</button>
+                    </div>
+                    <p class="text-[11px] mt-1.5 leading-snug opacity-75" style="color:#252C32;">
+                        Si es tu primer ingreso, utiliza la contraseña temporal asignada en tu hoja de sucursal.
+                    </p>
+                </div>
+                <div id="authLoginMsg" class="hidden rounded-xl border px-3.5 py-2.5 text-xs font-bold"></div>
+                <button type="submit" id="authLoginSubmitBtn"
+                        class="w-full py-3 rounded-full text-xs font-extrabold uppercase tracking-wider transition"
+                        style="background:#A38251; color:#FFFFFF;">
+                    Ingresar
+                </button>
+            </form>
+
+            <!-- PASO 2: SELECCIÓN DE UBICACIÓN CUANDO EL CORREO ESTÁ EN VARIAS HOJAS -->
+            <div id="authStepBranch" class="p-6 space-y-4 hidden">
+                <div>
+                    <h3 class="text-sm font-extrabold uppercase" style="color:#252C32;">Selecciona tu ubicación</h3>
+                    <p id="authBranchSubtitle" class="text-xs mt-1 leading-relaxed opacity-80" style="color:#252C32;">
+                        Tu correo aparece registrado en más de una hoja. Elige en cuál ubicación vas a operar:
+                    </p>
+                </div>
+                <div id="authBranchOptionsList" class="space-y-2 max-h-64 overflow-y-auto"></div>
+                <button type="button" id="authBranchCancelBtn" onclick="cancelBranchSelection()"
+                        class="w-full py-2.5 rounded-full text-xs font-bold uppercase tracking-wider border"
+                        style="border-color:#E1DBC5; color:#252C32;">
+                    Volver
+                </button>
+            </div>
+
+            <!-- PASO 3: CAMBIO OBLIGATORIO DE CONTRASEÑA TEMPORAL -->
+            <form id="authStepNewKey" onsubmit="submitNewPersonalKey(event)" class="p-6 space-y-4 hidden">
+                <div class="rounded-xl border p-3 text-xs leading-relaxed" style="border-color:#FDE68A; background:#FFFBEB; color:#92400E;">
+                    <span class="font-extrabold uppercase block mb-0.5">Primer ingreso con contraseña temporal</span>
+                    Crea tu nueva contraseña personal. Al guardarla se registrará como definitiva y se borrará la contraseña temporal.
+                </div>
+                <div>
+                    <label for="authNewKeyInput" class="block text-xs font-extrabold uppercase mb-1.5" style="color:#252C32;">Nueva contraseña</label>
+                    <div class="relative">
+                        <input id="authNewKeyInput" type="password" minlength="4" required autocomplete="new-password"
+                               placeholder="Mínimo 4 caracteres"
+                               class="w-full rounded-xl border pl-3.5 pr-16 py-2.5 text-sm font-medium outline-none"
+                               style="border-color:#E1DBC5; color:#252C32;">
+                        <button type="button" onclick="toggleAuthInputVisibility('authNewKeyInput', this)"
+                                class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-extrabold uppercase"
+                                style="color:#A38251;">Ver</button>
+                    </div>
+                </div>
+                <div>
+                    <label for="authConfirmKeyInput" class="block text-xs font-extrabold uppercase mb-1.5" style="color:#252C32;">Confirmar nueva contraseña</label>
+                    <input id="authConfirmKeyInput" type="password" minlength="4" required autocomplete="new-password"
+                           placeholder="Repite tu nueva contraseña"
+                           class="w-full rounded-xl border px-3.5 py-2.5 text-sm font-medium outline-none"
+                           style="border-color:#E1DBC5; color:#252C32;">
+                </div>
+                <div id="authNewKeyMsg" class="hidden rounded-xl border px-3.5 py-2.5 text-xs font-bold"></div>
+                <button type="submit" id="authSaveNewKeyBtn"
+                        class="w-full py-3 rounded-full text-xs font-extrabold uppercase tracking-wider transition"
+                        style="background:#A38251; color:#FFFFFF;">
+                    Guardar nueva contraseña y continuar
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script src="creata-finishes.js?v=29"></script>
+    <script src="creata-img.js?v=29"></script>
+    <script src="creata-cloud.js?v=29"></script>
+    <script src="inventario-data-1.js?v=29"></script>
+    <script src="inventario-data-2.js?v=29"></script>
+    <script src="inventario-data-3.js?v=29"></script>
+    <script src="inventario-app.js?v=29"></script>
 </body>
 </html>
