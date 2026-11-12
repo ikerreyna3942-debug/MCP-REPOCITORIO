@@ -29,6 +29,7 @@ const CONFIG = {
   TAB_PIECES: 'PIEZAS_MODULOS',
   TAB_SALAS_SRC: 'SALAS_MODULARES',
   TAB_INDIV_SRC: 'MUEBLES_INDIVIDUALES',
+  TAB_INVENTORY: 'INVENTARIO_EN_VIVO',
   INVENTORY_COLS: ['CEDIS', 'CASA CREATA', 'COLOSIO', 'PLAYA', 'PUERTO CANCUN'],
   IGNORED_DRIVE_IDS: [
     '1gieOXN5gEVWaDcO9NqbywzAot7tW3pxA',
@@ -44,6 +45,8 @@ function onOpen() {
       .addItem('1. Dejar Todo Listo (Fórmulas + Inventario Vacío, Sin Fotos)', 'dejarTodoListoSinFotos')
       .addItem('2. Sincronizar Fichas Nuevas (Drive + Hojas -> Catálogo)', 'syncDriveFolderToSheet')
       .addItem('3. Activar Automatización Cada 10 Minutos', 'installSyncTrigger')
+      .addSeparator()
+      .addItem('4. Crear / Actualizar Pestaña INVENTARIO_EN_VIVO', 'sincronizarPestanaInventarioEnVivo')
       .addToUi();
   } catch (e) {}
 }
@@ -775,6 +778,30 @@ function doGet(e) {
       const syncRes = syncDriveFolderToSheet();
       ensureAutoSyncTrigger_();
       return jsonResponse_({ ok: true, action: 'sync_now', result: syncRes });
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  if (action === 'sync_inventory_tab') {
+    try {
+      const invRes = sincronizarPestanaInventarioEnVivo({ silentUi: true });
+      return jsonResponse_({ ok: true, action: 'sync_inventory_tab', result: invRes });
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  if (action === 'cm_inventory') {
+    try {
+      const ss = getSpreadsheet_();
+      let shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+      if (!shInv || shInv.getLastRow() <= 1) {
+        sincronizarPestanaInventarioEnVivo({ silentUi: true });
+        shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+      }
+      const rows = shInv ? shInv.getDataRange().getValues() : [];
+      return jsonResponse_({ ok: true, tab: CONFIG.TAB_INVENTORY, rows: rows });
     } catch (err) {
       return jsonResponse_({ ok: false, error: err.message || String(err) });
     }
@@ -1564,4 +1591,155 @@ function dejarTodoListoSinFotos(opts) {
   }
 
   return { ok: true, products: outProds.length, pieces: outPieces.length };
+}
+
+/**
+ * Crea o actualiza la pestaña INVENTARIO_EN_VIVO en este mismo documento
+ * (CONTROL DE PRODUCTOS PRESENTACIÓN) sin tocar SALAS_MODULARES, CATALOGO_PRODUCTOS,
+ * PIEZAS_MODULOS ni MUEBLES_INDIVIDUALES, conservando existencias o fotos ya capturadas.
+ */
+function sincronizarPestanaInventarioEnVivo(opts) {
+  const silentUi = !!(opts && opts.silentUi);
+  const ss = getSpreadsheet_();
+  const csvUrl = 'https://raw.githubusercontent.com/' +
+    CONFIG.GITHUB_OWNER + '/' + CONFIG.GITHUB_REPO + '/' + CONFIG.GITHUB_BRANCH + '/INVENTARIO_EN_VIVO.csv';
+
+  let parsed = null;
+  const resp = UrlFetchApp.fetch(csvUrl, { muteHttpExceptions: true });
+  if (resp.getResponseCode() >= 200 && resp.getResponseCode() < 300) {
+    parsed = Utilities.parseCsv(resp.getContentText('UTF-8'));
+  } else {
+    // Respaldo automático leyendo inventario-data-1..3.js comprimido desde GitHub
+    const baseRaw = 'https://raw.githubusercontent.com/' +
+      CONFIG.GITHUB_OWNER + '/' + CONFIG.GITHUB_REPO + '/' + CONFIG.GITHUB_BRANCH + '/';
+    let b64 = '';
+    for (let k = 1; k <= 3; k++) {
+      const rPart = UrlFetchApp.fetch(baseRaw + 'inventario-data-' + k + '.js', { muteHttpExceptions: true });
+      if (rPart.getResponseCode() >= 200 && rPart.getResponseCode() < 300) {
+        const matches = rPart.getContentText('UTF-8').match(/"([A-Za-z0-9+/=]+)"/g) || [];
+        b64 += matches.map((s) => s.slice(1, -1)).join('');
+      }
+    }
+    if (b64) {
+      const gzBlob = Utilities.newBlob(Utilities.base64Decode(b64), 'application/x-gzip', 'inv.gz');
+      const cols = JSON.parse(Utilities.ungzip(gzBlob).getDataAsString('UTF-8'));
+      const headers = [
+        'SKU', 'TIPO DE PRODUCTO', 'MODELO', 'NOMBRE', 'VARIANTE', 'FOTO', 'CATEGORIA',
+        'TELA', 'COLOR DE TELA', 'MADERA', 'COLOR DE MADERA', 'MATERIALES', 'MEDIDAS',
+        'PROVEEDOR', 'TIEMPO DE ENTREGA (DIAS)', 'CEDIS', 'CASA CREATA', 'PUERTO CANCUN', 'COLOSIO', 'PLAYA'
+      ];
+      parsed = [headers];
+      for (let i = 0; i < cols[0].length; i++) {
+        const st = cols[15][i] || [0, 0, 0, 0, 0];
+        parsed.push([
+          cols[0][i] || '', cols[1][i] || '', cols[2][i] || '', cols[3][i] || '', cols[4][i] || '',
+          cols[5][i] || '', cols[6][i] || '', cols[7][i] || '', cols[8][i] || '', cols[9][i] || '',
+          cols[10][i] || '', cols[11][i] || '', cols[12][i] || '', cols[13][i] || '', cols[14][i] || '',
+          st[0] || 0, st[1] || 0, st[2] || 0, st[3] || 0, st[4] || 0
+        ]);
+      }
+    }
+  }
+  if (!parsed || parsed.length < 2) {
+    throw new Error('No se pudieron obtener datos para INVENTARIO_EN_VIVO');
+  }
+
+  let sh = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+  const prevBySku = {};
+  if (sh && sh.getLastRow() > 1) {
+    const prevVals = sh.getDataRange().getValues();
+    for (let i = 1; i < prevVals.length; i++) {
+      const r = prevVals[i];
+      const sk = String(r[0] || '').trim().toUpperCase();
+      if (!sk) continue;
+      prevBySku[sk] = {
+        foto: String(r[5] || '').trim(),
+        stocks: [r[15], r[16], r[17], r[18], r[19]]
+      };
+    }
+  } else if (!sh) {
+    sh = ss.insertSheet(CONFIG.TAB_INVENTORY);
+  }
+
+  const outRows = [parsed[0]];
+  for (let i = 1; i < parsed.length; i++) {
+    const r = parsed[i].slice(0, 20);
+    while (r.length < 20) r.push('');
+    const sk = String(r[0] || '').trim().toUpperCase();
+    if (!sk) continue;
+    const prev = prevBySku[sk];
+    if (prev) {
+      if (!r[5] && prev.foto) r[5] = prev.foto;
+      for (let w = 0; w < 5; w++) {
+        const pv = prev.stocks[w];
+        if (pv !== '' && pv !== null && pv !== undefined && Number(pv) !== 0) {
+          r[15 + w] = Number(pv);
+        }
+      }
+    }
+    for (let w = 0; w < 5; w++) {
+      r[15 + w] = Number(r[15 + w]) || 0;
+    }
+    outRows.push(r);
+  }
+
+  const numRows = outRows.length;
+  const numCols = 20;
+  if (sh.getMaxRows() < numRows + 5) {
+    sh.insertRowsAfter(sh.getMaxRows(), numRows + 5 - sh.getMaxRows());
+  }
+  if (sh.getMaxColumns() < numCols) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), numCols - sh.getMaxColumns());
+  }
+  sh.clearContents();
+  sh.getRange(1, 1, numRows, numCols).setValues(outRows);
+
+  sh.setFrozenRows(1);
+  sh.setFrozenColumns(2);
+  sh.getRange(1, 1, 1, 15)
+    .setBackground('#252C32')
+    .setFontColor('#FFFFFF')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center');
+  sh.getRange(1, 16, 1, 5)
+    .setBackground('#A38251')
+    .setFontColor('#FFFFFF')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center');
+
+  if (numRows > 1) {
+    const stockRange = sh.getRange(2, 16, numRows - 1, 5);
+    stockRange.setHorizontalAlignment('center').setNumberFormat('#,##0');
+
+    const redRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberLessThanOrEqualTo(0)
+      .setBackground('#FEF2F2')
+      .setFontColor('#991B1B')
+      .setRanges([stockRange])
+      .build();
+    const yellowRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberBetween(1, 2)
+      .setBackground('#FFFBEB')
+      .setFontColor('#92400E')
+      .setBold(true)
+      .setRanges([stockRange])
+      .build();
+    const greenRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberGreaterThan(2)
+      .setBackground('#ECFDF5')
+      .setFontColor('#065F46')
+      .setBold(true)
+      .setRanges([stockRange])
+      .build();
+    sh.setConditionalFormatRules([redRule, yellowRule, greenRule]);
+  }
+
+  if (!silentUi) {
+    try {
+      SpreadsheetApp.getUi().alert(
+        'Pestaña INVENTARIO_EN_VIVO lista con ' + (numRows - 1) + ' SKUs conectados a inventario.html.'
+      );
+    } catch (e) {}
+  }
+  return { ok: true, rows: numRows - 1 };
 }
