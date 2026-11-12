@@ -524,7 +524,9 @@
                 const varLabel = cleanStr(it.vr) || cleanStr(it.tl) || cleanStr(it.md) || cleanStr(it.n) || it.s;
                 return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(varLabel) + '</div>' +
+                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
+                            formatTitleWithPriceHtml(varLabel, it.pr) +
+                        '</div>' +
                         '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
                     '<button type="button" title="Agregar a Cotización" data-sku-btn="' + escapeHtml(skuKey) + '" class="cart-plus-btn ' + (inCartQty > 0 ? 'in-cart' : '') + '">' +
