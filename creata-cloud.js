@@ -836,91 +836,11 @@
             return id && id.toUpperCase() !== 'ID_INTERNO';
         }));
 
-        // Si CATALOGO_PRODUCTOS aún está vacío, construimos el catálogo EN VIVO directamente desde
-        // SALAS_MODULARES (=CALCULAR_MONTO_SKU) y MUEBLES_INDIVIDUALES (=CALCULAR_PRECIO_SKU)
-        if (!hasCatalogRows) {
-            if (master.salasList.length === 0 && master.indivList.length === 0) return null;
-
-            const baseRaw = (mode === 'admin' && (global.ADMIN_RAW_P1 || global.ADMIN_RAW_P2))
-                ? [...(global.ADMIN_RAW_P1 || []), ...(global.ADMIN_RAW_P2 || [])]
-                : [...(global.CREATA_CATALOG_P1 || global.ADMIN_RAW_P1 || []), ...(global.CREATA_CATALOG_P2 || global.ADMIN_RAW_P2 || [])];
-
-            const usedSalas = {};
-            const usedIndivRows = {};
-            const synthesized = [];
-
-            baseRaw.forEach((bp) => {
-                if (!bp) return;
-                const clone = JSON.parse(JSON.stringify(bp));
-                const pid = String(clone.id || '').trim();
-                const modelName = scrubForbiddenPublicText(String(clone.model_name || ''));
-                clone.model_name = modelName;
-                clone.category = normalizeCategoryClient_(clone.category);
-                clone.archived = false;
-
-                // Limpiar cualquier foto precargada antigua (0 fotos por defecto salvo subidas nuevas)
-                if (Array.isArray(clone.variants)) {
-                    clone.variants.forEach((v) => {
-                        v.hero_b64 = '';
-                        v.swatch_img = '';
-                        v.gallery = { ambiente: '', finish: '', finishes: [], fabric: '', view1: '', view2: '', view3: '', view4: '', all_views: [] };
-                    });
-                }
-
-                let rawSku = String(clone.sku || pid).trim().toUpperCase();
-                rawSku.split('/').forEach((part) => {
-                    const sk = part.trim().toUpperCase();
-                    if (master.indivBySku[sk]) {
-                        master.indivBySku[sk].forEach((m, mIdx) => {
-                            usedIndivRows[m.rowIdx] = true;
-                            if (mIdx === 0) {
-                                if (m.priceNum > 0) clone.price = formatCurrencyMXN(m.priceNum);
-                                if (!clone.drive_ficha_url && m.driveUrl) clone.drive_ficha_url = m.driveUrl;
-                                clone.inventory = m.inventory || {};
-                            }
-                        });
-                    }
-                });
-
-                const sKey = matchSalaKeyForProduct_(modelName, pid, master.salasById);
-                if (sKey && master.salasById[sKey]) {
-                    usedSalas[sKey] = true;
-                    const sdata = master.salasById[sKey];
-                    const pList = sdata.pieces.map((x) => Object.assign({}, x));
-                    clone.sala_modules = pList;
-                    clone.is_multipiece = pList.length > 1;
-                    rawSku = pList.map((x) => x.sku).filter(Boolean).join(' / ') || rawSku;
-                    if (sdata.totalPrice > 0) {
-                        clone.price = formatCurrencyMXN(sdata.totalPrice);
-                    }
-                    if (sdata.driveUrl) {
-                        clone.drive_ficha_url = sdata.driveUrl;
-                        if (clone.variants && clone.variants[0]) clone.variants[0].drive_ficha_url = sdata.driveUrl;
-                    }
-                    clone.inventory = sdata.inventory || {};
-                }
-
-                if (mode === 'admin') {
-                    clone.sku = rawSku;
-                    synthesized.push(clone);
-                } else {
-                    const pub = sanitizePublicProduct(clone);
-                    if (pub) synthesized.push(pub);
-                }
-            });
-
-            if (mode === 'admin') {
-                master.salasList.forEach((sdata) => {
-                    if (usedSalas[sdata.id.toUpperCase()]) return;
-                    synthesized.push(buildArchivedSalaProduct_(sdata));
-                });
-                master.indivList.forEach((it) => {
-                    if (usedIndivRows[it.rowIdx]) return;
-                    synthesized.push(buildArchivedIndivProduct_(it));
-                });
-            }
-
-            return synthesized;
+        // Siempre cargamos primero lo guardado en CATALOGO_PRODUCTOS (ej. fotos nuevas o cambios de VISIBLE/ARCHIVADO),
+        // y completamos en vivo cualquier mueble de los 47 base que aún no tenga fila en CATALOGO_PRODUCTOS
+        // leyendo directamente SALAS_MODULARES (=CALCULAR_MONTO_SKU) y MUEBLES_INDIVIDUALES (=CALCULAR_PRECIO_SKU).
+        if (!hasCatalogRows && master.salasList.length === 0 && master.indivList.length === 0) {
+            return null;
         }
 
         const invCols = CREATA_CLOUD_CONFIG.inventoryLocations || [];
@@ -962,18 +882,15 @@
         const out = [];
         const seenIds = new Set();
         const seenSkus = new Set();
+        const seenModels = new Set();
         const usedSalasInCat = {};
 
-        prodTbl.rows.forEach((r) => {
+        const catalogRows = (prodTbl && Array.isArray(prodTbl.rows)) ? prodTbl.rows : [];
+        catalogRows.forEach((r) => {
             const id = String(gvizCell(r, 0) || '').trim();
             if (!id || id.toUpperCase() === 'ID_INTERNO') return;
             seenIds.add(id.toUpperCase());
 
-            const estado = String(gvizCell(r, 1) || 'ARCHIVADO').trim().toUpperCase();
-            const isArchived = estado !== 'VISIBLE';
-            if (mode === 'public' && isArchived) return;
-
-            const prov = String(gvizCell(r, 2) || 'CREATA').trim();
             let sku = String(gvizCell(r, 3) || '').trim();
             sku.split('/').forEach((s) => {
                 if (s.trim()) seenSkus.add(s.trim().toUpperCase());
@@ -981,6 +898,13 @@
 
             const modelName = scrubForbiddenPublicText(String(gvizCell(r, 4) || '').trim());
             if (!modelName) return;
+            seenModels.add(modelName.toUpperCase());
+
+            const estado = String(gvizCell(r, 1) || 'ARCHIVADO').trim().toUpperCase();
+            const isArchived = estado !== 'VISIBLE';
+            if (mode === 'public' && isArchived) return;
+
+            const prov = String(gvizCell(r, 2) || 'CREATA').trim();
 
             const cat = normalizeCategoryClient_(gvizCell(r, 5));
             const isMulti = String(gvizCell(r, 6) || '').trim().toUpperCase() === 'SI';
@@ -1096,7 +1020,79 @@
             }
         });
 
-        // En modo admin, reflejar al instante cualquier fila nueva agregada en SALAS_MODULARES o MUEBLES_INDIVIDUALES
+        // Completar los muebles base visibles (47) que aún no tengan fila guardada en CATALOGO_PRODUCTOS
+        const baseRaw = (mode === 'admin' && (global.ADMIN_RAW_P1 || global.ADMIN_RAW_P2))
+            ? [...(global.ADMIN_RAW_P1 || []), ...(global.ADMIN_RAW_P2 || [])]
+            : [...(global.CREATA_CATALOG_P1 || global.ADMIN_RAW_P1 || []), ...(global.CREATA_CATALOG_P2 || global.ADMIN_RAW_P2 || [])];
+        const usedIndivRows = {};
+
+        baseRaw.forEach((bp) => {
+            if (!bp) return;
+            const pid = String(bp.id || '').trim();
+            if (pid && seenIds.has(pid.toUpperCase())) return;
+            const bpModel = scrubForbiddenPublicText(String(bp.model_name || '')).toUpperCase();
+            if (bpModel && seenModels.has(bpModel)) return;
+            let rawSku = String(bp.sku || pid).trim().toUpperCase();
+            const skuParts = rawSku.split('/').map((s) => s.trim().toUpperCase()).filter(Boolean);
+            if (skuParts.length > 0 && skuParts.every((s) => seenSkus.has(s))) return;
+
+            const clone = JSON.parse(JSON.stringify(bp));
+            const modelName = scrubForbiddenPublicText(String(clone.model_name || ''));
+            clone.model_name = modelName;
+            clone.category = normalizeCategoryClient_(clone.category);
+            clone.archived = false;
+            if (pid) seenIds.add(pid.toUpperCase());
+            if (modelName) seenModels.add(modelName.toUpperCase());
+
+            if (Array.isArray(clone.variants)) {
+                clone.variants.forEach((v) => {
+                    v.hero_b64 = '';
+                    v.swatch_img = '';
+                    v.gallery = { ambiente: '', finish: '', finishes: [], fabric: '', view1: '', view2: '', view3: '', view4: '', all_views: [] };
+                });
+            }
+
+            skuParts.forEach((sk) => {
+                seenSkus.add(sk);
+                if (master.indivBySku[sk]) {
+                    master.indivBySku[sk].forEach((m, mIdx) => {
+                        usedIndivRows[m.rowIdx] = true;
+                        if (mIdx === 0) {
+                            if (m.priceNum > 0) clone.price = formatCurrencyMXN(m.priceNum);
+                            if (!clone.drive_ficha_url && m.driveUrl) clone.drive_ficha_url = m.driveUrl;
+                            clone.inventory = m.inventory || {};
+                        }
+                    });
+                }
+            });
+
+            const sKey = matchSalaKeyForProduct_(modelName, pid, master.salasById);
+            if (sKey && master.salasById[sKey]) {
+                usedSalasInCat[sKey] = true;
+                const sdata = master.salasById[sKey];
+                const pList = sdata.pieces.map((x) => Object.assign({}, x));
+                clone.sala_modules = pList;
+                clone.is_multipiece = pList.length > 1;
+                rawSku = pList.map((x) => x.sku).filter(Boolean).join(' / ') || rawSku;
+                pList.forEach((x) => { if (x.sku) seenSkus.add(x.sku); });
+                if (sdata.totalPrice > 0) clone.price = formatCurrencyMXN(sdata.totalPrice);
+                if (sdata.driveUrl) {
+                    clone.drive_ficha_url = sdata.driveUrl;
+                    if (clone.variants && clone.variants[0]) clone.variants[0].drive_ficha_url = sdata.driveUrl;
+                }
+                clone.inventory = sdata.inventory || {};
+            }
+
+            if (mode === 'admin') {
+                clone.sku = rawSku;
+                out.push(clone);
+            } else {
+                const pub = sanitizePublicProduct(clone);
+                if (pub) out.push(pub);
+            }
+        });
+
+        // En modo admin, reflejar al instante cualquier fila adicional en SALAS_MODULARES o MUEBLES_INDIVIDUALES como ARCHIVADO
         if (mode === 'admin') {
             master.salasList.forEach((sdata) => {
                 const sKey = sdata.id.toUpperCase();
@@ -1106,7 +1102,7 @@
                 }
             });
             master.indivList.forEach((it) => {
-                if (!seenSkus.has(it.sku) && !seenIds.has('IND-' + it.sku) && !seenIds.has(it.sku)) {
+                if (!usedIndivRows[it.rowIdx] && !seenSkus.has(it.sku) && !seenIds.has('IND-' + it.sku) && !seenIds.has(it.sku)) {
                     out.push(buildArchivedIndivProduct_(it));
                     seenSkus.add(it.sku);
                 }
