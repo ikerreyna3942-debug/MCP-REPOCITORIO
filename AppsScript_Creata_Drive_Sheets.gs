@@ -297,8 +297,10 @@ function syncDocumentTabsToCatalog_(ss) {
   if (!shProd || !shPiece) return 0;
 
   const pVals = shProd.getDataRange().getValues();
+  const zVals = shPiece.getDataRange().getValues();
   const knownIds = new Set();
   const knownSkus = new Set();
+  const knownPieceSkus = new Set();
   for (let i = 1; i < pVals.length; i++) {
     const pid = String(pVals[i][0] || '').trim().toUpperCase();
     const skuCell = String(pVals[i][3] || '').trim().toUpperCase();
@@ -308,6 +310,10 @@ function syncDocumentTabsToCatalog_(ss) {
         if (s.trim()) knownSkus.add(s.trim());
       });
     }
+  }
+  for (let i = 1; i < zVals.length; i++) {
+    const zSku = String(zVals[i][2] || '').trim().toUpperCase();
+    if (zSku) knownPieceSkus.add(zSku);
   }
 
   let synced = 0;
@@ -330,8 +336,10 @@ function syncDocumentTabsToCatalog_(ss) {
       const furl = getRichUrl_(sRich[r][0], row[13]);
 
       if (showFlag.indexOf('SÍ') >= 0 || showFlag.indexOf('SI') >= 0 || psku.indexOf('-TOTAL') > 0) {
-        if (!knownIds.has(sid.toUpperCase()) && !knownSkus.has((sid + '-SET').toUpperCase())) {
+        const alreadyHasPieces = curPieces.some((pz) => pz.sku && knownPieceSkus.has(pz.sku.toUpperCase()));
+        if (!alreadyHasPieces && !knownIds.has(sid.toUpperCase()) && !knownSkus.has((sid + '-SET').toUpperCase())) {
           curPieces.forEach((pz) => {
+            if (pz.sku) knownPieceSkus.add(pz.sku.toUpperCase());
             const zRow = shPiece.getLastRow() + 1;
             shPiece.appendRow([
               sid, sname, pz.sku, pz.name, pz.qty, pz.width, pz.depth, pz.height,
@@ -343,9 +351,10 @@ function syncDocumentTabsToCatalog_(ss) {
           const pRow = shProd.getLastRow() + 1;
           const activeP = curPieces.filter((x) => x.qty > 0);
           const totalQty = activeP.reduce((acc, x) => acc + (Number(x.qty) || 1), 0) || curPieces.length;
+          const allPieceSkus = curPieces.map((x) => x.sku).filter(Boolean).join(' / ') || (sid + '-SET');
           shProd.appendRow([
-            sid, 'ARCHIVADO', 'ARM', sid + '-SET', sname, 'SALAS & SOFÁS', 'SI',
-            activeP.map((x) => x.qty + 'x ' + x.name).join(' + '),
+            sid, 'ARCHIVADO', 'ARM', allPieceSkus, sname, 'SALAS & SOFÁS', 'SI',
+            curPieces.length + ' SKUs: ' + curPieces.map((x) => x.sku + ' (' + x.qty + ')').join(' + '),
             curPieces.map((x) => x.width).filter(Boolean).join(' / '),
             (curPieces[0] && curPieces[0].depth) || '',
             (curPieces[0] && curPieces[0].height) || '',
@@ -613,17 +622,18 @@ function syncDriveFolderToSheet() {
 
     const rowIdx = shProd.getLastRow() + 1;
     const priceFormula = buildProductPriceFormula_(rowIdx, isMulti, fallbackTotal);
+    const allMultiSkus = isMulti
+      ? pieces.map((pz, idx) => String(pz.sku_pieza || (skuInternal + '-P' + (idx + 1))).toUpperCase().trim()).filter(Boolean).join(' / ')
+      : skuInternal;
     const piecesSummary = isMulti
-      ? pieces.filter((x) => Number(x.cantidad === undefined ? 1 : x.cantidad) > 0)
-          .map((x) => Number(x.cantidad === undefined ? 1 : x.cantidad) + 'x ' + scrubPublicText_(x.nombre || 'Pieza'))
-          .join(' + ')
+      ? (pieces.length + ' SKUs: ' + pieces.map((pz, idx) => String(pz.sku_pieza || (skuInternal + '-P' + (idx + 1))).toUpperCase().trim() + ' (' + Number(pz.cantidad === undefined ? 1 : pz.cantidad) + ')').join(' + '))
       : '1 pieza';
 
     shProd.appendRow([
       itemId,
       'ARCHIVADO',
       provider,
-      skuInternal,
+      allMultiSkus,
       modelName,
       category,
       isMulti ? 'SI' : 'NO',
@@ -1380,7 +1390,7 @@ function dejarTodoListoSinFotos(opts) {
     const modelName = scrubPublicText_(String(ap.model_name || ''));
     const prov = String(ap.provider_abbr || ap.provider || 'CREATA').trim();
     const cat = normalizeCategory_(ap.category);
-    const skuInternal = String(ap.sku || pid).trim().toUpperCase();
+    let skuInternal = String(ap.sku || pid).trim().toUpperCase();
     let driveUrl = String(ap.drive_ficha_url || '').trim();
     const driveIds = [];
     const d0 = extractDriveIdFromUrl_(driveUrl);
@@ -1395,9 +1405,6 @@ function dejarTodoListoSinFotos(opts) {
           if (m.driveId && driveIds.indexOf(m.driveId) < 0) driveIds.push(m.driveId);
         });
       }
-    });
-    indivList.forEach((m) => {
-      if (m.driveId && driveIds.indexOf(m.driveId) >= 0) usedIndivRow[m.rowNum] = true;
     });
 
     let salaKey = '';
@@ -1435,7 +1442,8 @@ function dejarTodoListoSinFotos(opts) {
         ].concat(zInv));
       });
       isMulti = 'SI';
-      summary = pList.filter((x) => x.qty > 0).map((x) => x.qty + 'x ' + x.name).join(' + ');
+      skuInternal = pList.map((x) => x.sku).filter(Boolean).join(' / ') || skuInternal;
+      summary = pList.length + ' SKUs: ' + pList.map((x) => x.sku + ' (' + x.qty + ')').join(' + ');
       priceCell = buildProductPriceFormula_(pRowNum, true, 0);
     }
 
@@ -1483,9 +1491,10 @@ function dejarTodoListoSinFotos(opts) {
     const totalQty = activeP.reduce((acc, x) => acc + (Number(x.qty) || 1), 0) || pList.length;
     const pRowNum = outProds.length + 2;
     const pInv = prevProdInv[pid] || ['', '', '', '', ''];
+    const allSalaSkus = pList.map((x) => x.sku).filter(Boolean).join(' / ') || (sid + '-SET');
     outProds.push([
-      pid, 'ARCHIVADO', 'ARM', sid + '-SET', sdata.name, 'SALAS & SOFÁS', 'SI',
-      activeP.map((x) => x.qty + 'x ' + x.name).join(' + '),
+      pid, 'ARCHIVADO', 'ARM', allSalaSkus, sdata.name, 'SALAS & SOFÁS', 'SI',
+      pList.length + ' SKUs: ' + pList.map((x) => x.sku + ' (' + x.qty + ')').join(' + '),
       pList.map((x) => x.width).filter(Boolean).join(' / '),
       (pList[0] && pList[0].depth) || '',
       (pList[0] && pList[0].height) || '',
