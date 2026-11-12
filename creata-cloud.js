@@ -9,6 +9,7 @@
     const CREATA_CLOUD_CONFIG = {
         sheetId: '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8',
         driveFolderId: '1umQvzMJLXFiOwSyWL8d5v0aCWDpx8hQT',
+        inventoryLocations: ['CEDIS', 'CASA CREATA', 'COLOSIO', 'PLAYA', 'PUERTO CANCUN'],
         githubOwner: 'ikerreyna3942-debug',
         githubRepo: 'MCP-REPOCITORIO',
         getApiUrl: function () {
@@ -45,10 +46,25 @@
             }
             return clean;
         },
-        isConfigured: function () {
+        hasWriteApi: function () {
             return !!this.getApiUrl();
+        },
+        isConfigured: function () {
+            return !!this.sheetId || !!this.getApiUrl();
         }
     };
+
+    try {
+        if (global.location && global.location.search) {
+            const params = new URLSearchParams(global.location.search);
+            const paramUrl = params.get('webapp') || params.get('api');
+            if (paramUrl && /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/i.test(paramUrl.trim())) {
+                CREATA_CLOUD_CONFIG.setApiUrl(paramUrl.trim());
+            }
+            const paramPin = params.get('pin');
+            if (paramPin) CREATA_CLOUD_CONFIG.setAdminPin(paramPin.trim());
+        }
+    } catch (e) {}
 
     function isValidPhotoUrl(val) {
         if (!val || typeof val !== 'string') return false;
@@ -74,7 +90,7 @@
         const forbiddenKeys = new Set([
             'sku', 'sku_base', 'sku_mode', 'is_unified_sku',
             'temp_unified_sku', 'piece_composition', 'cost',
-            'sheet_specs', 'drive_file_id'
+            'sheet_specs', 'drive_file_id', 'inventory'
         ]);
         Object.keys(prod).forEach((k) => {
             if (forbiddenKeys.has(k)) return;
@@ -452,40 +468,300 @@
         });
     }
 
-    async function fetchCloudCatalog(mode = 'public', timeoutMs = 5500) {
-        const apiUrl = CREATA_CLOUD_CONFIG.getApiUrl();
-        if (!apiUrl) return null;
+    let __gvizSeq = 0;
+    let __discoverPromise = null;
 
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-        try {
-            const sep = apiUrl.includes('?') ? '&' : '?';
-            let targetUrl = `${apiUrl}${sep}mode=${encodeURIComponent(mode)}&_t=${Date.now()}`;
-            if (mode === 'admin') {
-                const pin = CREATA_CLOUD_CONFIG.getAdminPin();
-                if (pin) targetUrl += `&pin=${encodeURIComponent(pin)}`;
+    function gvizJsonpQuery(sheetName, timeoutMs = 6000) {
+        return new Promise((resolve) => {
+            if (!global.document || !CREATA_CLOUD_CONFIG.sheetId) {
+                resolve(null);
+                return;
             }
-            const resp = await fetch(targetUrl, {
-                method: 'GET',
-                signal: controller ? controller.signal : undefined
-            });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
-            if (data && data.ok && Array.isArray(data.products)) {
-                return data.products;
-            }
+            const cbName = `__creataGvizCb_${Date.now()}_${++__gvizSeq}`;
+            const script = global.document.createElement('script');
+            let settled = false;
+
+            const cleanup = () => {
+                try { delete global[cbName]; } catch (e) { global[cbName] = undefined; }
+                if (script && script.parentNode) script.parentNode.removeChild(script);
+            };
+
+            const timer = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve(null);
+            }, timeoutMs);
+
+            global[cbName] = (payload) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                cleanup();
+                if (payload && payload.status === 'ok' && payload.table) {
+                    resolve(payload.table);
+                } else {
+                    resolve(null);
+                }
+            };
+
+            script.onerror = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                cleanup();
+                resolve(null);
+            };
+
+            const sid = encodeURIComponent(CREATA_CLOUD_CONFIG.sheetId);
+            const sname = encodeURIComponent(sheetName);
+            script.async = true;
+            script.src = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=responseHandler:${cbName}&sheet=${sname}&_t=${Date.now()}`;
+            (global.document.head || global.document.body).appendChild(script);
+        });
+    }
+
+    function gvizCell(row, idx) {
+        if (!row || !Array.isArray(row.c) || !row.c[idx]) return '';
+        const c = row.c[idx];
+        if (c.v !== null && c.v !== undefined) return c.v;
+        return c.f || '';
+    }
+
+    async function discoverWebAppUrlFromSheet() {
+        if (CREATA_CLOUD_CONFIG.getApiUrl()) return CREATA_CLOUD_CONFIG.getApiUrl();
+        if (__discoverPromise) return __discoverPromise;
+        __discoverPromise = (async () => {
+            try {
+                const tbl = await gvizJsonpQuery('_CREATA_CONFIG', 4500);
+                if (tbl && Array.isArray(tbl.rows)) {
+                    for (let i = 0; i < tbl.rows.length; i++) {
+                        const k = String(gvizCell(tbl.rows[i], 0) || '').trim().toUpperCase();
+                        const v = String(gvizCell(tbl.rows[i], 1) || '').trim();
+                        if ((k === 'WEBAPP_URL' || !k) && /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/i.test(v)) {
+                            CREATA_CLOUD_CONFIG.setApiUrl(v);
+                            return v;
+                        }
+                    }
+                    if (Array.isArray(tbl.cols)) {
+                        for (let j = 0; j < tbl.cols.length; j++) {
+                            const lbl = String((tbl.cols[j] && tbl.cols[j].label) || '').trim();
+                            if (/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/i.test(lbl)) {
+                                CREATA_CLOUD_CONFIG.setApiUrl(lbl);
+                                return lbl;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+            return CREATA_CLOUD_CONFIG.getApiUrl();
+        })();
+        const res = await __discoverPromise;
+        __discoverPromise = null;
+        return res;
+    }
+
+    function fmtMeasureClient_(val, unit) {
+        const s = String(val === null || val === undefined ? '' : val).trim();
+        if (!s || s === '0') return '';
+        return s.toLowerCase().includes(unit.toLowerCase()) ? s : `${s} ${unit}`;
+    }
+
+    async function fetchDirectGvizCatalog(mode = 'public', timeoutMs = 6500) {
+        const [prodTbl, pieceTbl] = await Promise.all([
+            gvizJsonpQuery('CATALOGO_PRODUCTOS', timeoutMs),
+            gvizJsonpQuery('PIEZAS_MODULOS', timeoutMs)
+        ]);
+        if (!prodTbl || !Array.isArray(prodTbl.rows) || prodTbl.rows.length === 0) {
             return null;
-        } catch (err) {
-            console.warn('[Creata Cloud Fetch]', err);
-            return null;
-        } finally {
-            if (timer) clearTimeout(timer);
         }
+
+        const invCols = CREATA_CLOUD_CONFIG.inventoryLocations || [];
+        const piecesByParent = {};
+        if (pieceTbl && Array.isArray(pieceTbl.rows)) {
+            pieceTbl.rows.forEach((pr) => {
+                const parentId = String(gvizCell(pr, 0) || '').trim();
+                if (!parentId || parentId.toUpperCase() === 'ID_PADRE') return;
+                const qtyRaw = gvizCell(pr, 4);
+                const qtyNum = (qtyRaw === '' || qtyRaw === null || qtyRaw === undefined) ? 1 : (parseInt(qtyRaw, 10) || 0);
+                const pieceInv = {};
+                invCols.forEach((locName, idx) => {
+                    const rawInv = gvizCell(pr, 10 + idx);
+                    if (rawInv !== '' && rawInv !== null && rawInv !== undefined) {
+                        const n = Number(rawInv);
+                        if (!isNaN(n) && n > 0) pieceInv[locName] = n;
+                    }
+                });
+                if (!piecesByParent[parentId]) piecesByParent[parentId] = [];
+                piecesByParent[parentId].push({
+                    sku: String(gvizCell(pr, 2) || '').trim(),
+                    code: String(gvizCell(pr, 2) || '').trim().slice(-6) || 'MOD',
+                    name: scrubForbiddenPublicText(String(gvizCell(pr, 3) || '').trim()),
+                    qty: qtyNum,
+                    width: fmtMeasureClient_(gvizCell(pr, 5), 'cm'),
+                    depth: fmtMeasureClient_(gvizCell(pr, 6), 'cm'),
+                    height: fmtMeasureClient_(gvizCell(pr, 7), 'cm'),
+                    price: parseCurrencyValue(gvizCell(pr, 8)),
+                    checked: qtyNum > 0,
+                    inventory: pieceInv
+                });
+            });
+        }
+
+        const out = [];
+        prodTbl.rows.forEach((r) => {
+            const id = String(gvizCell(r, 0) || '').trim();
+            if (!id || id.toUpperCase() === 'ID_INTERNO') return;
+            const estado = String(gvizCell(r, 1) || 'ARCHIVADO').trim().toUpperCase();
+            const isArchived = estado !== 'VISIBLE';
+            if (mode === 'public' && isArchived) return;
+
+            const prov = String(gvizCell(r, 2) || 'CREATA').trim();
+            const sku = String(gvizCell(r, 3) || '').trim();
+            const modelName = scrubForbiddenPublicText(String(gvizCell(r, 4) || '').trim());
+            if (!modelName) return;
+
+            const cat = String(gvizCell(r, 5) || 'COMPLEMENTOS').trim();
+            const isMulti = String(gvizCell(r, 6) || '').trim().toUpperCase() === 'SI';
+            const width = fmtMeasureClient_(gvizCell(r, 8), 'cm');
+            const depth = fmtMeasureClient_(gvizCell(r, 9), 'cm');
+            const height = fmtMeasureClient_(gvizCell(r, 10), 'cm');
+            const seat = fmtMeasureClient_(gvizCell(r, 11), 'cm');
+            const pkgRaw = String(gvizCell(r, 12) || '1').trim();
+            const packages = /bulto|pieza/i.test(pkgRaw) ? pkgRaw : `${pkgRaw} bultos`;
+            const volume = fmtMeasureClient_(gvizCell(r, 13), 'm³');
+            const priceNum = parseCurrencyValue(gvizCell(r, 14));
+            const materials = scrubForbiddenPublicText(String(gvizCell(r, 15) || '').trim());
+            const driveUrl = String(gvizCell(r, 16) || '').trim();
+            const heroUrl = isValidPhotoUrl(String(gvizCell(r, 17) || '')) ? String(gvizCell(r, 17)).trim() : '';
+            const ambUrl = isValidPhotoUrl(String(gvizCell(r, 18) || '')) ? String(gvizCell(r, 18)).trim() : '';
+            const finUrl = isValidPhotoUrl(String(gvizCell(r, 19) || '')) ? String(gvizCell(r, 19)).trim() : '';
+
+            let viewsArr = [];
+            try {
+                const rawJson = String(gvizCell(r, 20) || '[]').trim();
+                const parsedV = JSON.parse(rawJson || '[]');
+                if (Array.isArray(parsedV)) {
+                    viewsArr = parsedV.filter((u) => isValidPhotoUrl(String(u || ''))).map((u) => String(u).trim());
+                }
+            } catch (e) {}
+
+            const prodInv = {};
+            invCols.forEach((locName, idx) => {
+                const rawInv = gvizCell(r, 23 + idx);
+                if (rawInv !== '' && rawInv !== null && rawInv !== undefined) {
+                    const n = Number(rawInv);
+                    if (!isNaN(n) && n > 0) prodInv[locName] = n;
+                }
+            });
+
+            const prodObj = {
+                id: id,
+                archived: isArchived,
+                provider_abbr: prov,
+                provider: prov,
+                model_name: modelName,
+                category: cat,
+                is_multipiece: isMulti || !!(piecesByParent[id] && piecesByParent[id].length > 1),
+                width: width,
+                depth: depth,
+                height: height,
+                seat: seat,
+                packages: packages,
+                volume: volume,
+                price: formatCurrencyMXN(priceNum),
+                materials: materials,
+                drive_ficha_url: driveUrl,
+                sala_modules: piecesByParent[id] || [],
+                variants: [{
+                    id: `${id}-v1`,
+                    name: modelName,
+                    color_label: 'Acabado Ficha Técnica',
+                    swatch_hex: '#B8893E',
+                    swatch_img: finUrl,
+                    hero_b64: heroUrl,
+                    width: width,
+                    depth: depth,
+                    height: height,
+                    seat: seat,
+                    packages: packages,
+                    volume: volume,
+                    materials: materials,
+                    drive_ficha_url: driveUrl,
+                    gallery: {
+                        ambiente: ambUrl,
+                        finish: finUrl,
+                        finishes: finUrl ? [finUrl] : [],
+                        fabric: finUrl,
+                        view1: viewsArr[0] || '',
+                        view2: viewsArr[1] || '',
+                        view3: viewsArr[2] || '',
+                        view4: viewsArr[3] || '',
+                        all_views: viewsArr
+                    }
+                }]
+            };
+
+            if (mode === 'admin') {
+                prodObj.sku = sku;
+                prodObj.drive_file_id = String(gvizCell(r, 21) || '').trim();
+                prodObj.inventory = prodInv;
+                out.push(prodObj);
+            } else {
+                const cleanPub = sanitizePublicProduct(prodObj);
+                if (cleanPub) out.push(cleanPub);
+            }
+        });
+
+        return out;
+    }
+
+    async function fetchCloudCatalog(mode = 'public', timeoutMs = 6000) {
+        // Descubrir URL de escritura en segundo plano sin bloquear lectura
+        discoverWebAppUrlFromSheet().catch(() => {});
+
+        const apiUrl = CREATA_CLOUD_CONFIG.getApiUrl();
+        if (apiUrl) {
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+            try {
+                const sep = apiUrl.includes('?') ? '&' : '?';
+                let targetUrl = `${apiUrl}${sep}mode=${encodeURIComponent(mode)}&_t=${Date.now()}`;
+                if (mode === 'admin') {
+                    const pin = CREATA_CLOUD_CONFIG.getAdminPin();
+                    if (pin) targetUrl += `&pin=${encodeURIComponent(pin)}`;
+                }
+                const resp = await fetch(targetUrl, {
+                    method: 'GET',
+                    signal: controller ? controller.signal : undefined
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data && data.ok && Array.isArray(data.products) && data.products.length > 0) {
+                        return data.products;
+                    }
+                }
+            } catch (err) {
+                console.warn('[Creata Cloud WebApp Fetch]', err);
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        }
+
+        // Lectura directa y automática desde Google Sheets (sin configuración manual)
+        const directRows = await fetchDirectGvizCatalog(mode, timeoutMs);
+        if (Array.isArray(directRows) && directRows.length > 0) {
+            return directRows;
+        }
+        return null;
     }
 
     async function cloudPost(action, payload, timeoutMs = 25000) {
-        const apiUrl = CREATA_CLOUD_CONFIG.getApiUrl();
-        if (!apiUrl) return { ok: false, offline: true, error: 'Apps Script no conectado' };
+        let apiUrl = CREATA_CLOUD_CONFIG.getApiUrl();
+        if (!apiUrl) {
+            apiUrl = await discoverWebAppUrlFromSheet();
+        }
+        if (!apiUrl) return { ok: false, offline: true, error: 'Web App pendiente de publicar en Apps Script' };
 
         const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
         const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -511,7 +787,11 @@
     }
 
     async function cloudUploadPhoto(product, variantIdx, slotKey, dataUrl) {
-        if (!CREATA_CLOUD_CONFIG.isConfigured()) {
+        let apiUrl = CREATA_CLOUD_CONFIG.getApiUrl();
+        if (!apiUrl) {
+            apiUrl = await discoverWebAppUrlFromSheet();
+        }
+        if (!apiUrl) {
             return { ok: true, localOnly: true, url: dataUrl };
         }
         const safeId = ((product && (product.id || product.model_name)) || 'mueble')
@@ -544,6 +824,8 @@
         formatCurrencyMXN,
         detectProductPieces,
         compressImageFast,
+        discoverWebAppUrlFromSheet,
+        fetchDirectGvizCatalog,
         fetchCloudCatalog,
         cloudPost,
         cloudUploadPhoto
