@@ -517,11 +517,61 @@
         if (priceWrapEl) priceWrapEl.classList.add('hidden');
         if (addBtn) addBtn.classList.add('hidden');
 
+        function normWordForVariant(w) {
+            return String(w || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, '');
+        }
+
+        function buildVariantLabel(it, groupObj) {
+            const rawName = cleanStr(it.n).toUpperCase();
+            const vr = cleanStr(it.vr).toUpperCase();
+            const titleWords = new Set(
+                String(groupObj && groupObj.title ? groupObj.title : '')
+                    .toUpperCase()
+                    .split(/\s+/)
+                    .map(normWordForVariant)
+                    .filter(Boolean)
+            );
+
+            const tokens = rawName.split(/\s+/).filter(Boolean);
+            const rem = [];
+            for (let i = 0; i < tokens.length; i++) {
+                const nw = normWordForVariant(tokens[i]);
+                if (!nw) continue;
+                if ((nw === 'DE' || nw === 'DEL') && i + 1 < tokens.length && titleWords.has(normWordForVariant(tokens[i + 1]))) {
+                    continue;
+                }
+                if (titleWords.has(nw)) continue;
+                rem.push(tokens[i]);
+            }
+            while (rem.length > 0 && /^(DE|DEL|LA|EL|LOS|LAS|PARA|-|\/|·)$/.test(normWordForVariant(rem[0]))) rem.shift();
+            while (rem.length > 0 && /^(DE|DEL|LA|EL|LOS|LAS|PARA|-|\/|·)$/.test(normWordForVariant(rem[rem.length - 1]))) rem.pop();
+
+            let label = rem.join(' ').replace(/\s+/g, ' ').trim();
+            if (!label || normWordForVariant(label) === normWordForVariant(it.s)) {
+                label = vr || cleanStr(it.m).toUpperCase() || cleanStr(it.tl).toUpperCase() || cleanStr(it.md).toUpperCase() || rawName || it.s;
+            }
+            return label;
+        }
+
         if (varList) {
-            varList.innerHTML = grp.items.map(it => {
+            const baseLabels = grp.items.map(it => buildVariantLabel(it, grp));
+            const labelCounts = new Map();
+            for (let i = 0; i < baseLabels.length; i++) {
+                labelCounts.set(baseLabels[i], (labelCounts.get(baseLabels[i]) || 0) + 1);
+            }
+
+            varList.innerHTML = grp.items.map((it, idx) => {
                 const skuKey = String(it.s || '').toUpperCase();
                 const inCartQty = cart[skuKey] ? cart[skuKey].qty : 0;
-                const varLabel = cleanStr(it.vr) || cleanStr(it.tl) || cleanStr(it.md) || cleanStr(it.n) || it.s;
+                let varLabel = baseLabels[idx];
+                const medUpper = cleanStr(it.m).toUpperCase();
+                if (medUpper && labelCounts.get(varLabel) > 1 && varLabel.indexOf(medUpper) === -1) {
+                    varLabel = varLabel + ' · ' + medUpper;
+                }
                 return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
