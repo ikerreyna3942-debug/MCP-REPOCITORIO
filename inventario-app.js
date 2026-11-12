@@ -1,7 +1,19 @@
 (function () {
     'use strict';
 
-    const DEFAULT_WAREHOUSES = ['LLPT', 'CEDIS', 'CASA CREATA', 'PUERTO CANCUN', 'COLOSIO', 'PLAYA'];
+    const DEFAULT_WAREHOUSES = [
+        'LPPT',
+        'CEDIS (BODEGA)',
+        'CEDIS (PISO)',
+        'CASA CREATA (BODEGA)',
+        'CASA CREATA (PISO)',
+        'PUERTO CANCUN (BODEGA)',
+        'PUERTO CANCUN (PISO)',
+        'COLOSIO (BODEGA)',
+        'COLOSIO (PISO)',
+        'PLAYA (BODEGA)',
+        'PLAYA (PISO)'
+    ];
     const META = window.CREATA_INV_META || {
         fileName: 'CONTROL DE PRODUCTOS PRESENTACIÓN',
         sheetId: '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8',
@@ -541,7 +553,7 @@
             emptyEl.classList.remove('hidden');
         }
 
-        // Stock Total y Semáforo por Bodega (LLPT, CEDIS, CASA CREATA, PUERTO CANCUN, COLOSIO, PLAYA)
+        // Stock Total y Semáforo por Bodega / Piso (LPPT + Sucursales en Bodega y Piso)
         const stocks = Array.isArray(it.st) ? it.st : emptyStocks();
         let total = 0;
         const whHtml = [];
@@ -560,8 +572,12 @@
                 dotColor = '#F59E0B';
             }
 
+            const spanClass = (i === 0 && WAREHOUSES.length % 2 === 1 && /^(LPPT|LLPT)$/i.test(WAREHOUSES[i]))
+                ? ' sm:col-span-2'
+                : '';
+
             whHtml.push(
-                '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between ' + semClass + '">' +
+                '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between ' + semClass + spanClass + '">' +
                     '<div class="flex items-center gap-2 min-w-0 pr-2">' +
                         '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
                         '<span class="text-xs font-extrabold uppercase tracking-wide truncate">' + escapeHtml(WAREHOUSES[i]) + '</span>' +
@@ -817,9 +833,19 @@
             return -1;
         }
 
+        function resolveWarehouseCol(whLabel) {
+            const raw = String(whLabel || '').trim();
+            const noParens = raw.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
+            const candidates = [raw, noParens];
+            if (/^(LPPT|LLPT)$/i.test(noParens)) {
+                candidates.push('LPPT', 'LLPT');
+            }
+            return findCol(candidates);
+        }
+
         const colSku = findCol('SKU');
-        const colCedis = findCol('CEDIS');
-        const colCasa = findCol('CASA CREATA');
+        const colCedis = findCol(['CEDIS BODEGA', 'CEDIS (BODEGA)', 'CEDIS']);
+        const colCasa = findCol(['CASA CREATA BODEGA', 'CASA CREATA (BODEGA)', 'CASA CREATA']);
 
         // Guardia estricta: verificar que la hoja devuelta corresponda realmente a INVENTARIO_EN_VIVO
         if (colSku === -1 || colCedis === -1 || colCasa === -1) {
@@ -840,7 +866,7 @@
         const colMed = findCol('MEDIDAS');
         const colProv = findCol('PROVEEDOR');
         const colLt = findCol(['TIEMPO DE ENTREGA (DIAS)', 'TIEMPO DE ENTREGA']);
-        const whCols = WAREHOUSES.map(wh => findCol(wh));
+        const whCols = WAREHOUSES.map(wh => resolveWarehouseCol(wh));
 
         const liveItems = [];
 
