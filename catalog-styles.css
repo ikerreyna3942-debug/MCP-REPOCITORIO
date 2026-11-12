@@ -96,12 +96,12 @@ max-height: 234px;
 object-fit: contain;
 object-position: center center;
 filter: drop-shadow(0 8px 14px rgba(37, 44, 50, 0.08));
-transform: scale(var(--img-scale, 1));
+transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scale(var(--img-scale, 1));
 transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1) !important;
 transform-origin: center center;
 }
 .product-card:hover .card-img-area img {
-transform: scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
 }
 .badge-category {
 position: absolute;
