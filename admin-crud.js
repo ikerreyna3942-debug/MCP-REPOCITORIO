@@ -287,6 +287,10 @@ function prevProduct() {
                 const tx = db.transaction(STORE_NAME, 'readwrite');
                 tx.objectStore(STORE_NAME).put(products, 'catalog_data');
                 await new Promise(r => tx.oncomplete = r);
+                localStorage.setItem('creata_catalog_v12_linked', 'true');
+                if (window.CreataCloud && window.CreataCloud.notifyLiveCatalogSync) {
+                    window.CreataCloud.notifyLiveCatalogSync({ action: 'local_save' });
+                }
             } catch (e) {
                 console.warn('[DB Error]', e);
             }
