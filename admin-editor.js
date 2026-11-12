@@ -112,10 +112,58 @@ async function extractImageFromDropEvent(e) {
             }
         }
 
+        const __slotBgSessionBackup = {};
+        function getBgBackupKey_(prod, varIdx, slotKey) {
+            const pid = (prod && (prod.id || prod.model_name)) || 'item';
+            return `${pid}::${varIdx || 0}::${slotKey}`;
+        }
+        function hasSlotBgRestoreAvailable(prod, varIdx, slotKey) {
+            const entry = __slotBgSessionBackup[getBgBackupKey_(prod, varIdx, slotKey)];
+            return !!(entry && entry.origSrc && entry.isRemoved);
+        }
+        window.hasSlotBgRestoreAvailable = hasSlotBgRestoreAvailable;
+
+        function getEditorBgMode() {
+            try {
+                const saved = localStorage.getItem('creata_editor_bg_mode');
+                if (saved === 'keep' || saved === 'cutout') return saved;
+            } catch (_) {}
+            return 'cutout';
+        }
+
+        function syncEditorBgModeButtons_() {
+            const mode = getEditorBgMode();
+            document.querySelectorAll('[data-bg-mode-btn]').forEach((btn) => {
+                const btnMode = btn.getAttribute('data-bg-mode-btn');
+                btn.classList.toggle('active', btnMode === mode);
+            });
+        }
+
+        function setEditorBgMode(mode) {
+            const cleanMode = mode === 'keep' ? 'keep' : 'cutout';
+            try { localStorage.setItem('creata_editor_bg_mode', cleanMode); } catch (_) {}
+            syncEditorBgModeButtons_();
+            if (typeof showAdminToast === 'function') {
+                showAdminToast(
+                    cleanMode === 'keep'
+                        ? 'Modo activo: conservar el fondo original al subir fotos'
+                        : 'Modo activo: quitar el fondo automáticamente al subir fotos',
+                    cleanMode === 'keep' ? '🖼️' : '✨'
+                );
+            }
+        }
+        window.setEditorBgMode = setEditorBgMode;
+        window.getEditorBgMode = getEditorBgMode;
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', syncEditorBgModeButtons_);
+        } else {
+            setTimeout(syncEditorBgModeButtons_, 0);
+        }
+
         function getSlotCompressionOptions(slotType) {
             if (slotType === 'finish' || slotType === 'fabric') return { mode: 'swatch' };
-            if (slotType === 'ambiente') return { mode: 'auto' };
-            return { mode: 'cutout' };
+            return { mode: getEditorBgMode() === 'keep' ? 'keep' : 'cutout' };
         }
 
         // Convertir cualquier fuente de imagen (File, Blob, DataURL, URL externa) a WebP transparente/optimizado
@@ -146,20 +194,49 @@ async function extractImageFromDropEvent(e) {
             }
         }
 
+        async function processUploadSourceForSlot_(rawSource, slotType) {
+            const p = products[currentProdIndex];
+            const isFinish = slotType === 'finish' || slotType === 'fabric';
+            if (isFinish) {
+                return imageSourceToBase64(rawSource, 600, 600, 0.90, { mode: 'swatch' });
+            }
+            const bgMode = getEditorBgMode();
+            const keepB64 = await imageSourceToBase64(rawSource, 1200, 900, 0.90, { mode: 'keep' });
+            if (bgMode === 'keep') {
+                if (p) {
+                    const key = getBgBackupKey_(p, currentVariantIndex, slotType === 'hero' ? 'ambiente' : slotType);
+                    __slotBgSessionBackup[key] = { origSrc: keepB64, isRemoved: false };
+                }
+                return keepB64;
+            }
+            const cutoutB64 = await imageSourceToBase64(rawSource, 1000, 750, 0.90, { mode: 'cutout' });
+            if (p && keepB64) {
+                const key = getBgBackupKey_(p, currentVariantIndex, slotType === 'hero' ? 'ambiente' : slotType);
+                __slotBgSessionBackup[key] = { origSrc: keepB64, isRemoved: true };
+            }
+            return cutoutB64 || keepB64;
+        }
+
         async function handleSlotDrop(e, slotType) {
             e.preventDefault();
             e.stopPropagation();
             e.currentTarget.classList.remove('drag-over');
 
             try {
-                const isCutout = slotType !== 'finish' && slotType !== 'fabric';
-                showAdminToast(isCutout ? 'Quitando fondo y ajustando proporción...' : 'Procesando foto de tela/acabado...', '✨');
+                const isFinish = slotType === 'finish' || slotType === 'fabric';
+                const willCutout = !isFinish && getEditorBgMode() === 'cutout';
+                showAdminToast(
+                    isFinish
+                        ? 'Procesando foto de tela/acabado...'
+                        : (willCutout ? 'Quitando fondo y ajustando proporción...' : 'Cargando foto con su fondo original...'),
+                    willCutout ? '✨' : '🖼️'
+                );
                 const rawItem = await extractImageFromDropEvent(e);
                 if (!rawItem) {
                     showAdminToast('Por favor suelta un archivo de imagen válido', '⚠️');
                     return;
                 }
-                const b64 = await imageSourceToBase64(rawItem, 1000, 750, 0.90, getSlotCompressionOptions(slotType));
+                const b64 = await processUploadSourceForSlot_(rawItem, slotType);
                 if (!b64) {
                     showAdminToast('No se pudo leer la imagen', '❌');
                     return;
@@ -219,13 +296,13 @@ async function extractImageFromDropEvent(e) {
                 if (!v.hero_b64 || v.hero_b64 === v.swatch_img || /-finish-\d+\./i.test(v.hero_b64)) {
                     v.hero_b64 = finalSrc;
                 }
-                showAdminToast(`Vista ${vIdx + 1} sin fondo actualizada${cloudMsg}`, '✨');
+                showAdminToast(`Vista ${vIdx + 1} actualizada${cloudMsg}`, '📸');
             } else if (slotType === 'hero') {
                 v.hero_b64 = finalSrc;
                 if (!v.gallery.ambiente || !v.gallery.ambiente.trim()) {
                     v.gallery.ambiente = finalSrc;
                 }
-                showAdminToast(`Foto de Inicio sin fondo actualizada${cloudMsg}`, '✨');
+                showAdminToast(`Foto de Inicio actualizada${cloudMsg}`, '📸');
             }
 
             updateModalView(false);
@@ -236,7 +313,7 @@ async function extractImageFromDropEvent(e) {
             filterCatalog();
         }
 
-        async function removeSlotBackgroundManual(slotType) {
+        async function toggleSlotBackgroundManual(slotType) {
             const p = products[currentProdIndex];
             if (!p) return;
             const v = (p.variants && p.variants[currentVariantIndex]) ? p.variants[currentVariantIndex] : (p.variants ? p.variants[0] : null);
@@ -251,10 +328,39 @@ async function extractImageFromDropEvent(e) {
                 showAdminToast('Primero sube una foto en este espacio', '⚠️');
                 return;
             }
+            const backupKey = getBgBackupKey_(p, currentVariantIndex, slotType);
+            const existingBackup = __slotBgSessionBackup[backupKey];
+
+            // Si ya se quitó el fondo en esta sesión y tenemos respaldo con fondo, restaurarlo al instante
+            if (existingBackup && existingBackup.origSrc && existingBackup.isRemoved) {
+                try {
+                    showAdminToast('Restaurando foto con su fondo original...', '🖼️');
+                    existingBackup.isRemoved = false;
+                    const prevHero = v.hero_b64;
+                    await assignImageToSlot(existingBackup.origSrc, slotType);
+                    if (slotType === 'ambiente' && prevHero === currentSrc) {
+                        v.hero_b64 = v.gallery.ambiente;
+                        await saveCatalogData();
+                        if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
+                            await window.CreataCloud.cloudPost('save_product', { product: p });
+                        }
+                        filterCatalog();
+                    }
+                    showAdminToast('Foto restaurada con su fondo original', '🖼️');
+                } catch (err) {
+                    console.error('Error restaurando fondo:', err);
+                }
+                return;
+            }
+
             try {
-                showAdminToast('✨ Quitando fondo con IA (puede tardar unos segundos)...', '⏳');
+                if (!existingBackup || !existingBackup.origSrc) {
+                    __slotBgSessionBackup[backupKey] = { origSrc: currentSrc, isRemoved: false };
+                }
+                showAdminToast('✨ Quitando fondo de la foto (puede tardar unos segundos)...', '⏳');
                 const cleanB64 = await imageSourceToBase64(currentSrc, 1000, 750, 0.92, { mode: 'cutout', forceAi: true });
                 if (cleanB64) {
+                    __slotBgSessionBackup[backupKey].isRemoved = true;
                     const prevHero = v.hero_b64;
                     await assignImageToSlot(cleanB64, slotType);
                     if (slotType === 'ambiente' && prevHero === currentSrc) {
@@ -265,21 +371,29 @@ async function extractImageFromDropEvent(e) {
                         }
                         filterCatalog();
                     }
+                    showAdminToast('¡Fondo eliminado! (Puedes volver a "Con fondo" si lo deseas)', '✨');
                 }
             } catch (err) {
                 console.error('Error quitando fondo IA:', err);
                 showAdminToast('No se pudo quitar el fondo de esta imagen', '❌');
             }
         }
+        const removeSlotBackgroundManual = toggleSlotBackgroundManual;
 
         async function uploadSlotImage(event, slotType) {
             const file = event.target.files[0];
             event.target.value = '';
             if (!file) return;
             try {
-                const isCutout = slotType !== 'finish' && slotType !== 'fabric';
-                showAdminToast(isCutout ? 'Quitando fondo y ajustando proporción...' : 'Procesando foto de tela/acabado...', '✨');
-                const b64 = await imageSourceToBase64(file, 1000, 750, 0.90, getSlotCompressionOptions(slotType));
+                const isFinish = slotType === 'finish' || slotType === 'fabric';
+                const willCutout = !isFinish && getEditorBgMode() === 'cutout';
+                showAdminToast(
+                    isFinish
+                        ? 'Procesando foto de tela/acabado...'
+                        : (willCutout ? 'Quitando fondo y ajustando proporción...' : 'Cargando foto con su fondo original...'),
+                    willCutout ? '✨' : '🖼️'
+                );
+                const b64 = await processUploadSourceForSlot_(file, slotType);
                 if (b64) {
                     await assignImageToSlot(b64, slotType);
                 }
@@ -302,7 +416,7 @@ async function extractImageFromDropEvent(e) {
                 const rawItem = await extractImageFromDropEvent(e);
                 if (rawItem) {
                     const targetSlot = findNextFreeGallerySlot();
-                    const b64 = await imageSourceToBase64(rawItem, 1000, 750, 0.90, getSlotCompressionOptions(targetSlot));
+                    const b64 = await processUploadSourceForSlot_(rawItem, targetSlot);
                     if (b64) {
                         await assignImageToSlot(b64, targetSlot);
                     }
@@ -392,6 +506,21 @@ async function extractImageFromDropEvent(e) {
                     slotEl.style.transform = (px !== 0 || py !== 0 || sc !== 1)
                         ? `translate(${px}%, ${py}%) scale(${sc})`
                         : '';
+                }
+            }
+            // Sincronizar automáticamente la Portada si usa la misma foto que Ambiente o Vista 1
+            if (targetKey === 'ambiente' || targetKey === 'view1') {
+                const g = v.gallery || {};
+                const slotSrc = g[targetKey] || '';
+                if (slotSrc && v.hero_b64 === slotSrc) {
+                    v.hero_scale = sc;
+                    v.hero_pos = { x: px, y: py };
+                    const cardImg = document.getElementById(`grid_card_img_${currentProdIndex}`);
+                    if (cardImg) {
+                        cardImg.style.setProperty('--img-scale', String(sc));
+                        cardImg.style.setProperty('--img-x', `${px}%`);
+                        cardImg.style.setProperty('--img-y', `${py}%`);
+                    }
                 }
             }
         }
@@ -579,9 +708,7 @@ async function extractImageFromDropEvent(e) {
                 const f = files[i];
                 const namedSlot = inferGallerySlotFromFileName_(f && f.name);
                 const targetSlot = namedSlot || findNextFreeGallerySlot();
-                const maxW = targetSlot === 'finish' ? 600 : 1000;
-                const maxH = targetSlot === 'finish' ? 600 : 750;
-                const b64 = await imageSourceToBase64(f, maxW, maxH, 0.90, getSlotCompressionOptions(targetSlot));
+                const b64 = await processUploadSourceForSlot_(f, targetSlot);
                 if (b64) {
                     await assignImageToSlot(b64, targetSlot);
                     addedCount++;
@@ -672,7 +799,7 @@ async function extractImageFromDropEvent(e) {
             }
             filterCatalog();
             updateAdminBadge();
-            showAdminToast(`¡Foto de inicio sin fondo de "${p.model_name}" actualizada${cloudMsg}!`, '✨');
+            showAdminToast(`¡Foto de inicio de "${p.model_name}" actualizada${cloudMsg}!`, '📸');
         }
 
         async function handleCardDrop(e, realIdx) {
@@ -683,13 +810,21 @@ async function extractImageFromDropEvent(e) {
             try {
                 const p = products[realIdx];
                 if (!p) return;
-                showAdminToast(`Quitando fondo y ajustando foto de inicio para "${p.model_name}"...`, '✨');
+                const bgMode = getEditorBgMode();
+                showAdminToast(
+                    bgMode === 'keep'
+                        ? `Cargando foto de inicio con su fondo original para "${p.model_name}"...`
+                        : `Quitando fondo y ajustando foto de inicio para "${p.model_name}"...`,
+                    bgMode === 'keep' ? '🖼️' : '✨'
+                );
                 const rawItem = await extractImageFromDropEvent(e);
                 if (!rawItem) {
                     showAdminToast('Por favor suelta un archivo de imagen válido', '⚠️');
                     return;
                 }
-                const b64 = await imageSourceToBase64(rawItem, 1000, 750, 0.90, { mode: 'cutout' });
+                const maxW = bgMode === 'keep' ? 1200 : 1000;
+                const maxH = bgMode === 'keep' ? 900 : 750;
+                const b64 = await imageSourceToBase64(rawItem, maxW, maxH, 0.90, { mode: bgMode });
                 if (!b64) {
                     showAdminToast('No se pudo procesar la foto', '❌');
                     return;
@@ -708,8 +843,16 @@ async function extractImageFromDropEvent(e) {
             try {
                 const p = products[realIdx];
                 if (!p) return;
-                showAdminToast(`Quitando fondo y ajustando foto de inicio para "${p.model_name}"...`, '✨');
-                const b64 = await imageSourceToBase64(file, 1000, 750, 0.90, { mode: 'cutout' });
+                const bgMode = getEditorBgMode();
+                showAdminToast(
+                    bgMode === 'keep'
+                        ? `Cargando foto de inicio con su fondo original para "${p.model_name}"...`
+                        : `Quitando fondo y ajustando foto de inicio para "${p.model_name}"...`,
+                    bgMode === 'keep' ? '🖼️' : '✨'
+                );
+                const maxW = bgMode === 'keep' ? 1200 : 1000;
+                const maxH = bgMode === 'keep' ? 900 : 750;
+                const b64 = await imageSourceToBase64(file, maxW, maxH, 0.90, { mode: bgMode });
                 if (!b64) {
                     showAdminToast('No se pudo procesar la foto', '❌');
                     return;
