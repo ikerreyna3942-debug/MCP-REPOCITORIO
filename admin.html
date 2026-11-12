@@ -294,7 +294,7 @@
 
                         <!-- SISTEMA DE COMPOSICIÓN DE PIEZAS Y SUMA DE SKU -->
                         <div id="pieceSkuComposerBox" class="mb-3 p-2.5 bg-slate-50 border border-slate-300 rounded-xl shadow-2xs">
-                            <div class="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-200">
+                            <div id="genericSkuComposerHeader" class="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-200">
                                 <span class="text-[10px] font-extrabold uppercase text-slate-800 tracking-wider flex items-center gap-1">
                                     <span>🧩</span> <span>Composición de Piezas y SKU</span>
                                 </span>
@@ -326,33 +326,34 @@
                         <!-- SECCIÓN ESPECIAL MULTI-PIEZA: ANÁLISIS DE FOTOS Y DETECCIÓN DE MÓDULOS -->
                         <div id="salaModulesAnalyzerPanel" class="mt-2.5 p-2.5 bg-amber-50/90 border border-amber-300 rounded-xl shadow-2xs">
                             <div class="flex items-center justify-between gap-1.5 pb-1.5 mb-1.5 border-b border-amber-200 flex-wrap">
-                                <span class="text-[10px] font-black uppercase text-amber-900 tracking-wider flex items-center gap-1">
-                                    <span>🛋️</span> <span>Módulos / Piezas Detectadas · Suma Unificada</span>
+                                <span class="text-[10px] font-black uppercase text-amber-900 tracking-wider flex items-center gap-1.5 flex-wrap">
+                                    <span>🛋️</span> <span>SKUs / Módulos de la Sala</span>
+                                    <span id="salaSkuCountBadge" class="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-amber-200/90 text-amber-950"></span>
                                 </span>
                                 <div class="flex items-center gap-1">
                                     <button type="button" onclick="addSalaModuleManual()" class="px-2 py-1 rounded bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-[9.5px] font-bold shadow-xs transition flex items-center gap-1" title="Agregar manualmente otra pieza o módulo">
                                         <span>➕</span> Pieza
                                     </button>
-                                    <button type="button" onclick="analyzeSalaPhotosAndModules()" class="px-2.5 py-1 rounded bg-[#B8893E] hover:bg-[#9E7432] text-white text-[9.5px] font-bold shadow-xs transition flex items-center gap-1" title="Analizar fotos y detectar piezas o módulos del producto">
-                                        <span>🔍</span> Analizar Piezas
+                                    <button type="button" onclick="analyzeSalaPhotosAndModules()" class="px-2.5 py-1 rounded bg-[#B8893E] hover:bg-[#9E7432] text-white text-[9.5px] font-bold shadow-xs transition flex items-center gap-1" title="Recargar SKUs desde SALAS_MODULARES">
+                                        <span>🔄</span> Ver SKUs Sheet
                                     </button>
                                 </div>
                             </div>
                             <p class="text-[9px] text-amber-900/80 leading-tight mb-2">
-                                Si el mueble tiene más de 1 pieza (salas modulares, comedores con sillas, recámaras, etc.), detectamos sus piezas, sumamos precios/medidas y guardamos el desglose en Sheets.
+                                Desglose en vivo desde <strong>SALAS_MODULARES</strong> (incluye SKUs activos y opcionales con <code>CANT = 0</code>). Marca o desmarca piezas para ajustar la configuración.
                             </p>
-                            <div id="salaModulesList" class="space-y-1 mb-2 max-h-36 overflow-y-auto pr-1"></div>
+                            <div id="salaModulesList" class="space-y-1.5 mb-2 max-h-80 overflow-y-auto pr-1"></div>
                             <div class="p-2 bg-white border border-amber-200 rounded-lg flex flex-col gap-1.5 shadow-3xs">
                                 <div class="flex items-center justify-between text-[10px]">
-                                    <span class="font-extrabold text-slate-700">Suma Total de Precios:</span>
+                                    <span class="font-extrabold text-slate-700">Suma Total SKUs Activos:</span>
                                     <strong id="salaSummedPriceDisplay" class="text-sm font-black text-green-700">$0.00</strong>
                                 </div>
-                                <div class="flex items-center justify-between text-[9.5px] pt-1 border-t border-slate-100">
-                                    <span class="font-bold text-slate-600">SKU Temporal Unificado:</span>
-                                    <div class="flex items-center gap-1.5">
-                                        <code id="salaTempUnifiedSkuDisplay" class="font-mono font-bold text-[#B8893E] bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[10px]">-</code>
-                                        <button type="button" onclick="applySalaUnifiedPriceAndSku()" class="px-2.5 py-0.5 rounded bg-green-700 hover:bg-green-800 text-white text-[9px] font-bold shadow-xs transition flex items-center gap-1" title="Aplicar precio sumado y SKU unificado al producto">
-                                            <span>⚡</span> Aplicar Unificación
+                                <div class="flex items-center justify-between gap-2 text-[9.5px] pt-1 border-t border-slate-100 flex-wrap">
+                                    <span class="font-bold text-slate-600">SKUs Activos:</span>
+                                    <div class="flex items-center gap-1.5 flex-wrap justify-end">
+                                        <code id="salaTempUnifiedSkuDisplay" class="font-mono font-bold text-[#B8893E] bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[9.5px] break-all">-</code>
+                                        <button type="button" onclick="applySalaUnifiedPriceAndSku()" class="px-2.5 py-0.5 rounded bg-green-700 hover:bg-green-800 text-white text-[9px] font-bold shadow-xs transition flex items-center gap-1 shrink-0" title="Aplicar suma de piezas seleccionadas al precio del mueble">
+                                            <span>⚡</span> Aplicar Suma
                                         </button>
                                     </div>
                                 </div>
@@ -468,12 +469,12 @@
     <script src="admin-data-1.js"></script>
     <script src="admin-data-2.js"></script>
     <script>const rawProducts = [...(window.ADMIN_RAW_P1 || []), ...(window.ADMIN_RAW_P2 || [])];</script>
-    <script src="creata-cloud.js"></script>
-    <script src="admin-core.js"></script>
-    <script src="admin-modal.js"></script>
-    <script src="admin-editor.js"></script>
-    <script src="admin-crud.js"></script>
-    <script src="admin-salas.js"></script>
+    <script src="creata-cloud.js?v=11"></script>
+    <script src="admin-core.js?v=11"></script>
+    <script src="admin-modal.js?v=11"></script>
+    <script src="admin-editor.js?v=11"></script>
+    <script src="admin-crud.js?v=11"></script>
+    <script src="admin-salas.js?v=11"></script>
 
 <div id="adminToast"><span id="adminToastIcon">✅</span><span id="toastIcon" class="hidden"></span><span id="adminToastMsg">Éxito</span><span id="toastMsg" class="hidden"></span></div>
 </body>
