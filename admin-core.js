@@ -309,7 +309,7 @@ function populateSkuDatalist() {
         }
 
         async function initializeCatalog() {
-            const CATALOG_BUILD_VERSION = 'creata_catalog_v10_live_auto';
+            const CATALOG_BUILD_VERSION = 'creata_catalog_v11_live_4skus';
             let sourceList = null;
             const localSaved = await loadCustomProducts();
 
@@ -514,6 +514,7 @@ function populateSkuDatalist() {
                         <div class="card-swatches-row">
                             ${swatchesHtml}
                             <span class="options-count-text">${(p.variants || []).length} ${(p.variants || []).length === 1 ? 'opción' : 'opciones'}</span>
+                            ${Array.isArray(p.sala_modules) && p.sala_modules.length > 1 ? `<span class="ml-auto text-[9.5px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">🧩 ${p.sala_modules.length} SKUs</span>` : ''}
                         </div>
                     </div>
                 `;
@@ -618,6 +619,22 @@ function populateSkuDatalist() {
             const p = products[currentProdIndex];
             if (!p) return;
 
+            const hasSalaMods = Array.isArray(p.sala_modules) && p.sala_modules.length > 1;
+            const genHeader = document.getElementById('genericSkuComposerHeader');
+            const multiSection = document.getElementById('multiPieceSection');
+            if (hasSalaMods) {
+                if (genHeader) genHeader.style.display = 'none';
+                if (multiSection) multiSection.classList.add('hidden');
+                const allSalaSkus = p.sala_modules.map((m) => m.sku).filter(Boolean).join(' / ');
+                if (allSalaSkus) {
+                    p.sku = allSalaSkus;
+                    const inp = document.getElementById('inputAutoSku');
+                    if (inp) inp.value = allSalaSkus;
+                }
+                return;
+            }
+            if (genHeader) genHeader.style.display = '';
+
             if (!p.sku_base) {
                 p.sku_base = (p.sku || p.id || 'CREATA-01').split(' + ')[0].trim();
             }
@@ -630,7 +647,6 @@ function populateSkuDatalist() {
 
             const singleRadio = document.getElementById('skuModeSingle');
             const multiRadio = document.getElementById('skuModeMulti');
-            const multiSection = document.getElementById('multiPieceSection');
 
             if (p.sku_mode === 'multi') {
                 if (multiRadio) multiRadio.checked = true;
