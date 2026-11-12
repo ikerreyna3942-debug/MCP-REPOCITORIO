@@ -90,7 +90,7 @@ return s.startsWith('data:image/') || s.startsWith('https://') || s.startsWith('
 function bustRepoFotoCache(val) { if (!val || typeof val !== 'string') return '';
 const s = val.trim();
 if (!s || s.startsWith('data:') || s.includes('?')) return s;
-if (/raw\.githubusercontent\.com\/ikerreyna3942-debug\/MCP-REPOCITORIO\/main\/fotos\//i.test(s) || /^(?:\.\/)?fotos\//i.test(s)) { return s + '?v=24'; }
+if (/raw\.githubusercontent\.com\/ikerreyna3942-debug\/MCP-REPOCITORIO\/main\/fotos\//i.test(s) || /^(?:\.\/)?fotos\//i.test(s)) { return s + '?v=25'; }
 return s; }
 function scrubForbiddenPublicText(txt) { if (!txt || typeof txt !== 'string') return txt || '';
 return txt
@@ -686,16 +686,26 @@ if (pid) seenIds.add(pid.toUpperCase());
 if (modelName) seenModels.add(modelName.toUpperCase());
 if (Array.isArray(clone.variants)) {
 clone.variants.forEach((v, vIdx) => {
+const vgOrig = (v && v.gallery && typeof v.gallery === 'object') ? v.gallery : {};
 const ajHit = resolveAjFinishClient_(pid, modelName, rawSku, '', vIdx, v && v.sku);
-const finImg = (ajHit && ajHit.img) || (isValidPhotoUrl(v.swatch_img) ? v.swatch_img : '');
+const hasRepoSwatch = isValidPhotoUrl(v.swatch_img) && /\/fotos\/|^fotos\//i.test(String(v.swatch_img));
+const finImg = (hasRepoSwatch ? v.swatch_img : '') || (ajHit && ajHit.img) || (isValidPhotoUrl(v.swatch_img) ? v.swatch_img : '');
 const rawLbl = (ajHit && ajHit.label) || inferColorLabelFromData(v.color_label, v.materials || clone.materials, v.color_label);
 v.color_label = cleanFinishLabelClient_(rawLbl, modelName) || 'NATURAL';
 v.finish_type = v.finish_type || inferFinishType(v.color_label, v.materials || clone.materials);
-v.hero_b64 = '';
+const rawHeroOrig = (isValidPhotoUrl(v.hero_b64) && v.hero_b64 !== finImg && !/-finish(?:-\d+)?\./i.test(v.hero_b64)) ? String(v.hero_b64).trim() : '';
+const ambOrig = isValidPhotoUrl(vgOrig.ambiente) ? String(vgOrig.ambiente).trim() : '';
+const v1Orig = isValidPhotoUrl(vgOrig.view1) ? String(vgOrig.view1).trim() : '';
+const v2Orig = isValidPhotoUrl(vgOrig.view2) ? String(vgOrig.view2).trim() : '';
+const v3Orig = isValidPhotoUrl(vgOrig.view3) ? String(vgOrig.view3).trim() : '';
+const v4Orig = isValidPhotoUrl(vgOrig.view4) ? String(vgOrig.view4).trim() : '';
+v.hero_b64 = rawHeroOrig;
 v.hero_scale = Number(v.hero_scale) || 1;
+v.hero_pos = (v.hero_pos && typeof v.hero_pos === 'object') ? { x: Number(v.hero_pos.x) || 0, y: Number(v.hero_pos.y) || 0 } : { x: 0, y: 0 };
 v.slot_scales = (v.slot_scales && typeof v.slot_scales === 'object') ? v.slot_scales : {};
+v.slot_pos = (v.slot_pos && typeof v.slot_pos === 'object') ? v.slot_pos : {};
 v.swatch_img = finImg;
-v.gallery = { ambiente: '', finish: finImg, finishes: finImg ? [finImg] : [], fabric: finImg, view1: '', view2: '', view3: '', view4: '', all_views: [] }; }); }
+v.gallery = { ambiente: ambOrig, finish: finImg, finishes: finImg ? [finImg] : [], fabric: finImg, view1: v1Orig, view2: v2Orig, view3: v3Orig, view4: v4Orig, all_views: [v1Orig, v2Orig, v3Orig, v4Orig] }; }); }
 skuParts.forEach((sk) => { seenSkus.add(sk);
 if (master.indivBySku[sk]) {
 master.indivBySku[sk].forEach((m, mIdx) => { usedIndivRows[m.rowIdx] = true;

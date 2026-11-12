@@ -110,7 +110,24 @@
             const merged = cloudItems.map((cp) => {
                 const lp = (cp && cp.id && localById[cp.id]) || (cp && cp.model_name && localByModel[String(cp.model_name).trim().toUpperCase()]) || null;
                 if (!lp) return cp;
-                return JSON.parse(JSON.stringify(lp));
+                const cloned = JSON.parse(JSON.stringify(lp));
+                if (Array.isArray(cloned.variants) && Array.isArray(cp.variants)) {
+                    cloned.variants.forEach((lv, vIdx) => {
+                        const cv = cp.variants[vIdx];
+                        if (!lv || !cv) return;
+                        if (!lv.hero_b64 && cv.hero_b64) lv.hero_b64 = cv.hero_b64;
+                        if (!lv.swatch_img && cv.swatch_img) lv.swatch_img = cv.swatch_img;
+                        if (lv.gallery && cv.gallery) {
+                            ['ambiente', 'finish', 'fabric', 'view1', 'view2', 'view3', 'view4'].forEach((k) => {
+                                if (!lv.gallery[k] && cv.gallery[k]) lv.gallery[k] = cv.gallery[k];
+                            });
+                            if ((!lv.gallery.all_views || !lv.gallery.all_views.some(Boolean)) && Array.isArray(cv.gallery.all_views)) {
+                                lv.gallery.all_views = cv.gallery.all_views.slice();
+                            }
+                        }
+                    });
+                }
+                return cloned;
             });
             return merged;
         }
