@@ -52,17 +52,21 @@ function prevProduct() {
 
                 const provCatEl = document.getElementById('modalProviderCat');
                 if (provCatEl) {
+                    const stdCats = [
+                        'SALAS & SOFÁS',
+                        'SILLAS & SILLONES',
+                        'COMEDORES',
+                        'BUFETERAS & CREDENZAS',
+                        'MESAS DE CENTRO & LATERALES',
+                        'RECÁMARAS',
+                        'COMPLEMENTOS'
+                    ];
+                    if (p.category && !stdCats.includes(p.category)) stdCats.push(p.category);
                     provCatEl.innerHTML = `
                         <div class="flex gap-2 mb-1">
                             <input type="text" id="edit_prov" class="editable-field-input w-28 uppercase font-bold text-xs" value="${p.provider_abbr || ''}" placeholder="PROV">
                             <select id="edit_cat" class="editable-field-input text-xs font-bold">
-                                <option value="SALAS & SOFÁS" ${p.category === 'SALAS & SOFÁS' ? 'selected' : ''}>SALAS & SOFÁS</option>
-                                <option value="SILLAS & SILLONES" ${p.category === 'SILLAS & SILLONES' ? 'selected' : ''}>SILLAS & SILLONES</option>
-                                <option value="COMEDORES" ${p.category === 'COMEDORES' ? 'selected' : ''}>COMEDORES</option>
-                                <option value="BUFETERAS & CREDENZAS" ${p.category === 'BUFETERAS & CREDENZAS' ? 'selected' : ''}>BUFETERAS & CREDENZAS</option>
-                                <option value="MESAS DE CENTRO" ${p.category === 'MESAS DE CENTRO' ? 'selected' : ''}>MESAS DE CENTRO</option>
-                                <option value="RECÁMARAS" ${p.category === 'RECÁMARAS' ? 'selected' : ''}>RECÁMARAS</option>
-                                <option value="COMPLEMENTOS" ${p.category === 'COMPLEMENTOS' ? 'selected' : ''}>COMPLEMENTOS</option>
+                                ${stdCats.map(c => `<option value="${c}" ${p.category === c ? 'selected' : ''}>${c}</option>`).join('')}
                             </select>
                         </div>
                     `;
@@ -287,6 +291,7 @@ function prevProduct() {
                 const tx = db.transaction(STORE_NAME, 'readwrite');
                 tx.objectStore(STORE_NAME).put(products, 'catalog_data');
                 await new Promise(r => tx.oncomplete = r);
+                localStorage.setItem('creata_catalog_v18_brand', 'true');
                 localStorage.setItem('creata_catalog_v12_linked', 'true');
                 if (window.CreataCloud && window.CreataCloud.notifyLiveCatalogSync) {
                     window.CreataCloud.notifyLiveCatalogSync({ action: 'local_save' });
