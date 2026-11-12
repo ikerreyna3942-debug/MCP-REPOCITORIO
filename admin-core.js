@@ -300,6 +300,12 @@ function populateSkuDatalist() {
                 const isCleanLocalHero = lv.hero_b64 && !/-finish-\d+\./i.test(lv.hero_b64) && lv.hero_b64 !== lv.swatch_img;
                 if (!cv.hero_b64 && isCleanLocalHero) cv.hero_b64 = lv.hero_b64;
                 if (!cv.swatch_img && lv.swatch_img) cv.swatch_img = lv.swatch_img;
+                if ((!cv.hero_scale || cv.hero_scale === 1) && lv.hero_scale && lv.hero_scale !== 1) {
+                    cv.hero_scale = lv.hero_scale;
+                }
+                if ((!cv.slot_scales || Object.keys(cv.slot_scales).length === 0) && lv.slot_scales && Object.keys(lv.slot_scales).length > 0) {
+                    cv.slot_scales = Object.assign({}, lv.slot_scales);
+                }
                 if (cv.gallery && lv.gallery) {
                     if (!cv.gallery.ambiente && lv.gallery.ambiente) cv.gallery.ambiente = lv.gallery.ambiente;
                     if (!cv.gallery.finish && lv.gallery.finish) cv.gallery.finish = lv.gallery.finish;
@@ -323,8 +329,49 @@ function populateSkuDatalist() {
             });
         }
 
+        async function syncDriveManualFromAdmin(silent = false) {
+            if (!window.CreataCloud || !window.CreataCloud.config.isConfigured()) {
+                if (!silent) showAdminToast('Conexión a Apps Script no configurada', '⚠️');
+                return;
+            }
+            const btn = document.getElementById('btnSyncDriveTop');
+            if (btn && !silent) {
+                btn.disabled = true;
+                btn.style.opacity = '0.7';
+            }
+            if (!silent) showAdminToast('Sincronizando carpeta de Fichas PDF en Google Drive...', '⏳');
+            try {
+                const res = await window.CreataCloud.cloudPost('sync_drive', {}, 60000);
+                if (res && res.ok) {
+                    const added = Number(res.added || 0);
+                    if (added > 0) {
+                        const freshList = await window.CreataCloud.fetchCloudCatalog('admin', 15000);
+                        if (Array.isArray(freshList) && freshList.length > 0) {
+                            products = freshList;
+                            await saveCatalogData();
+                            updateCategoryCounts();
+                            updateAdminBadge();
+                            setFilter('ARCHIVED');
+                        }
+                        showAdminToast(`¡${added} nueva(s) ficha(s) PDF detectadas en Drive y cargadas en Archivados!`, '📥');
+                    } else if (!silent) {
+                        showAdminToast('Carpeta de Drive al día (sin fichas PDF nuevas pendientes)', '✅');
+                    }
+                } else if (!silent) {
+                    showAdminToast((res && res.error) || 'No se pudo sincronizar Drive en este momento', '⚠️');
+                }
+            } catch (e) {
+                if (!silent) showAdminToast('Error de red al consultar Google Drive', '❌');
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                }
+            }
+        }
+
         async function initializeCatalog() {
-            const CATALOG_BUILD_VERSION = 'creata_catalog_v12_linked';
+            const CATALOG_BUILD_VERSION = 'creata_catalog_v18_brand';
             let sourceList = null;
             const localSaved = await loadCustomProducts();
 
@@ -333,6 +380,7 @@ function populateSkuDatalist() {
                 if (Array.isArray(cloudList) && cloudList.length > 0) {
                     sourceList = mergeLocalPhotosIntoCloud_(cloudList, localSaved);
                     localStorage.setItem(CATALOG_BUILD_VERSION, 'true');
+                    localStorage.setItem('creata_catalog_v12_linked', 'true');
                     try {
                         const db = await openCatalogDB();
                         const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -374,11 +422,14 @@ function populateSkuDatalist() {
             updateAdminBadge();
             if (typeof updateCloudStatusUI === 'function') updateCloudStatusUI();
             setFilter(currentFilter);
-            const savedLogo = localStorage.getItem('creata_custom_logo');
-            if (savedLogo) {
-                const logoEl = document.getElementById('headerLogoImg');
-                if (logoEl) logoEl.src = savedLogo;
-            }
+
+            // Monitoreo automático silencioso de nuevas fichas PDF en Google Drive al iniciar sesión de edición
+            try {
+                if (!sessionStorage.getItem('creata_drive_autosync_done')) {
+                    sessionStorage.setItem('creata_drive_autosync_done', '1');
+                    setTimeout(() => { syncDriveManualFromAdmin(true); }, 2500);
+                }
+            } catch (e) {}
         }
 
         if (document.readyState === 'loading') {
@@ -397,16 +448,42 @@ function populateSkuDatalist() {
                 if (btn) btn.innerText = `${label} (${count})`;
             };
 
-            setBtnText('flt-ALL', 'TODOS', activeProds.length);
-            setBtnText('flt-SALAS-SOF-S', 'SALAS & SOFÁS', activeProds.filter(p => p.category === 'SALAS & SOFÁS').length);
-            setBtnText('flt-SILLAS-SILLONES', 'SILLAS & SILLONES', activeProds.filter(p => p.category === 'SILLAS & SILLONES').length);
-            setBtnText('flt-COMEDORES', 'COMEDORES', activeProds.filter(p => p.category === 'COMEDORES').length);
-            setBtnText('flt-BUFETERAS-CREDENZAS', 'BUFETERAS & CREDENZAS', activeProds.filter(p => p.category === 'BUFETERAS & CREDENZAS').length);
-            setBtnText('flt-MESAS-DE-CENTRO', 'MESAS DE CENTRO', activeProds.filter(p => p.category === 'MESAS DE CENTRO').length);
-            setBtnText('flt-REC-MARAS', 'RECÁMARAS', activeProds.filter(p => p.category === 'RECÁMARAS').length);
-            setBtnText('flt-COMPLEMENTOS', 'COMPLEMENTOS', activeProds.filter(p => p.category === 'COMPLEMENTOS').length);
+            const baseCategories = [
+                { id: 'flt-SALAS-SOF-S', label: 'SALAS & SOFÁS' },
+                { id: 'flt-SILLAS-SILLONES', label: 'SILLAS & SILLONES' },
+                { id: 'flt-COMEDORES', label: 'COMEDORES' },
+                { id: 'flt-BUFETERAS-CREDENZAS', label: 'BUFETERAS & CREDENZAS' },
+                { id: 'flt-MESAS-DE-CENTRO-LATERALES', label: 'MESAS DE CENTRO & LATERALES' },
+                { id: 'flt-REC-MARAS', label: 'RECÁMARAS' },
+                { id: 'flt-COMPLEMENTOS', label: 'COMPLEMENTOS' }
+            ];
 
+            setBtnText('flt-ALL', 'TODOS', activeProds.length);
+            const knownSet = new Set(baseCategories.map(c => c.label));
+            baseCategories.forEach(c => {
+                setBtnText(c.id, c.label, activeProds.filter(p => p.category === c.label).length);
+            });
+
+            const bar = document.getElementById('categoryBar');
             const archBtn = document.getElementById('flt-ARCHIVED');
+            if (bar) {
+                const extraCats = [...new Set(products.map(p => p.category).filter(c => c && !knownSet.has(c)))];
+                extraCats.forEach(cat => {
+                    const safeId = 'flt-dyn-' + cat.replace(/[^A-Z0-9]/gi, '-');
+                    let btn = document.getElementById(safeId);
+                    if (!btn) {
+                        btn = document.createElement('button');
+                        btn.id = safeId;
+                        btn.className = 'pill-btn';
+                        btn.setAttribute('data-cat', cat);
+                        btn.onclick = () => setFilter(cat);
+                        if (archBtn) bar.insertBefore(btn, archBtn);
+                        else bar.appendChild(btn);
+                    }
+                    btn.innerText = `${cat} (${activeProds.filter(p => p.category === cat).length})`;
+                });
+            }
+
             if (archBtn) archBtn.innerText = `📦 ARCHIVADOS (${archProds.length})`;
         }
 
@@ -438,12 +515,19 @@ function populateSkuDatalist() {
             const filtered = products.filter(p => {
                 if (currentFilter === 'ARCHIVED') {
                     if (!p.archived) return false;
-                } else {
+                } else if (!q) {
                     if (p.archived) return false;
+                    if (currentFilter !== 'ALL' && p.category !== currentFilter) return false;
+                } else {
                     if (currentFilter !== 'ALL' && p.category !== currentFilter) return false;
                 }
 
-                const matchQ = !q || p.model_name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || (p.provider && p.provider.toLowerCase().includes(q));
+                const matchQ = !q ||
+                    (p.model_name && p.model_name.toLowerCase().includes(q)) ||
+                    (p.sku && p.sku.toLowerCase().includes(q)) ||
+                    (p.id && p.id.toLowerCase().includes(q)) ||
+                    (p.category && p.category.toLowerCase().includes(q)) ||
+                    (p.provider && p.provider.toLowerCase().includes(q));
                 return matchQ;
             });
             renderGrid(filtered);
@@ -460,13 +544,13 @@ function populateSkuDatalist() {
 
             if (items.length === 0) {
                 if (currentFilter === 'ARCHIVED') {
-                    grid.innerHTML = '<div class="col-span-full py-16 text-center text-gray-300 text-sm">📦 No tienes ninguna ficha archivada actualmente.</div>';
+                    grid.innerHTML = '<div class="col-span-full py-16 text-center text-[#64748B] font-semibold text-sm">📦 No tienes ninguna ficha archivada actualmente.</div>';
                 } else {
                     grid.innerHTML = `
                         <div class="col-span-full py-20 text-center flex flex-col items-center justify-center">
-                            <div class="w-16 h-16 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-3xl mb-4">🛋️</div>
-                            <h3 class="text-xl font-bold text-white mb-2">Sin muebles en esta categoría</h3>
-                            <p class="text-sm text-slate-400 max-w-md">Selecciona otra categoría o revisa la pestaña de Archivados.</p>
+                            <div class="w-16 h-16 rounded-full bg-[#E8E4DE] border border-[#E1DBC5] flex items-center justify-center text-3xl mb-4">🛋️</div>
+                            <h3 class="text-xl font-bold text-[#252C32] mb-2">Sin muebles en esta categoría</h3>
+                            <p class="text-sm text-[#64748B] max-w-md">Selecciona otra categoría o revisa la pestaña de Archivados.</p>
                         </div>
                     `;
                 }
@@ -486,11 +570,12 @@ function populateSkuDatalist() {
                     const hasImg = !!vItem.swatch_img;
                     const bgStyle = hasImg
                         ? `background-image: url('${vItem.swatch_img}'); background-size: cover; background-position: center;`
-                        : `background-color: ${vItem.swatch_hex || '#B8893E'};`;
+                        : `background-color: ${vItem.swatch_hex || '#A38251'};`;
+                    const vScale = Number(vItem.hero_scale) || 1;
                     return `
-                    <span onmouseenter="if(products[${realIdx}].variants[${vIdx}].hero_b64) document.getElementById('${imgId}').src = products[${realIdx}].variants[${vIdx}].hero_b64;"
-                          onclick="event.stopPropagation(); if(products[${realIdx}].variants[${vIdx}].hero_b64) document.getElementById('${imgId}').src = products[${realIdx}].variants[${vIdx}].hero_b64; openModal(${realIdx}, ${vIdx});" 
-                          title="${vItem.color_label || 'Opción'}" 
+                    <span onmouseenter="var el=document.getElementById('${imgId}'); if(el && products[${realIdx}].variants[${vIdx}].hero_b64){ el.src = products[${realIdx}].variants[${vIdx}].hero_b64; el.style.setProperty('--img-scale','${vScale}'); }"
+                          onclick="event.stopPropagation(); openModal(${realIdx}, ${vIdx});" 
+                          title="${(vItem.color_label || 'Opción').replace(/"/g, '&quot;')}" 
                           class="swatch-circle"
                           style="${bgStyle}"></span>
                     `;
@@ -500,6 +585,7 @@ function populateSkuDatalist() {
                 const cleanHeroAdmin = (v.hero_b64 && v.hero_b64 !== v.swatch_img && !/-finish-\d+\./i.test(v.hero_b64))
                     ? v.hero_b64
                     : (vg0.ambiente || vg0.view1 || '');
+                const heroScale = Number(v && v.hero_scale) || 1;
                 card.innerHTML = `
                     <div class="card-img-area relative"
                          ondragover="handleCardDragOver(event)"
@@ -516,13 +602,13 @@ function populateSkuDatalist() {
                                 ✏️
                             </button>
                         </div>
-                        ${cleanHeroAdmin ? `<img id="${imgId}" src="${cleanHeroAdmin}" alt="${p.model_name.replace(/"/g, '&quot;')}">` : `
+                        ${cleanHeroAdmin ? `<img id="${imgId}" src="${cleanHeroAdmin}" style="--img-scale: ${heroScale};" alt="${p.model_name.replace(/"/g, '&quot;')}">` : `
                         <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px;">
-                            <div class="w-12 h-12 rounded-full bg-[#B8893E]/10 flex items-center justify-center mb-2">
-                                <svg class="w-6 h-6 text-[#B8893E]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            <div class="w-12 h-12 rounded-full bg-[#A38251]/10 flex items-center justify-center mb-2">
+                                <svg class="w-6 h-6 text-[#A38251]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                             </div>
-                            <span class="text-[10px] font-bold text-slate-700 tracking-wider uppercase">${p.provider_abbr || 'CREATA'}</span>
-                            <span class="text-[9px] text-[#B8893E] font-semibold mt-1">📄 Ver Ficha Técnica</span>
+                            <span class="text-[10px] font-bold text-[#252C32] tracking-wider uppercase">${p.provider_abbr || 'CREATA'}</span>
+                            <span class="text-[9px] text-[#A38251] font-semibold mt-1">📄 Ver Ficha Técnica</span>
                         </div>`}
                     </div>
                     <div class="card-footer-info">
