@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="catalog-styles.css?v=24">
+    <link rel="stylesheet" href="catalog-styles.css?v=26">
 </head>
 <body>
 
@@ -155,10 +155,13 @@
                             </div>
                         </div>
 
-                        <!-- PRECIO DE LISTA OFICIAL EN VERDE AMPLIADO -->
-                        <div class="bg-[#EAF7EE] border border-green-200 rounded-xl px-4 py-2.5 flex items-center justify-between mb-2.5 shadow-xs">
-                            <span class="text-xs font-black uppercase tracking-wider text-[#1B7A3E]">Precio de Lista Oficial:</span>
-                            <span class="text-xl lg:text-2xl font-black text-[#1B7A3E]" id="mPrice">$0.00</span>
+                        <!-- PRECIO Y DESGLOSE POR MÓDULO EN VERDE -->
+                        <div class="bg-[#EAF7EE] border border-green-200 rounded-xl px-4 py-2.5 mb-2.5 shadow-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-black uppercase tracking-wider text-[#1B7A3E]">Precio</span>
+                                <span class="text-xl lg:text-2xl font-black text-[#1B7A3E]" id="mPrice">$0.00</span>
+                            </div>
+                            <div id="mModulePrices" class="hidden mt-1.5 pt-1.5 border-t border-green-200/80 space-y-0.5"></div>
                         </div>
 
                         <!-- MATERIALES Y FABRICACIÓN AMPLIADO -->
@@ -197,12 +200,12 @@
         <button type="button" id="lightboxNextBtn" onclick="event.stopPropagation(); stepPhotoLightbox(1);" class="lightbox-nav-btn right-4 sm:right-6" title="Siguiente foto">›</button>
     </div>
 
-    <script src="catalog-data-1.js?v=25"></script>
-    <script src="catalog-data-2.js?v=25"></script>
+    <script src="catalog-data-1.js?v=26"></script>
+    <script src="catalog-data-2.js?v=26"></script>
     <script>const rawProducts = [...(window.CREATA_CATALOG_P1 || []), ...(window.CREATA_CATALOG_P2 || [])];</script>
-    <script src="creata-finishes.js?v=25"></script>
-    <script src="creata-img.js?v=25"></script>
-    <script src="creata-cloud.js?v=25"></script>
-    <script src="catalog-app.js?v=25"></script>
+    <script src="creata-finishes.js?v=26"></script>
+    <script src="creata-img.js?v=26"></script>
+    <script src="creata-cloud.js?v=26"></script>
+    <script src="catalog-app.js?v=26"></script>
 </body>
 </html>

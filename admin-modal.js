@@ -82,6 +82,8 @@ function updateModalView(resetOffset = true) {
                 if (phEl) phEl.style.display = valid ? 'none' : 'flex';
                 const delBtn = document.getElementById(`btnDelete_${slotPrefix}`);
                 if (delBtn) delBtn.style.display = valid ? 'inline-flex' : 'none';
+                const flipBtn = document.getElementById(`btnFlip_${slotPrefix}`);
+                if (flipBtn) flipBtn.style.display = valid ? 'inline-flex' : 'none';
             };
 
             const ajMatch = (window.CreataCloud && window.CreataCloud.resolveAjFinish)
@@ -136,7 +138,7 @@ function updateModalView(resetOffset = true) {
             // 3. Vistas 1 a 4 (slots 100% independientes sin repetición ni ciclo)
             const getSlotView = (slotKey, idx) => {
                 if (g[slotKey] && typeof g[slotKey] === 'string' && g[slotKey].trim()) return g[slotKey];
-                if (g.all_views && g.all_views.length > idx && g.all_views[idx]) return g.all_views[idx];
+                if (g.all_views && g.all_views.length > idx && g.all_views[idx]) return g[slotKey] || g.all_views[idx];
                 return '';
             };
 
@@ -170,7 +172,7 @@ function updateModalView(resetOffset = true) {
             setSpecBox('mPackages', getVal(v.packages, p.packages));
             setSpecBox('mVolume', getVal(v.volume, p.volume));
 
-            document.getElementById('mPrice').innerText = p.price || 'Consultar';
+            document.getElementById('mPrice').innerText = v.price || p.price || 'Consultar';
             const matElAdm = document.getElementById('mMaterials');
             const matValAdm = (getVal(v.materials, p.materials) || '').toString().trim();
             if (matElAdm) {
@@ -187,6 +189,9 @@ function updateModalView(resetOffset = true) {
             renderSwatchesRow();
             renderFabricEditor();
             if (typeof renderSalaModulesUI === 'function') renderSalaModulesUI();
+            if (window.CreataCloud && typeof window.CreataCloud.renderModulePricesBox === 'function') {
+                window.CreataCloud.renderModulePricesBox('mModulePrices', p, true);
+            }
             renderPieceSkuComposer();
 
             const driveBtn = document.getElementById('modalDriveBtn');

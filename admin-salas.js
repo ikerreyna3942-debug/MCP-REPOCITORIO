@@ -262,6 +262,9 @@
             const skuEl = document.getElementById('salaTempUnifiedSkuDisplay');
             if (priceEl) priceEl.innerText = '$' + sumPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             if (skuEl) skuEl.innerText = tempSku;
+            if (window.CreataCloud && typeof window.CreataCloud.renderModulePricesBox === 'function') {
+                window.CreataCloud.renderModulePricesBox('mModulePrices', p, true);
+            }
         }
 
         function toggleSalaModuleChecked(idx, checked) {

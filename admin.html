@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="admin-styles.css?v=24">
+    <link rel="stylesheet" href="admin-styles.css?v=26">
 
 </head>
 <body>
@@ -21,7 +21,7 @@
                 <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span class="font-bold text-xs tracking-wider uppercase text-[#E1DBC5]">MODO ADMINISTRADOR</span>
                 <span class="text-gray-400 text-xs hidden sm:inline">|</span>
-                <span class="text-xs text-gray-300 hidden sm:inline"><strong id="adminCountDisplay">47</strong> muebles</span>
+                <span class="text-xs text-gray-300 hidden sm:inline"><strong id="adminCountDisplay">57</strong> muebles</span>
             </div>
 
             <div class="flex items-center gap-2.5 flex-wrap">
@@ -105,11 +105,12 @@
                         <span>📷</span> <span>Foto de Inicio</span>
                         <input type="file" accept="image/*" class="hidden" onchange="uploadSlotImage(event, 'hero')">
                     </label>
-                    <div class="scale-ctrl-pill" title="Ajustar zoom de la Foto de Inicio en las fichas principales (también puedes usar la rueda del mouse sobre la tarjeta)">
+                    <div class="scale-ctrl-pill" title="Ajustar zoom o girar la Foto de Inicio en las fichas principales (también puedes usar la rueda del mouse sobre la tarjeta)">
                         <span class="scale-ctrl-title">Inicio</span>
                         <button type="button" onclick="adjustPhotoScale('hero', -0.08)" title="Alejar Foto de Inicio">−</button>
                         <span id="lblScale_hero" ondblclick="resetPhotoScale('hero')" title="Doble clic para restaurar a 100%">100%</span>
                         <button type="button" onclick="adjustPhotoScale('hero', 0.08)" title="Acercar Foto de Inicio">+</button>
+                        <button type="button" onclick="flipSlotPhoto('hero')" title="Girar horizontalmente Foto de Inicio">↔</button>
                         <button type="button" onclick="resetPhotoScale('hero')" title="Centrar y restaurar 100%">↺</button>
                     </div>
                     <button type="button" id="btnAuditCleanPhotos" onclick="auditAndCleanProductPhotos()" class="admin-btn text-xs shadow-xs border border-[#A38251] bg-[#FAF8F4] hover:bg-[#A38251] text-[#252C32] hover:text-white transition" title="Quita el fondo con IA y nivela proporciones en Inicio y Vistas 1-4 (conservando intactas Ambiente y Tela/Acabado)">
@@ -147,6 +148,7 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'ambiente')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnFlip_ambiente" class="slot-delete-btn hidden" style="background: rgba(37,44,50,0.82);" title="Girar foto horizontalmente" onclick="event.stopPropagation(); flipSlotPhoto('ambiente');">↔</button>
                                 <button type="button" id="btnDelete_ambiente" class="slot-delete-btn hidden" title="Eliminar foto de ambiente" onclick="event.stopPropagation(); deleteSlotPhoto('ambiente');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -198,6 +200,7 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view1')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnFlip_view1" class="slot-delete-btn hidden" style="background: rgba(37,44,50,0.82);" title="Girar Vista 1 horizontalmente" onclick="event.stopPropagation(); flipSlotPhoto('view1');">↔</button>
                                 <button type="button" id="btnDelete_view1" class="slot-delete-btn hidden" title="Eliminar Vista 1" onclick="event.stopPropagation(); deleteSlotPhoto('view1');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -223,6 +226,7 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view2')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnFlip_view2" class="slot-delete-btn hidden" style="background: rgba(37,44,50,0.82);" title="Girar Vista 2 horizontalmente" onclick="event.stopPropagation(); flipSlotPhoto('view2');">↔</button>
                                 <button type="button" id="btnDelete_view2" class="slot-delete-btn hidden" title="Eliminar Vista 2" onclick="event.stopPropagation(); deleteSlotPhoto('view2');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -248,6 +252,7 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view3')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnFlip_view3" class="slot-delete-btn hidden" style="background: rgba(37,44,50,0.82);" title="Girar Vista 3 horizontalmente" onclick="event.stopPropagation(); flipSlotPhoto('view3');">↔</button>
                                 <button type="button" id="btnDelete_view3" class="slot-delete-btn hidden" title="Eliminar Vista 3" onclick="event.stopPropagation(); deleteSlotPhoto('view3');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -273,6 +278,7 @@
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view4')">
                             <div class="slot-actions-group">
+                                <button type="button" id="btnFlip_view4" class="slot-delete-btn hidden" style="background: rgba(37,44,50,0.82);" title="Girar Vista 4 horizontalmente" onclick="event.stopPropagation(); flipSlotPhoto('view4');">↔</button>
                                 <button type="button" id="btnDelete_view4" class="slot-delete-btn hidden" title="Eliminar Vista 4" onclick="event.stopPropagation(); deleteSlotPhoto('view4');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -460,10 +466,13 @@
                             </div>
                         </div>
 
-                        <!-- PRECIO DE LISTA OFICIAL EN VERDE -->
-                        <div class="bg-[#EAF7EE] border border-green-200 rounded-xl px-4 py-2 flex items-center justify-between mb-3">
-                            <span class="text-[9px] font-extrabold uppercase text-[#1B7A3E]">Precio de Lista Oficial:</span>
-                            <span class="text-base font-extrabold text-[#1B7A3E]" id="mPrice">$0.00</span>
+                        <!-- PRECIO Y DESGLOSE POR MÓDULO EN VERDE -->
+                        <div class="bg-[#EAF7EE] border border-green-200 rounded-xl px-4 py-2 mb-3">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[9px] font-extrabold uppercase text-[#1B7A3E]">Precio</span>
+                                <span class="text-base font-extrabold text-[#1B7A3E]" id="mPrice">$0.00</span>
+                            </div>
+                            <div id="mModulePrices" class="hidden mt-1.5 pt-1.5 border-t border-green-200/80 space-y-0.5"></div>
                         </div>
 
                         <!-- MATERIALES Y FABRICACIÓN -->
@@ -556,20 +565,20 @@
         </div>
     </div>
 
-    <script src="admin-sku-db-1.js?v=25"></script>
-    <script src="admin-sku-db-2.js?v=25"></script>
+    <script src="admin-sku-db-1.js?v=26"></script>
+    <script src="admin-sku-db-2.js?v=26"></script>
     <script>const SKU_DATABASE = Object.assign({}, window.ADMIN_SKU_DB_P1 || {}, window.ADMIN_SKU_DB_P2 || {});</script>
-    <script src="admin-data-1.js?v=25"></script>
-    <script src="admin-data-2.js?v=25"></script>
+    <script src="admin-data-1.js?v=26"></script>
+    <script src="admin-data-2.js?v=26"></script>
     <script>const rawProducts = [...(window.ADMIN_RAW_P1 || []), ...(window.ADMIN_RAW_P2 || [])];</script>
-    <script src="creata-finishes.js?v=25"></script>
-    <script src="creata-img.js?v=25"></script>
-    <script src="creata-cloud.js?v=25"></script>
-    <script src="admin-core.js?v=25"></script>
-    <script src="admin-modal.js?v=25"></script>
-    <script src="admin-editor.js?v=25"></script>
-    <script src="admin-crud.js?v=25"></script>
-    <script src="admin-salas.js?v=25"></script>
+    <script src="creata-finishes.js?v=26"></script>
+    <script src="creata-img.js?v=26"></script>
+    <script src="creata-cloud.js?v=26"></script>
+    <script src="admin-core.js?v=26"></script>
+    <script src="admin-modal.js?v=26"></script>
+    <script src="admin-editor.js?v=26"></script>
+    <script src="admin-crud.js?v=26"></script>
+    <script src="admin-salas.js?v=26"></script>
 
 <div id="adminToast"><span id="adminToastIcon">✅</span><span id="toastIcon" class="hidden"></span><span id="adminToastMsg">Éxito</span><span id="toastMsg" class="hidden"></span></div>
 </body>

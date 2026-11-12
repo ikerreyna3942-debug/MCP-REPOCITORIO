@@ -90,8 +90,100 @@ return s.startsWith('data:image/') || s.startsWith('https://') || s.startsWith('
 function bustRepoFotoCache(val) { if (!val || typeof val !== 'string') return '';
 const s = val.trim();
 if (!s || s.startsWith('data:') || s.includes('?')) return s;
-if (/raw\.githubusercontent\.com\/ikerreyna3942-debug\/MCP-REPOCITORIO\/main\/fotos\//i.test(s) || /^(?:\.\/)?fotos\//i.test(s)) { return s + '?v=25'; }
+if (/raw\.githubusercontent\.com\/ikerreyna3942-debug\/MCP-REPOCITORIO\/main\/fotos\//i.test(s) || /^(?:\.\/)?fotos\//i.test(s)) { return s + '?v=26'; }
 return s; }
+const KNOWN_SALA_MODULES_FALLBACK_ = {
+'SALA-CARRARA': [
+{ name: 'Sillón con brazo derecho (Altman Cotton)', price: 8392.6, width: '155 cm', depth: '114 cm', height: '90 cm', qty: 1, checked: true, optional: false },
+{ name: 'Esquinero curvo (Altman Cotton)', price: 8560.8, width: '140 cm', depth: '140 cm', height: '90 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón con brazo izquierdo (Altman Cotton)', price: 8392.6, width: '155 cm', depth: '114 cm', height: '90 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón sin brazos opcional (Módulo central)', price: 5469.4, width: '101 cm', depth: '103 cm', height: '90 cm', qty: 1, checked: false, optional: true }
+],
+'SALA-DONATI': [
+{ name: 'Sillón / Love con brazo derecho (Roble 01)', price: 9193, width: '150 cm', depth: '112 cm', height: '88 cm', qty: 1, checked: true, optional: false },
+{ name: 'Chaise longue con brazo izquierdo (Roble 01)', price: 10793.8, width: '150 cm', depth: '157 cm', height: '88 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón / Love con brazo izquierdo (Opción opuesta)', price: 9193, width: '150 cm', depth: '112 cm', height: '88 cm', qty: 1, checked: false, optional: true },
+{ name: 'Chaise longue con brazo derecho (Opción opuesta)', price: 10793.8, width: '150 cm', depth: '157 cm', height: '88 cm', qty: 1, checked: false, optional: true }
+],
+'SALA-DYLAN': [
+{ name: 'Sillón con brazo derecho (Mercury Peyote)', price: 8027.2, width: '152 cm', depth: '113 cm', height: '91 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón sin brazos (Mercury Peyote)', price: 7128.2, width: '135 cm', depth: '113 cm', height: '91 cm', qty: 1, checked: true, optional: false },
+{ name: 'Esquinero (Mercury Peyote)', price: 6733.8, width: '113 cm', depth: '113 cm', height: '91 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón con brazo izquierdo (Mercury Peyote)', price: 8027.2, width: '152 cm', depth: '113 cm', height: '91 cm', qty: 1, checked: true, optional: false },
+{ name: 'Ottoman (Mercury Peyote)', price: 4976.4, width: '135 cm', depth: '113 cm', height: '48 cm', qty: 1, checked: false, optional: true }
+],
+'SALA-LUGANO': [
+{ name: 'Sillón con brazo derecho (Nature Linen)', price: 6675.8, width: '120 cm', depth: '105 cm', height: '94 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón sin brazos (Nature Linen)', price: 5370.8, width: '102 cm', depth: '105 cm', height: '94 cm', qty: 1, checked: true, optional: false },
+{ name: 'Esquinero curvo (Nature Linen)', price: 5562.2, width: '135 cm', depth: '135 cm', height: '94 cm', qty: 1, checked: true, optional: false },
+{ name: 'Chaise lounge izquierdo (Nature Linen)', price: 10080.4, width: '120 cm', depth: '205 cm', height: '94 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón con brazo izquierdo (Opción)', price: 6675.8, width: '120 cm', depth: '105 cm', height: '94 cm', qty: 1, checked: false, optional: true },
+{ name: 'Chaise lounge derecho (Opción)', price: 10080.4, width: '120 cm', depth: '205 cm', height: '94 cm', qty: 1, checked: false, optional: true },
+{ name: 'Esquinero recto 90° (Opción)', price: 5562.2, width: '105 cm', depth: '105 cm', height: '94 cm', qty: 1, checked: false, optional: true }
+],
+'SALA-MARENO': [
+{ name: 'Sofá 3 plazas (Kelsi Cotton)', price: 11942.2, width: '245 cm', depth: '106 cm', height: '90 cm', qty: 1, checked: true, optional: false },
+{ name: 'Love seat 2 plazas (Kelsi Cotton)', price: 9297.4, width: '188 cm', depth: '106 cm', height: '90 cm', qty: 1, checked: true, optional: false }
+],
+'SALA-MATERA': [
+{ name: 'Sillón brazo derecho (Scar Putty)', price: 11107, width: '155 cm', depth: '134 cm', height: '94 cm', qty: 1, checked: false, optional: true },
+{ name: 'Sillón brazo izquierdo (Scar Putty)', price: 11107, width: '155 cm', depth: '134 cm', height: '94 cm', qty: 1, checked: true, optional: false },
+{ name: 'Chaise longue derecho', price: 12731, width: '139 cm', depth: '182 cm', height: '94 cm', qty: 1, checked: true, optional: false },
+{ name: 'Chaise longue izquierdo (Opción)', price: 12731, width: '139 cm', depth: '182 cm', height: '94 cm', qty: 1, checked: false, optional: true }
+],
+'SALA-MONACO': [
+{ name: 'Sillón brazo izquierdo (Bikendi Linen)', price: 6281.4, width: '117 cm', depth: '103 cm', height: '93 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón sin brazos (Fancy Pewter)', price: 4593.6, width: '101 cm', depth: '103 cm', height: '93 cm', qty: 1, checked: true, optional: false },
+{ name: 'Esquinero (Fancy Pewter)', price: 5411.4, width: '103 cm', depth: '103 cm', height: '93 cm', qty: 1, checked: true, optional: false },
+{ name: 'Ottoman (Fancy Pewter)', price: 3828, width: '101 cm', depth: '103 cm', height: '48 cm', qty: 1, checked: false, optional: true },
+{ name: 'Esquinero (Bikendi Linen - variante)', price: 5869.6, width: '103 cm', depth: '103 cm', height: '93 cm', qty: 1, checked: false, optional: true }
+],
+'SALA-MONET': [
+{ name: 'Sofá 3 plazas (Fresh Flax)', price: 16037, width: '284 cm', depth: '108 cm', height: '98 cm', qty: 1, checked: true, optional: false },
+{ name: 'Love seat 2 plazas (Fresh Flax)', price: 12725.2, width: '225 cm', depth: '108 cm', height: '98 cm', qty: 1, checked: true, optional: false }
+],
+'SALA-SHELBY': [
+{ name: 'Sillón con brazo derecho (Napoli 01)', price: 7806.8, width: '152 cm', depth: '113 cm', height: '91 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón sin brazos (Napoli 01)', price: 6507.6, width: '135 cm', depth: '113 cm', height: '91 cm', qty: 1, checked: true, optional: false },
+{ name: 'Esquinero (Napoli 01)', price: 6797.6, width: '113 cm', depth: '113 cm', height: '91 cm', qty: 1, checked: true, optional: false },
+{ name: 'Sillón con brazo izquierdo (Napoli 01)', price: 7806.8, width: '152 cm', depth: '113 cm', height: '91 cm', qty: 1, checked: true, optional: false },
+{ name: 'Ottoman (Napoli 01)', price: 5011.2, width: '135 cm', depth: '113 cm', height: '48 cm', qty: 1, checked: false, optional: true }
+]
+};
+function resolveModuleBreakdown(prod) { if (!prod || typeof prod !== 'object') return [];
+if (Array.isArray(prod.sala_modules) && prod.sala_modules.some((m) => (parseFloat(m && m.price) || 0) > 0)) { return prod.sala_modules; }
+const upId = String(prod.id || '').trim().toUpperCase();
+const upName = String(prod.model_name || '').trim().toUpperCase();
+const matchKey = Object.keys(KNOWN_SALA_MODULES_FALLBACK_).find((k) => { if (upId === k) return true;
+const alias = k.replace(/^SALA-/, '');
+if (alias === 'MONET') return upName.includes('MONET') && !upName.includes('LOVE');
+if (alias === 'MARENO') return upName.includes('MARENO') && !upName.includes('LOVE');
+return alias.length >= 4 && upName.includes(alias); });
+return matchKey ? KNOWN_SALA_MODULES_FALLBACK_[matchKey].map((m) => Object.assign({}, m)) : []; }
+function renderModulePricesBox(elOrId, prod, compact = false) { const el = typeof elOrId === 'string' && global.document ? global.document.getElementById(elOrId) : elOrId;
+if (!el) return;
+const mods = resolveModuleBreakdown(prod).filter((m) => m && (parseFloat(m.price) || 0) > 0);
+if (mods.length <= 1) { el.innerHTML = '';
+el.classList.add('hidden');
+return; }
+const textCls = compact ? 'text-[9px]' : 'text-[10.5px] lg:text-[11px]';
+const ordered = mods.slice().sort((a, b) => ((a.checked === false ? 1 : 0) - (b.checked === false ? 1 : 0)));
+el.innerHTML = ordered.map((m) => { const isIncluded = m.checked !== false;
+const qty = Math.max(1, parseInt(m.qty, 10) || 1);
+const unitPrice = parseFloat(m.price) || 0;
+const lineTotal = unitPrice * qty;
+let cleanName = scrubForbiddenPublicText(String(m.name || 'Módulo'))
+.replace(/\s*\((?:Opci[oó]n(?:\s+opuesta)?|M[oó]dulo\s+central)\)/gi, '')
+.replace(/\s*\([^)]*\)\s*$/, '')
+.trim();
+if (!cleanName) cleanName = scrubForbiddenPublicText(String(m.name || 'Módulo')).trim();
+const escName = cleanName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const qtyPrefix = (isIncluded && qty > 1) ? `${qty}× ` : '';
+const optBadge = !isIncluded ? `<span class="ml-1 px-1 py-0.2 rounded bg-green-900/10 text-[#1B7A3E]/80 font-bold text-[8px] uppercase">Opc.</span>` : '';
+const priceTxt = formatCurrencyMXN(isIncluded ? lineTotal : unitPrice);
+return `<div class="flex items-center justify-between gap-2 ${textCls} leading-snug ${isIncluded ? 'text-[#1B7A3E]/95 font-semibold' : 'text-[#1B7A3E]/70 font-medium'}"><span class="truncate">• ${qtyPrefix}${escName}${optBadge}</span><span class="font-bold whitespace-nowrap shrink-0">${priceTxt}</span></div>`;
+}).join('');
+el.classList.remove('hidden'); }
 function scrubForbiddenPublicText(txt) { if (!txt || typeof txt !== 'string') return txt || '';
 return txt
 .replace(/JUEGO COMPLETO\s*\([^)]*\)/gi, '')
@@ -153,15 +245,19 @@ if (linkedFinish) g.finishes = [linkedFinish];
 if (vc.hero_b64 && /-finish-\d+\./i.test(vc.hero_b64) && !g.ambiente && !hasAnyView) { vc.hero_b64 = ''; }
 vc.gallery = g; }
 return vc; }); } else { clone.variants = []; }
-if (Array.isArray(clone.sala_modules)) {
-clone.sala_modules = clone.sala_modules.map((m) => ({ name: scrubForbiddenPublicText(m.name),
+const rawMods = (Array.isArray(clone.sala_modules) && clone.sala_modules.length > 0)
+? clone.sala_modules
+: resolveModuleBreakdown(clone);
+if (Array.isArray(rawMods) && rawMods.length > 0) {
+clone.sala_modules = rawMods.map((m) => ({ name: scrubForbiddenPublicText(m.name),
 price: parseFloat(m.price) || 0,
 width: m.width || '',
 depth: m.depth || '',
 height: m.height || '',
 qty: parseInt(m.qty, 10) || 1,
-checked: m.checked !== false
-})); }
+checked: m.checked !== false,
+optional: !!m.optional || m.checked === false
+})); } else { clone.sala_modules = []; }
 return clone; }
 const parseCurrencyValue = (v) => global.CreataImg.parseCurrencyValue(v);
 const formatCurrencyMXN = (n) => global.CreataImg.formatCurrencyMXN(n);
@@ -509,14 +605,18 @@ const usedSalasInCat = {};
 const catalogRows = (prodTbl && Array.isArray(prodTbl.rows)) ? prodTbl.rows : [];
 catalogRows.forEach((r) => { const id = String(gvizCell(r, 0) || '').trim();
 if (!id || id.toUpperCase() === 'ID_INTERNO') return;
-seenIds.add(id.toUpperCase());
-let sku = String(gvizCell(r, 3) || '').trim();
-sku.split('/').forEach((s) => { if (s.trim()) seenSkus.add(s.trim().toUpperCase()); });
-const modelName = scrubForbiddenPublicText(String(gvizCell(r, 4) || '').trim());
-if (!modelName) return;
-seenModels.add(modelName.toUpperCase());
+const upRowId = id.toUpperCase();
 const estado = String(gvizCell(r, 1) || 'ARCHIVADO').trim().toUpperCase();
 const isArchived = estado !== 'VISIBLE';
+const isDrvStub = upRowId.startsWith('DRV-') && isArchived;
+seenIds.add(upRowId);
+let sku = String(gvizCell(r, 3) || '').trim();
+if (upRowId === 'CVVSALLEXPROL' && /CVVSALLUN|CVVSALPIE/i.test(sku)) { sku = 'CVVSALLEXPROL'; }
+if (!isDrvStub) {
+sku.split('/').forEach((s) => { if (s.trim()) seenSkus.add(s.trim().toUpperCase()); }); }
+const modelName = scrubForbiddenPublicText(String(gvizCell(r, 4) || '').trim());
+if (!modelName) return;
+if (!isDrvStub) seenModels.add(modelName.toUpperCase());
 if (mode === 'public' && isArchived) return;
 const prov = String(gvizCell(r, 2) || 'CREATA').trim();
 const cat = normalizeCategoryClient_(gvizCell(r, 5));
@@ -842,6 +942,8 @@ global.CREATA_CLOUD_CONFIG = CREATA_CLOUD_CONFIG;
 global.CreataCloud = { config: CREATA_CLOUD_CONFIG,
 isValidPhotoUrl,
 bustRepoFotoCache,
+resolveModuleBreakdown,
+renderModulePricesBox,
 scrubForbiddenPublicText,
 sanitizePublicProduct,
 inferFinishType,

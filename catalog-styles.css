@@ -101,7 +101,7 @@ transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1) !important;
 transform-origin: center center;
 }
 .product-card:hover .card-img-area img {
-transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
 }
 .badge-category {
 position: absolute;
@@ -504,7 +504,7 @@ transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1) !important;
 transform-origin: center center !important;
 }
 .product-card:hover .card-img-area img {
-transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
 }
 
 /* MODAL BODY LAYOUT IDÉNTICO AL EDITOR (PC 12 COLS: 8 GALERÍA + 4 INFO, p-5=20px, gap-6=24px) */

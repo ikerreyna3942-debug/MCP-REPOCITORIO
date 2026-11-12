@@ -556,7 +556,7 @@
             const cleanHeroUrl = (rawHero && rawHero !== finishSrc && !/-finish-\d+\./i.test(rawHero)) ? rawHero : '';
             const ambUrl = isPhotoValid(g.ambiente)
                 ? String(g.ambiente).trim()
-                : (!hasFurnitureViews && cleanHeroUrl ? cleanHeroUrl : '');
+                : (cleanHeroUrl || '');
             renderPublicSlot('slotImgAmbiente', 'ambiente', ambUrl);
 
             const hasAnyPhoto = !!(ambUrl || finishSrc || hasFurnitureViews);
@@ -611,6 +611,9 @@
             setSpecBox('mVolume', getVal(v.volume, p.volume));
 
             document.getElementById('mPrice').innerText = v.price || p.price || 'Consultar';
+            if (window.CreataCloud && typeof window.CreataCloud.renderModulePricesBox === 'function') {
+                window.CreataCloud.renderModulePricesBox('mModulePrices', p, false);
+            }
             const matEl = document.getElementById('mMaterials');
             const matText = (getVal(v.materials, p.materials) || '').toString().trim();
             if (matEl) {

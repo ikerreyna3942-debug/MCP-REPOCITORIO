@@ -154,12 +154,13 @@ window.CREATA_DRIVE_ID_BY_KEY = {
   "YO1PZURSA07RM": "1bnvrclEjyC2-4D79V9Vs_T1tYuPSJQEP"
 };
 window.CREATA_FINISH_BY_KEY = {
-  "ATXCAMAUQSGMB": {"label":"RHONA ECRU - BELLOTA","img":"https://drive.google.com/thumbnail?id=1sDYt2kiY3HNbAqQubSTNOlS4SzYh_5bm&sz=w800"},
-  "ATXCAMAUQSREB": {"label":"GELLAR MARBLE - BELLOTA","img":"https://drive.google.com/thumbnail?id=1ozHqkeXRhentj2NUZw_L9u9XUwyCXC9-&sz=w800"},
+  "ATXCAMAUQSGMB": {"label":"GELLAR MARBLE - BELLOTA","img":"https://drive.google.com/thumbnail?id=1ozHqkeXRhentj2NUZw_L9u9XUwyCXC9-&sz=w800"},
+  "ATXCAMAUQSREB": {"label":"RHONA ECRU - BELLOTA","img":"https://drive.google.com/thumbnail?id=1sDYt2kiY3HNbAqQubSTNOlS4SzYh_5bm&sz=w800"},
   "ATXCAMSFEKSGM": {"label":"GELLAR MARBLE - ESPIGA","img":"https://drive.google.com/thumbnail?id=1zDvIAcprP_ZmokHm37WMlbBKUJXQzUHl&sz=w800"},
   "ATXCAMSFEKSLC": {"label":"LOVEME COTTON - ESPIGA","img":"https://drive.google.com/thumbnail?id=1zcuNM7a6cjri04QhZS9lKrdh9YdAQcdE&sz=w800"},
   "ATXBUFBALSPHA": {"label":"HABANO","img":"https://drive.google.com/thumbnail?id=17wdbsUu5c2oIXGLFCmZ2_ijL9AXPzjtn&sz=w800"},
   "ATXBUFLUMBENT": {"label":"BELLOTA","img":"https://drive.google.com/thumbnail?id=1jmUL8QeEN7ZneS0Od9zd2O89yn1HJeNV&sz=w800"},
+  "ATXLIBMAZENCA": {"label":"BELLOTA","img":"https://drive.google.com/thumbnail?id=1jmUL8QeEN7ZneS0Od9zd2O89yn1HJeNV&sz=w800"},
   "ATXBUFSTHNONT": {"label":"NOCHE","img":"https://drive.google.com/thumbnail?id=1rtGHK0czW7DIEX3uW-eTAb9wUt2347FW&sz=w800"},
   "ATXMDCKUNROEN": {"label":"ESPIGA","img":"https://drive.google.com/thumbnail?id=1x7MiM15EuEDZ1JOiO3sg7Bm_xDefsR7n&sz=w800"},
   "ATXCENRENLABE": {"label":"BELLOTA","img":"https://drive.google.com/thumbnail?id=1jmUL8QeEN7ZneS0Od9zd2O89yn1HJeNV&sz=w800"},
@@ -289,5 +290,6 @@ window.CREATA_FINISH_BY_KEY = {
   "SALA:SALA MONET": {"label":"FRESH FLAX","img":"https://drive.google.com/thumbnail?id=15xYqdZ2bjfsGLy1LqFEx46ZKeGvTYJHP&sz=w800"},
   "SALA-SHELBY": {"label":"NAPOLI","img":"https://drive.google.com/thumbnail?id=1xyIRKru_0jgQ9Mgb7xr4GJ8xKHGxVU35&sz=w800"},
   "SALA:SALA MODULAR SHELBY": {"label":"NAPOLI","img":"https://drive.google.com/thumbnail?id=1xyIRKru_0jgQ9Mgb7xr4GJ8xKHGxVU35&sz=w800"},
-  "KUDSCAASHBRSN": {"label":"BRAXTON SNOW","img":"https://drive.google.com/thumbnail?id=1DCfahsVXnapkkPaEXcBb4k_8GsVx0Aq5&sz=w800"}
+  "KUDSCAASHBRSN": {"label":"BRAXTON SNOW","img":"https://drive.google.com/thumbnail?id=1DCfahsVXnapkkPaEXcBb4k_8GsVx0Aq5&sz=w800"},
+  "KUDSCAUGABRSN": {"label":"BRAXTON SNOW","img":"https://drive.google.com/thumbnail?id=1DCfahsVXnapkkPaEXcBb4k_8GsVx0Aq5&sz=w800"}
 };
