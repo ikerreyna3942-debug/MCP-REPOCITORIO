@@ -77,9 +77,13 @@ function populateSkuDatalist() {
                 finish_name: found.finish_name || ''
             };
 
-            // Asignación de foto de tela / acabado de la Columna N
+            // Asignación de foto de tela / acabado de la Columna N (vinculada al botón y al recuadro)
             if (found.swatch_img) {
                 v.swatch_img = found.swatch_img;
+                if (!v.gallery) v.gallery = {};
+                v.gallery.finish = found.swatch_img;
+                v.gallery.fabric = found.swatch_img;
+                v.gallery.finishes = [found.swatch_img];
             }
             if (found.finish_name) {
                 v.color_label = found.finish_name;
@@ -282,16 +286,19 @@ function populateSkuDatalist() {
         function mergeLocalPhotosIntoCloud_(cloudItems, localItems) {
             if (!Array.isArray(localItems) || localItems.length === 0) return cloudItems;
             const localById = {};
+            const localByModel = {};
             localItems.forEach((lp) => {
                 if (lp && lp.id) localById[lp.id] = lp;
+                if (lp && lp.model_name) localByModel[String(lp.model_name).trim().toUpperCase()] = lp;
             });
             return cloudItems.map((cp) => {
-                const lp = cp && cp.id ? localById[cp.id] : null;
+                const lp = (cp && cp.id && localById[cp.id]) || (cp && cp.model_name && localByModel[String(cp.model_name).trim().toUpperCase()]) || null;
                 if (!lp || !Array.isArray(lp.variants) || !lp.variants[0]) return cp;
                 const cv = (cp.variants && cp.variants[0]) ? cp.variants[0] : null;
                 const lv = lp.variants[0];
                 if (!cv) return cp;
-                if (!cv.hero_b64 && lv.hero_b64) cv.hero_b64 = lv.hero_b64;
+                const isCleanLocalHero = lv.hero_b64 && !/-finish-\d+\./i.test(lv.hero_b64) && lv.hero_b64 !== lv.swatch_img;
+                if (!cv.hero_b64 && isCleanLocalHero) cv.hero_b64 = lv.hero_b64;
                 if (!cv.swatch_img && lv.swatch_img) cv.swatch_img = lv.swatch_img;
                 if (cv.gallery && lv.gallery) {
                     if (!cv.gallery.ambiente && lv.gallery.ambiente) cv.gallery.ambiente = lv.gallery.ambiente;
@@ -304,12 +311,20 @@ function populateSkuDatalist() {
                         cv.gallery.all_views = lv.gallery.all_views.slice();
                     }
                 }
+                if (cv.gallery) {
+                    const linkedFinish = cv.swatch_img || cv.gallery.finish || cv.gallery.fabric || '';
+                    if (linkedFinish) {
+                        cv.swatch_img = linkedFinish;
+                        cv.gallery.finish = linkedFinish;
+                        cv.gallery.fabric = linkedFinish;
+                    }
+                }
                 return cp;
             });
         }
 
         async function initializeCatalog() {
-            const CATALOG_BUILD_VERSION = 'creata_catalog_v11_live_4skus';
+            const CATALOG_BUILD_VERSION = 'creata_catalog_v12_linked';
             let sourceList = null;
             const localSaved = await loadCustomProducts();
 
@@ -481,14 +496,18 @@ function populateSkuDatalist() {
                     `;
                 }).join('');
 
+                const vg0 = (v && v.gallery) ? v.gallery : {};
+                const cleanHeroAdmin = (v.hero_b64 && v.hero_b64 !== v.swatch_img && !/-finish-\d+\./i.test(v.hero_b64))
+                    ? v.hero_b64
+                    : (vg0.ambiente || vg0.view1 || '');
                 card.innerHTML = `
-                    <div class="card-img-area relative" onmouseenter="this.querySelector('img') && this.querySelector('img').classList.add('flipped')" onmouseleave="this.querySelector('img') && this.querySelector('img').classList.remove('flipped')"
+                    <div class="card-img-area relative"
                          ondragover="handleCardDragOver(event)"
                          ondragleave="handleCardDragLeave(event)"
                          ondrop="handleCardDrop(event, ${realIdx})">
                         <div class="card-drag-overlay">
                             <span class="text-xl">📥</span>
-                            <span>Soltar para cambiar Foto de Inicio</span>
+                            <span>Soltar para cambiar Foto de Inicio (Sin Fondo)</span>
                         </div>
                         <span class="badge-category">${p.category}</span>
                         ${p.archived ? `<span class="badge-archived-status">📦 ARCHIVADO</span>` : ''}
@@ -497,7 +516,7 @@ function populateSkuDatalist() {
                                 ✏️
                             </button>
                         </div>
-                        ${v.hero_b64 ? `<img id="${imgId}" src="${v.hero_b64}" alt="${p.model_name}">` : `
+                        ${cleanHeroAdmin ? `<img id="${imgId}" src="${cleanHeroAdmin}" alt="${p.model_name.replace(/"/g, '&quot;')}">` : `
                         <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px;">
                             <div class="w-12 h-12 rounded-full bg-[#B8893E]/10 flex items-center justify-center mb-2">
                                 <svg class="w-6 h-6 text-[#B8893E]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
@@ -534,14 +553,14 @@ function populateSkuDatalist() {
 
             let cloudSuffix = '';
             if (window.CreataCloud && window.CreataCloud.config.isConfigured()) {
-                let res = await window.CreataCloud.cloudPost('toggle_archive', {
-                    productId: p.id,
-                    archived: !!p.archived
-                });
+                let res = await window.CreataCloud.cloudPost('save_product', { product: p });
                 if (!res || !res.ok) {
-                    res = await window.CreataCloud.cloudPost('save_product', { product: p });
+                    res = await window.CreataCloud.cloudPost('toggle_archive', {
+                        productId: p.id,
+                        archived: !!p.archived
+                    });
                 }
-                cloudSuffix = (res && res.ok) ? ' · ☁️ Sheets al día' : ' · ⚠️ Solo local';
+                cloudSuffix = (res && res.ok) ? ' · ☁️ Sincronizado con Cliente' : ' · ⚠️ Solo local';
             }
 
             if (p.archived) {
