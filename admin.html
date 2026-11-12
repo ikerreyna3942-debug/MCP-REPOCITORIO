@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-    <link rel="stylesheet" href="admin-styles.css?v=18">
+    <link rel="stylesheet" href="admin-styles.css?v=19">
 
 </head>
 <body>
@@ -103,11 +103,17 @@
                         <span>📷</span> <span>Foto de Inicio</span>
                         <input type="file" accept="image/*" class="hidden" onchange="uploadSlotImage(event, 'hero')">
                     </label>
-                    <div class="scale-ctrl-pill" title="Escala de Foto de Inicio en catálogo (doble clic en % para restaurar 100%)">
-                        <span class="scale-ctrl-title">Zoom Portada:</span>
-                        <button type="button" onclick="adjustPhotoScale('hero', -0.08)">−</button>
+                    <div class="scale-ctrl-pill" title="Alejar, acercar o acomodar la Foto de Inicio en catálogo (doble clic en % o ↺ para restaurar)">
+                        <span class="scale-ctrl-title">Portada:</span>
+                        <button type="button" onclick="adjustPhotoScale('hero', -0.08)" title="Hacer hacia atrás (alejar)">−</button>
                         <span id="lblScale_hero" ondblclick="resetPhotoScale('hero')">100%</span>
-                        <button type="button" onclick="adjustPhotoScale('hero', 0.08)">+</button>
+                        <button type="button" onclick="adjustPhotoScale('hero', 0.08)" title="Acercar">+</button>
+                        <span class="mx-0.5 text-slate-300">|</span>
+                        <button type="button" onclick="adjustPhotoPosition('hero', -4, 0)" title="Mover a la izquierda">◀</button>
+                        <button type="button" onclick="adjustPhotoPosition('hero', 0, -4)" title="Mover arriba">▲</button>
+                        <button type="button" onclick="adjustPhotoPosition('hero', 0, 4)" title="Mover abajo">▼</button>
+                        <button type="button" onclick="adjustPhotoPosition('hero', 4, 0)" title="Mover a la derecha">▶</button>
+                        <button type="button" onclick="resetPhotoScale('hero')" title="Centrar y restaurar al 100%">↺</button>
                     </div>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap justify-end">
@@ -136,14 +142,16 @@
                     <div class="modal-gallery-grid">
                         <!-- #1 FOTO DEL AMBIENTE (TOP LEFT, 2 COLS X 2 ROWS) -->
                         <div class="gallery-slot slot-ambiente relative group"
+                             onwheel="handleSlotWheelZoom(event, 'ambiente')"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'ambiente')">
                             <div class="slot-actions-group">
-                                <div id="scaleWrap_ambiente" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de esta foto">
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('ambiente', -0.08)">−</button>
+                                <div id="scaleWrap_ambiente" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Alejar, acercar o centrar foto (también puedes arrastrar la foto o usar la rueda del mouse)">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('ambiente', -0.08)" title="Hacer hacia atrás (alejar)">−</button>
                                     <span id="lblScale_ambiente" ondblclick="event.stopPropagation(); resetPhotoScale('ambiente')">100%</span>
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('ambiente', 0.08)">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('ambiente', 0.08)" title="Acercar">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); resetPhotoScale('ambiente')" title="Centrar y restaurar 100%">↺</button>
                                 </div>
                                 <button type="button" id="btnBgRemove_ambiente" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('ambiente');">✨</button>
                                 <button type="button" id="btnDelete_ambiente" class="slot-delete-btn hidden" title="Eliminar foto de ambiente" onclick="event.stopPropagation(); deleteSlotPhoto('ambiente');">✕</button>
@@ -153,24 +161,33 @@
                                 <span>Soltar Foto de Ambiente</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-base">📷</span>
-                                <span class="text-[10px] font-bold">Cambiar Foto de Ambiente</span>
+                                <span class="upload-ov-icon text-base">📷</span>
+                                <span class="upload-ov-text text-[10px] font-bold">Cambiar Foto</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'ambiente')" class="hidden">
                             </label>
+                            <span class="slot-pan-hint">✥ Arrastra para acomodar · Rueda = Zoom</span>
                             <div id="ph_ambiente" class="empty-slot-placeholder">
                                 <span class="text-2xl mb-1 text-slate-400">📷</span>
                                 <span class="text-xs font-bold text-slate-500">Foto de Ambiente</span>
                                 <span class="text-[9px] text-slate-400 font-medium">Arrastra una foto o haz clic</span>
                             </div>
-                            <img id="slotImgAmbiente" class="w-full h-full object-contain" style="display:none;">
+                            <img id="slotImgAmbiente" draggable="false" data-pan-slot="ambiente" class="w-full h-full object-contain slot-pannable-img" style="display:none;">
                         </div>
 
                         <!-- #2 TELA / ACABADO VINCULADO AL BOTÓN DE MUESTRA (TOP RIGHT, COL 3 X ROW 1) -->
                         <div class="gallery-slot slot-finish relative group"
+                             onwheel="handleSlotWheelZoom(event, 'finish')"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'finish')">
                             <div class="slot-actions-group">
+                                <div id="scaleWrap_finish" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Hacer hacia atrás, acercar o encajar foto completa de acabado (arrastra la foto para acomodar)">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('finish', -0.08)" title="Hacer hacia atrás (alejar)">−</button>
+                                    <span id="lblScale_finish" ondblclick="event.stopPropagation(); resetPhotoScale('finish')">100%</span>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('finish', 0.08)" title="Acercar">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); toggleFitFinishPhoto()" title="Ver foto completa sin recorte / Llenar recuadro">⊡</button>
+                                    <button type="button" onclick="event.stopPropagation(); resetPhotoScale('finish')" title="Centrar y restaurar 100%">↺</button>
+                                </div>
                                 <button type="button" id="btnDelete_finish" class="slot-delete-btn hidden" title="Eliminar Tela / Acabado" onclick="event.stopPropagation(); deleteSlotPhoto('finish');">✕</button>
                             </div>
                             <div class="slot-drag-overlay">
@@ -178,27 +195,30 @@
                                 <span>Soltar Tela / Acabado</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">📷</span>
-                                <span class="text-[9px] font-bold">Cambiar Acabado</span>
+                                <span class="upload-ov-icon text-sm">📷</span>
+                                <span class="upload-ov-text text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'finish')" class="hidden">
                             </label>
+                            <span class="slot-pan-hint">✥ Arrastra · Rueda = Zoom</span>
                             <div id="ph_finish" class="empty-slot-placeholder">
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Muestra de Acabado</span>
                             </div>
-                            <img id="slotImgFinish" class="w-full h-full object-cover" style="display:none;">
+                            <img id="slotImgFinish" draggable="false" data-pan-slot="finish" class="w-full h-full object-cover slot-pannable-img" style="display:none;">
                         </div>
 
                         <!-- #3 FOTO DE VISTA 1 (MIDDLE RIGHT, COL 3 X ROW 2) -->
                         <div class="gallery-slot slot-view1 relative group"
+                             onwheel="handleSlotWheelZoom(event, 'view1')"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view1')">
                             <div class="slot-actions-group">
-                                <div id="scaleWrap_view1" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de Vista 1">
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view1', -0.08)">−</button>
+                                <div id="scaleWrap_view1" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala y centrar Vista 1">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view1', -0.08)" title="Hacer hacia atrás (alejar)">−</button>
                                     <span id="lblScale_view1" ondblclick="event.stopPropagation(); resetPhotoScale('view1')">100%</span>
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view1', 0.08)">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view1', 0.08)" title="Acercar">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); resetPhotoScale('view1')" title="Centrar y restaurar 100%">↺</button>
                                 </div>
                                 <button type="button" id="btnBgRemove_view1" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view1');">✨</button>
                                 <button type="button" id="btnDelete_view1" class="slot-delete-btn hidden" title="Eliminar Vista 1" onclick="event.stopPropagation(); deleteSlotPhoto('view1');">✕</button>
@@ -208,27 +228,30 @@
                                 <span>Soltar aquí (se quita fondo)</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">✨</span>
-                                <span class="text-[9px] font-bold">Subir Vista 1 (Sin Fondo)</span>
+                                <span class="upload-ov-icon text-sm">✨</span>
+                                <span class="upload-ov-text text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view1')" class="hidden">
                             </label>
+                            <span class="slot-pan-hint">✥ Arrastra · Rueda = Zoom</span>
                             <div id="ph_view1" class="empty-slot-placeholder">
                                 <span class="text-xl mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 1</span>
                             </div>
-                            <img id="slotImgView1" class="w-full h-full object-contain" style="display:none;">
+                            <img id="slotImgView1" draggable="false" data-pan-slot="view1" class="w-full h-full object-contain slot-pannable-img" style="display:none;">
                         </div>
 
                         <!-- #4 FOTO DE VISTA 2 (BOTTOM LEFT, COL 1 X ROW 3) -->
                         <div class="gallery-slot slot-view2 relative group"
+                             onwheel="handleSlotWheelZoom(event, 'view2')"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view2')">
                             <div class="slot-actions-group">
-                                <div id="scaleWrap_view2" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de Vista 2">
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view2', -0.08)">−</button>
+                                <div id="scaleWrap_view2" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala y centrar Vista 2">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view2', -0.08)" title="Hacer hacia atrás (alejar)">−</button>
                                     <span id="lblScale_view2" ondblclick="event.stopPropagation(); resetPhotoScale('view2')">100%</span>
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view2', 0.08)">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view2', 0.08)" title="Acercar">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); resetPhotoScale('view2')" title="Centrar y restaurar 100%">↺</button>
                                 </div>
                                 <button type="button" id="btnBgRemove_view2" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view2');">✨</button>
                                 <button type="button" id="btnDelete_view2" class="slot-delete-btn hidden" title="Eliminar Vista 2" onclick="event.stopPropagation(); deleteSlotPhoto('view2');">✕</button>
@@ -238,27 +261,30 @@
                                 <span>Soltar aquí (se quita fondo)</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">✨</span>
-                                <span class="text-[9px] font-bold">Subir Vista 2 (Sin Fondo)</span>
+                                <span class="upload-ov-icon text-sm">✨</span>
+                                <span class="upload-ov-text text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view2')" class="hidden">
                             </label>
+                            <span class="slot-pan-hint">✥ Arrastra · Rueda = Zoom</span>
                             <div id="ph_view2" class="empty-slot-placeholder">
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 2</span>
                             </div>
-                            <img id="slotImgView2" class="w-full h-full object-contain" style="display:none;">
+                            <img id="slotImgView2" draggable="false" data-pan-slot="view2" class="w-full h-full object-contain slot-pannable-img" style="display:none;">
                         </div>
 
                         <!-- #5 FOTO DE VISTA 3 (BOTTOM MIDDLE, COL 2 X ROW 3) -->
                         <div class="gallery-slot slot-view3 relative group"
+                             onwheel="handleSlotWheelZoom(event, 'view3')"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view3')">
                             <div class="slot-actions-group">
-                                <div id="scaleWrap_view3" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de Vista 3">
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view3', -0.08)">−</button>
+                                <div id="scaleWrap_view3" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala y centrar Vista 3">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view3', -0.08)" title="Hacer hacia atrás (alejar)">−</button>
                                     <span id="lblScale_view3" ondblclick="event.stopPropagation(); resetPhotoScale('view3')">100%</span>
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view3', 0.08)">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view3', 0.08)" title="Acercar">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); resetPhotoScale('view3')" title="Centrar y restaurar 100%">↺</button>
                                 </div>
                                 <button type="button" id="btnBgRemove_view3" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view3');">✨</button>
                                 <button type="button" id="btnDelete_view3" class="slot-delete-btn hidden" title="Eliminar Vista 3" onclick="event.stopPropagation(); deleteSlotPhoto('view3');">✕</button>
@@ -268,27 +294,30 @@
                                 <span>Soltar aquí (se quita fondo)</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">✨</span>
-                                <span class="text-[9px] font-bold">Subir Vista 3 (Sin Fondo)</span>
+                                <span class="upload-ov-icon text-sm">✨</span>
+                                <span class="upload-ov-text text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view3')" class="hidden">
                             </label>
+                            <span class="slot-pan-hint">✥ Arrastra · Rueda = Zoom</span>
                             <div id="ph_view3" class="empty-slot-placeholder">
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 3</span>
                             </div>
-                            <img id="slotImgView3" class="w-full h-full object-contain" style="display:none;">
+                            <img id="slotImgView3" draggable="false" data-pan-slot="view3" class="w-full h-full object-contain slot-pannable-img" style="display:none;">
                         </div>
 
                         <!-- #6 FOTO DE VISTA 4 (BOTTOM RIGHT, COL 3 X ROW 3) -->
                         <div class="gallery-slot slot-view4 relative group"
+                             onwheel="handleSlotWheelZoom(event, 'view4')"
                              ondragover="handleSlotDragOver(event)"
                              ondragleave="handleSlotDragLeave(event)"
                              ondrop="handleSlotDrop(event, 'view4')">
                             <div class="slot-actions-group">
-                                <div id="scaleWrap_view4" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala de Vista 4">
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view4', -0.08)">−</button>
+                                <div id="scaleWrap_view4" class="scale-ctrl-pill scale-ctrl-mini hidden" onclick="event.stopPropagation();" title="Ajustar escala y centrar Vista 4">
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view4', -0.08)" title="Hacer hacia atrás (alejar)">−</button>
                                     <span id="lblScale_view4" ondblclick="event.stopPropagation(); resetPhotoScale('view4')">100%</span>
-                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view4', 0.08)">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); adjustPhotoScale('view4', 0.08)" title="Acercar">+</button>
+                                    <button type="button" onclick="event.stopPropagation(); resetPhotoScale('view4')" title="Centrar y restaurar 100%">↺</button>
                                 </div>
                                 <button type="button" id="btnBgRemove_view4" class="slot-bgremove-btn hidden" title="Quitar fondo automáticamente (IA)" onclick="event.stopPropagation(); removeSlotBackgroundManual('view4');">✨</button>
                                 <button type="button" id="btnDelete_view4" class="slot-delete-btn hidden" title="Eliminar Vista 4" onclick="event.stopPropagation(); deleteSlotPhoto('view4');">✕</button>
@@ -298,15 +327,16 @@
                                 <span>Soltar aquí (se quita fondo)</span>
                             </div>
                             <label class="photo-upload-overlay" onclick="event.stopPropagation();">
-                                <span class="text-sm">✨</span>
-                                <span class="text-[9px] font-bold">Subir Vista 4 (Sin Fondo)</span>
+                                <span class="upload-ov-icon text-sm">✨</span>
+                                <span class="upload-ov-text text-[9px] font-bold">Cambiar</span>
                                 <input type="file" accept="image/*" onchange="uploadSlotImage(event, 'view4')" class="hidden">
                             </label>
+                            <span class="slot-pan-hint">✥ Arrastra · Rueda = Zoom</span>
                             <div id="ph_view4" class="empty-slot-placeholder">
                                 <span class="text-lg mb-0.5 text-slate-400">📷</span>
                                 <span class="text-[9px] font-bold text-slate-500">Vista 4</span>
                             </div>
-                            <img id="slotImgView4" class="w-full h-full object-contain" style="display:none;">
+                            <img id="slotImgView4" draggable="false" data-pan-slot="view4" class="w-full h-full object-contain slot-pannable-img" style="display:none;">
                         </div>
                     </div>
 
@@ -520,14 +550,14 @@
     <script src="admin-data-1.js?v=18"></script>
     <script src="admin-data-2.js?v=18"></script>
     <script>const rawProducts = [...(window.ADMIN_RAW_P1 || []), ...(window.ADMIN_RAW_P2 || [])];</script>
-    <script src="creata-finishes.js?v=18"></script>
-    <script src="creata-img.js?v=18"></script>
-    <script src="creata-cloud.js?v=18"></script>
-    <script src="admin-core.js?v=18"></script>
-    <script src="admin-modal.js?v=18"></script>
-    <script src="admin-editor.js?v=18"></script>
-    <script src="admin-crud.js?v=18"></script>
-    <script src="admin-salas.js?v=18"></script>
+    <script src="creata-finishes.js?v=19"></script>
+    <script src="creata-img.js?v=19"></script>
+    <script src="creata-cloud.js?v=19"></script>
+    <script src="admin-core.js?v=19"></script>
+    <script src="admin-modal.js?v=19"></script>
+    <script src="admin-editor.js?v=19"></script>
+    <script src="admin-crud.js?v=19"></script>
+    <script src="admin-salas.js?v=19"></script>
 
 <div id="adminToast"><span id="adminToastIcon">✅</span><span id="toastIcon" class="hidden"></span><span id="adminToastMsg">Éxito</span><span id="toastMsg" class="hidden"></span></div>
 </body>
