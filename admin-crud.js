@@ -377,11 +377,13 @@ function prevProduct() {
             const indicator = document.getElementById('cloudLiveIndicator');
             const connected = !!(window.CreataCloud && window.CreataCloud.config.isConfigured());
             const hasWrite = !!(window.CreataCloud && window.CreataCloud.config.hasWriteApi && window.CreataCloud.config.hasWriteApi());
+            const hasGemini = !!(window.CreataCloud && window.CreataCloud.config.hasGeminiApiKey && window.CreataCloud.config.hasGeminiApiKey());
 
             if (indicator) {
-                indicator.textContent = hasWrite
+                const baseTxt = hasWrite
                     ? 'Google Sheets En Vivo'
                     : (connected ? 'Google Sheets Conectado' : 'Modo Local');
+                indicator.textContent = hasGemini ? `${baseTxt} · IA Gemini` : `${baseTxt} · IA Recorte`;
             }
         }
 
@@ -390,8 +392,12 @@ function prevProduct() {
             if (!modal) return;
             const urlInp = document.getElementById('cloudApiUrlInput');
             const pinInp = document.getElementById('cloudPinInput');
+            const gemInp = document.getElementById('cloudGeminiKeyInput');
             if (urlInp && window.CreataCloud) urlInp.value = window.CreataCloud.config.getApiUrl();
             if (pinInp && window.CreataCloud) pinInp.value = window.CreataCloud.config.getAdminPin();
+            if (gemInp && window.CreataCloud && window.CreataCloud.config.getGeminiApiKey) {
+                gemInp.value = window.CreataCloud.config.getGeminiApiKey();
+            }
             setCloudFeedback('');
             updateCloudStatusUI();
             modal.classList.add('active');
@@ -420,6 +426,7 @@ function prevProduct() {
             if (!window.CreataCloud) return;
             const url = (document.getElementById('cloudApiUrlInput')?.value || '').trim();
             const pin = (document.getElementById('cloudPinInput')?.value || '').trim();
+            const geminiKey = (document.getElementById('cloudGeminiKeyInput')?.value || '').trim();
 
             if (url && !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/i.test(url)) {
                 setCloudFeedback('La URL debe terminar en /exec (de script.google.com/macros/s/...).', true);
@@ -428,11 +435,15 @@ function prevProduct() {
 
             window.CreataCloud.config.setApiUrl(url);
             window.CreataCloud.config.setAdminPin(pin);
+            if (window.CreataCloud.config.setGeminiApiKey) {
+                window.CreataCloud.config.setGeminiApiKey(geminiKey);
+            }
             updateCloudStatusUI();
 
             if (!url) {
-                setCloudFeedback('Conexión desconectada. Modo local activo.', false);
-                showAdminToast('Modo local restaurado', 'ℹ️');
+                const gemNote = geminiKey ? ' · Clave Google AI Studio (Gemini) guardada.' : '';
+                setCloudFeedback(`Conexión desconectada. Modo local activo${gemNote}`, false);
+                showAdminToast(geminiKey ? 'Clave Gemini guardada ✅' : 'Modo local restaurado', 'ℹ️');
                 return;
             }
 
@@ -442,12 +453,13 @@ function prevProduct() {
                 setCloudFeedback('No respondió el Web App. Verifica el PIN y que el acceso sea "Cualquier usuario".', true);
                 return;
             }
+            const gemMsg = geminiKey ? ' + IA Gemini 2.5 activa ✨' : ' + IA Recorte IS-Net activa ✨';
             if (cloudList.length === 0) {
-                setCloudFeedback('Conectado. Sheets está vacío: pulsa "Subir Base Actual a Sheets" para poblarlo.', false);
-                showAdminToast('Apps Script conectado correctamente ☁️', '✅');
+                setCloudFeedback(`Conectado${gemMsg}. Sheets está vacío.`, false);
+                showAdminToast(`Apps Script conectado correctamente${gemMsg}`, '✅');
             } else {
-                setCloudFeedback(`Conectado en vivo (${cloudList.length} productos sincronizados).`, false);
-                showAdminToast(`Conectado: ${cloudList.length} fichas sincronizadas con Sheets ☁️`, '✅');
+                setCloudFeedback(`Conectado en vivo (${cloudList.length} productos sincronizados)${gemMsg}.`, false);
+                showAdminToast(`Conectado: ${cloudList.length} fichas sincronizadas${gemMsg}`, '✅');
             }
         }
 

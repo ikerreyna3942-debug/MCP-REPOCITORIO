@@ -45,7 +45,9 @@ function updateModalView(resetOffset = true) {
                 if (slotBox) slotBox.classList.toggle('has-photo', valid);
                 if (imgEl) {
                     if (valid) {
-                        imgEl.src = src;
+                        imgEl.src = (window.CreataCloud && window.CreataCloud.bustRepoFotoCache)
+                            ? window.CreataCloud.bustRepoFotoCache(src)
+                            : src;
                         imgEl.style.display = 'block';
                         if (slotPrefix === 'finish') {
                             if (sc < 0.995) {
@@ -242,8 +244,11 @@ function updateModalView(resetOffset = true) {
                     ? window.CreataCloud.cleanFinishLabel(vItem.color_label, p.model_name)
                     : (vItem.color_label || '');
                 const lbl = (rawLbl || 'NATURAL').toUpperCase();
+                const bustSw = (window.CreataCloud && window.CreataCloud.bustRepoFotoCache)
+                    ? window.CreataCloud.bustRepoFotoCache
+                    : (u => u || '');
                 const thumb = linkedImg
-                    ? `<span class="swatch-pill-dot" style="background-image: url('${linkedImg}');"></span>`
+                    ? `<span class="swatch-pill-dot" style="background-image: url('${bustSw(linkedImg)}');"></span>`
                     : `<span class="swatch-pill-dot" style="background-color: ${vItem.swatch_hex || '#A38251'};"></span>`;
                 return `
                     <button type="button" onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
@@ -269,13 +274,16 @@ function updateModalView(resetOffset = true) {
             }
 
             const hasSwatchImg = !!v.swatch_img;
+            const dispSwatchImg = (hasSwatchImg && window.CreataCloud && window.CreataCloud.bustRepoFotoCache)
+                ? window.CreataCloud.bustRepoFotoCache(v.swatch_img)
+                : (v.swatch_img || '');
 
             container.innerHTML = `
                 <div class="fabric-editor-card mt-2.5 p-3 bg-[#FAF8F4] border border-[#E1DBC5] rounded-xl shadow-2xs">
                     <div class="flex items-center justify-between pb-2 mb-2 border-b border-[#E1DBC5]">
                         <div class="flex items-center gap-2">
                             ${hasSwatchImg 
-                                ? `<span class="w-5 h-5 rounded-full border border-black/20 inline-block shadow-xs bg-cover bg-center shrink-0" style="background-image: url('${v.swatch_img}')"></span>`
+                                ? `<span class="w-5 h-5 rounded-full border border-black/20 inline-block shadow-xs bg-cover bg-center shrink-0" style="background-image: url('${dispSwatchImg}')"></span>`
                                 : `<span class="w-5 h-5 rounded-full border border-black/20 inline-block shadow-xs shrink-0" style="background: ${v.swatch_hex || '#C2B8A3'}"></span>`
                             }
                             <span class="text-[11px] font-extrabold uppercase text-[#252C32] tracking-wider">

@@ -412,7 +412,7 @@
 
     
         .product-card:hover .card-img-area img {
-            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scale(calc(var(--img-scale, 1) * 1.03)) !important;
         }
         .card-img-area img.flipped {
             transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
@@ -459,7 +459,7 @@
             transform-origin: center center !important;
         }
         .product-card:hover .card-img-area img {
-            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;
+            transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scale(calc(var(--img-scale, 1) * 1.03)) !important;
         }
         .card-img-area img.flipped {
             transform: translate(var(--img-x, 0%), var(--img-y, 0%)) scaleX(-1) scale(calc(var(--img-scale, 1) * 1.03)) !important;

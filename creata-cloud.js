@@ -19,7 +19,7 @@ if (modelName) {
 const safeSet = new Set(['ROSA','MORADA','CLARA','OSCURA','NATURAL','NOGAL','PAROTA','TZALAM','ENCINO','ROBLE','NUEZ','BEIGE','GRIS','BLANCO','NEGRO','CAFE','COFFE','TAUPE','IVORY','OLIVE','PUTTY','SCAR','KIMI','PORCELAINE','ALTMAN','COTTON','LINEN','PIEL','CUERDA','ESPIGA','BAKER','KELSI','TACUBA','BELLOTA','HABANO','NOCHE','PIXEL','RUSTY','GELLAR','MARBLE','RHONA','ECRU','OSI','FLAX','PRISMA','MUSHROOM','FOREVER','PLUS','BUTTERMILK','MOSS','HADI','HADY','BRAXTON','OAT','SNOW','SAND','LILA','ALINE','CASHMERE','TOAST','BERKELEY','LUXOR','NORDIC','GREY','POINT','JEANS','QUINCY','CHARCOAL','MERCURY','PEYOTE','NATURE','FRESH','NAPOLI','TELA','MADERA','METAL']);
 String(modelName).toUpperCase().replace(/[^A-Z0-9ÁÉÍÓÚÑ\s]/g, ' ').split(/\s+/).forEach((mw) => {
 if (mw.length >= 4 && !safeSet.has(mw)) {
-const esc = mw.replace(/[.*+?^${}()|[\]\\]/g, '\\    const CREATA_CLOUD_CONFIG = {');
+const esc = mw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 s = s.replace(new RegExp('(?:^|[\\s\\-/]+)' + esc + '(?=$|[\\s\\-/]+)', 'gi'), ' ').trim(); } }); }
 s = s.replace(/(?:^|\s+)\d+(?=\s+|$)/g, ' ')
 .replace(/\s*-\s*/g, ' - ')
@@ -63,6 +63,15 @@ setAdminPin: function (pin) { const clean = (pin || '').trim();
 if (!clean) { localStorage.removeItem('creata_admin_pin'); } else { localStorage.setItem('creata_admin_pin', clean); }
 return clean;
 },
+getGeminiApiKey: function () {
+try { return (localStorage.getItem('creata_gemini_api_key') || '').trim(); } catch (e) { return ''; }
+},
+setGeminiApiKey: function (key) { const clean = (key || '').trim();
+if (!clean) { localStorage.removeItem('creata_gemini_api_key'); } else { localStorage.setItem('creata_gemini_api_key', clean); }
+return clean;
+},
+hasGeminiApiKey: function () { return !!this.getGeminiApiKey();
+},
 hasWriteApi: function () { return !!this.getApiUrl();
 },
 isConfigured: function () { return !!this.sheetId || !!this.getApiUrl(); } };
@@ -71,11 +80,18 @@ if (global.location && global.location.search) { const params = new URLSearchPar
 const paramUrl = params.get('webapp') || params.get('api');
 if (paramUrl && /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/i.test(paramUrl.trim())) { CREATA_CLOUD_CONFIG.setApiUrl(paramUrl.trim()); }
 const paramPin = params.get('pin');
-if (paramPin) CREATA_CLOUD_CONFIG.setAdminPin(paramPin.trim()); } } catch (e) {}
+if (paramPin) CREATA_CLOUD_CONFIG.setAdminPin(paramPin.trim());
+const paramGem = params.get('gemini_key');
+if (paramGem) CREATA_CLOUD_CONFIG.setGeminiApiKey(paramGem.trim()); } } catch (e) {}
 function isValidPhotoUrl(val) { if (!val || typeof val !== 'string') return false;
 const s = val.trim();
 if (!s || s === 'undefined' || s === 'null' || s === '#') return false;
 return s.startsWith('data:image/') || s.startsWith('https://') || s.startsWith('http://') || s.startsWith('./') || s.startsWith('fotos/'); }
+function bustRepoFotoCache(val) { if (!val || typeof val !== 'string') return '';
+const s = val.trim();
+if (!s || s.startsWith('data:') || s.includes('?')) return s;
+if (/raw\.githubusercontent\.com\/ikerreyna3942-debug\/MCP-REPOCITORIO\/main\/fotos\//i.test(s) || /^(?:\.\/)?fotos\//i.test(s)) { return s + '?v=24'; }
+return s; }
 function scrubForbiddenPublicText(txt) { if (!txt || typeof txt !== 'string') return txt || '';
 return txt
 .replace(/JUEGO COMPLETO\s*\([^)]*\)/gi, '')
@@ -815,6 +831,7 @@ return { ok: false, fallbackUrl: dataUrl, error: (res && res.error) || 'No se pu
 global.CREATA_CLOUD_CONFIG = CREATA_CLOUD_CONFIG;
 global.CreataCloud = { config: CREATA_CLOUD_CONFIG,
 isValidPhotoUrl,
+bustRepoFotoCache,
 scrubForbiddenPublicText,
 sanitizePublicProduct,
 inferFinishType,

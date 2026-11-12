@@ -9,8 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-    <link rel="stylesheet" href="admin-styles.css?v=22">
+    <link rel="stylesheet" href="admin-styles.css?v=24">
 
 </head>
 <body>
@@ -25,14 +24,17 @@
                 <span class="text-xs text-gray-300 hidden sm:inline"><strong id="adminCountDisplay">47</strong> muebles</span>
             </div>
 
-            <div class="flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-2.5 flex-wrap">
                 <button type="button" id="btnSyncDriveTop" onclick="syncDriveManualFromAdmin()" class="admin-btn admin-btn-gold text-[11px] py-1 px-3 shadow-xs" title="Detectar nuevas fichas PDF subidas a la carpeta de Google Drive">
                     <span>🔄</span> <span>Sincronizar Drive</span>
                 </button>
-                <div class="flex items-center gap-2 text-xs font-semibold text-emerald-300 select-none">
+                <button type="button" onclick="openCloudSetupModal()" class="admin-btn text-[11px] py-1 px-3 shadow-xs border border-[#E1DBC5]/40 hover:border-[#A38251] text-[#FAF8F4] bg-white/10" title="Configurar PIN de Google Sheets y clave opcional de Google AI Studio (Gemini)">
+                    <span>✨</span> <span>Nube &amp; IA Gemini</span>
+                </button>
+                <button type="button" onclick="openCloudSetupModal()" class="flex items-center gap-2 text-xs font-semibold text-emerald-300 hover:text-emerald-200 transition cursor-pointer" title="Haz clic para abrir configuración de Nube e IA">
                     <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
                     <span id="cloudLiveIndicator">Google Sheets Conectado</span>
-                </div>
+                </button>
             </div>
         </div>
     </div>
@@ -99,7 +101,7 @@
             <!-- BARRA DEDICADA DE CONTROLES DEL MODAL (SEPARADA DE LA GALERÍA Y SKU) -->
             <div class="modal-admin-toolbar">
                 <div class="flex items-center gap-2 flex-wrap">
-                    <label class="admin-btn admin-btn-gold text-xs shadow-xs cursor-pointer" title="Modificar la foto de portada que se ve en la pantalla de inicio">
+                    <label class="admin-btn admin-btn-gold text-xs shadow-xs cursor-pointer" title="Modificar la foto de portada que se ve en la pantalla de inicio (quita fondo automáticamente con IA)">
                         <span>📷</span> <span>Foto de Inicio</span>
                         <input type="file" accept="image/*" class="hidden" onchange="uploadSlotImage(event, 'hero')">
                     </label>
@@ -110,10 +112,9 @@
                         <button type="button" onclick="adjustPhotoScale('hero', 0.08)" title="Acercar Foto de Inicio">+</button>
                         <button type="button" onclick="resetPhotoScale('hero')" title="Centrar y restaurar 100%">↺</button>
                     </div>
-                    <div class="bg-mode-switch" title="Elige si al subir o soltar una foto nueva se le quita el fondo o se conserva su fondo original">
-                        <button type="button" data-bg-mode-btn="cutout" onclick="setEditorBgMode('cutout')" class="bg-mode-opt active">Quitar fondo</button>
-                        <button type="button" data-bg-mode-btn="keep" onclick="setEditorBgMode('keep')" class="bg-mode-opt">Conservar fondo</button>
-                    </div>
+                    <button type="button" id="btnAuditCleanPhotos" onclick="auditAndCleanProductPhotos()" class="admin-btn text-xs shadow-xs border border-[#A38251] bg-[#FAF8F4] hover:bg-[#A38251] text-[#252C32] hover:text-white transition" title="Quita el fondo con IA y nivela proporciones en Inicio y Vistas 1-4 (conservando intactas Ambiente y Tela/Acabado)">
+                        <span>✨</span> <span>Limpiar Vistas IA</span>
+                    </button>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     <button type="button" id="btnArchiveModal" onclick="toggleArchiveCurrentProduct()" class="admin-btn text-xs shadow-xs" style="background: #252C32; color: #FFFFFF;" title="Ocultar o archivar esta ficha del catálogo público">
@@ -495,20 +496,80 @@
         </div>
     </div>
 
+    <!-- MODAL DE CONEXIÓN GOOGLE SHEETS + GOOGLE AI STUDIO (GEMINI) -->
+    <div id="cloudSetupModal" class="modal" onclick="if(event.target === this) closeCloudSetupModal();">
+        <div class="bg-[#FAF8F4] border border-[#E1DBC5] rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden text-[#252C32]" onclick="event.stopPropagation();">
+            <div class="bg-[#252C32] text-[#FAF8F4] px-5 py-4 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="text-base">✨</span>
+                    <div>
+                        <h3 class="text-xs font-black tracking-wider uppercase text-[#E1DBC5]">Nube Google Sheets &amp; IA Fotográfica</h3>
+                        <p class="text-[10px] text-gray-300">Recorte neuronal automático + Google AI Studio (Gemini 2.5)</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeCloudSetupModal()" class="text-gray-300 hover:text-white text-sm font-bold px-2 py-1">✕</button>
+            </div>
+
+            <div class="p-5 space-y-3.5 text-xs">
+                <div class="bg-white border border-[#E1DBC5] rounded-xl p-3 text-[11px] leading-relaxed">
+                    <strong class="text-[#A38251] uppercase tracking-wide block mb-1">Regla Automática de Fotos Activa:</strong>
+                    • <strong>Ambiente</strong> y <strong>Tela / Acabado (Color)</strong>: conservan siempre su fondo y textura original al 100%.<br>
+                    • <strong>Foto de Inicio</strong> y <strong>Vistas 1 a 4</strong>: quitan el fondo automáticamente con IA neuronal (IS-Net), limpian bordes y centran la proporción del mueble.
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-600 mb-1">URL Web App de Apps Script (/exec)</label>
+                    <input type="url" id="cloudApiUrlInput" placeholder="https://script.google.com/macros/s/.../exec"
+                           class="w-full px-3 py-2 bg-white border border-[#E1DBC5] rounded-lg text-xs font-medium focus:border-[#A38251] outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-600 mb-1">PIN de Administrador (Apps Script)</label>
+                    <input type="password" id="cloudPinInput" placeholder="Tu PIN para guardar cambios en Google Sheets y GitHub"
+                           class="w-full px-3 py-2 bg-white border border-[#E1DBC5] rounded-lg text-xs font-medium focus:border-[#A38251] outline-none">
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-600">Clave Google AI Studio — Gemini API (Opcional)</label>
+                        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="text-[10px] font-bold text-[#A38251] hover:underline">Obtener clave gratis ↗</a>
+                    </div>
+                    <input type="password" id="cloudGeminiKeyInput" placeholder="AIzaSy... (clasifica automáticamente Ambiente vs Acabado vs Recorte)"
+                           class="w-full px-3 py-2 bg-white border border-[#E1DBC5] rounded-lg text-xs font-medium focus:border-[#A38251] outline-none">
+                    <p class="text-[10px] text-slate-500 mt-1">El recorte de fondo neuronal funciona siempre sin clave. Si agregas tu clave de Google AI Studio, Gemini 2.5 clasifica lotes de fotos arrastradas automáticamente.</p>
+                </div>
+
+                <div id="cloudSyncFeedback" class="text-xs font-semibold min-h-[16px]"></div>
+            </div>
+
+            <div class="bg-white border-t border-[#E1DBC5] px-5 py-3 flex items-center justify-between gap-2 flex-wrap">
+                <button type="button" onclick="triggerCloudDriveSync()" class="admin-btn text-xs border border-[#E1DBC5] bg-[#FAF8F4] hover:border-[#A38251] text-[#252C32]">
+                    <span>🔄</span> <span>Escanear Fichas Drive</span>
+                </button>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="closeCloudSetupModal()" class="admin-btn text-xs bg-slate-100 hover:bg-slate-200 text-slate-700">Cerrar</button>
+                    <button type="button" onclick="saveCloudSetupConfig()" class="admin-btn admin-btn-gold text-xs shadow-sm">
+                        <span>💾</span> <span>Guardar y Conectar</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="admin-sku-db-1.js?v=18"></script>
     <script src="admin-sku-db-2.js?v=18"></script>
     <script>const SKU_DATABASE = Object.assign({}, window.ADMIN_SKU_DB_P1 || {}, window.ADMIN_SKU_DB_P2 || {});</script>
     <script src="admin-data-1.js?v=18"></script>
     <script src="admin-data-2.js?v=18"></script>
     <script>const rawProducts = [...(window.ADMIN_RAW_P1 || []), ...(window.ADMIN_RAW_P2 || [])];</script>
-    <script src="creata-finishes.js?v=22"></script>
-    <script src="creata-img.js?v=22"></script>
-    <script src="creata-cloud.js?v=22"></script>
-    <script src="admin-core.js?v=22"></script>
-    <script src="admin-modal.js?v=22"></script>
-    <script src="admin-editor.js?v=22"></script>
-    <script src="admin-crud.js?v=22"></script>
-    <script src="admin-salas.js?v=22"></script>
+    <script src="creata-finishes.js?v=24"></script>
+    <script src="creata-img.js?v=24"></script>
+    <script src="creata-cloud.js?v=24"></script>
+    <script src="admin-core.js?v=24"></script>
+    <script src="admin-modal.js?v=24"></script>
+    <script src="admin-editor.js?v=24"></script>
+    <script src="admin-crud.js?v=24"></script>
+    <script src="admin-salas.js?v=24"></script>
 
 <div id="adminToast"><span id="adminToastIcon">✅</span><span id="toastIcon" class="hidden"></span><span id="adminToastMsg">Éxito</span><span id="toastMsg" class="hidden"></span></div>
 </body>

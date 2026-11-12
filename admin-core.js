@@ -278,6 +278,7 @@ function populateSkuDatalist() {
         let currentFilter = 'ALL';
         let currentProdIndex = 0;
         let currentVariantIndex = 0;
+        let currentViewIndex = 0;
         let isEditMode = false;
 
         
@@ -572,18 +573,40 @@ function populateSkuDatalist() {
                 card.onclick = () => openModal(realIdx, 0);
 
                 const imgId = `grid_card_img_${realIdx}`;
+                const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
+                const bustFoto = (window.CreataCloud && window.CreataCloud.bustRepoFotoCache)
+                    ? window.CreataCloud.bustRepoFotoCache
+                    : (u => u || '');
+
+                const resolveAdminCardCover = (variantObj) => {
+                    if (!variantObj) return '';
+                    const vg = variantObj.gallery || {};
+                    const rawHero = isPhotoValid(variantObj.hero_b64) ? variantObj.hero_b64 : '';
+                    const isSwatchHero = rawHero && (rawHero === variantObj.swatch_img || rawHero === vg.finish || /-finish-\d+\./i.test(rawHero));
+                    if (rawHero && !isSwatchHero) return bustFoto(rawHero);
+                    if (isPhotoValid(vg.view1)) return bustFoto(vg.view1);
+                    if (Array.isArray(vg.all_views)) {
+                        const firstV = vg.all_views.find(isPhotoValid);
+                        if (firstV) return bustFoto(firstV);
+                    }
+                    if (isPhotoValid(vg.ambiente)) return bustFoto(vg.ambiente);
+                    return '';
+                };
 
                 const swatchesHtml = (p.variants || []).map((vItem, vIdx) => {
-                    const hasImg = !!vItem.swatch_img;
+                    const vg = vItem.gallery || {};
+                    const swImg = vItem.swatch_img || vg.finish || vg.fabric || '';
+                    const hasImg = isPhotoValid(swImg);
                     const bgStyle = hasImg
-                        ? `background-image: url('${vItem.swatch_img}'); background-size: cover; background-position: center;`
+                        ? `background-image: url('${bustFoto(swImg)}'); background-size: cover; background-position: center;`
                         : `background-color: ${vItem.swatch_hex || '#A38251'};`;
+                    const vCover = resolveAdminCardCover(vItem).replace(/'/g, "\\'");
                     const vScale = Number(vItem.hero_scale) || 1;
                     const vHp = (vItem.hero_pos && typeof vItem.hero_pos === 'object') ? vItem.hero_pos : { x: 0, y: 0 };
                     const vx = Number(vHp.x) || 0;
                     const vy = Number(vHp.y) || 0;
                     return `
-                    <span onmouseenter="var el=document.getElementById('${imgId}'); if(el && products[${realIdx}].variants[${vIdx}].hero_b64){ el.src = products[${realIdx}].variants[${vIdx}].hero_b64; el.style.setProperty('--img-scale','${vScale}'); el.style.setProperty('--img-x','${vx}%'); el.style.setProperty('--img-y','${vy}%'); }"
+                    <span onmouseenter="var el=document.getElementById('${imgId}'); if(el && '${vCover}'){ el.src = '${vCover}'; el.style.setProperty('--img-scale','${vScale}'); el.style.setProperty('--img-x','${vx}%'); el.style.setProperty('--img-y','${vy}%'); }"
                           onclick="event.stopPropagation(); openModal(${realIdx}, ${vIdx});" 
                           title="${(vItem.color_label || 'Opción').replace(/"/g, '&quot;')}" 
                           class="swatch-circle"
@@ -591,11 +614,7 @@ function populateSkuDatalist() {
                     `;
                 }).join('');
 
-                const vg0 = (v && v.gallery) ? v.gallery : {};
-                const firstAnyView = Array.isArray(vg0.all_views) ? (vg0.all_views.find(u => u && String(u).trim()) || '') : '';
-                const cleanHeroAdmin = (v.hero_b64 && v.hero_b64 !== v.swatch_img && v.hero_b64 !== vg0.finish && !/-finish-\d+\./i.test(v.hero_b64))
-                    ? v.hero_b64
-                    : (vg0.ambiente || vg0.view1 || firstAnyView || '');
+                const cleanHeroAdmin = resolveAdminCardCover(v);
                 const heroScale = Number(v && v.hero_scale) || 1;
                 const heroPos = (v && v.hero_pos && typeof v.hero_pos === 'object') ? v.hero_pos : { x: 0, y: 0 };
                 const heroX = Number(heroPos.x) || 0;

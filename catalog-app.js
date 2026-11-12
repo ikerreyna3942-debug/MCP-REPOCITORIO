@@ -39,6 +39,7 @@
         let currentFilter = 'ALL';
         let currentProdIndex = 0;
         let currentVariantIndex = 0;
+        let currentViewIndex = 0;
 
         function normalizeSearchStr(str) {
             if (!str) return '';
@@ -340,19 +341,22 @@
 
                 const imgId = `grid_card_img_${realIdx}`;
                 const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
+                const bustFoto = (window.CreataCloud && window.CreataCloud.bustRepoFotoCache)
+                    ? window.CreataCloud.bustRepoFotoCache
+                    : (u => u || '');
 
                 const resolveCleanCover = (variantObj) => {
                     if (!variantObj) return '';
                     const vg = variantObj.gallery || {};
                     const rawHero = isPhotoValid(variantObj.hero_b64) ? variantObj.hero_b64 : '';
                     const isSwatchHero = rawHero && (rawHero === variantObj.swatch_img || rawHero === vg.finish || /-finish-\d+\./i.test(rawHero));
-                    if (rawHero && !isSwatchHero) return rawHero;
-                    if (isPhotoValid(vg.ambiente)) return vg.ambiente;
-                    if (isPhotoValid(vg.view1)) return vg.view1;
+                    if (rawHero && !isSwatchHero) return bustFoto(rawHero);
+                    if (isPhotoValid(vg.view1)) return bustFoto(vg.view1);
                     if (Array.isArray(vg.all_views)) {
                         const firstV = vg.all_views.find(isPhotoValid);
-                        if (firstV) return firstV;
+                        if (firstV) return bustFoto(firstV);
                     }
+                    if (isPhotoValid(vg.ambiente)) return bustFoto(vg.ambiente);
                     return '';
                 };
 
@@ -361,7 +365,7 @@
                     const swImg = vItem.swatch_img || vg.finish || vg.fabric || '';
                     const hasImg = isPhotoValid(swImg);
                     const bgStyle = hasImg
-                        ? `background-image: url('${swImg}'); background-size: cover; background-position: center;`
+                        ? `background-image: url('${bustFoto(swImg)}'); background-size: cover; background-position: center;`
                         : `background-color: ${vItem.swatch_hex || '#A38251'};`;
                     const vCover = resolveCleanCover(vItem).replace(/'/g, "\\'");
                     const vScale = Number(vItem.hero_scale) || 1;
@@ -437,6 +441,9 @@
             document.getElementById('modalTitle').innerText = p.model_name;
 
             const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
+            const bustFotoModal = (window.CreataCloud && window.CreataCloud.bustRepoFotoCache)
+                ? window.CreataCloud.bustRepoFotoCache
+                : (u => u || '');
             const g = v.gallery || {};
             const slotScales = (v && v.slot_scales && typeof v.slot_scales === 'object') ? v.slot_scales : {};
             const slotPos = (v && v.slot_pos && typeof v.slot_pos === 'object') ? v.slot_pos : {};
@@ -458,7 +465,7 @@
                 if (!imgEl) return;
 
                 if (valid) {
-                    imgEl.src = String(src).trim();
+                    imgEl.src = bustFotoModal(String(src).trim());
                     imgEl.style.display = 'block';
                     imgEl.style.opacity = '1';
                     imgEl.style.transition = '';
@@ -611,7 +618,7 @@
                         : (vItem.color_label || '');
                     const lbl = (rawLbl || 'NATURAL').toUpperCase();
                     const thumb = isPhotoValid(linkedImg)
-                        ? `<span class="swatch-pill-dot" style="background-image: url('${linkedImg}');"></span>`
+                        ? `<span class="swatch-pill-dot" style="background-image: url('${bustFotoModal(linkedImg)}');"></span>`
                         : `<span class="swatch-pill-dot" style="background-color: ${vItem.swatch_hex || '#A38251'};"></span>`;
                     return `
                     <button type="button" onclick="currentVariantIndex = ${vIdx}; updateModalView(true);"
