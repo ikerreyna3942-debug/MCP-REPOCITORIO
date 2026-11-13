@@ -37,6 +37,15 @@
 
         let products = [];
         let currentFilter = 'ALL';
+        // ===== CATEGORÍAS PRINCIPALES Y SUBCATEGORÍAS =====
+        const MAIN_CATEGORIES = ['COMEDORES', 'SALAS', 'RECÁMARAS', 'COMPLEMENTOS'];
+        const SUBCATEGORY_ORDER = {
+            'COMEDORES': ['MESAS DE COMEDOR', 'SILLAS', 'BUFETERAS & CREDENZAS'],
+            'SALAS': ['SALAS & SOFÁS', 'SILLONES', 'MESAS DE CENTRO & LATERALES'],
+            'RECÁMARAS': ['CAMAS & CABECERAS', 'BURÓS', 'CÓMODAS & CAJONERAS'],
+            'COMPLEMENTOS': ['CENTROS DE ENTRETENIMIENTO', 'ESPEJOS', 'LIBREROS']
+        };
+        let currentSubFilter = 'ALL';
         let currentProdIndex = 0;
         let currentVariantIndex = 0;
         let currentViewIndex = 0;
@@ -210,47 +219,94 @@
         }
 
 
+
+        function getCategoryInfo(p) {
+            const cat = String((p && p.category) || '').toUpperCase().trim();
+            const name = normalizeSearchStr(p && p.model_name).toUpperCase();
+            if (cat === 'COMEDORES') return { main: 'COMEDORES', sub: 'MESAS DE COMEDOR' };
+            if (cat === 'BUFETERAS & CREDENZAS') return { main: 'COMEDORES', sub: 'BUFETERAS & CREDENZAS' };
+            if (cat === 'SILLAS & SILLONES') {
+                return /^SILLON/.test(name)
+                    ? { main: 'SALAS', sub: 'SILLONES' }
+                    : { main: 'COMEDORES', sub: 'SILLAS' };
+            }
+            if (cat === 'SALAS & SOFÁS' || cat === 'SALAS') return { main: 'SALAS', sub: 'SALAS & SOFÁS' };
+            if (cat === 'MESAS DE CENTRO & LATERALES') return { main: 'SALAS', sub: 'MESAS DE CENTRO & LATERALES' };
+            if (cat === 'RECÁMARAS' || cat === 'RECAMARAS') {
+                if (/^BURO/.test(name)) return { main: 'RECÁMARAS', sub: 'BURÓS' };
+                if (/^(COMODA|CAJONERA)/.test(name)) return { main: 'RECÁMARAS', sub: 'CÓMODAS & CAJONERAS' };
+                if (/^(CAMA|BASE|CABECERA)/.test(name)) return { main: 'RECÁMARAS', sub: 'CAMAS & CABECERAS' };
+                return { main: 'RECÁMARAS', sub: 'OTROS' };
+            }
+            if (cat === 'COMPLEMENTOS') {
+                if (/^ESPEJO/.test(name)) return { main: 'COMPLEMENTOS', sub: 'ESPEJOS' };
+                if (/^LIBRERO/.test(name)) return { main: 'COMPLEMENTOS', sub: 'LIBREROS' };
+                if (/^CENTRO DE ENTRETENIMIENTO/.test(name)) return { main: 'COMPLEMENTOS', sub: 'CENTROS DE ENTRETENIMIENTO' };
+                return { main: 'COMPLEMENTOS', sub: 'OTROS' };
+            }
+            // Categorías nuevas creadas desde el editor: van a COMPLEMENTOS como subcategoría propia
+            return { main: 'COMPLEMENTOS', sub: cat || 'OTROS' };
+        }
+
+        function matchesCategoryFilter(p, main, sub) {
+            if (main === 'ALL') return true;
+            const info = getCategoryInfo(p);
+            if (info.main !== main) return false;
+            return sub === 'ALL' || info.sub === sub;
+        }
+
+        function getSubcategoriesFor(main, activeProds) {
+            const present = [...new Set(activeProds.map(getCategoryInfo).filter(i => i.main === main).map(i => i.sub))];
+            const order = SUBCATEGORY_ORDER[main] || [];
+            return present.sort((a, b) => {
+                const ia = order.indexOf(a) === -1 ? 999 : order.indexOf(a);
+                const ib = order.indexOf(b) === -1 ? 999 : order.indexOf(b);
+                return ia - ib || a.localeCompare(b);
+            });
+        }
+
         function updateCategoryCounts() {
             const activeProds = products.filter(p => !p.archived);
-
             const setBtnText = (id, label, count) => {
                 const btn = document.getElementById(id);
                 if (btn) btn.innerText = `${label} (${count})`;
             };
-
-            const baseCategories = [
-                { id: 'flt-SALAS-SOF-S', label: 'SALAS & SOFÁS' },
-                { id: 'flt-SILLAS-SILLONES', label: 'SILLAS & SILLONES' },
-                { id: 'flt-COMEDORES', label: 'COMEDORES' },
-                { id: 'flt-BUFETERAS-CREDENZAS', label: 'BUFETERAS & CREDENZAS' },
-                { id: 'flt-MESAS-DE-CENTRO-LATERALES', label: 'MESAS DE CENTRO & LATERALES' },
-                { id: 'flt-REC-MARAS', label: 'RECÁMARAS' },
-                { id: 'flt-COMPLEMENTOS', label: 'COMPLEMENTOS' }
-            ];
-
             setBtnText('flt-ALL', 'TODOS', activeProds.length);
-            const knownSet = new Set(baseCategories.map(c => c.label));
-            baseCategories.forEach(c => {
-                setBtnText(c.id, c.label, activeProds.filter(p => p.category === c.label).length);
+            const ids = { 'COMEDORES': 'flt-COMEDORES', 'SALAS': 'flt-SALAS', 'RECÁMARAS': 'flt-RECAMARAS', 'COMPLEMENTOS': 'flt-COMPLEMENTOS' };
+            MAIN_CATEGORIES.forEach(main => {
+                setBtnText(ids[main], main, activeProds.filter(p => getCategoryInfo(p).main === main).length);
             });
+        }
 
-            const bar = document.getElementById('categoryBar');
-            if (bar) {
-                const extraCats = [...new Set(activeProds.map(p => p.category).filter(c => c && !knownSet.has(c)))];
-                extraCats.forEach(cat => {
-                    const safeId = 'flt-dyn-' + cat.replace(/[^A-Z0-9]/gi, '-');
-                    let btn = document.getElementById(safeId);
-                    if (!btn) {
-                        btn = document.createElement('button');
-                        btn.id = safeId;
-                        btn.className = 'pill-btn';
-                        btn.setAttribute('data-cat', cat);
-                        btn.onclick = () => setFilter(cat);
-                        bar.appendChild(btn);
-                    }
-                    btn.innerText = `${cat} (${activeProds.filter(p => p.category === cat).length})`;
-                });
+        function renderSubCategoryBar() {
+            const bar = document.getElementById('subCategoryBar');
+            if (!bar) return;
+            if (currentFilter === 'ALL') {
+                bar.style.display = 'none';
+                bar.innerHTML = '';
+                return;
             }
+            const activeProds = products.filter(p => !p.archived);
+            const inMain = activeProds.filter(p => getCategoryInfo(p).main === currentFilter);
+            const subs = getSubcategoriesFor(currentFilter, activeProds);
+            bar.innerHTML = '';
+            const mk = (value, label, count) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'pill-btn sub-pill' + (currentSubFilter === value ? ' active' : '');
+                btn.setAttribute('data-sub', value);
+                btn.innerText = `${label} (${count})`;
+                btn.onclick = () => setSubFilter(value);
+                bar.appendChild(btn);
+            };
+            mk('ALL', `TODO ${currentFilter}`, inMain.length);
+            subs.forEach(s => mk(s, s, inMain.filter(p => getCategoryInfo(p).sub === s).length));
+            bar.style.display = subs.length > 0 ? 'flex' : 'none';
+        }
+
+        function setSubFilter(sub) {
+            currentSubFilter = sub || 'ALL';
+            applyFilters();
         }
 
         function handlePublicSearch(val) {
@@ -259,13 +315,14 @@
             if (clearBtn) clearBtn.style.display = rawQ.length > 0 ? 'inline-flex' : 'none';
 
             if (rawQ.length > 0 && currentFilter !== 'ALL') {
-                const hitsInCurrent = products.filter(p => !p.archived && p.category === currentFilter && matchesPublicSearch(p, rawQ));
+                const hitsInCurrent = products.filter(p => !p.archived && matchesCategoryFilter(p, currentFilter, currentSubFilter) && matchesPublicSearch(p, rawQ));
                 const hitsGlobal = products.filter(p => !p.archived && matchesPublicSearch(p, rawQ));
                 if (hitsInCurrent.length === 0 && hitsGlobal.length > 0) {
                     currentFilter = 'ALL';
+                    currentSubFilter = 'ALL';
                 }
             }
-            setFilter(currentFilter);
+            applyFilters();
         }
 
         function clearPublicSearch() {
@@ -276,15 +333,23 @@
             }
             const clearBtn = document.getElementById('clearSearchBtn');
             if (clearBtn) clearBtn.style.display = 'none';
-            setFilter(currentFilter);
+            if (currentFilter === 'ALL') currentSubFilter = 'ALL';
+            applyFilters();
         }
 
         function setFilter(cat) {
+            if (cat !== currentFilter) currentSubFilter = 'ALL';
             currentFilter = cat;
+            applyFilters();
+        }
+
+        function applyFilters() {
+            const cat = currentFilter;
+            const sub = currentSubFilter;
             document.querySelectorAll('#categoryBar .pill-btn').forEach(btn => {
-                const btnCat = btn.getAttribute('data-cat');
-                btn.classList.toggle('active', btnCat === cat);
+                btn.classList.toggle('active', btn.getAttribute('data-cat') === cat);
             });
+            renderSubCategoryBar();
 
             const searchEl = document.getElementById('searchInput');
             const rawQ = searchEl ? searchEl.value.trim() : '';
@@ -293,22 +358,18 @@
 
             const titleEl = document.getElementById('activeCategoryTitle');
             const activeProds = products.filter(p => !p.archived);
-
-            const filtered = activeProds.filter(p => {
-                const matchCat = (currentFilter === 'ALL' || p.category === currentFilter);
-                const matchQ = matchesPublicSearch(p, rawQ);
-                return matchCat && matchQ;
-            });
+            const inCategory = activeProds.filter(p => matchesCategoryFilter(p, cat, sub));
+            const filtered = inCategory.filter(p => matchesPublicSearch(p, rawQ));
 
             if (titleEl) {
+                const catLabel = cat === 'ALL' ? '' : (sub === 'ALL' ? cat : `${cat} · ${sub}`);
                 if (rawQ) {
-                    const catSuffix = currentFilter === 'ALL' ? '' : ` EN ${currentFilter}`;
+                    const catSuffix = catLabel ? ` EN ${catLabel}` : '';
                     titleEl.innerText = `RESULTADOS PARA "${rawQ.toUpperCase()}"${catSuffix} (${filtered.length})`;
                 } else if (cat === 'ALL') {
                     titleEl.innerText = `TODOS LOS MUEBLES (${activeProds.length})`;
                 } else {
-                    const catCount = activeProds.filter(p => p.category === cat).length;
-                    titleEl.innerText = `${cat} (${catCount})`;
+                    titleEl.innerText = `${catLabel} (${inCategory.length})`;
                 }
             }
 
@@ -332,7 +393,7 @@
                             <div class="w-16 h-16 rounded-full bg-[#E8E4DE] border border-[#E1DBC5] flex items-center justify-center text-2xl mb-4">🔍</div>
                             <h3 class="text-lg font-bold text-[#252C32] mb-2">Sin coincidencias para "${safeQ}"</h3>
                             <p class="text-sm text-[#64748B] max-w-md mb-4">Prueba con otra palabra clave (modelo, categoría, tela, madera, material o medida).</p>
-                            <button type="button" onclick="currentFilter='ALL'; clearPublicSearch();" class="px-5 py-2 rounded-full bg-[#A38251] hover:bg-[#8B6D42] text-white text-xs font-bold uppercase tracking-wider shadow transition">
+                            <button type="button" onclick="currentFilter='ALL'; currentSubFilter='ALL'; clearPublicSearch();" class="px-5 py-2 rounded-full bg-[#A38251] hover:bg-[#8B6D42] text-white text-xs font-bold uppercase tracking-wider shadow transition">
                                 Ver todos los muebles
                             </button>
                         </div>
@@ -406,7 +467,7 @@
                 const hasHero = !!heroSrc;
                 card.innerHTML = `
                     <div class="card-img-area">
-                        <span class="badge-category">${p.category}</span>
+                        <span class="badge-category">${getCategoryInfo(p).sub}</span>
                         ${hasHero ? `<img id="${imgId}" src="${heroSrc}" style="--img-scale: ${heroScale}; --img-x: ${heroX}%; --img-y: ${heroY}%;" alt="${p.model_name.replace(/"/g, '&quot;')}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">` : ''}
                         <div class="flex flex-col items-center justify-center p-4 text-center select-none w-full h-full" style="min-height: 170px; ${hasHero ? 'display:none;' : ''}">
                             <div class="w-12 h-12 rounded-full bg-[#A38251]/10 flex items-center justify-center mb-2">
@@ -454,7 +515,7 @@
                 mainPhotoCycleIndex = -1;
             }
 
-            document.getElementById('modalProviderCat').innerText = `${p.provider_abbr} · ${p.category}`;
+            document.getElementById('modalProviderCat').innerText = `${p.provider_abbr} · ${getCategoryInfo(p).main} · ${getCategoryInfo(p).sub}`;
             document.getElementById('modalTitle').innerText = p.model_name;
 
             const isPhotoValid = window.CreataCloud ? window.CreataCloud.isValidPhotoUrl : (u => !!u);
