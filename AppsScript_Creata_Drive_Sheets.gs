@@ -49,6 +49,8 @@ function onOpen() {
       .addItem('4. Crear / Actualizar Pestaña INVENTARIO_EN_VIVO', 'sincronizarPestanaInventarioEnVivo')
       .addItem('5. Sincronizar Stock S Mueblería + LPPT En Vivo (Ahora)', 'sincronizarInventarioEnVivoDesdeERP')
       .addItem('6. Activar Sincronización S Mueblería 24/7 (Cada 5 min)', 'instalarTriggerErpEnVivo')
+      .addSeparator()
+      .addItem('7. Organizar Cuentas, Contraseñas Temporales y Columna Descuento', 'organizarCuentasYDescuentosEnHojas')
       .addToUi();
   } catch (e) {}
 }
@@ -905,6 +907,19 @@ function doPost(e) {
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
       return jsonResponse_(Object.assign({ ok: true }, syncRes));
+    }
+    if (action === 'inv_setup_accounts') {
+      const adminPinCfg = getProp_('ADMIN_PIN');
+      const hasValidPin = !!(adminPinCfg && String(body.pin || '') === adminPinCfg);
+      if (!hasValidPin) {
+        const ssChk = getSpreadsheet_();
+        const erpMetaChk = readErpAdvisorsFromPlantilla_(ssChk);
+        const authChk = resolveAuthenticatedAdvisor_(ssChk, erpMetaChk.advisors, body);
+        if (!authChk.ok || !authChk.advisor || !authChk.advisor.isAdmin) {
+          return jsonResponse_({ ok: false, error: 'Solo los administradores autorizados pueden reorganizar las cuentas.' });
+        }
+      }
+      return jsonResponse_(organizarCuentasYDescuentosEnHojas({ silentUi: true }));
     }
 
     const adminPin = getProp_('ADMIN_PIN');
@@ -1908,7 +1923,8 @@ const INV_USER_TABS_ = [
     orderPrefix: 'PL',
     quoteType: 'SUCURSAL',
     isProyecto: false,
-    serieLabel: 'Sucursal Playa · Serie PL'
+    isAdmin: false,
+    serieLabel: 'CREATA LIVING PLAYA · Folio PL'
   },
   {
     tab: 'COLOCIO',
@@ -1918,7 +1934,19 @@ const INV_USER_TABS_ = [
     orderPrefix: 'DTC',
     quoteType: 'SUCURSAL',
     isProyecto: false,
-    serieLabel: 'Sucursal Colosio · Serie DTC'
+    isAdmin: false,
+    serieLabel: 'CREATA LIVING COLOSIO · Folio DTC'
+  },
+  {
+    tab: 'OUTLET COLOSIO',
+    branchKey: 'OUTLET COLOSIO',
+    label: 'Outlet Colosio',
+    erpStore: 'OUTLET COLOSIO',
+    orderPrefix: 'OUT',
+    quoteType: 'SUCURSAL',
+    isProyecto: false,
+    isAdmin: false,
+    serieLabel: 'OUTLET COLOSIO · Folio OUT'
   },
   {
     tab: 'PTC',
@@ -1928,7 +1956,8 @@ const INV_USER_TABS_ = [
     orderPrefix: 'PTC',
     quoteType: 'SUCURSAL',
     isProyecto: false,
-    serieLabel: 'Sucursal Puerto Cancún · Serie PTC'
+    isAdmin: false,
+    serieLabel: 'CREATA PUERTO CANCUN · Folio PTC'
   },
   {
     tab: 'CASA CREATA',
@@ -1938,7 +1967,8 @@ const INV_USER_TABS_ = [
     orderPrefix: 'CCB',
     quoteType: 'SUCURSAL',
     isProyecto: false,
-    serieLabel: 'Sucursal Casa Creata · Serie CCB'
+    isAdmin: false,
+    serieLabel: 'CASA CREATA BONAMPAK · Folio CCB'
   },
   {
     tab: 'PROYECTOS',
@@ -1948,19 +1978,84 @@ const INV_USER_TABS_ = [
     orderPrefix: 'PRO',
     quoteType: 'PROYECTO',
     isProyecto: true,
-    serieLabel: 'Modalidad Proyecto · Serie PRO'
+    isAdmin: false,
+    serieLabel: 'PROYECTOS ANIPA INTERIOR · Folio PRO'
   },
   {
     tab: 'CUENTAS ADMINISTRATIVAS',
     branchKey: 'ADMIN',
-    label: 'Administración',
+    label: 'Administración General',
     erpStore: 'CEDIS',
-    orderPrefix: 'ADM',
-    quoteType: 'ADMINISTRACIÓN',
+    orderPrefix: 'CED',
+    quoteType: 'ADMINISTRATIVO',
     isProyecto: false,
-    serieLabel: 'Administración · Serie ADM'
+    isAdmin: true,
+    serieLabel: 'Acceso Total · Todas las Tiendas y Bodegas'
   }
 ];
+
+const ADMIN_MASTER_EMAILS_ = {
+  'santiago.torres@grupoanipa.com': true,
+  'kevin.reyna@grupoanipa.com': true
+};
+
+const ERP_STORE_FOLIO_SERIES_ = {
+  'CREATA LIVING PLAYA': 'PL',
+  'CREATA LIVING COLOSIO': 'DTC',
+  'OUTLET COLOSIO': 'OUT',
+  'CREATA PUERTO CANCUN': 'PTC',
+  'CASA CREATA BONAMPAK': 'CCB',
+  'PROYECTOS ANIPA INTERIOR': 'PRO',
+  'CEDIS': 'CED',
+  'ADMINISTRACION': 'ADM'
+};
+
+const ERP_PREFIX_TO_STORE_ = {
+  'PL': 'CREATA LIVING PLAYA',
+  'DTC': 'CREATA LIVING COLOSIO',
+  'OUT': 'OUTLET COLOSIO',
+  'PTC': 'CREATA PUERTO CANCUN',
+  'CCB': 'CASA CREATA BONAMPAK',
+  'PRO': 'PROYECTOS ANIPA INTERIOR',
+  'CED': 'CEDIS',
+  'ADM': 'ADMINISTRACION'
+};
+
+function getStoreFolioPrefix_(erpStore, fallbackPrefix) {
+  const up = String(erpStore || '').trim().toUpperCase();
+  if (ERP_STORE_FOLIO_SERIES_[up]) return ERP_STORE_FOLIO_SERIES_[up];
+  for (let i = 0; i < INV_USER_TABS_.length; i++) {
+    if (INV_USER_TABS_[i].erpStore.toUpperCase() === up) {
+      return INV_USER_TABS_[i].orderPrefix;
+    }
+  }
+  const fb = String(fallbackPrefix || '').trim().toUpperCase().replace(/[^A-Z]/g, '');
+  return fb || 'PTC';
+}
+
+function extractErpIdFromLabel_(txt) {
+  const s = String(txt || '').trim();
+  const m = s.match(/\[ID:\s*(\d+)\]/i) || s.match(/\bID[:\s#]*(\d{3,7})\b/i);
+  if (m) return m[1];
+  if (/^\d{3,7}$/.test(s)) return s;
+  return '';
+}
+
+function parseDiscountPctCell_(rawVal) {
+  if (rawVal === null || rawVal === undefined) return null;
+  const s = String(rawVal).trim();
+  if (!s) return null;
+  if (/[A-Za-z]{3,}/.test(s)) return null;
+  const hasPct = s.indexOf('%') !== -1;
+  const cleaned = s.replace(/[^0-9.,-]/g, '').replace(',', '.');
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  if (isNaN(n) || !isFinite(n) || n < 0) return null;
+  if (!hasPct && n > 0 && n <= 1) {
+    return Math.min(100, Math.round(n * 10000) / 100);
+  }
+  return Math.min(100, Math.round(n * 100) / 100);
+}
 
 const TAB_QUOTES_LIVE_ = 'COTIZACIONES_EN_VIVO';
 const TAB_TOP_SEARCHED_ = 'TOP_BUSCADOS';
@@ -2096,11 +2191,12 @@ function readErpAdvisorsFromPlantilla_(ss) {
   const vals = sh.getRange(2, 27, maxR - 1, 4).getValues(); // AA..AD
   for (let i = 0; i < vals.length; i++) {
     const storeItem = String(vals[i][0] || '').trim();
-    if (storeItem) stores.push(storeItem);
+    if (storeItem && stores.indexOf(storeItem) === -1) stores.push(storeItem);
     const label = String(vals[i][1] || '').trim();
     const branch = String(vals[i][2] || '').trim();
+    if (branch && stores.indexOf(branch) === -1) stores.push(branch);
     const rawId = vals[i][3];
-    const idStr = rawId !== '' && rawId !== null && rawId !== undefined ? cleanSheetKeyCell_(rawId) : '';
+    const idStr = (rawId !== '' && rawId !== null && rawId !== undefined ? cleanSheetKeyCell_(rawId) : '') || extractErpIdFromLabel_(label);
     if (label) {
       const namePart = label.split('|')[0].trim();
       advisors.push({
@@ -2141,34 +2237,94 @@ function matchBestErpAdvisor_(userName, targetErpStore, erpAdvisors) {
   return best;
 }
 
+function findUserHeaderRow1Based_(sh) {
+  if (!sh || sh.getLastRow() < 2) return -1;
+  const checkRows = Math.min(sh.getLastRow(), 4);
+  const checkCols = Math.min(sh.getMaxColumns(), 6);
+  if (checkCols < 5) return -1;
+  const hdrVals = sh.getRange(1, 1, checkRows, checkCols).getDisplayValues();
+  for (let r = 0; r < hdrVals.length; r++) {
+    const cName = String(hdrVals[r][2] || '').trim();
+    const cMail = String(hdrVals[r][4] || '').trim();
+    if (/^CORREO/i.test(cMail) || /^NOMBRE/i.test(cName)) {
+      return r + 1;
+    }
+  }
+  return -1;
+}
+
 function readAllBranchUsers_(ss, erpAdvisors) {
   const list = [];
   for (let t = 0; t < INV_USER_TABS_.length; t++) {
     const cfg = INV_USER_TABS_[t];
     let sh = ss.getSheetByName(cfg.tab);
     if (!sh && cfg.tab === 'COLOCIO') sh = ss.getSheetByName('COLOSIO');
-    if (!sh || sh.getLastRow() < 3) continue;
+    if (!sh) continue;
+    const hdrRow = findUserHeaderRow1Based_(sh);
+    if (hdrRow < 1 || sh.getLastRow() <= hdrRow) continue;
+
     const actualTabName = sh.getName();
-    const numRows = sh.getLastRow() - 2;
-    const vals = sh.getRange(3, 1, numRows, 7).getValues(); // A..G desde fila 3
+    const startRow = hdrRow + 1;
+    const numRows = sh.getLastRow() - hdrRow;
+    const colsToRead = Math.min(sh.getMaxColumns(), 9); // A..I (H = Usuario/ID Asesor, I = Descuento)
+    const vals = sh.getRange(startRow, 1, numRows, colsToRead).getValues();
+    const dispVals = sh.getRange(startRow, 1, numRows, colsToRead).getDisplayValues();
+
     for (let i = 0; i < vals.length; i++) {
       const r = vals[i];
+      const dr = dispVals[i] || [];
       const nombre = String(r[2] || '').trim();
       const puesto = String(r[3] || '').trim();
       const correo = String(r[4] || '').trim().toLowerCase();
       if (!correo || correo.indexOf('@') === -1) continue;
       const tempKey = cleanSheetKeyCell_(r[5]);
       const defKey = cleanSheetKeyCell_(r[6]);
-      const matchedErp = matchBestErpAdvisor_(nombre, cfg.erpStore, erpAdvisors);
+      const colH = colsToRead >= 8 ? String(dr[7] || r[7] || '').trim() : '';
+      const colI = colsToRead >= 9 ? String(dr[8] !== '' ? dr[8] : (r[8] !== undefined ? r[8] : '')).trim() : '';
+
+      let explicitAdvisorLabel = '';
+      let explicitAdvisorId = '';
+      let explicitDiscountPct = parseDiscountPctCell_(colI);
+      if (explicitDiscountPct === null && parseDiscountPctCell_(colH) !== null && !extractErpIdFromLabel_(colH)) {
+        explicitDiscountPct = parseDiscountPctCell_(colH);
+      } else if (colH) {
+        explicitAdvisorId = extractErpIdFromLabel_(colH);
+        if (colH.indexOf('|') !== -1 || explicitAdvisorId) {
+          explicitAdvisorLabel = colH;
+        }
+      }
+
+      let matchedErp = null;
+      if (explicitAdvisorId && erpAdvisors.length > 0) {
+        for (let k = 0; k < erpAdvisors.length; k++) {
+          if (String(erpAdvisors[k].id) === String(explicitAdvisorId)) {
+            matchedErp = erpAdvisors[k];
+            break;
+          }
+        }
+      }
+      if (!matchedErp) {
+        matchedErp = matchBestErpAdvisor_(nombre, cfg.erpStore, erpAdvisors);
+      }
+
+      const resolvedErpLabel = (matchedErp && matchedErp.label) || explicitAdvisorLabel || '';
+      const resolvedErpId = (matchedErp && matchedErp.id) || explicitAdvisorId || '';
+      const resolvedErpBranch = (matchedErp && matchedErp.branch) || '';
+      const isAdminUser = !!cfg.isAdmin || !!ADMIN_MASTER_EMAILS_[correo] || /ADMINISTRADOR/i.test(puesto);
+      const userErpStore = (isAdminUser && resolvedErpBranch) ? resolvedErpBranch : cfg.erpStore;
+      const userPrefix = getStoreFolioPrefix_(userErpStore, cfg.orderPrefix);
+
       list.push({
         sheetTab: actualTabName,
-        rowNum: i + 3,
-        branchKey: cfg.branchKey,
+        rowNum: startRow + i,
+        isAdmin: isAdminUser,
+        maxDiscountPct: explicitDiscountPct,
+        branchKey: isAdminUser ? 'ADMIN' : cfg.branchKey,
         branchLabel: cfg.label,
-        erpStore: cfg.erpStore,
-        orderPrefix: cfg.orderPrefix,
-        quoteType: cfg.quoteType,
-        isProyecto: !!cfg.isProyecto,
+        erpStore: userErpStore,
+        orderPrefix: userPrefix,
+        quoteType: isAdminUser ? 'ADMINISTRATIVO' : cfg.quoteType,
+        isProyecto: !isAdminUser && !!cfg.isProyecto,
         serieLabel: cfg.serieLabel,
         nombre: nombre,
         puesto: puesto,
@@ -2176,9 +2332,9 @@ function readAllBranchUsers_(ss, erpAdvisors) {
         tempKey: tempKey,
         defKey: defKey,
         mustChangeKey: !defKey && !!tempKey,
-        erpAdvisorLabel: matchedErp ? matchedErp.label : '',
-        erpAdvisorId: matchedErp ? matchedErp.id : '',
-        erpAdvisorBranch: matchedErp ? matchedErp.branch : ''
+        erpAdvisorLabel: resolvedErpLabel,
+        erpAdvisorId: resolvedErpId,
+        erpAdvisorBranch: resolvedErpBranch
       });
     }
   }
@@ -2189,10 +2345,12 @@ function sanitizeUserForClient_(u, includeSignedToken) {
   const out = {
     sheetTab: u.sheetTab,
     rowNum: u.rowNum,
+    isAdmin: !!u.isAdmin,
+    maxDiscountPct: u.maxDiscountPct !== undefined ? u.maxDiscountPct : null,
     branchKey: u.branchKey,
     branchLabel: u.branchLabel,
     erpStore: u.erpStore,
-    orderPrefix: u.orderPrefix || 'COT',
+    orderPrefix: u.orderPrefix || 'PTC',
     quoteType: u.quoteType || 'SUCURSAL',
     isProyecto: !!u.isProyecto,
     serieLabel: u.serieLabel || '',
@@ -2271,11 +2429,14 @@ function handleInvLogin_(body) {
     return sanitized;
   });
 
+  const folioSnap = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+
   if (authorizedLocs.length > 1 && !selectedTab) {
     return {
       ok: true,
       chooseBranch: true,
       locations: authorizedLocs,
+      nextFolioByStore: folioSnap.nextFolioByStore,
       stores: erpMeta.stores,
       advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id }))
     };
@@ -2285,14 +2446,14 @@ function handleInvLogin_(body) {
     ? (authorizedLocs.find((u) => u.sheetTab.toUpperCase() === selectedTab.toUpperCase() || u.branchKey.toUpperCase() === selectedTab.toUpperCase()) || authorizedLocs[0])
     : authorizedLocs[0];
 
-  const shQuotes = ss.getSheetByName(TAB_QUOTES_LIVE_);
-  const nextOrderCode = peekNextBranchOrderCode_(shQuotes, chosenOut.orderPrefix);
+  const nextOrderCode = peekNextStoreErpFolio_(chosenOut.erpStore, chosenOut.orderPrefix, folioSnap);
 
   return {
     ok: true,
     chooseBranch: false,
     user: chosenOut,
     nextOrderCode: nextOrderCode,
+    nextFolioByStore: folioSnap.nextFolioByStore,
     allLocationsForEmail: authorizedLocs,
     stores: erpMeta.stores,
     advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id }))
@@ -2321,9 +2482,12 @@ function handleInvUpdateKey_(body) {
     const cfg = INV_USER_TABS_[t];
     let sh = ss.getSheetByName(cfg.tab);
     if (!sh && cfg.tab === 'COLOCIO') sh = ss.getSheetByName('COLOSIO');
-    if (!sh || sh.getLastRow() < 3) continue;
-    const numRows = sh.getLastRow() - 2;
-    const vals = sh.getRange(3, 1, numRows, 7).getValues();
+    if (!sh) continue;
+    const hdrRow = findUserHeaderRow1Based_(sh);
+    if (hdrRow < 1 || sh.getLastRow() <= hdrRow) continue;
+    const startRow = hdrRow + 1;
+    const numRows = sh.getLastRow() - hdrRow;
+    const vals = sh.getRange(startRow, 1, numRows, 7).getValues();
     for (let i = 0; i < vals.length; i++) {
       const rowEmail = String(vals[i][4] || '').trim().toLowerCase();
       if (rowEmail !== email) continue;
@@ -2332,7 +2496,7 @@ function handleInvUpdateKey_(body) {
       if (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey)) {
         anyAuthorized = true;
       }
-      matchedTargets.push({ sh: sh, rowNum: i + 3, tabName: sh.getName() });
+      matchedTargets.push({ sh: sh, rowNum: startRow + i, tabName: sh.getName() });
     }
   }
 
@@ -2408,9 +2572,13 @@ function resolveAuthenticatedAdvisor_(ss, erpAdvisors, body) {
     };
   }
 
-  const chosen = targetTab
+  // Si es Administrador y antes tenía sesión en otra pestaña (ej. PROYECTOS antes de migrar a CUENTAS ADMINISTRATIVAS), aceptar su cuenta Admin
+  let chosen = targetTab
     ? (userMatches.find((u) => u.sheetTab.toUpperCase() === targetTab.toUpperCase() || u.branchKey.toUpperCase() === targetTab.toUpperCase()) || null)
     : userMatches[0];
+  if (!chosen && ADMIN_MASTER_EMAILS_[targetEmail]) {
+    chosen = userMatches[0];
+  }
 
   if (!chosen) {
     return {
@@ -2432,7 +2600,7 @@ function resolveAuthenticatedAdvisor_(ss, erpAdvisors, body) {
 }
 
 // ----------------------------------------------------------------------------
-// BITÁCORA Y ORDEN CONSECUTIVA POR SUCURSAL / PROYECTO (COTIZACIONES_EN_VIVO)
+// BITÁCORA Y FOLIOS OFICIALES POR TIENDA / BODEGA EN S MUEBLERÍA
 // ----------------------------------------------------------------------------
 function ensureQuotesLedgerSheet_(ss) {
   let sh = ss.getSheetByName(TAB_QUOTES_LIVE_);
@@ -2489,38 +2657,176 @@ function ensureQuotesLedgerSheet_(ss) {
 }
 
 /**
- * Descuento máximo permitido según el PUESTO de la hoja de sucursal.
- * ASESOR (y cualquier otro puesto): 24% · GERENTE / SUBGERENTE / SUB: 100%
+ * Descuento máximo permitido:
+ * 1) Administradores (Santiago y Kevin): 100%
+ * 2) Columna I ("Descuento" junto a Usuario/ID Asesor): porcentaje explícito configurado en la hoja
+ * 3) Respaldo por Puesto: GERENTE / SUBGERENTE = 100%, ASESOR = 24%
  */
 function getMaxDiscountPctForPuesto_(puesto) {
   const p = String(puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-  return /GERENTE|\bSUB/.test(p) ? 100 : 24;
+  return /ADMINISTRADOR|GERENTE|\bSUB/.test(p) ? 100 : 24;
 }
 
-function peekNextBranchOrderCode_(shQuotes, orderPrefix) {
-  const prefix = String(orderPrefix || 'COT').trim().toUpperCase();
-  if (!shQuotes || shQuotes.getLastRow() < 2) {
-    return prefix + '-0001';
+function getMaxDiscountPctForUser_(u) {
+  if (!u) return 24;
+  if (u.isAdmin) return 100;
+  if (u.maxDiscountPct !== null && u.maxDiscountPct !== undefined && isFinite(Number(u.maxDiscountPct))) {
+    return Math.max(0, Math.min(100, Number(u.maxDiscountPct)));
   }
-  const lastRow = shQuotes.getLastRow();
-  const colA = shQuotes.getRange(2, 1, lastRow - 1, 1).getDisplayValues();
-  const re = new RegExp('^' + prefix.replace(/[^A-Z0-9]/g, '') + '-(\\d+)$', 'i');
-  let maxSeq = 0;
-  for (let i = 0; i < colA.length; i++) {
-    const val = String(colA[i][0] || '').trim();
-    const m = val.match(re);
-    if (m) {
-      const n = parseInt(m[1], 10);
-      if (n > maxSeq) maxSeq = n;
+  return getMaxDiscountPctForPuesto_(u.puesto);
+}
+
+function invalidateErpFoliosCache_() {
+  try {
+    CacheService.getScriptCache().remove('inv_erp_folios_v1');
+  } catch (e) {}
+}
+
+function observeFolioString_(rawFolio, maxByPrefix) {
+  const s = String(rawFolio || '').trim().toUpperCase();
+  if (!s || /^[A-Z]+-\d+$/.test(s)) return null;
+  const m = s.match(/^([A-Z]{2,5})\s*(\d{2,8})$/);
+  if (!m) return null;
+  const pfx = m[1];
+  const num = parseInt(m[2], 10);
+  if (!num || num <= 0) return null;
+  if (!maxByPrefix[pfx] || num > maxByPrefix[pfx]) {
+    maxByPrefix[pfx] = num;
+  }
+  return { pfx: pfx, num: num, clean: pfx + String(num) };
+}
+
+/**
+ * Consulta en vivo los folios oficiales de S Mueblería según tienda/bodega (PL, DTC, OUT, PTC, CCB, PRO, CED, ADM)
+ * directamente desde ObtenerCotizacionesTodas + bitácora COTIZACIONES_EN_VIVO, con caché corto de 45s.
+ */
+function computeLiveErpFoliosAndQuotes_(ss, erpAdvisors) {
+  const maxByPrefix = {};
+  let recentErpQuotes = [];
+  let loadedFromCache = false;
+
+  try {
+    const cachedRaw = CacheService.getScriptCache().get('inv_erp_folios_v1');
+    if (cachedRaw) {
+      const parsedCache = JSON.parse(cachedRaw);
+      if (parsedCache && parsedCache.maxByPrefix) {
+        Object.keys(parsedCache.maxByPrefix).forEach((k) => {
+          maxByPrefix[k] = Number(parsedCache.maxByPrefix[k]) || 0;
+        });
+        if (Array.isArray(parsedCache.recentErpQuotes)) {
+          recentErpQuotes = parsedCache.recentErpQuotes;
+        }
+        loadedFromCache = true;
+      }
+    }
+  } catch (ce) {}
+
+  if (!loadedFromCache) {
+    const advById = {};
+    if (Array.isArray(erpAdvisors)) {
+      for (let i = 0; i < erpAdvisors.length; i++) {
+        const a = erpAdvisors[i];
+        if (a && a.id) advById[String(a.id)] = a;
+      }
+    }
+
+    try {
+      const cfg = getErpRuntimeConfig_();
+      const xmlCot = callSmuebleriaWcf_(
+        'ObtenerCotizacionesTodas',
+        '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Venta></Venta><Filtro></Filtro>'
+      );
+      if (xmlCot) {
+        const recRe = /<([a-zA-Z0-9_:]*Venta[a-zA-Z0-9_:]*)>([\s\S]*?)<\/\1>/g;
+        let rm;
+        const rawErpItems = [];
+        while ((rm = recRe.exec(xmlCot)) !== null) {
+          const blk = rm[2];
+          const idVentaStr = extractXmlTag_(blk, 'IdVenta');
+          const folioStr = extractXmlTag_(blk, 'Folio');
+          if (!idVentaStr && !folioStr) continue;
+          const obs = observeFolioString_(folioStr, maxByPrefix);
+          const idVentaNum = parseInt(idVentaStr, 10) || 0;
+          if (idVentaNum > 0 && obs) {
+            const idUsu = extractXmlTag_(blk, 'IdUsuario');
+            const advInfo = idUsu && advById[idUsu] ? advById[idUsu] : null;
+            const storeFromAdv = (advInfo && advInfo.branch) || ERP_PREFIX_TO_STORE_[obs.pfx] || obs.pfx;
+            const totalNum = parseFloat(extractXmlTag_(blk, 'Total') || '0') || 0;
+            const fechaRaw = extractXmlTag_(blk, 'FechaVenta') || extractXmlTag_(blk, 'Fecha') || extractXmlTag_(blk, 'FechaCreacion');
+            rawErpItems.push({
+              idNum: idVentaNum,
+              orderCode: obs.clean,
+              folio: obs.clean,
+              quoteId: String(idVentaNum),
+              createdAt: fechaRaw ? fechaRaw.replace('T', ' ').slice(0, 16) : '',
+              quoteType: /PROYECTO/i.test(storeFromAdv) ? 'PROYECTO' : 'SUCURSAL',
+              branchTab: storeFromAdv,
+              erpStore: storeFromAdv,
+              advisorName: (advInfo && advInfo.name) || extractXmlTag_(blk, 'Vendedor') || extractXmlTag_(blk, 'Usuario') || '',
+              erpAdvisor: (advInfo && advInfo.label) || '',
+              clientName: extractXmlTag_(blk, 'Nombre') || extractXmlTag_(blk, 'Cliente') || 'Prospecto S Mueblería',
+              itemsCount: '',
+              skusSummary: '',
+              total: totalNum > 0 ? formatMoney_(totalNum) : '',
+              status: extractXmlTag_(blk, 'Estatus') || 'EN S MUEBLERÍA'
+            });
+          }
+        }
+        rawErpItems.sort((a, b) => b.idNum - a.idNum);
+        recentErpQuotes = rawErpItems.slice(0, 40);
+      }
+    } catch (wcfErr) {
+      Logger.log('Aviso al leer folios en vivo desde ObtenerCotizacionesTodas: ' + wcfErr);
+    }
+
+    try {
+      CacheService.getScriptCache().put('inv_erp_folios_v1', JSON.stringify({
+        maxByPrefix: maxByPrefix,
+        recentErpQuotes: recentErpQuotes
+      }), 45);
+    } catch (ceSave) {}
+  }
+
+  // Combinar siempre con COTIZACIONES_EN_VIVO por si se acaba de registrar una cotización
+  const shQuotes = ss ? ss.getSheetByName(TAB_QUOTES_LIVE_) : null;
+  if (shQuotes && shQuotes.getLastRow() >= 2) {
+    const qCols = shQuotes.getRange(2, 1, shQuotes.getLastRow() - 1, 2).getDisplayValues();
+    for (let i = 0; i < qCols.length; i++) {
+      observeFolioString_(qCols[i][1], maxByPrefix);
+      observeFolioString_(qCols[i][0], maxByPrefix);
     }
   }
-  const nextNum = maxSeq + 1;
-  return prefix + '-' + String(nextNum).padStart(4, '0');
+
+  const nextFolioByStore = {};
+  Object.keys(ERP_STORE_FOLIO_SERIES_).forEach((storeName) => {
+    const pfx = ERP_STORE_FOLIO_SERIES_[storeName];
+    if (maxByPrefix[pfx] && maxByPrefix[pfx] > 0) {
+      nextFolioByStore[storeName] = pfx + String(maxByPrefix[pfx] + 1);
+    }
+  });
+
+  return {
+    maxByPrefix: maxByPrefix,
+    nextFolioByStore: nextFolioByStore,
+    recentErpQuotes: recentErpQuotes
+  };
+}
+
+function peekNextStoreErpFolio_(erpStore, fallbackPrefix, folioSnap) {
+  const storeUp = String(erpStore || '').trim().toUpperCase();
+  const pfx = getStoreFolioPrefix_(storeUp, fallbackPrefix);
+  if (folioSnap && folioSnap.nextFolioByStore && folioSnap.nextFolioByStore[storeUp]) {
+    return folioSnap.nextFolioByStore[storeUp];
+  }
+  if (folioSnap && folioSnap.maxByPrefix && folioSnap.maxByPrefix[pfx] > 0) {
+    return pfx + String(folioSnap.maxByPrefix[pfx] + 1);
+  }
+  return 'Serie ' + pfx + ' (En vivo)';
 }
 
 function readRecentQuotesForAdvisor_(shQuotes, advisorEmail, maxItems) {
   if (!shQuotes || shQuotes.getLastRow() < 2) return [];
-  const limit = maxItems || 8;
+  const limit = maxItems || 10;
   const lastR = shQuotes.getLastRow();
   const startR = Math.max(2, lastR - 200);
   const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 24).getDisplayValues();
@@ -2529,14 +2835,18 @@ function readRecentQuotesForAdvisor_(shQuotes, advisorEmail, maxItems) {
   for (let i = vals.length - 1; i >= 0 && out.length < limit; i--) {
     const r = vals[i];
     if (String(r[7] || '').trim().toLowerCase() !== emailNorm) continue;
+    const cleanOrd = r[1] || ((r[0] && !/^[A-Z]+-\d+$/i.test(r[0])) ? r[0] : '');
     out.push({
-      orderCode: r[0] || '',
-      folio: r[1] || '',
+      orderCode: cleanOrd || r[0] || '',
+      folio: r[1] || cleanOrd || '',
       quoteId: r[2] || '',
       createdAt: r[3] || '',
       quoteType: r[4] || '',
       branchTab: r[5] || '',
       erpStore: r[6] || '',
+      advisorEmail: r[7] || '',
+      advisorName: r[8] || '',
+      erpAdvisor: r[9] || '',
       clientName: r[11] || '',
       itemsCount: r[16] || '',
       skusSummary: r[17] || '',
@@ -2544,6 +2854,55 @@ function readRecentQuotesForAdvisor_(shQuotes, advisorEmail, maxItems) {
       status: r[22] || ''
     });
   }
+  return out;
+}
+
+function readRecentQuotesForAdmin_(shQuotes, recentErpQuotes, maxItems) {
+  const limit = maxItems || 40;
+  const out = [];
+  const seenKeys = {};
+
+  if (shQuotes && shQuotes.getLastRow() >= 2) {
+    const lastR = shQuotes.getLastRow();
+    const startR = Math.max(2, lastR - 250);
+    const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 24).getDisplayValues();
+    for (let i = vals.length - 1; i >= 0 && out.length < limit; i--) {
+      const r = vals[i];
+      const cleanOrd = r[1] || ((r[0] && !/^[A-Z]+-\d+$/i.test(r[0])) ? r[0] : '');
+      const key = (r[2] ? ('ID:' + r[2]) : '') || (cleanOrd ? ('F:' + cleanOrd) : '');
+      if (key) seenKeys[key] = true;
+      out.push({
+        orderCode: cleanOrd || r[0] || '',
+        folio: r[1] || cleanOrd || '',
+        quoteId: r[2] || '',
+        createdAt: r[3] || '',
+        quoteType: r[4] || '',
+        branchTab: r[5] || '',
+        erpStore: r[6] || '',
+        advisorEmail: r[7] || '',
+        advisorName: r[8] || '',
+        erpAdvisor: r[9] || '',
+        clientName: r[11] || '',
+        itemsCount: r[16] || '',
+        skusSummary: r[17] || '',
+        total: r[21] || '',
+        status: r[22] || ''
+      });
+    }
+  }
+
+  if (Array.isArray(recentErpQuotes)) {
+    for (let j = 0; j < recentErpQuotes.length && out.length < limit; j++) {
+      const eq = recentErpQuotes[j];
+      const kId = eq.quoteId ? ('ID:' + eq.quoteId) : '';
+      const kFol = eq.folio ? ('F:' + eq.folio) : '';
+      if ((kId && seenKeys[kId]) || (kFol && seenKeys[kFol])) continue;
+      if (kId) seenKeys[kId] = true;
+      if (kFol) seenKeys[kFol] = true;
+      out.push(eq);
+    }
+  }
+
   return out;
 }
 
@@ -2555,13 +2914,18 @@ function handleInvMyQuotes_(body) {
 
   const u = authCheck.advisor;
   const shQuotes = ss.getSheetByName(TAB_QUOTES_LIVE_);
-  const nextOrderCode = peekNextBranchOrderCode_(shQuotes, u.orderPrefix);
-  const recentQuotes = readRecentQuotesForAdvisor_(shQuotes, u.correo, 8);
+  const folioSnap = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+  const targetStore = (u.isAdmin && body && body.erpStore) ? String(body.erpStore).trim() : u.erpStore;
+  const nextOrderCode = peekNextStoreErpFolio_(targetStore, u.orderPrefix, folioSnap);
+  const recentQuotes = u.isAdmin
+    ? readRecentQuotesForAdmin_(shQuotes, folioSnap.recentErpQuotes, 40)
+    : readRecentQuotesForAdvisor_(shQuotes, u.correo, 12);
 
   return {
     ok: true,
     advisor: sanitizeUserForClient_(u, false),
     nextOrderCode: nextOrderCode,
+    nextFolioByStore: folioSnap.nextFolioByStore,
     recentQuotes: recentQuotes
   };
 }
@@ -3273,15 +3637,37 @@ function handleInvSubmitQuote_(body) {
       return { ok: false, error: 'La plantilla admite máximo 15 partidas por cotización (tienes ' + items.length + ').' };
     }
 
-    // Bloqueo estricto de Sucursal / Modalidad Proyecto y Usuario S Mueblería según el correo autenticado
-    const erpStore = verifiedUser.erpStore;
+    // Administradores (Santiago y Kevin) pueden emitir y supervisar en cualquier tienda/bodega;
+    // Asesores y Gerentes quedan bloqueados estrictamente a la tienda/proyecto de su cuenta en sesión.
+    let erpStore = verifiedUser.erpStore;
     let idUsuarioNum = parseInt(String(verifiedUser.erpAdvisorId || '').trim(), 10) || 0;
     let erpAdvisorLabel = verifiedUser.erpAdvisorLabel || '';
-    if (!idUsuarioNum && verifiedUser.branchKey === 'ADMIN') {
+
+    if (verifiedUser.isAdmin) {
+      const reqStore = String(body.erpStore || '').trim();
+      if (reqStore) erpStore = reqStore;
+      const reqAdvLabel = String(body.erpAdvisorLabel || '').trim();
+      const reqAdvId = parseInt(String(body.erpAdvisorId || extractErpIdFromLabel_(reqAdvLabel) || '').trim(), 10) || 0;
+      if (reqAdvId > 0) {
+        idUsuarioNum = reqAdvId;
+        if (reqAdvLabel) {
+          erpAdvisorLabel = reqAdvLabel;
+        } else {
+          const foundAdv = erpMeta.advisors.find((a) => String(a.id) === String(reqAdvId));
+          erpAdvisorLabel = foundAdv ? foundAdv.label : (verifiedUser.nombre + ' | ' + erpStore + ' [ID: ' + reqAdvId + ']');
+        }
+      }
+    }
+
+    if (!idUsuarioNum && (verifiedUser.isAdmin || verifiedUser.branchKey === 'ADMIN')) {
       const cfg = getErpRuntimeConfig_();
       idUsuarioNum = cfg.masterUserId;
-      erpAdvisorLabel = verifiedUser.nombre + ' | CEDIS [ID: ' + idUsuarioNum + ']';
+      erpAdvisorLabel = erpAdvisorLabel || (verifiedUser.nombre + ' | ' + erpStore + ' [ID: ' + idUsuarioNum + ']');
     }
+
+    const activePrefix = getStoreFolioPrefix_(erpStore, verifiedUser.orderPrefix);
+    const isProyQuote = /PROYECTO/i.test(erpStore) || (!verifiedUser.isAdmin && !!verifiedUser.isProyecto);
+    const activeQuoteType = isProyQuote ? 'PROYECTO' : (verifiedUser.isAdmin ? 'ADMINISTRATIVO' : verifiedUser.quoteType);
 
     const sendToErp = body.sendToErp !== false;
     if (sendToErp && (!idUsuarioNum || idUsuarioNum <= 0)) {
@@ -3293,23 +3679,23 @@ function handleInvSubmitQuote_(body) {
 
     const categoryLabel = String(body.categoryLabel || 'COTIZACIONES [ID: 2]').trim();
     const clientMode = String(body.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)').trim();
-    const clientNameRaw = String(body.clientName || '').trim() || (verifiedUser.isProyecto ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA');
+    const clientNameRaw = String(body.clientName || '').trim() || (isProyQuote ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA');
     const clientPhone = String(body.clientPhone || '').trim();
     const deliveryDate = String(body.deliveryDate || '').trim();
     const rawNotes = String(body.notes || '').trim();
     const extraDiscount = Math.max(0, Number(body.extraDiscount) || 0);
 
-    // Límite de descuento por PUESTO (columna D de la hoja de sucursal): ASESOR 24% · GERENTE / SUBGERENTE 100%
-    const maxDiscPct = getMaxDiscountPctForPuesto_(verifiedUser.puesto);
+    // Límite de descuento por cuenta (Columna I "Descuento": Asesor 24% · Gerente 100% · Administrador 100%)
+    const maxDiscPct = getMaxDiscountPctForUser_(verifiedUser);
     let sumListReq = 0;
     let sumNetReq = 0;
     for (let i = 0; i < items.length; i++) {
       const it = items[i] || {};
-      const pct = Math.max(0, Number(it.discountPct) || 0); // inventario.html siempre envía el % (ej. 24 = 24%)
+      const pct = Math.max(0, Number(it.discountPct) || 0);
       if (pct > maxDiscPct + 0.0001) {
         return {
           ok: false,
-          error: 'Tu puesto (' + (verifiedUser.puesto || 'ASESOR') + ') permite un descuento máximo de ' + maxDiscPct + '% por partida. Revisa el SKU ' + String(it.sku || '') + '.'
+          error: 'Tu cuenta (' + (verifiedUser.puesto || 'ASESOR') + ') permite un descuento máximo de ' + maxDiscPct + '% por partida. Revisa el SKU ' + String(it.sku || '') + '.'
         };
       }
       const qtyReq = Math.max(1, Math.round(Number(it.qty) || 1));
@@ -3322,16 +3708,17 @@ function handleInvSubmitQuote_(body) {
       if (effPct > maxDiscPct + 0.01) {
         return {
           ok: false,
-          error: 'El descuento total (' + effPct.toFixed(1) + '%) supera el máximo permitido para tu puesto (' + maxDiscPct + '%).'
+          error: 'El descuento total (' + effPct.toFixed(1) + '%) supera el máximo permitido para tu cuenta (' + maxDiscPct + '%).'
         };
       }
     }
 
     const shQuotes = ensureQuotesLedgerSheet_(ss);
-    const orderCode = peekNextBranchOrderCode_(shQuotes, verifiedUser.orderPrefix);
-    const originHeaderTag = verifiedUser.isProyecto
-      ? ('[PROYECTO · ORDEN ' + orderCode + ' · ' + verifiedUser.nombre + ' <' + verifiedUser.correo + '>]')
-      : ('[' + verifiedUser.branchLabel.toUpperCase() + ' · ORDEN ' + orderCode + ' · ' + verifiedUser.nombre + ' <' + verifiedUser.correo + '>]');
+    const folioSnapBefore = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+    const estimatedFolio = peekNextStoreErpFolio_(erpStore, activePrefix, folioSnapBefore);
+    const originHeaderTag = isProyQuote
+      ? ('[PROYECTO · ' + erpStore + ' · ' + verifiedUser.nombre + ' <' + verifiedUser.correo + '>]')
+      : ('[' + erpStore + ' · ' + verifiedUser.nombre + ' <' + verifiedUser.correo + '>]');
     const finalNotesForErp = rawNotes ? (originHeaderTag + ' ' + rawNotes) : originHeaderTag;
 
     // 1) Mantener K5 en SOLO REVISIÓN para que ningún script externo reenvíe por duplicado
@@ -3339,7 +3726,7 @@ function handleInvSubmitQuote_(body) {
     sh.getRange('K7').clearContent();
     sh.getRange('M7').clearContent();
 
-    // 2) Escribir sucursal/proyecto y asesor EXCLUSIVOS del correo autenticado
+    // 2) Escribir tienda/bodega y asesor en plantilla
     sh.getRange('C5').setValue(erpStore);
     if (erpAdvisorLabel) {
       sh.getRange('C6').setValue(erpAdvisorLabel);
@@ -3363,7 +3750,7 @@ function handleInvSubmitQuote_(body) {
         const it = items[i] || {};
         const sku = String(it.sku || '').trim().toUpperCase();
         const qty = Math.max(1, Math.round(Number(it.qty) || 1));
-        let discPct = (Number(it.discountPct) || 0) / 100; // siempre viene en % (1 = 1%, no 100%)
+        let discPct = (Number(it.discountPct) || 0) / 100;
         discPct = Math.max(0, Math.min(1, discPct));
         bVals.push([sku]);
         dVals.push([qty]);
@@ -3382,16 +3769,20 @@ function handleInvSubmitQuote_(body) {
 
     const ahoraStr = formatCancunNow_();
     if (!sendToErp) {
-      sh.getRange('K6').setValue('🟢 EN REVISIÓN (' + orderCode + ' · ' + verifiedUser.quoteType + ')');
+      sh.getRange('K6').setValue('🟢 EN REVISIÓN (' + estimatedFolio + ' · ' + activeQuoteType + ')');
       sh.getRange('K9').setValue(ahoraStr);
       SpreadsheetApp.flush();
       const previewStatus = handleInvPlantillaStatus_();
-      previewStatus.orderCode = orderCode;
-      previewStatus.quoteType = verifiedUser.quoteType;
-      previewStatus.isProyecto = verifiedUser.isProyecto;
+      previewStatus.orderCode = estimatedFolio;
+      previewStatus.nextOrderCode = estimatedFolio;
+      previewStatus.nextFolioByStore = folioSnapBefore.nextFolioByStore;
+      previewStatus.quoteType = activeQuoteType;
+      previewStatus.isProyecto = isProyQuote;
       previewStatus.serieLabel = verifiedUser.serieLabel;
       previewStatus.sentLiveToErp = false;
-      previewStatus.recentQuotes = readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 8);
+      previewStatus.recentQuotes = verifiedUser.isAdmin
+        ? readRecentQuotesForAdmin_(shQuotes, folioSnapBefore.recentErpQuotes, 40)
+        : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
       return previewStatus;
     }
 
@@ -3406,7 +3797,7 @@ function handleInvSubmitQuote_(body) {
       const rSheet = sheetRows[i] || [];
       const sku = String(reqItem.sku || rSheet[0] || '').trim().toUpperCase();
       const cant = Math.max(1, Math.round(Number(reqItem.qty || rSheet[2]) || 1));
-      let discFrac = (Number(reqItem.discountPct) || 0) / 100; // siempre viene en % (1 = 1%, no 100%)
+      let discFrac = (Number(reqItem.discountPct) || 0) / 100;
       discFrac = Math.max(0, Math.min(1, discFrac));
 
       const catEntry = catalogMap[sku] || {};
@@ -3449,7 +3840,7 @@ function handleInvSubmitQuote_(body) {
     const cliMatch = clientMode.match(/ID CLIENTE:\s*(\d+)/i);
     let idCliente = 0;
     let idLead = 0;
-    const displayClientForErp = verifiedUser.isProyecto && !/^\[?PROYECTO/i.test(clientNameRaw)
+    const displayClientForErp = isProyQuote && !/^\[?PROYECTO/i.test(clientNameRaw)
       ? ('PROYECTO - ' + clientNameRaw)
       : clientNameRaw;
 
@@ -3474,9 +3865,11 @@ function handleInvSubmitQuote_(body) {
       descuentoExtra: extraDiscount
     });
 
+    invalidateErpFoliosCache_();
+
+    const folioFinal = erpResult.folio || estimatedFolio || ('ID-' + erpResult.idCotizacion);
     const refSujeto = idLead ? ('Lead ' + idLead) : ('Cliente ' + idCliente);
-    const statusBannerTxt = '✅ COTIZACIÓN ENVIADA EN VIVO A SMUEBLERIA (' + ahoraStr + ') · ' + orderCode;
-    const folioFinal = erpResult.folio || ('ID-' + erpResult.idCotizacion);
+    const statusBannerTxt = '✅ COTIZACIÓN ENVIADA EN VIVO A SMUEBLERIA (' + ahoraStr + ') · FOLIO ' + folioFinal;
 
     sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
     sh.getRange('K6').setValue(statusBannerTxt);
@@ -3485,13 +3878,13 @@ function handleInvSubmitQuote_(body) {
     sh.getRange('K8').setValue(refSujeto);
     sh.getRange('K9').setValue(ahoraStr);
 
-    // 5) Registrar orden consecutiva de Sucursal / Proyecto en COTIZACIONES_EN_VIVO
+    // 5) Registrar el mismo folio oficial de S Mueblería según su tienda o bodega en COTIZACIONES_EN_VIVO
     shQuotes.appendRow([
-      orderCode,
+      folioFinal,
       folioFinal,
       String(erpResult.idCotizacion),
       ahoraStr,
-      verifiedUser.quoteType,
+      activeQuoteType,
       verifiedUser.sheetTab,
       erpStore,
       verifiedUser.correo,
@@ -3517,21 +3910,294 @@ function handleInvSubmitQuote_(body) {
 
     SpreadsheetApp.flush();
 
+    const folioSnapAfter = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+    const nextStoreFolio = peekNextStoreErpFolio_(erpStore, activePrefix, folioSnapAfter);
+
     const finalOut = handleInvPlantillaStatus_();
     finalOut.sentLiveToErp = true;
-    finalOut.orderCode = orderCode;
-    finalOut.nextOrderCode = peekNextBranchOrderCode_(shQuotes, verifiedUser.orderPrefix);
-    finalOut.quoteType = verifiedUser.quoteType;
-    finalOut.isProyecto = verifiedUser.isProyecto;
+    finalOut.orderCode = folioFinal;
+    finalOut.nextOrderCode = nextStoreFolio;
+    finalOut.nextFolioByStore = folioSnapAfter.nextFolioByStore;
+    finalOut.quoteType = activeQuoteType;
+    finalOut.isProyecto = isProyQuote;
     finalOut.serieLabel = verifiedUser.serieLabel;
     finalOut.folio = folioFinal;
     finalOut.quoteId = String(erpResult.idCotizacion);
     finalOut.erpStatus = statusBannerTxt;
-    finalOut.recentQuotes = readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 8);
+    finalOut.recentQuotes = verifiedUser.isAdmin
+      ? readRecentQuotesForAdmin_(shQuotes, folioSnapAfter.recentErpQuotes, 40)
+      : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
     return finalOut;
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Organiza las 7 pestañas de cuentas de usuarios alineadas 100% con S Mueblería ERP:
+ * - Cero hojas vacías o sin ocupar (PLAYA, COLOCIO, OUTLET COLOSIO, PTC, CASA CREATA, PROYECTOS y CUENTAS ADMINISTRATIVAS).
+ * - Gerentes respetados tal cual en el sistema (100% descuento) y Asesores con 24% de descuento.
+ * - Santiago Torres e Irvin Kevin Reyna Valdez como Administradores Generales (100% descuento, ven todas las tiendas y bodegas).
+ * - TODOS los usuarios quedan con Contraseña Temporal activa (Columna F) y Contraseña personal vacía (Columna G).
+ * - Columna H: Usuario / ID Asesor en S Mueblería · Columna I (al costado): Descuento (%).
+ */
+function organizarCuentasYDescuentosEnHojas(opts) {
+  const silentUi = !!(opts && opts.silentUi);
+  const ss = getSpreadsheet_();
+
+  // 1) Conservar las contraseñas temporales actuales por correo (o pasar la existente a temporal) para que todos queden con Contraseña Temporal activa
+  const existingTempByEmail = {};
+  const existingAnyKeyByEmail = {};
+  const candidateTabs = ['PLAYA', 'COLOCIO', 'COLOSIO', 'OUTLET COLOSIO', 'PTC', 'CASA CREATA', 'PROYECTOS', 'CUENTAS ADMINISTRATIVAS'];
+
+  for (let t = 0; t < candidateTabs.length; t++) {
+    const shOld = ss.getSheetByName(candidateTabs[t]);
+    if (!shOld) continue;
+    const hdrRow = findUserHeaderRow1Based_(shOld);
+    if (hdrRow < 1 || shOld.getLastRow() <= hdrRow) continue;
+    const startR = hdrRow + 1;
+    const nRows = shOld.getLastRow() - hdrRow;
+    const cols = Math.min(shOld.getMaxColumns(), 7);
+    const oldVals = shOld.getRange(startR, 1, nRows, cols).getValues();
+    for (let i = 0; i < oldVals.length; i++) {
+      const em = String(oldVals[i][4] || '').trim().toLowerCase();
+      if (!em || em.indexOf('@') === -1) continue;
+      const tKey = cleanSheetKeyCell_(oldVals[i][5]);
+      const dKey = cleanSheetKeyCell_(oldVals[i][6]);
+      if (tKey && !existingTempByEmail[em]) {
+        existingTempByEmail[em] = tKey;
+      }
+      if ((tKey || dKey) && !existingAnyKeyByEmail[em]) {
+        existingAnyKeyByEmail[em] = tKey || dKey;
+      }
+    }
+  }
+
+  function resolveTempKeyForEmail_(email, fallbackSeed) {
+    const em = String(email || '').trim().toLowerCase();
+    if (existingTempByEmail[em]) return existingTempByEmail[em];
+    if (existingAnyKeyByEmail[em]) {
+      existingTempByEmail[em] = existingAnyKeyByEmail[em];
+      return existingTempByEmail[em];
+    }
+    const generated = fallbackSeed || String(100000 + Math.floor(Math.random() * 900000));
+    existingTempByEmail[em] = generated;
+    return generated;
+  }
+
+  // 2) Definición exacta alineada a S Mueblería ERP (plantilla!AB2:AD76) + correos reales del equipo
+  const sheetsPlan = [
+    {
+      tabName: 'PLAYA',
+      headerSucursal: 'SUC. PLAYA',
+      storeCell: 'CREATA LIVING PLAYA',
+      accounts: [
+        { nombre: 'JULIO DE LA CRUZ RAMON', puesto: 'Asesor Interiorista', correo: 'juliocruz@creatamuebles.com', erpLabel: 'JULIO DE LA CRUZ RAMON | CREATA LIVING PLAYA [ID: 39822]', descuento: '24%' },
+        { nombre: 'ROCIO ESQUIVEL', puesto: 'Gerente de Tienda', correo: 'rocio.esquivel@creatamuebles.com', erpLabel: 'ROCIO ESQUIVEL | CREATA LIVING PLAYA [ID: 14472]', descuento: '100%' },
+        { nombre: 'JUAN DZUL', puesto: 'Asesor Interiorista', correo: 'juan.dz@creatamuebles.com', erpLabel: 'JUAN DZUL | CREATA LIVING PLAYA [ID: 31421]', descuento: '24%' },
+        { nombre: 'SAMANTHA SILVA', puesto: 'Asesor Interiorista', correo: 'samantha.silva@creatamuebles.com', erpLabel: 'Samantha Silva | CREATA LIVING PLAYA [ID: 42700]', descuento: '24%' }
+      ]
+    },
+    {
+      tabName: 'COLOCIO',
+      headerSucursal: 'SUC. COLOSIO',
+      storeCell: 'CREATA LIVING COLOSIO',
+      accounts: [
+        { nombre: 'JANINE MEDINA', puesto: 'Gerente de Tienda', correo: 'janine.medina@creatamuebles.com', erpLabel: 'JANINE  MEDINA | CREATA LIVING COLOSIO [ID: 21155]', descuento: '100%' },
+        { nombre: 'FERNANDA PEREZ', puesto: 'Asesor Interiorista', correo: 'fernanda.perez@creatamuebles.com', erpLabel: 'FERNANDA PEREZ | CREATA LIVING COLOSIO [ID: 40872]', descuento: '24%' },
+        { nombre: 'AGUASANTA MARIA MENDOZA BRITO', puesto: 'Asesor Interiorista', correo: 'aguasanta.mdz@creatamuebles.com', erpLabel: 'AGUASANTA MARIA MENDOZA BRITO | CREATA LIVING COLOSIO [ID: 32215]', descuento: '24%' },
+        { nombre: 'JUAN CARLOS HERNANDEZ GARCIA', puesto: 'Asesor Interiorista', correo: 'juan.hdz@creatamuebles.com', erpLabel: 'JUAN CARLOS HERNANDEZ GARCIA | CREATA LIVING COLOSIO [ID: 39365]', descuento: '24%' },
+        { nombre: 'MIGUEL ANGEL SANCHEZ MARTINEZ', puesto: 'Asesor Interiorista', correo: 'miguel.sanchez@creatamuebles.com', erpLabel: 'MIGUEL ANGEL SANCHEZ MARTINEZ | CREATA LIVING COLOSIO [ID: 39117]', descuento: '24%' },
+        { nombre: 'JOHANA SOLARTE', puesto: 'Asesora de Ventas', correo: 'johanna.solarte@creatamuebles.com', erpLabel: 'JOHANA SOLARTE | CREATA LIVING COLOSIO [ID: 31715]', descuento: '24%' }
+      ]
+    },
+    {
+      tabName: 'OUTLET COLOSIO',
+      headerSucursal: 'SUC. OUTLET COLOSIO',
+      storeCell: 'OUTLET COLOSIO',
+      accounts: [
+        { nombre: 'JANINE MEDINA', puesto: 'Gerente de Tienda', correo: 'janine.medina@creatamuebles.com', erpLabel: 'JANINE MEDINA | OUTLET COLOSIO [ID: 42801]', descuento: '100%' },
+        { nombre: 'FERNANDA PEREZ', puesto: 'Asesor Interiorista', correo: 'fernanda.perez@creatamuebles.com', erpLabel: 'FERNANDA PEREZ | OUTLET COLOSIO [ID: 40745]', descuento: '24%' },
+        { nombre: 'AGUASANTA MARIA MENDOZA BRITO', puesto: 'Asesor Interiorista', correo: 'aguasanta.mdz@creatamuebles.com', erpLabel: 'AGUASANTA MARIA MENDOZA BRITO OUTLET | OUTLET COLOSIO [ID: 38932]', descuento: '24%' },
+        { nombre: 'JUAN CARLOS HERNANDEZ GARCIA', puesto: 'Asesor Interiorista', correo: 'juan.hdz@creatamuebles.com', erpLabel: 'JUAN CARLOS HERNANDEZ GARCIA | OUTLET COLOSIO [ID: 40264]', descuento: '24%' },
+        { nombre: 'MIGUEL ANGEL SANCHEZ MARTINEZ', puesto: 'Asesor Interiorista', correo: 'miguel.sanchez@creatamuebles.com', erpLabel: 'MIGUEL ANGEL SANCHEZ MARTINEZ | OUTLET COLOSIO [ID: 40873]', descuento: '24%' }
+      ]
+    },
+    {
+      tabName: 'PTC',
+      headerSucursal: 'SUC. PTC',
+      storeCell: 'CREATA PUERTO CANCUN',
+      accounts: [
+        { nombre: 'ALEXA PADILLA RIQUELME', puesto: 'Gerente de Tienda', correo: 'alexa.padilla@creatamuebles.com', erpLabel: 'ALEXA PADILLA RIQUELME | CREATA PUERTO CANCUN [ID: 37110]', descuento: '100%' },
+        { nombre: 'DANIELA ARROYO', puesto: 'Asesora Interiorista', correo: 'daniela.arroyo@creatamuebles.com', erpLabel: 'DANIELA ARROYO | CREATA PUERTO CANCUN [ID: 24645]', descuento: '24%' },
+        { nombre: 'ELOISA MONTOYA', puesto: 'Asesora Interiorista', correo: 'eloisa.montoya@creatamuebles.com', erpLabel: 'ELOISA MONTOYA | CREATA PUERTO CANCUN [ID: 36029]', descuento: '24%' },
+        { nombre: 'PAULA DURAN DE LA MADRID', puesto: 'Asesora Interiorista', correo: 'paula.duran@creatamuebles.com', erpLabel: 'PAULA DURAN DE LA MADRID | CREATA PUERTO CANCUN [ID: 41013]', descuento: '24%' },
+        { nombre: 'VIRIDIANA CASTELLANOS', puesto: 'Asesora de Ventas', correo: 'viridiana.castellanos@creatamuebles.com', erpLabel: 'VIRIDIANA CASTELLANOS | CREATA PUERTO CANCUN [ID: 14471]', descuento: '24%' }
+      ]
+    },
+    {
+      tabName: 'CASA CREATA',
+      headerSucursal: 'SUC. CASA CREATA',
+      storeCell: 'CASA CREATA BONAMPAK',
+      accounts: [
+        { nombre: 'GUADALUPE SANCHEZ', puesto: 'Gerente de Tienda', correo: 'lupita.sanchez@creatamuebles.com', erpLabel: 'GUADALUPE SANCHEZ | CASA CREATA BONAMPAK [ID: 14478]', descuento: '100%' },
+        { nombre: 'JUAN PABLO GONZALEZ SALAS', puesto: 'Asesor Interiorista', correo: 'pablo.gonzalez@creatamuebles.com', erpLabel: 'JUAN PABLO GONZALEZ SALAS | CASA CREATA BONAMPAK [ID: 40613]', descuento: '24%' },
+        { nombre: 'STEPHANIE PALOMA IBAREZ SALINAS', puesto: 'Asesor Interiorista', correo: 'paloma.ibarez@creatamuebles.com', erpLabel: 'STEPHANIE PALOMA IBAREZ SALINAS | CASA CREATA BONAMPAK [ID: 38330]', descuento: '24%' },
+        { nombre: 'HEYSER GRETA ARANZA TAPIA MORALES', puesto: 'Asesor Interiorista', correo: 'greta.tapia@creatamuebles.com', erpLabel: 'HEYSER GRETA ARANZA TAPIA MORALES | CASA CREATA BONAMPAK [ID: 39852]', descuento: '24%' }
+      ]
+    },
+    {
+      tabName: 'PROYECTOS',
+      headerSucursal: 'PROYECTOS',
+      storeCell: 'PROYECTOS ANIPA INTERIOR',
+      accounts: [
+        { nombre: 'NELSON HERNANDEZ RODRIGUEZ', puesto: 'Gerente Comercial de Proyectos', correo: 'gte.proyectos@creatamuebles.com', erpLabel: 'NELSON HERNANDEZ RODRIGEZ | PROYECTOS ANIPA INTERIOR [ID: 38733]', descuento: '100%' },
+        { nombre: 'ALEXA PADILLA RIQUELME', puesto: 'Gerente de Tienda', correo: 'alexa.padilla@creatamuebles.com', erpLabel: 'ALEXA PADILLA RIQUELME (PROYECTOS) | PROYECTOS ANIPA INTERIOR [ID: 37686]', descuento: '100%' },
+        { nombre: 'JOHANA SOLARTE', puesto: 'Asesora de Ventas', correo: 'johanna.solarte@creatamuebles.com', erpLabel: 'JOHANA SOLARTE | PROYECTOS ANIPA INTERIOR [ID: 23073]', descuento: '24%' },
+        { nombre: 'RENATO DANIEL CUEVAS CHAVEZ', puesto: 'Coordinador de Proyectos', correo: 'renato.cuevas@creatamuebles.com', erpLabel: 'RENATO DANIEL CUEVAS CHAVEZ PROYECTOS | PROYECTOS ANIPA INTERIOR [ID: 41808]', descuento: '24%' },
+        { nombre: 'JULIAN AREVALO', puesto: 'Arquitecto Interiorista', correo: 'julian.arevalo@creatamuebles.com', erpLabel: 'Julian Arevalo | PROYECTOS ANIPA INTERIOR [ID: 42702]', descuento: '24%' },
+        { nombre: 'MILDRED PACHECO SAAVEDRA', puesto: 'Interiorista Corporativa', correo: 'mildred.pacheco@creatamuebles.com', erpLabel: 'Mildred Saavedra | PROYECTOS ANIPA INTERIOR [ID: 42186]', descuento: '24%' },
+        { nombre: 'DANIELA ARROYO', puesto: 'Asesora Interiorista', correo: 'daniela.arroyo@creatamuebles.com', erpLabel: 'DANIELA ARROYO PROYECTOS | PROYECTOS ANIPA INTERIOR [ID: 41810]', descuento: '24%' },
+        { nombre: 'ELOISA MONTOYA', puesto: 'Asesora de Proyectos', correo: 'eloisa.montoya@creatamuebles.com', erpLabel: 'ELOISA MONTOYA (PROYECTOS) | PROYECTOS ANIPA INTERIOR [ID: 24648]', descuento: '24%' },
+        { nombre: 'AGUASANTA MARIA MENDOZA BRITO', puesto: 'Asesora Interiorista', correo: 'aguasanta.mdz@creatamuebles.com', erpLabel: 'AGUASANTA MARIA MENDOZA BRITO PROYECTOS | PROYECTOS ANIPA INTERIOR [ID: 41807]', descuento: '24%' },
+        { nombre: 'ANGEL DAVID IZQUIERDO SANCHEZ', puesto: 'Arquitecto Interiorista', correo: 'angel.izquierdo@creatamuebles.com', erpLabel: 'ANGEL DAVID IZQUIERDO SANCHEZ | CEDIS [ID: 41862]', descuento: '24%' }
+      ]
+    },
+    {
+      tabName: 'CUENTAS ADMINISTRATIVAS',
+      headerSucursal: 'ADMINISTRACIÓN',
+      storeCell: 'TODAS LAS TIENDAS / CEDIS',
+      accounts: [
+        { nombre: 'SANTIAGO TORRES', puesto: 'Administrador General', correo: 'santiago.torres@grupoanipa.com', erpLabel: 'SANTIAGO TORRES | ADMINISTRACION [ID: 24599]', descuento: '100%' },
+        { nombre: 'IRVIN KEVIN REYNA VALDEZ', puesto: 'Administrador General', correo: 'kevin.reyna@grupoanipa.com', erpLabel: 'IRVIN KEVIN REYNA VALDEZ | CEDIS [ID: 38954]', descuento: '100%' }
+      ]
+    }
+  ];
+
+  let totalRowsWritten = 0;
+  const activeTabNames = {};
+
+  for (let p = 0; p < sheetsPlan.length; p++) {
+    const plan = sheetsPlan[p];
+    activeTabNames[plan.tabName.toUpperCase()] = true;
+    let sh = ss.getSheetByName(plan.tabName);
+    if (!sh) {
+      sh = ss.insertSheet(plan.tabName);
+    }
+    if (sh.getMaxColumns() < 9) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), 9 - sh.getMaxColumns());
+    }
+    const neededRows = plan.accounts.length + 5;
+    if (sh.getMaxRows() < neededRows) {
+      sh.insertRowsAfter(sh.getMaxRows(), neededRows - sh.getMaxRows());
+    }
+
+    sh.getRange(1, 1, sh.getMaxRows(), Math.min(sh.getMaxColumns(), 12)).clearContent();
+
+    const headerRowVals = [[
+      '',
+      plan.headerSucursal,
+      'Nombre',
+      'Puesto',
+      'Correo',
+      'Contraseña Temporal',
+      'Contraseña',
+      'Usuario / ID Asesor',
+      'Descuento'
+    ]];
+    sh.getRange(2, 1, 1, 9).setValues(headerRowVals);
+    sh.getRange(2, 2, 1, 8)
+      .setBackground('#252C32')
+      .setFontColor('#FFFFFF')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    sh.getRange(2, 8, 1, 2).setBackground('#A38251');
+
+    const dataRows = plan.accounts.map((acc) => {
+      const tempK = resolveTempKeyForEmail_(acc.correo);
+      return [
+        '',
+        plan.storeCell,
+        acc.nombre,
+        acc.puesto,
+        acc.correo.toLowerCase(),
+        tempK,
+        '',
+        acc.erpLabel,
+        acc.descuento
+      ];
+    });
+
+    if (dataRows.length > 0) {
+      sh.getRange(3, 6, dataRows.length, 2).setNumberFormat('@');
+      sh.getRange(3, 9, dataRows.length, 1).setNumberFormat('@');
+      sh.getRange(3, 1, dataRows.length, 9).setValues(dataRows);
+      sh.getRange(3, 6, dataRows.length, 2).setHorizontalAlignment('center');
+      sh.getRange(3, 9, dataRows.length, 1).setHorizontalAlignment('center').setFontWeight('bold');
+      totalRowsWritten += dataRows.length;
+    }
+
+    sh.setColumnWidth(1, 28);
+    sh.setColumnWidth(2, 185);
+    sh.setColumnWidth(3, 235);
+    sh.setColumnWidth(4, 195);
+    sh.setColumnWidth(5, 245);
+    sh.setColumnWidth(6, 155);
+    sh.setColumnWidth(7, 135);
+    sh.setColumnWidth(8, 340);
+    sh.setColumnWidth(9, 105);
+    sh.setFrozenRows(2);
+  }
+
+  // 3) Eliminar hojas en blanco o duplicadas sin ocupar (nunca tocar pestañas de catálogo, inventario ni fórmulas)
+  const protectedTabs = {
+    'CATALOGO_PRODUCTOS': true,
+    'PIEZAS_MODULOS': true,
+    'SALAS_MODULARES': true,
+    'MUEBLES_INDIVIDUALES': true,
+    'INVENTARIO_EN_VIVO': true,
+    'INF. PRODUC': true,
+    'PLANTILLA': true,
+    'COTIZACIONES_EN_VIVO': true,
+    'TOP_BUSCADOS': true,
+    '_CREATA_CONFIG': true
+  };
+  const removedEmptySheets = [];
+  const allSheets = ss.getSheets();
+  for (let s = 0; s < allSheets.length; s++) {
+    const shItem = allSheets[s];
+    const sName = shItem.getName();
+    const sUp = sName.trim().toUpperCase();
+    if (activeTabNames[sUp] || protectedTabs[sUp]) continue;
+    const isTrulyEmpty = shItem.getLastRow() === 0 && shItem.getLastColumn() === 0;
+    const isDuplicateColosio = (sUp === 'COLOSIO' && activeTabNames['COLOCIO'] && shItem.getLastRow() <= 2);
+    if ((isTrulyEmpty || isDuplicateColosio) && ss.getSheets().length > 1) {
+      removedEmptySheets.push(sName);
+      ss.deleteSheet(shItem);
+    }
+  }
+
+  SpreadsheetApp.flush();
+
+  if (!silentUi) {
+    try {
+      SpreadsheetApp.getUi().alert(
+        '¡Cuentas, Contraseñas Temporales y Descuentos listos!\n\n' +
+        '• 7 hojas ocupadas (0 hojas vacías): PLAYA, COLOCIO, OUTLET COLOSIO, PTC, CASA CREATA, PROYECTOS y CUENTAS ADMINISTRATIVAS.\n' +
+        '• Total de registros configurados: ' + totalRowsWritten + '\n' +
+        '• Administradores Generales (ver todo · 100%): Santiago Torres e Irvin Kevin Reyna Valdez.\n' +
+        '• Todos los usuarios quedaron con Contraseña Temporal activa (Columna F) y Contraseña personal vacía (Columna G).\n' +
+        '• Columna H: Usuario / ID Asesor S Mueblería · Columna I: Descuento (24% Asesores / 100% Gerentes y Administradores).'
+      );
+    } catch (e) {}
+  }
+
+  return {
+    ok: true,
+    sheetsConfigured: sheetsPlan.map((x) => x.tabName),
+    totalAccounts: totalRowsWritten,
+    removedEmptySheets: removedEmptySheets
+  };
 }
 
 function handleInvPlantillaStatus_() {

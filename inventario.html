@@ -78,6 +78,58 @@
             border-color: var(--brand-bronze);
             color: #FFFFFF;
         }
+        .cart-ctrl-wrap {
+            display: inline-flex;
+            align-items: center;
+            flex-shrink: 0;
+            z-index: 5;
+        }
+        .cart-qty-pill {
+            display: inline-flex;
+            align-items: center;
+            height: 34px;
+            border-radius: 9999px;
+            background: #FFFFFF;
+            border: 1.5px solid var(--brand-bronze);
+            box-shadow: 0 2px 8px rgba(37, 44, 50, 0.14);
+            overflow: hidden;
+        }
+        .cart-qty-step {
+            width: 28px;
+            height: 100%;
+            border: none;
+            background: transparent;
+            color: var(--brand-charcoal);
+            font-size: 15px;
+            font-weight: 800;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+            transition: background 0.14s ease, color 0.14s ease;
+        }
+        .cart-qty-step.minus:hover {
+            background: #FEE2E2;
+            color: #991B1B;
+        }
+        .cart-qty-step.plus {
+            background: var(--brand-bronze);
+            color: #FFFFFF;
+        }
+        .cart-qty-step.plus:hover {
+            opacity: 0.9;
+        }
+        .cart-qty-num {
+            min-width: 22px;
+            padding: 0 4px;
+            text-align: center;
+            font-size: 11.5px;
+            font-weight: 900;
+            color: var(--brand-charcoal);
+            user-select: none;
+        }
         .sem-red {
             background: #FEF2F2;
             border-color: #FECACA;
@@ -164,7 +216,7 @@
             border-color: #FFFFFF;
             color: #252C32;
         }
-        /* BOTÓN COTIZACIÓN COMPACTO (MISMA ALTURA QUE CATEGORÍAS Y BUSCADOR) */
+        /* BOTÓN COTIZACIÓN COMPACTO EN MÓVIL */
         .inv-quote-btn {
             flex: 0 0 auto;
             height: 24px;
@@ -201,7 +253,7 @@
             align-items: center;
             justify-content: center;
         }
-        /* BUSCADOR COMPACTO DEL COTIZADOR */
+        /* BUSCADOR COMPACTO EN MÓVIL */
         .inv-search-cell {
             display: flex;
             align-items: center;
@@ -293,7 +345,7 @@
         }
         #invScanBtn:hover { opacity: 0.92; }
         #invScanBtn svg { width: 12px; height: 12px; flex-shrink: 0; }
-        /* MÓVIL Y TABLET VERTICAL (< 920px): CABECERA COMPACTA SIN DESBORDAR */
+        /* MÓVIL Y TABLET VERTICAL (< 920px): CABECERA COMPACTA SIN CAMBIOS */
         @media (max-width: 919px) {
             .inv-header-inner { padding: 8px 12px !important; }
             .inv-top-line {
@@ -315,23 +367,23 @@
             .inv-cats-cell { grid-area: cats; }
             .inv-cat-pill { height: 25px; font-size: 8px; padding: 0 10px; }
         }
-        /* PC Y PANTALLAS >= 920px: BUSCADOR + ESCANEAR + CATEGORÍAS + COTIZACIÓN + LOGO EN UNA SOLA LÍNEA */
+        /* ÚNICAMENTE EN PC (>= 920px): BUSCADOR, CATEGORÍAS, COTIZACIÓN Y LOGO MÁS GRANDES EN UNA LÍNEA */
         @media (min-width: 920px) {
             .inv-header-inner {
-                max-width: 72rem !important;
-                padding: 9px 16px !important;
+                max-width: 80rem !important;
+                padding: 13px 20px !important;
             }
             .inv-top-line {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                gap: 12px;
+                gap: 16px;
                 flex-wrap: nowrap;
             }
             .inv-controls-line {
                 display: flex;
                 align-items: center;
-                gap: 7px;
+                gap: 10px;
                 flex: 1 1 auto;
                 min-width: 0;
                 flex-wrap: nowrap;
@@ -341,51 +393,87 @@
                 margin: 0;
             }
             .inv-logo-cell .logo-img {
-                height: 36px;
+                height: 50px;
                 margin: 0 0 0 auto;
             }
             .inv-search-cell {
-                flex: 0 0 auto;
+                flex: 1 1 250px;
+                min-width: 195px;
+                max-width: 340px;
                 width: auto;
-                gap: 5px;
+                gap: 7px;
             }
             .inv-search-box {
-                flex: 0 0 185px;
-                width: 185px;
-                max-width: 185px;
-                height: 24px;
-                padding: 2px 8px 2px 24px;
-                border-width: 1px;
+                flex: 1 1 auto;
+                width: 100%;
+                max-width: none;
+                height: 40px;
+                padding: 4px 12px 4px 36px;
+                border-width: 1.5px;
             }
             .inv-search-icon {
-                left: 8px;
-                width: 11px;
-                height: 11px;
+                left: 12px;
+                width: 16px;
+                height: 16px;
             }
             #invSearchInput {
-                font-size: 9px;
-                line-height: 1.2;
+                font-size: 13px;
+                line-height: 1.25;
             }
             #invClearBtn {
-                width: 15px;
-                height: 15px;
-                line-height: 15px;
-                font-size: 8.5px;
-                margin-left: 3px;
+                width: 20px;
+                height: 20px;
+                line-height: 20px;
+                font-size: 10.5px;
+                margin-left: 5px;
             }
             #invScanBtn {
-                height: 24px;
-                padding: 0 8px;
-                font-size: 7.5px;
-                font-weight: 700;
-                gap: 3.5px;
+                height: 40px;
+                padding: 0 13px;
+                font-size: 10px;
+                font-weight: 800;
+                gap: 5px;
             }
-            #invScanBtn svg { width: 11px; height: 11px; }
+            #invScanBtn svg { width: 14px; height: 14px; }
             #invCategoryBar {
                 flex: 0 1 auto;
                 min-width: 0;
+                gap: 6px;
                 flex-wrap: nowrap;
             }
+            .inv-cat-pill {
+                height: 36px;
+                font-size: 10.5px;
+                padding: 0 13px;
+                letter-spacing: 0.5px;
+            }
+            .inv-subcats-cell { padding-top: 9px; gap: 6px; }
+            .inv-sub-pill {
+                height: 30px;
+                font-size: 9.5px;
+                padding: 0 12px;
+            }
+            .inv-quote-btn {
+                height: 40px;
+                padding: 0 16px;
+                font-size: 11px;
+                gap: 7px;
+            }
+            .inv-quote-badge {
+                min-width: 22px;
+                height: 22px;
+                padding: 0 6px;
+                font-size: 11px;
+            }
+        }
+        @media (min-width: 1280px) {
+            .inv-logo-cell .logo-img { height: 56px; }
+            .inv-search-cell { max-width: 370px; }
+            .inv-search-box { height: 42px; }
+            #invSearchInput { font-size: 13.5px; }
+            #invScanBtn { height: 42px; padding: 0 15px; font-size: 10.5px; }
+            .inv-cat-pill { height: 38px; font-size: 11px; padding: 0 14px; }
+            .inv-quote-btn { height: 42px; padding: 0 18px; font-size: 11.5px; }
         }
         /* MINIATURA DEL PRODUCTO EN EL LISTADO */
         .inv-thumb {
@@ -406,7 +494,7 @@
         #scanReader video { width: 100% !important; border-radius: 12px; }
         /* LISTADO EN PC: FICHAS DE PRODUCTO, 5 POR FILA, MISMO ANCHO QUE EL ENCABEZADO */
         @media (min-width: 1024px) {
-            .inv-main { max-width: 72rem !important; padding-top: 18px; }
+            .inv-main { max-width: 80rem !important; padding-top: 18px; }
             #invListContainer {
                 display: grid;
                 grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -440,10 +528,11 @@
             }
             #invListContainer .inv-row > .min-w-0 > div + div { font-size: 11px; }
             #invListContainer .inv-row > .cart-plus-btn,
+            #invListContainer .inv-row > .cart-ctrl-wrap,
             #invListContainer .inv-row > svg {
                 position: absolute;
-                top: 16px;
-                right: 16px;
+                top: 14px;
+                right: 14px;
             }
             #invListContainer .inv-row > .cart-plus-btn { box-shadow: 0 2px 8px rgba(37, 44, 50, 0.15); }
             #invListContainer .inv-row > svg { width: 20px; height: 20px; }
@@ -503,7 +592,7 @@
 
     <main class="inv-main max-w-3xl mx-auto px-4 py-4">
         <div id="invTopHeading" class="mb-3 flex items-center justify-between" style="display:none;">
-            <h2 class="text-xs font-extrabold tracking-widest uppercase" style="color:#252C32;">Top 20 más buscados</h2>
+            <h2 class="text-xs font-extrabold tracking-widest uppercase" style="color:#252C32;">Top 40 más buscados</h2>
         </div>
         <div id="invListContainer" class="space-y-2"></div>
         <div id="invLoadMoreWrap" class="text-center py-5 hidden">
@@ -526,11 +615,23 @@
                     <div id="detSku" class="text-[11px] font-extrabold tracking-widest uppercase" style="color:#A38251;"></div>
                     <h2 id="detName" class="text-base sm:text-lg font-extrabold uppercase leading-snug" style="color:#252C32;"></h2>
                 </div>
-                <div class="flex items-center gap-2 shrink-0">
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <button type="button" id="detSubCartBtn" onclick="subtractCurrentDetailFromCart()"
+                            title="Restar 1 unidad de la cotización"
+                            class="hidden w-8 h-8 rounded-full text-sm font-black border flex items-center justify-center transition"
+                            style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                        −
+                    </button>
                     <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
                             class="px-3.5 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition"
                             style="background:#A38251; color:#FFFFFF;">
                         + Cotización
+                    </button>
+                    <button type="button" id="detRemoveAllCartBtn" onclick="removeCurrentDetailFromCart()"
+                            title="Quitar producto de la cotización"
+                            class="hidden px-2.5 py-2 rounded-full text-[11px] font-extrabold uppercase tracking-wider border transition"
+                            style="border-color:#FECACA; background:#FEF2F2; color:#991B1B;">
+                        Quitar
                     </button>
                     <button type="button" onclick="closeProductDetail()"
                             class="w-9 h-9 rounded-full flex items-center justify-center text-lg font-light border"
@@ -600,25 +701,25 @@
             </div>
 
             <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-                <!-- SECCIÓN 1: CUENTA EXCLUSIVA BLOQUEADA AL CORREO Y ORDEN POR SUCURSAL / PROYECTO -->
+                <!-- SECCIÓN 1: CUENTA Y FOLIO OFICIAL DE S MUEBLERÍA SEGÚN TIENDA / BODEGA -->
                 <div class="rounded-xl border p-3.5 space-y-3" style="border-color:#E1DBC5; background:#FAF9F6;">
                     <div class="flex flex-wrap items-center justify-between gap-2">
-                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">
-                            1. Cuenta Exclusiva y Orden de Cotización (Bloqueada a tu Correo)
+                        <span id="quoteSection1Title" class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">
+                            1. Cuenta y Folio S Mueblería (Según Tienda / Bodega)
                         </span>
                         <div class="flex flex-wrap items-center gap-1.5">
                             <span id="quoteOriginTypeBadge" class="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full"
                                   style="background:#A38251; color:#FFFFFF;">SUCURSAL</span>
                             <span id="quoteNextOrderBadge" class="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border"
-                                  style="border-color:#A38251; background:#FFFFFF; color:#252C32;">Orden: ---</span>
+                                  style="border-color:#A38251; background:#FFFFFF; color:#252C32;">Folio S Mueblería: ---</span>
                             <span id="quoteErpUserIdBadge" class="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full"
                                   style="background:#252C32; color:#FFFFFF;"></span>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div id="quoteLockedInfoGrid" class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                         <div class="rounded-lg border px-3 py-2" style="border-color:#E1DBC5; background:#FFFFFF;">
-                            <div id="quoteLockedStoreLabel" class="text-[10px] font-extrabold uppercase opacity-70" style="color:#252C32;">Sucursal Asignada</div>
+                            <div id="quoteLockedStoreLabel" class="text-[10px] font-extrabold uppercase opacity-70" style="color:#252C32;">Tienda / Bodega S Mueblería</div>
                             <div id="quoteLockedStoreText" class="text-xs font-extrabold uppercase mt-0.5 truncate" style="color:#252C32;">—</div>
                         </div>
                         <div class="sm:col-span-2 rounded-lg border px-3 py-2" style="border-color:#E1DBC5; background:#FFFFFF;">
@@ -627,8 +728,29 @@
                         </div>
                     </div>
 
+                    <!-- CONTROLES EXCLUSIVOS DE ADMINISTRADOR (VER Y OPERAR TODAS LAS TIENDAS Y BODEGAS) -->
+                    <div id="quoteAdminSelectorsWrap" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                        <div>
+                            <label for="quoteAdminStoreSelect" class="block text-[10px] font-extrabold uppercase mb-1" style="color:#252C32;">Tienda / Bodega (Modo Administrador)</label>
+                            <select id="quoteAdminStoreSelect" onchange="onAdminStoreChange()"
+                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-extrabold outline-none"
+                                    style="border-color:#A38251; background:#FFFFFF; color:#252C32;"></select>
+                        </div>
+                        <div>
+                            <label for="quoteAdminAdvisorSelect" class="block text-[10px] font-extrabold uppercase mb-1" style="color:#252C32;">Usuario / Asesor en S Mueblería</label>
+                            <select id="quoteAdminAdvisorSelect" onchange="onAdminAdvisorChange()"
+                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-extrabold outline-none"
+                                    style="border-color:#A38251; background:#FFFFFF; color:#252C32;"></select>
+                        </div>
+                    </div>
+
                     <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold pt-0.5" style="color:#252C32;">
                         <span id="quoteLockedEmailText" class="truncate opacity-85"></span>
+                        <button type="button" id="quoteSwitchLocationBtn" onclick="openSwitchBranchSelector()"
+                                class="hidden px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border"
+                                style="border-color:#A38251; color:#A38251; background:#FFFFFF;">
+                            Cambiar ubicación
+                        </button>
                     </div>
                 </div>
 
@@ -639,7 +761,7 @@
                         <div>
                             <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Modalidad de Cliente</label>
                             <select id="quoteClientModeSelect" onchange="saveQuoteDraftMeta()"
-                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                     class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
                                     style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
                                 <option value="PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)">Prospecto provisional (solo nombre)</option>
                                 <option value="PUBLICO EN GENERAL [ID CLIENTE: 3558954]">Público en General [ID: 3558954]</option>
@@ -723,13 +845,20 @@
                 <!-- ESTADO EN VIVO DE ENVÍO A S MUEBLERÍA -->
                 <div id="quoteSystemStatusBox" class="hidden rounded-xl border p-3.5 text-xs space-y-1.5"></div>
 
-                <!-- MIS COTIZACIONES RECIENTES EN VIVO (EXCLUSIVAS DE ESTE CORREO) -->
+                <!-- COTIZACIONES EN VIVO (PROPIAS O TODAS LAS TIENDAS EN MODO ADMINISTRADOR) -->
                 <div id="quoteMyRecentWrap" class="hidden rounded-xl border p-3.5 space-y-2" style="border-color:#E8E4DE; background:#FAF9F6;">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">Mis Cotizaciones Enviadas a S Mueblería</span>
-                        <span class="text-[10px] font-bold uppercase" style="color:#A38251;">En Vivo</span>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span id="quoteRecentHeading" class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">Mis Cotizaciones Enviadas a S Mueblería</span>
+                        <div class="flex items-center gap-2">
+                            <select id="quoteRecentStoreFilter" onchange="onRecentQuotesStoreFilterChange()"
+                                    class="hidden rounded-lg border px-2 py-1 text-[11px] font-bold outline-none"
+                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                                <option value="ALL">Todas las tiendas y bodegas</option>
+                            </select>
+                            <span class="text-[10px] font-bold uppercase" style="color:#A38251;">En Vivo</span>
+                        </div>
                     </div>
-                    <div id="quoteMyRecentList" class="space-y-1.5"></div>
+                    <div id="quoteMyRecentList" class="space-y-1.5 max-h-64 overflow-y-auto"></div>
                 </div>
             </div>
 
@@ -879,6 +1008,6 @@
     <script src="inventario-data-1.js?v=32"></script>
     <script src="inventario-data-2.js?v=32"></script>
     <script src="inventario-data-3.js?v=32"></script>
-    <script src="inventario-app.js?v=34"></script>
+    <script src="inventario-app.js?v=35"></script>
 </body>
 </html>

@@ -35,7 +35,7 @@
     ];
 
     const PAGE_SIZE = 80;
-    const TOP_SEARCH_LIMIT = 20;
+    const TOP_SEARCH_LIMIT = 40;
     const TOP_SEARCH_SHEET_NAME = 'TOP_BUSCADOS';
     const TOP_CLOUD_CACHE_KEY = 'creata_inv_top_cloud_v1';
     const TOP_PENDING_QUEUE_KEY = 'creata_inv_top_pending_v1';
@@ -700,7 +700,7 @@
             out.push(g);
         }
 
-        // Nivel 4: respaldo general del catálogo hasta completar los 20 lugares
+        // Nivel 4: respaldo general del catálogo hasta completar los 40 lugares
         for (let i = 0; i < allGroups.length && out.length < cap; i++) {
             const g = allGroups[i];
             if (seen.has(g.key)) continue;
@@ -1077,6 +1077,48 @@
         applyFilter(inp ? inp.value : '');
     };
 
+    function buildCardCartControlHtml(skuKey) {
+        const key = String(skuKey || '').trim().toUpperCase();
+        const inCartQty = cart[key] ? (Number(cart[key].qty) || 0) : 0;
+        if (inCartQty > 0) {
+            return '<div class="cart-ctrl-wrap" data-sku-ctrl="' + escapeHtml(key) + '">' +
+                '<div class="cart-qty-pill">' +
+                    '<button type="button" class="cart-qty-step minus" data-cart-act="sub" title="Quitar 1 de Cotización">−</button>' +
+                    '<span class="cart-qty-num">' + inCartQty + '</span>' +
+                    '<button type="button" class="cart-qty-step plus" data-cart-act="add" title="Agregar 1 más a Cotización">+</button>' +
+                '</div>' +
+            '</div>';
+        }
+        return '<div class="cart-ctrl-wrap" data-sku-ctrl="' + escapeHtml(key) + '">' +
+            '<button type="button" title="Agregar a Cotización" data-cart-act="add" class="cart-plus-btn">+</button>' +
+        '</div>';
+    }
+
+    function bindCardCartControlEvents(ctrlWrapEl, skuRaw, grp, deferOnCover) {
+        if (!ctrlWrapEl) return;
+        ctrlWrapEl.onclick = function (ev) {
+            ev.stopPropagation();
+            const actBtn = ev.target && ev.target.closest ? ev.target.closest('[data-cart-act]') : null;
+            if (!actBtn) return;
+            const act = actBtn.getAttribute('data-cart-act');
+            const defer = !!(deferOnCover && isMainCoverActive);
+            if (defer) {
+                deferCoverRefreshUntilMs = Date.now() + 1800;
+            }
+            if (act === 'sub') {
+                addToCart(skuRaw, -1);
+            } else {
+                addToCart(skuRaw, 1);
+                if (grp) {
+                    recordGroupSearch(grp, skuRaw, defer);
+                }
+            }
+            if (defer) {
+                refreshMainCoverIfChanged();
+            }
+        };
+    }
+
     window.renderMoreItems = function (batchSize) {
         const container = document.getElementById('invListContainer');
         const moreWrap = document.getElementById('invLoadMoreWrap');
@@ -1091,7 +1133,7 @@
                 container.innerHTML =
                     '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold leading-relaxed" ' +
                     'style="grid-column: 1 / -1; border-color:#E8E4DE; color:#252C32; background:#FFFFFF;">' +
-                    'Aún no hay búsquedas registradas. Los artículos que consulten los usuarios aparecerán aquí en el Top 20 más buscados.' +
+                    'Aún no hay búsquedas registradas. Los artículos que consulten los usuarios aparecerán aquí en el Top 40 más buscados.' +
                     '</div>';
             } else {
                 container.innerHTML = '';
@@ -1127,7 +1169,6 @@
             } else {
                 const it = grp.items[0];
                 const skuKey = String(it.s || '').toUpperCase();
-                const inCartQty = cart[skuKey] ? cart[skuKey].qty : 0;
                 row.onclick = function () {
                     const defer = isMainCoverActive;
                     openProductDetail(it.s, false);
@@ -1139,23 +1180,10 @@
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.title || it.n || it.s) + '</div>' +
                         '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
-                    '<button type="button" title="Agregar a Cotización" data-sku-btn="' + escapeHtml(skuKey) + '" class="cart-plus-btn ' + (inCartQty > 0 ? 'in-cart' : '') + '">' +
-                        (inCartQty > 0 ? ('+' + inCartQty) : '+') +
-                    '</button>';
+                    buildCardCartControlHtml(skuKey);
 
-                const btn = row.querySelector('button');
-                btn.onclick = function (ev) {
-                    ev.stopPropagation();
-                    const defer = isMainCoverActive;
-                    if (defer) {
-                        deferCoverRefreshUntilMs = Date.now() + 1800;
-                    }
-                    addToCart(it.s, 1);
-                    recordGroupSearch(grp, it.s, defer);
-                    if (defer) {
-                        refreshMainCoverIfChanged();
-                    }
-                };
+                const ctrlWrap = row.querySelector('[data-sku-ctrl]');
+                bindCardCartControlEvents(ctrlWrap, it.s, grp, true);
             }
 
             frag.appendChild(row);
@@ -1345,6 +1373,8 @@
         const priceWrapEl = document.getElementById('detPriceWrap');
         const priceEl = document.getElementById('detPrice');
         const addBtn = document.getElementById('detAddCartBtn');
+        const subBtn = document.getElementById('detSubCartBtn');
+        const remAllBtn = document.getElementById('detRemoveAllCartBtn');
         const varStep = document.getElementById('detVariantsStep');
         const singleStep = document.getElementById('detSingleStep');
         const varList = document.getElementById('detVariantsList');
@@ -1363,6 +1393,8 @@
         if (priceEl) priceEl.textContent = '';
         if (priceWrapEl) priceWrapEl.classList.add('hidden');
         if (addBtn) addBtn.classList.add('hidden');
+        if (subBtn) subBtn.classList.add('hidden');
+        if (remAllBtn) remAllBtn.classList.add('hidden');
 
         function normWordForVariant(w) {
             return String(w || '')
@@ -1413,7 +1445,6 @@
 
             varList.innerHTML = grp.items.map((it, idx) => {
                 const skuKey = String(it.s || '').toUpperCase();
-                const inCartQty = cart[skuKey] ? cart[skuKey].qty : 0;
                 let varLabel = baseLabels[idx];
                 const medUpper = cleanStr(it.m).toUpperCase();
                 if (medUpper && labelCounts.get(varLabel) > 1 && varLabel.indexOf(medUpper) === -1) {
@@ -1427,9 +1458,7 @@
                         '</div>' +
                         '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
-                    '<button type="button" title="Agregar a Cotización" data-sku-btn="' + escapeHtml(skuKey) + '" class="cart-plus-btn ' + (inCartQty > 0 ? 'in-cart' : '') + '">' +
-                        (inCartQty > 0 ? ('+' + inCartQty) : '+') +
-                    '</button>' +
+                    buildCardCartControlHtml(skuKey) +
                 '</div>';
             }).join('');
 
@@ -1438,13 +1467,8 @@
                 rowEl.onclick = function () {
                     openProductDetail(sku, true);
                 };
-                const btn = rowEl.querySelector('button');
-                if (btn) {
-                    btn.onclick = function (ev) {
-                        ev.stopPropagation();
-                        addToCart(sku, 1);
-                    };
-                }
+                const ctrlWrap = rowEl.querySelector('[data-sku-ctrl]');
+                bindCardCartControlEvents(ctrlWrap, sku, grp, false);
             });
         }
 
@@ -1515,6 +1539,8 @@
         const priceWrapEl = document.getElementById('detPriceWrap');
         const priceEl = document.getElementById('detPrice');
         const addBtn = document.getElementById('detAddCartBtn');
+        const subBtn = document.getElementById('detSubCartBtn');
+        const remAllBtn = document.getElementById('detRemoveAllCartBtn');
 
         if (crumbEl) {
             if (showGroupBack && currentGroup && currentGroup.items.length > 1) {
@@ -1547,11 +1573,17 @@
             }
         }
 
+        const key = String(it.s || '').toUpperCase();
+        const q = cart[key] ? (Number(cart[key].qty) || 0) : 0;
         if (addBtn) {
             addBtn.classList.remove('hidden');
-            const key = String(it.s || '').toUpperCase();
-            const q = cart[key] ? cart[key].qty : 0;
             addBtn.textContent = q > 0 ? ('+ Cotización (' + q + ')') : '+ Cotización';
+        }
+        if (subBtn) {
+            subBtn.classList.toggle('hidden', q <= 0);
+        }
+        if (remAllBtn) {
+            remAllBtn.classList.toggle('hidden', q <= 0);
         }
 
         // Cuadro de 1 sola foto
@@ -1693,6 +1725,16 @@
             serieLabel: 'SERIE DTC · COLOSIO'
         },
         {
+            tab: 'OUTLET COLOSIO',
+            branchKey: 'OUTLET COLOSIO',
+            label: 'Outlet Colosio',
+            erpStore: 'OUTLET COLOSIO',
+            orderPrefix: 'OUT',
+            quoteType: 'SUCURSAL',
+            isProyecto: false,
+            serieLabel: 'SERIE OUT · OUTLET COLOSIO'
+        },
+        {
             tab: 'PTC',
             branchKey: 'PTC',
             label: 'Puerto Cancún (PTC)',
@@ -1725,12 +1767,13 @@
         {
             tab: 'CUENTAS ADMINISTRATIVAS',
             branchKey: 'ADMIN',
-            label: 'Administración / Todas',
+            label: 'Administración General',
             erpStore: 'CEDIS',
-            orderPrefix: 'ADM',
+            orderPrefix: 'CED',
             quoteType: 'ADMINISTRATIVO',
             isProyecto: false,
-            serieLabel: 'SERIE ADM · ADMINISTRACIÓN'
+            isAdmin: true,
+            serieLabel: 'ADMINISTRADOR · TODAS LAS TIENDAS'
         }
     ];
 
@@ -1741,8 +1784,119 @@
         'CREATA LIVING PLAYA',
         'OUTLET COLOSIO',
         'PROYECTOS ANIPA INTERIOR',
-        'CEDIS'
+        'CEDIS',
+        'ADMINISTRACION'
     ];
+
+    const ADMIN_MASTER_EMAILS = {
+        'santiago.torres@grupoanipa.com': true,
+        'kevin.reyna@grupoanipa.com': true
+    };
+
+    // Series oficiales de folios en S Mueblería según tienda o bodega (sin guion artificial)
+    const ERP_STORE_FOLIO_SERIES = {
+        'CREATA LIVING PLAYA': 'PL',
+        'CREATA LIVING COLOSIO': 'DTC',
+        'OUTLET COLOSIO': 'OUT',
+        'CREATA PUERTO CANCUN': 'PTC',
+        'CASA CREATA BONAMPAK': 'CCB',
+        'PROYECTOS ANIPA INTERIOR': 'PRO',
+        'CEDIS': 'CED',
+        'ADMINISTRACION': 'ADM'
+    };
+
+    const liveMaxFolioNumByPrefix = {};
+    const liveNextFolioByStore = {};
+
+    function getStoreFolioPrefix(erpStore, fallbackPrefix) {
+        const up = String(erpStore || '').trim().toUpperCase();
+        if (ERP_STORE_FOLIO_SERIES[up]) return ERP_STORE_FOLIO_SERIES[up];
+        const cfg = findBranchConfig('', up);
+        if (cfg && cfg.orderPrefix) return cfg.orderPrefix;
+        const fb = String(fallbackPrefix || '').trim().toUpperCase().replace(/[^A-Z]/g, '');
+        return fb || 'PTC';
+    }
+
+    function registerObservedFolio(rawFolio, erpStoreHint) {
+        const s = cleanStr(rawFolio).toUpperCase();
+        if (!s) return false;
+        // Ignorar consecutivos viejos artificiales con guion como PL-0001
+        if (/^[A-Z]+-\d+$/.test(s)) return false;
+        const m = s.match(/^([A-Z]{2,5})\s*(\d{2,8})$/);
+        if (!m) return false;
+        const pfx = m[1];
+        const num = parseInt(m[2], 10);
+        if (!num || num <= 0) return false;
+        let updated = false;
+        if (!liveMaxFolioNumByPrefix[pfx] || num > liveMaxFolioNumByPrefix[pfx]) {
+            liveMaxFolioNumByPrefix[pfx] = num;
+            updated = true;
+        }
+        const storeUp = String(erpStoreHint || '').trim().toUpperCase();
+        if (storeUp && (!liveNextFolioByStore[storeUp] || num >= (parseInt((liveNextFolioByStore[storeUp].match(/\d+$/) || ['0'])[0], 10) || 0))) {
+            liveNextFolioByStore[storeUp] = pfx + String(num + 1);
+            updated = true;
+        }
+        return updated;
+    }
+
+    function applyServerFolioMap(mapObj) {
+        if (!mapObj || typeof mapObj !== 'object') return;
+        Object.keys(mapObj).forEach(stKey => {
+            const val = cleanStr(mapObj[stKey]).toUpperCase();
+            const up = String(stKey || '').trim().toUpperCase();
+            if (!up || !val || /^[A-Z]+-\d+$/.test(val)) return;
+            liveNextFolioByStore[up] = val;
+            const m = val.match(/^([A-Z]{2,5})(\d{2,8})$/);
+            if (m) {
+                const pfx = m[1];
+                const prevNum = Math.max(0, (parseInt(m[2], 10) || 1) - 1);
+                if (prevNum > (liveMaxFolioNumByPrefix[pfx] || 0)) {
+                    liveMaxFolioNumByPrefix[pfx] = prevNum;
+                }
+            }
+        });
+    }
+
+    function getEstimatedStoreFolio(erpStore, fallbackPrefix) {
+        const storeUp = String(erpStore || '').trim().toUpperCase();
+        if (storeUp && liveNextFolioByStore[storeUp]) {
+            return liveNextFolioByStore[storeUp];
+        }
+        const pfx = getStoreFolioPrefix(storeUp, fallbackPrefix);
+        if (liveMaxFolioNumByPrefix[pfx] && liveMaxFolioNumByPrefix[pfx] > 0) {
+            return pfx + String(liveMaxFolioNumByPrefix[pfx] + 1);
+        }
+        return 'Serie ' + pfx + ' (En vivo)';
+    }
+
+    function isEmailOrRoleAdmin(u) {
+        if (!u || typeof u !== 'object') return false;
+        if (u.isAdmin) return true;
+        const email = String(u.correo || '').trim().toLowerCase();
+        if (ADMIN_MASTER_EMAILS[email]) return true;
+        const bKey = String(u.branchKey || u.sheetTab || '').trim().toUpperCase();
+        if (bKey === 'ADMIN' || bKey === 'CUENTAS ADMINISTRATIVAS') return true;
+        const pNorm = String(u.puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        return /ADMINISTRADOR/.test(pNorm);
+    }
+
+    function parseDiscountPctCell(rawVal) {
+        if (rawVal === null || rawVal === undefined) return null;
+        const s = String(rawVal).trim();
+        if (!s) return null;
+        // Evitar confundir nombres o etiquetas de asesor con descuento
+        if (/[A-Za-z]{3,}/.test(s)) return null;
+        const hasPctSign = s.indexOf('%') !== -1;
+        const cleaned = s.replace(/[^0-9.,-]/g, '').replace(',', '.');
+        if (!cleaned) return null;
+        const n = Number(cleaned);
+        if (isNaN(n) || !isFinite(n) || n < 0) return null;
+        if (!hasPctSign && n > 0 && n <= 1) {
+            return Math.min(100, Math.round(n * 10000) / 100);
+        }
+        return Math.min(100, Math.round(n * 100) / 100);
+    }
 
     function findBranchConfig(tabOrKey, erpStoreHint) {
         const up = String(tabOrKey || '').trim().toUpperCase();
@@ -1763,13 +1917,22 @@
     function enrichAdvisorLocation(u) {
         if (!u || typeof u !== 'object') return u;
         const cfg = findBranchConfig(u.sheetTab || u.branchKey, u.erpStore);
-        const isProy = cfg ? !!cfg.isProyecto : (!!u.isProyecto || String(u.branchKey || u.sheetTab || '').toUpperCase() === 'PROYECTOS');
+        const adminFlag = isEmailOrRoleAdmin(u) || !!(cfg && cfg.isAdmin);
+        const resolvedStore = cleanStr(u.erpAdvisorBranch && adminFlag ? u.erpAdvisorBranch : '') ||
+            cleanStr(u.erpStore) ||
+            (cfg ? cfg.erpStore : '') ||
+            'CREATA PUERTO CANCUN';
+        const isProy = !adminFlag && (cfg ? !!cfg.isProyecto : (!!u.isProyecto || String(u.branchKey || u.sheetTab || '').toUpperCase() === 'PROYECTOS'));
+        const prefix = getStoreFolioPrefix(resolvedStore, u.orderPrefix || (cfg ? cfg.orderPrefix : (isProy ? 'PRO' : 'PTC')));
+        const parsedDisc = parseDiscountPctCell(u.maxDiscountPct);
         return Object.assign({}, u, {
-            branchKey: u.branchKey || (cfg ? cfg.branchKey : ''),
+            isAdmin: adminFlag,
+            maxDiscountPct: parsedDisc !== null ? parsedDisc : (u.maxDiscountPct !== undefined ? u.maxDiscountPct : null),
+            branchKey: adminFlag ? 'ADMIN' : (u.branchKey || (cfg ? cfg.branchKey : '')),
             branchLabel: u.branchLabel || (cfg ? cfg.label : (u.sheetTab || '')),
-            erpStore: (cfg ? cfg.erpStore : u.erpStore) || 'CREATA PUERTO CANCUN',
-            orderPrefix: u.orderPrefix || (cfg ? cfg.orderPrefix : (isProy ? 'PRO' : 'COT')),
-            quoteType: u.quoteType || (cfg ? cfg.quoteType : (isProy ? 'PROYECTO' : 'SUCURSAL')),
+            erpStore: resolvedStore,
+            orderPrefix: prefix,
+            quoteType: adminFlag ? 'ADMINISTRATIVO' : (u.quoteType || (cfg ? cfg.quoteType : (isProy ? 'PROYECTO' : 'SUCURSAL'))),
             isProyecto: isProy,
             serieLabel: u.serieLabel || (cfg ? cfg.serieLabel : '')
         });
@@ -1783,6 +1946,7 @@
     let quoteSubmitInFlight = false;
     let currentNextOrderCode = '';
     let myRecentQuotesList = [];
+    let recentQuotesStoreFilter = 'ALL';
     let lastSubmittedQuoteMeta = null;
     let pendingQuoteRetrySendToErp = null;
 
@@ -1843,6 +2007,7 @@
         const fallback = {
             erpStore: '',
             erpAdvisorLabel: '',
+            erpAdvisorId: '',
             clientMode: 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)',
             categoryLabel: 'COTIZACIONES [ID: 2]',
             clientName: '',
@@ -1870,11 +2035,30 @@
         const dateEl = document.getElementById('quoteDeliveryDateInput');
         const notesEl = document.getElementById('quoteNotesInput');
         const extraEl = document.getElementById('quoteExtraDiscountInput');
+        const adminStoreEl = document.getElementById('quoteAdminStoreSelect');
+        const adminAdvEl = document.getElementById('quoteAdminAdvisorSelect');
 
-        // Sucursal/Proyecto y Usuario ERP siempre quedan bloqueados exclusivamente al correo en sesión
         if (activeAdvisorSession) {
-            quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || '';
-            quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
+            if (activeAdvisorSession.isAdmin) {
+                if (adminStoreEl && adminStoreEl.value) {
+                    quoteDraftMeta.erpStore = adminStoreEl.value;
+                } else if (!quoteDraftMeta.erpStore) {
+                    quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || 'CEDIS';
+                }
+                if (adminAdvEl && adminAdvEl.value) {
+                    const selOpt = adminAdvEl.options[adminAdvEl.selectedIndex];
+                    quoteDraftMeta.erpAdvisorId = adminAdvEl.value;
+                    quoteDraftMeta.erpAdvisorLabel = selOpt ? (selOpt.getAttribute('data-label') || selOpt.textContent || '') : '';
+                } else if (!quoteDraftMeta.erpAdvisorId) {
+                    quoteDraftMeta.erpAdvisorId = activeAdvisorSession.erpAdvisorId || '';
+                    quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
+                }
+            } else {
+                // Para asesores y gerentes de tienda queda bloqueado exclusivamente a su correo en sesión
+                quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || '';
+                quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
+                quoteDraftMeta.erpAdvisorId = activeAdvisorSession.erpAdvisorId || '';
+            }
         }
         if (modeEl) quoteDraftMeta.clientMode = modeEl.value;
         if (catEl) quoteDraftMeta.categoryLabel = catEl.value;
@@ -1949,7 +2133,7 @@
     }
 
     function extractErpIdFromLabel(label) {
-        const m = String(label || '').match(/\[ID:\s*(\d+)\]/i);
+        const m = String(label || '').match(/\[ID:\s*(\d+)\]/i) || String(label || '').match(/\bID[:\s#]*(\d{3,7})\b/i);
         return m ? m[1] : '';
     }
 
@@ -2023,7 +2207,7 @@
     async function loadErpCatalogLiveFromSheet() {
         const rows = await fetchSheetCsvRows('plantilla', 'range=AA2:AD200');
         if (!rows || !rows.length) return;
-        const stores = [];
+        const stores = DEFAULT_ERP_STORES.slice();
         const advisors = [];
         for (let i = 0; i < rows.length; i++) {
             const r = rows[i] || [];
@@ -2031,6 +2215,7 @@
             if (st && stores.indexOf(st) === -1) stores.push(st);
             const label = cleanStr(r[1]);
             const branch = cleanStr(r[2]);
+            if (branch && stores.indexOf(branch) === -1) stores.push(branch);
             const idVal = cleanKeyCellValue(r[3]) || extractErpIdFromLabel(label);
             if (label && label.toUpperCase() !== 'ASESOR_ERP_ETIQUETA') {
                 advisors.push({
@@ -2050,9 +2235,18 @@
         const localKeyUpdates = loadUpdatedKeysMap();
         const results = await Promise.all(USER_BRANCH_TABS.map(async (cfg) => {
             const rows = await fetchSheetCsvRows(cfg.tab);
-            if (!rows || rows.length < 3) return [];
+            if (!rows || rows.length < 2) return [];
+            let headerIdx = -1;
+            for (let h = 0; h < Math.min(rows.length, 4); h++) {
+                const hdrRow = rows[h] || [];
+                if (/^CORREO/i.test(cleanStr(hdrRow[4])) || /^NOMBRE/i.test(cleanStr(hdrRow[2]))) {
+                    headerIdx = h;
+                    break;
+                }
+            }
+            if (headerIdx === -1) return [];
             const tabUsers = [];
-            for (let i = 2; i < rows.length; i++) {
+            for (let i = headerIdx + 1; i < rows.length; i++) {
                 const r = rows[i] || [];
                 const nombre = cleanStr(r[2]);
                 const puesto = cleanStr(r[3]);
@@ -2060,6 +2254,8 @@
                 if (!correo || correo.indexOf('@') === -1) continue;
                 let tempKey = cleanKeyCellValue(r[5]);
                 let defKey = cleanKeyCellValue(r[6]);
+                const colH = cleanStr(r[7]);
+                const colI = cleanStr(r[8]);
 
                 // Si la hoja ya tiene clave definitiva en Col G, limpiar caché pendiente local
                 const localUpd = localKeyUpdates[correo];
@@ -2071,16 +2267,44 @@
                     tempKey = '';
                 }
 
-                const matchedErp = matchBestErpAdvisorClient(nombre, cfg.erpStore, erpAdvisorsCatalog);
+                // Columna H: Nombre y ID del asesor en S Mueblería; Columna I (al costado): Descuento (%)
+                let explicitAdvisorLabel = '';
+                let explicitAdvisorId = '';
+                let explicitDiscountPct = parseDiscountPctCell(colI);
+                if (explicitDiscountPct === null && parseDiscountPctCell(colH) !== null && !extractErpIdFromLabel(colH)) {
+                    explicitDiscountPct = parseDiscountPctCell(colH);
+                } else if (colH) {
+                    explicitAdvisorId = extractErpIdFromLabel(colH) || (/^\d{3,7}$/.test(colH) ? colH : '');
+                    if (colH.indexOf('|') !== -1 || explicitAdvisorId) {
+                        explicitAdvisorLabel = colH;
+                    }
+                }
+
+                let matchedErp = null;
+                if (explicitAdvisorId && erpAdvisorsCatalog.length > 0) {
+                    matchedErp = erpAdvisorsCatalog.find(a => String(a.id) === String(explicitAdvisorId)) || null;
+                }
+                if (!matchedErp) {
+                    matchedErp = matchBestErpAdvisorClient(nombre, cfg.erpStore, erpAdvisorsCatalog);
+                }
+
+                const resolvedErpLabel = (matchedErp && matchedErp.label) || explicitAdvisorLabel || '';
+                const resolvedErpId = (matchedErp && matchedErp.id) || explicitAdvisorId || '';
+                const resolvedErpBranch = (matchedErp && matchedErp.branch) || '';
+                const isAdminUser = !!cfg.isAdmin || ADMIN_MASTER_EMAILS[correo] || /ADMINISTRADOR/i.test(puesto);
+                const userErpStore = (isAdminUser && resolvedErpBranch) ? resolvedErpBranch : cfg.erpStore;
+
                 tabUsers.push({
                     sheetTab: cfg.tab,
                     rowNum: i + 1,
-                    branchKey: cfg.branchKey,
+                    isAdmin: isAdminUser,
+                    maxDiscountPct: explicitDiscountPct,
+                    branchKey: isAdminUser ? 'ADMIN' : cfg.branchKey,
                     branchLabel: cfg.label,
-                    erpStore: cfg.erpStore,
-                    orderPrefix: cfg.orderPrefix,
-                    quoteType: cfg.quoteType,
-                    isProyecto: !!cfg.isProyecto,
+                    erpStore: userErpStore,
+                    orderPrefix: getStoreFolioPrefix(userErpStore, cfg.orderPrefix),
+                    quoteType: isAdminUser ? 'ADMINISTRATIVO' : cfg.quoteType,
+                    isProyecto: !isAdminUser && !!cfg.isProyecto,
                     serieLabel: cfg.serieLabel,
                     nombre: nombre,
                     puesto: puesto,
@@ -2088,9 +2312,9 @@
                     tempKey: tempKey,
                     defKey: defKey,
                     mustChangeKey: !defKey && !!tempKey,
-                    erpAdvisorLabel: matchedErp ? matchedErp.label : '',
-                    erpAdvisorId: matchedErp ? matchedErp.id : '',
-                    erpAdvisorBranch: matchedErp ? matchedErp.branch : ''
+                    erpAdvisorLabel: resolvedErpLabel,
+                    erpAdvisorId: resolvedErpId,
+                    erpAdvisorBranch: resolvedErpBranch
                 });
             }
             return tabUsers;
@@ -2169,11 +2393,13 @@
 
         if (nameEl) nameEl.textContent = activeAdvisorSession.nombre || activeAdvisorSession.correo;
         if (branchEl) {
-            const prefix = activeAdvisorSession.orderPrefix || 'COT';
-            if (activeAdvisorSession.isProyecto) {
-                branchEl.textContent = 'PROYECTO · SERIE ' + prefix;
+            const prefix = getStoreFolioPrefix(activeAdvisorSession.erpStore, activeAdvisorSession.orderPrefix);
+            if (activeAdvisorSession.isAdmin) {
+                branchEl.textContent = 'ADMINISTRADOR · TODAS LAS TIENDAS';
+            } else if (activeAdvisorSession.isProyecto) {
+                branchEl.textContent = 'PROYECTO · FOLIO ' + prefix;
             } else {
-                branchEl.textContent = (activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '') + ' · SERIE ' + prefix;
+                branchEl.textContent = (activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '') + ' · FOLIO ' + prefix;
             }
         }
         if (erpEl) {
@@ -2194,9 +2420,11 @@
 
     function applyAdvisorDefaultsToQuoteForm(forceOverwriteStoreAndUser) {
         if (!activeAdvisorSession) return;
-        // Sucursal/Proyecto y Asesor S Mueblería siempre se bloquean al titular del correo autenticado
-        quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || 'CREATA PUERTO CANCUN';
-        quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
+        if (!activeAdvisorSession.isAdmin || forceOverwriteStoreAndUser || !quoteDraftMeta.erpStore) {
+            quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || 'CREATA PUERTO CANCUN';
+            quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
+            quoteDraftMeta.erpAdvisorId = activeAdvisorSession.erpAdvisorId || '';
+        }
         try {
             localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
         } catch (e) {}
@@ -2252,14 +2480,17 @@
             const isCurrent = activeAdvisorSession &&
                 activeAdvisorSession.sheetTab === loc.sheetTab &&
                 activeAdvisorSession.correo === loc.correo;
-            const modeTag = loc.isProyecto ? ('PROYECTO · SERIE ' + (loc.orderPrefix || 'PRO')) : ('SERIE ' + (loc.orderPrefix || 'COT'));
+            const pfx = getStoreFolioPrefix(loc.erpStore, loc.orderPrefix);
+            const modeTag = loc.isAdmin
+                ? 'ADMIN · VER TODO'
+                : (loc.isProyecto ? ('PROYECTO · FOLIO ' + pfx) : ('FOLIO ' + pfx));
             return '<button type="button" data-branch-idx="' + idx + '" ' +
                 'class="w-full text-left rounded-xl border p-3.5 transition flex items-center justify-between gap-3 hover:shadow-sm" ' +
                 'style="border-color:' + (isCurrent ? '#A38251' : '#E1DBC5') + '; background:' + (isCurrent ? '#FAF9F6' : '#FFFFFF') + ';">' +
                 '<div class="min-w-0">' +
                     '<div class="flex flex-wrap items-center gap-1.5">' +
                         '<span class="text-xs font-extrabold uppercase tracking-wider" style="color:#252C32;">' + escapeHtml(loc.branchLabel || loc.sheetTab) + '</span>' +
-                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (loc.isProyecto ? '#252C32' : '#E1DBC5') + '; color:' + (loc.isProyecto ? '#FFFFFF' : '#252C32') + ';">' + escapeHtml(modeTag) + '</span>' +
+                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (loc.isProyecto || loc.isAdmin ? '#252C32' : '#E1DBC5') + '; color:' + (loc.isProyecto || loc.isAdmin ? '#FFFFFF' : '#252C32') + ';">' + escapeHtml(modeTag) + '</span>' +
                     '</div>' +
                     '<div class="text-[11px] font-semibold mt-0.5" style="color:#A38251;">' +
                         escapeHtml((loc.puesto ? (loc.puesto + ' · ') : '') + (loc.erpStore || '')) +
@@ -2289,6 +2520,8 @@
             return {
                 sheetTab: u.sheetTab,
                 rowNum: u.rowNum,
+                isAdmin: !!u.isAdmin,
+                maxDiscountPct: u.maxDiscountPct !== undefined ? u.maxDiscountPct : null,
                 branchKey: u.branchKey,
                 branchLabel: u.branchLabel,
                 erpStore: u.erpStore,
@@ -2310,6 +2543,8 @@
         const sessionObj = {
             sheetTab: enrichedChosen.sheetTab,
             rowNum: enrichedChosen.rowNum,
+            isAdmin: !!enrichedChosen.isAdmin,
+            maxDiscountPct: enrichedChosen.maxDiscountPct !== undefined ? enrichedChosen.maxDiscountPct : null,
             branchKey: enrichedChosen.branchKey,
             branchLabel: enrichedChosen.branchLabel,
             erpStore: enrichedChosen.erpStore,
@@ -2329,7 +2564,13 @@
         };
 
         lastSubmittedQuoteMeta = null;
-        currentNextOrderCode = cleanStr(nextOrderFromLogin) || ((sessionObj.orderPrefix || 'COT') + '-0001');
+        const cleanLoginFolio = (nextOrderFromLogin && !/^[A-Z]+-\d+$/i.test(String(nextOrderFromLogin)))
+            ? cleanStr(nextOrderFromLogin)
+            : '';
+        if (cleanLoginFolio && sessionObj.erpStore) {
+            liveNextFolioByStore[String(sessionObj.erpStore).toUpperCase()] = cleanLoginFolio;
+        }
+        currentNextOrderCode = cleanLoginFolio || getEstimatedStoreFolio(sessionObj.erpStore, sessionObj.orderPrefix);
         saveAdvisorSession(sessionObj);
         applyAdvisorDefaultsToQuoteForm(true);
 
@@ -2399,8 +2640,16 @@
             }, 10000);
 
             if (cloudRes && cloudRes.ok) {
+                if (cloudRes.nextFolioByStore) {
+                    applyServerFolioMap(cloudRes.nextFolioByStore);
+                }
                 if (Array.isArray(cloudRes.stores) && cloudRes.stores.length > 0) {
-                    erpStoresCatalog = cloudRes.stores;
+                    const mergedStores = DEFAULT_ERP_STORES.slice();
+                    cloudRes.stores.forEach(s => {
+                        const cs = cleanStr(s);
+                        if (cs && mergedStores.indexOf(cs) === -1) mergedStores.push(cs);
+                    });
+                    erpStoresCatalog = mergedStores;
                 }
                 if (Array.isArray(cloudRes.advisors) && cloudRes.advisors.length > 0) {
                     erpAdvisorsCatalog = cloudRes.advisors.map(a => ({
@@ -2444,7 +2693,7 @@
                 return;
             }
 
-            // 2) Respaldo de lectura directa en vivo desde las hojas PLAYA, COLOCIO, PTC, CASA CREATA, PROYECTOS y plantilla
+            // 2) Respaldo de lectura directa en vivo desde las hojas de usuarios y plantilla
             const allUsers = await fetchAllAdvisorRowsLiveGviz();
             if (!allUsers.length) {
                 showAuthBanner('authLoginMsg', 'No fue posible consultar las hojas de usuarios. Verifica tu conexión a internet.', 'err');
@@ -2641,9 +2890,17 @@
     // ------------------------------------------------------------------------
     // PLANTILLA DE COTIZACIÓN · BLOQUEADA AL CORREO Y EN VIVO CON S MUEBLERÍA
     // ------------------------------------------------------------------------
+    window.onRecentQuotesStoreFilterChange = function () {
+        const sel = document.getElementById('quoteRecentStoreFilter');
+        recentQuotesStoreFilter = sel ? (sel.value || 'ALL') : 'ALL';
+        renderMyRecentQuotes(myRecentQuotesList);
+    };
+
     function renderMyRecentQuotes(list) {
         const wrap = document.getElementById('quoteMyRecentWrap');
         const listEl = document.getElementById('quoteMyRecentList');
+        const headingEl = document.getElementById('quoteRecentHeading');
+        const filterSel = document.getElementById('quoteRecentStoreFilter');
         if (!wrap || !listEl) return;
 
         if (!Array.isArray(list) || !list.length || !activeAdvisorSession) {
@@ -2652,20 +2909,68 @@
             return;
         }
 
-        listEl.innerHTML = list.map(q => {
-            const isProy = String(q.quoteType || '').toUpperCase() === 'PROYECTO';
-            const folioTxt = cleanStr(q.folio) || (q.quoteId ? ('ID-' + q.quoteId) : 'En proceso');
+        const isAdmin = !!activeAdvisorSession.isAdmin;
+        if (headingEl) {
+            headingEl.textContent = isAdmin
+                ? 'Cotizaciones en Vivo · Todas las Tiendas y Bodegas (Modo Administrador)'
+                : 'Mis Cotizaciones Enviadas a S Mueblería';
+        }
+
+        for (let i = 0; i < list.length; i++) {
+            const qi = list[i] || {};
+            if (qi.folio) registerObservedFolio(qi.folio, qi.erpStore);
+            else if (qi.orderCode) registerObservedFolio(qi.orderCode, qi.erpStore);
+        }
+
+        if (filterSel) {
+            if (isAdmin) {
+                const storesSeen = [];
+                list.forEach(q => {
+                    const st = cleanStr(q && q.erpStore);
+                    if (st && storesSeen.indexOf(st) === -1) storesSeen.push(st);
+                });
+                const prevVal = recentQuotesStoreFilter || 'ALL';
+                filterSel.innerHTML = '<option value="ALL">Todas las tiendas y bodegas (' + list.length + ')</option>' +
+                    storesSeen.map(st => '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + '</option>').join('');
+                filterSel.value = storesSeen.indexOf(prevVal) !== -1 ? prevVal : 'ALL';
+                recentQuotesStoreFilter = filterSel.value;
+                filterSel.classList.toggle('hidden', storesSeen.length <= 1);
+            } else {
+                filterSel.classList.add('hidden');
+                recentQuotesStoreFilter = 'ALL';
+            }
+        }
+
+        const filtered = (isAdmin && recentQuotesStoreFilter !== 'ALL')
+            ? list.filter(q => cleanStr(q && q.erpStore).toUpperCase() === recentQuotesStoreFilter.toUpperCase())
+            : list;
+
+        if (!filtered.length) {
+            listEl.innerHTML = '<div class="text-xs font-semibold opacity-70 py-2">No hay cotizaciones registradas para el filtro seleccionado.</div>';
+            wrap.classList.remove('hidden');
+            return;
+        }
+
+        listEl.innerHTML = filtered.map(q => {
+            const isProy = String(q.quoteType || '').toUpperCase() === 'PROYECTO' || /PROYECTO/i.test(String(q.erpStore || ''));
+            const rawOrder = cleanStr(q.orderCode);
+            const cleanFolio = cleanStr(q.folio) || ((rawOrder && !/^[A-Z]+-\d+$/i.test(rawOrder)) ? rawOrder : '') || (q.quoteId ? ('ID-' + q.quoteId) : 'En proceso');
+            const storeTag = cleanStr(q.erpStore || q.branchTab) || (isProy ? 'PROYECTOS' : 'TIENDA');
+            const advTag = isAdmin && cleanStr(q.advisorName || q.erpAdvisor)
+                ? (' · Asesor: ' + cleanStr(q.advisorName || q.erpAdvisor))
+                : '';
             return '<div class="rounded-lg border px-3 py-2 flex flex-wrap items-center justify-between gap-2 bg-white" style="border-color:#E1DBC5;">' +
                 '<div class="min-w-0">' +
                     '<div class="flex flex-wrap items-center gap-1.5">' +
                         '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (isProy ? '#252C32' : '#A38251') + '; color:#FFFFFF;">' +
-                            escapeHtml(q.orderCode || (isProy ? 'PRO' : 'COT')) +
+                            escapeHtml(cleanFolio) +
                         '</span>' +
-                        '<span class="text-xs font-extrabold uppercase" style="color:#252C32;">Folio S Mueblería: ' + escapeHtml(folioTxt) + '</span>' +
-                        (q.quoteId ? ('<span class="text-[10px] font-bold opacity-70" style="color:#252C32;">(ID ' + escapeHtml(q.quoteId) + ')</span>') : '') +
+                        '<span class="text-[11px] font-extrabold uppercase" style="color:#252C32;">' + escapeHtml(storeTag) + '</span>' +
+                        (q.quoteId ? ('<span class="text-[10px] font-bold opacity-70" style="color:#252C32;">(ID ERP ' + escapeHtml(q.quoteId) + ')</span>') : '') +
                     '</div>' +
                     '<div class="text-[11px] font-semibold truncate mt-0.5" style="color:#252C32;">' +
                         escapeHtml(q.clientName || 'Prospecto') +
+                        escapeHtml(advTag) +
                         (q.skusSummary ? (' · ' + escapeHtml(q.skusSummary)) : '') +
                     '</div>' +
                 '</div>' +
@@ -2678,44 +2983,221 @@
         wrap.classList.remove('hidden');
     }
 
+    async function fetchQuotesLedgerGvizFallback() {
+        if (!activeAdvisorSession) return [];
+        const rows = await fetchSheetCsvRows('COTIZACIONES_EN_VIVO');
+        if (!rows || rows.length < 2) return [];
+        const hdr = rows[0] || [];
+        if (!/ORDEN|FOLIO/i.test(cleanStr(hdr[0]) + ' ' + cleanStr(hdr[1]))) return [];
+        const isAdmin = !!activeAdvisorSession.isAdmin;
+        const emailNorm = String(activeAdvisorSession.correo || '').trim().toLowerCase();
+        const limit = isAdmin ? 40 : 10;
+        const out = [];
+        for (let i = rows.length - 1; i >= 1; i--) {
+            const r = rows[i] || [];
+            const folioVal = cleanStr(r[1]) || cleanStr(r[0]);
+            const storeVal = cleanStr(r[6]);
+            if (folioVal) registerObservedFolio(folioVal, storeVal);
+            const rowEmail = cleanStr(r[7]).toLowerCase();
+            if (!isAdmin && rowEmail !== emailNorm) continue;
+            if (out.length < limit) {
+                out.push({
+                    orderCode: cleanStr(r[0]),
+                    folio: cleanStr(r[1]),
+                    quoteId: cleanStr(r[2]),
+                    createdAt: cleanStr(r[3]),
+                    quoteType: cleanStr(r[4]),
+                    branchTab: cleanStr(r[5]),
+                    erpStore: storeVal,
+                    advisorEmail: rowEmail,
+                    advisorName: cleanStr(r[8]),
+                    erpAdvisor: cleanStr(r[9]),
+                    clientName: cleanStr(r[11]),
+                    itemsCount: cleanStr(r[16]),
+                    skusSummary: cleanStr(r[17]),
+                    total: cleanStr(r[21]),
+                    status: cleanStr(r[22])
+                });
+            }
+        }
+        return out;
+    }
+
     async function refreshMyLiveQuotesInfo() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             renderMyRecentQuotes([]);
             return;
         }
-        const fallbackOrder = (activeAdvisorSession.orderPrefix || 'COT') + '-0001';
-        if (!currentNextOrderCode) {
-            currentNextOrderCode = fallbackOrder;
-            const nextBadge = document.getElementById('quoteNextOrderBadge');
-            if (nextBadge) nextBadge.textContent = 'Orden: ' + currentNextOrderCode;
+        const activeTargetStore = (activeAdvisorSession.isAdmin && quoteDraftMeta.erpStore)
+            ? quoteDraftMeta.erpStore
+            : activeAdvisorSession.erpStore;
+        currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
+        const nextBadge = document.getElementById('quoteNextOrderBadge');
+        if (nextBadge) nextBadge.textContent = 'Folio S Mueblería: ' + currentNextOrderCode;
+
+        if (activeAdvisorSession.authToken) {
+            const res = await callInvWebAppPost('inv_my_quotes', {
+                authToken: activeAdvisorSession.authToken,
+                advisorEmail: activeAdvisorSession.correo,
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                erpStore: activeTargetStore || ''
+            }, 12000);
+
+            if (res && res.ok) {
+                if (res.nextFolioByStore) {
+                    applyServerFolioMap(res.nextFolioByStore);
+                }
+                if (res.advisor) {
+                    const updatedAdv = enrichAdvisorLocation(res.advisor);
+                    if (updatedAdv.erpAdvisorLabel) activeAdvisorSession.erpAdvisorLabel = updatedAdv.erpAdvisorLabel;
+                    if (updatedAdv.erpAdvisorId) activeAdvisorSession.erpAdvisorId = updatedAdv.erpAdvisorId;
+                    if (updatedAdv.maxDiscountPct !== null && updatedAdv.maxDiscountPct !== undefined) {
+                        activeAdvisorSession.maxDiscountPct = updatedAdv.maxDiscountPct;
+                    }
+                    if (updatedAdv.isAdmin) activeAdvisorSession.isAdmin = true;
+                    saveAdvisorSession(activeAdvisorSession);
+                    renderAdvisorHeaderBar();
+                }
+                if (res.nextOrderCode && !/^[A-Z]+-\d+$/i.test(String(res.nextOrderCode))) {
+                    currentNextOrderCode = cleanStr(res.nextOrderCode);
+                    if (activeTargetStore) {
+                        liveNextFolioByStore[String(activeTargetStore).toUpperCase()] = currentNextOrderCode;
+                    }
+                } else {
+                    currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
+                }
+                myRecentQuotesList = Array.isArray(res.recentQuotes) ? res.recentQuotes : [];
+                populateQuoteAdvisorControls();
+                renderMyRecentQuotes(myRecentQuotesList);
+                return;
+            }
         }
 
-        if (!activeAdvisorSession.authToken) {
+        // Respaldo directo por lectura de COTIZACIONES_EN_VIVO + LPPT
+        const gvizQuotes = await fetchQuotesLedgerGvizFallback();
+        currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
+        myRecentQuotesList = gvizQuotes;
+        populateQuoteAdvisorControls();
+        renderMyRecentQuotes(myRecentQuotesList);
+    }
+
+    function populateAdminSelectorsUI(sess) {
+        const adminWrap = document.getElementById('quoteAdminSelectorsWrap');
+        const lockedGrid = document.getElementById('quoteLockedInfoGrid');
+        const storeSel = document.getElementById('quoteAdminStoreSelect');
+        const advSel = document.getElementById('quoteAdminAdvisorSelect');
+        if (!adminWrap || !storeSel || !advSel) return;
+
+        if (!sess || !sess.isAdmin) {
+            adminWrap.classList.add('hidden');
+            if (lockedGrid) lockedGrid.classList.remove('hidden');
             return;
         }
 
-        const res = await callInvWebAppPost('inv_my_quotes', {
-            authToken: activeAdvisorSession.authToken,
-            advisorEmail: activeAdvisorSession.correo,
-            sheetTab: activeAdvisorSession.sheetTab || ''
-        }, 10000);
+        adminWrap.classList.remove('hidden');
+        if (lockedGrid) lockedGrid.classList.add('hidden');
 
-        if (res && res.ok) {
-            if (res.advisor) {
-                const updatedAdv = enrichAdvisorLocation(res.advisor);
-                if (updatedAdv.erpAdvisorLabel) activeAdvisorSession.erpAdvisorLabel = updatedAdv.erpAdvisorLabel;
-                if (updatedAdv.erpAdvisorId) activeAdvisorSession.erpAdvisorId = updatedAdv.erpAdvisorId;
-                saveAdvisorSession(activeAdvisorSession);
-                renderAdvisorHeaderBar();
+        const storesList = erpStoresCatalog.length > 0 ? erpStoresCatalog.slice() : DEFAULT_ERP_STORES.slice();
+        DEFAULT_ERP_STORES.forEach(ds => {
+            if (storesList.indexOf(ds) === -1) storesList.push(ds);
+        });
+
+        const targetStore = cleanStr(quoteDraftMeta.erpStore) || cleanStr(sess.erpStore) || 'CREATA PUERTO CANCUN';
+        if (storesList.indexOf(targetStore) === -1) storesList.unshift(targetStore);
+
+        storeSel.innerHTML = storesList.map(st => {
+            const pfx = getStoreFolioPrefix(st, '');
+            const est = getEstimatedStoreFolio(st, pfx);
+            return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st + ' · Folio ' + est) + '</option>';
+        }).join('');
+        storeSel.value = targetStore;
+        quoteDraftMeta.erpStore = targetStore;
+
+        const targetStoreUp = targetStore.toUpperCase();
+        const sameStoreAdvs = [];
+        const otherAdvs = [];
+        for (let i = 0; i < erpAdvisorsCatalog.length; i++) {
+            const a = erpAdvisorsCatalog[i];
+            if (!a || !a.id) continue;
+            if (String(a.branch || '').trim().toUpperCase() === targetStoreUp) {
+                sameStoreAdvs.push(a);
+            } else {
+                otherAdvs.push(a);
             }
-            if (res.nextOrderCode) {
-                currentNextOrderCode = res.nextOrderCode;
+        }
+
+        let optsHtml = '';
+        if (sameStoreAdvs.length > 0) {
+            optsHtml += '<optgroup label="Usuarios de ' + escapeHtml(targetStore) + '">';
+            sameStoreAdvs.forEach(a => {
+                optsHtml += '<option value="' + escapeHtml(a.id) + '" data-label="' + escapeHtml(a.label) + '" data-branch="' + escapeHtml(a.branch || '') + '">' + escapeHtml(a.label) + '</option>';
+            });
+            optsHtml += '</optgroup>';
+        }
+        if (otherAdvs.length > 0) {
+            optsHtml += '<optgroup label="Otros Usuarios Activos S Mueblería">';
+            otherAdvs.forEach(a => {
+                optsHtml += '<option value="' + escapeHtml(a.id) + '" data-label="' + escapeHtml(a.label) + '" data-branch="' + escapeHtml(a.branch || '') + '">' + escapeHtml(a.label) + '</option>';
+            });
+            optsHtml += '</optgroup>';
+        }
+        if (!optsHtml && sess.erpAdvisorId) {
+            const ownLbl = sess.erpAdvisorLabel || (sess.nombre + ' | ' + targetStore + ' [ID: ' + sess.erpAdvisorId + ']');
+            optsHtml = '<option value="' + escapeHtml(sess.erpAdvisorId) + '" data-label="' + escapeHtml(ownLbl) + '" data-branch="' + escapeHtml(targetStore) + '">' + escapeHtml(ownLbl) + '</option>';
+        }
+        advSel.innerHTML = optsHtml;
+
+        let desiredAdvId = cleanStr(quoteDraftMeta.erpAdvisorId);
+        const hasDesiredInSameStore = desiredAdvId && sameStoreAdvs.some(a => String(a.id) === desiredAdvId);
+        if (!hasDesiredInSameStore) {
+            if (sess.erpAdvisorId && sameStoreAdvs.some(a => String(a.id) === String(sess.erpAdvisorId))) {
+                desiredAdvId = String(sess.erpAdvisorId);
+            } else if (sameStoreAdvs.length > 0) {
+                desiredAdvId = String(sameStoreAdvs[0].id);
+            } else if (sess.erpAdvisorId) {
+                desiredAdvId = String(sess.erpAdvisorId);
+            } else if (otherAdvs.length > 0) {
+                desiredAdvId = String(otherAdvs[0].id);
             }
-            myRecentQuotesList = Array.isArray(res.recentQuotes) ? res.recentQuotes : [];
-            populateQuoteAdvisorControls();
-            renderMyRecentQuotes(myRecentQuotesList);
+        }
+        if (desiredAdvId) {
+            advSel.value = desiredAdvId;
+        }
+        const selectedOpt = advSel.options[advSel.selectedIndex];
+        if (selectedOpt) {
+            quoteDraftMeta.erpAdvisorId = selectedOpt.value;
+            quoteDraftMeta.erpAdvisorLabel = selectedOpt.getAttribute('data-label') || selectedOpt.textContent || '';
         }
     }
+
+    window.onAdminStoreChange = function () {
+        const storeSel = document.getElementById('quoteAdminStoreSelect');
+        if (!storeSel || !activeAdvisorSession || !activeAdvisorSession.isAdmin) return;
+        quoteDraftMeta.erpStore = storeSel.value;
+        // Al cambiar de tienda/bodega, elegir automáticamente un usuario de esa tienda para que S Mueblería emita el folio de esa tienda
+        quoteDraftMeta.erpAdvisorId = '';
+        quoteDraftMeta.erpAdvisorLabel = '';
+        lastSubmittedQuoteMeta = null;
+        populateQuoteAdvisorControls();
+        saveQuoteDraftMeta();
+    };
+
+    window.onAdminAdvisorChange = function () {
+        const advSel = document.getElementById('quoteAdminAdvisorSelect');
+        if (!advSel || !activeAdvisorSession || !activeAdvisorSession.isAdmin) return;
+        const opt = advSel.options[advSel.selectedIndex];
+        if (opt) {
+            quoteDraftMeta.erpAdvisorId = opt.value;
+            quoteDraftMeta.erpAdvisorLabel = opt.getAttribute('data-label') || opt.textContent || '';
+            const advBranch = cleanStr(opt.getAttribute('data-branch'));
+            if (advBranch) {
+                quoteDraftMeta.erpStore = advBranch;
+            }
+        }
+        lastSubmittedQuoteMeta = null;
+        saveQuoteDraftMeta();
+        populateQuoteAdvisorControls();
+    };
 
     function populateQuoteAdvisorControls() {
         const titleEl = document.getElementById('quoteModalTitle');
@@ -2727,6 +3209,7 @@
         const storeTxt = document.getElementById('quoteLockedStoreText');
         const advTxt = document.getElementById('quoteLockedAdvisorText');
         const emailTxt = document.getElementById('quoteLockedEmailText');
+        const switchLocBtn = document.getElementById('quoteSwitchLocationBtn');
         const clientNameLbl = document.getElementById('quoteClientNameLabel');
 
         const modeSel = document.getElementById('quoteClientModeSelect');
@@ -2738,10 +3221,6 @@
         const extraInp = document.getElementById('quoteExtraDiscountInput');
 
         const sess = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
-        const isProy = !!(sess && sess.isProyecto);
-        const prefix = (sess && sess.orderPrefix) || 'COT';
-        const orderDisplay = currentNextOrderCode || (prefix + '-0001');
-
         if (sess && !sess.erpAdvisorLabel && erpAdvisorsCatalog.length > 0) {
             const matched = matchBestErpAdvisorClient(sess.nombre, sess.erpStore, erpAdvisorsCatalog);
             if (matched) {
@@ -2752,60 +3231,86 @@
             }
         }
 
+        populateAdminSelectorsUI(sess);
+
+        const isAdmin = !!(sess && sess.isAdmin);
+        const effectiveStore = isAdmin
+            ? (cleanStr(quoteDraftMeta.erpStore) || (sess && sess.erpStore) || 'CEDIS')
+            : ((sess && sess.erpStore) || 'CREATA PUERTO CANCUN');
+        const isProy = /PROYECTO/i.test(effectiveStore) || (!isAdmin && !!(sess && sess.isProyecto));
+        const prefix = getStoreFolioPrefix(effectiveStore, sess && sess.orderPrefix);
+        const folioEstimate = getEstimatedStoreFolio(effectiveStore, prefix);
+        currentNextOrderCode = folioEstimate;
+
+        const effectiveAdvisorLabel = isAdmin
+            ? (cleanStr(quoteDraftMeta.erpAdvisorLabel) || (sess && sess.erpAdvisorLabel) || '')
+            : ((sess && sess.erpAdvisorLabel) || '');
+        const effectiveAdvisorId = isAdmin
+            ? (cleanStr(quoteDraftMeta.erpAdvisorId) || extractErpIdFromLabel(effectiveAdvisorLabel) || (sess && sess.erpAdvisorId) || '')
+            : ((sess && sess.erpAdvisorId) || extractErpIdFromLabel(effectiveAdvisorLabel) || '');
+
         if (titleEl) {
-            titleEl.textContent = isProy
-                ? 'Cotización de Proyecto · S Mueblería En Vivo'
-                : 'Cotización de Sucursal · S Mueblería En Vivo';
+            if (isAdmin) {
+                titleEl.textContent = 'Cotización S Mueblería · Modo Administrador (Acceso Total)';
+            } else {
+                titleEl.textContent = isProy
+                    ? 'Cotización de Proyecto · S Mueblería En Vivo'
+                    : 'Cotización de Tienda / Bodega · S Mueblería En Vivo';
+            }
         }
 
         if (hdrInfo) {
             if (sess) {
                 hdrInfo.textContent = (sess.nombre || sess.correo) + ' · ' +
-                    (isProy ? 'MODALIDAD PROYECTO' : ('Sucursal: ' + (sess.branchLabel || sess.sheetTab))) +
-                    ' · Orden ' + orderDisplay;
+                    (isAdmin ? ('ADMIN · ' + effectiveStore) : (isProy ? 'MODALIDAD PROYECTO' : ('Tienda: ' + (sess.branchLabel || sess.sheetTab)))) +
+                    ' · Folio S Mueblería: ' + folioEstimate;
             } else {
                 hdrInfo.textContent = '';
             }
         }
 
         if (originBadge) {
-            originBadge.textContent = isProy
-                ? ('PROYECTO · SERIE ' + prefix)
-                : ((sess && sess.branchKey === 'ADMIN') ? ('ADMIN · SERIE ' + prefix) : ('SUCURSAL · SERIE ' + prefix));
-            originBadge.style.background = isProy ? '#252C32' : '#A38251';
+            originBadge.textContent = isAdmin
+                ? ('ADMIN · SERIE ' + prefix)
+                : (isProy ? ('PROYECTO · SERIE ' + prefix) : ('TIENDA · SERIE ' + prefix));
+            originBadge.style.background = (isProy || isAdmin) ? '#252C32' : '#A38251';
             originBadge.style.color = '#FFFFFF';
         }
 
         if (nextOrderBadge) {
-            nextOrderBadge.textContent = 'Orden: ' + orderDisplay;
+            nextOrderBadge.textContent = 'Folio S Mueblería: ' + folioEstimate;
         }
 
-        const uid = (sess && sess.erpAdvisorId) || extractErpIdFromLabel(sess && sess.erpAdvisorLabel) || '';
         if (idBadge) {
-            idBadge.textContent = uid ? ('ID S Mueblería: ' + uid) : 'Usuario Vinculado';
+            idBadge.textContent = effectiveAdvisorId ? ('ID S Mueblería: ' + effectiveAdvisorId) : 'Usuario Vinculado';
         }
 
         if (storeLbl) {
-            storeLbl.textContent = isProy ? 'Área / Modalidad Proyecto' : 'Sucursal Asignada';
+            storeLbl.textContent = isProy ? 'Área / Modalidad Proyecto' : 'Tienda / Bodega S Mueblería';
         }
         if (storeTxt) {
-            storeTxt.textContent = sess ? (sess.erpStore || '—') : 'Inicia sesión';
+            storeTxt.textContent = sess ? (effectiveStore || '—') : 'Inicia sesión';
         }
         if (advTxt) {
             if (sess) {
-                advTxt.textContent = sess.erpAdvisorLabel ||
-                    ((sess.nombre || sess.correo).toUpperCase() + ' | ' + (sess.erpStore || ''));
+                advTxt.textContent = effectiveAdvisorLabel ||
+                    ((sess.nombre || sess.correo).toUpperCase() + ' | ' + effectiveStore);
             } else {
                 advTxt.textContent = '—';
             }
         }
         if (emailTxt) {
             if (sess) {
-                emailTxt.textContent = 'Cotización exclusiva del correo autenticado: ' + sess.correo +
-                    (isProy ? ' · Registrada en S Mueblería como PROYECTO' : (' · Serie ' + prefix));
+                emailTxt.textContent = isAdmin
+                    ? ('Sesión Administrador (' + sess.correo + ') · Viendo todas las tiendas · Emitiendo con serie ' + prefix + ' (' + effectiveStore + ')')
+                    : ('Cuenta autenticada: ' + sess.correo + ' · Folio serie ' + prefix + ' (' + effectiveStore + ')');
             } else {
                 emailTxt.textContent = '';
             }
+        }
+        if (switchLocBtn) {
+            const multiLocs = (sess && Array.isArray(sess.allLocations)) ? sess.allLocations : [];
+            switchLocBtn.classList.toggle('hidden', multiLocs.length <= 1);
         }
 
         if (clientNameLbl) {
@@ -2828,6 +3333,7 @@
         if (extraInp && document.activeElement !== extraInp) {
             extraInp.value = String(Math.max(0, Number(quoteDraftMeta.extraDiscount) || 0));
         }
+        renderQuoteTotalsOnly();
     }
 
     window.onExtraDiscountChange = function () {
@@ -2836,20 +3342,27 @@
     };
 
     // ------------------------------------------------------------------------
-    // LÍMITE DE DESCUENTO POR PUESTO (COLUMNA PUESTO DE LA HOJA DE SUCURSAL)
-    // ASESOR: 24% · GERENTE / SUBGERENTE (SUB): 100%
+    // LÍMITE DE DESCUENTO (COLUMNA DESCUENTO EN HOJA DE USUARIOS / PUESTO)
+    // ASESOR: 24% · GERENTE / SUBGERENTE / ADMINISTRADOR: 100%
     // ------------------------------------------------------------------------
     const ADVISOR_MAX_DISCOUNT_PCT = 24;
     const MANAGER_MAX_DISCOUNT_PCT = 100;
 
     function getAdvisorRoleInfo() {
-        const puestoRaw = cleanStr(activeAdvisorSession && activeAdvisorSession.puesto);
+        const sess = activeAdvisorSession;
+        const puestoRaw = cleanStr(sess && sess.puesto);
         const p = String(puestoRaw || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-        const isManager = /GERENTE|\bSUB/.test(p);
+        const isAdmin = !!(sess && sess.isAdmin) || /ADMINISTRADOR/.test(p);
+        const isManager = isAdmin || /GERENTE|\bSUB/.test(p);
+        const sheetPct = sess ? parseDiscountPctCell(sess.maxDiscountPct) : null;
+        const maxPct = isAdmin
+            ? MANAGER_MAX_DISCOUNT_PCT
+            : (sheetPct !== null ? sheetPct : (isManager ? MANAGER_MAX_DISCOUNT_PCT : ADVISOR_MAX_DISCOUNT_PCT));
         return {
-            puesto: puestoRaw ? puestoRaw.toUpperCase() : 'ASESOR',
+            puesto: puestoRaw ? puestoRaw.toUpperCase() : (isAdmin ? 'ADMINISTRADOR GENERAL' : 'ASESOR'),
+            isAdmin: isAdmin,
             isManager: isManager,
-            maxPct: isManager ? MANAGER_MAX_DISCOUNT_PCT : ADVISOR_MAX_DISCOUNT_PCT
+            maxPct: maxPct
         };
     }
 
@@ -2864,7 +3377,7 @@
         if (isNaN(pct) || !isFinite(pct)) pct = 0;
         const maxPct = getMaxDiscountPct();
         if (pct > maxPct) {
-            alert('Tu puesto (' + getAdvisorRoleInfo().puesto + ') permite un descuento máximo de ' + maxPct + '% por partida.');
+            alert('Tu cuenta (' + getAdvisorRoleInfo().puesto + ') permite un descuento máximo de ' + maxPct + '% por partida.');
         }
         pct = Math.max(0, Math.min(maxPct, pct));
         cart[key].discountPct = pct;
@@ -2872,11 +3385,54 @@
         renderCartItems();
     };
 
+    function syncSkuCartControls(key) {
+        const q = cart[key] ? (Number(cart[key].qty) || 0) : 0;
+
+        // Actualizar controles inline (- qty + / +) en fichas de portada, listado y variantes
+        const ctrlWraps = document.querySelectorAll('[data-sku-ctrl="' + CSS.escape(key) + '"]');
+        ctrlWraps.forEach(wrapEl => {
+            const parent = wrapEl.parentNode;
+            if (!parent) return;
+            const prevOnclick = wrapEl.onclick;
+            const temp = document.createElement('div');
+            temp.innerHTML = buildCardCartControlHtml(key);
+            const nextWrap = temp.firstElementChild;
+            if (nextWrap) {
+                nextWrap.onclick = prevOnclick;
+                parent.replaceChild(nextWrap, wrapEl);
+            }
+        });
+
+        // Compatibilidad si existe algún botón simple con data-sku-btn
+        const btns = document.querySelectorAll('[data-sku-btn="' + CSS.escape(key) + '"]');
+        btns.forEach(b => {
+            b.textContent = q > 0 ? ('+' + q) : '+';
+            b.classList.toggle('in-cart', q > 0);
+        });
+
+        if (currentDetailItem && String(currentDetailItem.s).toUpperCase() === key) {
+            const addBtn = document.getElementById('detAddCartBtn');
+            const subBtn = document.getElementById('detSubCartBtn');
+            const remAllBtn = document.getElementById('detRemoveAllCartBtn');
+            if (addBtn) {
+                addBtn.textContent = q > 0 ? ('+ Cotización (' + q + ')') : '+ Cotización';
+            }
+            if (subBtn) {
+                subBtn.classList.toggle('hidden', q <= 0);
+            }
+            if (remAllBtn) {
+                remAllBtn.classList.toggle('hidden', q <= 0);
+            }
+        }
+    }
+
     window.addToCart = function (skuRaw, delta) {
         const key = String(skuRaw || '').trim().toUpperCase();
+        if (!key) return;
+        const stepDelta = (typeof delta === 'number' && !isNaN(delta)) ? delta : 1;
         const it = bySkuMap.get(key);
-        if (!it) return;
         if (!cart[key]) {
+            if (stepDelta <= 0 || !it) return;
             cart[key] = {
                 sku: it.s,
                 name: cleanStr(it.n) || it.s,
@@ -2884,28 +3440,32 @@
                 qty: 0,
                 discountPct: 0
             };
-        } else if (it.pr) {
+        } else if (it && it.pr) {
             cart[key].price = formatPrice(it.pr);
             cart[key].name = cleanStr(it.n) || cart[key].name || it.s;
         }
-        cart[key].qty = Math.max(0, (Number(cart[key].qty) || 0) + (delta || 1));
-        if (cart[key].qty <= 0) delete cart[key];
-        saveCart();
-
-        const btns = document.querySelectorAll('[data-sku-btn="' + CSS.escape(key) + '"]');
-        btns.forEach(b => {
-            const q = cart[key] ? cart[key].qty : 0;
-            b.textContent = q > 0 ? ('+' + q) : '+';
-            b.classList.toggle('in-cart', q > 0);
-        });
-        if (currentDetailItem && String(currentDetailItem.s).toUpperCase() === key) {
-            const addBtn = document.getElementById('detAddCartBtn');
-            if (addBtn) {
-                const q = cart[key] ? cart[key].qty : 0;
-                addBtn.textContent = q > 0 ? ('+ Cotización (' + q + ')') : '+ Cotización';
-            }
+        cart[key].qty = Math.max(0, (Number(cart[key].qty) || 0) + stepDelta);
+        if (cart[key].qty <= 0) {
+            delete cart[key];
         }
-        if (document.getElementById('cartModal').classList.contains('open')) {
+        saveCart();
+        syncSkuCartControls(key);
+
+        const cartModalEl = document.getElementById('cartModal');
+        if (cartModalEl && cartModalEl.classList.contains('open')) {
+            renderCartItems();
+        }
+    };
+
+    window.removeFromCart = function (skuRaw) {
+        const key = String(skuRaw || '').trim().toUpperCase();
+        if (!key || !cart[key]) return;
+        delete cart[key];
+        saveCart();
+        syncSkuCartControls(key);
+
+        const cartModalEl = document.getElementById('cartModal');
+        if (cartModalEl && cartModalEl.classList.contains('open')) {
             renderCartItems();
         }
     };
@@ -2913,6 +3473,16 @@
     window.addCurrentDetailToCart = function () {
         if (!currentDetailItem) return;
         addToCart(currentDetailItem.s, 1);
+    };
+
+    window.subtractCurrentDetailFromCart = function () {
+        if (!currentDetailItem) return;
+        addToCart(currentDetailItem.s, -1);
+    };
+
+    window.removeCurrentDetailFromCart = function () {
+        if (!currentDetailItem) return;
+        removeFromCart(currentDetailItem.s);
     };
 
     window.openCartModal = async function () {
@@ -2936,9 +3506,11 @@
     };
 
     window.clearCart = function () {
+        const prevKeys = Object.keys(cart);
         cart = {};
         lastSubmittedQuoteMeta = null;
         saveCart();
+        prevKeys.forEach(k => syncSkuCartControls(k));
         const statusBox = document.getElementById('quoteSystemStatusBox');
         if (statusBox) {
             statusBox.innerHTML = '';
@@ -2985,7 +3557,7 @@
             });
         }
 
-        // El descuento total (partidas + descuento extra en $) no puede superar el % permitido por puesto
+        // El descuento total (partidas + descuento extra en $) no puede superar el % permitido en la columna Descuento
         const minAllowedTotal = sumList * (1 - (maxPct / 100));
         const maxExtraAllowed = Math.max(0, Math.floor((sumLines - minAllowedTotal) * 100) / 100);
         const requestedExtra = Math.max(0, Number(quoteDraftMeta.extraDiscount) || 0);
@@ -3024,11 +3596,11 @@
         if (limitEl) {
             const role = getAdvisorRoleInfo();
             const effPct = bd.sumList > 0 ? ((bd.sumList - bd.totalWithIva) / bd.sumList) * 100 : 0;
-            let html = 'Puesto: <strong>' + escapeHtml(role.puesto) + '</strong> · Descuento máximo permitido: <strong>' + role.maxPct + '%</strong>' +
+            let html = 'Puesto: <strong>' + escapeHtml(role.puesto) + '</strong> · Descuento autorizado: <strong>' + role.maxPct + '%</strong>' +
                 ' · Descuento aplicado: <strong>' + effPct.toFixed(1) + '%</strong>';
             if (bd.requestedExtra > bd.extraDiscount + 0.004) {
                 html += '<div style="color:#991B1B;margin-top:3px;">El descuento extra se ajustó a ' + escapeHtml(formatPrice(bd.extraDiscount) || '$0.00') +
-                    ' para no superar el ' + role.maxPct + '% permitido.</div>';
+                    ' para no superar el ' + role.maxPct + '% autorizado.</div>';
             }
             limitEl.innerHTML = html;
         }
@@ -3071,7 +3643,7 @@
                         '<span style="color:#252C32;">· Importe: ' + escapeHtml(lineSubStr) + '</span>' +
                     '</div>' +
                 '</div>' +
-                '<div class="flex items-center gap-2 shrink-0 ml-auto">' +
+                '<div class="flex flex-wrap items-center gap-2 shrink-0 ml-auto">' +
                     '<div class="flex items-center gap-1" title="Porcentaje de descuento en esta partida">' +
                         '<span class="text-[10px] font-bold uppercase opacity-70">Desc% (máx ' + bd.maxPct + ')</span>' +
                         '<input type="number" min="0" max="' + bd.maxPct + '" step="0.5" value="' + (ln.discountPct || 0) + '" ' +
@@ -3080,9 +3652,10 @@
                                'style="border-color:#E1DBC5; color:#252C32;">' +
                     '</div>' +
                     '<div class="flex items-center gap-1">' +
-                        '<button type="button" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#E1DBC5;">−</button>' +
+                        '<button type="button" title="Restar 1 pieza" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-7 h-7 rounded-full border text-sm font-bold hover:bg-red-50" style="border-color:#E1DBC5;">−</button>' +
                         '<span class="w-6 text-center text-xs font-extrabold">' + ln.qty + '</span>' +
-                        '<button type="button" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#A38251; background:#A38251; color:#FFF;">+</button>' +
+                        '<button type="button" title="Sumar 1 pieza" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#A38251; background:#A38251; color:#FFF;">+</button>' +
+                        '<button type="button" title="Quitar producto de la cotización" onclick="removeFromCart(\'' + escapeHtml(ln.key) + '\')" class="ml-1 px-2.5 h-7 rounded-full border text-[10px] font-extrabold uppercase tracking-wider transition" style="border-color:#FECACA; background:#FEF2F2; color:#991B1B;">✕ Quitar</button>' +
                     '</div>' +
                 '</div>' +
             '</div>';
@@ -3095,10 +3668,22 @@
         saveQuoteDraftMeta();
         const bd = computeQuoteBreakdown();
         const sess = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
-        const prefix = (sess && sess.orderPrefix) || 'COT';
-        const erpStore = (sess && sess.erpStore) || 'CREATA PUERTO CANCUN';
-        const erpAdvisorLabel = (sess && sess.erpAdvisorLabel) ||
-            (sess ? ((sess.nombre || sess.correo).toUpperCase() + ' | ' + erpStore) : '');
+        const isAdmin = !!(sess && sess.isAdmin);
+        const erpStore = isAdmin
+            ? (cleanStr(quoteDraftMeta.erpStore) || (sess && sess.erpStore) || 'CEDIS')
+            : ((sess && sess.erpStore) || 'CREATA PUERTO CANCUN');
+        const isProy = /PROYECTO/i.test(erpStore) || (!isAdmin && !!(sess && sess.isProyecto));
+        const prefix = getStoreFolioPrefix(erpStore, sess && sess.orderPrefix);
+        const erpAdvisorLabel = isAdmin
+            ? (cleanStr(quoteDraftMeta.erpAdvisorLabel) || (sess && sess.erpAdvisorLabel) || ((sess ? (sess.nombre || sess.correo).toUpperCase() : '') + ' | ' + erpStore))
+            : ((sess && sess.erpAdvisorLabel) || (sess ? ((sess.nombre || sess.correo).toUpperCase() + ' | ' + erpStore) : ''));
+        const erpAdvisorId = isAdmin
+            ? (cleanStr(quoteDraftMeta.erpAdvisorId) || extractErpIdFromLabel(erpAdvisorLabel) || (sess && sess.erpAdvisorId) || '')
+            : ((sess && sess.erpAdvisorId) || extractErpIdFromLabel(erpAdvisorLabel) || '');
+
+        const activeFolio = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio)
+            || (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.orderCode)
+            || getEstimatedStoreFolio(erpStore, prefix);
 
         return {
             sendToErp: !!sendToErp,
@@ -3106,17 +3691,18 @@
             sheetTab: sess ? (sess.sheetTab || '') : '',
             advisorEmail: sess ? sess.correo : '',
             advisorName: sess ? sess.nombre : '',
-            branchLabel: sess ? sess.branchLabel : '',
+            branchLabel: isAdmin ? erpStore : (sess ? sess.branchLabel : ''),
             orderPrefix: prefix,
-            orderCode: (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.orderCode) || currentNextOrderCode || (prefix + '-0001'),
-            quoteType: sess ? sess.quoteType : 'SUCURSAL',
-            isProyecto: !!(sess && sess.isProyecto),
+            orderCode: activeFolio,
+            quoteType: isProy ? 'PROYECTO' : (isAdmin ? 'ADMINISTRATIVO' : (sess ? sess.quoteType : 'SUCURSAL')),
+            isProyecto: isProy,
+            isAdmin: isAdmin,
             erpStore: erpStore,
             erpAdvisorLabel: erpAdvisorLabel,
-            erpAdvisorId: sess ? (sess.erpAdvisorId || '') : '',
+            erpAdvisorId: erpAdvisorId,
             categoryLabel: quoteDraftMeta.categoryLabel || 'COTIZACIONES [ID: 2]',
             clientMode: quoteDraftMeta.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)',
-            clientName: cleanStr(quoteDraftMeta.clientName) || (sess && sess.isProyecto ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA'),
+            clientName: cleanStr(quoteDraftMeta.clientName) || (isProy ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA'),
             clientPhone: cleanStr(quoteDraftMeta.clientPhone),
             deliveryDate: isoDateToDMY(quoteDraftMeta.deliveryDateIso || getDefaultDeliveryIsoDate()),
             notes: cleanStr(quoteDraftMeta.notes),
@@ -3135,18 +3721,18 @@
 
     function buildFormattedQuoteText(payload) {
         const bd = payload.breakdown;
-        const folioLine = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio)
-            ? ('Folio S Mueblería: ' + lastSubmittedQuoteMeta.folio + (lastSubmittedQuoteMeta.quoteId ? (' (ID ' + lastSubmittedQuoteMeta.quoteId + ')') : ''))
+        const officialFolio = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio) || payload.orderCode || '';
+        const qidPart = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.quoteId)
+            ? (' (ID ERP ' + lastSubmittedQuoteMeta.quoteId + ')')
             : '';
         const lines = [
             payload.isProyecto
                 ? 'COTIZACIÓN DE PROYECTO — CREATA MUEBLES'
-                : 'COTIZACIÓN DE SUCURSAL — CREATA MUEBLES',
-            'Orden de Cotización: ' + (payload.orderCode || ''),
-            folioLine,
-            (payload.isProyecto ? 'Modalidad / Área: PROYECTO · ' : 'Sucursal Sistema: ') + payload.erpStore,
-            'Usuario Exclusivo S Mueblería: ' + (payload.erpAdvisorLabel || payload.advisorName || ''),
-            'Correo Titular: ' + (payload.advisorEmail || '') + (payload.branchLabel ? (' (' + payload.branchLabel + ')') : ''),
+                : 'COTIZACIÓN DE TIENDA / BODEGA — CREATA MUEBLES',
+            'Folio S Mueblería: ' + officialFolio + qidPart,
+            (payload.isProyecto ? 'Modalidad / Área: PROYECTO · ' : 'Tienda / Bodega S Mueblería: ') + payload.erpStore,
+            'Asesor S Mueblería: ' + (payload.erpAdvisorLabel || payload.advisorName || ''),
+            'Cuenta Cotizador: ' + (payload.advisorEmail || ''),
             'Categoría: ' + payload.categoryLabel,
             'Modalidad Cliente: ' + payload.clientMode,
             (payload.isProyecto ? 'Proyecto / Cliente: ' : 'Cliente / Prospecto: ') + payload.clientName,
@@ -3200,9 +3786,9 @@
         const payload = collectQuoteSubmissionPayload(false);
         const todayStr = formatDateDMY(new Date());
         const logoSrc = window.CREATA_LOGO_B64 || '';
-        const folioTxt = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio) ? lastSubmittedQuoteMeta.folio : '';
+        const folioTxt = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio) || payload.orderCode || '';
         const qidTxt = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.quoteId) ? lastSubmittedQuoteMeta.quoteId : '';
-        const docHeading = payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización de Sucursal';
+        const docHeading = payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización CREATA Muebles';
 
         const rowsHtml = bd.lines.map((ln, idx) =>
             '<tr>' +
@@ -3224,7 +3810,7 @@
         const win = window.open('', '_blank');
         if (!win) return;
         win.document.write(
-            '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>' + escapeHtml(docHeading) + ' — ' + escapeHtml(payload.clientName) + '</title>' +
+            '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>' + escapeHtml(docHeading) + ' — ' + escapeHtml(folioTxt) + ' — ' + escapeHtml(payload.clientName) + '</title>' +
             '<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700;800&display=swap" rel="stylesheet">' +
             '<style>body{font-family:Raleway,sans-serif;color:#252C32;margin:28px;font-size:12px;} ' +
             'table{width:100%;border-collapse:collapse;margin-top:16px;} th{background:#252C32;color:#FFF;padding:9px 8px;text-transform:uppercase;font-size:11px;letter-spacing:0.04em;} ' +
@@ -3234,20 +3820,19 @@
                 '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:48px;object-fit:contain;">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                 '<div style="text-align:right;">' +
                     '<div style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">' + escapeHtml(docHeading) + '</div>' +
-                    '<div style="color:#E1DBC5;font-size:11px;margin-top:3px;">Orden: <strong>' + escapeHtml(payload.orderCode || '') + '</strong>' +
-                        (folioTxt ? (' · Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>') : '') +
-                        (qidTxt ? (' (ID ' + escapeHtml(qidTxt) + ')') : '') +
+                    '<div style="color:#E1DBC5;font-size:11px;margin-top:3px;">Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>' +
+                        (qidTxt ? (' (ID ERP ' + escapeHtml(qidTxt) + ')') : '') +
                     '</div>' +
                     '<div style="color:#E1DBC5;font-size:11px;margin-top:2px;">Fecha: ' + escapeHtml(todayStr) + ' · ' + escapeHtml(payload.erpStore) + '</div>' +
                 '</div>' +
             '</div>' +
             '<div class="box" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
                 '<div><strong>' + (payload.isProyecto ? 'Proyecto / Cliente:' : 'Cliente / Prospecto:') + '</strong> ' + escapeHtml(payload.clientName) + '</div>' +
-                '<div><strong>Origen / Modalidad:</strong> ' + escapeHtml(payload.isProyecto ? 'PROYECTO' : ('SUCURSAL (' + (payload.branchLabel || payload.erpStore) + ')')) + '</div>' +
+                '<div><strong>Tienda / Bodega S Mueblería:</strong> ' + escapeHtml(payload.erpStore) + '</div>' +
                 '<div><strong>Teléfono:</strong> ' + escapeHtml(payload.clientPhone || 'Por definir') + '</div>' +
                 '<div><strong>Entrega Tentativa:</strong> ' + escapeHtml(payload.deliveryDate) + '</div>' +
-                '<div><strong>Asesor Exclusivo S Mueblería:</strong> ' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</div>' +
-                '<div><strong>Correo Titular:</strong> ' + escapeHtml(payload.advisorEmail || '') + '</div>' +
+                '<div><strong>Asesor S Mueblería:</strong> ' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</div>' +
+                '<div><strong>Correo Cuenta:</strong> ' + escapeHtml(payload.advisorEmail || '') + '</div>' +
                 (payload.notes ? ('<div style="grid-column:span 2;"><strong>Notas:</strong> ' + escapeHtml(payload.notes) + '</div>') : '') +
             '</div>' +
             '<table><thead><tr><th>#</th><th>Imagen</th><th>SKU</th><th style="text-align:left;">Descripción</th><th>Cant.</th><th style="text-align:right;">Precio Lista</th><th>% Desc.</th><th style="text-align:right;">Importe</th></tr></thead>' +
@@ -3313,19 +3898,19 @@
             return;
         }
 
+        const payload = collectQuoteSubmissionPayload(sendToErp);
         const nameInp = document.getElementById('quoteClientNameInput');
         if (nameInp && !cleanStr(nameInp.value)) {
             nameInp.focus();
             renderQuoteStatusBanner(
                 'warn',
                 '<div>Ingresa el <strong>' +
-                    (activeAdvisorSession.isProyecto ? 'Nombre del Proyecto / Cliente' : 'Nombre del Cliente / Prospecto') +
+                    (payload.isProyecto ? 'Nombre del Proyecto / Cliente' : 'Nombre del Cliente / Prospecto') +
                 '</strong> para registrar la cotización.</div>'
             );
             return;
         }
 
-        const payload = collectQuoteSubmissionPayload(sendToErp);
         const btnRev = document.getElementById('btnLoadPlantillaReview');
         const btnSend = document.getElementById('btnSendQuoteErp');
         quoteSubmitInFlight = true;
@@ -3336,10 +3921,10 @@
             'warn',
             '<div class="font-extrabold uppercase">' +
                 (sendToErp
-                    ? ('Enviando ' + (payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización de Sucursal') + ' en vivo a S Mueblería...')
-                    : 'Cargando orden de cotización en revisión en Google Sheets...') +
+                    ? ('Enviando ' + (payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización') + ' en vivo a S Mueblería...')
+                    : 'Cargando cotización en revisión en Google Sheets...') +
             '</div>' +
-            '<div>Orden: <strong>' + escapeHtml(payload.orderCode) + '</strong> · Titular exclusivo: <strong>' + escapeHtml(payload.advisorEmail) + '</strong> (' + escapeHtml(payload.erpStore) + ')</div>'
+            '<div>Tienda / Bodega: <strong>' + escapeHtml(payload.erpStore) + '</strong> · Folio S Mueblería estimado: <strong>' + escapeHtml(payload.orderCode) + '</strong> · Usuario ERP: <strong>' + escapeHtml(payload.erpAdvisorLabel || payload.advisorEmail) + '</strong></div>'
         );
 
         try {
@@ -3349,7 +3934,7 @@
                 renderQuoteStatusBanner(
                     'warn',
                     '<div class="font-extrabold uppercase">Verificación de titular requerida</div>' +
-                    '<div>' + escapeHtml(res.error || 'Confirma tu contraseña personal para emitir esta cotización con tu usuario exclusivo.') + '</div>'
+                    '<div>' + escapeHtml(res.error || 'Confirma tu contraseña personal para emitir esta cotización.') + '</div>'
                 );
                 promptSessionReauth(
                     res.error || 'Confirma tu contraseña personal para emitir tu cotización en vivo en S Mueblería.',
@@ -3359,9 +3944,22 @@
             }
 
             if (res && res.ok) {
-                const assignedOrder = cleanStr(res.orderCode) || payload.orderCode;
-                if (res.nextOrderCode) {
-                    currentNextOrderCode = res.nextOrderCode;
+                if (res.nextFolioByStore) {
+                    applyServerFolioMap(res.nextFolioByStore);
+                }
+                const folioFromRes = cleanStr(res.folio);
+                if (folioFromRes) {
+                    registerObservedFolio(folioFromRes, payload.erpStore);
+                }
+                const assignedFolio = folioFromRes ||
+                    ((res.orderCode && !/^[A-Z]+-\d+$/i.test(String(res.orderCode))) ? cleanStr(res.orderCode) : '') ||
+                    payload.orderCode;
+
+                if (res.nextOrderCode && !/^[A-Z]+-\d+$/i.test(String(res.nextOrderCode))) {
+                    currentNextOrderCode = cleanStr(res.nextOrderCode);
+                    liveNextFolioByStore[String(payload.erpStore).toUpperCase()] = currentNextOrderCode;
+                } else {
+                    currentNextOrderCode = getEstimatedStoreFolio(payload.erpStore, payload.orderPrefix);
                 }
                 if (Array.isArray(res.recentQuotes)) {
                     myRecentQuotesList = res.recentQuotes;
@@ -3371,7 +3969,7 @@
 
                 if (!sendToErp) {
                     lastSubmittedQuoteMeta = {
-                        orderCode: assignedOrder,
+                        orderCode: assignedFolio,
                         folio: '',
                         quoteId: '',
                         createdAt: cleanStr(res.lastSync),
@@ -3379,9 +3977,9 @@
                     };
                     renderQuoteStatusBanner(
                         'ok',
-                        '<div class="font-extrabold uppercase">✓ Orden ' + escapeHtml(assignedOrder) + ' cargada en revisión en Google Sheets</div>' +
-                        '<div>' + (payload.isProyecto ? 'Modalidad: <strong>PROYECTO</strong>' : 'Sucursal: <strong>' + escapeHtml(res.erpStore || payload.erpStore) + '</strong>') +
-                            ' · Usuario exclusivo: <strong>' + escapeHtml(res.erpAdvisor || payload.erpAdvisorLabel) + '</strong></div>' +
+                        '<div class="font-extrabold uppercase">✓ Cotización cargada en revisión en Google Sheets (Serie ' + escapeHtml(payload.orderPrefix) + ')</div>' +
+                        '<div>Tienda / Bodega: <strong>' + escapeHtml(res.erpStore || payload.erpStore) + '</strong>' +
+                            ' · Usuario S Mueblería: <strong>' + escapeHtml(res.erpAdvisor || payload.erpAdvisorLabel) + '</strong></div>' +
                         (res.erpStatus ? ('<div>Estado: ' + escapeHtml(res.erpStatus) + '</div>') : '')
                     );
                     return;
@@ -3389,10 +3987,10 @@
 
                 // Flujo directo 24/7 en vivo hacia sistema.smuebleria.com
                 if (res.sentLiveToErp) {
-                    const folioTxt = cleanStr(res.folio) || ('ID-' + cleanStr(res.quoteId));
+                    const folioTxt = folioFromRes || assignedFolio || ('ID-' + cleanStr(res.quoteId));
                     const qidTxt = cleanStr(res.quoteId);
                     lastSubmittedQuoteMeta = {
-                        orderCode: assignedOrder,
+                        orderCode: folioTxt,
                         folio: folioTxt,
                         quoteId: qidTxt,
                         createdAt: cleanStr(res.lastSync),
@@ -3401,11 +3999,10 @@
                     renderQuoteStatusBanner(
                         'ok',
                         '<div class="font-extrabold uppercase">✓ Cotización creada en vivo en el sistema S Mueblería</div>' +
-                        '<div>Orden ' + (payload.isProyecto ? 'Proyecto' : 'Sucursal') + ': <strong>' + escapeHtml(assignedOrder) + '</strong>' +
-                            ' · Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>' +
+                        '<div>Folio S Mueblería (' + escapeHtml(payload.erpStore) + '): <strong>' + escapeHtml(folioTxt) + '</strong>' +
                             (qidTxt ? (' · ID Cotización ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') +
                         '</div>' +
-                        '<div>Emitida exclusivamente por: <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong> (' + escapeHtml(payload.advisorEmail) + ')</div>' +
+                        '<div>Emitida con usuario S Mueblería: <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong></div>' +
                         '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button></div>'
                     );
                     return;
@@ -3425,17 +4022,19 @@
                 const folioFallback = cleanStr(latest && latest.folio);
                 const qidFallback = cleanStr(latest && latest.quoteId);
                 if (folioFallback || qidFallback) {
+                    if (folioFallback) registerObservedFolio(folioFallback, payload.erpStore);
                     lastSubmittedQuoteMeta = {
-                        orderCode: assignedOrder,
+                        orderCode: folioFallback || assignedFolio,
                         folio: folioFallback,
                         quoteId: qidFallback,
                         createdAt: cleanStr(latest && latest.lastSync),
                         quoteType: payload.quoteType
                     };
+                    populateQuoteAdvisorControls();
                     renderQuoteStatusBanner(
                         'ok',
                         '<div class="font-extrabold uppercase">✓ Cotización registrada en S Mueblería</div>' +
-                        '<div>Orden: <strong>' + escapeHtml(assignedOrder) + '</strong> · Folio S Mueblería: <strong>' + escapeHtml(folioFallback || 'Generado') + '</strong>' +
+                        '<div>Folio S Mueblería: <strong>' + escapeHtml(folioFallback || assignedFolio) + '</strong>' +
                             (qidFallback ? (' · ID Cotización: <strong>' + escapeHtml(qidFallback) + '</strong>') : '') +
                         '</div>'
                     );
@@ -3612,14 +4211,29 @@
             if (rows.length < 3) return;
 
             const nextMap = new Map();
+            let observedAnyFolio = false;
             for (let i = 2; i < rows.length; i++) {
                 const r = rows[i];
                 if (!r || r.length <= 9) continue;
+
+                const folio = r.length > 12 ? cleanStr(r[12]) : '';
+                const comAses = r.length > 19 ? String(r[19] || '') : '';
+                if (folio && registerObservedFolio(folio, '')) {
+                    observedAnyFolio = true;
+                }
+                if (comAses) {
+                    const fMatches = comAses.match(/\b(?:PTC|CCB|DTC|PL|PRO|OUT|CED|ADM)\s*\d{2,7}\b/gi);
+                    if (fMatches) {
+                        for (let fm = 0; fm < fMatches.length; fm++) {
+                            if (registerObservedFolio(fMatches[fm], '')) observedAnyFolio = true;
+                        }
+                    }
+                }
+
                 const sku = cleanStr(r[9]).toUpperCase();
                 const oc = cleanStr(r[3]); // Columna D: Orden de compra
                 if (!sku || !oc || sku === 'CLA00E') continue;
 
-                const folio = r.length > 12 ? cleanStr(r[12]) : '';
                 const cliente = r.length > 15 ? cleanStr(r[15]) : '';
                 const comComp = (r.length > 18 ? cleanStr(r[18]) : '').toUpperCase();
                 if (folio || cliente || comComp.indexOf('NO DISPONIBLE') !== -1 || comComp.indexOf('GARANTIA') !== -1) {
@@ -3628,7 +4242,6 @@
 
                 const rawCant = r.length > 6 ? String(r[6] || '').replace(/,/g, '') : '0';
                 const cant = Math.max(0, Math.floor(Number(rawCant) || 0));
-                const comAses = r.length > 19 ? String(r[19] || '') : '';
                 let reserved = 0;
                 const matches = comAses.match(/\((\d+)\)/g);
                 if (matches) {
@@ -3656,6 +4269,9 @@
             }
             if (nextMap.size > 0) {
                 liveLpptBySku = nextMap;
+            }
+            if (observedAnyFolio && activeAdvisorSession) {
+                populateQuoteAdvisorControls();
             }
         } catch (err) {
             // Conservar último mapa LPPT en memoria si falla la red
