@@ -379,7 +379,7 @@ function populateSkuDatalist() {
         }
 
         async function initializeCatalog() {
-            const CATALOG_BUILD_VERSION = 'creata_catalog_v26_allfotos';
+            const CATALOG_BUILD_VERSION = 'creata_catalog_v27_57clean';
             let sourceList = null;
             const localSaved = await loadCustomProducts();
 

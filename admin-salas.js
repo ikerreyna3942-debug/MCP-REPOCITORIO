@@ -83,6 +83,14 @@
         function analyzeSalaPhotosAndModules() {
             const p = products[currentProdIndex];
             if (!p) return;
+            const isSalaCat = String(p.category || '').toUpperCase().includes('SALA') || /^SALA-|^ARM(MAT|MAR|MON|CAR|DON|DYL|LUG|SHE)/i.test(String(p.id || ''));
+            if (!isSalaCat) {
+                p.sala_modules = [];
+                p.is_multipiece = false;
+                renderSalaModulesUI();
+                showAdminToast('El desglose multi-pieza solo aplica para Salas', 'ℹ️');
+                return;
+            }
             const v = p.variants ? p.variants[currentVariantIndex] : null;
             const g = (v && v.gallery) ? v.gallery : {};
 
@@ -136,6 +144,15 @@
             const panel = document.getElementById('salaModulesAnalyzerPanel');
             const listEl = document.getElementById('salaModulesList');
             if (!panel || !listEl) return;
+
+            const isSalaCat = String(p.category || '').toUpperCase().includes('SALA') || /^SALA-|^ARM(MAT|MAR|MON|CAR|DON|DYL|LUG|SHE)/i.test(String(p.id || ''));
+            if (!isSalaCat) {
+                p.sala_modules = [];
+                p.is_multipiece = false;
+                panel.style.display = 'none';
+                listEl.innerHTML = '';
+                return;
+            }
 
             const catalogMap = getLiveOrKnownSalaCatalog_();
             const upId = String(p.id || '').toUpperCase();

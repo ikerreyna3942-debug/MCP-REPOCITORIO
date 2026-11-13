@@ -745,7 +745,7 @@ function normalizeCategory_(cat) {
   if (c.includes('SILLA') || c.includes('SILL')) return 'SILLAS & SILLONES';
   if (c.includes('COMEDOR') || c.includes('COMED')) return 'COMEDORES';
   if (c.includes('BUFET') || c.includes('CREDEN')) return 'BUFETERAS & CREDENZAS';
-  if (c.includes('CENTRO') || c.includes('LATERAL')) return 'MESAS DE CENTRO';
+  if (c.includes('CENTRO') || c.includes('LATERAL')) return 'MESAS DE CENTRO & LATERALES';
   if (c.includes('REC') || c.includes('CAMA') || c.includes('BUR') || c.includes('CÓMODA') || c.includes('COMODA') || c.includes('CAJONERA')) return 'RECÁMARAS';
   return 'COMPLEMENTOS';
 }
@@ -1204,9 +1204,11 @@ function handleSaveProduct_(p) {
   const v = (p.variants && p.variants[0]) ? p.variants[0] : {};
   const g = v.gallery || {};
   const views = [g.view1 || '', g.view2 || '', g.view3 || '', g.view4 || ''];
-  const allMods = Array.isArray(p.sala_modules) ? p.sala_modules : [];
+  const catNorm = normalizeCategory_(p.category);
+  const isSalaItem = catNorm === 'SALAS & SOFÁS' || /^SALA-|^ARM(MAT|MAR|MON|CAR|DON|DYL|LUG|SHE)/i.test(String(p.id || ''));
+  const allMods = (isSalaItem && Array.isArray(p.sala_modules)) ? p.sala_modules : [];
   const activeMods = allMods.filter((m) => m.checked !== false && Number(m.qty === undefined ? 1 : m.qty) > 0);
-  const isMulti = allMods.length > 1;
+  const isMulti = isSalaItem && allMods.length > 1;
 
   // Actualizar piezas hijas en PIEZAS_MODULOS preservando inventario en K..O y fórmulas en I..J
   const zRows = shPiece.getDataRange().getValues();

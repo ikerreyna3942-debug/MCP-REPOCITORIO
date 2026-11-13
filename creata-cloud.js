@@ -90,7 +90,7 @@ return s.startsWith('data:image/') || s.startsWith('https://') || s.startsWith('
 function bustRepoFotoCache(val) { if (!val || typeof val !== 'string') return '';
 const s = val.trim();
 if (!s || s.startsWith('data:') || s.includes('?')) return s;
-if (/raw\.githubusercontent\.com\/ikerreyna3942-debug\/MCP-REPOCITORIO\/main\/fotos\//i.test(s) || /^(?:\.\/)?fotos\//i.test(s)) { return s + '?v=26'; }
+if (/raw\.githubusercontent\.com\/ikerreyna3942-debug\/MCP-REPOCITORIO\/main\/fotos\//i.test(s) || /^(?:\.\/)?fotos\//i.test(s)) { return s + '?v=27'; }
 return s; }
 const KNOWN_SALA_MODULES_FALLBACK_ = {
 'SALA-CARRARA': [
@@ -150,7 +150,14 @@ const KNOWN_SALA_MODULES_FALLBACK_ = {
 { name: 'Ottoman (Napoli 01)', price: 5011.2, width: '135 cm', depth: '113 cm', height: '48 cm', qty: 1, checked: false, optional: true }
 ]
 };
+function isSalaCategoryProduct_(prod) {
+if (!prod || typeof prod !== 'object') return false;
+const cat = String(prod.category || '').toUpperCase();
+const upId = String(prod.id || '').trim().toUpperCase();
+return cat.includes('SALA') || upId.startsWith('SALA-') || /^ARM(MAT|MAR|MON|CAR|DON|DYL|LUG|SHE)/i.test(upId);
+}
 function resolveModuleBreakdown(prod) { if (!prod || typeof prod !== 'object') return [];
+if (!isSalaCategoryProduct_(prod)) return [];
 if (Array.isArray(prod.sala_modules) && prod.sala_modules.some((m) => (parseFloat(m && m.price) || 0) > 0)) { return prod.sala_modules; }
 const upId = String(prod.id || '').trim().toUpperCase();
 const upName = String(prod.model_name || '').trim().toUpperCase();
@@ -162,6 +169,7 @@ return alias.length >= 4 && upName.includes(alias); });
 return matchKey ? KNOWN_SALA_MODULES_FALLBACK_[matchKey].map((m) => Object.assign({}, m)) : []; }
 function renderModulePricesBox(elOrId, prod, compact = false) { const el = typeof elOrId === 'string' && global.document ? global.document.getElementById(elOrId) : elOrId;
 if (!el) return;
+if (!isSalaCategoryProduct_(prod)) { el.innerHTML = ''; el.classList.add('hidden'); return; }
 const mods = resolveModuleBreakdown(prod).filter((m) => m && (parseFloat(m.price) || 0) > 0);
 if (mods.length <= 1) { el.innerHTML = '';
 el.classList.add('hidden');
@@ -245,9 +253,9 @@ if (linkedFinish) g.finishes = [linkedFinish];
 if (vc.hero_b64 && /-finish-\d+\./i.test(vc.hero_b64) && !g.ambiente && !hasAnyView) { vc.hero_b64 = ''; }
 vc.gallery = g; }
 return vc; }); } else { clone.variants = []; }
-const rawMods = (Array.isArray(clone.sala_modules) && clone.sala_modules.length > 0)
-? clone.sala_modules
-: resolveModuleBreakdown(clone);
+const rawMods = isSalaCategoryProduct_(clone)
+? ((Array.isArray(clone.sala_modules) && clone.sala_modules.length > 0) ? clone.sala_modules : resolveModuleBreakdown(clone))
+: [];
 if (Array.isArray(rawMods) && rawMods.length > 0) {
 clone.sala_modules = rawMods.map((m) => ({ name: scrubForbiddenPublicText(m.name),
 price: parseFloat(m.price) || 0,
@@ -257,7 +265,9 @@ height: m.height || '',
 qty: parseInt(m.qty, 10) || 1,
 checked: m.checked !== false,
 optional: !!m.optional || m.checked === false
-})); } else { clone.sala_modules = []; }
+}));
+clone.is_multipiece = clone.sala_modules.length > 1;
+} else { clone.sala_modules = []; clone.is_multipiece = false; }
 return clone; }
 const parseCurrencyValue = (v) => global.CreataImg.parseCurrencyValue(v);
 const formatCurrencyMXN = (n) => global.CreataImg.formatCurrencyMXN(n);
@@ -606,39 +616,75 @@ const catalogRows = (prodTbl && Array.isArray(prodTbl.rows)) ? prodTbl.rows : []
 catalogRows.forEach((r) => { const id = String(gvizCell(r, 0) || '').trim();
 if (!id || id.toUpperCase() === 'ID_INTERNO') return;
 const upRowId = id.toUpperCase();
+if (seenIds.has(upRowId)) return;
 const estado = String(gvizCell(r, 1) || 'ARCHIVADO').trim().toUpperCase();
 const isArchived = estado !== 'VISIBLE';
-const isDrvStub = upRowId.startsWith('DRV-') && isArchived;
+const isStubRow = (upRowId.startsWith('DRV-') || upRowId.startsWith('IND-')) && isArchived;
+if (isStubRow && mode === 'public') return;
+if (mode === 'public' && isArchived) return;
 seenIds.add(upRowId);
+const baseMatchById = baseById[upRowId] || null;
+const indivExact = (master.indivBySku[upRowId] && master.indivBySku[upRowId][0]) ? master.indivBySku[upRowId][0] : null;
+let modelName = scrubForbiddenPublicText(String(gvizCell(r, 4) || '').trim());
+if (!modelName && baseMatchById && baseMatchById.model_name) modelName = scrubForbiddenPublicText(String(baseMatchById.model_name));
+if (!modelName) return;
+if (baseMatchById && baseMatchById.model_name) {
+const authModel = scrubForbiddenPublicText(String(baseMatchById.model_name));
+if (authModel && modelName.toUpperCase() !== authModel.toUpperCase()) {
+const wrongOther = baseByModel[modelName.toUpperCase()];
+if (wrongOther && String(wrongOther.id || '').toUpperCase() !== upRowId) { modelName = authModel; }
+}
+}
+const prov = String(gvizCell(r, 2) || (baseMatchById && baseMatchById.provider_abbr) || 'CREATA').trim();
+let cat = normalizeCategoryClient_(gvizCell(r, 5) || (baseMatchById && baseMatchById.category));
+if (baseMatchById && baseMatchById.category) cat = normalizeCategoryClient_(baseMatchById.category);
+const isSalaItem = isSalaCategoryProduct_({ id: upRowId, category: cat });
+const sKey = isSalaItem ? matchSalaKeyForProduct_(modelName, id, master.salasById) : '';
 let sku = String(gvizCell(r, 3) || '').trim();
 if (upRowId === 'CVVSALLEXPROL' && /CVVSALLUN|CVVSALPIE/i.test(sku)) { sku = 'CVVSALLEXPROL'; }
-if (!isDrvStub) {
-sku.split('/').forEach((s) => { if (s.trim()) seenSkus.add(s.trim().toUpperCase()); }); }
-const modelName = scrubForbiddenPublicText(String(gvizCell(r, 4) || '').trim());
-if (!modelName) return;
-if (!isDrvStub) seenModels.add(modelName.toUpperCase());
-if (mode === 'public' && isArchived) return;
-const prov = String(gvizCell(r, 2) || 'CREATA').trim();
-const cat = normalizeCategoryClient_(gvizCell(r, 5));
-const isMulti = String(gvizCell(r, 6) || '').trim().toUpperCase() === 'SI';
-const width = fmtMeasureClient_(gvizCell(r, 8), 'cm');
-const depth = fmtMeasureClient_(gvizCell(r, 9), 'cm');
-const height = fmtMeasureClient_(gvizCell(r, 10), 'cm');
-const seat = fmtMeasureClient_(gvizCell(r, 11), 'cm');
-const pkgRaw = String(gvizCell(r, 12) || '1').trim();
-const packages = /bulto|pieza/i.test(pkgRaw) ? pkgRaw : `${pkgRaw} bultos`;
-const volume = fmtMeasureClient_(gvizCell(r, 13), 'm³');
+if (!isSalaItem && sku.includes('/')) {
+const authSku = (baseMatchById && baseMatchById.sku) ? String(baseMatchById.sku).trim() : '';
+if (authSku) { sku = authSku; } else if (indivExact) { sku = upRowId; }
+}
+if (!isStubRow) {
+sku.split('/').forEach((s) => { if (s.trim()) seenSkus.add(s.trim().toUpperCase()); });
+seenModels.add(modelName.toUpperCase());
+}
+const nonSeatCats = new Set(['RECÁMARAS', 'BUFETERAS & CREDENZAS', 'MESAS DE CENTRO & LATERALES', 'COMEDORES', 'COMPLEMENTOS']);
+let width = fmtMeasureClient_(gvizCell(r, 8), 'cm') || (baseMatchById && baseMatchById.width) || (indivExact && indivExact.width) || '';
+let depth = fmtMeasureClient_(gvizCell(r, 9), 'cm') || (baseMatchById && baseMatchById.depth) || (indivExact && indivExact.depth) || '';
+let height = fmtMeasureClient_(gvizCell(r, 10), 'cm') || (baseMatchById && baseMatchById.height) || (indivExact && indivExact.height) || '';
+let seat = nonSeatCats.has(cat) ? '' : (fmtMeasureClient_(gvizCell(r, 11), 'cm') || (baseMatchById && baseMatchById.seat) || (indivExact && indivExact.seat) || '');
+const pkgRaw = String(gvizCell(r, 12) || '').trim();
+let packages = pkgRaw ? (/bulto|pieza/i.test(pkgRaw) ? pkgRaw : `${pkgRaw} bultos`) : '1 bulto';
+if (indivExact && indivExact.packages && (!pkgRaw || /^1(\s*bultos?)?$/i.test(packages))) { packages = indivExact.packages; }
+else if (baseMatchById && baseMatchById.packages && (!pkgRaw || /^1(\s*bultos?)?$/i.test(packages))) { packages = baseMatchById.packages; }
+let volume = fmtMeasureClient_(gvizCell(r, 13), 'm³') || (baseMatchById && baseMatchById.volume) || (indivExact && indivExact.volume) || '';
 let priceNum = parseCurrencyValue(gvizCell(r, 14));
-const materials = scrubForbiddenPublicText(String(gvizCell(r, 15) || '').trim());
-const driveUrl = resolveDriveUrlClient_(gvizCell(r, 16), id, sku);
-let heroUrl = isValidPhotoUrl(String(gvizCell(r, 17) || '')) ? String(gvizCell(r, 17)).trim() : '';
-const ambUrl = isValidPhotoUrl(String(gvizCell(r, 18) || '')) ? String(gvizCell(r, 18)).trim() : '';
-let finUrl = isValidPhotoUrl(String(gvizCell(r, 19) || '')) ? String(gvizCell(r, 19)).trim() : '';
+if (!sKey && indivExact && indivExact.priceNum > 0) { priceNum = indivExact.priceNum; }
+else if (!sKey && priceNum <= 0 && baseMatchById && baseMatchById.price) { priceNum = parseCurrencyValue(baseMatchById.price); }
+let materials = scrubForbiddenPublicText(String(gvizCell(r, 15) || '').trim());
+if ((!materials || /100\s*%\s*POLI[EÉ]STE\b(?!R)/i.test(materials)) && baseMatchById && baseMatchById.materials) {
+materials = scrubForbiddenPublicText(String(baseMatchById.materials));
+}
+let driveUrl = resolveDriveUrlClient_(gvizCell(r, 16), id, sku);
+if (baseMatchById && baseMatchById.drive_ficha_url) { driveUrl = baseMatchById.drive_ficha_url; }
+else if (!driveUrl && indivExact && indivExact.driveUrl) { driveUrl = indivExact.driveUrl; }
+const baseMatch = baseMatchById || baseByModel[modelName.toUpperCase()] || null;
+const baseVar0 = (baseMatch && Array.isArray(baseMatch.variants) && baseMatch.variants[0]) ? baseMatch.variants[0] : {};
+const baseGal0 = (baseVar0 && baseVar0.gallery && typeof baseVar0.gallery === 'object') ? baseVar0.gallery : {};
+let heroUrl = isValidPhotoUrl(String(gvizCell(r, 17) || '')) ? String(gvizCell(r, 17)).trim() : (isValidPhotoUrl(baseVar0.hero_b64) ? String(baseVar0.hero_b64).trim() : '');
+const ambUrl = isValidPhotoUrl(String(gvizCell(r, 18) || '')) ? String(gvizCell(r, 18)).trim() : (isValidPhotoUrl(baseGal0.ambiente) ? String(baseGal0.ambiente).trim() : '');
+let finUrl = isValidPhotoUrl(String(gvizCell(r, 19) || '')) ? String(gvizCell(r, 19)).trim() : (isValidPhotoUrl(baseVar0.swatch_img) ? String(baseVar0.swatch_img).trim() : '');
 let viewsArr = [];
 try { const rawJson = String(gvizCell(r, 20) || '[]').trim();
 const parsedV = JSON.parse(rawJson || '[]');
 if (Array.isArray(parsedV)) {
 viewsArr = parsedV.map((u) => (isValidPhotoUrl(String(u || '')) ? String(u).trim() : '')); } } catch (e) {}
+for (let vi = 0; vi < 4; vi++) {
+const bk = `view${vi + 1}`;
+if (!viewsArr[vi] && isValidPhotoUrl(baseGal0[bk])) viewsArr[vi] = String(baseGal0[bk]).trim();
+}
 const hasAnyViewArr = viewsArr.some(Boolean);
 if (heroUrl && /-finish-\d+\./i.test(heroUrl) && !ambUrl && !hasAnyViewArr) { if (!finUrl) finUrl = heroUrl;
 heroUrl = ''; }
@@ -649,14 +695,11 @@ if (rawMetaCell.startsWith('{')) {
 try { const parsedMeta = JSON.parse(rawMetaCell);
 if (parsedMeta && parsedMeta._cm) { unpackedDriveId = String(parsedMeta.did || '');
 if (Array.isArray(parsedMeta.vars) && parsedMeta.vars.length > 0) { savedMetaVars = parsedMeta.vars; } } } catch (e) {} }
-const baseMatch = baseById[id.toUpperCase()] || baseByModel[modelName.toUpperCase()] || null;
-const baseVar0 = (baseMatch && Array.isArray(baseMatch.variants) && baseMatch.variants[0]) ? baseMatch.variants[0] : {};
 const prodInv = {};
 invCols.forEach((locName, idx) => { const rawInv = gvizCell(r, 23 + idx);
 if (rawInv !== '' && rawInv !== null && rawInv !== undefined) { const n = Number(rawInv);
 if (!isNaN(n) && n > 0) prodInv[locName] = n; } });
-let mods = piecesByParent[id] ? piecesByParent[id].slice() : [];
-const sKey = matchSalaKeyForProduct_(modelName, id, master.salasById);
+let mods = (isSalaItem && piecesByParent[id]) ? piecesByParent[id].slice() : [];
 if (sKey && master.salasById[sKey]) { usedSalasInCat[sKey] = true;
 const masterPieces = master.salasById[sKey].pieces || [];
 if (masterPieces.length > 0) { const savedBySku = {};
@@ -667,42 +710,75 @@ return Object.assign({}, mp, { checked: sv.checked,
 qty: sv.qty || mp.qty }); }); }
 if (mods.length > 0) { sku = mods.map((m) => m.sku).filter(Boolean).join(' / ') || sku;
 mods.forEach((m) => { if (m.sku) seenSkus.add(m.sku); }); }
-if (priceNum <= 0 && master.salasById[sKey].totalPrice > 0) { priceNum = master.salasById[sKey].totalPrice; } }
+if (master.salasById[sKey].totalPrice > 0) { priceNum = master.salasById[sKey].totalPrice; } }
+else if (!isSalaItem) { mods = []; }
+const isMulti = isSalaItem && mods.length > 1;
+const clampHeroScale_ = (val) => { const n = Number(val) || 1; return (n < 0.78 || n > 1.35) ? 1 : n; };
+const sanitizeSlotScales_ = (ssObj) => {
+if (!ssObj || typeof ssObj !== 'object') return {};
+const clean = {};
+Object.keys(ssObj).forEach((k) => { const v = Number(ssObj[k]) || 1;
+if (k === 'ambiente' && (v > 1.35 || v < 0.8)) return;
+if (v >= 0.75 && v <= 1.6) clean[k] = v; });
+return clean;
+};
+const sanitizeSlotPos_ = (spObj, ssClean) => {
+if (!spObj || typeof spObj !== 'object') return {};
+const clean = {};
+Object.keys(spObj).forEach((k) => { if (k === 'ambiente' && !ssClean.ambiente) return;
+const p = spObj[k];
+if (p && typeof p === 'object') {
+const px = Number(p.x) || 0; const py = Number(p.y) || 0;
+if (Math.abs(px) <= 30 && Math.abs(py) <= 30) clean[k] = { x: px, y: py };
+} });
+return clean;
+};
 let builtVariants = [];
 if (savedMetaVars && savedMetaVars.length > 0) {
 builtVariants = savedMetaVars.map((sv, vIdx) => { const isFirst = vIdx === 0;
 const baseVarIdx = (baseMatch && Array.isArray(baseMatch.variants) && baseMatch.variants[vIdx]) ? baseMatch.variants[vIdx] : baseVar0;
-const ajHit = resolveAjFinishClient_(id, modelName, sku, sKey, vIdx, baseVarIdx && baseVarIdx.sku);
+const baseGalIdx = (baseVarIdx && baseVarIdx.gallery && typeof baseVarIdx.gallery === 'object') ? baseVarIdx.gallery : {};
+const vSku = (baseVarIdx && baseVarIdx.sku) ? String(baseVarIdx.sku).trim().toUpperCase() : (isFirst ? upRowId : '');
+const vIndiv = (vSku && master.indivBySku[vSku] && master.indivBySku[vSku][0]) ? master.indivBySku[vSku][0] : null;
+const ajHit = resolveAjFinishClient_(id, modelName, sku, sKey, vIdx, vSku);
 const rawLblCandidate = (sv.cl && !/^(ACABADO FICHA T[EÉ]CNICA|OPCI[OÓ]N\s*\d*|EST[AÁ]NDAR|ACABADO|ACABADO OFICIAL)$/i.test(String(sv.cl).trim()))
 ? sv.cl
 : ((ajHit && ajHit.label) || inferColorLabelFromData(sv.cl, sv.mat || materials, baseVarIdx ? baseVarIdx.color_label : ''));
 const vLabel = cleanFinishLabelClient_(rawLblCandidate, modelName) || (ajHit && ajHit.label) || 'NATURAL';
-const vType = sv.ft || inferFinishType(vLabel, sv.mat || materials);
+const vType = inferFinishType(vLabel, sv.mat || materials) || sv.ft || 'TELA';
 const savedFinish = isValidPhotoUrl(sv.sw || '') ? sv.sw : (isValidPhotoUrl(sv.fin || '') ? sv.fin : (isFirst ? finUrl : ''));
-const linkedFinish = savedFinish || (ajHit && ajHit.img) || '';
-const vHeroRaw = isValidPhotoUrl(sv.hero || '') ? sv.hero : (isFirst ? heroUrl : '');
-const vAmbRaw = isValidPhotoUrl(sv.amb || '') ? sv.amb : (isFirst ? ambUrl : '');
+const linkedFinish = savedFinish || (baseVarIdx && isValidPhotoUrl(baseVarIdx.swatch_img) ? baseVarIdx.swatch_img : '') || (ajHit && ajHit.img) || '';
+const vHeroRaw = isValidPhotoUrl(sv.hero || '') ? sv.hero : (isFirst ? heroUrl : (baseVarIdx && isValidPhotoUrl(baseVarIdx.hero_b64) ? baseVarIdx.hero_b64 : ''));
+const vAmbRaw = isValidPhotoUrl(sv.amb || '') ? sv.amb : (isFirst ? ambUrl : (isValidPhotoUrl(baseGalIdx.ambiente) ? baseGalIdx.ambiente : ''));
 const vHero = (vHeroRaw && /-finish-\d+\./i.test(vHeroRaw) && !vAmbRaw) ? '' : vHeroRaw;
-const vViews = Array.isArray(sv.vw) ? sv.vw.map((u) => (isValidPhotoUrl(String(u || '')) ? String(u).trim() : '')) : (isFirst ? [viewsArr[0] || '', viewsArr[1] || '', viewsArr[2] || '', viewsArr[3] || ''] : ['', '', '', '']);
+const rawVw = Array.isArray(sv.vw) ? sv.vw.map((u) => (isValidPhotoUrl(String(u || '')) ? String(u).trim() : '')) : (isFirst ? [viewsArr[0] || '', viewsArr[1] || '', viewsArr[2] || '', viewsArr[3] || ''] : ['', '', '', '']);
+const vViews = [0, 1, 2, 3].map((i) => rawVw[i] || (isValidPhotoUrl(baseGalIdx[`view${i + 1}`]) ? String(baseGalIdx[`view${i + 1}`]).trim() : ''));
+const ssClean = sanitizeSlotScales_(sv.ss);
+const spClean = sanitizeSlotPos_(sv.sp, ssClean);
+const vPriceNum = (!sKey && vIndiv && vIndiv.priceNum > 0) ? vIndiv.priceNum : (baseVarIdx && baseVarIdx.price ? parseCurrencyValue(baseVarIdx.price) : priceNum);
+const vDriveUrl = (baseVarIdx && baseVarIdx.drive_ficha_url) ? baseVarIdx.drive_ficha_url : (sv.du && !baseMatchById ? sv.du : driveUrl);
+const vMatRaw = (sv.mat !== undefined && !/100\s*%\s*POLI[EÉ]STE\b(?!R)/i.test(String(sv.mat))) ? scrubForbiddenPublicText(sv.mat) : '';
 return { id: `${id}-v${vIdx + 1}`,
+sku: vSku || undefined,
 name: modelName,
+price: formatCurrencyMXN(vPriceNum > 0 ? vPriceNum : priceNum),
 finish_type: vType,
 color_label: vLabel,
 swatch_hex: sv.hex || baseVar0.swatch_hex || (vType === 'MADERA' ? '#A2703F' : '#A38251'),
 swatch_img: linkedFinish,
 hero_b64: vHero,
-hero_scale: Number(sv.hs) || 1,
+hero_scale: clampHeroScale_(sv.hs),
 hero_pos: (sv.hp && typeof sv.hp === 'object') ? { x: Number(sv.hp.x) || 0, y: Number(sv.hp.y) || 0 } : { x: 0, y: 0 },
-slot_scales: (sv.ss && typeof sv.ss === 'object') ? sv.ss : {},
-slot_pos: (sv.sp && typeof sv.sp === 'object') ? sv.sp : {},
-width: sv.w !== undefined ? sv.w : (isFirst ? width : ''),
-depth: sv.d !== undefined ? sv.d : (isFirst ? depth : ''),
-height: sv.h !== undefined ? sv.h : (isFirst ? height : ''),
-seat: sv.s !== undefined ? sv.s : (isFirst ? seat : ''),
-packages: sv.pk !== undefined ? sv.pk : (isFirst ? packages : ''),
-volume: sv.vl !== undefined ? sv.vl : (isFirst ? volume : ''),
-materials: sv.mat !== undefined ? scrubForbiddenPublicText(sv.mat) : (isFirst ? materials : ''),
-drive_ficha_url: sv.du || driveUrl,
+slot_scales: ssClean,
+slot_pos: spClean,
+width: sv.w || (isFirst ? width : (baseVarIdx && baseVarIdx.width) || width),
+depth: sv.d || (isFirst ? depth : (baseVarIdx && baseVarIdx.depth) || depth),
+height: sv.h || (isFirst ? height : (baseVarIdx && baseVarIdx.height) || height),
+seat: nonSeatCats.has(cat) ? '' : (sv.s || (isFirst ? seat : (baseVarIdx && baseVarIdx.seat) || seat)),
+packages: (indivExact && indivExact.packages) ? packages : (sv.pk && !/^1(\s*bultos?)?$/i.test(String(sv.pk)) ? sv.pk : packages),
+volume: sv.vl || (isFirst ? volume : (baseVarIdx && baseVarIdx.volume) || volume),
+materials: vMatRaw || (baseVarIdx && baseVarIdx.materials ? scrubForbiddenPublicText(baseVarIdx.materials) : materials),
+drive_ficha_url: vDriveUrl,
 gallery: { ambiente: vAmbRaw,
 finish: linkedFinish,
 finishes: linkedFinish ? [linkedFinish] : [],
@@ -718,6 +794,7 @@ const resolvedType = baseVar0.finish_type || inferFinishType(resolvedLabel, mate
 const resolvedFinUrl = finUrl || (ajHit0 && ajHit0.img) || '';
 builtVariants = [{ id: `${id}-v1`,
 name: modelName,
+price: formatCurrencyMXN(priceNum),
 finish_type: resolvedType,
 color_label: resolvedLabel,
 swatch_hex: baseVar0.swatch_hex || (resolvedType === 'MADERA' ? '#A2703F' : '#A38251'),
@@ -751,7 +828,7 @@ provider_abbr: prov,
 provider: prov,
 model_name: modelName,
 category: cat,
-is_multipiece: isMulti || mods.length > 1,
+is_multipiece: isMulti,
 width: width,
 depth: depth,
 height: height,
@@ -787,12 +864,22 @@ if (modelName) seenModels.add(modelName.toUpperCase());
 if (Array.isArray(clone.variants)) {
 clone.variants.forEach((v, vIdx) => {
 const vgOrig = (v && v.gallery && typeof v.gallery === 'object') ? v.gallery : {};
-const ajHit = resolveAjFinishClient_(pid, modelName, rawSku, '', vIdx, v && v.sku);
-const hasRepoSwatch = isValidPhotoUrl(v.swatch_img) && /\/fotos\/|^fotos\//i.test(String(v.swatch_img));
-const finImg = (hasRepoSwatch ? v.swatch_img : '') || (ajHit && ajHit.img) || (isValidPhotoUrl(v.swatch_img) ? v.swatch_img : '');
-const rawLbl = (ajHit && ajHit.label) || inferColorLabelFromData(v.color_label, v.materials || clone.materials, v.color_label);
+let inferredVarSku = String((v && v.sku) || '').trim().toUpperCase();
+if (!inferredVarSku) {
+const photoSample = String(v.hero_b64 || vgOrig.view1 || '').trim();
+const mFotoSku = photoSample.match(/\/fotos\/([a-z0-9-]+)-(?:hero|view\d|ambiente|finish)/i);
+if (mFotoSku && mFotoSku[1]) inferredVarSku = mFotoSku[1].toUpperCase();
+}
+const vSkuLookup = inferredVarSku || skuParts[vIdx] || pid.toUpperCase();
+const vIndivHit = (master.indivBySku[vSkuLookup] && master.indivBySku[vSkuLookup][0]) ? master.indivBySku[vSkuLookup][0] : null;
+if (vIndivHit && vIndivHit.priceNum > 0) { v.price = formatCurrencyMXN(vIndivHit.priceNum); }
+const ajHit = resolveAjFinishClient_(vIdx === 0 ? pid : vSkuLookup, modelName, vSkuLookup, '', vIdx, vSkuLookup);
+const hasValidOrigSwatch = isValidPhotoUrl(v.swatch_img);
+const finImg = hasValidOrigSwatch ? v.swatch_img : ((ajHit && ajHit.img) || '');
+const hasExplicitLabel = v.color_label && !/^(ACABADO FICHA T[EÉ]CNICA|OPCI[OÓ]N\s*\d*|EST[AÁ]NDAR|ACABADO|ACABADO OFICIAL|NATURAL)$/i.test(String(v.color_label).trim());
+const rawLbl = hasExplicitLabel ? v.color_label : ((ajHit && ajHit.label) || inferColorLabelFromData(v.color_label, v.materials || clone.materials, v.color_label));
 v.color_label = cleanFinishLabelClient_(rawLbl, modelName) || 'NATURAL';
-v.finish_type = v.finish_type || inferFinishType(v.color_label, v.materials || clone.materials);
+v.finish_type = inferFinishType(v.color_label, v.materials || clone.materials) || v.finish_type || 'TELA';
 const rawHeroOrig = (isValidPhotoUrl(v.hero_b64) && v.hero_b64 !== finImg && !/-finish(?:-\d+)?\./i.test(v.hero_b64)) ? String(v.hero_b64).trim() : '';
 const ambOrig = isValidPhotoUrl(vgOrig.ambiente) ? String(vgOrig.ambiente).trim() : '';
 const v1Orig = isValidPhotoUrl(vgOrig.view1) ? String(vgOrig.view1).trim() : '';
@@ -806,13 +893,13 @@ v.slot_scales = (v.slot_scales && typeof v.slot_scales === 'object') ? v.slot_sc
 v.slot_pos = (v.slot_pos && typeof v.slot_pos === 'object') ? v.slot_pos : {};
 v.swatch_img = finImg;
 v.gallery = { ambiente: ambOrig, finish: finImg, finishes: finImg ? [finImg] : [], fabric: finImg, view1: v1Orig, view2: v2Orig, view3: v3Orig, view4: v4Orig, all_views: [v1Orig, v2Orig, v3Orig, v4Orig] }; }); }
-skuParts.forEach((sk) => { seenSkus.add(sk);
+skuParts.forEach((sk, skIdx) => { seenSkus.add(sk);
 if (master.indivBySku[sk]) {
 master.indivBySku[sk].forEach((m, mIdx) => { usedIndivRows[m.rowIdx] = true;
-if (mIdx === 0) { if (m.priceNum > 0) clone.price = formatCurrencyMXN(m.priceNum);
+if (skIdx === 0 && mIdx === 0) { if (m.priceNum > 0) clone.price = formatCurrencyMXN(m.priceNum);
 if (!clone.drive_ficha_url && m.driveUrl) clone.drive_ficha_url = m.driveUrl;
 clone.inventory = m.inventory || {}; } }); } });
-const sKey = matchSalaKeyForProduct_(modelName, pid, master.salasById);
+const sKey = isSalaCategoryProduct_(clone) ? matchSalaKeyForProduct_(modelName, pid, master.salasById) : '';
 if (sKey && master.salasById[sKey]) { usedSalasInCat[sKey] = true;
 const sdata = master.salasById[sKey];
 const pList = sdata.pieces.map((x) => Object.assign({}, x));

@@ -45,11 +45,14 @@ function updateModalView(resetOffset = true) {
                 if (slotBox) slotBox.classList.toggle('has-photo', valid);
                 if (imgEl) {
                     if (valid) {
+                        const cleanSrc = String(src).trim();
+                        const isCutoutFallback = slotPrefix === 'ambiente' && /-(hero|view[1-4])(?:-\d+)?\.(?:webp|png)$/i.test(cleanSrc);
+                        const useCoverFit = slotPrefix === 'finish' || (slotPrefix === 'ambiente' && !isCutoutFallback);
                         imgEl.src = (window.CreataCloud && window.CreataCloud.bustRepoFotoCache)
-                            ? window.CreataCloud.bustRepoFotoCache(src)
-                            : src;
+                            ? window.CreataCloud.bustRepoFotoCache(cleanSrc)
+                            : cleanSrc;
                         imgEl.style.display = 'block';
-                        if (slotPrefix === 'finish') {
+                        if (useCoverFit) {
                             if (sc < 0.995) {
                                 imgEl.style.objectFit = 'contain';
                                 imgEl.style.objectPosition = '50% 50%';
@@ -64,6 +67,7 @@ function updateModalView(resetOffset = true) {
                                 imgEl.style.transform = sc > 1.005 ? `scale(${sc})` : '';
                             }
                         } else {
+                            imgEl.style.objectFit = 'contain';
                             imgEl.style.objectPosition = '50% 50%';
                             imgEl.style.transformOrigin = '50% 50%';
                             imgEl.style.transform = (px !== 0 || py !== 0 || sc !== 1)
@@ -76,7 +80,7 @@ function updateModalView(resetOffset = true) {
                         imgEl.style.transform = '';
                         imgEl.style.objectPosition = '50% 50%';
                         imgEl.style.transformOrigin = '50% 50%';
-                        if (slotPrefix === 'finish') imgEl.style.objectFit = 'cover';
+                        if (slotPrefix === 'finish' || slotPrefix === 'ambiente') imgEl.style.objectFit = 'cover';
                     }
                 }
                 if (phEl) phEl.style.display = valid ? 'none' : 'flex';

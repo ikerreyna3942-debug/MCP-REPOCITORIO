@@ -1215,7 +1215,9 @@ async function extractImageFromDropEvent(e) {
             if (!v || !v.gallery) return;
 
             let targetSrc = '';
-            if (slotType === 'ambiente') {
+            if (slotType === 'hero') {
+                targetSrc = v.hero_b64 || v.gallery.view1 || v.gallery.ambiente || '';
+            } else if (slotType === 'ambiente') {
                 targetSrc = v.gallery.ambiente || v.hero_b64 || '';
             } else if (slotType === 'finish') {
                 targetSrc = (v.gallery.finishes && v.gallery.finishes.length > 0) ? v.gallery.finishes[0] : (v.gallery.fabric || '');
@@ -1234,7 +1236,9 @@ async function extractImageFromDropEvent(e) {
             const flippedB64 = await flipBase64Image(targetSrc);
             const { finalSrc } = await uploadSlotPhotoToCloudIfConfigured(p, currentVariantIndex, slotType, flippedB64);
 
-            if (slotType === 'ambiente') {
+            if (slotType === 'hero') {
+                v.hero_b64 = finalSrc;
+            } else if (slotType === 'ambiente') {
                 v.gallery.ambiente = finalSrc;
                 if (v.hero_b64 === targetSrc) v.hero_b64 = finalSrc;
             } else if (slotType === 'finish') {

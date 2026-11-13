@@ -482,11 +482,14 @@
                 if (!imgEl) return;
 
                 if (valid) {
-                    imgEl.src = bustFotoModal(String(src).trim());
+                    const cleanSrc = String(src).trim();
+                    const isCutoutFallback = slotPrefix === 'ambiente' && /-(hero|view[1-4])(?:-\d+)?\.(?:webp|png)$/i.test(cleanSrc);
+                    const useCoverFit = slotPrefix === 'finish' || (slotPrefix === 'ambiente' && !isCutoutFallback);
+                    imgEl.src = bustFotoModal(cleanSrc);
                     imgEl.style.display = 'block';
                     imgEl.style.opacity = '1';
                     imgEl.style.transition = '';
-                    if (slotPrefix === 'finish') {
+                    if (useCoverFit) {
                         imgEl.className = 'w-full h-full object-cover';
                         if (sc < 0.995) {
                             imgEl.style.objectFit = 'contain';
@@ -516,7 +519,7 @@
                     imgEl.style.transform = '';
                     imgEl.style.objectPosition = '50% 50%';
                     imgEl.style.transformOrigin = '50% 50%';
-                    if (slotPrefix === 'finish') imgEl.style.objectFit = 'cover';
+                    if (slotPrefix === 'finish' || slotPrefix === 'ambiente') imgEl.style.objectFit = 'cover';
                 }
             };
 
