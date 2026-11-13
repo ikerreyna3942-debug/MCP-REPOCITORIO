@@ -3307,6 +3307,19 @@ function performSingleErpHttpLogin_(user, pass, loginUrl) {
   formFields[emailFieldName] = user;
   formFields[passFieldName] = pass;
 
+  // Los campos de Login.aspx son Telerik RadTextBox: el servidor toma el valor desde el JSON
+  // oculto "<campo>_ClientState" (lo llena el navegador al teclear). Sin él, el POST ignora
+  // usuario/contraseña y la renovación automática del token 24h nunca ocurre.
+  const buildRadClientState_ = (v) => JSON.stringify({
+    enabled: true,
+    emptyMessage: '',
+    validationText: String(v),
+    valueAsString: String(v),
+    lastSetTextBoxValue: String(v)
+  });
+  formFields[emailFieldName + '_ClientState'] = buildRadClientState_(user);
+  formFields[passFieldName + '_ClientState'] = buildRadClientState_(pass);
+
   if (hasSubmitInput && submitFieldType === 'image') {
     formFields[submitFieldName + '.x'] = '12';
     formFields[submitFieldName + '.y'] = '12';
@@ -3433,6 +3446,16 @@ function loginErpViaHttp_(cfg) {
     throw new Error('No se encontraron credenciales ERP en ScriptProperties ni en la carpeta privada PRESENTACION_DISENO.');
   }
 
+  // Evitar intentos repetidos de login fallido dentro del mismo ciclo (protege la cuenta en S Mueblería)
+  let loginCache = null;
+  try { loginCache = CacheService.getScriptCache(); } catch (ce) {}
+  if (loginCache && loginCache.get('erp_login_fail_v1') === '1') {
+    throw new Error(
+      'La sesión de 24h de S Mueblería venció y el último intento de renovación automática fue rechazado hace menos de 4 minutos. ' +
+      'Se reintentará en el siguiente ciclo.'
+    );
+  }
+
   let attemptRes = performSingleErpHttpLogin_(cfg.user, cfg.pass, cfg.loginUrl);
 
   // Si falló, verificar si el archivo .env en Google Drive tiene credenciales actualizadas respecto a ScriptProperties
@@ -3461,6 +3484,7 @@ function loginErpViaHttp_(cfg) {
   const tokenFound = attemptRes.token;
   const jar = attemptRes.jar || {};
   if (!tokenFound) {
+    try { if (loginCache) loginCache.put('erp_login_fail_v1', '1', 240); } catch (cpe) {}
     throw new Error(
       'La sesión de 24h de S Mueblería venció y Login.aspx rechazó la renovación automática sin navegador. ' +
       'Ejecuta iniciar_servicio_en_vivo.bat en tu PC o verifica ERP_USER / ERP_PASS en PRESENTACION_DISENO/.env.'
@@ -4664,11 +4688,21 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no inicializada.' };
     }
 
-    // 1) Obtener existencias Bodega y Piso en vivo desde S Mueblería ERP
-    const xmlInv = callSmuebleriaWcf_(
-      'ObtenerProductosInventariosSucursalesTodos',
-      '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro></Filtro>'
-    );
+    // 1) Obtener existencias Bodega y Piso en vivo desde S Mueblería ERP.
+    //    Si el ERP no responde (sesión vencida / sin conexión) NO se detiene la sincronización:
+    //    se conserva el último inventario Bodega/Piso conocido y la LPPT se sigue actualizando.
+    let erpOk = false;
+    let erpError = '';
+    let xmlInv = '';
+    try {
+      xmlInv = callSmuebleriaWcf_(
+        'ObtenerProductosInventariosSucursalesTodos',
+        '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro></Filtro>'
+      );
+    } catch (erpErr) {
+      erpError = String((erpErr && erpErr.message) || erpErr || 'ERP sin respuesta');
+      Logger.log('Aviso ERP S Mueblería (se conserva el último inventario): ' + erpError);
+    }
 
     const invPorSku = {};
     const metaErpSku = {};
@@ -4693,6 +4727,11 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       if (!invPorSku[sku]) invPorSku[sku] = {};
       const prev = invPorSku[sku][sucNorm] || [0, 0];
       invPorSku[sku][sucNorm] = [prev[0] + bod, prev[1] + pis];
+    }
+    // Solo se considera inventario válido si el ERP devolvió productos (evita poner todo en 0)
+    erpOk = Object.keys(invPorSku).length > 0;
+    if (!erpOk && !erpError) {
+      erpError = 'El ERP respondió sin productos de inventario.';
     }
 
     // 2) Tiempos de entrega de INF. PRODUC
@@ -4875,6 +4914,12 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     });
     headersOAv.push('ULTIMA ACTUALIZACION EN VIVO');
 
+    // Si el ERP no respondió, conservar exactamente el último inventario Bodega/Piso escrito (R..AU y AV)
+    const prevOAv = !erpOk && numCatalogRows > 0
+      ? shInv.getRange(3, 15, numCatalogRows, 34).getValues()
+      : null;
+    let ultimoInventarioErp = '';
+
     const outMatrix = [];
     for (let i = 0; i < numCatalogRows; i++) {
       const r = catRange[i];
@@ -4892,6 +4937,22 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       const fechaEst = lpptOk
         ? (cantLppt > 0 ? (fechaLlegadaMap[sku] || 'Sin piezas solicitadas') : 'Sin piezas solicitadas')
         : (r[16] || 'Sin piezas solicitadas');
+
+      if (!erpOk) {
+        const pr = (prevOAv && prevOAv[i]) || new Array(34).fill('');
+        const keepVals = [colDias, cantLppt, fechaEst];
+        for (let c = 3; c < 33; c++) {
+          const n = Number(pr[c]);
+          keepVals.push(isFinite(n) ? n : 0);
+        }
+        const prevTs = pr[33] instanceof Date
+          ? Utilities.formatDate(pr[33], 'America/Cancun', 'dd/MM/yyyy HH:mm:ss')
+          : String(pr[33] || '');
+        if (prevTs && !ultimoInventarioErp) ultimoInventarioErp = prevTs;
+        keepVals.push(prevTs);
+        outMatrix.push(keepVals);
+        continue;
+      }
 
       const sucMap = invPorSku[sku] || {};
       let totBod = 0;
@@ -4913,24 +4974,36 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     }
 
     const heartbeatRow = new Array(33).fill('');
-    heartbeatRow.push('EN VIVO | ' + ahoraStr);
+    heartbeatRow.push(
+      erpOk
+        ? 'EN VIVO | ' + ahoraStr
+        : 'LPPT EN VIVO | ' + ahoraStr + ' | ERP SIN CONEXIÓN (inventario Bodega/Piso del ' + (ultimoInventarioErp || 'último corte') + ')'
+    );
 
     shInv.getRange(1, 15, 1, 34).setValues([headersOAv]);
     shInv.getRange(2, 15, 1, 34).setValues([heartbeatRow]);
-    shInv.getRange(3, 15, outMatrix.length, 34).setValues(outMatrix);
+    if (outMatrix.length > 0) {
+      shInv.getRange(3, 15, outMatrix.length, 34).setValues(outMatrix);
+    }
     asegurarColumnaPrecioListaInventario_(ss, { silentUi: true, force: !!(autoRes && autoRes.added > 0) });
 
     if (!silentUi) {
       try {
         SpreadsheetApp.getUi().alert(
-          'Inventario sincronizado en vivo desde S Mueblería ERP (' + outMatrix.length + ' filas ordenadas A-Z, ' +
-          ((autoRes && autoRes.added) || 0) + ' nuevos SKUs, ' + ahoraStr + ').'
+          erpOk
+            ? 'Inventario sincronizado en vivo desde S Mueblería ERP (' + outMatrix.length + ' filas ordenadas A-Z, ' +
+              ((autoRes && autoRes.added) || 0) + ' nuevos SKUs, ' + ahoraStr + ').'
+            : 'LPPT actualizada (' + ahoraStr + '). S Mueblería no respondió, se conservó el inventario Bodega/Piso del ' +
+              (ultimoInventarioErp || 'último corte') + '.\n\nDetalle: ' + erpError
         );
       } catch (e) {}
     }
 
     return {
-      ok: true,
+      ok: erpOk,
+      erpOk: erpOk,
+      error: erpOk ? undefined : erpError,
+      keptLastInventoryFrom: erpOk ? undefined : (ultimoInventarioErp || ''),
       rowsUpdated: outMatrix.length,
       newSkusAdded: (autoRes && autoRes.added) || 0,
       rowsAutocompleted: (autoRes && autoRes.updated) || 0,

@@ -4592,6 +4592,122 @@
     // ------------------------------------------------------------------------
     let liveSyncInFlight = false;
 
+    // ------------------------------------------------------------------------
+    // RESPALDO SIN CONEXIÓN: último inventario en vivo guardado en este dispositivo
+    // (Bodega/Piso de CEDIS, CASA CREATA, PTC, COLOSIO, PLAYA + LPPT y fecha estimada)
+    // ------------------------------------------------------------------------
+    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v1';
+    const LIVE_OK_TS_KEY = 'creata_inv_live_ok_ts_v1';
+    const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe'];
+    const LIVE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+    let liveCacheSaveTimer = null;
+    let liveSyncFailStreak = 0;
+    let lastLiveOkMs = 0;
+    try { lastLiveOkMs = Number(localStorage.getItem(LIVE_OK_TS_KEY) || 0) || 0; } catch (e) {}
+
+    async function gzipTextToB64(text) {
+        const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+        const buf = new Uint8Array(await new Response(stream).arrayBuffer());
+        let bin = '';
+        const CHUNK = 0x8000;
+        for (let i = 0; i < buf.length; i += CHUNK) {
+            bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+        }
+        return btoa(bin);
+    }
+
+    async function gunzipB64ToText(b64) {
+        const binStr = atob(b64);
+        const bytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+        return await new Response(stream).text();
+    }
+
+    function scheduleSaveLiveInventoryCache(items) {
+        if (typeof CompressionStream === 'undefined' || !Array.isArray(items) || items.length === 0) return;
+        if (liveCacheSaveTimer) clearTimeout(liveCacheSaveTimer);
+        liveCacheSaveTimer = setTimeout(async function () {
+            liveCacheSaveTimer = null;
+            try {
+                const rows = new Array(items.length);
+                for (let i = 0; i < items.length; i++) {
+                    const it = items[i] || {};
+                    const r = LIVE_CACHE_FIELDS.map(k => (it[k] === null || it[k] === undefined) ? '' : it[k]);
+                    r.push(Array.isArray(it.st) ? it.st : []);
+                    rows[i] = r;
+                }
+                const gz = await gzipTextToB64(JSON.stringify({ v: 1, wh: WAREHOUSES, rows: rows }));
+                localStorage.setItem(LIVE_CACHE_KEY, JSON.stringify({ ts: Date.now(), gz: gz }));
+            } catch (e) {
+                // Si el almacenamiento del navegador está lleno, simplemente no se guarda el respaldo
+            }
+        }, 1500);
+    }
+
+    async function restoreLiveInventoryCacheIfAny() {
+        if (typeof DecompressionStream === 'undefined') return false;
+        try {
+            const raw = localStorage.getItem(LIVE_CACHE_KEY);
+            if (!raw) return false;
+            const obj = JSON.parse(raw);
+            if (!obj || !obj.gz || !obj.ts || (Date.now() - Number(obj.ts)) > LIVE_CACHE_MAX_AGE_MS) return false;
+            const data = JSON.parse(await gunzipB64ToText(obj.gz));
+            if (!data || !Array.isArray(data.rows) || !Array.isArray(data.wh)) return false;
+            if (data.wh.join('|') !== WAREHOUSES.join('|')) return false;
+            const items = [];
+            for (let i = 0; i < data.rows.length; i++) {
+                const r = data.rows[i];
+                if (!Array.isArray(r)) continue;
+                const it = {};
+                for (let k = 0; k < LIVE_CACHE_FIELDS.length; k++) it[LIVE_CACHE_FIELDS[k]] = r[k];
+                const st = r[LIVE_CACHE_FIELDS.length];
+                it.st = (Array.isArray(st) && st.length === WAREHOUSES.length) ? st.map(v => Math.max(0, Number(v) || 0)) : emptyStocks();
+                if (cleanStr(it.s)) items.push(it);
+            }
+            if (items.length === 0) return false;
+            allItems = items;
+            window.CREATA_INV_DATA = items;
+            if (!lastLiveOkMs) lastLiveOkMs = Number(obj.ts) || 0;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function formatLiveOkStamp(ms) {
+        if (!ms) return '';
+        const d = new Date(ms);
+        if (isNaN(d.getTime())) return '';
+        return formatDateDMY(d) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+
+    function setLiveConnectionStatus(ok) {
+        let el = document.getElementById('invLiveStatus');
+        if (ok) {
+            liveSyncFailStreak = 0;
+            lastLiveOkMs = Date.now();
+            try { localStorage.setItem(LIVE_OK_TS_KEY, String(lastLiveOkMs)); } catch (e) {}
+            if (el) el.style.display = 'none';
+            return;
+        }
+        liveSyncFailStreak++;
+        const isOffline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+        if (!isOffline && liveSyncFailStreak < 2) return;
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'invLiveStatus';
+            el.setAttribute('role', 'status');
+            el.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:70;max-width:calc(100vw - 24px);' +
+                'padding:8px 14px;border-radius:999px;background:#252C32;color:#FFFFFF;font-size:11px;font-weight:700;' +
+                'letter-spacing:.02em;box-shadow:0 4px 14px rgba(0,0,0,.25);pointer-events:none;';
+            document.body.appendChild(el);
+        }
+        const stamp = formatLiveOkStamp(lastLiveOkMs);
+        el.textContent = 'Sin conexión · mostrando el último inventario guardado' + (stamp ? ' (' + stamp + ')' : '');
+        el.style.display = '';
+    }
+
     function normHeader(h) {
         return String(h || '')
             .normalize('NFD')
@@ -4983,6 +5099,7 @@
             allItems = liveItems;
             window.CREATA_INV_DATA = liveItems;
             indexItemsAndGroups();
+            scheduleSaveLiveInventoryCache(liveItems);
 
             const inp = document.getElementById('invSearchInput');
             applyFilter(inp ? inp.value : '', true);
@@ -5095,8 +5212,11 @@
                 ok = await tryGvizSource(META.sheetId, 'sheet=' + encodeURIComponent(META.tabName || 'INVENTARIO_EN_VIVO'));
             }
             if (!ok) {
-                await tryWebAppLiveSync();
+                ok = await tryWebAppLiveSync();
             }
+            setLiveConnectionStatus(!!ok);
+        } catch (e) {
+            setLiveConnectionStatus(false);
         } finally {
             liveSyncInFlight = false;
         }
@@ -5224,6 +5344,9 @@
         });
 
         await unpackInitialInventoryIfNeeded();
+        // Usar el último inventario en vivo guardado en este dispositivo (sirve si no hay conexión);
+        // en cuanto responde Google Sheets se reemplaza por el inventario en vivo.
+        await restoreLiveInventoryCacheIfAny();
         indexItemsAndGroups();
         lastLiveSignature = computeItemsSignature(allItems);
         updateCartBadge();
@@ -5245,10 +5368,18 @@
         }, 12000);
         window.addEventListener('focus', refreshLiveSheetNow);
         window.addEventListener('online', refreshLiveSheetNow);
+        window.addEventListener('offline', function () {
+            setLiveConnectionStatus(false);
+        });
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') {
                 refreshLiveSheetNow();
             }
         });
+
+        // Abrir inventario.html aun sin internet (solo controla esta página; Catálogo/Admin no se tocan)
+        if ('serviceWorker' in navigator && window.isSecureContext) {
+            navigator.serviceWorker.register('inventario-sw.js', { scope: './inventario' }).catch(function () {});
+        }
     });
 })();
