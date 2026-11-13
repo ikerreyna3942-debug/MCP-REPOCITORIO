@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="catalog-styles.css?v=27">
+    <link rel="stylesheet" href="catalog-styles.css?v=28">
 </head>
 <body>
 
@@ -17,8 +17,10 @@
     <header class="sticky top-0 z-40">
         <div class="max-w-[1408px] mx-auto px-6 pt-6 pb-5 relative">
 
+            <!-- FILA SUPERIOR: EN PC EL LOGO VA ARRIBA A LA DERECHA Y EL BUSCADOR A LA IZQUIERDA (MISMOS TAMAÑOS) -->
+            <div class="header-top-row">
             <!-- LOGO OFICIAL EN BLANCO (INTACTO, CON MAYOR SEPARACIÓN INFERIOR) -->
-            <div class="text-center mb-6">
+            <div class="header-logo-cell text-center mb-6">
                 <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img">
                 <script src="creata-logo.js"></script>
                 <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
@@ -49,6 +51,7 @@
                         title="Limpiar búsqueda"
                     >✕</button>
                 </div>
+            </div>
             </div>
 
             <!-- BARRA DE CATEGORÍAS (20% MÁS PEQUEÑAS) -->
