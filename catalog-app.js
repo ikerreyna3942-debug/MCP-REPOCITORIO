@@ -484,7 +484,8 @@
                 if (valid) {
                     const cleanSrc = String(src).trim();
                     const isCutoutFallback = slotPrefix === 'ambiente' && /-(hero|view[1-4])(?:-\d+)?\.(?:webp|png)$/i.test(cleanSrc);
-                    const useCoverFit = slotPrefix === 'finish' || (slotPrefix === 'ambiente' && !isCutoutFallback);
+                    // La foto de ambiente se muestra COMPLETA (sin recortar), sea vertical u horizontal
+                        const useCoverFit = slotPrefix === 'finish';
                     imgEl.src = bustFotoModal(cleanSrc);
                     imgEl.style.display = 'block';
                     imgEl.style.opacity = '1';
