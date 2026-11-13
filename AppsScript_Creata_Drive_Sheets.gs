@@ -4013,147 +4013,244 @@ function handleInvSubmitQuote_(body) {
     }
 
     // 4) Resolver IdProducto y precios reales para enviar EN VIVO directo a S Mueblería WCF
+    //    (y respaldo automático por cola en plantilla!K5 si la sesión caché en Drive requiere renovación)
     const catalogMap = readPlantillaProductCatalogMap_(sh);
     const sheetRows = sh.getRange(15, 2, items.length, 12).getValues(); // B..M
     const partidasErp = [];
     const skusSummaryParts = [];
 
-    for (let i = 0; i < items.length; i++) {
-      const reqItem = items[i] || {};
-      const rSheet = sheetRows[i] || [];
-      const sku = String(reqItem.sku || rSheet[0] || '').trim().toUpperCase();
-      const cant = Math.max(1, Math.round(Number(reqItem.qty || rSheet[2]) || 1));
-      let discFrac = (Number(reqItem.discountPct) || 0) / 100;
-      discFrac = Math.max(0, Math.min(1, discFrac));
-
-      const catEntry = catalogMap[sku] || {};
-      let idProd = cleanSheetKeyCell_(rSheet[11]) || catEntry.idProducto || '';
-      let nombreProd = String(rSheet[1] || catEntry.nombre || reqItem.name || sku).trim();
-      let precioOrig = Number(rSheet[3] || catEntry.precio || reqItem.unitList || 0) || 0;
-
-      if (!idProd || !/^\d+$/.test(idProd) || precioOrig <= 0) {
-        const liveProd = buscarProductoPorClaveWcf_(sku);
-        if (!liveProd || !liveProd.IdProducto) {
-          return {
-            ok: false,
-            error: 'El SKU "' + sku + '" no existe o no está dado de alta en el sistema S Mueblería.'
-          };
-        }
-        idProd = String(liveProd.IdProducto).trim();
-        if (!nombreProd || nombreProd.indexOf('SKU no') >= 0) {
-          nombreProd = liveProd.Nombre || sku;
-        }
-        if (precioOrig <= 0 && liveProd.Precio > 0) {
-          precioOrig = Number(liveProd.Precio);
-        }
-      }
-
-      const precioUnit = Math.round(precioOrig * (1 - discFrac) * 10000) / 10000;
-      partidasErp.push({
-        Clave: sku,
-        Nombre: nombreProd,
-        Cantidad: cant,
-        PrecioOriginal: precioOrig,
-        PrecioUnitario: precioUnit,
-        IdProducto: idProd
-      });
-      skusSummaryParts.push(sku + ' x' + cant);
-    }
-
-    const catMatch = categoryLabel.match(/(\d+)/);
-    const idCategoriaVenta = catMatch ? parseInt(catMatch[1], 10) : 2;
-
-    const cliMatch = clientMode.match(/ID CLIENTE:\s*(\d+)/i);
-    let idCliente = 0;
-    let idLead = 0;
     const displayClientForErp = isProyQuote && !/^\[?PROYECTO/i.test(clientNameRaw)
       ? ('PROYECTO - ' + clientNameRaw)
       : clientNameRaw;
 
-    if (cliMatch) {
-      idCliente = parseInt(cliMatch[1], 10);
-      idLead = 0;
-    } else {
-      idLead = crearProspectoProvisionalWcf_(displayClientForErp, clientPhone, '', idUsuarioNum);
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const reqItem = items[i] || {};
+        const rSheet = sheetRows[i] || [];
+        const sku = String(reqItem.sku || rSheet[0] || '').trim().toUpperCase();
+        const cant = Math.max(1, Math.round(Number(reqItem.qty || rSheet[2]) || 1));
+        let discFrac = (Number(reqItem.discountPct) || 0) / 100;
+        discFrac = Math.max(0, Math.min(1, discFrac));
+
+        const catEntry = catalogMap[sku] || {};
+        let idProd = cleanSheetKeyCell_(rSheet[11]) || catEntry.idProducto || '';
+        let nombreProd = String(rSheet[1] || catEntry.nombre || reqItem.name || sku).trim();
+        let precioOrig = Number(rSheet[3] || catEntry.precio || reqItem.unitList || 0) || 0;
+
+        if (!idProd || !/^\d+$/.test(idProd) || precioOrig <= 0) {
+          const liveProd = buscarProductoPorClaveWcf_(sku);
+          if (!liveProd || !liveProd.IdProducto) {
+            return {
+              ok: false,
+              error: 'El SKU "' + sku + '" no existe o no está dado de alta en el sistema S Mueblería.'
+            };
+          }
+          idProd = String(liveProd.IdProducto).trim();
+          if (!nombreProd || nombreProd.indexOf('SKU no') >= 0) {
+            nombreProd = liveProd.Nombre || sku;
+          }
+          if (precioOrig <= 0 && liveProd.Precio > 0) {
+            precioOrig = Number(liveProd.Precio);
+          }
+        }
+
+        const precioUnit = Math.round(precioOrig * (1 - discFrac) * 10000) / 10000;
+        partidasErp.push({
+          Clave: sku,
+          Nombre: nombreProd,
+          Cantidad: cant,
+          PrecioOriginal: precioOrig,
+          PrecioUnitario: precioUnit,
+          IdProducto: idProd
+        });
+        skusSummaryParts.push(sku + ' x' + cant);
+      }
+
+      const catMatch = categoryLabel.match(/(\d+)/);
+      const idCategoriaVenta = catMatch ? parseInt(catMatch[1], 10) : 2;
+
+      const cliMatch = clientMode.match(/ID CLIENTE:\s*(\d+)/i);
+      let idCliente = 0;
+      let idLead = 0;
+
+      if (cliMatch) {
+        idCliente = parseInt(cliMatch[1], 10);
+        idLead = 0;
+      } else {
+        idLead = crearProspectoProvisionalWcf_(displayClientForErp, clientPhone, '', idUsuarioNum);
+      }
+
+      const fechaEntregaIso = parseDeliveryDateToErpIso_(deliveryDate);
+      const erpResult = insertarCotizacionDirectoWcf_({
+        idCotizacion: 0,
+        idUsuarioAsesor: idUsuarioNum,
+        idCliente: idCliente,
+        idLead: idLead,
+        nombreCliente: displayClientForErp,
+        fechaEntregaIso: fechaEntregaIso,
+        comentarios: finalNotesForErp,
+        idCategoriaVenta: idCategoriaVenta,
+        partidas: partidasErp,
+        descuentoExtra: extraDiscount
+      });
+
+      invalidateErpFoliosCache_();
+
+      const folioFinal = erpResult.folio || estimatedFolio || ('ID-' + erpResult.idCotizacion);
+      const refSujeto = idLead ? ('Lead ' + idLead) : ('Cliente ' + idCliente);
+      const statusBannerTxt = '✅ COTIZACIÓN ENVIADA EN VIVO A SMUEBLERIA (' + ahoraStr + ') · FOLIO ' + folioFinal + ' · ' + refSujeto;
+
+      sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
+      sh.getRange('K6').setValue(statusBannerTxt);
+      sh.getRange('K7').setValue(String(erpResult.idCotizacion));
+      sh.getRange('M7').setValue(folioFinal);
+      // Conservar intacta la fórmula nativa de K8 en plantilla (PRESENTACION_DISENO)
+      sh.getRange('K9').setValue(ahoraStr);
+
+      // 5) Registrar el mismo folio oficial de S Mueblería según su tienda o bodega en COTIZACIONES_EN_VIVO
+      shQuotes.appendRow([
+        folioFinal,
+        folioFinal,
+        String(erpResult.idCotizacion),
+        ahoraStr,
+        activeQuoteType,
+        verifiedUser.sheetTab,
+        erpStore,
+        verifiedUser.correo,
+        verifiedUser.nombre,
+        erpAdvisorLabel,
+        String(idUsuarioNum),
+        displayClientForErp,
+        clientPhone,
+        clientMode,
+        categoryLabel,
+        deliveryDate,
+        partidasErp.length,
+        skusSummaryParts.join(', '),
+        erpResult.subtotal,
+        erpResult.iva,
+        extraDiscount,
+        erpResult.total,
+        'EN VIVO EN S MUEBLERÍA',
+        rawNotes
+      ]);
+      const appendedRow = shQuotes.getLastRow();
+      shQuotes.getRange(appendedRow, 19, 1, 4).setNumberFormat('$#,##0.00');
+
+      SpreadsheetApp.flush();
+
+      const folioSnapAfter = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+      const nextStoreFolio = peekNextStoreErpFolio_(erpStore, activePrefix, folioSnapAfter);
+
+      const finalOut = handleInvPlantillaStatus_();
+      finalOut.sentLiveToErp = true;
+      finalOut.orderCode = folioFinal;
+      finalOut.nextOrderCode = nextStoreFolio;
+      finalOut.nextFolioByStore = folioSnapAfter.nextFolioByStore;
+      finalOut.quoteType = activeQuoteType;
+      finalOut.isProyecto = isProyQuote;
+      finalOut.serieLabel = verifiedUser.serieLabel;
+      finalOut.folio = folioFinal;
+      finalOut.quoteId = String(erpResult.idCotizacion);
+      finalOut.erpStatus = statusBannerTxt;
+      finalOut.recentQuotes = verifiedUser.isAdmin
+        ? readRecentQuotesForAdmin_(shQuotes, folioSnapAfter.recentErpQuotes, 40)
+        : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
+      return finalOut;
+    } catch (wcfErr) {
+      // Respaldo automático: si el token caché en Drive expiró, encolar en plantilla!K5 para que servicio_en_vivo.py la suba e hidrate sesión
+      const fallbackSummary = items.map(it => String(it.sku || '').trim().toUpperCase() + ' x' + Math.max(1, Math.round(Number(it.qty) || 1))).filter(Boolean);
+      sh.getRange('K7').clearContent();
+      sh.getRange('M7').clearContent();
+      sh.getRange('K6').setValue('⏳ EN COLA AUTOMÁTICA PARA S MUEBLERÍA (' + ahoraStr + ')');
+      sh.getRange('K9').setValue(ahoraStr);
+      sh.getRange('K5').setValue('ENVIAR COTIZACIÓN A S MUEBLERÍA');
+      SpreadsheetApp.flush();
+
+      let daemonQid = '';
+      let daemonFolio = '';
+      let daemonStatus = '';
+      for (let poll = 0; poll < 5; poll++) {
+        Utilities.sleep(3000);
+        SpreadsheetApp.flush();
+        daemonQid = String(sh.getRange('K7').getDisplayValue() || '').trim();
+        daemonFolio = String(sh.getRange('M7').getDisplayValue() || '').trim();
+        daemonStatus = String(sh.getRange('K6').getDisplayValue() || '').trim();
+        if (daemonQid || daemonFolio) break;
+        if (/ERROR/i.test(daemonStatus)) break;
+      }
+
+      if (daemonQid || daemonFolio) {
+        invalidateErpFoliosCache_();
+        const folioResolved = daemonFolio || estimatedFolio || ('ID-' + daemonQid);
+        const subSheet = Number(sh.getRange('H31').getValue()) || 0;
+        const ivaSheet = Number(sh.getRange('H32').getValue()) || 0;
+        const totSheet = Number(sh.getRange('H33').getValue()) || 0;
+
+        shQuotes.appendRow([
+          folioResolved,
+          folioResolved,
+          daemonQid,
+          ahoraStr,
+          activeQuoteType,
+          verifiedUser.sheetTab,
+          erpStore,
+          verifiedUser.correo,
+          verifiedUser.nombre,
+          erpAdvisorLabel,
+          String(idUsuarioNum),
+          displayClientForErp,
+          clientPhone,
+          clientMode,
+          categoryLabel,
+          deliveryDate,
+          items.length,
+          fallbackSummary.join(', '),
+          subSheet,
+          ivaSheet,
+          extraDiscount,
+          totSheet,
+          'EN VIVO EN S MUEBLERÍA (VÍA SERVICIO)',
+          rawNotes
+        ]);
+        const appRow = shQuotes.getLastRow();
+        shQuotes.getRange(appRow, 19, 1, 4).setNumberFormat('$#,##0.00');
+        SpreadsheetApp.flush();
+
+        const snapAfterDaemon = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+        const nextAfterDaemon = peekNextStoreErpFolio_(erpStore, activePrefix, snapAfterDaemon);
+        const outDaemon = handleInvPlantillaStatus_();
+        outDaemon.sentLiveToErp = true;
+        outDaemon.orderCode = folioResolved;
+        outDaemon.nextOrderCode = nextAfterDaemon;
+        outDaemon.nextFolioByStore = snapAfterDaemon.nextFolioByStore;
+        outDaemon.quoteType = activeQuoteType;
+        outDaemon.isProyecto = isProyQuote;
+        outDaemon.serieLabel = verifiedUser.serieLabel;
+        outDaemon.folio = folioResolved;
+        outDaemon.quoteId = daemonQid;
+        outDaemon.erpStatus = daemonStatus;
+        outDaemon.recentQuotes = verifiedUser.isAdmin
+          ? readRecentQuotesForAdmin_(shQuotes, snapAfterDaemon.recentErpQuotes, 40)
+          : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
+        return outDaemon;
+      }
+
+      const queuedOut = handleInvPlantillaStatus_();
+      queuedOut.sentLiveToErp = false;
+      queuedOut.queuedForDaemon = true;
+      queuedOut.wcfReason = String((wcfErr && wcfErr.message) || wcfErr || '');
+      queuedOut.orderCode = estimatedFolio;
+      queuedOut.nextOrderCode = estimatedFolio;
+      queuedOut.nextFolioByStore = folioSnapBefore.nextFolioByStore;
+      queuedOut.quoteType = activeQuoteType;
+      queuedOut.isProyecto = isProyQuote;
+      queuedOut.serieLabel = verifiedUser.serieLabel;
+      queuedOut.recentQuotes = verifiedUser.isAdmin
+        ? readRecentQuotesForAdmin_(shQuotes, folioSnapBefore.recentErpQuotes, 40)
+        : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
+      return queuedOut;
     }
-
-    const fechaEntregaIso = parseDeliveryDateToErpIso_(deliveryDate);
-    const erpResult = insertarCotizacionDirectoWcf_({
-      idCotizacion: 0,
-      idUsuarioAsesor: idUsuarioNum,
-      idCliente: idCliente,
-      idLead: idLead,
-      nombreCliente: displayClientForErp,
-      fechaEntregaIso: fechaEntregaIso,
-      comentarios: finalNotesForErp,
-      idCategoriaVenta: idCategoriaVenta,
-      partidas: partidasErp,
-      descuentoExtra: extraDiscount
-    });
-
-    invalidateErpFoliosCache_();
-
-    const folioFinal = erpResult.folio || estimatedFolio || ('ID-' + erpResult.idCotizacion);
-    const refSujeto = idLead ? ('Lead ' + idLead) : ('Cliente ' + idCliente);
-    const statusBannerTxt = '✅ COTIZACIÓN ENVIADA EN VIVO A SMUEBLERIA (' + ahoraStr + ') · FOLIO ' + folioFinal + ' · ' + refSujeto;
-
-    sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
-    sh.getRange('K6').setValue(statusBannerTxt);
-    sh.getRange('K7').setValue(String(erpResult.idCotizacion));
-    sh.getRange('M7').setValue(folioFinal);
-    // Conservar intacta la fórmula nativa de K8 en plantilla (PRESENTACION_DISENO)
-    sh.getRange('K9').setValue(ahoraStr);
-
-    // 5) Registrar el mismo folio oficial de S Mueblería según su tienda o bodega en COTIZACIONES_EN_VIVO
-    shQuotes.appendRow([
-      folioFinal,
-      folioFinal,
-      String(erpResult.idCotizacion),
-      ahoraStr,
-      activeQuoteType,
-      verifiedUser.sheetTab,
-      erpStore,
-      verifiedUser.correo,
-      verifiedUser.nombre,
-      erpAdvisorLabel,
-      String(idUsuarioNum),
-      displayClientForErp,
-      clientPhone,
-      clientMode,
-      categoryLabel,
-      deliveryDate,
-      partidasErp.length,
-      skusSummaryParts.join(', '),
-      erpResult.subtotal,
-      erpResult.iva,
-      extraDiscount,
-      erpResult.total,
-      'EN VIVO EN S MUEBLERÍA',
-      rawNotes
-    ]);
-    const appendedRow = shQuotes.getLastRow();
-    shQuotes.getRange(appendedRow, 19, 1, 4).setNumberFormat('$#,##0.00');
-
-    SpreadsheetApp.flush();
-
-    const folioSnapAfter = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
-    const nextStoreFolio = peekNextStoreErpFolio_(erpStore, activePrefix, folioSnapAfter);
-
-    const finalOut = handleInvPlantillaStatus_();
-    finalOut.sentLiveToErp = true;
-    finalOut.orderCode = folioFinal;
-    finalOut.nextOrderCode = nextStoreFolio;
-    finalOut.nextFolioByStore = folioSnapAfter.nextFolioByStore;
-    finalOut.quoteType = activeQuoteType;
-    finalOut.isProyecto = isProyQuote;
-    finalOut.serieLabel = verifiedUser.serieLabel;
-    finalOut.folio = folioFinal;
-    finalOut.quoteId = String(erpResult.idCotizacion);
-    finalOut.erpStatus = statusBannerTxt;
-    finalOut.recentQuotes = verifiedUser.isAdmin
-      ? readRecentQuotesForAdmin_(shQuotes, folioSnapAfter.recentErpQuotes, 40)
-      : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
-    return finalOut;
   } finally {
     lock.releaseLock();
   }
@@ -5199,6 +5296,102 @@ function handleInvRecordSearch_(body) {
     lock.releaseLock();
   }
 }
+
+/**
+ * Limpia medidas incrustadas en la columna D (NOMBRE) de INVENTARIO_EN_VIVO,
+ * guarda las medidas extraídas en M (MEDIDAS) cuando esté vacía y completa
+ * B (TIPO DE PRODUCTO), C (MODELO), D (NOMBRE), E (VARIANTE) y G (CATEGORÍA)
+ * respetando intactas F (ARRAYFORMULA de fotos) y O:AW (existencias y precio en vivo).
+ */
+function limpiarYCompletarInventarioEnVivo() {
+  const ss = getSpreadsheet_();
+  const sh = ss.getSheetByName('INVENTARIO_EN_VIVO');
+  if (!sh) throw new Error('No existe la hoja INVENTARIO_EN_VIVO.');
+  const lastRow = sh.getLastRow();
+  if (lastRow < 3) return { updated: 0 };
+
+  const numRows = lastRow - 2;
+  const fullAtoN = sh.getRange(3, 1, numRows, 14).getValues(); // A3:N<lastRow>
+  const bToE = [];
+  const gToN = [];
+  let changed = 0;
+
+  const dimPatterns = [
+    /\bMEDIDAS?\s*[:.]?\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?){1,3}\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M\b)?\.?/gi,
+    /\(\s*\d+(?:[.,]\d+)?\s*[xX*×]\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M\b)?\s*\)/gi,
+    /\b\d+(?:[.,]\d+)?\s*[xX*×]\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M\b)?\.?(?=\s|$|[),.;/-])/gi,
+    /\b(?:DIAMETRO|DIÁMETRO|DIAM\.?)\s*\d+(?:[.,]\d+)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?)?\.?/gi,
+    /\bL?\d{2,3}\s*-\s*\d{2,3}\s*(?:CM\.?|CMS\.?)\.?/gi,
+    /\b\d{2,3}(?:\s*,\s*\d{2,3}){1,3}\s*(?:CM\.?|CMS\.?)\.?/gi,
+    /\b\d+(?:[.,]\d+)?\s*(?:CM\.?|CMS\.?|MTS\.?|MT\.?|METROS?|MM\.?)(?=\s|$|[),.;/-])/gi
+  ];
+
+  for (let i = 0; i < numRows; i++) {
+    const r = fullAtoN[i];
+    const sku = String(r[0] || '').trim().toUpperCase();
+    let tp = String(r[1] || '').trim();
+    let mo = String(r[2] || '').trim();
+    let nom = String(r[3] || '').trim();
+    let vr = String(r[4] || '').trim();
+    let cat = String(r[6] || '').trim();
+    const tl = String(r[7] || '').trim();
+    const ct = String(r[8] || '').trim();
+    const md = String(r[9] || '').trim();
+    const cm = String(r[10] || '').trim();
+    const mt = String(r[11] || '').trim();
+    let med = String(r[12] || '').trim();
+    const pr = String(r[13] || '').trim();
+
+    if (!sku) {
+      bToE.push([tp, mo, nom, vr]);
+      gToN.push([cat, tl, ct, md, cm, mt, med, pr]);
+      continue;
+    }
+
+    const extracted = [];
+    let cleanNom = nom;
+    for (let p = 0; p < dimPatterns.length; p++) {
+      cleanNom = cleanNom.replace(dimPatterns[p], function (m) {
+        const cleanedDim = m.replace(/^MEDIDAS?\s*[:.]?\s*/i, '').replace(/^[(\s]+|[)\s.]+$/g, '').trim();
+        if (cleanedDim) extracted.push(cleanedDim.toUpperCase());
+        return ' ';
+      });
+    }
+    cleanNom = cleanNom
+      .replace(/\(\s*\)/g, ' ')
+      .replace(/\s+([,.;])/g, '$1')
+      .replace(/(?:^|\s)[-–—/:.,;]+(?:\s|$)/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s,.;:/-]+|[\s,.;:/-]+$/g, '')
+      .trim();
+
+    if (!med && extracted.length > 0) {
+      med = extracted[0];
+    }
+    if (!cleanNom) {
+      cleanNom = [tp, mo, vr].filter(Boolean).join(' ').trim() || sku;
+    }
+    if (!tp) tp = 'MOBILIARIO';
+    if (!mo) mo = cleanNom.split(/\s+/)[0] || sku;
+    if (!vr) vr = [tl, ct, md, cm].filter(Boolean).join(' ').trim() || 'ESTÁNDAR';
+    if (!cat) cat = 'MOBILIARIO GENERAL';
+
+    if (tp !== String(r[1] || '').trim() || mo !== String(r[2] || '').trim() || cleanNom !== nom || vr !== String(r[4] || '').trim() || cat !== String(r[6] || '').trim() || med !== String(r[12] || '').trim()) {
+      changed++;
+    }
+
+    bToE.push([tp, mo, cleanNom, vr]);
+    gToN.push([cat, tl, ct, md, cm, mt, med, pr]);
+  }
+
+  if (changed > 0) {
+    sh.getRange(3, 2, numRows, 4).setValues(bToE); // B3:E
+    sh.getRange(3, 7, numRows, 8).setValues(gToN); // G3:N (nunca toca F ni O:AW)
+    SpreadsheetApp.flush();
+  }
+  return { updated: changed, total: numRows };
+}
+
 
 
 

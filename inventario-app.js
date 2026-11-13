@@ -210,11 +210,300 @@
         return '';
     }
 
+    const LIVE_DIM_PATTERNS = [
+        /\b(?:CON\s+)?MEDIDAS?\s*:?\s*ALTO\s*:\s*\d+(?:[.,]\d+)?\s*ANCHO\s*:\s*\d+(?:[.,]\d+)?\s*LARGO\s*:\s*\d+(?:[.,]\d+)?(?:\s*CM\.?)?/gi,
+        /\b(?:CON\s+)?MEDIDAS?\s*:?\s*(?:DE\s+)?\.?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?(?:\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?)?\s*(?:CM\.?|MTS?\.?|M\.?)?(?:\s*C\/U)?\.?/gi,
+        /\b(?:DE\s+)?(?:DIAM(?:ETRO)?\.?|Ø)\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)?\s*(?:CM\.?|MTS?\.?|M\.?)?\.?/gi,
+        /\b(?:DE\s+)?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?\s*(?:DE\s+)?(?:DIAMETRO|DIAM\.?|Ø)\b\.?/gi,
+        /(?:\bDE\s+)?(?:^|(?<=[\s(,\/]))[HL]?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?(?:\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?)?\s*(?:CM\.?|MTS?\.?|M\.?)?(?:\s*C\/U)?\.?/gi,
+        /\b\d+(?:[.,]\d+)?\s*CM\.?(?:\s*,?\s*\d+(?:[.,]\d+)?\s*CM\.?)*(?:\s+Y\s+\d+(?:[.,]\d+)?\s*CM\.?)/gi,
+        /(?:^|(?<=[\s(,\/]))\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?)+(?:\s+Y\s+\d+(?:\.\d+)?)?\s*(?:CM\.?|MTS?\.?)\b/gi,
+        /(?:\bDE\s+)?(?:^|(?<=[\s(,\/]))[HL]?\d+(?:-\d+)?(?:[.,]\d+)?\s*(?:CM\.?|MTS\.?|MT\.?)(?!\w)\.?/gi
+    ];
+
+    function normalizeExtractedDimLive(rawDim) {
+        let s = cleanStr(rawDim).toUpperCase();
+        if (!s) return '';
+        s = s.replace(/^(?:CON\s+)?MEDIDAS?\s*:?\s*/, '');
+        const mAal = s.match(/ALTO\s*:\s*(\d+(?:[.,]\d+)?)\s*ANCHO\s*:\s*(\d+(?:[.,]\d+)?)\s*LARGO\s*:\s*(\d+(?:[.,]\d+)?)/);
+        if (mAal) {
+            return mAal[3].replace(',', '.') + 'X' + mAal[2].replace(',', '.') + 'X' + mAal[1].replace(',', '.') + ' CM';
+        }
+        if (/^\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?)+/.test(s)) {
+            return s.replace(/\s*(?:CM\.?|MTS?\.?)$/i, '').replace(/\s*,\s*/g, ', ') + ' CM';
+        }
+        if (/^[HL]?\d+-\d+\s*CM/i.test(s)) {
+            const rClean = s.replace(/^[HL]/i, '').replace(/\s*CM\.?$/i, '').trim();
+            return rClean + ' CM';
+        }
+        const isDiam = /DIAM|Ø/.test(s);
+        s = s.replace(/\b(?:DIAMETRO|DIAM\.?|Ø|DE|C\/U)\b/g, ' ').replace(/(\d),(\d)/g, '$1.$2').replace(/[*,×]/g, 'X');
+        const hasMeters = /\bMTS?\.?\b|\bM\b/.test(s) || /\b[1-4]\.\d{2}\s*X\s*[0-5]\.\d{2}\b/.test(s);
+        const nums = s.match(/(?:\d+\.\d+|\.\d+|\d+)/g) || [];
+        while (nums.length >= 2 && parseFloat(nums[0]) === 0) nums.shift();
+        if (!nums.length) return '';
+        const allSmallDec = nums.every(n => n.indexOf('.') !== -1 && parseFloat(n) < 6.5);
+        const conv = nums.slice(0, 3).map(n => {
+            const fn = parseFloat(n);
+            if ((hasMeters || allSmallDec) && fn < 10 && (n.indexOf('.') !== -1 || fn <= 5)) {
+                const cmVal = Math.round(fn * 1000) / 10;
+                return String(cmVal);
+            }
+            return n.indexOf('.') === -1 ? String(parseInt(n, 10)) : n;
+        });
+        return (isDiam ? 'DIAM ' : '') + conv.join('X') + ' CM';
+    }
+
+    function stripDimensionsAndExtractLive(rawText) {
+        let s = cleanStr(rawText);
+        if (!s) return { text: '', med: '' };
+        const extracted = [];
+        const mGlue = s.match(/\b([1234]\d0)\s*[xX*×]\s*([1234]\d0)(\d{4,6})\b/);
+        if (mGlue) {
+            extracted.push(mGlue[1] + 'X' + mGlue[2]);
+            s = s.slice(0, mGlue.index) + mGlue[3] + s.slice(mGlue.index + mGlue[0].length);
+        }
+        for (let i = 0; i < LIVE_DIM_PATTERNS.length; i++) {
+            const pat = LIVE_DIM_PATTERNS[i];
+            pat.lastIndex = 0;
+            let m;
+            while ((m = pat.exec(s)) !== null) {
+                extracted.push(m[0]);
+            }
+            s = s.replace(pat, ' ');
+        }
+        s = s
+            .replace(/\(\s*\)/g, ' ')
+            .replace(/\s+([,.])/g, '$1')
+            .replace(/\b(?:CON\s+MEDIDAS?|MEDIDAS?)\b\s*:?/gi, ' ')
+            .replace(/\s+\b(?:DE|CON\s+MEDIDA)\s*$/i, '')
+            .replace(/\s{2,}/g, ' ')
+            .replace(/^[,\s.\-·\/]+|[,\s.\-·\/]+$/g, '')
+            .trim();
+        let bestMed = '';
+        for (let i = 0; i < extracted.length; i++) {
+            const nm = normalizeExtractedDimLive(extracted[i]);
+            if (nm && (!bestMed || nm.length > bestMed.length)) bestMed = nm;
+        }
+        return { text: s, med: bestMed };
+    }
+
+    function stripDimensionsFromProductText(rawText) {
+        const res = stripDimensionsAndExtractLive(rawText);
+        return (res.text && /[A-Za-zÁÉÍÓÚáéíóúÑñ]{2,}/.test(res.text)) ? res.text : cleanStr(rawText);
+    }
+
+    const LIVE_TYPE_RULES = [
+        [/\bSILLON\s+OCASIONAL\b/, 'SILLON OCASIONAL'],
+        [/\bSOFA\s+CAMA\b/, 'SOFA CAMA'],
+        [/^SALA\b|\bSALA\s+MODULAR\b|\bSALA\s+ESQUINERA\b/, 'SALA'],
+        [/\bCHAISE\s+LONGUE\b|\bCHAISE\b/, 'CHAISE LONGUE'],
+        [/\bLOVE\s*SEAT\b|\bLOVESEAT\b/, 'LOVE SEAT'],
+        [/\bESQUINERO\b|\bRINCONERA\b/, 'ESQUINERO'],
+        [/\bSALA\b/, 'SALA'],
+        [/\bFUTTON\b|\bFUTON\b/, 'FUTTON'],
+        [/\bSOFA\b/, 'SOFA'],
+        [/\bOTTOMAN\b|\bOTOMAN\b|\bPOUF\b|\bPUFF?\b/, 'OTTOMAN'],
+        [/\bTABURETE\b/, 'TABURETE'],
+        [/\bBANCO\b/, 'BANCO'],
+        [/\bBANCA\b/, 'BANCA'],
+        [/\bCOLUMPIO\b|\bSILLA\s+COLGANTE\b/, 'COLUMPIO'],
+        [/\bCAMASTRO\b/, 'CAMASTRO'],
+        [/\bSILLON\b|\bBUTACA\b|\bMECEDORA\b|\bRECLINABLE\b/, 'SILLON'],
+        [/\bSILLA\b/, 'SILLA'],
+        [/\bMESA\s+(?:DE\s+)?CENTRO\b|\bMESA\s+CENTRAL\b|\bMESA\s+.*?\bCENTRAL\b/, 'MESA DE CENTRO'],
+        [/\bMESA\s+LATERAL\b|\bMESA\s+.*?\bLATERAL\b|\bMESA\s+AUXILIAR\b/, 'MESA LATERAL'],
+        [/\bMESA\s+(?:DE\s+)?COMEDOR\b|\bANTECOMEDOR\b|\bDESAYUNADOR\b/, 'MESA DE COMEDOR'],
+        [/\bCOMEDOR\b/, 'COMEDOR'],
+        [/\bBUFETERA\b|\bBUFETERO\b|\bTRINCHADOR\b|\bAPARADOR\b/, 'BUFETERA'],
+        [/\bCREDENZA\b/, 'CREDENZA'],
+        [/\bCAVA\b|\bCONTRABARRA\b|\bBAR\b/, 'CAVA'],
+        [/\bCONSOLA\b/, 'CONSOLA'],
+        [/\bMUEBLE\s+(?:DE\s+|PARA\s+)?TV\b|\bCENTRO\s+DE\s+ENTRETENIMIENTO\b/, 'MUEBLE DE TV'],
+        [/\bLIBRERO\b|\bREPISA\b|\bESTANTE\b/, 'LIBRERO'],
+        [/\bESCRITORIO\b|\bSECRETAIRE\b/, 'ESCRITORIO'],
+        [/\bARCHIVERO\b/, 'ARCHIVERO'],
+        [/\bCABECERA\b/, 'CABECERA'],
+        [/\bBASE\s+(?:DE\s+)?CAMA\b|\bBASE\s+(?:KS|QS|MAT|IND|KING|QUEEN|MATRIMONIAL|INDIVIDUAL)\b/, 'BASE DE CAMA'],
+        [/\bCAMA\b|\bLITERA\b|\bRECAMARA\b/, 'CAMA'],
+        [/\bCOLCHON\b/, 'COLCHON'],
+        [/\bBURO\b/, 'BURO'],
+        [/\bCAJONERA\b|\bCHIFONIER\b/, 'CAJONERA'],
+        [/\bTOCADOR\b/, 'TOCADOR'],
+        [/\bCOMODA\b/, 'COMODA'],
+        [/\bBAUL\b/, 'BAUL'],
+        [/\bMAMPARA\b|\bBIOMBO\b/, 'MAMPARA'],
+        [/\bESPEJO\b|\bMARCO\b/, 'ESPEJO'],
+        [/\bCUADRO\b|\bPINTURA\b|\bLIENZO\b|\bGICLEE\b/, 'CUADRO'],
+        [/\bARTE\s+OBJETO\b|\bDECORATIVO\s+(?:DE\s+)?PARED\b|\bACCESORIO\s+DE\s+PARED\b/, 'DECORATIVO PARED'],
+        [/\bTAPETE\b|\bALFOMBRAS?\b|^T\.\s+[A-Z]/, 'TAPETE'],
+        [/\bARBOTANTE\b|^ARB\s+[A-Z]/, 'ARBOTANTE'],
+        [/\bCANDIL\b/, 'CANDIL'],
+        [/\bLAMPARA\s+(?:DE\s+)?(?:PIE|PISO)\b/, 'LAMPARA DE PISO'],
+        [/\bLAMPARA\s+(?:DE\s+)?MESA\b|\bLAMPARA\s+BURO\b/, 'LAMPARA DE MESA'],
+        [/\bLAMPARA\s+COLGANTE\b|\bCOLGANTE\b/, 'LAMPARA COLGANTE'],
+        [/\bLAMPARA\b|\bLUMINARIA\b/, 'LAMPARA'],
+        [/\bCANDELABRO\b|\bPORTAVELAS?\b|\bVELA\b|\bANTORCHA\b/, 'CANDELABRO'],
+        [/\bLINTERNA\b|\bFAROL\b/, 'LINTERNA'],
+        [/\bMACETA\b|\bMATERA\b/, 'MACETA'],
+        [/\bPLANTA\b|\bARBOL\b|\bPALMA\b|\bFOLLAJE\b|\bVARA\b|\bRAMA\b|\bORQUIDEA\b|\bBONSAI\b/, 'PLANTA DECORATIVA'],
+        [/\bFLORERO\b|\bJARRON\b|\bBOTELLA\b|\bBOTELLON\b|\bTIBOR\b|\bCILINDRO\b|^BASE\b/, 'FLORERO'],
+        [/\bCHAROLA\b|\bBANDEJA\b|\bFRUTERO\b|\bENSALADERA\b|\bPLATO\b|\bBOWL\b|\bCENTRO\s+DE\s+MESA\b|\bBATEA\b/, 'CHAROLA'],
+        [/\bESCULTURA\b|\bFIGURA\b|\bESFERA\b|\bCORALES?\b|\bCONCHA\b|\bBALLENA\b|\bPECES?\b|\bTORTUGAS?\b|\bPEDESTAL\b/, 'ESCULTURA'],
+        [/\bFUNDA\b/, 'FUNDA DECORATIVA'],
+        [/\bRELLENO\b|\bDRACON\b/, 'RELLENO'],
+        [/\bALMOHADA\b|\bCOJIN\b/, 'COJIN'],
+        [/\bFRAZADA\b|\bMANTA\b|\bDUVET\b|\bEDREDON\b|\bSABANA\b|\bCOLCHA\b|\bCUBRECAMA\b/, 'BLANCOS'],
+        [/\bTEL-ARTELL\b|^TELA\s+ARTELL\b|^TELA\b/, 'TELA'],
+        [/\bMESA\b/, 'MESA'],
+        [/\bCRISTAL\b|\bCUBIERTA\b/, 'CRISTAL'],
+        [/\bACCESORIO\b|\bCAJA\b|\bALHAJERO\b|\bLIBRO\b|\bCANAST[OA]\b|\bCESTA\b|\bPORTARRETRATO\b|\bRELOJ\b|\bPERCHERO\b/, 'ACCESORIO DECORATIVO']
+    ];
+
+    function deduceProductTypeLive(nom, cat, mo) {
+        const plainUpper = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+        const nomFull = plainUpper(nom);
+        const nomHead = nomFull.split(/\bINCLUYE\b/)[0].trim();
+        const sources = [nomHead, nomFull, plainUpper(cat), plainUpper(mo)];
+        for (let s = 0; s < sources.length; s++) {
+            const txt = sources[s];
+            if (!txt) continue;
+            for (let r = 0; r < LIVE_TYPE_RULES.length; r++) {
+                if (LIVE_TYPE_RULES[r][0].test(txt)) return LIVE_TYPE_RULES[r][1];
+            }
+        }
+        return '';
+    }
+
+    const LIVE_MODEL_STOPWORDS = new Set([
+        'SILLON', 'OCASIONAL', 'INDIVIDUAL', 'SILLA', 'COMEDOR', 'SIN', 'BRAZOS', 'BRAZO', 'CON',
+        'DERECHO', 'IZQUIERDO', 'DERECHA', 'IZQUIERDA', 'DER', 'IZQ', 'MESA', 'DE', 'DEL', 'LA', 'EL',
+        'LOS', 'LAS', 'Y', 'EN', 'PARA', 'P', 'POR', 'CENTRO', 'CENTRAL', 'LATERAL', 'AUXILIAR',
+        'SALA', 'SOFA', 'CAMA', 'LOVE', 'SEAT', 'CHAISE', 'LONGUE', 'ESQUINERO', 'TABURETE', 'OTTOMAN',
+        'FUTTON', 'FUTON', 'BANCO', 'BANCA', 'CREDENZA', 'BUFETERA', 'BUFETERO', 'TRINCHADOR', 'APARADOR',
+        'CAVA', 'CONSOLA', 'LIBRERO', 'ESCRITORIO', 'SECRETAIRE', 'CABECERA', 'BASE', 'BURO', 'COMODA',
+        'CAJONERA', 'TOCADOR', 'BAUL', 'KING', 'SIZE', 'QUEEN', 'MATRIMONIAL', 'KS', 'QS', 'MAT', 'IND',
+        'ESPEJO', 'MARCO', 'CUADRO', 'ARTE', 'OBJETO', 'ACCESORIO', 'ACCESORIOS', 'DECORATIVO', 'DECORATIVA',
+        'PARED', 'MAMPARA', 'BIOMBO', 'SET', 'JUEGO', 'TAPETE', 'T', 'LAMPARA', 'PIE', 'PISO', 'COLGANTE',
+        'ARBOTANTE', 'ARB', 'CANDIL', 'CANDELABRO', 'LINTERNA', 'MACETA', 'JARRON', 'FLORERO', 'BOTELLA',
+        'PLANTA', 'PALMA', 'CHAROLA', 'ESCULTURA', 'CAMASTRO', 'COLUMPIO', 'EXTERIOR', 'CHICA', 'CHICO',
+        'MEDIANA', 'MEDIANO', 'MED', 'GRANDE', 'GDE', 'ESPECIAL', 'PATA', 'PATAS', 'NEGRA', 'NEGRO',
+        'BLANCA', 'BLANCO', 'ORO', 'DORADO', 'CAFE', 'NATURAL', 'TONO', 'TELA', 'ARTELL', 'MADERA',
+        'PAROTA', 'ROSA', 'MORADA', 'RM', 'NOGAL', 'ENCINO', 'TECA', 'PINO', 'TZALAM', 'ROBLE', 'CRISTAL',
+        'MARMOL', 'LUZ', 'INTERIOR', 'INCLUYE', 'MODULARES', 'MODULAR', 'EMCL', 'PEMCL', 'EMA', 'T1', 'T2'
+    ]);
+
+    function cleanOrExtractModelLive(rawMo, cleanNom, tp) {
+        const plainUpper = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+        let moClean = stripDimensionsAndExtractLive(rawMo).text
+            .replace(/^(?:T[12]\s+)?(?:P?EMCL|EMA)\s+/i, '')
+            .replace(/^TEL-ARTELL\s+/i, '')
+            .trim();
+        const moNorm = plainUpper(moClean);
+        const words = moClean ? moClean.split(/\s+/) : [];
+        const isBad = !moClean ||
+            /^[\d\s.,xX*×\/-]+$/.test(moClean) ||
+            words.length >= 4 ||
+            LIVE_MODEL_STOPWORDS.has(moNorm) ||
+            moNorm === plainUpper(tp) ||
+            moNorm === plainUpper(cleanNom) ||
+            words.some(w => /^(SILLA|SILLON|MESA|SALA|CREDENZA|BUFETERA|CAMA|ESPEJO|CUADRO|TAPETE|LAMPARA)$/i.test(plainUpper(w)));
+        if (!isBad) return moClean.toUpperCase();
+
+        const nomTokens = plainUpper(cleanNom.replace(/^T\.\s+/i, 'TAPETE ')).match(/[A-Z0-9]+(?:-[A-Z0-9]+)?/g) || [];
+        const cand = [];
+        for (let i = 0; i < nomTokens.length; i++) {
+            const tok = nomTokens[i];
+            if (LIVE_MODEL_STOPWORDS.has(tok)) {
+                if (cand.length) break;
+                continue;
+            }
+            if (/^\d+$/.test(tok) && !cand.length) continue;
+            cand.push(tok);
+            if (cand.length >= 2) {
+                if (!/^(SAN|SANTA|GRAN|MONTE|VILLA|CASA|MANABO)$/.test(cand[0]) && !/^(II|III|IV|\d+)$/.test(cand[1])) {
+                    cand.pop();
+                }
+                break;
+            }
+        }
+        return cand.join(' ') || (moClean && !/^[\d\s.,xX*×\/-]+$/.test(moClean) ? moClean.toUpperCase() : '');
+    }
+
+    function normalizeInventoryItemLive(it, prevIt) {
+        if (!it) return it;
+        const sku = cleanStr(it.s);
+        let nom = cleanStr(it.n);
+        let mo = cleanStr(it.mo);
+        let tp = cleanStr(it.tp);
+        let vr = cleanStr(it.vr);
+        let med = cleanStr(it.m);
+        let cat = cleanStr(it.c);
+
+        // 1) Si NOMBRE trae únicamente medidas ("MEDIDAS: 0 x 150 x 150" / "2.80 mts."), recuperar el nombre real
+        if (/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(nom)) {
+            const badParsed = stripDimensionsAndExtractLive(nom);
+            if (!med && badParsed.med) med = badParsed.med;
+            const prevClean = prevIt && cleanStr(prevIt.n) && !/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(cleanStr(prevIt.n))
+                ? cleanStr(prevIt.n)
+                : '';
+            const moAlt = (mo && !/^[\d\s.,xX*×]+$/.test(mo)) ? mo.replace(/^TEL-ARTELL\s+/i, 'TELA ARTELL ') : '';
+            nom = prevClean || moAlt || sku;
+        }
+        if (/^T\.\s+[A-Z]/i.test(nom)) nom = nom.replace(/^T\.\s+/i, 'TAPETE ');
+        if (/^TEL-ARTELL\s+/i.test(nom)) nom = nom.replace(/^TEL-ARTELL\s+/i, 'TELA ARTELL ');
+
+        // 2) Quitar medidas incrustadas en NOMBRE y guardarlas en MEDIDAS si estaba vacío
+        const parsedNom = stripDimensionsAndExtractLive(nom);
+        if (parsedNom.text && /[A-Za-zÁÉÍÓÚáéíóúÑñ]{2,}/.test(parsedNom.text)) {
+            nom = parsedNom.text;
+        }
+        if (!med && parsedNom.med) med = parsedNom.med;
+        if (!med && mo) {
+            const parsedMo = stripDimensionsAndExtractLive(mo);
+            if (parsedMo.med) med = parsedMo.med;
+        }
+        if (!med && prevIt && cleanStr(prevIt.m)) med = cleanStr(prevIt.m);
+        if (med && /^\d+(?:\.\d+)?(?:\s*[xX*×]\s*\d+(?:\.\d+)?)+$/.test(med)) {
+            med = med.replace(/\s*[xX*×]\s*/g, 'X') + ' CM';
+        }
+
+        // 3) Completar TIPO DE PRODUCTO, MODELO, VARIANTE, CATEGORIA y acabados en vivo
+        if (!tp) tp = (prevIt && cleanStr(prevIt.tp)) || deduceProductTypeLive(nom, cat, mo);
+        const cleanedMo = cleanOrExtractModelLive(mo, nom, tp);
+        mo = cleanedMo || (prevIt && cleanStr(prevIt.mo)) || '';
+
+        if (vr) {
+            const vrParsed = stripDimensionsAndExtractLive(vr);
+            if (vrParsed.text && /[A-Za-z]{2,}/.test(vrParsed.text)) vr = vrParsed.text;
+        } else if (prevIt && cleanStr(prevIt.vr)) {
+            vr = stripDimensionsFromProductText(prevIt.vr);
+        }
+
+        if (!cat || /\d.*x.*\d/i.test(cat)) {
+            cat = (prevIt && cleanStr(prevIt.c) && !/\d.*x.*\d/i.test(prevIt.c)) ? cleanStr(prevIt.c) : '';
+        }
+
+        it.n = nom || sku;
+        it.tp = tp;
+        it.mo = mo;
+        it.vr = vr;
+        it.m = med;
+        it.c = cat;
+        if (!cleanStr(it.tl) && prevIt && cleanStr(prevIt.tl)) it.tl = cleanStr(prevIt.tl);
+        if (!cleanStr(it.ct) && prevIt && cleanStr(prevIt.ct)) it.ct = cleanStr(prevIt.ct);
+        if (!cleanStr(it.md) && prevIt && cleanStr(prevIt.md)) it.md = cleanStr(prevIt.md);
+        if (!cleanStr(it.cm) && prevIt && cleanStr(prevIt.cm)) it.cm = cleanStr(prevIt.cm);
+        if (!cleanStr(it.mt) && prevIt && cleanStr(prevIt.mt)) it.mt = cleanStr(prevIt.mt);
+        if (!cleanStr(it.p) && prevIt && cleanStr(prevIt.p)) it.p = cleanStr(prevIt.p);
+        return it;
+    }
+
     function computeGroupTitle(it) {
-        const tp = cleanStr(it.tp).toUpperCase();
-        const mo = cleanStr(it.mo).toUpperCase();
+        const tp = stripDimensionsFromProductText(it.tp).toUpperCase();
+        const mo = stripDimensionsFromProductText(it.mo).toUpperCase();
         if (tp && mo) return tp + ' ' + mo;
-        return cleanStr(it.n || it.s).toUpperCase();
+        return stripDimensionsFromProductText(it.n || it.s).toUpperCase();
     }
 
     // ------------------------------------------------------------------------
@@ -497,7 +786,7 @@
     function sanitizeTopEntryObj(raw) {
         if (!raw || typeof raw !== 'object') return null;
         const sku = cleanStr(raw.sku).toUpperCase();
-        const title = cleanStr(raw.title);
+        const title = stripDimensionsFromProductText(raw.title);
         const gk = normalizePlain(raw.gk) || normalizePlain(title) || sku.toLowerCase();
         const count = Math.max(0, Math.round(Number(raw.count) || 0));
         if (!gk || count <= 0) return null;
@@ -1174,7 +1463,7 @@
                 row.innerHTML =
                     buildThumbHtml(it) +
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.title || it.n || it.s) + '</div>' +
+                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
                         '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
                     buildCardCartControlHtml(skuKey);
@@ -1402,7 +1691,7 @@
         }
 
         function buildVariantLabel(it, groupObj) {
-            const rawName = cleanStr(it.n).toUpperCase();
+            const rawName = stripDimensionsFromProductText(it.n).toUpperCase();
             const vr = cleanStr(it.vr).toUpperCase();
             const titleWords = new Set(
                 String(groupObj && groupObj.title ? groupObj.title : '')
@@ -1555,7 +1844,7 @@
             skuEl.classList.toggle('hidden', !it.s);
         }
 
-        const baseTitle = cleanStr(it.n) || cleanStr(it._groupTitle) || it.s || '';
+        const baseTitle = stripDimensionsFromProductText(it.n) || cleanStr(it._groupTitle) || it.s || '';
         const formattedPrice = formatPrice(it.pr);
         if (nameEl) {
             nameEl.textContent = baseTitle;
@@ -1638,16 +1927,13 @@
                 : '';
 
             if (isLppt) {
-                // Si no hay piezas en LPPT (qty <= 0), no colocar nada de LPPT
+                // Si no hay piezas en LPPT (qty <= 0), no colocar nada de LPPT; mencionar la cantidad una sola vez
                 if (qty > 0) {
                     const lpptMsg = formatLpptArrivalText(it, qty);
                     whHtml.push(
-                        '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between gap-3 ' + semClass + spanClass + '">' +
-                            '<div class="flex items-center gap-2 min-w-0 pr-2">' +
-                                '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
-                                '<span class="text-xs font-extrabold leading-snug">' + escapeHtml(lpptMsg) + '</span>' +
-                            '</div>' +
-                            '<span class="text-lg font-black shrink-0">' + qty + '</span>' +
+                        '<div class="rounded-xl border px-3.5 py-3 flex items-center gap-2.5 ' + semClass + spanClass + '">' +
+                            '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
+                            '<span class="text-xs font-extrabold leading-snug">' + escapeHtml(lpptMsg) + '</span>' +
                         '</div>'
                     );
                 }
@@ -1784,6 +2070,9 @@
             const label = shortNames[baseLoc] || baseLoc;
             byLoc.set(label, (byLoc.get(label) || 0) + q);
         }
+        if (byLoc.size === 1) {
+            return Array.from(byLoc.keys())[0];
+        }
         const parts = [];
         byLoc.forEach((val, key) => parts.push(key + ': ' + val));
         return parts.join(' · ');
@@ -1851,7 +2140,7 @@
         listEl.innerHTML = matches.map(entry => {
             const it = entry.it;
             const skuKey = String(it.s || '').trim().toUpperCase();
-            const titleTxt = cleanStr(it.n) || cleanStr(it._groupTitle) || it.s;
+            const titleTxt = stripDimensionsFromProductText(it.n) || cleanStr(it._groupTitle) || it.s;
             const locSummary = buildDeliveryStockSummary(it);
             const dispTxt = entry.stock === 1 ? '1 disponible para entrega' : (entry.stock + ' disponibles para entrega');
             return '<div class="inv-row" data-rel-sku="' + escapeHtml(skuKey) + '" style="background:#FFFFFF;">' +
@@ -3644,14 +3933,14 @@
             if (stepDelta <= 0 || !it) return;
             cart[key] = {
                 sku: it.s,
-                name: cleanStr(it.n) || it.s,
+                name: stripDimensionsFromProductText(it.n) || it.s,
                 price: formatPrice(it.pr),
                 qty: 0,
                 discountPct: 0
             };
         } else if (it && it.pr) {
             cart[key].price = formatPrice(it.pr);
-            cart[key].name = cleanStr(it.n) || cart[key].name || it.s;
+            cart[key].name = stripDimensionsFromProductText(it.n) || stripDimensionsFromProductText(cart[key].name) || it.s;
         }
         cart[key].qty = Math.max(0, (Number(cart[key].qty) || 0) + stepDelta);
         if (cart[key].qty <= 0) {
@@ -3741,7 +4030,8 @@
             const row = entries[i];
             const key = String(row.sku || '').toUpperCase();
             const liveIt = bySkuMap.get(key);
-            const itemName = (liveIt && cleanStr(liveIt.n)) || row.name || row.sku;
+            const rawCartName = (row.name && String(row.name).trim().toUpperCase() !== key) ? row.name : '';
+            const itemName = stripDimensionsFromProductText((liveIt && cleanStr(liveIt.n)) || rawCartName) || 'PRODUCTO COTIZADO';
             const itemPriceStr = (liveIt && formatPrice(liveIt.pr)) || formatPrice(row.price);
             const unitList = parsePriceNum(itemPriceStr);
             const qty = Math.max(1, Number(row.qty) || 1);
@@ -3847,8 +4137,7 @@
                         escapeHtml(ln.name) +
                     '</div>' +
                     '<div class="text-[11px] font-bold mt-0.5 flex flex-wrap items-center gap-2" style="color:#A38251;">' +
-                        '<span>' + escapeHtml(ln.sku) + '</span>' +
-                        '<span>· P. Lista: ' + escapeHtml(unitStr) + '</span>' +
+                        '<span>P. Lista: ' + escapeHtml(unitStr) + '</span>' +
                         '<span style="color:#252C32;">· Importe: ' + escapeHtml(lineSubStr) + '</span>' +
                     '</div>' +
                 '</div>' +
@@ -3955,7 +4244,7 @@
         bd.lines.forEach((ln, i) => {
             const discTxt = ln.discountPct > 0 ? (' (-' + ln.discountPct + '%)') : '';
             lines.push(
-                (i + 1) + '. [' + ln.sku + '] ' + ln.name +
+                (i + 1) + '. ' + ln.name +
                 ' | Cant: ' + ln.qty +
                 ' | P. Lista: ' + (formatPrice(ln.unitList) || '$0.00') +
                 discTxt +
@@ -4005,9 +4294,8 @@
                 '<td style="padding:6px;border-bottom:1px solid #E8E4DE;text-align:center;">' +
                     (ln.photoUrl ? ('<img src="' + escapeHtml(ln.photoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E8E4DE;border-radius:6px;background:#FFF;">') : '') +
                 '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;font-weight:700;">' + escapeHtml(ln.sku) + '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;">' + escapeHtml(ln.name) +
-                    (ln.measures ? ('<div style="font-size:10px;color:#6B7280;margin-top:2px;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;font-weight:600;">' + escapeHtml(ln.name) +
+                    (ln.measures ? ('<div style="font-size:10px;color:#6B7280;margin-top:2px;font-weight:400;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
                 '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;font-weight:700;">' + ln.qty + '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:right;">' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</td>' +
@@ -4044,7 +4332,7 @@
                 '<div><strong>Correo Cuenta:</strong> ' + escapeHtml(payload.advisorEmail || '') + '</div>' +
                 (payload.notes ? ('<div style="grid-column:span 2;"><strong>Notas:</strong> ' + escapeHtml(payload.notes) + '</div>') : '') +
             '</div>' +
-            '<table><thead><tr><th>#</th><th>Imagen</th><th>SKU</th><th style="text-align:left;">Descripción</th><th>Cant.</th><th style="text-align:right;">Precio Lista</th><th>% Desc.</th><th style="text-align:right;">Importe</th></tr></thead>' +
+            '<table><thead><tr><th>#</th><th>Imagen</th><th style="text-align:left;">Descripción</th><th>Cant.</th><th style="text-align:right;">Precio Lista</th><th>% Desc.</th><th style="text-align:right;">Importe</th></tr></thead>' +
             '<tbody>' + rowsHtml + '</tbody></table>' +
             '<div style="margin-left:auto;max-width:300px;margin-top:16px;border:1px solid #E1DBC5;border-radius:10px;padding:12px 14px;background:#FAF9F6;">' +
                 (bd.extraDiscount > 0 ? ('<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Descuento Extra:</span><strong>-' + escapeHtml(formatPrice(bd.extraDiscount)) + '</strong></div>') : '') +
@@ -4248,7 +4536,15 @@
                         '<div class="font-extrabold uppercase">✓ Cotización registrada en S Mueblería</div>' +
                         '<div>Folio S Mueblería: <strong>' + escapeHtml(folioFallback || assignedFolio) + '</strong>' +
                             (qidFallback ? (' · ID Cotización: <strong>' + escapeHtml(qidFallback) + '</strong>') : '') +
-                        '</div>'
+                        '</div>' +
+                        '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button></div>'
+                    );
+                } else if (res.queuedForDaemon) {
+                    renderQuoteStatusBanner(
+                        'warn',
+                        '<div class="font-extrabold uppercase">⏳ Cotización guardada en cola automática hacia S Mueblería</div>' +
+                        '<div>La sesión directa en nube estaba por renovarse, así que la cotización quedó lista en <code>plantilla</code> (<strong>ENVIAR COTIZACIÓN A S MUEBLERÍA</strong>). En cuanto <code>servicio_en_vivo.py</code> esté activo en la PC sincronizadora, se cargará automáticamente con su folio oficial.</div>' +
+                        '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF provisional →</button></div>'
                     );
                 } else {
                     renderQuoteStatusBanner(
@@ -4676,7 +4972,7 @@
             const erpFallbackPr = liveErpPricesBySku.get(skuUpper) || '';
             const prFormatted = formatPrice(rawPr) || formatPrice(erpFallbackPr) || (prevIt && formatPrice(prevIt.pr)) || '';
 
-            liveItems.push({
+            liveItems.push(normalizeInventoryItemLive({
                 s: sku,
                 tp: cleanStr(gvizCellRaw(rowCells, colTp)) || (prevIt && prevIt.tp) || '',
                 mo: cleanStr(gvizCellRaw(rowCells, colMo)) || (prevIt && prevIt.mo) || '',
@@ -4696,7 +4992,7 @@
                 baseLt: lpptInfo.baseLt,
                 fe: lpptInfo.fe,
                 st: st
-            });
+            }, prevIt));
         }
 
         if (liveItems.length === 0) return false;
@@ -4840,7 +5136,7 @@
                     const unpacked = new Array(len);
                     for (let i = 0; i < len; i++) {
                         const sku = cleanStr(cols[0][i]);
-                        unpacked[i] = {
+                        unpacked[i] = normalizeInventoryItemLive({
                             s: sku,
                             tp: cleanStr(cols[1][i]),
                             mo: cleanStr(cols[2][i]),
@@ -4860,7 +5156,7 @@
                             pr: cols.length > 16 ? formatPrice(cols[16][i]) : '',
                             fe: cols.length > 17 ? cleanStr(cols[17][i]) : '',
                             baseLt: cols.length > 20 ? normalizeLeadTimeVal(cols[20][i]) : normalizeLeadTimeVal(cols[14][i])
-                        };
+                        }, null);
                     }
                     allItems = unpacked;
                     window.CREATA_INV_DATA = unpacked;
