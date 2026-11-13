@@ -41,6 +41,7 @@
     const TOP_PENDING_QUEUE_KEY = 'creata_inv_top_pending_v1';
     const SEARCH_DEBOUNCE_MS = 1200;
     const SEARCH_DEDUP_COOLDOWN_MS = 180000;
+    const CANONICAL_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwWdasvfk3W5FJVZvbEylibYXFxGAr0W4zVb3dq-ws0BqStyiSYQ8oZWLqOPagQBrxv/exec';
     const CART_KEY = 'creata_inv_open_cart_v1';
     const DEFAULT_MIN_STOCK = 2;
 
@@ -53,6 +54,8 @@
 
     let isMainCoverActive = true;
     let lastMainCoverSig = '';
+    let deferCoverRefreshUntilMs = 0;
+    let deferCoverRefreshTimer = null;
     let searchInputRecordTimer = null;
     let cloudTopEntries = [];
     let pendingSearchQueue = [];
@@ -655,6 +658,59 @@
         return ranked.slice(0, cap).map(x => x.grp);
     }
 
+    function getMainCoverGroups(limit) {
+        const cap = (typeof limit === 'number' && limit > 0) ? limit : TOP_SEARCH_LIMIT;
+        const ranked = getTopSearchedGroups(cap);
+        if (ranked.length >= cap) return ranked.slice(0, cap);
+
+        const out = ranked.slice();
+        const seen = new Set(out.map(g => g.key));
+
+        const hasStock = function (grp) {
+            for (let i = 0; i < grp.items.length; i++) {
+                if (getBodegaPisoStock(grp.items[i]) > 0) return true;
+            }
+            return false;
+        };
+
+        // Nivel 1: modelos con foto, stock físico disponible y título limpio (sin clave numérica inicial)
+        for (let i = 0; i < allGroups.length && out.length < cap; i++) {
+            const g = allGroups[i];
+            if (seen.has(g.key)) continue;
+            if (!firstPhotoItem(g.items) || !hasStock(g) || /^\d/.test(String(g.title || ''))) continue;
+            seen.add(g.key);
+            out.push(g);
+        }
+
+        // Nivel 2: cualquier modelo con foto y stock físico disponible
+        for (let i = 0; i < allGroups.length && out.length < cap; i++) {
+            const g = allGroups[i];
+            if (seen.has(g.key)) continue;
+            if (!firstPhotoItem(g.items) || !hasStock(g)) continue;
+            seen.add(g.key);
+            out.push(g);
+        }
+
+        // Nivel 3: cualquier modelo con foto
+        for (let i = 0; i < allGroups.length && out.length < cap; i++) {
+            const g = allGroups[i];
+            if (seen.has(g.key)) continue;
+            if (!firstPhotoItem(g.items)) continue;
+            seen.add(g.key);
+            out.push(g);
+        }
+
+        // Nivel 4: respaldo general del catálogo hasta completar los 20 lugares
+        for (let i = 0; i < allGroups.length && out.length < cap; i++) {
+            const g = allGroups[i];
+            if (seen.has(g.key)) continue;
+            seen.add(g.key);
+            out.push(g);
+        }
+
+        return out.slice(0, cap);
+    }
+
     function computeMainCoverSig(groups) {
         if (!Array.isArray(groups) || groups.length === 0) return '__EMPTY__';
         return groups.map(g => g.key).join('\x1f');
@@ -662,14 +718,29 @@
 
     function refreshMainCoverIfChanged() {
         if (!isMainCoverActive) return;
-        const nextTop = getTopSearchedGroups(TOP_SEARCH_LIMIT);
-        const nextSig = computeMainCoverSig(nextTop);
+        const prodModal = document.getElementById('productDetailModal');
+        if (prodModal && prodModal.classList.contains('open')) return;
+        const quoteModal = document.getElementById('cartModal');
+        if (quoteModal && quoteModal.classList.contains('open')) return;
+
+        const now = Date.now();
+        if (now < deferCoverRefreshUntilMs) {
+            if (deferCoverRefreshTimer) clearTimeout(deferCoverRefreshTimer);
+            deferCoverRefreshTimer = setTimeout(function () {
+                deferCoverRefreshTimer = null;
+                refreshMainCoverIfChanged();
+            }, Math.max(30, deferCoverRefreshUntilMs - now + 25));
+            return;
+        }
+
+        const nextCover = getMainCoverGroups(TOP_SEARCH_LIMIT);
+        const nextSig = computeMainCoverSig(nextCover);
         if (nextSig !== lastMainCoverSig) {
             applyFilter('', false);
         }
     }
 
-    function recordGroupSearch(grp, preferredSku) {
+    function recordGroupSearch(grp, preferredSku, deferCoverRefresh) {
         if (!grp || !grp.key || !Array.isArray(grp.items) || grp.items.length === 0) return false;
         const now = Date.now();
         const prevTs = recentRecordedByGroup.get(grp.key) || 0;
@@ -708,7 +779,9 @@
         pendingSearchQueue.push(evObj);
         savePendingSearchQueue();
         notifyTopSearchPeers();
-        refreshMainCoverIfChanged();
+        if (!deferCoverRefresh) {
+            refreshMainCoverIfChanged();
+        }
         flushPendingSearchesToCloud().catch(() => {});
         return true;
     }
@@ -877,7 +950,7 @@
         }
 
         if (isMainCoverActive) {
-            filteredGroups = getTopSearchedGroups(TOP_SEARCH_LIMIT);
+            filteredGroups = getMainCoverGroups(TOP_SEARCH_LIMIT);
             lastMainCoverSig = computeMainCoverSig(filteredGroups);
         } else if (!rawTrim) {
             filteredGroups = allGroups;
@@ -1039,8 +1112,9 @@
             if (grp.items.length > 1) {
                 // Listado limpio sin precio afuera (el precio se muestra adentro al abrir el inventario del producto)
                 row.onclick = function () {
-                    recordGroupSearch(grp);
+                    const defer = isMainCoverActive;
                     openGroupModal(grp.key);
+                    recordGroupSearch(grp, '', defer);
                 };
                 row.innerHTML =
                     buildThumbHtml(firstPhotoItem(grp.items)) +
@@ -1055,8 +1129,9 @@
                 const skuKey = String(it.s || '').toUpperCase();
                 const inCartQty = cart[skuKey] ? cart[skuKey].qty : 0;
                 row.onclick = function () {
-                    recordGroupSearch(grp, it.s);
+                    const defer = isMainCoverActive;
                     openProductDetail(it.s, false);
+                    recordGroupSearch(grp, it.s, defer);
                 };
                 row.innerHTML =
                     buildThumbHtml(it) +
@@ -1071,8 +1146,15 @@
                 const btn = row.querySelector('button');
                 btn.onclick = function (ev) {
                     ev.stopPropagation();
-                    recordGroupSearch(grp, it.s);
+                    const defer = isMainCoverActive;
+                    if (defer) {
+                        deferCoverRefreshUntilMs = Date.now() + 1800;
+                    }
                     addToCart(it.s, 1);
+                    recordGroupSearch(grp, it.s, defer);
+                    if (defer) {
+                        refreshMainCoverIfChanged();
+                    }
                 };
             }
 
@@ -1423,6 +1505,7 @@
         if (modal) modal.classList.remove('open');
         currentDetailItem = null;
         currentGroup = null;
+        refreshMainCoverIfChanged();
     };
 
     function renderDetailModal(it, showGroupBack) {
@@ -1871,31 +1954,54 @@
     }
 
     async function callInvWebAppPost(action, payloadObj, timeoutMs) {
-        const apiUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
+        const cfgUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
             ? window.CREATA_CLOUD_CONFIG.getApiUrl()
             : '';
-        if (!apiUrl) return { ok: false, unavailable: true };
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
-        try {
-            const body = Object.assign({}, payloadObj || {}, { action: action });
-            const resp = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify(body),
-                signal: controller ? controller.signal : undefined
-            });
-            if (!resp.ok) return { ok: false, unavailable: true, httpStatus: resp.status };
-            const json = await resp.json();
-            if (json && !json.ok && /PIN de administrador|Acci[óo]n no reconocida/i.test(String(json.error || ''))) {
-                return { ok: false, needsRedeploy: true, error: json.error };
+        const primaryUrl = cfgUrl || CANONICAL_WEBAPP_URL;
+        if (!primaryUrl) return { ok: false, unavailable: true };
+
+        const postOnce = async function (targetUrl) {
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
+            try {
+                const body = Object.assign({}, payloadObj || {}, { action: action });
+                const resp = await fetch(targetUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(body),
+                    signal: controller ? controller.signal : undefined
+                });
+                if (!resp.ok) return { ok: false, unavailable: true, httpStatus: resp.status };
+                const json = await resp.json();
+                if (json && !json.ok && /PIN de administrador|Acci[óo]n no reconocida/i.test(String(json.error || ''))) {
+                    return { ok: false, needsRedeploy: true, error: json.error };
+                }
+                return json || { ok: false, unavailable: true };
+            } catch (err) {
+                return { ok: false, unavailable: true, error: err && err.message ? err.message : String(err) };
+            } finally {
+                if (timer) clearTimeout(timer);
             }
-            return json || { ok: false, unavailable: true };
-        } catch (err) {
-            return { ok: false, unavailable: true, error: err && err.message ? err.message : String(err) };
-        } finally {
-            if (timer) clearTimeout(timer);
+        };
+
+        const res = await postOnce(primaryUrl);
+        if (
+            CANONICAL_WEBAPP_URL &&
+            primaryUrl !== CANONICAL_WEBAPP_URL &&
+            res &&
+            (res.unavailable || res.needsRedeploy)
+        ) {
+            const fallbackRes = await postOnce(CANONICAL_WEBAPP_URL);
+            if (fallbackRes && fallbackRes.ok) {
+                try {
+                    if (window.CREATA_CLOUD_CONFIG && typeof window.CREATA_CLOUD_CONFIG.setApiUrl === 'function') {
+                        window.CREATA_CLOUD_CONFIG.setApiUrl('');
+                    }
+                } catch (e) {}
+                return fallbackRes;
+            }
         }
+        return res;
     }
 
     async function fetchSheetCsvRows(sheetName, extraParams) {
@@ -2826,6 +2932,7 @@
 
     window.closeCartModal = function () {
         document.getElementById('cartModal').classList.remove('open');
+        refreshMainCoverIfChanged();
     };
 
     window.clearCart = function () {
@@ -3977,9 +4084,10 @@
         window.addEventListener('pagehide', function () {
             if (pendingSearchQueue.length > 0 && navigator && typeof navigator.sendBeacon === 'function' && !webAppTopNeedsRedeploy) {
                 try {
-                    const apiUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
+                    const cfgUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
                         ? window.CREATA_CLOUD_CONFIG.getApiUrl()
                         : '';
+                    const apiUrl = cfgUrl || CANONICAL_WEBAPP_URL;
                     if (apiUrl) {
                         const blob = new Blob(
                             [JSON.stringify({ action: 'inv_record_search', events: pendingSearchQueue.slice(0, 50) })],

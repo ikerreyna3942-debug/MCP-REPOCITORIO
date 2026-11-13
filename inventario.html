@@ -34,10 +34,10 @@
             border-bottom: 1px solid var(--brand-sand);
         }
         .logo-img {
-            height: 73px;
+            height: 36px;
             width: auto;
             object-fit: contain;
-            margin: 0 auto;
+            margin: 0;
             display: block;
         }
         .inv-row {
@@ -107,24 +107,29 @@
         .modal-backdrop.open {
             display: flex;
         }
-        /* CATEGORÍAS DEL INVENTARIO (MISMO TAMAÑO Y ESTILO QUE EL CATÁLOGO) */
+        /* CATEGORÍAS DEL INVENTARIO COMPACTAS EN LÍNEA */
         .inv-cats-cell {
             display: flex;
-            gap: 8px;
+            align-items: center;
+            gap: 5px;
             overflow-x: auto;
-            padding-top: 10px;
+            padding-top: 0;
             scrollbar-width: none;
             -webkit-overflow-scrolling: touch;
         }
         .inv-cats-cell::-webkit-scrollbar { display: none; }
         .inv-cat-pill {
             flex: 0 0 auto;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             font-family: 'Raleway', sans-serif;
-            font-size: 8px;
+            font-size: 7.5px;
             font-weight: 700;
-            letter-spacing: 0.55px;
+            letter-spacing: 0.45px;
             text-transform: uppercase;
-            padding: 5px 12px;
+            padding: 0 9px;
             border-radius: 9999px;
             border: 1px solid rgba(225, 219, 197, 0.35);
             background: rgba(255, 255, 255, 0.1);
@@ -143,10 +148,13 @@
             background: var(--brand-bronze);
             border-color: var(--brand-bronze);
             color: #FFFFFF;
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
         }
-        .inv-subcats-cell { padding-top: 8px; }
+        .inv-subcats-cell { padding-top: 6px; }
         .inv-sub-pill {
+            height: 22px;
+            font-size: 7px;
+            padding: 0 8px;
             background: transparent;
             border-color: rgba(225, 219, 197, 0.28);
             color: #E1DBC5;
@@ -156,17 +164,48 @@
             border-color: #FFFFFF;
             color: #252C32;
         }
-        @media (max-width: 639px) {
-            .inv-cat-pill {
-                font-size: 8.5px !important;
-                padding: 6px 12px !important;
-            }
+        /* BOTÓN COTIZACIÓN COMPACTO (MISMA ALTURA QUE CATEGORÍAS Y BUSCADOR) */
+        .inv-quote-btn {
+            flex: 0 0 auto;
+            height: 24px;
+            padding: 0 10px;
+            border-radius: 9999px;
+            border: 1px solid var(--brand-bronze);
+            background: var(--brand-bronze);
+            color: #FFFFFF;
+            font-size: 7.5px;
+            font-weight: 800;
+            letter-spacing: 0.45px;
+            text-transform: uppercase;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            white-space: nowrap;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            transition: opacity 0.18s ease;
         }
-        /* BUSCADOR DEL COTIZADOR (MISMO TAMAÑO QUE EL CATÁLOGO) */
+        .inv-quote-btn:hover { opacity: 0.92; }
+        .inv-quote-badge {
+            min-width: 16px;
+            height: 16px;
+            padding: 0 5px;
+            border-radius: 9999px;
+            background: var(--brand-charcoal);
+            color: #FFFFFF;
+            font-size: 8.5px;
+            font-weight: 900;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        /* BUSCADOR COMPACTO DEL COTIZADOR */
         .inv-search-cell {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 5px;
             width: 100%;
         }
         .inv-search-box {
@@ -175,22 +214,23 @@
             align-items: center;
             flex: 1 1 auto;
             min-width: 0;
+            height: 30px;
             background: #FFFFFF;
-            border: 1.5px solid var(--brand-sand);
+            border: 1px solid var(--brand-sand);
             border-radius: 9999px;
-            padding: 8px 14px 8px 38px;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+            padding: 3px 10px 3px 28px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
             transition: all 0.2s ease;
         }
         .inv-search-box:focus-within {
             border-color: var(--brand-bronze);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22), 0 0 0 2px rgba(163, 130, 81, 0.35);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2), 0 0 0 2px rgba(163, 130, 81, 0.32);
         }
         .inv-search-icon {
             position: absolute;
-            left: 14px;
-            width: 16px;
-            height: 16px;
+            left: 10px;
+            width: 13px;
+            height: 13px;
             color: var(--brand-bronze);
             pointer-events: none;
         }
@@ -200,9 +240,9 @@
             outline: none;
             background: transparent;
             color: var(--brand-charcoal);
-            font-size: 12.5px;
+            font-size: 11px;
             font-weight: 600;
-            letter-spacing: 0.2px;
+            letter-spacing: 0.15px;
             padding: 0;
         }
         #invSearchInput::placeholder {
@@ -211,19 +251,19 @@
         }
         #invSearchInput::-webkit-search-cancel-button { display: none; }
         #invClearBtn {
-            width: 22px;
-            height: 22px;
-            line-height: 22px;
+            width: 17px;
+            height: 17px;
+            line-height: 17px;
             text-align: center;
             padding: 0;
             border-radius: 9999px;
             border: none;
             background: var(--brand-ivory);
             color: var(--brand-charcoal);
-            font-size: 11px;
+            font-size: 9.5px;
             font-weight: 800;
             cursor: pointer;
-            margin-left: 6px;
+            margin-left: 4px;
             flex-shrink: 0;
             transition: all 0.16s ease;
         }
@@ -233,26 +273,120 @@
         }
         #invScanBtn {
             flex: 0 0 auto;
-            height: 38px;
-            padding: 0 13px;
+            height: 30px;
+            padding: 0 10px;
             border-radius: 9999px;
             border: 1px solid var(--brand-bronze);
             background: var(--brand-bronze);
             color: #FFFFFF;
-            font-size: 9.5px;
+            font-size: 8px;
             font-weight: 800;
-            letter-spacing: 0.55px;
+            letter-spacing: 0.45px;
             text-transform: uppercase;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 5px;
+            gap: 4px;
             cursor: pointer;
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
             transition: all 0.2s ease;
         }
         #invScanBtn:hover { opacity: 0.92; }
-        #invScanBtn svg { width: 15px; height: 15px; flex-shrink: 0; }
+        #invScanBtn svg { width: 12px; height: 12px; flex-shrink: 0; }
+        /* MÓVIL Y TABLET VERTICAL (< 920px): CABECERA COMPACTA SIN DESBORDAR */
+        @media (max-width: 919px) {
+            .inv-header-inner { padding: 8px 12px !important; }
+            .inv-top-line {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                grid-template-areas:
+                    "logo quote"
+                    "search search"
+                    "cats cats";
+                align-items: center;
+                row-gap: 7px;
+                column-gap: 10px;
+            }
+            .inv-controls-line { display: contents; }
+            .inv-logo-cell { grid-area: logo; justify-self: start; margin: 0; }
+            .inv-logo-cell .logo-img { height: 32px; margin: 0; }
+            .inv-quote-btn { grid-area: quote; justify-self: end; height: 26px; font-size: 8px; padding: 0 11px; }
+            .inv-search-cell { grid-area: search; }
+            .inv-cats-cell { grid-area: cats; }
+            .inv-cat-pill { height: 25px; font-size: 8px; padding: 0 10px; }
+        }
+        /* PC Y PANTALLAS >= 920px: BUSCADOR + ESCANEAR + CATEGORÍAS + COTIZACIÓN + LOGO EN UNA SOLA LÍNEA */
+        @media (min-width: 920px) {
+            .inv-header-inner {
+                max-width: 72rem !important;
+                padding: 9px 16px !important;
+            }
+            .inv-top-line {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                flex-wrap: nowrap;
+            }
+            .inv-controls-line {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                flex: 1 1 auto;
+                min-width: 0;
+                flex-wrap: nowrap;
+            }
+            .inv-logo-cell {
+                flex: 0 0 auto;
+                margin: 0;
+            }
+            .inv-logo-cell .logo-img {
+                height: 36px;
+                margin: 0 0 0 auto;
+            }
+            .inv-search-cell {
+                flex: 0 0 auto;
+                width: auto;
+                gap: 5px;
+            }
+            .inv-search-box {
+                flex: 0 0 185px;
+                width: 185px;
+                max-width: 185px;
+                height: 24px;
+                padding: 2px 8px 2px 24px;
+                border-width: 1px;
+            }
+            .inv-search-icon {
+                left: 8px;
+                width: 11px;
+                height: 11px;
+            }
+            #invSearchInput {
+                font-size: 9px;
+                line-height: 1.2;
+            }
+            #invClearBtn {
+                width: 15px;
+                height: 15px;
+                line-height: 15px;
+                font-size: 8.5px;
+                margin-left: 3px;
+            }
+            #invScanBtn {
+                height: 24px;
+                padding: 0 8px;
+                font-size: 7.5px;
+                font-weight: 700;
+                gap: 3.5px;
+            }
+            #invScanBtn svg { width: 11px; height: 11px; }
+            #invCategoryBar {
+                flex: 0 1 auto;
+                min-width: 0;
+                flex-wrap: nowrap;
+            }
+        }
         /* MINIATURA DEL PRODUCTO EN EL LISTADO */
         .inv-thumb {
             width: 56px;
@@ -270,62 +404,9 @@
         .inv-thumb img { width: 100%; height: 100%; object-fit: contain; }
         /* ESCÁNER DE CÁMARA */
         #scanReader video { width: 100% !important; border-radius: 12px; }
-        /* ENCABEZADO EN PC: LOGO ARRIBA A LA DERECHA + BUSCADOR A LA IZQUIERDA (MISMO TAMAÑO QUE CATÁLOGO) */
+        /* LISTADO EN PC: FICHAS DE PRODUCTO, 5 POR FILA, MISMO ANCHO QUE EL ENCABEZADO */
         @media (min-width: 1024px) {
-            .inv-header-inner {
-                max-width: 72rem !important;
-                display: grid;
-                grid-template-columns: 1fr auto;
-                width: 100%;
-                grid-template-areas:
-                    "search logo"
-                    "title title"
-                    "cats cats"
-                    "subcats subcats";
-                justify-content: space-between;
-                align-items: center;
-                column-gap: 32px;
-            }
-            .inv-logo-cell { grid-area: logo; margin-bottom: 0; justify-self: end; }
-            .inv-logo-cell .logo-img { margin: 0 0 0 auto; }
-            .inv-search-cell { grid-area: search; justify-self: start; width: auto; }
-            .inv-search-box {
-                flex: 0 0 230px;
-                width: 230px;
-                max-width: 230px;
-                height: 25px;
-                padding: 3px 10px 3px 26px;
-                border-width: 1px;
-            }
-            .inv-search-icon {
-                left: 9px;
-                width: 12px;
-                height: 12px;
-            }
-            #invSearchInput {
-                font-size: 9.5px;
-                line-height: 1.2;
-            }
-            #invClearBtn {
-                width: 16px;
-                height: 16px;
-                line-height: 16px;
-                font-size: 9px;
-                margin-left: 4px;
-            }
-            #invScanBtn {
-                height: 25px;
-                padding: 0 10px;
-                font-size: 8px;
-                font-weight: 700;
-                gap: 4px;
-            }
-            #invScanBtn svg { width: 11px; height: 11px; }
-            .inv-title-cell { grid-area: title; margin-top: 10px; }
-            .inv-cats-cell { grid-area: cats; flex-wrap: wrap; }
-            .inv-subcats-cell { grid-area: subcats; }
-            /* LISTADO EN PC: FICHAS DE PRODUCTO, 5 POR FILA, MISMO ANCHO QUE EL ENCABEZADO */
-            .inv-main { max-width: 72rem !important; padding-top: 22px; }
+            .inv-main { max-width: 72rem !important; padding-top: 18px; }
             #invListContainer {
                 display: grid;
                 grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -372,48 +453,49 @@
 <body>
 
     <header class="inv-header sticky top-0 z-40">
-        <div class="inv-header-inner max-w-3xl mx-auto px-4 pt-6 pb-5">
-            <div class="inv-logo-cell text-center mb-6">
-                <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img">
-                <script src="creata-logo.js"></script>
-                <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
-            </div>
+        <div class="inv-header-inner max-w-3xl mx-auto px-4 py-2.5">
+            <div class="inv-top-line">
+                <div class="inv-controls-line">
+                    <div class="inv-search-cell">
+                        <div class="inv-search-box">
+                            <svg class="inv-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"></path>
+                            </svg>
+                            <input
+                                type="search"
+                                id="invSearchInput"
+                                placeholder="Buscar producto o escanear SKU..."
+                                autocomplete="off"
+                            >
+                            <button type="button" id="invClearBtn" onclick="clearInvSearch()" style="display:none;" title="Limpiar búsqueda">✕</button>
+                        </div>
+                        <!-- ESCANEAR CON LA CÁMARA DEL TELÉFONO (CÓDIGO DE BARRAS / QR DEL SKU) -->
+                        <button type="button" id="invScanBtn" onclick="openBarcodeScanner()" title="Escanear con la cámara" aria-label="Escanear con la cámara">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                            <span>Escanear</span>
+                        </button>
+                    </div>
 
-            <div class="inv-title-cell flex items-center justify-between mb-2.5">
-                <h1 class="text-sm sm:text-base font-bold tracking-wider uppercase text-white">Búsqueda de productos</h1>
-                <button type="button" onclick="openCartModal()" id="headerCartBtn"
-                        class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-extrabold uppercase tracking-wider transition"
-                        style="background:#A38251; color:#FFFFFF;">
-                    <span>Cotización</span>
-                    <span id="headerCartCount" class="px-2 py-0.5 rounded-full text-[11px] font-black" style="background:#252C32; color:#FFFFFF;">0</span>
-                </button>
-            </div>
+                    <!-- CATEGORÍAS DEL INVENTARIO -->
+                    <div id="invCategoryBar" class="inv-cats-cell"></div>
 
-            <div class="inv-search-cell">
-                <div class="inv-search-box">
-                    <svg class="inv-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"></path>
-                    </svg>
-                    <input
-                        type="search"
-                        id="invSearchInput"
-                        placeholder="Buscar producto o escanear SKU..."
-                        autocomplete="off"
-                    >
-                    <button type="button" id="invClearBtn" onclick="clearInvSearch()" style="display:none;" title="Limpiar búsqueda">✕</button>
+                    <!-- BOTÓN COTIZACIÓN COMPACTO EN LA MISMA LÍNEA -->
+                    <button type="button" onclick="openCartModal()" id="headerCartBtn" class="inv-quote-btn" title="Abrir cotización">
+                        <span>Cotización</span>
+                        <span id="headerCartCount" class="inv-quote-badge">0</span>
+                    </button>
                 </div>
-                <!-- ESCANEAR CON LA CÁMARA DEL TELÉFONO (CÓDIGO DE BARRAS / QR DEL SKU) -->
-                <button type="button" id="invScanBtn" onclick="openBarcodeScanner()" title="Escanear con la cámara" aria-label="Escanear con la cámara">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                    </svg>
-                    <span>Escanear</span>
-                </button>
+
+                <div class="inv-logo-cell">
+                    <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img">
+                    <script src="creata-logo.js"></script>
+                    <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
+                </div>
             </div>
 
-            <!-- CATEGORÍAS DEL INVENTARIO -->
-            <div id="invCategoryBar" class="inv-cats-cell"></div>
             <!-- SUBCATEGORÍAS (APARECEN AL ELEGIR UNA CATEGORÍA PRINCIPAL) -->
             <div id="invSubCategoryBar" class="inv-cats-cell inv-subcats-cell" style="display:none;"></div>
         </div>
@@ -797,6 +879,6 @@
     <script src="inventario-data-1.js?v=32"></script>
     <script src="inventario-data-2.js?v=32"></script>
     <script src="inventario-data-3.js?v=32"></script>
-    <script src="inventario-app.js?v=33"></script>
+    <script src="inventario-app.js?v=34"></script>
 </body>
 </html>
