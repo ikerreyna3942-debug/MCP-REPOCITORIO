@@ -35,6 +35,12 @@
     ];
 
     const PAGE_SIZE = 80;
+    const TOP_SEARCH_LIMIT = 20;
+    const TOP_SEARCH_SHEET_NAME = 'TOP_BUSCADOS';
+    const TOP_CLOUD_CACHE_KEY = 'creata_inv_top_cloud_v1';
+    const TOP_PENDING_QUEUE_KEY = 'creata_inv_top_pending_v1';
+    const SEARCH_DEBOUNCE_MS = 1200;
+    const SEARCH_DEDUP_COOLDOWN_MS = 180000;
     const CART_KEY = 'creata_inv_open_cart_v1';
     const DEFAULT_MIN_STOCK = 2;
 
@@ -44,6 +50,19 @@
     let allGroups = [];
     let filteredGroups = [];
     let renderedCount = 0;
+
+    let isMainCoverActive = true;
+    let lastMainCoverSig = '';
+    let searchInputRecordTimer = null;
+    let cloudTopEntries = [];
+    let pendingSearchQueue = [];
+    let lastLocalAckAtMs = 0;
+    let flushTopInFlight = false;
+    let fetchTopInFlight = false;
+    let lastWebAppTopAttemptMs = 0;
+    let webAppTopNeedsRedeploy = false;
+    const recentRecordedByGroup = new Map();
+    let topSyncChannel = null;
 
     let currentGroup = null;
     let currentDetailItem = null;
@@ -470,6 +489,380 @@
     }
 
     // ------------------------------------------------------------------------
+    // REGISTRO GLOBAL Y PORTADA PRINCIPAL: TOP 20 ARTÍCULOS MÁS BUSCADOS
+    // ------------------------------------------------------------------------
+    function sanitizeTopEntryObj(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const sku = cleanStr(raw.sku).toUpperCase();
+        const title = cleanStr(raw.title);
+        const gk = normalizePlain(raw.gk) || normalizePlain(title) || sku.toLowerCase();
+        const count = Math.max(0, Math.round(Number(raw.count) || 0));
+        if (!gk || count <= 0) return null;
+        return {
+            gk: gk,
+            sku: sku,
+            title: title || sku || gk.toUpperCase(),
+            cat: cleanStr(raw.cat),
+            count: count,
+            lastMs: Math.max(0, Math.round(Number(raw.lastMs) || 0))
+        };
+    }
+
+    function loadTopSearchedState() {
+        try {
+            const rawCloud = JSON.parse(localStorage.getItem(TOP_CLOUD_CACHE_KEY) || '[]');
+            if (Array.isArray(rawCloud)) {
+                cloudTopEntries = rawCloud.map(sanitizeTopEntryObj).filter(Boolean);
+            }
+        } catch (e) {
+            cloudTopEntries = [];
+        }
+        try {
+            const rawPending = JSON.parse(localStorage.getItem(TOP_PENDING_QUEUE_KEY) || '[]');
+            if (Array.isArray(rawPending)) {
+                pendingSearchQueue = rawPending.filter(ev => ev && typeof ev === 'object' && (ev.gk || ev.sku || ev.title));
+            }
+        } catch (e) {
+            pendingSearchQueue = [];
+        }
+    }
+
+    function saveCloudTopEntries() {
+        try {
+            localStorage.setItem(TOP_CLOUD_CACHE_KEY, JSON.stringify(cloudTopEntries.slice(0, 120)));
+        } catch (e) {}
+    }
+
+    function compactPendingQueueIfNeeded() {
+        if (pendingSearchQueue.length <= 80) return;
+        const compacted = [];
+        const byKeyIdx = new Map();
+        for (let i = 0; i < pendingSearchQueue.length; i++) {
+            const ev = pendingSearchQueue[i];
+            const gk = normalizePlain(ev.gk) || normalizePlain(ev.title) || String(ev.sku || '').toLowerCase();
+            if (!gk) continue;
+            const d = Math.max(1, Math.round(Number(ev.delta) || 1));
+            if (byKeyIdx.has(gk)) {
+                const prev = compacted[byKeyIdx.get(gk)];
+                if ((prev.delta || 1) + d <= 25) {
+                    prev.delta = (prev.delta || 1) + d;
+                    prev.ts = Math.max(Number(prev.ts) || 0, Number(ev.ts) || 0);
+                    continue;
+                }
+            }
+            const copy = Object.assign({}, ev, { gk: gk, delta: Math.min(25, d) });
+            byKeyIdx.set(gk, compacted.length);
+            compacted.push(copy);
+        }
+        pendingSearchQueue = compacted.slice(-120);
+    }
+
+    function savePendingSearchQueue() {
+        compactPendingQueueIfNeeded();
+        try {
+            localStorage.setItem(TOP_PENDING_QUEUE_KEY, JSON.stringify(pendingSearchQueue));
+        } catch (e) {}
+    }
+
+    function notifyTopSearchPeers() {
+        if (!topSyncChannel) return;
+        try {
+            topSyncChannel.postMessage({ type: 'top_updated', ts: Date.now() });
+        } catch (e) {}
+    }
+
+    function initTopSearchedSync() {
+        loadTopSearchedState();
+        if (typeof BroadcastChannel !== 'undefined' && !topSyncChannel) {
+            try {
+                topSyncChannel = new BroadcastChannel('creata_inv_top_sync');
+                topSyncChannel.onmessage = function () {
+                    loadTopSearchedState();
+                    refreshMainCoverIfChanged();
+                };
+            } catch (e) {
+                topSyncChannel = null;
+            }
+        }
+        window.addEventListener('storage', function (ev) {
+            if (!ev || (ev.key !== TOP_CLOUD_CACHE_KEY && ev.key !== TOP_PENDING_QUEUE_KEY)) return;
+            loadTopSearchedState();
+            refreshMainCoverIfChanged();
+        });
+    }
+
+    function resolveGroupForTopEntry(entry) {
+        if (!entry) return null;
+        const gkNorm = normalizePlain(entry.gk);
+        if (gkNorm && groupsByKey.has(gkNorm)) {
+            return groupsByKey.get(gkNorm);
+        }
+        const skuUpper = cleanStr(entry.sku).toUpperCase();
+        if (skuUpper && bySkuMap.has(skuUpper)) {
+            const it = bySkuMap.get(skuUpper);
+            if (it && groupsByKey.has(it._groupKey)) {
+                return groupsByKey.get(it._groupKey);
+            }
+        }
+        const titleNorm = normalizePlain(entry.title);
+        if (titleNorm && groupsByKey.has(titleNorm)) {
+            return groupsByKey.get(titleNorm);
+        }
+        return null;
+    }
+
+    function getTopSearchedGroups(limit) {
+        const cap = (typeof limit === 'number' && limit > 0) ? limit : TOP_SEARCH_LIMIT;
+        const agg = new Map();
+
+        for (let i = 0; i < cloudTopEntries.length; i++) {
+            const e = cloudTopEntries[i];
+            if (!e || e.count <= 0) continue;
+            const grp = resolveGroupForTopEntry(e);
+            if (!grp) continue;
+            const prev = agg.get(grp.key);
+            if (prev) {
+                prev.count += e.count;
+                if (e.lastMs > prev.lastMs) prev.lastMs = e.lastMs;
+            } else {
+                agg.set(grp.key, { grp: grp, count: e.count, lastMs: e.lastMs || 0 });
+            }
+        }
+
+        for (let i = 0; i < pendingSearchQueue.length; i++) {
+            const ev = pendingSearchQueue[i];
+            if (!ev) continue;
+            const grp = resolveGroupForTopEntry(ev);
+            if (!grp) continue;
+            const delta = Math.max(1, Math.round(Number(ev.delta) || 1));
+            const ts = Math.max(0, Math.round(Number(ev.ts) || 0));
+            const prev = agg.get(grp.key);
+            if (prev) {
+                prev.count += delta;
+                if (ts > prev.lastMs) prev.lastMs = ts;
+            } else {
+                agg.set(grp.key, { grp: grp, count: delta, lastMs: ts });
+            }
+        }
+
+        if (agg.size === 0) return [];
+        const ranked = Array.from(agg.values()).filter(x => x.count > 0);
+        ranked.sort((a, b) => {
+            if (b.count !== a.count) return b.count - a.count;
+            if (b.lastMs !== a.lastMs) return b.lastMs - a.lastMs;
+            return String(a.grp.title || '').localeCompare(String(b.grp.title || ''));
+        });
+        return ranked.slice(0, cap).map(x => x.grp);
+    }
+
+    function computeMainCoverSig(groups) {
+        if (!Array.isArray(groups) || groups.length === 0) return '__EMPTY__';
+        return groups.map(g => g.key).join('\x1f');
+    }
+
+    function refreshMainCoverIfChanged() {
+        if (!isMainCoverActive) return;
+        const nextTop = getTopSearchedGroups(TOP_SEARCH_LIMIT);
+        const nextSig = computeMainCoverSig(nextTop);
+        if (nextSig !== lastMainCoverSig) {
+            applyFilter('', false);
+        }
+    }
+
+    function recordGroupSearch(grp, preferredSku) {
+        if (!grp || !grp.key || !Array.isArray(grp.items) || grp.items.length === 0) return false;
+        const now = Date.now();
+        const prevTs = recentRecordedByGroup.get(grp.key) || 0;
+        if (now - prevTs < SEARCH_DEDUP_COOLDOWN_MS) return false;
+        recentRecordedByGroup.set(grp.key, now);
+
+        const prefUpper = cleanStr(preferredSku).toUpperCase();
+        let chosenItem = grp.items[0];
+        if (prefUpper) {
+            for (let i = 0; i < grp.items.length; i++) {
+                if (String(grp.items[i].s || '').toUpperCase() === prefUpper) {
+                    chosenItem = grp.items[i];
+                    break;
+                }
+            }
+        }
+
+        const primarySku = cleanStr(chosenItem && chosenItem.s).toUpperCase();
+        const title = cleanStr(grp.title) || cleanStr(chosenItem && chosenItem.n) || primarySku;
+        const mainCat = (grp.mains && grp.mains.size > 0) ? Array.from(grp.mains)[0] : '';
+        const branch = (typeof activeAdvisorSession !== 'undefined' && activeAdvisorSession)
+            ? cleanStr(activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '')
+            : '';
+
+        const evObj = {
+            id: 'ts_' + now.toString(36) + '_' + Math.random().toString(36).slice(2, 9),
+            gk: grp.key,
+            sku: primarySku,
+            title: title,
+            cat: mainCat,
+            delta: 1,
+            ts: now,
+            branch: branch
+        };
+
+        pendingSearchQueue.push(evObj);
+        savePendingSearchQueue();
+        notifyTopSearchPeers();
+        refreshMainCoverIfChanged();
+        flushPendingSearchesToCloud().catch(() => {});
+        return true;
+    }
+
+    function recordSkuSearch(skuRaw) {
+        const key = cleanStr(skuRaw).toUpperCase();
+        if (!key) return false;
+        const it = bySkuMap.get(key);
+        if (!it) return false;
+        const grp = groupsByKey.get(it._groupKey);
+        if (!grp) return false;
+        return recordGroupSearch(grp, it.s);
+    }
+
+    function scheduleSearchQueryRecord(rawQuery) {
+        if (searchInputRecordTimer) {
+            clearTimeout(searchInputRecordTimer);
+            searchInputRecordTimer = null;
+        }
+        const trimmed = String(rawQuery || '').trim();
+        if (trimmed.length < 2) return;
+        searchInputRecordTimer = setTimeout(function () {
+            searchInputRecordTimer = null;
+            const inp = document.getElementById('invSearchInput');
+            const curVal = String((inp && inp.value) || '').trim();
+            if (!curVal || curVal !== trimmed) return;
+            const exact = bySkuMap.get(curVal.toUpperCase());
+            if (exact) {
+                recordSkuSearch(exact.s);
+                return;
+            }
+            if (curVal.length >= 3 && !isMainCoverActive && filteredGroups.length === 1) {
+                recordGroupSearch(filteredGroups[0]);
+            }
+        }, SEARCH_DEBOUNCE_MS);
+    }
+
+    async function flushPendingSearchesToCloud() {
+        if (flushTopInFlight || pendingSearchQueue.length === 0) return false;
+        if (webAppTopNeedsRedeploy && (Date.now() - lastWebAppTopAttemptMs < 60000)) return false;
+        flushTopInFlight = true;
+        lastWebAppTopAttemptMs = Date.now();
+        try {
+            const batch = pendingSearchQueue.slice(0, 50);
+            const res = await callInvWebAppPost('inv_record_search', { events: batch }, 10000);
+            if (res && res.needsRedeploy) {
+                webAppTopNeedsRedeploy = true;
+                return false;
+            }
+            if (res && res.ok) {
+                webAppTopNeedsRedeploy = false;
+                const ackList = Array.isArray(res.ackIds) && res.ackIds.length > 0
+                    ? res.ackIds
+                    : batch.map(e => e.id);
+                const ackSet = new Set(ackList);
+                pendingSearchQueue = pendingSearchQueue.filter(e => !ackSet.has(e.id));
+                savePendingSearchQueue();
+
+                if (Array.isArray(res.top)) {
+                    cloudTopEntries = res.top.map(sanitizeTopEntryObj).filter(Boolean);
+                    lastLocalAckAtMs = Date.now();
+                    saveCloudTopEntries();
+                }
+                notifyTopSearchPeers();
+                refreshMainCoverIfChanged();
+
+                if (pendingSearchQueue.length > 0) {
+                    setTimeout(() => { flushPendingSearchesToCloud().catch(() => {}); }, 80);
+                }
+                return true;
+            }
+        } catch (e) {} finally {
+            flushTopInFlight = false;
+        }
+        return false;
+    }
+
+    async function fetchLiveTopSearchedFromCloud() {
+        if (fetchTopInFlight) return;
+        fetchTopInFlight = true;
+        try {
+            if (pendingSearchQueue.length > 0) {
+                const flushed = await flushPendingSearchesToCloud();
+                if (flushed && pendingSearchQueue.length === 0) {
+                    return;
+                }
+            }
+
+            const rows = await fetchSheetCsvRows(TOP_SEARCH_SHEET_NAME, 'range=A1:I120');
+            if (
+                rows &&
+                rows.length >= 1 &&
+                Array.isArray(rows[0]) &&
+                normHeader(rows[0][0]) === 'POSICION' &&
+                normHeader(rows[0][1]) === 'CLAVE_GRUPO' &&
+                normHeader(rows[0][5]) === 'BUSQUEDAS'
+            ) {
+                const parsed = [];
+                for (let i = 1; i < rows.length; i++) {
+                    const r = rows[i];
+                    if (!r || r.length < 6) continue;
+                    const entry = sanitizeTopEntryObj({
+                        gk: r[1],
+                        sku: r[2],
+                        title: r[3],
+                        cat: r[4],
+                        count: r[5],
+                        lastMs: r[6]
+                    });
+                    if (entry) parsed.push(entry);
+                }
+
+                if (Date.now() - lastLocalAckAtMs < 20000 && cloudTopEntries.length > 0) {
+                    const byGk = new Map();
+                    for (let i = 0; i < parsed.length; i++) byGk.set(parsed[i].gk, parsed[i]);
+                    for (let i = 0; i < cloudTopEntries.length; i++) {
+                        const loc = cloudTopEntries[i];
+                        const rem = byGk.get(loc.gk);
+                        if (!rem) {
+                            byGk.set(loc.gk, loc);
+                        } else if (loc.count > rem.count) {
+                            rem.count = loc.count;
+                            rem.lastMs = Math.max(rem.lastMs, loc.lastMs);
+                        }
+                    }
+                    cloudTopEntries = Array.from(byGk.values());
+                } else {
+                    cloudTopEntries = parsed;
+                }
+
+                saveCloudTopEntries();
+                notifyTopSearchPeers();
+                refreshMainCoverIfChanged();
+                return;
+            }
+
+            if (!webAppTopNeedsRedeploy && (Date.now() - lastWebAppTopAttemptMs > 45000)) {
+                lastWebAppTopAttemptMs = Date.now();
+                const res = await callInvWebAppPost('inv_top_searched', {}, 8000);
+                if (res && res.needsRedeploy) {
+                    webAppTopNeedsRedeploy = true;
+                } else if (res && res.ok && Array.isArray(res.top)) {
+                    cloudTopEntries = res.top.map(sanitizeTopEntryObj).filter(Boolean);
+                    saveCloudTopEntries();
+                    notifyTopSearchPeers();
+                    refreshMainCoverIfChanged();
+                }
+            }
+        } catch (e) {} finally {
+            fetchTopInFlight = false;
+        }
+    }
+
+    // ------------------------------------------------------------------------
     // FILTRADO AGRUPADO POR MODELO + TOLERANCIA ORTOGRÁFICA + ESCÁNER SKU
     // ------------------------------------------------------------------------
     function applyFilter(query, preserveCount) {
@@ -477,7 +870,16 @@
         const clearBtn = document.getElementById('invClearBtn');
         if (clearBtn) clearBtn.style.display = rawTrim ? 'block' : 'none';
 
-        if (!rawTrim) {
+        isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
+        const topHeadingEl = document.getElementById('invTopHeading');
+        if (topHeadingEl) {
+            topHeadingEl.style.display = isMainCoverActive ? '' : 'none';
+        }
+
+        if (isMainCoverActive) {
+            filteredGroups = getTopSearchedGroups(TOP_SEARCH_LIMIT);
+            lastMainCoverSig = computeMainCoverSig(filteredGroups);
+        } else if (!rawTrim) {
             filteredGroups = allGroups;
         } else {
             const exactSkuItem = bySkuMap.get(rawTrim.toUpperCase());
@@ -533,7 +935,9 @@
         }
         renderCategoryBar();
 
-        const targetInitial = preserveCount ? Math.max(PAGE_SIZE, renderedCount) : PAGE_SIZE;
+        const targetInitial = isMainCoverActive
+            ? TOP_SEARCH_LIMIT
+            : (preserveCount ? Math.max(PAGE_SIZE, renderedCount) : PAGE_SIZE);
         renderedCount = 0;
         const container = document.getElementById('invListContainer');
         if (container) container.innerHTML = '';
@@ -605,14 +1009,26 @@
         const moreWrap = document.getElementById('invLoadMoreWrap');
         if (!container) return;
 
-        if (filteredGroups.length === 0) {
-            container.innerHTML = '';
+        const maxAllowed = isMainCoverActive
+            ? Math.min(filteredGroups.length, TOP_SEARCH_LIMIT)
+            : filteredGroups.length;
+
+        if (maxAllowed === 0) {
+            if (isMainCoverActive) {
+                container.innerHTML =
+                    '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold leading-relaxed" ' +
+                    'style="grid-column: 1 / -1; border-color:#E8E4DE; color:#252C32; background:#FFFFFF;">' +
+                    'Aún no hay búsquedas registradas. Los artículos que consulten los usuarios aparecerán aquí en el Top 20 más buscados.' +
+                    '</div>';
+            } else {
+                container.innerHTML = '';
+            }
             if (moreWrap) moreWrap.classList.add('hidden');
             return;
         }
 
         const step = (typeof batchSize === 'number' && batchSize > 0) ? batchSize : PAGE_SIZE;
-        const nextEnd = Math.min(renderedCount + step, filteredGroups.length);
+        const nextEnd = Math.min(renderedCount + step, maxAllowed);
         const frag = document.createDocumentFragment();
 
         for (let i = renderedCount; i < nextEnd; i++) {
@@ -622,7 +1038,10 @@
 
             if (grp.items.length > 1) {
                 // Listado limpio sin precio afuera (el precio se muestra adentro al abrir el inventario del producto)
-                row.onclick = function () { openGroupModal(grp.key); };
+                row.onclick = function () {
+                    recordGroupSearch(grp);
+                    openGroupModal(grp.key);
+                };
                 row.innerHTML =
                     buildThumbHtml(firstPhotoItem(grp.items)) +
                     '<div class="min-w-0 flex-1 pr-2">' +
@@ -635,7 +1054,10 @@
                 const it = grp.items[0];
                 const skuKey = String(it.s || '').toUpperCase();
                 const inCartQty = cart[skuKey] ? cart[skuKey].qty : 0;
-                row.onclick = function () { openProductDetail(it.s, false); };
+                row.onclick = function () {
+                    recordGroupSearch(grp, it.s);
+                    openProductDetail(it.s, false);
+                };
                 row.innerHTML =
                     buildThumbHtml(it) +
                     '<div class="min-w-0 flex-1 pr-2">' +
@@ -649,6 +1071,7 @@
                 const btn = row.querySelector('button');
                 btn.onclick = function (ev) {
                     ev.stopPropagation();
+                    recordGroupSearch(grp, it.s);
                     addToCart(it.s, 1);
                 };
             }
@@ -660,12 +1083,16 @@
         renderedCount = nextEnd;
 
         if (moreWrap) {
-            if (renderedCount < filteredGroups.length) moreWrap.classList.remove('hidden');
+            if (!isMainCoverActive && renderedCount < maxAllowed) moreWrap.classList.remove('hidden');
             else moreWrap.classList.add('hidden');
         }
     };
 
     window.clearInvSearch = function () {
+        if (searchInputRecordTimer) {
+            clearTimeout(searchInputRecordTimer);
+            searchInputRecordTimer = null;
+        }
         const inp = document.getElementById('invSearchInput');
         if (inp) {
             inp.value = '';
@@ -726,7 +1153,12 @@
         if (inp) inp.value = code;
         applyFilter(code);
         const exact = bySkuMap.get(code.toUpperCase());
-        if (exact) openProductDetail(exact.s, false);
+        if (exact) {
+            recordSkuSearch(exact.s);
+            openProductDetail(exact.s, false);
+        } else if (!isMainCoverActive && filteredGroups.length === 1) {
+            recordGroupSearch(filteredGroups[0]);
+        }
     }
 
     window.openBarcodeScanner = async function () {
@@ -1813,6 +2245,7 @@
         if (modal) modal.classList.remove('open');
         renderAdvisorHeaderBar();
         refreshMyLiveQuotesInfo();
+        fetchLiveTopSearchedFromCloud().catch(() => {});
 
         if (pendingQuoteRetrySendToErp !== null) {
             const retrySendFlag = pendingQuoteRetrySendToErp;
@@ -2957,6 +3390,7 @@
             const val = String(document.activeElement.value || '').trim();
             if (val) {
                 if (openProductDetail(val, false)) {
+                    recordSkuSearch(val);
                     ev.preventDefault();
                     document.activeElement.select();
                     return;
@@ -2964,6 +3398,7 @@
                 if (filteredGroups.length === 1) {
                     ev.preventDefault();
                     const g = filteredGroups[0];
+                    recordGroupSearch(g);
                     if (g.items.length > 1) openGroupModal(g.key);
                     else openProductDetail(g.items[0].s, false);
                     return;
@@ -2987,8 +3422,11 @@
                 const inp = document.getElementById('invSearchInput');
                 if (inp) inp.value = code;
                 applyFilter(code);
-                if (!openProductDetail(code, false) && filteredGroups.length === 1) {
+                if (openProductDetail(code, false)) {
+                    recordSkuSearch(code);
+                } else if (filteredGroups.length === 1) {
                     const g = filteredGroups[0];
+                    recordGroupSearch(g);
                     if (g.items.length > 1) openGroupModal(g.key);
                     else openProductDetail(g.items[0].s, false);
                 }
@@ -3430,6 +3868,7 @@
         liveSyncInFlight = true;
         try {
             syncPendingKeyUpdatesToCloud().catch(() => {});
+            fetchLiveTopSearchedFromCloud().catch(() => {});
             await fetchLiveLpptOrders();
             let ok = false;
             if (META.gid != null) {
@@ -3514,11 +3953,13 @@
         await unpackInitialInventoryIfNeeded();
         lastLiveSignature = computeItemsSignature(allItems);
         indexItemsAndGroups();
+        initTopSearchedSync();
         updateCartBadge();
         const inp = document.getElementById('invSearchInput');
         if (inp) {
             inp.addEventListener('input', function () {
                 applyFilter(this.value);
+                scheduleSearchQueryRecord(this.value);
             });
             if (activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
                 inp.focus();
@@ -3533,6 +3974,22 @@
         }, 12000);
         window.addEventListener('focus', refreshLiveSheetNow);
         window.addEventListener('online', refreshLiveSheetNow);
+        window.addEventListener('pagehide', function () {
+            if (pendingSearchQueue.length > 0 && navigator && typeof navigator.sendBeacon === 'function' && !webAppTopNeedsRedeploy) {
+                try {
+                    const apiUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
+                        ? window.CREATA_CLOUD_CONFIG.getApiUrl()
+                        : '';
+                    if (apiUrl) {
+                        const blob = new Blob(
+                            [JSON.stringify({ action: 'inv_record_search', events: pendingSearchQueue.slice(0, 50) })],
+                            { type: 'text/plain;charset=utf-8' }
+                        );
+                        navigator.sendBeacon(apiUrl, blob);
+                    }
+                } catch (e) {}
+            }
+        });
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') {
                 refreshLiveSheetNow();

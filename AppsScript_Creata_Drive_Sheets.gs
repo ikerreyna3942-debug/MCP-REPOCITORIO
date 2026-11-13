@@ -837,6 +837,14 @@ function doGet(e) {
     }
   }
 
+  if (action === 'inv_top_searched') {
+    try {
+      return jsonResponse_(handleInvTopSearched_());
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
   if (mode === 'admin' && adminPin && reqPin !== adminPin) {
     return jsonResponse_({ ok: false, error: 'PIN de administrador inválido' });
   }
@@ -886,6 +894,12 @@ function doPost(e) {
     }
     if (action === 'inv_plantilla_status') {
       return jsonResponse_(handleInvPlantillaStatus_());
+    }
+    if (action === 'inv_record_search') {
+      return jsonResponse_(handleInvRecordSearch_(body));
+    }
+    if (action === 'inv_top_searched') {
+      return jsonResponse_(handleInvTopSearched_());
     }
     if (action === 'inv_erp_sync_now') {
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
@@ -1949,6 +1963,7 @@ const INV_USER_TABS_ = [
 ];
 
 const TAB_QUOTES_LIVE_ = 'COTIZACIONES_EN_VIVO';
+const TAB_TOP_SEARCHED_ = 'TOP_BUSCADOS';
 const ERP_DRIVE_FOLDER_NAME_ = 'PRESENTACION_DISENO';
 const LPPT_READONLY_DEFAULT_ID_ = '1t78KDg_DMbGfauNWRrjUc3ULh-SzrxO9XwOHPrtJtWE';
 
@@ -3900,5 +3915,287 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     lock.releaseLock();
   }
 }
+
+// ----------------------------------------------------------------------------
+// REGISTRO GLOBAL DE ARTÍCULOS MÁS BUSCADOS DEL COTIZADOR (TOP_BUSCADOS)
+// ----------------------------------------------------------------------------
+function normTopSearchGroupKey_(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function ensureTopSearchedSheet_(ss) {
+  let sh = ss.getSheetByName(TAB_TOP_SEARCHED_);
+  const headers = [
+    'POSICION',
+    'CLAVE_GRUPO',
+    'SKU_PRINCIPAL',
+    'ARTICULO',
+    'CATEGORIA',
+    'BUSQUEDAS',
+    'ULTIMA_BUSQUEDA_MS',
+    'ULTIMA_BUSQUEDA',
+    'ULTIMA_UBICACION'
+  ];
+
+  if (!sh) {
+    sh = ss.insertSheet(TAB_TOP_SEARCHED_);
+    if (sh.getMaxColumns() < headers.length) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
+    }
+    sh.getRange(1, 2, sh.getMaxRows(), 2).setNumberFormat('@');
+    sh.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setBackground('#252C32')
+      .setFontColor('#FFFFFF')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    sh.getRange(1, 1, 1, 1).setBackground('#A38251');
+    sh.getRange(1, 6, 1, 1).setBackground('#A38251');
+    sh.setFrozenRows(1);
+  } else if (sh.getLastRow() < 1) {
+    sh.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setBackground('#252C32')
+      .setFontColor('#FFFFFF')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function readTopSearchedEntriesFromSheet_(sh) {
+  const byGk = {};
+  const gkBySku = {};
+  if (!sh) return { byGk: byGk, gkBySku: gkBySku, dataRows: 0 };
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return { byGk: byGk, gkBySku: gkBySku, dataRows: 0 };
+
+  const dataRows = lastRow - 1;
+  const vals = sh.getRange(2, 1, dataRows, 9).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    const r = vals[i];
+    const sku = cleanSheetKeyCell_(r[2]).toUpperCase();
+    const title = String(r[3] || '').trim();
+    const gk = normTopSearchGroupKey_(r[1]) || normTopSearchGroupKey_(title) || sku.toLowerCase();
+    const count = Math.max(0, Math.round(Number(r[5]) || 0));
+    if (!gk || count <= 0) continue;
+
+    const lastMs = Math.max(0, Math.round(Number(r[6]) || 0));
+    const lastStr = String(r[7] || '').trim();
+    const branch = String(r[8] || '').trim();
+    const cat = String(r[4] || '').trim();
+
+    if (byGk[gk]) {
+      byGk[gk].count += count;
+      if (lastMs >= byGk[gk].lastMs) {
+        byGk[gk].lastMs = lastMs;
+        if (lastStr) byGk[gk].lastStr = lastStr;
+        if (branch) byGk[gk].branch = branch;
+        if (sku) byGk[gk].sku = sku;
+        if (title) byGk[gk].title = title;
+        if (cat) byGk[gk].cat = cat;
+      }
+    } else {
+      byGk[gk] = {
+        gk: gk,
+        sku: sku,
+        title: title || sku || gk.toUpperCase(),
+        cat: cat,
+        count: count,
+        lastMs: lastMs,
+        lastStr: lastStr,
+        branch: branch
+      };
+    }
+    if (sku && !gkBySku[sku]) gkBySku[sku] = gk;
+  }
+  return { byGk: byGk, gkBySku: gkBySku, dataRows: dataRows };
+}
+
+function sortTopSearchedEntries_(byGk) {
+  const arr = Object.keys(byGk).map((k) => byGk[k]).filter((e) => e && e.count > 0);
+  arr.sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    if (b.lastMs !== a.lastMs) return b.lastMs - a.lastMs;
+    return String(a.title || '').localeCompare(String(b.title || ''));
+  });
+  return arr;
+}
+
+function handleInvTopSearched_() {
+  const ss = getSpreadsheet_();
+  const sh = ss.getSheetByName(TAB_TOP_SEARCHED_);
+  if (!sh || sh.getLastRow() < 2) {
+    return { ok: true, updatedAtMs: Date.now(), top: [] };
+  }
+  const parsed = readTopSearchedEntriesFromSheet_(sh);
+  const sorted = sortTopSearchedEntries_(parsed.byGk);
+  return {
+    ok: true,
+    updatedAtMs: Date.now(),
+    top: sorted.slice(0, 100).map((e, idx) => ({
+      pos: idx + 1,
+      gk: e.gk,
+      sku: e.sku,
+      title: e.title,
+      cat: e.cat,
+      count: e.count,
+      lastMs: e.lastMs
+    }))
+  };
+}
+
+function handleInvRecordSearch_(body) {
+  const rawEvents = Array.isArray(body && body.events)
+    ? body.events
+    : (body && (body.gk || body.sku || body.title) ? [body] : []);
+
+  if (!rawEvents.length) {
+    return handleInvTopSearched_();
+  }
+
+  const batch = rawEvents.slice(0, 60);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) {
+    return { ok: false, retry: true, error: 'Sincronización ocupada, se reintentará automáticamente.' };
+  }
+
+  try {
+    let cache = null;
+    let seenCache = {};
+    const cacheKeys = [];
+    for (let i = 0; i < batch.length; i++) {
+      const evId = String((batch[i] && batch[i].id) || '').trim().slice(0, 80);
+      if (evId) cacheKeys.push('inv_top_ev_' + evId);
+    }
+    if (cacheKeys.length > 0) {
+      try {
+        cache = CacheService.getScriptCache();
+        seenCache = cache.getAll(cacheKeys) || {};
+      } catch (ce) {
+        cache = null;
+        seenCache = {};
+      }
+    }
+
+    const ss = getSpreadsheet_();
+    const sh = ensureTopSearchedSheet_(ss);
+    const parsed = readTopSearchedEntriesFromSheet_(sh);
+    const byGk = parsed.byGk;
+    const gkBySku = parsed.gkBySku;
+
+    const ackIds = [];
+    const newCacheEntries = {};
+    const nowMs = Date.now();
+    const nowStr = formatCancunNow_();
+    let mutated = false;
+
+    for (let i = 0; i < batch.length; i++) {
+      const ev = batch[i] || {};
+      const evId = String(ev.id || '').trim().slice(0, 80);
+      if (evId) {
+        ackIds.push(evId);
+        const cKey = 'inv_top_ev_' + evId;
+        if (seenCache[cKey] || newCacheEntries[cKey]) {
+          continue;
+        }
+        newCacheEntries[cKey] = '1';
+      }
+
+      const sku = cleanSheetKeyCell_(ev.sku || '').toUpperCase();
+      const title = String(ev.title || '').trim();
+      const cat = String(ev.cat || '').trim();
+      const branch = String(ev.branch || '').trim();
+      let gk = normTopSearchGroupKey_(ev.gk) || normTopSearchGroupKey_(title) || sku.toLowerCase();
+      if (!gk) continue;
+
+      if (!byGk[gk] && sku && gkBySku[sku] && byGk[gkBySku[sku]]) {
+        gk = gkBySku[sku];
+      }
+
+      const delta = Math.min(25, Math.max(1, Math.round(Number(ev.delta) || 1)));
+      const evMsRaw = Math.round(Number(ev.ts) || 0);
+      const evMs = (evMsRaw > 1700000000000 && evMsRaw <= nowMs + 300000) ? evMsRaw : nowMs;
+
+      if (byGk[gk]) {
+        byGk[gk].count += delta;
+        if (evMs >= byGk[gk].lastMs) {
+          byGk[gk].lastMs = evMs;
+          byGk[gk].lastStr = nowStr;
+          if (branch) byGk[gk].branch = branch;
+        }
+        if (sku && !byGk[gk].sku) byGk[gk].sku = sku;
+        if (title) byGk[gk].title = title;
+        if (cat) byGk[gk].cat = cat;
+      } else {
+        byGk[gk] = {
+          gk: gk,
+          sku: sku,
+          title: title || sku || gk.toUpperCase(),
+          cat: cat,
+          count: delta,
+          lastMs: evMs,
+          lastStr: nowStr,
+          branch: branch
+        };
+      }
+      if (sku) gkBySku[sku] = gk;
+      mutated = true;
+    }
+
+    const sorted = sortTopSearchedEntries_(byGk);
+
+    if (mutated) {
+      if (sorted.length > 0) {
+        const outRows = sorted.map((e, idx) => [
+          idx + 1,
+          e.gk,
+          e.sku,
+          e.title,
+          e.cat,
+          e.count,
+          e.lastMs,
+          e.lastStr || nowStr,
+          e.branch || ''
+        ]);
+        sh.getRange(2, 1, outRows.length, 9).setValues(outRows);
+      }
+      if (parsed.dataRows > sorted.length) {
+        sh.getRange(2 + sorted.length, 1, parsed.dataRows - sorted.length, 9).clearContent();
+      }
+      SpreadsheetApp.flush();
+    }
+
+    if (cache && Object.keys(newCacheEntries).length > 0) {
+      try {
+        cache.putAll(newCacheEntries, 21600);
+      } catch (ce) {}
+    }
+
+    return {
+      ok: true,
+      ackIds: ackIds,
+      updatedAtMs: Date.now(),
+      top: sorted.slice(0, 100).map((e, idx) => ({
+        pos: idx + 1,
+        gk: e.gk,
+        sku: e.sku,
+        title: e.title,
+        cat: e.cat,
+        count: e.count,
+        lastMs: e.lastMs
+      }))
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 
 
