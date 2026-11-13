@@ -107,10 +107,10 @@
         .modal-backdrop.open {
             display: flex;
         }
-        /* CATEGORÍAS DEL INVENTARIO (DESPLAZABLES EN MÓVIL) */
+        /* CATEGORÍAS DEL INVENTARIO (MISMO TAMAÑO Y ESTILO QUE EL CATÁLOGO) */
         .inv-cats-cell {
             display: flex;
-            gap: 6px;
+            gap: 8px;
             overflow-x: auto;
             padding-top: 10px;
             scrollbar-width: none;
@@ -119,25 +119,140 @@
         .inv-cats-cell::-webkit-scrollbar { display: none; }
         .inv-cat-pill {
             flex: 0 0 auto;
-            padding: 5px 11px;
-            border-radius: 9999px;
-            border: 1px solid rgba(225, 219, 197, 0.45);
-            background: transparent;
-            color: #E1DBC5;
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.06em;
+            font-family: 'Raleway', sans-serif;
+            font-size: 8px;
+            font-weight: 700;
+            letter-spacing: 0.55px;
             text-transform: uppercase;
+            padding: 5px 12px;
+            border-radius: 9999px;
+            border: 1px solid rgba(225, 219, 197, 0.35);
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(4px);
+            color: #FFFFFF;
             white-space: nowrap;
             cursor: pointer;
-            transition: all 0.15s ease;
+            transition: all 0.2s ease;
         }
-        .inv-cat-pill:hover { border-color: var(--brand-bronze); color: #FFFFFF; }
+        .inv-cat-pill:hover {
+            background: rgba(163, 130, 81, 0.28);
+            border-color: #E1DBC5;
+            color: #FFFFFF;
+        }
         .inv-cat-pill.active {
             background: var(--brand-bronze);
             border-color: var(--brand-bronze);
             color: #FFFFFF;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
         }
+        .inv-subcats-cell { padding-top: 8px; }
+        .inv-sub-pill {
+            background: transparent;
+            border-color: rgba(225, 219, 197, 0.28);
+            color: #E1DBC5;
+        }
+        .inv-sub-pill.active {
+            background: #FFFFFF;
+            border-color: #FFFFFF;
+            color: #252C32;
+        }
+        @media (max-width: 639px) {
+            .inv-cat-pill {
+                font-size: 8.5px !important;
+                padding: 6px 12px !important;
+            }
+        }
+        /* BUSCADOR DEL COTIZADOR (MISMO TAMAÑO QUE EL CATÁLOGO) */
+        .inv-search-cell {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+        .inv-search-box {
+            position: relative;
+            display: flex;
+            align-items: center;
+            flex: 1 1 auto;
+            min-width: 0;
+            background: #FFFFFF;
+            border: 1.5px solid var(--brand-sand);
+            border-radius: 9999px;
+            padding: 8px 14px 8px 38px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+            transition: all 0.2s ease;
+        }
+        .inv-search-box:focus-within {
+            border-color: var(--brand-bronze);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22), 0 0 0 2px rgba(163, 130, 81, 0.35);
+        }
+        .inv-search-icon {
+            position: absolute;
+            left: 14px;
+            width: 16px;
+            height: 16px;
+            color: var(--brand-bronze);
+            pointer-events: none;
+        }
+        #invSearchInput {
+            width: 100%;
+            border: none;
+            outline: none;
+            background: transparent;
+            color: var(--brand-charcoal);
+            font-size: 12.5px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            padding: 0;
+        }
+        #invSearchInput::placeholder {
+            color: #64748B;
+            font-weight: 500;
+        }
+        #invSearchInput::-webkit-search-cancel-button { display: none; }
+        #invClearBtn {
+            width: 22px;
+            height: 22px;
+            line-height: 22px;
+            text-align: center;
+            padding: 0;
+            border-radius: 9999px;
+            border: none;
+            background: var(--brand-ivory);
+            color: var(--brand-charcoal);
+            font-size: 11px;
+            font-weight: 800;
+            cursor: pointer;
+            margin-left: 6px;
+            flex-shrink: 0;
+            transition: all 0.16s ease;
+        }
+        #invClearBtn:hover {
+            background: var(--brand-bronze);
+            color: #FFFFFF;
+        }
+        #invScanBtn {
+            flex: 0 0 auto;
+            height: 38px;
+            padding: 0 13px;
+            border-radius: 9999px;
+            border: 1px solid var(--brand-bronze);
+            background: var(--brand-bronze);
+            color: #FFFFFF;
+            font-size: 9.5px;
+            font-weight: 800;
+            letter-spacing: 0.55px;
+            text-transform: uppercase;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            cursor: pointer;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+            transition: all 0.2s ease;
+        }
+        #invScanBtn:hover { opacity: 0.92; }
+        #invScanBtn svg { width: 15px; height: 15px; flex-shrink: 0; }
         /* MINIATURA DEL PRODUCTO EN EL LISTADO */
         .inv-thumb {
             width: 56px;
@@ -155,12 +270,12 @@
         .inv-thumb img { width: 100%; height: 100%; object-fit: contain; }
         /* ESCÁNER DE CÁMARA */
         #scanReader video { width: 100% !important; border-radius: 12px; }
-        /* ENCABEZADO EN PC: LOGO ARRIBA A LA DERECHA + BUSCADOR A LA IZQUIERDA (MISMOS TAMAÑOS) */
+        /* ENCABEZADO EN PC: LOGO ARRIBA A LA DERECHA + BUSCADOR A LA IZQUIERDA (MISMO TAMAÑO QUE CATÁLOGO) */
         @media (min-width: 1024px) {
             .inv-header-inner {
                 max-width: 72rem !important;
                 display: grid;
-                grid-template-columns: minmax(0, 736px) 1fr;
+                grid-template-columns: 1fr auto;
                 width: 100%;
                 grid-template-areas:
                     "search logo"
@@ -174,9 +289,41 @@
             }
             .inv-logo-cell { grid-area: logo; margin-bottom: 0; justify-self: end; }
             .inv-logo-cell .logo-img { margin: 0 0 0 auto; }
-            .inv-search-cell { grid-area: search; }
-            #advisorSessionBar { grid-area: session; margin-top: 16px; }
-            .inv-title-cell { grid-area: title; margin-top: 12px; }
+            .inv-search-cell { grid-area: search; justify-self: start; width: auto; }
+            .inv-search-box {
+                flex: 0 0 230px;
+                width: 230px;
+                max-width: 230px;
+                height: 25px;
+                padding: 3px 10px 3px 26px;
+                border-width: 1px;
+            }
+            .inv-search-icon {
+                left: 9px;
+                width: 12px;
+                height: 12px;
+            }
+            #invSearchInput {
+                font-size: 9.5px;
+                line-height: 1.2;
+            }
+            #invClearBtn {
+                width: 16px;
+                height: 16px;
+                line-height: 16px;
+                font-size: 9px;
+                margin-left: 4px;
+            }
+            #invScanBtn {
+                height: 25px;
+                padding: 0 10px;
+                font-size: 8px;
+                font-weight: 700;
+                gap: 4px;
+            }
+            #invScanBtn svg { width: 11px; height: 11px; }
+            #advisorSessionBar { grid-area: session; margin-top: 14px; }
+            .inv-title-cell { grid-area: title; margin-top: 10px; }
             .inv-cats-cell { grid-area: cats; flex-wrap: wrap; }
             .inv-subcats-cell { grid-area: subcats; }
             /* LISTADO EN PC: FICHAS DE PRODUCTO, 5 POR FILA, MISMO ANCHO QUE EL ENCABEZADO */
@@ -222,9 +369,6 @@
             #invListContainer .inv-row > .cart-plus-btn { box-shadow: 0 2px 8px rgba(37, 44, 50, 0.15); }
             #invListContainer .inv-row > svg { width: 20px; height: 20px; }
         }
-        .inv-subcats-cell { padding-top: 8px; }
-        .inv-sub-pill { border-color: rgba(225, 219, 197, 0.25); font-size: 9.5px; }
-        .inv-sub-pill.active { background: #FFFFFF; border-color: #FFFFFF; color: #252C32; }
     </style>
 </head>
 <body>
@@ -272,26 +416,22 @@
                 </button>
             </div>
 
-            <div class="inv-search-cell relative">
-                <input
-                    type="search"
-                    id="invSearchInput"
-                    placeholder="Buscar producto o escanear SKU..."
-                    autocomplete="off"
-                    class="w-full rounded-full pl-10 pr-36 py-3 text-sm font-medium outline-none border transition"
-                    style="background:#FFFFFF; border-color:#E1DBC5; color:#252C32;"
-                >
-                <svg class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" style="color:#A38251;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"></path>
-                </svg>
-                <button type="button" id="invClearBtn" onclick="clearInvSearch()" style="display:none; color:#252C32;"
-                        class="absolute right-[7.25rem] top-1/2 -translate-y-1/2 text-sm font-bold opacity-60 hover:opacity-100">✕</button>
+            <div class="inv-search-cell">
+                <div class="inv-search-box">
+                    <svg class="inv-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"></path>
+                    </svg>
+                    <input
+                        type="search"
+                        id="invSearchInput"
+                        placeholder="Buscar producto o escanear SKU..."
+                        autocomplete="off"
+                    >
+                    <button type="button" id="invClearBtn" onclick="clearInvSearch()" style="display:none;" title="Limpiar búsqueda">✕</button>
+                </div>
                 <!-- ESCANEAR CON LA CÁMARA DEL TELÉFONO (CÓDIGO DE BARRAS / QR DEL SKU) -->
-                <button type="button" id="invScanBtn" onclick="openBarcodeScanner()" title="Escanear con la cámara"
-                        aria-label="Escanear con la cámara"
-                        class="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 px-3 rounded-full flex items-center justify-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider transition hover:opacity-90"
-                        style="background:#A38251; color:#FFFFFF;">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <button type="button" id="invScanBtn" onclick="openBarcodeScanner()" title="Escanear con la cámara" aria-label="Escanear con la cámara">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
                     </svg>

@@ -731,16 +731,16 @@ padding: 5px 10px !important;
 }
 }
 
-/* ENCABEZADO EN PC: LOGO ARRIBA A LA DERECHA (MISMO TAMAÑO), BUSCADOR 50% MÁS PEQUEÑO PEGADO A LA DERECHA
-   Y CATEGORÍAS ALINEADAS A LA DERECHA */
+/* ENCABEZADO EN PC: LOGO ARRIBA A LA DERECHA (MISMO TAMAÑO), BUSCADOR 50% MÁS PEQUEÑO A LA IZQUIERDA
+   Y CATEGORÍAS ALINEADAS A LA IZQUIERDA */
 @media (min-width: 1024px) {
 .header-top-row {
 display: flex;
 flex-direction: row-reverse;
 align-items: center;
-justify-content: flex-start;
+justify-content: space-between;
 gap: 24px;
-margin-bottom: 18px;
+margin-bottom: 12px;
 }
 .header-top-row .header-logo-cell {
 margin-bottom: 0;
@@ -751,9 +751,30 @@ margin: 0 0 0 auto;
 }
 .header-top-row .catalog-search-wrap {
 margin: 0;
-max-width: 290px;
+width: 230px;
+max-width: 230px;
+}
+.header-top-row .catalog-search-box {
+height: 25px;
+padding: 3px 10px 3px 26px;
+border-width: 1px;
+}
+.header-top-row .catalog-search-icon {
+left: 9px;
+width: 12px;
+height: 12px;
+}
+.header-top-row .catalog-search-input {
+font-size: 9.5px;
+line-height: 1.2;
+}
+.header-top-row .catalog-search-clear {
+width: 16px;
+height: 16px;
+font-size: 9px;
+margin-left: 4px;
 }
 #categoryBar {
-justify-content: flex-end !important;
+justify-content: flex-start !important;
 }
 }
