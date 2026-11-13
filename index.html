@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="catalog-styles.css?v=30">
+    <link rel="stylesheet" href="catalog-styles.css?v=31">
 </head>
 <body>
 
@@ -55,16 +55,16 @@
             </div>
 
             <!-- BARRA DE CATEGORÍAS (20% MÁS PEQUEÑAS) -->
-            <!-- CATEGORÍAS PRINCIPALES -->
             <div class="flex items-center justify-center flex-wrap gap-2" id="categoryBar">
-                <button onclick="setFilter('ALL')" data-cat="ALL" id="flt-ALL" class="pill-btn active">TODOS</button>
-                <button onclick="setFilter('COMEDORES')" data-cat="COMEDORES" id="flt-COMEDORES" class="pill-btn">COMEDORES</button>
-                <button onclick="setFilter('SALAS')" data-cat="SALAS" id="flt-SALAS" class="pill-btn">SALAS</button>
-                <button onclick="setFilter('RECÁMARAS')" data-cat="RECÁMARAS" id="flt-RECAMARAS" class="pill-btn">RECÁMARAS</button>
-                <button onclick="setFilter('COMPLEMENTOS')" data-cat="COMPLEMENTOS" id="flt-COMPLEMENTOS" class="pill-btn">COMPLEMENTOS</button>
+                <button onclick="setFilter('ALL')" data-cat="ALL" id="flt-ALL" class="pill-btn active">TODOS (57)</button>
+                <button onclick="setFilter('SALAS & SOFÁS')" data-cat="SALAS & SOFÁS" id="flt-SALAS-SOF-S" class="pill-btn">SALAS & SOFÁS (13)</button>
+                <button onclick="setFilter('SILLAS & SILLONES')" data-cat="SILLAS & SILLONES" id="flt-SILLAS-SILLONES" class="pill-btn">SILLAS & SILLONES (11)</button>
+                <button onclick="setFilter('COMEDORES')" data-cat="COMEDORES" id="flt-COMEDORES" class="pill-btn">COMEDORES (3)</button>
+                <button onclick="setFilter('BUFETERAS & CREDENZAS')" data-cat="BUFETERAS & CREDENZAS" id="flt-BUFETERAS-CREDENZAS" class="pill-btn">BUFETERAS & CREDENZAS (7)</button>
+                <button onclick="setFilter('MESAS DE CENTRO & LATERALES')" data-cat="MESAS DE CENTRO & LATERALES" id="flt-MESAS-DE-CENTRO-LATERALES" class="pill-btn">MESAS DE CENTRO & LATERALES (4)</button>
+                <button onclick="setFilter('RECÁMARAS')" data-cat="RECÁMARAS" id="flt-REC-MARAS" class="pill-btn">RECÁMARAS (15)</button>
+                <button onclick="setFilter('COMPLEMENTOS')" data-cat="COMPLEMENTOS" id="flt-COMPLEMENTOS" class="pill-btn">COMPLEMENTOS (4)</button>
             </div>
-            <!-- SUBCATEGORÍAS (se muestran al elegir una categoría principal) -->
-            <div class="flex items-center justify-center flex-wrap gap-2" id="subCategoryBar" style="display:none;"></div>
         </div>
     </header>
 
@@ -74,7 +74,7 @@
             <h2 id="activeCategoryTitle" class="text-xs font-bold tracking-widest text-[#252C32] uppercase">TODOS LOS MUEBLES</h2>
         </div>
 
-        <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6"></div>
+        <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"></div>
     </main>
 
     <!-- MODAL DE FICHA TÉCNICA CERO SCROLLBAR -->
@@ -209,6 +209,6 @@
     <script src="creata-finishes.js?v=27"></script>
     <script src="creata-img.js?v=27"></script>
     <script src="creata-cloud.js?v=27"></script>
-    <script src="catalog-app.js?v=28"></script>
+    <script src="catalog-app.js?v=29"></script>
 </body>
 </html>

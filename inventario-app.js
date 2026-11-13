@@ -249,6 +249,37 @@
         return 'OTROS';
     }
 
+    // CATEGORÍAS PRINCIPALES (COMEDORES / SALAS / RECÁMARAS / COMPLEMENTOS) → SUBCATEGORÍAS
+    const MAIN_CATEGORY_ORDER = ['COMEDORES', 'SALAS', 'RECÁMARAS', 'COMPLEMENTOS'];
+    const SUBCATEGORY_ORDER = [
+        'MESAS DE COMEDOR', 'SILLAS', 'BUFETERAS & CREDENZAS',
+        'SALAS & SOFÁS', 'SILLONES', 'MESAS DE CENTRO & LATERALES',
+        'CAMAS & CABECERAS', 'BURÓS', 'CÓMODAS & CAJONERAS', 'COLCHONES & BOX', 'OTROS DE RECÁMARA',
+        'OFICINA', 'EXTERIOR', 'ESPEJOS', 'CUADROS', 'LÁMPARAS', 'COJINES & TEXTILES',
+        'ACCESORIOS DECORATIVOS', 'COMPLEMENTOS', 'OTROS'
+    ];
+    const MAIN_OF_SUB = {
+        'MESAS DE COMEDOR': 'COMEDORES', 'SILLAS': 'COMEDORES', 'BUFETERAS & CREDENZAS': 'COMEDORES',
+        'SALAS & SOFÁS': 'SALAS', 'SILLONES': 'SALAS', 'MESAS DE CENTRO & LATERALES': 'SALAS',
+        'CAMAS & CABECERAS': 'RECÁMARAS', 'BURÓS': 'RECÁMARAS', 'CÓMODAS & CAJONERAS': 'RECÁMARAS',
+        'COLCHONES & BOX': 'RECÁMARAS', 'OTROS DE RECÁMARA': 'RECÁMARAS'
+    };
+
+    function resolveItemSubcategory(it, baseCat) {
+        const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+        const txt = norm([cleanStr(it.tp), cleanStr(it.n)].join(' '));
+        if (baseCat === 'COMEDORES') return 'MESAS DE COMEDOR';
+        if (baseCat === 'SILLAS & SILLONES') return /SILLON|BUTACA|MECEDORA|RECLINABLE/.test(txt) ? 'SILLONES' : 'SILLAS';
+        if (baseCat === 'RECÁMARAS') {
+            if (/BURO/.test(txt)) return 'BURÓS';
+            if (/COMODA|CAJONERA|CHIFONIER|TOCADOR/.test(txt)) return 'CÓMODAS & CAJONERAS';
+            if (/COLCHON|\bBOX\b|BOX SPRING/.test(txt)) return 'COLCHONES & BOX';
+            if (/CAMA|CABECERA|LITERA|BASE/.test(txt)) return 'CAMAS & CABECERAS';
+            return 'OTROS DE RECÁMARA';
+        }
+        return baseCat;
+    }
+
     function photoUrlForItem(it) {
         return it ? resolveDriveOrImgUrl(it.f) : '';
     }
@@ -268,8 +299,8 @@
         const url = photoUrlForItem(it);
         if (!url) return '<div class="inv-thumb">' + THUMB_PLACEHOLDER_SVG + '</div>';
         const fid = extractDriveFileId(it.f);
-        const small = fid ? ('https://lh3.googleusercontent.com/d/' + fid + '=w200') : url;
-        const fallback = fid ? ('https://drive.google.com/thumbnail?id=' + fid + '&sz=w200') : '';
+        const small = fid ? ('https://lh3.googleusercontent.com/d/' + fid + '=w400') : url;
+        const fallback = fid ? ('https://drive.google.com/thumbnail?id=' + fid + '&sz=w400') : '';
         return '<div class="inv-thumb"><img loading="lazy" alt="" src="' + escapeHtml(small) + '" ' +
             'data-fb="' + escapeHtml(fallback) + '" ' +
             'onerror="if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=\'\';}else{this.parentNode.innerHTML=window.__INV_THUMB_PH||\'\';}"></div>';
@@ -398,9 +429,12 @@
             grp.items.push(it);
             grp._plainParts.push(it._plain);
             grp._searchParts.push(it._search);
-            it._cat = resolveItemCategory(it);
+            it._cat = resolveItemSubcategory(it, resolveItemCategory(it));
+            it._main = MAIN_OF_SUB[it._cat] || 'COMPLEMENTOS';
             if (!grp.cats) grp.cats = new Set();
+            if (!grp.mains) grp.mains = new Set();
             grp.cats.add(it._cat);
+            grp.mains.add(it._main);
         }
 
         for (let i = 0; i < allGroups.length; i++) {
@@ -492,7 +526,10 @@
 
         const isExactSkuHit = !!(rawTrim && bySkuMap.get(rawTrim.toUpperCase()));
         if (activeCategory !== 'ALL' && !isExactSkuHit) {
-            filteredGroups = filteredGroups.filter(grp => grp.cats && grp.cats.has(activeCategory));
+            filteredGroups = filteredGroups.filter(grp => grp.mains && grp.mains.has(activeCategory));
+            if (activeSubCategory !== 'ALL') {
+                filteredGroups = filteredGroups.filter(grp => grp.cats && grp.cats.has(activeSubCategory));
+            }
         }
         renderCategoryBar();
 
@@ -504,39 +541,61 @@
     }
 
     let activeCategory = 'ALL';
-    let lastCategoryBarSig = '';
+    let activeSubCategory = 'ALL';
 
     function renderCategoryBar() {
         const bar = document.getElementById('invCategoryBar');
         if (!bar) return;
-        const counts = new Map();
+        const mainCounts = new Map();
+        const subCounts = new Map();
         for (let i = 0; i < allGroups.length; i++) {
-            const cats = allGroups[i].cats;
-            if (!cats) continue;
-            cats.forEach(c => counts.set(c, (counts.get(c) || 0) + 1));
+            const g = allGroups[i];
+            if (g.mains) g.mains.forEach(c => mainCounts.set(c, (mainCounts.get(c) || 0) + 1));
+            if (activeCategory !== 'ALL' && g.mains && g.mains.has(activeCategory) && g.cats) {
+                g.cats.forEach(c => {
+                    if ((MAIN_OF_SUB[c] || 'COMPLEMENTOS') === activeCategory) subCounts.set(c, (subCounts.get(c) || 0) + 1);
+                });
+            }
         }
-        const cats = CATEGORY_ORDER.filter(c => counts.get(c) > 0);
-        const sig = allGroups.length + '|' + cats.map(c => c + ':' + counts.get(c)).join('|');
-        if (sig === lastCategoryBarSig && bar.children.length) {
-            bar.querySelectorAll('.inv-cat-pill').forEach(btn => {
-                btn.classList.toggle('active', btn.getAttribute('data-cat') === activeCategory);
-            });
-            return;
-        }
-        lastCategoryBarSig = sig;
-        const pills = ['<button type="button" class="inv-cat-pill' + (activeCategory === 'ALL' ? ' active' : '') + '" data-cat="ALL">TODOS (' + allGroups.length + ')</button>'];
-        cats.forEach(c => {
-            pills.push('<button type="button" class="inv-cat-pill' + (activeCategory === c ? ' active' : '') + '" data-cat="' + escapeHtml(c) + '">' +
-                escapeHtml(c) + ' (' + counts.get(c) + ')</button>');
+        const pill = (cls, attr, val, label, isActive) =>
+            '<button type="button" class="' + cls + (isActive ? ' active' : '') + '" ' + attr + '="' + escapeHtml(val) + '">' + escapeHtml(label) + '</button>';
+
+        const pills = [pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allGroups.length + ')', activeCategory === 'ALL')];
+        MAIN_CATEGORY_ORDER.forEach(c => {
+            if (mainCounts.get(c) > 0) pills.push(pill('inv-cat-pill', 'data-cat', c, c + ' (' + mainCounts.get(c) + ')', activeCategory === c));
         });
         bar.innerHTML = pills.join('');
         bar.querySelectorAll('.inv-cat-pill').forEach(btn => {
             btn.onclick = function () { setInvCategory(btn.getAttribute('data-cat')); };
         });
+
+        const subBar = document.getElementById('invSubCategoryBar');
+        if (!subBar) return;
+        if (activeCategory === 'ALL') {
+            subBar.innerHTML = '';
+            subBar.style.display = 'none';
+            return;
+        }
+        const subs = SUBCATEGORY_ORDER.filter(c => subCounts.get(c) > 0);
+        const subPills = [pill('inv-cat-pill inv-sub-pill', 'data-sub', 'ALL', 'TODO ' + activeCategory + ' (' + (mainCounts.get(activeCategory) || 0) + ')', activeSubCategory === 'ALL')];
+        subs.forEach(c => subPills.push(pill('inv-cat-pill inv-sub-pill', 'data-sub', c, c + ' (' + subCounts.get(c) + ')', activeSubCategory === c)));
+        subBar.innerHTML = subPills.join('');
+        subBar.style.display = '';
+        subBar.querySelectorAll('.inv-sub-pill').forEach(btn => {
+            btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
+        });
     }
 
     window.setInvCategory = function (cat) {
-        activeCategory = cat || 'ALL';
+        const next = cat || 'ALL';
+        if (next !== activeCategory) activeSubCategory = 'ALL';
+        activeCategory = next;
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+    };
+
+    window.setInvSubCategory = function (sub) {
+        activeSubCategory = sub || 'ALL';
         const inp = document.getElementById('invSearchInput');
         applyFilter(inp ? inp.value : '');
     };
@@ -618,7 +677,10 @@
     // ------------------------------------------------------------------------
     // ESCÁNER CON LA CÁMARA DEL TELÉFONO (CÓDIGO DE BARRAS / QR → SKU)
     // ------------------------------------------------------------------------
-    const SCAN_LIB_URL = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+    const SCAN_LIB_URLS = [
+        'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js',
+        'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'
+    ];
     let scanLibPromise = null;
     let scanInstance = null;
     let scanHandled = false;
@@ -627,12 +689,21 @@
         if (window.Html5Qrcode) return Promise.resolve();
         if (scanLibPromise) return scanLibPromise;
         scanLibPromise = new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = SCAN_LIB_URL;
-            s.async = true;
-            s.onload = () => resolve();
-            s.onerror = () => { scanLibPromise = null; reject(new Error('No se pudo cargar el lector de códigos.')); };
-            document.head.appendChild(s);
+            let idx = 0;
+            const tryNext = () => {
+                if (idx >= SCAN_LIB_URLS.length) {
+                    scanLibPromise = null;
+                    reject(new Error('No se pudo cargar el lector de códigos.'));
+                    return;
+                }
+                const s = document.createElement('script');
+                s.src = SCAN_LIB_URLS[idx++];
+                s.async = true;
+                s.onload = () => (window.Html5Qrcode ? resolve() : tryNext());
+                s.onerror = tryNext;
+                document.head.appendChild(s);
+            };
+            tryNext();
         });
         return scanLibPromise;
     }
@@ -661,12 +732,14 @@
     window.openBarcodeScanner = async function () {
         const modal = document.getElementById('scanModal');
         if (!modal) return;
-        if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            alert('La cámara solo está disponible desde un navegador compatible y una página segura (https).');
-            return;
-        }
         scanHandled = false;
         modal.classList.add('open');
+        if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            // Navegadores dentro de apps (WhatsApp, Facebook...) no dan video en vivo: usar "Tomar foto del código"
+            setScanStatus('Este navegador no permite video en vivo. Usa el botón "Tomar foto del código".', true);
+            loadScanLib().catch(() => {});
+            return;
+        }
         setScanStatus('Iniciando cámara...', false);
         try {
             await loadScanLib();
@@ -698,7 +771,37 @@
             setScanStatus('Apunta la cámara al código de barras o QR del producto.', false);
         } catch (err) {
             console.error('[Escáner]', err);
-            setScanStatus('No fue posible abrir la cámara. Revisa que hayas dado permiso de cámara al navegador.', true);
+            setScanStatus('No fue posible abrir la cámara en vivo. Da permiso de cámara al navegador o usa "Tomar foto del código".', true);
+        }
+    };
+
+    // Respaldo: tomar una foto del código con la cámara del teléfono y leerla
+    window.scanBarcodeFromPhoto = async function (inputEl) {
+        const file = inputEl && inputEl.files && inputEl.files[0];
+        if (!file) return;
+        setScanStatus('Leyendo código de la foto...', false);
+        try {
+            await loadScanLib();
+            if (scanInstance && scanInstance.isScanning) {
+                try { await scanInstance.stop(); } catch (e) {}
+            }
+            const tmpId = 'scanFileTmp';
+            let tmp = document.getElementById(tmpId);
+            if (!tmp) {
+                tmp = document.createElement('div');
+                tmp.id = tmpId;
+                tmp.style.display = 'none';
+                document.body.appendChild(tmp);
+            }
+            const fileReader = new window.Html5Qrcode(tmpId, { verbose: false });
+            const text = await fileReader.scanFile(file, false);
+            try { fileReader.clear(); } catch (e) {}
+            handleScannedCode(text);
+        } catch (err) {
+            console.error('[Escáner foto]', err);
+            setScanStatus('No se encontró un código en la foto. Acércate más y que el código se vea nítido.', true);
+        } finally {
+            inputEl.value = '';
         }
     };
 
