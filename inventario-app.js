@@ -35,7 +35,7 @@
     ];
 
     const PAGE_SIZE = 80;
-    const TOP_SEARCH_LIMIT = 40;
+    const TOP_SEARCH_LIMIT = 50;
     const TOP_SEARCH_SHEET_NAME = 'TOP_BUSCADOS';
     const TOP_CLOUD_CACHE_KEY = 'creata_inv_top_cloud_v1';
     const TOP_PENDING_QUEUE_KEY = 'creata_inv_top_pending_v1';
@@ -700,7 +700,7 @@
             out.push(g);
         }
 
-        // Nivel 4: respaldo general del catálogo hasta completar los 40 lugares
+        // Nivel 4: respaldo general del catálogo hasta completar los 50 lugares
         for (let i = 0; i < allGroups.length && out.length < cap; i++) {
             const g = allGroups[i];
             if (seen.has(g.key)) continue;
@@ -1133,7 +1133,7 @@
                 container.innerHTML =
                     '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold leading-relaxed" ' +
                     'style="grid-column: 1 / -1; border-color:#E8E4DE; color:#252C32; background:#FFFFFF;">' +
-                    'Aún no hay búsquedas registradas. Los artículos que consulten los usuarios aparecerán aquí en el Top 40 más buscados.' +
+                    'Aún no hay búsquedas registradas. Los artículos que consulten los usuarios aparecerán aquí en el Top 50 más buscados.' +
                     '</div>';
             } else {
                 container.innerHTML = '';
