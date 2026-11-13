@@ -6,7 +6,7 @@
  * - Google Sheets / Apps Script / Drive / S Mueblería NO pasan por aquí (siempre directo, en vivo).
  */
 const CACHE_PREFIX = 'creata-inventario-offline-';
-const CACHE_NAME = CACHE_PREFIX + 'v1';
+const CACHE_NAME = CACHE_PREFIX + 'v2';
 const PAGE_URL = './inventario.html';
 const NETWORK_TIMEOUT_MS = 9000;
 
