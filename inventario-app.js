@@ -403,9 +403,9 @@
         const dispWord = qty === 1 ? 'disponible' : 'disponibles';
         const dayMonth = arrivalDate ? formatSpanishDayMonth(arrivalDate) : '';
         if (dayMonth) {
-            return 'LPPT ' + qty + ' ' + dispWord + ' llega disponible para entregar a partir del día ' + dayMonth;
+            return 'LPPT: ' + qty + ' ' + dispWord + ' · Para entregar a partir del día ' + dayMonth;
         }
-        return 'LPPT ' + qty + ' ' + dispWord;
+        return 'LPPT: ' + qty + ' ' + dispWord;
     }
 
     function indexItemsAndGroups() {
@@ -944,10 +944,6 @@
         if (clearBtn) clearBtn.style.display = rawTrim ? 'block' : 'none';
 
         isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
-        const topHeadingEl = document.getElementById('invTopHeading');
-        if (topHeadingEl) {
-            topHeadingEl.style.display = isMainCoverActive ? '' : 'none';
-        }
 
         if (isMainCoverActive) {
             filteredGroups = getMainCoverGroups(TOP_SEARCH_LIMIT);
@@ -1133,7 +1129,7 @@
                 container.innerHTML =
                     '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold leading-relaxed" ' +
                     'style="grid-column: 1 / -1; border-color:#E8E4DE; color:#252C32; background:#FFFFFF;">' +
-                    'Aún no hay búsquedas registradas. Los artículos que consulten los usuarios aparecerán aquí en el Top 50 más buscados.' +
+                    'No hay productos para mostrar en este momento.' +
                     '</div>';
             } else {
                 container.innerHTML = '';
@@ -1474,6 +1470,7 @@
 
         if (varStep) varStep.classList.remove('hidden');
         if (singleStep) singleStep.classList.add('hidden');
+        prepareRelatedInStockSection(grp && grp.items && grp.items.length ? grp.items[0] : null, false);
     }
 
     window.openGroupModal = function (groupKey) {
@@ -1694,7 +1691,209 @@
             ).join('');
         }
         if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0);
+
+        const sameSkuRefresh = !!(relatedStockRefSku && relatedStockRefSku === key);
+        prepareRelatedInStockSection(it, sameSkuRefresh ? relatedStockExpanded : false);
     }
+
+    let relatedStockExpanded = false;
+    let relatedStockRefItem = null;
+    let relatedStockRefSku = '';
+
+    function normProductTypeKey(val) {
+        return String(cleanStr(val) || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9]+/g, ' ')
+            .trim();
+    }
+
+    function getRelatedTypeDisplayLabel(refItem) {
+        if (!refItem) return 'RELACIONADOS';
+        const tpClean = cleanStr(refItem.tp).toUpperCase();
+        if (tpClean) return tpClean;
+        if (refItem._cat && refItem._cat !== 'OTROS') return refItem._cat;
+        if (refItem._main) return refItem._main;
+        return 'RELACIONADOS';
+    }
+
+    function getRelatedInStockItems(refItem) {
+        if (!refItem) return [];
+        const curSku = currentDetailItem ? String(currentDetailItem.s || '').trim().toUpperCase() : '';
+        const refTp = normProductTypeKey(refItem.tp);
+        const refCat = refItem._cat || '';
+        const refMain = refItem._main || '';
+
+        const matches = [];
+        for (let i = 0; i < allItems.length; i++) {
+            const cand = allItems[i];
+            if (!cand || !cand.s) continue;
+            const candSku = String(cand.s).trim().toUpperCase();
+            if (curSku && candSku === curSku) continue;
+
+            const delivStock = getBodegaPisoStock(cand);
+            if (delivStock <= 0) continue;
+
+            const candTp = normProductTypeKey(cand.tp);
+            let tier = 0;
+            if (refTp && candTp && candTp === refTp) {
+                tier = 1;
+            } else if (refCat && refCat !== 'OTROS' && cand._cat === refCat) {
+                tier = 2;
+            } else if (!refTp && (!refCat || refCat === 'OTROS') && refMain && cand._main === refMain) {
+                tier = 3;
+            }
+            if (!tier) continue;
+
+            matches.push({
+                it: cand,
+                tier: tier,
+                stock: delivStock,
+                hasPhoto: photoUrlForItem(cand) ? 1 : 0
+            });
+        }
+
+        matches.sort((a, b) => {
+            if (a.tier !== b.tier) return a.tier - b.tier;
+            if (b.hasPhoto !== a.hasPhoto) return b.hasPhoto - a.hasPhoto;
+            if (b.stock !== a.stock) return b.stock - a.stock;
+            return String(a.it.n || a.it.s).localeCompare(String(b.it.n || b.it.s));
+        });
+
+        return matches;
+    }
+
+    function buildDeliveryStockSummary(it) {
+        const stocks = Array.isArray(it && it.st) ? it.st : [];
+        const byLoc = new Map();
+        const shortNames = {
+            'CEDIS': 'CEDIS',
+            'CASA CREATA': 'Casa Creata',
+            'PUERTO CANCUN': 'PTC',
+            'COLOSIO': 'Colosio',
+            'PLAYA': 'Playa'
+        };
+        for (let i = 0; i < WAREHOUSES.length; i++) {
+            const wh = WAREHOUSES[i];
+            if (isLpptWarehouse(wh)) continue;
+            const q = Math.max(0, Number(stocks[i]) || 0);
+            if (q <= 0) continue;
+            const baseLoc = String(wh).replace(/\s*\([^)]*\)\s*/g, '').trim().toUpperCase();
+            const label = shortNames[baseLoc] || baseLoc;
+            byLoc.set(label, (byLoc.get(label) || 0) + q);
+        }
+        const parts = [];
+        byLoc.forEach((val, key) => parts.push(key + ': ' + val));
+        return parts.join(' · ');
+    }
+
+    function prepareRelatedInStockSection(refItem, keepExpanded) {
+        const secEl = document.getElementById('detRelatedStockSection');
+        const btnLbl = document.getElementById('detRelatedStockBtnLabel');
+        const panelEl = document.getElementById('detRelatedStockPanel');
+        const listEl = document.getElementById('detRelatedStockList');
+        if (!secEl || !btnLbl || !panelEl || !listEl) return;
+
+        if (!refItem) {
+            relatedStockExpanded = false;
+            relatedStockRefItem = null;
+            relatedStockRefSku = '';
+            secEl.classList.add('hidden');
+            panelEl.classList.add('hidden');
+            listEl.innerHTML = '';
+            return;
+        }
+
+        relatedStockRefItem = refItem;
+        relatedStockRefSku = currentDetailItem ? String(currentDetailItem.s || '').trim().toUpperCase() : '';
+        relatedStockExpanded = !!keepExpanded;
+
+        const matches = getRelatedInStockItems(refItem);
+        const typeLabel = getRelatedTypeDisplayLabel(refItem);
+        secEl.classList.remove('hidden');
+
+        const prefixVerb = relatedStockExpanded ? 'Ocultar' : 'Ver';
+        btnLbl.textContent = prefixVerb + ' productos con stock para entrega · ' + typeLabel + ' (' + matches.length + ')';
+
+        if (relatedStockExpanded) {
+            renderRelatedInStockList(matches, typeLabel);
+            panelEl.classList.remove('hidden');
+        } else {
+            panelEl.classList.add('hidden');
+            listEl.innerHTML = '';
+        }
+    }
+
+    function renderRelatedInStockList(precomputedMatches, precomputedLabel) {
+        const subEl = document.getElementById('detRelatedStockSubhead');
+        const listEl = document.getElementById('detRelatedStockList');
+        if (!listEl || !relatedStockRefItem) return;
+
+        const matches = Array.isArray(precomputedMatches) ? precomputedMatches : getRelatedInStockItems(relatedStockRefItem);
+        const typeLabel = precomputedLabel || getRelatedTypeDisplayLabel(relatedStockRefItem);
+
+        if (subEl) {
+            subEl.textContent = matches.length > 0
+                ? ('Disponibles para entrega inmediata relacionados con ' + typeLabel + ' (' + matches.length + ')')
+                : ('Sin otros productos de ' + typeLabel + ' con stock físico para entrega inmediata');
+        }
+
+        if (!matches.length) {
+            listEl.innerHTML =
+                '<div class="rounded-xl border px-3.5 py-4 text-center text-xs font-semibold" style="border-color:#E8E4DE; background:#FFFFFF; color:#252C32;">' +
+                    'Por el momento no hay otros artículos de este mismo tipo con existencia física en bodega o piso.' +
+                '</div>';
+            return;
+        }
+
+        listEl.innerHTML = matches.map(entry => {
+            const it = entry.it;
+            const skuKey = String(it.s || '').trim().toUpperCase();
+            const titleTxt = cleanStr(it.n) || cleanStr(it._groupTitle) || it.s;
+            const locSummary = buildDeliveryStockSummary(it);
+            const dispTxt = entry.stock === 1 ? '1 disponible para entrega' : (entry.stock + ' disponibles para entrega');
+            return '<div class="inv-row" data-rel-sku="' + escapeHtml(skuKey) + '" style="background:#FFFFFF;">' +
+                buildThumbHtml(it) +
+                '<div class="min-w-0 flex-1 pr-2">' +
+                    '<div class="text-xs sm:text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
+                        formatTitleWithPriceHtml(titleTxt, it.pr) +
+                    '</div>' +
+                    '<div class="text-[11px] font-semibold tracking-wider mt-0.5 flex flex-wrap items-center gap-1.5">' +
+                        '<span style="color:#A38251;">' + escapeHtml(it.s) + '</span>' +
+                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold sem-green">' + escapeHtml(dispTxt) + '</span>' +
+                        (locSummary ? ('<span class="text-[10px] font-bold opacity-75" style="color:#252C32;">(' + escapeHtml(locSummary) + ')</span>') : '') +
+                    '</div>' +
+                '</div>' +
+                buildCardCartControlHtml(skuKey) +
+            '</div>';
+        }).join('');
+
+        listEl.querySelectorAll('.inv-row[data-rel-sku]').forEach(rowEl => {
+            const sku = rowEl.getAttribute('data-rel-sku');
+            const candIt = bySkuMap.get(String(sku || '').toUpperCase());
+            const candGrp = candIt && groupsByKey.get(candIt._groupKey) ? groupsByKey.get(candIt._groupKey) : null;
+            rowEl.onclick = function () {
+                openProductDetail(sku, false);
+                const modalCard = document.querySelector('#productDetailModal > div');
+                if (modalCard) modalCard.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+            const ctrlWrap = rowEl.querySelector('[data-sku-ctrl]');
+            bindCardCartControlEvents(ctrlWrap, sku, candGrp, false);
+        });
+    }
+
+    window.toggleRelatedInStockProducts = function () {
+        if (!relatedStockRefItem) return;
+        relatedStockExpanded = !relatedStockExpanded;
+        prepareRelatedInStockSection(relatedStockRefItem, relatedStockExpanded);
+        if (relatedStockExpanded) {
+            const secEl = document.getElementById('detRelatedStockSection');
+            if (secEl && secEl.scrollIntoView) {
+                setTimeout(() => secEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
+            }
+        }
+    };
 
     // ------------------------------------------------------------------------
     // USUARIOS POR UBICACIÓN, CONTRASEÑA TEMPORAL Y PLANTILLA S MUEBLERÍA
@@ -3863,6 +4062,9 @@
             (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
         box.innerHTML = htmlContent;
         box.classList.remove('hidden');
+        if (box.scrollIntoView) {
+            setTimeout(() => box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 40);
+        }
     }
 
     async function readLivePlantillaHeaderStatus() {

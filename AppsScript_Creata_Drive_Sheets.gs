@@ -2632,7 +2632,7 @@ function ensureQuotesLedgerSheet_(ss) {
   ];
 
   if (!sh) {
-    sh = ss.insertSheet(TAB_QUOTES_LIVE_);
+    sh = ss.insertSheet(TAB_QUOTES_LIVE_, ss.getSheets().length);
     if (sh.getMaxColumns() < headers.length) {
       sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
     }
@@ -2737,16 +2737,40 @@ function computeLiveErpFoliosAndQuotes_(ss, erpAdvisors) {
         '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Venta></Venta><Filtro></Filtro>'
       );
       if (xmlCot) {
-        const recRe = /<([a-zA-Z0-9_:]*Venta[a-zA-Z0-9_:]*)>([\s\S]*?)<\/\1>/g;
-        let rm;
+        const idMatches = [];
+        const idScanRe = /<(?:[a-zA-Z0-9_]+:)?IdVenta>(\d+)<\/(?:[a-zA-Z0-9_]+:)?IdVenta>/g;
+        let im;
+        while ((im = idScanRe.exec(xmlCot)) !== null) {
+          idMatches.push({ index: im.index, endIndex: im.index + im[0].length, idStr: im[1] });
+        }
+
         const rawErpItems = [];
-        while ((rm = recRe.exec(xmlCot)) !== null) {
-          const blk = rm[2];
-          const idVentaStr = extractXmlTag_(blk, 'IdVenta');
+        const boundaryRe = /<\/([a-zA-Z0-9_:]+)>\s*<\1[\s>]/g;
+        for (let idx = 0; idx < idMatches.length; idx++) {
+          const cur = idMatches[idx];
+          const prevEnd = idx > 0 ? idMatches[idx - 1].endIndex : Math.max(0, cur.index - 3500);
+          const nextStart = idx + 1 < idMatches.length ? idMatches[idx + 1].index : Math.min(xmlCot.length, cur.endIndex + 3500);
+
+          const beforeSeg = xmlCot.slice(Math.max(prevEnd, cur.index - 3500), cur.index);
+          boundaryRe.lastIndex = 0;
+          let bMatch;
+          let startOffsetInBefore = 0;
+          while ((bMatch = boundaryRe.exec(beforeSeg)) !== null) {
+            startOffsetInBefore = bMatch.index + bMatch[0].indexOf('<', 2);
+          }
+
+          const afterSeg = xmlCot.slice(cur.index, Math.min(nextStart, cur.endIndex + 3500));
+          boundaryRe.lastIndex = 0;
+          const afterBound = boundaryRe.exec(afterSeg);
+          const recordAfter = afterBound
+            ? afterSeg.slice(0, afterBound.index + afterBound[0].indexOf('>') + 1)
+            : afterSeg;
+
+          const blk = beforeSeg.slice(startOffsetInBefore) + recordAfter;
           const folioStr = extractXmlTag_(blk, 'Folio');
-          if (!idVentaStr && !folioStr) continue;
+          if (!folioStr) continue;
           const obs = observeFolioString_(folioStr, maxByPrefix);
-          const idVentaNum = parseInt(idVentaStr, 10) || 0;
+          const idVentaNum = parseInt(cur.idStr, 10) || 0;
           if (idVentaNum > 0 && obs) {
             const idUsu = extractXmlTag_(blk, 'IdUsuario');
             const advInfo = idUsu && advById[idUsu] ? advById[idUsu] : null;
@@ -3038,16 +3062,17 @@ function getErpRuntimeConfig_() {
   };
 }
 
-function isErpJwtValid_(token) {
+function isErpJwtValid_(token, minBufferSec) {
   const raw = String(token || '').trim();
   const parts = raw.split('.');
   if (parts.length < 2) return false;
+  const buffer = (minBufferSec !== undefined && minBufferSec !== null) ? Number(minBufferSec) : 600;
   try {
     const b64 = parts[1] + '==='.slice((parts[1].length + 3) % 4);
     const jsonTxt = Utilities.newBlob(Utilities.base64DecodeWebSafe(b64)).getDataAsString('UTF-8');
     const payload = JSON.parse(jsonTxt);
     const exp = Number(payload.exp || 0);
-    return exp > (Math.floor(Date.now() / 1000) + 600);
+    return exp > (Math.floor(Date.now() / 1000) + buffer);
   } catch (e) {
     return false;
   }
@@ -3101,18 +3126,35 @@ function saveErpSessionCacheEverywhere_(sessionObj) {
   } catch (e) {}
 }
 
+function getHeaderCaseInsensitive_(headersObj, targetName) {
+  if (!headersObj || !targetName) return '';
+  const want = String(targetName).toLowerCase();
+  const keys = Object.keys(headersObj);
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i].toLowerCase() === want) {
+      const val = headersObj[keys[i]];
+      return Array.isArray(val) ? String(val[0] || '') : String(val || '');
+    }
+  }
+  return '';
+}
+
 function mergeSetCookiesIntoJar_(headersObj, jar) {
   if (!headersObj) return;
-  const raw = headersObj['Set-Cookie'] || headersObj['set-cookie'];
-  if (!raw) return;
-  const list = Array.isArray(raw) ? raw : [raw];
-  for (let i = 0; i < list.length; i++) {
-    const firstPart = String(list[i] || '').split(';')[0].trim();
-    const eq = firstPart.indexOf('=');
-    if (eq > 0) {
-      const cname = firstPart.slice(0, eq).trim();
-      const cval = firstPart.slice(eq + 1).trim();
-      jar[cname] = cval;
+  const keys = Object.keys(headersObj);
+  for (let k = 0; k < keys.length; k++) {
+    if (keys[k].toLowerCase() !== 'set-cookie') continue;
+    const raw = headersObj[keys[k]];
+    if (!raw) continue;
+    const list = Array.isArray(raw) ? raw : [raw];
+    for (let i = 0; i < list.length; i++) {
+      const firstPart = String(list[i] || '').split(';')[0].trim();
+      const eq = firstPart.indexOf('=');
+      if (eq > 0) {
+        const cname = firstPart.slice(0, eq).trim();
+        const cval = firstPart.slice(eq + 1).trim();
+        if (cname) jar[cname] = cval;
+      }
     }
   }
 }
@@ -3122,109 +3164,178 @@ function cookieJarToHeader_(jar) {
 }
 
 function extractHtmlInputAttr_(tagHtml, attrName) {
-  const re = new RegExp('\\b' + attrName + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i');
-  const m = tagHtml.match(re);
+  const re = new RegExp('(?:^|\\s)' + attrName + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i');
+  const m = String(tagHtml || '').match(re);
   if (!m) return '';
   return decodeXmlEntities_(m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : (m[3] || '')));
 }
 
 function resolveRelativeUrl_(baseUrl, locationHdr) {
-  const loc = String(locationHdr || '').trim();
+  let loc = decodeXmlEntities_(String(locationHdr || '').trim());
+  if (!loc) return String(baseUrl || 'https://sistema.smuebleria.com/Login.aspx');
   if (/^https?:\/\//i.test(loc)) return loc;
-  const originMatch = String(baseUrl || '').match(/^(https?:\/\/[^\/]+)/i);
+  const baseStr = String(baseUrl || 'https://sistema.smuebleria.com/Login.aspx');
+  const originMatch = baseStr.match(/^(https?:\/\/[^\/]+)/i);
   const origin = originMatch ? originMatch[1] : 'https://sistema.smuebleria.com';
+  if (loc.indexOf('//') === 0) return 'https:' + loc;
   if (loc.charAt(0) === '/') return origin + loc;
-  return origin + '/' + loc;
+  while (loc.indexOf('./') === 0) loc = loc.slice(2);
+  const pathWithoutQuery = baseStr.split('?')[0].split('#')[0];
+  const lastSlash = pathWithoutQuery.lastIndexOf('/');
+  const baseDir = lastSlash > origin.length ? pathWithoutQuery.slice(0, lastSlash + 1) : (origin + '/');
+  return baseDir + loc;
 }
 
-/**
- * Renueva automáticamente el JWT 24h de S Mueblería directo desde Google Cloud vía HTTP WebForms.
- */
-function loginErpViaHttp_(cfg) {
-  if (!cfg.user || !cfg.pass) {
-    throw new Error('No se encontraron credenciales ERP en ScriptProperties ni en la carpeta privada PRESENTACION_DISENO.');
-  }
-  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-  const jar = {};
+function extractJwtTokenFromTextOrJar_(text, jar) {
+  const s = String(text || '');
+  const mTok = s.match(/Token=([a-zA-Z0-9_\-\.]{20,})/);
+  if (mTok && isErpJwtValid_(mTok[1], 15)) return mTok[1];
+  const mJwt = s.match(/\b(eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,})\b/);
+  if (mJwt && isErpJwtValid_(mJwt[1], 15)) return mJwt[1];
+  if (jar && jar.access_token && isErpJwtValid_(jar.access_token, 15)) return jar.access_token;
+  if (mTok) return mTok[1];
+  return '';
+}
 
-  const getResp = UrlFetchApp.fetch(cfg.loginUrl, {
-    method: 'get',
-    headers: { 'User-Agent': ua },
-    followRedirects: true,
-    muteHttpExceptions: true
-  });
-  mergeSetCookiesIntoJar_(getResp.getAllHeaders(), jar);
-  const loginHtml = getResp.getContentText('UTF-8');
+function performSingleErpHttpLogin_(user, pass, loginUrl) {
+  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+  const jar = {};
+  let pageUrl = loginUrl || 'https://sistema.smuebleria.com/Login.aspx';
+  let loginHtml = '';
+
+  for (let gHop = 0; gHop < 4; gHop++) {
+    const getHdrs = { 'User-Agent': ua, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' };
+    const ck = cookieJarToHeader_(jar);
+    if (ck) getHdrs.Cookie = ck;
+    const getResp = UrlFetchApp.fetch(pageUrl, {
+      method: 'get',
+      headers: getHdrs,
+      followRedirects: false,
+      muteHttpExceptions: true
+    });
+    mergeSetCookiesIntoJar_(getResp.getAllHeaders(), jar);
+    const gCode = getResp.getResponseCode();
+    const gLoc = getHeaderCaseInsensitive_(getResp.getAllHeaders(), 'Location');
+    if (gCode >= 300 && gCode < 400 && gLoc) {
+      pageUrl = resolveRelativeUrl_(pageUrl, gLoc);
+      continue;
+    }
+    loginHtml = getResp.getContentText('UTF-8');
+    break;
+  }
+
+  let postActionUrl = pageUrl;
+  const formTagMatch = loginHtml.match(/<form\b[^>]*>/i);
+  if (formTagMatch) {
+    const rawAction = extractHtmlInputAttr_(formTagMatch[0], 'action');
+    if (rawAction) postActionUrl = resolveRelativeUrl_(pageUrl, rawAction);
+  }
 
   const formFields = {};
   let emailFieldName = 'CampoCorreoElectronico';
   let passFieldName = 'CampoContrasena';
   let submitFieldName = 'BotonValidar';
   let submitFieldVal = 'Ingresar';
+  let submitFieldType = 'submit';
+  let hasSubmitInput = false;
 
   const inputTags = loginHtml.match(/<input\b[^>]*>/gi) || [];
   for (let i = 0; i < inputTags.length; i++) {
     const tag = inputTags[i];
-    const type = extractHtmlInputAttr_(tag, 'type').toLowerCase();
+    const type = (extractHtmlInputAttr_(tag, 'type') || 'text').toLowerCase();
     const name = extractHtmlInputAttr_(tag, 'name');
     const id = extractHtmlInputAttr_(tag, 'id');
     const val = extractHtmlInputAttr_(tag, 'value');
 
-    if (type === 'hidden' && name) {
-      formFields[name] = val;
-    }
     if (/CampoCorreoElectronico$/i.test(id) || /CampoCorreoElectronico$/i.test(name)) {
       if (name) emailFieldName = name;
-    } else if (/CampoContrasena$/i.test(id) || /CampoContrasena$/i.test(name)) {
+      continue;
+    }
+    if (/CampoContrasena$/i.test(id) || /CampoContrasena$/i.test(name)) {
       if (name) passFieldName = name;
-    } else if (/BotonValidar$/i.test(id) || /BotonValidar$/i.test(name)) {
+      continue;
+    }
+    if (/BotonValidar$/i.test(id) || /BotonValidar$/i.test(name)) {
+      hasSubmitInput = true;
       if (name) submitFieldName = name;
       if (val) submitFieldVal = val;
+      submitFieldType = type || 'submit';
+      continue;
+    }
+
+    if (!name) continue;
+    if (type === 'submit' || type === 'button' || type === 'reset' || type === 'image' || type === 'file') continue;
+    if (type === 'checkbox' || type === 'radio') {
+      if (/\bchecked\b/i.test(tag)) formFields[name] = val || 'on';
+      continue;
+    }
+    formFields[name] = val;
+  }
+
+  formFields[emailFieldName] = user;
+  formFields[passFieldName] = pass;
+
+  if (hasSubmitInput && submitFieldType === 'image') {
+    formFields[submitFieldName + '.x'] = '12';
+    formFields[submitFieldName + '.y'] = '12';
+  } else if (hasSubmitInput) {
+    formFields[submitFieldName] = submitFieldVal;
+  } else {
+    const postBackMatch = loginHtml.match(/BotonValidar[^>]*__doPostBack\(\s*['"]([^'"]+)['"]/i);
+    if (postBackMatch) {
+      formFields.__EVENTTARGET = postBackMatch[1];
+      formFields.__EVENTARGUMENT = formFields.__EVENTARGUMENT || '';
+    } else {
+      formFields[submitFieldName] = submitFieldVal;
     }
   }
 
-  formFields[emailFieldName] = cfg.user;
-  formFields[passFieldName] = cfg.pass;
-  formFields[submitFieldName] = submitFieldVal;
-
   const encodedPayload = Object.keys(formFields)
-    .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(formFields[k]))
+    .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(formFields[k] !== undefined && formFields[k] !== null ? String(formFields[k]) : ''))
     .join('&');
 
-  let curResp = UrlFetchApp.fetch(cfg.loginUrl, {
+  const originMatch = postActionUrl.match(/^(https?:\/\/[^\/]+)/i);
+  const originHdr = originMatch ? originMatch[1] : 'https://sistema.smuebleria.com';
+  const postHeaders = {
+    'User-Agent': ua,
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    Origin: originHdr,
+    Referer: pageUrl
+  };
+  const postCk = cookieJarToHeader_(jar);
+  if (postCk) postHeaders.Cookie = postCk;
+
+  let curResp = UrlFetchApp.fetch(postActionUrl, {
     method: 'post',
     contentType: 'application/x-www-form-urlencoded',
     payload: encodedPayload,
-    headers: {
-      'User-Agent': ua,
-      Referer: cfg.loginUrl,
-      Cookie: cookieJarToHeader_(jar)
-    },
+    headers: postHeaders,
     followRedirects: false,
     muteHttpExceptions: true
   });
   mergeSetCookiesIntoJar_(curResp.getAllHeaders(), jar);
 
-  let currentUrl = cfg.loginUrl;
+  let currentUrl = postActionUrl;
   let finalHtml = curResp.getContentText('UTF-8');
   let tokenFound = '';
 
   for (let hop = 0; hop < 6; hop++) {
     const code = curResp.getResponseCode();
     const hdrs = curResp.getAllHeaders();
-    const loc = hdrs.Location || hdrs.location || '';
-    const mUrlTok = String(loc).match(/Token=([a-zA-Z0-9_\-\.]+)/);
-    if (mUrlTok) tokenFound = mUrlTok[1];
+    const loc = getHeaderCaseInsensitive_(hdrs, 'Location');
+    if (loc) {
+      const tokInLoc = extractJwtTokenFromTextOrJar_(loc, null);
+      if (tokInLoc) tokenFound = tokInLoc;
+    }
 
     if (code >= 300 && code < 400 && loc) {
       currentUrl = resolveRelativeUrl_(currentUrl, loc);
+      const rHdrs = { 'User-Agent': ua, Referer: pageUrl };
+      const rCk = cookieJarToHeader_(jar);
+      if (rCk) rHdrs.Cookie = rCk;
       curResp = UrlFetchApp.fetch(currentUrl, {
         method: 'get',
-        headers: {
-          'User-Agent': ua,
-          Referer: cfg.loginUrl,
-          Cookie: cookieJarToHeader_(jar)
-        },
+        headers: rHdrs,
         followRedirects: false,
         muteHttpExceptions: true
       });
@@ -3236,14 +3347,92 @@ function loginErpViaHttp_(cfg) {
   }
 
   if (!tokenFound) {
-    const mHtml = String(finalHtml || '').match(/Token=([a-zA-Z0-9_\-\.]+)/);
-    if (mHtml) tokenFound = mHtml[1];
+    tokenFound = extractJwtTokenFromTextOrJar_(finalHtml, jar);
   }
-  if (!tokenFound && jar.access_token && isErpJwtValid_(jar.access_token)) {
-    tokenFound = jar.access_token;
-  }
+
+  // Seguir redirección JS o meta-refresh hacia Sistema.aspx si existe
   if (!tokenFound) {
-    throw new Error('No fue posible obtener el Token JWT desde Sistema.aspx al renovar sesión S Mueblería.');
+    const jsRedir = String(finalHtml || '').match(/(?:location(?:\.href)?\s*=\s*|location\.replace\(\s*|url\s*=\s*)['"]?([^'"\s<>]*Sistema\.aspx[^'"\s<>]*)/i);
+    if (jsRedir && jsRedir[1]) {
+      currentUrl = resolveRelativeUrl_(currentUrl, jsRedir[1]);
+      tokenFound = extractJwtTokenFromTextOrJar_(currentUrl, null);
+      if (!tokenFound) {
+        const jHdrs = { 'User-Agent': ua, Referer: postActionUrl };
+        const jCk = cookieJarToHeader_(jar);
+        if (jCk) jHdrs.Cookie = jCk;
+        const jResp = UrlFetchApp.fetch(currentUrl, {
+          method: 'get',
+          headers: jHdrs,
+          followRedirects: true,
+          muteHttpExceptions: true
+        });
+        mergeSetCookiesIntoJar_(jResp.getAllHeaders(), jar);
+        finalHtml = jResp.getContentText('UTF-8');
+        tokenFound = extractJwtTokenFromTextOrJar_(finalHtml, jar);
+      }
+    }
+  }
+
+  // Si ya recibimos cookies de sesión autenticada pero aún no consultamos Sistema.aspx, consultarlo explícitamente
+  if (!tokenFound && Object.keys(jar).length > 0 && !/Sistema\.aspx/i.test(currentUrl)) {
+    const sisUrl = resolveRelativeUrl_(postActionUrl, '/Sistema.aspx');
+    const sHdrs = { 'User-Agent': ua, Referer: postActionUrl };
+    const sCk = cookieJarToHeader_(jar);
+    if (sCk) sHdrs.Cookie = sCk;
+    const sResp = UrlFetchApp.fetch(sisUrl, {
+      method: 'get',
+      headers: sHdrs,
+      followRedirects: true,
+      muteHttpExceptions: true
+    });
+    mergeSetCookiesIntoJar_(sResp.getAllHeaders(), jar);
+    finalHtml = sResp.getContentText('UTF-8');
+    tokenFound = extractJwtTokenFromTextOrJar_(finalHtml, jar);
+  }
+
+  return { token: tokenFound, jar: jar };
+}
+
+/**
+ * Renueva automáticamente el JWT 24h de S Mueblería directo desde Google Cloud vía HTTP WebForms.
+ */
+function loginErpViaHttp_(cfg) {
+  if (!cfg.user || !cfg.pass) {
+    throw new Error('No se encontraron credenciales ERP en ScriptProperties ni en la carpeta privada PRESENTACION_DISENO.');
+  }
+
+  let attemptRes = performSingleErpHttpLogin_(cfg.user, cfg.pass, cfg.loginUrl);
+
+  // Si falló, verificar si el archivo .env en Google Drive tiene credenciales actualizadas respecto a ScriptProperties
+  if (!attemptRes.token) {
+    try {
+      const folder = findPresentacionDisenoDriveFolder_();
+      if (folder) {
+        const fIt = folder.getFilesByName('.env');
+        if (fIt.hasNext()) {
+          const envMap = parseDotEnvText_(fIt.next().getBlob().getDataAsString('UTF-8'));
+          const freshUser = (envMap.ERP_USER || '').trim();
+          const freshPass = (envMap.ERP_PASS || '').trim();
+          const freshLogin = (envMap.ERP_LOGIN_URL || cfg.loginUrl || '').trim();
+          if (freshUser && freshPass && (freshUser !== cfg.user || freshPass !== cfg.pass)) {
+            PropertiesService.getScriptProperties().setProperties({
+              ERP_USER: freshUser,
+              ERP_PASS: freshPass
+            });
+            attemptRes = performSingleErpHttpLogin_(freshUser, freshPass, freshLogin);
+          }
+        }
+      }
+    } catch (envRetryErr) {}
+  }
+
+  const tokenFound = attemptRes.token;
+  const jar = attemptRes.jar || {};
+  if (!tokenFound) {
+    throw new Error(
+      'La sesión de 24h de S Mueblería venció y Login.aspx rechazó la renovación automática sin navegador. ' +
+      'Ejecuta iniciar_servicio_en_vivo.bat en tu PC o verifica ERP_USER / ERP_PASS en PRESENTACION_DISENO/.env.'
+    );
   }
 
   const cookiesArr = Object.keys(jar).map((k) => ({
@@ -3266,12 +3455,15 @@ function loginErpViaHttp_(cfg) {
 
 function getValidErpSession_(forceRefresh, cfg) {
   const props = PropertiesService.getScriptProperties();
+  let parsedProp = null;
+  let driveCached = null;
+
   if (!forceRefresh) {
     try {
       const rawProp = props.getProperty('ERP_SESSION_CACHE_JSON');
       if (rawProp) {
-        const parsedProp = JSON.parse(rawProp);
-        if (parsedProp && isErpJwtValid_(parsedProp.token)) {
+        parsedProp = JSON.parse(rawProp);
+        if (parsedProp && isErpJwtValid_(parsedProp.token, 600)) {
           return {
             token: parsedProp.token,
             cookieHeader: buildCookieHeaderFromCacheObj_(parsedProp)
@@ -3280,8 +3472,8 @@ function getValidErpSession_(forceRefresh, cfg) {
       }
     } catch (e) {}
 
-    const driveCached = readDriveErpSessionCache_();
-    if (driveCached && isErpJwtValid_(driveCached.token)) {
+    driveCached = readDriveErpSessionCache_();
+    if (driveCached && isErpJwtValid_(driveCached.token, 600)) {
       try {
         props.setProperty('ERP_SESSION_CACHE_JSON', JSON.stringify(driveCached));
       } catch (e) {}
@@ -3292,7 +3484,26 @@ function getValidErpSession_(forceRefresh, cfg) {
     }
   }
 
-  return loginErpViaHttp_(cfg || getErpRuntimeConfig_());
+  try {
+    return loginErpViaHttp_(cfg || getErpRuntimeConfig_());
+  } catch (loginErr) {
+    // Si la renovación anticipada falla pero el token actual aún no expira en el servidor (margen >15s), aprovecharlo
+    if (!forceRefresh) {
+      if (driveCached && isErpJwtValid_(driveCached.token, 15)) {
+        return {
+          token: driveCached.token,
+          cookieHeader: buildCookieHeaderFromCacheObj_(driveCached)
+        };
+      }
+      if (parsedProp && isErpJwtValid_(parsedProp.token, 15)) {
+        return {
+          token: parsedProp.token,
+          cookieHeader: buildCookieHeaderFromCacheObj_(parsedProp)
+        };
+      }
+    }
+    throw loginErr;
+  }
 }
 
 function buildSmuebleriaSoapEnvelope_(wcfUrl, soapAction, method, innerRendered) {
@@ -3869,13 +4080,13 @@ function handleInvSubmitQuote_(body) {
 
     const folioFinal = erpResult.folio || estimatedFolio || ('ID-' + erpResult.idCotizacion);
     const refSujeto = idLead ? ('Lead ' + idLead) : ('Cliente ' + idCliente);
-    const statusBannerTxt = '✅ COTIZACIÓN ENVIADA EN VIVO A SMUEBLERIA (' + ahoraStr + ') · FOLIO ' + folioFinal;
+    const statusBannerTxt = '✅ COTIZACIÓN ENVIADA EN VIVO A SMUEBLERIA (' + ahoraStr + ') · FOLIO ' + folioFinal + ' · ' + refSujeto;
 
     sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
     sh.getRange('K6').setValue(statusBannerTxt);
     sh.getRange('K7').setValue(String(erpResult.idCotizacion));
     sh.getRange('M7').setValue(folioFinal);
-    sh.getRange('K8').setValue(refSujeto);
+    // Conservar intacta la fórmula nativa de K8 en plantilla (PRESENTACION_DISENO)
     sh.getRange('K9').setValue(ahoraStr);
 
     // 5) Registrar el mismo folio oficial de S Mueblería según su tienda o bodega en COTIZACIONES_EN_VIVO
@@ -4082,7 +4293,7 @@ function organizarCuentasYDescuentosEnHojas(opts) {
     activeTabNames[plan.tabName.toUpperCase()] = true;
     let sh = ss.getSheetByName(plan.tabName);
     if (!sh) {
-      sh = ss.insertSheet(plan.tabName);
+      sh = ss.insertSheet(plan.tabName, ss.getSheets().length);
     }
     if (sh.getMaxColumns() < 9) {
       sh.insertColumnsAfter(sh.getMaxColumns(), 9 - sh.getMaxColumns());
@@ -4149,8 +4360,9 @@ function organizarCuentasYDescuentosEnHojas(opts) {
     sh.setFrozenRows(2);
   }
 
-  // 3) Eliminar hojas en blanco o duplicadas sin ocupar (nunca tocar pestañas de catálogo, inventario ni fórmulas)
+  // 3) Eliminar únicamente hojas por defecto 100% vacías (ej. "Hoja 2"), protegiendo todas las pestañas de otros proyectos y fórmulas
   const protectedTabs = {
+    '1': true,
     'CATALOGO_PRODUCTOS': true,
     'PIEZAS_MODULOS': true,
     'SALAS_MODULARES': true,
@@ -4169,9 +4381,9 @@ function organizarCuentasYDescuentosEnHojas(opts) {
     const sName = shItem.getName();
     const sUp = sName.trim().toUpperCase();
     if (activeTabNames[sUp] || protectedTabs[sUp]) continue;
-    const isTrulyEmpty = shItem.getLastRow() === 0 && shItem.getLastColumn() === 0;
-    const isDuplicateColosio = (sUp === 'COLOSIO' && activeTabNames['COLOCIO'] && shItem.getLastRow() <= 2);
-    if ((isTrulyEmpty || isDuplicateColosio) && ss.getSheets().length > 1) {
+    const isDefaultBlankSheet = /^(HOJA|SHEET)\s*\d+$/i.test(sName.trim()) && shItem.getLastRow() === 0 && shItem.getLastColumn() === 0;
+    const isDuplicateEmptyColosio = (sUp === 'COLOSIO' && activeTabNames['COLOCIO'] && shItem.getLastRow() === 0 && shItem.getLastColumn() === 0);
+    if ((isDefaultBlankSheet || isDuplicateEmptyColosio) && ss.getSheets().length > 1) {
       removedEmptySheets.push(sName);
       ss.deleteSheet(shItem);
     }
@@ -4609,7 +4821,7 @@ function ensureTopSearchedSheet_(ss) {
   ];
 
   if (!sh) {
-    sh = ss.insertSheet(TAB_TOP_SEARCHED_);
+    sh = ss.insertSheet(TAB_TOP_SEARCHED_, ss.getSheets().length);
     if (sh.getMaxColumns() < headers.length) {
       sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
     }
