@@ -279,7 +279,6 @@
                 width: 100%;
                 grid-template-areas:
                     "search logo"
-                    "session session"
                     "title title"
                     "cats cats"
                     "subcats subcats";
@@ -322,7 +321,6 @@
                 gap: 4px;
             }
             #invScanBtn svg { width: 11px; height: 11px; }
-            #advisorSessionBar { grid-area: session; margin-top: 14px; }
             .inv-title-cell { grid-area: title; margin-top: 10px; }
             .inv-cats-cell { grid-area: cats; flex-wrap: wrap; }
             .inv-subcats-cell { grid-area: subcats; }
@@ -379,31 +377,6 @@
                 <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img">
                 <script src="creata-logo.js"></script>
                 <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
-            </div>
-
-            <!-- BARRA DE SESIÓN DEL ASESOR Y UBICACIÓN ACTIVA -->
-            <div id="advisorSessionBar" class="hidden mb-3 px-3.5 py-2 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs"
-                 style="background:rgba(255,255,255,0.08); border-color:rgba(225,219,197,0.3); color:#FFFFFF;">
-                <div class="flex flex-wrap items-center gap-2 min-w-0">
-                    <span class="inline-block w-2 h-2 rounded-full shrink-0" style="background:#10B981;"></span>
-                    <span id="sessionUserName" class="font-extrabold uppercase tracking-wide truncate"></span>
-                    <span id="sessionBranchBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wider"
-                          style="background:#A38251; color:#FFFFFF;"></span>
-                    <span id="sessionErpBadge" class="hidden px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
-                          style="background:rgba(225,219,197,0.18); color:#E1DBC5;"></span>
-                </div>
-                <div class="flex items-center gap-1.5 shrink-0 ml-auto">
-                    <button type="button" id="sessionSwitchBranchBtn" onclick="openSwitchBranchSelector()"
-                            class="hidden px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border transition hover:opacity-90"
-                            style="border-color:#E1DBC5; color:#E1DBC5; background:transparent;">
-                        Cambiar ubicación
-                    </button>
-                    <button type="button" onclick="logoutAdvisorSession()"
-                            class="px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border transition hover:opacity-90"
-                            style="border-color:rgba(255,255,255,0.35); color:#FFFFFF; background:transparent;">
-                        Salir
-                    </button>
-                </div>
             </div>
 
             <div class="inv-title-cell flex items-center justify-between mb-2.5">
