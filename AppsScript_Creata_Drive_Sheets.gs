@@ -52,6 +52,7 @@ function onOpen() {
       .addSeparator()
       .addItem('7. Organizar Cuentas, Contraseñas Temporales y Columna Descuento', 'organizarCuentasYDescuentosEnHojas')
       .addItem('8. Agregar / Actualizar Columna PRECIO DE LISTA (Cotizador)', 'agregarColumnaPrecioListaInventario')
+      .addItem('9. Autocompletar Nuevos SKUs y Ordenar A-Z (INVENTARIO_EN_VIVO)', 'limpiarYCompletarInventarioEnVivo')
       .addToUi();
   } catch (e) {}
 }
@@ -806,6 +807,7 @@ function doGet(e) {
         sincronizarPestanaInventarioEnVivo({ silentUi: true });
         shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
       }
+      autocompletarYOrdenarInventarioEnVivo_(ss, { silentUi: true, useThrottle: true });
       asegurarColumnaPrecioListaInventario_(ss, { silentUi: true });
       const rawRows = shInv ? shInv.getDataRange().getValues() : [];
       const rows = rawRows.filter((r, idx) => idx === 0 || String((r && r[0]) || '').trim() !== '');
@@ -829,6 +831,16 @@ function doGet(e) {
       const resSync = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
       return jsonResponse_(Object.assign({ ok: true, action: 'inv_erp_sync_now' }, resSync));
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  if (action === 'inv_autocomplete_sort') {
+    try {
+      const resAuto = autocompletarYOrdenarInventarioEnVivo_(getSpreadsheet_(), { silentUi: true, force: true });
+      asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true });
+      return jsonResponse_(Object.assign({ ok: true, action: 'inv_autocomplete_sort' }, resAuto));
     } catch (err) {
       return jsonResponse_({ ok: false, error: err.message || String(err) });
     }
@@ -922,6 +934,11 @@ function doPost(e) {
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
       return jsonResponse_(Object.assign({ ok: true }, syncRes));
+    }
+    if (action === 'inv_autocomplete_sort') {
+      const resAuto = autocompletarYOrdenarInventarioEnVivo_(getSpreadsheet_(), { silentUi: true, force: true });
+      asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true });
+      return jsonResponse_(Object.assign({ ok: true }, resAuto));
     }
     if (action === 'inv_setup_accounts') {
       const adminPinCfg = getProp_('ADMIN_PIN');
@@ -4483,9 +4500,9 @@ function organizarCuentasYDescuentosEnHojas(opts) {
     'INF. PRODUC': true,
     'PLANTILLA': true,
     'COTIZACIONES_EN_VIVO': true,
-    'TOP_BUSCADOS': true,
     '_CREATA_CONFIG': true
   };
+  eliminarPestanaTopBuscadosSiExiste_(ss);
   const removedEmptySheets = [];
   const allSheets = ss.getSheets();
   for (let s = 0; s < allSheets.length; s++) {
@@ -4703,6 +4720,7 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     // 3) Lectura ESTRICTAMENTE SOLO LECTURA de LPPT PROVEDORES (Principal)
     let lpptOk = false;
     const lpptLibre = {};
+    const lpptProvBySku = {};
     const fechaLlegadaMap = {};
     try {
       const lpptSs = SpreadsheetApp.openById(cfg.lpptSpreadsheetId);
@@ -4773,6 +4791,7 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
           lpptLibre[sku] = (lpptLibre[sku] || 0) + libres;
 
           const prov = String(rf[1] || '').trim();
+          if (prov && !lpptProvBySku[sku]) lpptProvBySku[sku] = prov;
           const fCompra = parseSheetOrStrDate_(ru[2], rf[2]);
           const fComp = parseSheetOrStrDate_(ru[5], rf[5]);
           const diasProv = resolveSupplierDays_(prov, tiemposInf, tiemposBackup);
@@ -4823,7 +4842,18 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       Logger.log('Aviso lectura LPPT solo lectura: ' + lpptErr);
     }
 
-    // 4) Actualizar columnas dinámicas O..AV en INVENTARIO_EN_VIVO respetando A..N y F2 ARRAYFORMULA
+    // 4) Autocompletar nuevos productos (ERP / Hoja '1' / plantilla / LPPT), limpiar medidas y ordenar A-Z
+    const autoRes = autocompletarYOrdenarInventarioEnVivo_(ss, {
+      silentUi: true,
+      force: true,
+      skipFlush: true,
+      metaErpSku: metaErpSku,
+      invPorSku: invPorSku,
+      lpptLibre: lpptLibre,
+      lpptProvBySku: lpptProvBySku
+    });
+
+    // 5) Actualizar columnas dinámicas O..AV en INVENTARIO_EN_VIVO respetando A..N y F2 ARRAYFORMULA
     const lastRow = shInv.getLastRow();
     const numCatalogRows = lastRow - 2;
     const catRange = shInv.getRange(3, 1, numCatalogRows, Math.min(shInv.getMaxColumns(), 17)).getValues();
@@ -4888,17 +4918,22 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     shInv.getRange(1, 15, 1, 34).setValues([headersOAv]);
     shInv.getRange(2, 15, 1, 34).setValues([heartbeatRow]);
     shInv.getRange(3, 15, outMatrix.length, 34).setValues(outMatrix);
-    asegurarColumnaPrecioListaInventario_(ss, { silentUi: true });
+    asegurarColumnaPrecioListaInventario_(ss, { silentUi: true, force: !!(autoRes && autoRes.added > 0) });
 
     if (!silentUi) {
       try {
-        SpreadsheetApp.getUi().alert('Inventario sincronizado en vivo desde S Mueblería ERP (' + outMatrix.length + ' filas, ' + ahoraStr + ').');
+        SpreadsheetApp.getUi().alert(
+          'Inventario sincronizado en vivo desde S Mueblería ERP (' + outMatrix.length + ' filas ordenadas A-Z, ' +
+          ((autoRes && autoRes.added) || 0) + ' nuevos SKUs, ' + ahoraStr + ').'
+        );
       } catch (e) {}
     }
 
     return {
       ok: true,
       rowsUpdated: outMatrix.length,
+      newSkusAdded: (autoRes && autoRes.added) || 0,
+      rowsAutocompleted: (autoRes && autoRes.updated) || 0,
       lpptSynced: lpptOk,
       timestamp: ahoraStr
     };
@@ -5014,383 +5049,971 @@ function asegurarColumnaPrecioListaInventario_(ss, opts) {
 }
 
 // ----------------------------------------------------------------------------
-// REGISTRO GLOBAL DE ARTÍCULOS MÁS BUSCADOS DEL COTIZADOR (TOP_BUSCADOS)
+// DESACTIVACIÓN Y LIMPIEZA DE TOP_BUSCADOS (YA NO SE USA RANKING DE 20 MÁS SELECCIONADOS)
 // ----------------------------------------------------------------------------
-function normTopSearchGroupKey_(str) {
-  return String(str || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function ensureTopSearchedSheet_(ss) {
-  let sh = ss.getSheetByName(TAB_TOP_SEARCHED_);
-  const headers = [
-    'POSICION',
-    'CLAVE_GRUPO',
-    'SKU_PRINCIPAL',
-    'ARTICULO',
-    'CATEGORIA',
-    'BUSQUEDAS',
-    'ULTIMA_BUSQUEDA_MS',
-    'ULTIMA_BUSQUEDA',
-    'ULTIMA_UBICACION'
-  ];
-
-  if (!sh) {
-    sh = ss.insertSheet(TAB_TOP_SEARCHED_, ss.getSheets().length);
-    if (sh.getMaxColumns() < headers.length) {
-      sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
+function eliminarPestanaTopBuscadosSiExiste_(ss) {
+  try {
+    const book = ss || getSpreadsheet_();
+    const shTop = book.getSheetByName(TAB_TOP_SEARCHED_);
+    if (shTop && book.getSheets().length > 1) {
+      book.deleteSheet(shTop);
+      return true;
     }
-    sh.getRange(1, 2, sh.getMaxRows(), 2).setNumberFormat('@');
-    sh.getRange(1, 1, 1, headers.length)
-      .setValues([headers])
-      .setBackground('#252C32')
-      .setFontColor('#FFFFFF')
-      .setFontWeight('bold')
-      .setHorizontalAlignment('center');
-    sh.getRange(1, 1, 1, 1).setBackground('#A38251');
-    sh.getRange(1, 6, 1, 1).setBackground('#A38251');
-    sh.setFrozenRows(1);
-  } else if (sh.getLastRow() < 1) {
-    sh.getRange(1, 1, 1, headers.length)
-      .setValues([headers])
-      .setBackground('#252C32')
-      .setFontColor('#FFFFFF')
-      .setFontWeight('bold')
-      .setHorizontalAlignment('center');
-    sh.setFrozenRows(1);
-  }
-  return sh;
-}
-
-function readTopSearchedEntriesFromSheet_(sh) {
-  const byGk = {};
-  const gkBySku = {};
-  if (!sh) return { byGk: byGk, gkBySku: gkBySku, dataRows: 0 };
-  const lastRow = sh.getLastRow();
-  if (lastRow < 2) return { byGk: byGk, gkBySku: gkBySku, dataRows: 0 };
-
-  const dataRows = lastRow - 1;
-  const vals = sh.getRange(2, 1, dataRows, 9).getValues();
-  for (let i = 0; i < vals.length; i++) {
-    const r = vals[i];
-    const sku = cleanSheetKeyCell_(r[2]).toUpperCase();
-    const title = String(r[3] || '').trim();
-    const gk = normTopSearchGroupKey_(r[1]) || normTopSearchGroupKey_(title) || sku.toLowerCase();
-    const count = Math.max(0, Math.round(Number(r[5]) || 0));
-    if (!gk || count <= 0) continue;
-
-    const lastMs = Math.max(0, Math.round(Number(r[6]) || 0));
-    const lastStr = String(r[7] || '').trim();
-    const branch = String(r[8] || '').trim();
-    const cat = String(r[4] || '').trim();
-
-    if (byGk[gk]) {
-      byGk[gk].count += count;
-      if (lastMs >= byGk[gk].lastMs) {
-        byGk[gk].lastMs = lastMs;
-        if (lastStr) byGk[gk].lastStr = lastStr;
-        if (branch) byGk[gk].branch = branch;
-        if (sku) byGk[gk].sku = sku;
-        if (title) byGk[gk].title = title;
-        if (cat) byGk[gk].cat = cat;
-      }
-    } else {
-      byGk[gk] = {
-        gk: gk,
-        sku: sku,
-        title: title || sku || gk.toUpperCase(),
-        cat: cat,
-        count: count,
-        lastMs: lastMs,
-        lastStr: lastStr,
-        branch: branch
-      };
-    }
-    if (sku && !gkBySku[sku]) gkBySku[sku] = gk;
-  }
-  return { byGk: byGk, gkBySku: gkBySku, dataRows: dataRows };
-}
-
-function sortTopSearchedEntries_(byGk) {
-  const arr = Object.keys(byGk).map((k) => byGk[k]).filter((e) => e && e.count > 0);
-  arr.sort((a, b) => {
-    if (b.count !== a.count) return b.count - a.count;
-    if (b.lastMs !== a.lastMs) return b.lastMs - a.lastMs;
-    return String(a.title || '').localeCompare(String(b.title || ''));
-  });
-  return arr;
+  } catch (e) {}
+  return false;
 }
 
 function handleInvTopSearched_() {
   const ss = getSpreadsheet_();
+  eliminarPestanaTopBuscadosSiExiste_(ss);
   try {
     asegurarColumnaPrecioListaInventario_(ss, { silentUi: true });
   } catch (eCol) {}
-  const sh = ss.getSheetByName(TAB_TOP_SEARCHED_);
-  if (!sh || sh.getLastRow() < 2) {
-    return { ok: true, updatedAtMs: Date.now(), top: [] };
-  }
-  const parsed = readTopSearchedEntriesFromSheet_(sh);
-  const sorted = sortTopSearchedEntries_(parsed.byGk);
-  return {
-    ok: true,
-    updatedAtMs: Date.now(),
-    top: sorted.slice(0, 100).map((e, idx) => ({
-      pos: idx + 1,
-      gk: e.gk,
-      sku: e.sku,
-      title: e.title,
-      cat: e.cat,
-      count: e.count,
-      lastMs: e.lastMs
-    }))
-  };
+  return { ok: true, updatedAtMs: Date.now(), top: [] };
 }
 
 function handleInvRecordSearch_(body) {
-  const rawEvents = Array.isArray(body && body.events)
-    ? body.events
-    : (body && (body.gk || body.sku || body.title) ? [body] : []);
-
-  if (!rawEvents.length) {
-    return handleInvTopSearched_();
+  const rawEvents = Array.isArray(body && body.events) ? body.events : [];
+  const ackIds = [];
+  for (let i = 0; i < rawEvents.length; i++) {
+    const evId = String((rawEvents[i] && rawEvents[i].id) || '').trim().slice(0, 80);
+    if (evId) ackIds.push(evId);
   }
-
-  const batch = rawEvents.slice(0, 60);
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(15000)) {
-    return { ok: false, retry: true, error: 'Sincronización ocupada, se reintentará automáticamente.' };
-  }
-
   try {
-    let cache = null;
-    let seenCache = {};
-    const cacheKeys = [];
-    for (let i = 0; i < batch.length; i++) {
-      const evId = String((batch[i] && batch[i].id) || '').trim().slice(0, 80);
-      if (evId) cacheKeys.push('inv_top_ev_' + evId);
-    }
-    if (cacheKeys.length > 0) {
-      try {
-        cache = CacheService.getScriptCache();
-        seenCache = cache.getAll(cacheKeys) || {};
-      } catch (ce) {
-        cache = null;
-        seenCache = {};
-      }
-    }
-
-    const ss = getSpreadsheet_();
-    const sh = ensureTopSearchedSheet_(ss);
-    const parsed = readTopSearchedEntriesFromSheet_(sh);
-    const byGk = parsed.byGk;
-    const gkBySku = parsed.gkBySku;
-
-    const ackIds = [];
-    const newCacheEntries = {};
-    const nowMs = Date.now();
-    const nowStr = formatCancunNow_();
-    let mutated = false;
-
-    for (let i = 0; i < batch.length; i++) {
-      const ev = batch[i] || {};
-      const evId = String(ev.id || '').trim().slice(0, 80);
-      if (evId) {
-        ackIds.push(evId);
-        const cKey = 'inv_top_ev_' + evId;
-        if (seenCache[cKey] || newCacheEntries[cKey]) {
-          continue;
-        }
-        newCacheEntries[cKey] = '1';
-      }
-
-      const sku = cleanSheetKeyCell_(ev.sku || '').toUpperCase();
-      const title = String(ev.title || '').trim();
-      const cat = String(ev.cat || '').trim();
-      const branch = String(ev.branch || '').trim();
-      let gk = normTopSearchGroupKey_(ev.gk) || normTopSearchGroupKey_(title) || sku.toLowerCase();
-      if (!gk) continue;
-
-      if (!byGk[gk] && sku && gkBySku[sku] && byGk[gkBySku[sku]]) {
-        gk = gkBySku[sku];
-      }
-
-      const delta = Math.min(25, Math.max(1, Math.round(Number(ev.delta) || 1)));
-      const evMsRaw = Math.round(Number(ev.ts) || 0);
-      const evMs = (evMsRaw > 1700000000000 && evMsRaw <= nowMs + 300000) ? evMsRaw : nowMs;
-
-      if (byGk[gk]) {
-        byGk[gk].count += delta;
-        if (evMs >= byGk[gk].lastMs) {
-          byGk[gk].lastMs = evMs;
-          byGk[gk].lastStr = nowStr;
-          if (branch) byGk[gk].branch = branch;
-        }
-        if (sku && !byGk[gk].sku) byGk[gk].sku = sku;
-        if (title) byGk[gk].title = title;
-        if (cat) byGk[gk].cat = cat;
-      } else {
-        byGk[gk] = {
-          gk: gk,
-          sku: sku,
-          title: title || sku || gk.toUpperCase(),
-          cat: cat,
-          count: delta,
-          lastMs: evMs,
-          lastStr: nowStr,
-          branch: branch
-        };
-      }
-      if (sku) gkBySku[sku] = gk;
-      mutated = true;
-    }
-
-    const sorted = sortTopSearchedEntries_(byGk);
-
-    if (mutated) {
-      if (sorted.length > 0) {
-        const outRows = sorted.map((e, idx) => [
-          idx + 1,
-          e.gk,
-          e.sku,
-          e.title,
-          e.cat,
-          e.count,
-          e.lastMs,
-          e.lastStr || nowStr,
-          e.branch || ''
-        ]);
-        sh.getRange(2, 1, outRows.length, 9).setValues(outRows);
-      }
-      if (parsed.dataRows > sorted.length) {
-        sh.getRange(2 + sorted.length, 1, parsed.dataRows - sorted.length, 9).clearContent();
-      }
-      SpreadsheetApp.flush();
-    }
-
-    if (cache && Object.keys(newCacheEntries).length > 0) {
-      try {
-        cache.putAll(newCacheEntries, 21600);
-      } catch (ce) {}
-    }
-
-    return {
-      ok: true,
-      ackIds: ackIds,
-      updatedAtMs: Date.now(),
-      top: sorted.slice(0, 100).map((e, idx) => ({
-        pos: idx + 1,
-        gk: e.gk,
-        sku: e.sku,
-        title: e.title,
-        cat: e.cat,
-        count: e.count,
-        lastMs: e.lastMs
-      }))
-    };
-  } finally {
-    lock.releaseLock();
-  }
+    eliminarPestanaTopBuscadosSiExiste_(getSpreadsheet_());
+  } catch (e) {}
+  return { ok: true, ackIds: ackIds, updatedAtMs: Date.now(), top: [] };
 }
 
-/**
- * Limpia medidas incrustadas en la columna D (NOMBRE) de INVENTARIO_EN_VIVO,
- * guarda las medidas extraídas en M (MEDIDAS) cuando esté vacía y completa
- * B (TIPO DE PRODUCTO), C (MODELO), D (NOMBRE), E (VARIANTE) y G (CATEGORÍA)
- * respetando intactas F (ARRAYFORMULA de fotos) y O:AW (existencias y precio en vivo).
- */
-function limpiarYCompletarInventarioEnVivo() {
-  const ss = getSpreadsheet_();
-  const sh = ss.getSheetByName('INVENTARIO_EN_VIVO');
-  if (!sh) throw new Error('No existe la hoja INVENTARIO_EN_VIVO.');
-  const lastRow = sh.getLastRow();
-  if (lastRow < 3) return { updated: 0 };
+// ----------------------------------------------------------------------------
+// AUTOCOMPLETADO AUTOMÁTICO DE NUEVOS PRODUCTOS Y ORDENAMIENTO ALFABÉTICO A-Z
+// EN INVENTARIO_EN_VIVO (RESPETANDO F2 ARRAYFORMULA Y AW2 PRECIO DE LISTA)
+// ----------------------------------------------------------------------------
+function cleanInvCell_(val) {
+  if (val === null || val === undefined) return '';
+  const s = String(val).replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  if (/^(n\/?a|null|undefined|-|\.|sin\s+especificar|no\s+especificado|no\s+aplica|pendiente|por\s+clasificar)$/i.test(s)) {
+    return '';
+  }
+  return s;
+}
 
-  const numRows = lastRow - 2;
-  const fullAtoN = sh.getRange(3, 1, numRows, 14).getValues(); // A3:N<lastRow>
-  const bToE = [];
-  const gToN = [];
-  let changed = 0;
+function sortKeyAlphaEs_(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/^[^A-Z0-9]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-  const dimPatterns = [
-    /\bMEDIDAS?\s*[:.]?\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?){1,3}\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M\b)?\.?/gi,
+function compareAlphaEs_(a, b) {
+  const ka = sortKeyAlphaEs_(a);
+  const kb = sortKeyAlphaEs_(b);
+  if (!ka && !kb) return 0;
+  if (!ka) return 1;
+  if (!kb) return -1;
+  const aIsLetter = /^[A-Z]/.test(ka);
+  const bIsLetter = /^[A-Z]/.test(kb);
+  if (aIsLetter !== bIsLetter) return aIsLetter ? -1 : 1;
+  return ka.localeCompare(kb, 'es', { numeric: true, sensitivity: 'base' });
+}
+
+function stripDimensionsAndExtractInv_(str) {
+  let s = cleanInvCell_(str);
+  if (!s) return { text: '', med: '' };
+  s = s
+    .replace(
+      /\b([A-Za-zÁÉÍÓÚáéíóúÑñ]{3,})(\d{2,3}\s*(?:[xX*×]\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M)?|(?:DIAMETRO|DIÁMETRO|DIAM\.?)\b))/gi,
+      '$1 $2'
+    )
+    .replace(/(\d)(DIAMETRO|DIÁMETRO|DIAM\b)/gi, '$1 $2');
+
+  const extracted = [];
+  function captureDim(m) {
+    let d = String(m || '')
+      .replace(/^MEDIDAS?\s*[:.]?\s*/i, '')
+      .replace(/^[(\s,/-]+|[)\s.,/-]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase();
+    if (!d) return ' ';
+    if (/^\d{2,3}\s+(?:DIAMETRO|DIÁMETRO|DIAM\.?)$/i.test(d)) {
+      const num = (d.match(/\d+/) || [''])[0];
+      if (num) d = 'DIAM ' + num + ' CM';
+    } else if (/^\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)+$/.test(d)) {
+      d = d.replace(/\s*[xX*×]\s*/g, 'X') + ' CM';
+    } else {
+      d = d.replace(/\s*[xX*×]\s*/g, 'X');
+    }
+    extracted.push(d);
+    return ' ';
+  }
+
+  const patterns = [
+    /\bMEDIDAS?\s*[:.]?\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?){1,3}\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M\b)?(?:\s*(?:DIAMETRO|DIÁMETRO|DIAM\.?))?\.?/gi,
     /\(\s*\d+(?:[.,]\d+)?\s*[xX*×]\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M\b)?\s*\)/gi,
-    /\b\d+(?:[.,]\d+)?\s*[xX*×]\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M\b)?\.?(?=\s|$|[),.;/-])/gi,
+    /\b\d+(?:[.,]\d+)?\s*(?:DIAM(?:ETRO)?\.?\s*)?[xX*×]\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?|M\b)?(?:\s*(?:DIAMETRO|DIÁMETRO|DIAM\.?))?\.?(?=\s|$|[),.;/-])/gi,
     /\b(?:DIAMETRO|DIÁMETRO|DIAM\.?)\s*\d+(?:[.,]\d+)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?)?\.?/gi,
+    /\b\d+(?:[.,]\d+)?\s*(?:CM\.?|CMS\.?|MTS?\.?|MM\.?)?\s*(?:DE\s+)?(?:DIAMETRO|DIÁMETRO|DIAM\.?)\s*(?:CM\.?|CMS\.?)?\.?/gi,
     /\bL?\d{2,3}\s*-\s*\d{2,3}\s*(?:CM\.?|CMS\.?)\.?/gi,
     /\b\d{2,3}(?:\s*,\s*\d{2,3}){1,3}\s*(?:CM\.?|CMS\.?)\.?/gi,
     /\b\d+(?:[.,]\d+)?\s*(?:CM\.?|CMS\.?|MTS\.?|MT\.?|METROS?|MM\.?)(?=\s|$|[),.;/-])/gi
   ];
 
-  for (let i = 0; i < numRows; i++) {
-    const r = fullAtoN[i];
-    const sku = String(r[0] || '').trim().toUpperCase();
-    let tp = String(r[1] || '').trim();
-    let mo = String(r[2] || '').trim();
-    let nom = String(r[3] || '').trim();
-    let vr = String(r[4] || '').trim();
-    let cat = String(r[6] || '').trim();
-    const tl = String(r[7] || '').trim();
-    const ct = String(r[8] || '').trim();
-    const md = String(r[9] || '').trim();
-    const cm = String(r[10] || '').trim();
-    const mt = String(r[11] || '').trim();
-    let med = String(r[12] || '').trim();
-    const pr = String(r[13] || '').trim();
+  for (let i = 0; i < patterns.length; i++) {
+    s = s.replace(patterns[i], captureDim);
+  }
+  s = s
+    .replace(/\(\s*\)/g, ' ')
+    .replace(/\s+([,.;])/g, '$1')
+    .replace(/\b(?:CON\s+MEDIDAS?|MEDIDAS?|DIAMETRO|DIÁMETRO|DIAM)\b\.?\s*:?/gi, ' ')
+    .replace(/\s+\b(?:DE|CON\s+MEDIDA)\s*$/i, '')
+    .replace(/(?:^|\s)[-–—/:.,;]+(?:\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s,.;:/-]+|[\s,.;:/-]+$/g, '')
+    .trim();
 
-    if (!sku) {
-      bToE.push([tp, mo, nom, vr]);
-      gToN.push([cat, tl, ct, md, cm, mt, med, pr]);
+  return { text: s, med: extracted[0] || '' };
+}
+
+const INV_TYPE_RULES_ = [
+  [/\bSILLON\s+OCASIONAL\b/, 'SILLON OCASIONAL'],
+  [/\bSOFA\s+CAMA\b/, 'SOFA CAMA'],
+  [/^SALA\b|\bSALA\s+MODULAR\b|\bSALA\s+ESQUINERA\b/, 'SALA'],
+  [/\bCHAISE\s+LONGUE\b|\bCHAISE\b/, 'CHAISE LONGUE'],
+  [/\bLOVE\s*SEAT\b|\bLOVESEAT\b/, 'LOVE SEAT'],
+  [/\bESQUINERO\b|\bRINCONERA\b/, 'ESQUINERO'],
+  [/\bSALA\b/, 'SALA'],
+  [/\bFUTTON\b|\bFUTON\b/, 'FUTTON'],
+  [/\bSOFA\b/, 'SOFA'],
+  [/\bOTTOMAN\b|\bOTOMAN\b|\bPOUF\b|\bPUFF?\b/, 'OTTOMAN'],
+  [/\bTABURETE\b/, 'TABURETE'],
+  [/\bBANCO\b/, 'BANCO'],
+  [/\bBANCA\b/, 'BANCA'],
+  [/\bCOLUMPIO\b|\bSILLA\s+COLGANTE\b/, 'COLUMPIO'],
+  [/\bCAMASTRO\b/, 'CAMASTRO'],
+  [/\bSILLON\b|\bBUTACA\b|\bMECEDORA\b|\bRECLINABLE\b/, 'SILLON'],
+  [/\bSILLA\b/, 'SILLA'],
+  [/\bMESA\s+(?:DE\s+)?CENTRO\b|\bMESA\s+CENTRAL\b|\bMESA\s+.*?\bCENTRAL\b/, 'MESA DE CENTRO'],
+  [/\bMESA\s+LATERAL\b|\bMESA\s+.*?\bLATERAL\b|\bMESA\s+AUXILIAR\b/, 'MESA LATERAL'],
+  [/\bMESA\s+(?:DE\s+)?COMEDOR\b|\bANTECOMEDOR\b|\bDESAYUNADOR\b/, 'MESA DE COMEDOR'],
+  [/\bCOMEDOR\b/, 'COMEDOR'],
+  [/\bBUFETERA\b|\bBUFETERO\b|\bTRINCHADOR\b|\bAPARADOR\b/, 'BUFETERA'],
+  [/\bCREDENZA\b/, 'CREDENZA'],
+  [/\bCAVA\b|\bCONTRABARRA\b|\bBAR\b/, 'CAVA'],
+  [/\bCONSOLA\b/, 'CONSOLA'],
+  [/\bMUEBLE\s+(?:DE\s+|PARA\s+)?TV\b|\bCENTRO\s+DE\s+ENTRETENIMIENTO\b/, 'MUEBLE DE TV'],
+  [/\bLIBRERO\b|\bREPISA\b|\bESTANTE\b/, 'LIBRERO'],
+  [/\bESCRITORIO\b|\bSECRETAIRE\b/, 'ESCRITORIO'],
+  [/\bARCHIVERO\b/, 'ARCHIVERO'],
+  [/\bCABECERA\b/, 'CABECERA'],
+  [/\bBASE\s+(?:DE\s+)?CAMA\b|\bBASE\s+(?:KS|QS|MAT|IND|KING|QUEEN|MATRIMONIAL|INDIVIDUAL)\b/, 'BASE DE CAMA'],
+  [/\bCAMA\b|\bLITERA\b|\bRECAMARA\b/, 'CAMA'],
+  [/\bCOLCHON\b/, 'COLCHON'],
+  [/\bBURO\b/, 'BURO'],
+  [/\bCAJONERA\b|\bCHIFONIER\b/, 'CAJONERA'],
+  [/\bTOCADOR\b/, 'TOCADOR'],
+  [/\bCOMODA\b/, 'COMODA'],
+  [/\bBAUL\b/, 'BAUL'],
+  [/\bMAMPARA\b|\bBIOMBO\b/, 'MAMPARA'],
+  [/\bESPEJO\b|\bMARCO\b/, 'ESPEJO'],
+  [/\bCUADRO\b|\bPINTURA\b|\bLIENZO\b|\bGICLEE\b/, 'CUADRO'],
+  [/\bPAPEL\s+TAPIZ\b|\bDESC-WALL\b|^WALL\b/, 'PAPEL TAPIZ'],
+  [/\bARTE\s+OBJETO\b|\bDECORATIVO\s+(?:DE\s+)?PARED\b|\bACCESORIO\s+DE\s+PARED\b/, 'DECORATIVO PARED'],
+  [/\bTAPETE\b|\bALFOMBRAS?\b|^T\.\s+[A-Z]/, 'TAPETE'],
+  [/\bARBOTANTE\b|^ARB\s+[A-Z]/, 'ARBOTANTE'],
+  [/\bCANDIL\b/, 'CANDIL'],
+  [/\bLAMPARA\s+(?:DE\s+)?(?:PIE|PISO)\b/, 'LAMPARA DE PISO'],
+  [/\bLAMPARA\s+(?:DE\s+)?MESA\b|\bLAMPARA\s+BURO\b/, 'LAMPARA DE MESA'],
+  [/\bLAMPARA\s+COLGANTE\b|\bCOLGANTE\b/, 'LAMPARA COLGANTE'],
+  [/\bLAMPARA\b|\bLUMINARIA\b/, 'LAMPARA'],
+  [/\bCANDELABRO\b|\bPORTAVELAS?\b|\bVELA\b|\bANTORCHA\b/, 'CANDELABRO'],
+  [/\bLINTERNA\b|\bFAROL\b/, 'LINTERNA'],
+  [/\bMACETA\b|\bMATERA\b/, 'MACETA'],
+  [/\bPLANTA\b|\bARBOL\b|\bPALMA\b|\bFOLLAJE\b|\bVARA\b|\bRAMA\b|\bORQUIDEA\b|\bBONSAI\b/, 'PLANTA DECORATIVA'],
+  [/\bFLORERO\b|\bJARRON\b|\bBOTELLA\b|\bBOTELLON\b|\bTIBOR\b|\bCILINDRO\b|^BASE\b/, 'FLORERO'],
+  [/\bCHAROLA\b|\bBANDEJA\b|\bFRUTERO\b|\bENSALADERA\b|\bPLATO\b|\bBOWL\b|\bCENTRO\s+DE\s+MESA\b|\bBATEA\b/, 'CHAROLA'],
+  [/\bESCULTURA\b|\bFIGURA\b|\bESFERA\b|\bCORALES?\b|\bCONCHA\b|\bBALLENA\b|\bPECES?\b|\bTORTUGAS?\b|\bPEDESTAL\b/, 'ESCULTURA'],
+  [/\bFUNDA\b/, 'FUNDA DECORATIVA'],
+  [/\bRELLENO\b|\bDRACON\b/, 'RELLENO'],
+  [/\bALMOHADA\b|\bCOJIN\b/, 'COJIN'],
+  [/\bFRAZADA\b|\bMANTA\b|\bDUVET\b|\bEDREDON\b|\bSABANA\b|\bCOLCHA\b|\bCUBRECAMA\b/, 'BLANCOS'],
+  [/\bTEL-ARTELL\b|^TELA\s+ARTELL\b|^TELA\b/, 'TELA'],
+  [/\bLAMINA\s+DE\s+PVC\b|\bLAMBRIN\b|\bPANEL\b/, 'LAMINA DE PVC'],
+  [/\bMESA\b/, 'MESA'],
+  [/\bCRISTAL\b|\bCUBIERTA\b/, 'CRISTAL'],
+  [/\bACCESORIO\b|\bCAJA\b|\bALHAJERO\b|\bLIBRO\b|\bCANAST[OA]\b|\bCESTA\b|\bPORTARRETRATO\b|\bRELOJ\b|\bPERCHERO\b/, 'ACCESORIO DECORATIVO']
+];
+
+const INV_MODEL_STOPWORDS_ = {
+  SILLON: 1, OCASIONAL: 1, INDIVIDUAL: 1, SILLA: 1, COMEDOR: 1, SIN: 1, BRAZOS: 1, BRAZO: 1, CON: 1,
+  DERECHO: 1, IZQUIERDO: 1, DERECHA: 1, IZQUIERDA: 1, DER: 1, IZQ: 1, MESA: 1, DE: 1, DEL: 1, LA: 1, EL: 1,
+  LOS: 1, LAS: 1, Y: 1, EN: 1, PARA: 1, P: 1, POR: 1, CENTRO: 1, CENTRAL: 1, LATERAL: 1, AUXILIAR: 1,
+  SALA: 1, SOFA: 1, CAMA: 1, LOVE: 1, SEAT: 1, CHAISE: 1, LONGUE: 1, ESQUINERO: 1, TABURETE: 1, OTTOMAN: 1,
+  FUTTON: 1, FUTON: 1, BANCO: 1, BANCA: 1, CREDENZA: 1, BUFETERA: 1, BUFETERO: 1, TRINCHADOR: 1, APARADOR: 1,
+  CAVA: 1, CONSOLA: 1, LIBRERO: 1, ESCRITORIO: 1, SECRETAIRE: 1, CABECERA: 1, BASE: 1, BURO: 1, COMODA: 1,
+  CAJONERA: 1, TOCADOR: 1, BAUL: 1, KING: 1, SIZE: 1, QUEEN: 1, MATRIMONIAL: 1, KS: 1, QS: 1, MAT: 1, IND: 1,
+  ESPEJO: 1, MARCO: 1, CUADRO: 1, ARTE: 1, OBJETO: 1, ACCESORIO: 1, ACCESORIOS: 1, DECORATIVO: 1, DECORATIVA: 1,
+  PARED: 1, MAMPARA: 1, BIOMBO: 1, SET: 1, JUEGO: 1, TAPETE: 1, T: 1, LAMPARA: 1, PIE: 1, PISO: 1, COLGANTE: 1,
+  ARBOTANTE: 1, ARB: 1, CANDIL: 1, CANDELABRO: 1, LINTERNA: 1, MACETA: 1, JARRON: 1, FLORERO: 1, BOTELLA: 1,
+  PLANTA: 1, PALMA: 1, CHAROLA: 1, ESCULTURA: 1, CAMASTRO: 1, COLUMPIO: 1, EXTERIOR: 1, CHICA: 1, CHICO: 1,
+  MEDIANA: 1, MEDIANO: 1, MED: 1, GRANDE: 1, GDE: 1, ESPECIAL: 1, PATA: 1, PATAS: 1, NEGRA: 1, NEGRO: 1,
+  BLANCA: 1, BLANCO: 1, ORO: 1, DORADO: 1, CAFE: 1, NATURAL: 1, TONO: 1, TELA: 1, ARTELL: 1, MADERA: 1,
+  PAROTA: 1, ROSA: 1, MORADA: 1, RM: 1, NOGAL: 1, ENCINO: 1, TECA: 1, PINO: 1, TZALAM: 1, ROBLE: 1, CRISTAL: 1,
+  MARMOL: 1, LUZ: 1, INTERIOR: 1, INCLUYE: 1, MODULARES: 1, MODULAR: 1, EMCL: 1, PEMCL: 1, EMA: 1, T1: 1, T2: 1
+};
+
+const INV_EXTRA_FABRICS_ = {
+  'SORRENTO IVORY': 'MARFIL / IVORY',
+  'VOIRON OLIVO': 'VERDE OLIVO',
+  'VOIRON PERLA': 'BLANCO PERLA',
+  'BOLTON FLAX': 'ARENA / LINO',
+  'LINEN NATURE': 'LINO NATURAL',
+  'NATURE LINEN': 'LINO NATURAL',
+  'NATURE FLAX': 'ARENA / FLAX',
+  'OSI FLAX': 'ARENA / FLAX',
+  'OSI IVORY': 'MARFIL / IVORY',
+  'BAKER LINEN': 'ARENA / LINO',
+  'BAKER IVORY': 'MARFIL / IVORY',
+  'BAKER MUSHROOM': 'TAUPE / MUSHROOM',
+  'BAKER OLIVE': 'VERDE OLIVO',
+  'FOREVER PLUS MOSS': 'VERDE MUSGO',
+  'FOREVER PLUS BUTTERMILK': 'CREMA / BUTTERMILK',
+  'FOREVER IVORY': 'MARFIL / IVORY',
+  'DISTRACTION NATURAL': 'NATURAL',
+  'HIGH LIVING NATURAL': 'NATURAL',
+  'COPENHAGEN LINEN': 'ARENA / LINO',
+  'NIZA SNOW': 'BLANCO NIEVE',
+  'MERCURY FOG': 'GRIS NIEBLA',
+  'HARMONY GREY': 'GRIS',
+  'MOXIE BRICK': 'TERRACOTA / BRICK',
+  'BLEND NATURAL': 'NATURAL',
+  'ALANIS STEEL': 'GRIS ACERO',
+  'FASHION CAPUCHINO': 'CAPUCHINO',
+  'RIO SPINACH': 'VERDE',
+  'CURIO LINEN': 'ARENA / LINO',
+  'CURIO DOVE': 'GRIS PALOMA',
+  'LUCCA WHITE': 'BLANCO',
+  'LUCCA NATURAL': 'NATURAL',
+  'LUCCA SAND': 'ARENA',
+  'PRAGA OATMEAL': 'AVENA',
+  'SIENA SAND': 'ARENA'
+};
+
+const INV_WOOD_PATTERNS_ = [
+  [/\bPAROTA\s+LAMINAD[OA]\b/, 'PAROTA LAMINADO'],
+  [/\bROSA\s+MORADA\s+SOLID[OA]\b/, 'ROSA MORADA SOLIDA'],
+  [/\bROSA\s+MORADA\b|\bRM\b/, 'ROSA MORADA'],
+  [/\bPAROTA\b/, 'PAROTA'],
+  [/\bCHAPA\s+(?:DE\s+)?NOGAL\b/, 'CHAPA DE NOGAL'],
+  [/\bNOGAL\b/, 'NOGAL'],
+  [/\bENCINO\b/, 'ENCINO'],
+  [/\bTECA\b|\bTEKA\b/, 'TECA'],
+  [/\bPINO\b/, 'PINO'],
+  [/\bTZALAM\b/, 'TZALAM'],
+  [/\bROBLE\b/, 'ROBLE'],
+  [/\bFRESNO\b/, 'FRESNO'],
+  [/\bPALO\s+DE\s+ROSA\b/, 'PALO DE ROSA'],
+  [/\bCAOBILLA\b/, 'CAOBILLA'],
+  [/\bBEJUCO\b/, 'BEJUCO'],
+  [/\bRATTAN\b|\bRATAN\b/, 'RATTAN']
+];
+
+const INV_WOOD_COLOR_PATTERNS_ = [
+  [/\bLACA\s+BELLOTA\b/, 'LACA BELLOTA'],
+  [/\bLACA\s+TACUBA\b/, 'LACA TACUBA'],
+  [/\bLACA\s+BLANCA\b/, 'LACA BLANCA'],
+  [/\bLACA\s+NEGRA\b/, 'LACA NEGRA'],
+  [/\bTONO\s+NATURAL\b/, 'TONO NATURAL'],
+  [/\bBARNIZ\s+MATTE\b|\bACABADO\s+NATURAL\s+BARNIZ\s+MATTE\b/, 'NATURAL BARNIZ MATTE'],
+  [/\bTABACO\s+CLARO\b/, 'TABACO CLARO'],
+  [/\bTABACO\b/, 'TABACO'],
+  [/\bWARM\s+SAND\b/, 'WARM SAND'],
+  [/\bROSA\s+MORADA\s+CLAR[OA]\b|\bRM\s+CLAR[OA]\b/, 'CLARA'],
+  [/\bROSA\s+MORADA\s+CAFE\b/, 'CAFÉ'],
+  [/\bENTINTAD[OA]\b/, 'ENTINTADO'],
+  [/\bSPALTED\s+HABANO\b/, 'SPALTED HABANO'],
+  [/\bSPALTED\b/, 'SPALTED'],
+  [/\bHABANO\b/, 'HABANO'],
+  [/\bBELLOTA\b/, 'LACA BELLOTA'],
+  [/\bTACUBA\b/, 'LACA TACUBA'],
+  [/\bESPIGA\b/, 'ESPIGA'],
+  [/\bNUEZ\b/, 'NUEZ']
+];
+
+const INV_MATERIAL_PATTERNS_ = [
+  [/\bMARMOL\s+CALACATA\s+ROMA\b/, 'MÁRMOL CALACATTA ROMA'],
+  [/\bMARMOL\s+OJINAGA\s+GREY\b/, 'MÁRMOL OJINAGA GREY'],
+  [/\bMARMOL\b/, 'MÁRMOL'],
+  [/\bPIEDRA\s+SINTERIZADA\b/, 'PIEDRA SINTERIZADA'],
+  [/\bTRAVERTIN[OE]\b/, 'TRAVERTINO'],
+  [/\bONIX\b/, 'ÓNIX'],
+  [/\bGRANITO\b/, 'GRANITO'],
+  [/\bCRISTAL\b|\bVIDRIO\b/, 'CRISTAL'],
+  [/\bCEMENTO\b|\bCONCRETO\b/, 'CEMENTO'],
+  [/\bCUERDA\b/, 'CUERDA'],
+  [/\bNIQUEL\b/, 'NÍQUEL'],
+  [/\bMETAL\b|\bACERO\b|\bHIERRO\b|\bFIERRO\b/, 'METAL'],
+  [/\bPIEL\b|\bCUERO\b/, 'PIEL'],
+  [/\bCERAMICA\b|\bPORCELANA\b/, 'CERÁMICA'],
+  [/\bFIBRA\s+DE\s+VIDRIO\b|\bRESINA\b/, 'RESINA / FIBRA'],
+  [/\bMECATE\b|\bYUTE\b/, 'FIBRA NATURAL']
+];
+
+function deduceProductTypeInv_(nom, cat, mo) {
+  const nomFull = normPlainUpper_(nom);
+  const nomHead = nomFull.split(/\bINCLUYE\b/)[0].trim();
+  const sources = [nomHead, nomFull, normPlainUpper_(cat), normPlainUpper_(mo)];
+  for (let s = 0; s < sources.length; s++) {
+    const txt = sources[s];
+    if (!txt) continue;
+    for (let r = 0; r < INV_TYPE_RULES_.length; r++) {
+      if (INV_TYPE_RULES_[r][0].test(txt)) return INV_TYPE_RULES_[r][1];
+    }
+  }
+  return '';
+}
+
+function deduceCategoryInv_(tp, nom, rawCat) {
+  const sources = [
+    [normPlainUpper_(tp), true],
+    [normPlainUpper_(rawCat), true],
+    [normPlainUpper_(nom), false]
+  ];
+  for (let i = 0; i < sources.length; i++) {
+    const txt = sources[i][0];
+    const allowTelaWord = sources[i][1];
+    if (!txt) continue;
+    if (/EXTERIOR|TERRAZA|JARDIN|CAMASTRO|COLUMPIO/.test(txt)) return 'EXTERIOR & TERRAZA';
+    if (/ESPEJO|CUADRO|ARTE OBJETO|PARED|LIENZO|MURAL|PAPEL TAPIZ|MAMPARA/.test(txt)) return 'ESPEJOS & ARTE';
+    if (/LAMPARA|CANDIL|ARBOTANTE|COLGANTE|ILUMINACION|PLAFON|VELA|LINTERNA/.test(txt)) return 'ILUMINACIÓN';
+    if (allowTelaWord) {
+      if (/COJIN|FUNDA|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|^T\.\s|\bTELA\b|RELLENO|DRACON/.test(txt)) return 'COJINES & TEXTILES';
+    } else {
+      if (/COJIN|FUNDA|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|^T\.\s|^TELA\s+ARTELL\b|RELLENO|DRACON/.test(txt)) return 'COJINES & TEXTILES';
+    }
+    if (/BUFETERA|BUFETERO|CREDENZA|TRINCHADOR|APARADOR|CONSOLA|CAVA/.test(txt)) return 'BUFETERAS & CREDENZAS';
+    if (/MESA DE CENTRO|MESA CENTRAL|MESA LATERAL|MESA AUXILIAR|MESAS DE SALA/.test(txt)) return 'MESAS DE CENTRO & LATERALES';
+    if (/RECAMARA|CAMA|CABECERA|BURO|COMODA|CAJONERA|TOCADOR|COLCHON|BOX|LITERA|BAUL/.test(txt)) return 'RECÁMARAS';
+    if (/ESCRITORIO|SECRETAIRE|ARCHIVERO|OFICINA|LIBRERO/.test(txt)) return 'OFICINA';
+    if (/SALA|SOFA|LOVE SEAT|CHAISE|OTTOMAN|FUTTON|FUTON|ESQUINERO/.test(txt)) return 'SALAS & SOFÁS';
+    if (/SILLA|SILLON|TABURETE|BANCO|BANCA/.test(txt)) return 'SILLAS & SILLONES';
+    if (/COMEDOR|MESA/.test(txt)) return 'COMEDORES';
+    if (/FLORERO|JARRON|ESCULTURA|CHAROLA|CANDELABRO|MACETA|PLANTA|PALMA|FOLLAJE|ACCESORIO|VELA|LIBRO|BOTELLA|BOTELLON|PLATO|ENSALADERA|CANASTO|LINTERNA|CORAL|CONCHA|AJEDREZ|ESFERA/.test(txt)) {
+      return 'ACCESORIOS DECORATIVOS';
+    }
+  }
+  return 'COMPLEMENTOS';
+}
+
+function cleanOrExtractModelInv_(rawMo, cleanNom, tp) {
+  const moClean = stripDimensionsAndExtractInv_(rawMo).text
+    .replace(/^(?:T[12]\s+)?(?:P?EMCL|EMA)\s+/i, '')
+    .replace(/^TEL-ARTELL\s+/i, '')
+    .trim();
+  const moNorm = normPlainUpper_(moClean);
+  const words = moClean ? moClean.split(/\s+/) : [];
+  const isBad = !moClean ||
+    /^\d+$/.test(moClean) ||
+    /^[\d\s.,xX*×\/-]+$/.test(moClean) ||
+    words.length >= 4 ||
+    !!INV_MODEL_STOPWORDS_[moNorm] ||
+    moNorm === normPlainUpper_(tp) ||
+    moNorm === normPlainUpper_(cleanNom) ||
+    words.some((w) => /^(SILLA|SILLON|MESA|SALA|CREDENZA|BUFETERA|CAMA|ESPEJO|CUADRO|TAPETE|LAMPARA)$/i.test(normPlainUpper_(w)));
+  if (!isBad) return moClean.toUpperCase();
+
+  const nomTokens = normPlainUpper_(cleanNom.replace(/^T\.\s+/i, 'TAPETE ')).match(/[A-Z0-9]+(?:-[A-Z0-9]+)?/g) || [];
+  const cand = [];
+  for (let i = 0; i < nomTokens.length; i++) {
+    const tok = nomTokens[i];
+    if (INV_MODEL_STOPWORDS_[tok]) {
+      if (cand.length) break;
       continue;
     }
-
-    const extracted = [];
-    let cleanNom = nom;
-    for (let p = 0; p < dimPatterns.length; p++) {
-      cleanNom = cleanNom.replace(dimPatterns[p], function (m) {
-        const cleanedDim = m.replace(/^MEDIDAS?\s*[:.]?\s*/i, '').replace(/^[(\s]+|[)\s.]+$/g, '').trim();
-        if (cleanedDim) extracted.push(cleanedDim.toUpperCase());
-        return ' ';
-      });
+    if (/^\d+$/.test(tok) && !cand.length) continue;
+    cand.push(tok);
+    if (cand.length >= 2) {
+      if (!/^(SAN|SANTA|GRAN|MONTE|VILLA|CASA|MANABO)$/.test(cand[0]) && !/^(II|III|IV|\d+)$/.test(cand[1])) {
+        cand.pop();
+      }
+      break;
     }
-    cleanNom = cleanNom
-      .replace(/\(\s*\)/g, ' ')
-      .replace(/\s+([,.;])/g, '$1')
-      .replace(/(?:^|\s)[-–—/:.,;]+(?:\s|$)/g, ' ')
-      .replace(/\s+/g, ' ')
-      .replace(/^[\s,.;:/-]+|[\s,.;:/-]+$/g, '')
-      .trim();
-
-    if (!med && extracted.length > 0) {
-      med = extracted[0];
-    }
-    if (!cleanNom) {
-      cleanNom = [tp, mo, vr].filter(Boolean).join(' ').trim() || sku;
-    }
-    if (!tp) tp = 'MOBILIARIO';
-    if (!mo) mo = cleanNom.split(/\s+/)[0] || sku;
-    if (!vr) vr = [tl, ct, md, cm].filter(Boolean).join(' ').trim() || 'ESTÁNDAR';
-    if (!cat) cat = 'MOBILIARIO GENERAL';
-
-    if (tp !== String(r[1] || '').trim() || mo !== String(r[2] || '').trim() || cleanNom !== nom || vr !== String(r[4] || '').trim() || cat !== String(r[6] || '').trim() || med !== String(r[12] || '').trim()) {
-      changed++;
-    }
-
-    bToE.push([tp, mo, cleanNom, vr]);
-    gToN.push([cat, tl, ct, md, cm, mt, med, pr]);
   }
-
-  if (changed > 0) {
-    sh.getRange(3, 2, numRows, 4).setValues(bToE); // B3:E
-    sh.getRange(3, 7, numRows, 8).setValues(gToN); // G3:N (nunca toca F ni O:AW)
-    SpreadsheetApp.flush();
-  }
-  return { updated: changed, total: numRows };
+  return cand.join(' ') || (moClean && !/^\d+$/.test(moClean) && !/^[\d\s.,xX*×\/-]+$/.test(moClean) ? moClean.toUpperCase() : '');
 }
+
+/**
+ * Autocompleta en automático cualquier SKU nuevo o incompleto en INVENTARIO_EN_VIVO,
+ * extrae medidas incrustadas en NOMBRE hacia MEDIDAS, registra precios faltantes en
+ * plantilla!AE:AH y ordena alfabéticamente A-Z preservando intactas F2 (fotos) y AW2 (precio).
+ */
+function limpiarYCompletarInventarioEnVivo(opts) {
+  const silentUi = !!(opts && opts.silentUi);
+  const res = autocompletarYOrdenarInventarioEnVivo_(getSpreadsheet_(), Object.assign({ silentUi: silentUi, force: true }, opts || {}));
+  if (!silentUi && res && res.ok) {
+    try {
+      SpreadsheetApp.getUi().alert(
+        'INVENTARIO_EN_VIVO actualizado y ordenado A-Z.\n\n' +
+        '• Productos totales: ' + res.total + '\n' +
+        '• Productos nuevos agregados: ' + res.added + '\n' +
+        '• Filas autocompletadas/limpiadas: ' + res.updated + '\n' +
+        '• Orden alfabético A-Z: ' + (res.reordered ? 'Aplicado' : 'Al día')
+      );
+    } catch (e) {}
+  }
+  return res;
+}
+
+function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
+  const book = ss || getSpreadsheet_();
+  const options = opts || {};
+  eliminarPestanaTopBuscadosSiExiste_(book);
+
+  if (options.useThrottle && !options.force) {
+    try {
+      const c = CacheService.getScriptCache();
+      if (c && c.get('inv_auto_sort_v1') === '1') {
+        return { ok: true, throttled: true };
+      }
+    } catch (ce) {}
+  }
+
+  const shInv = book.getSheetByName(CONFIG.TAB_INVENTORY || 'INVENTARIO_EN_VIVO');
+  if (!shInv || shInv.getLastRow() < 2) {
+    return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no encontrada.' };
+  }
+  if (shInv.getMaxColumns() < 48) {
+    shInv.insertColumnsAfter(shInv.getMaxColumns(), 48 - shInv.getMaxColumns());
+  }
+
+  // 1) Leer referencias en estricto SOLO LECTURA ('1', plantilla!AE:AH, y pestañas de Catálogo)
+  const hoja1Ref = {};
+  try {
+    const sh1 = book.getSheetByName('1');
+    if (sh1 && sh1.getLastRow() >= 2) {
+      const v1 = sh1.getRange(2, 1, sh1.getLastRow() - 1, Math.min(sh1.getLastColumn(), 4)).getValues();
+      for (let i = 0; i < v1.length; i++) {
+        const sk = cleanInvCell_(v1[i][0]).toUpperCase();
+        if (!sk || sk === 'SKU') continue;
+        hoja1Ref[sk] = {
+          skuRaw: cleanInvCell_(v1[i][0]),
+          nom: cleanInvCell_(v1[i][1]),
+          foto: cleanInvCell_(v1[i][3]) || ''
+        };
+      }
+    }
+  } catch (e1) {}
+
+  const shPlantilla = book.getSheetByName('plantilla');
+  const plantillaRef = {};
+  if (shPlantilla && shPlantilla.getLastRow() >= 2 && shPlantilla.getLastColumn() >= 34) {
+    const vp = shPlantilla.getRange(2, 31, shPlantilla.getLastRow() - 1, 4).getValues();
+    for (let i = 0; i < vp.length; i++) {
+      const sk = cleanInvCell_(vp[i][0]).toUpperCase();
+      if (!sk || sk === 'SKU_ERP') continue;
+      plantillaRef[sk] = {
+        skuRaw: cleanInvCell_(vp[i][0]),
+        idProd: cleanSheetKeyCell_(vp[i][1]),
+        nom: cleanInvCell_(vp[i][2]),
+        precio: Number(vp[i][3] || 0) || 0
+      };
+    }
+  }
+
+  const mueblesRef = {};
+  try {
+    const shMi = book.getSheetByName('MUEBLES_INDIVIDUALES');
+    if (shMi && shMi.getLastRow() >= 2 && shMi.getLastColumn() >= 7) {
+      const vm = shMi.getRange(2, 1, shMi.getLastRow() - 1, Math.min(shMi.getLastColumn(), 12)).getValues();
+      for (let i = 0; i < vm.length; i++) {
+        const sk = cleanInvCell_(vm[i][1]).toUpperCase();
+        if (!sk) continue;
+        const dims = [vm[i][4], vm[i][5], vm[i][6]]
+          .map((x) => cleanInvCell_(x).replace(/\s*cm\.?$/i, '').trim())
+          .filter((x) => x && /\d/.test(x));
+        mueblesRef[sk] = {
+          nom: cleanInvCell_(vm[i][2]),
+          cat: cleanInvCell_(vm[i][3]),
+          med: dims.length >= 2 ? (dims.join('X') + ' CM') : '',
+          mat: cleanInvCell_(vm[i][11])
+        };
+      }
+    }
+    ['PIEZAS_MODULOS', 'SALAS_MODULARES'].forEach((tabMod) => {
+      const shM = book.getSheetByName(tabMod);
+      if (!shM || shM.getLastRow() < 2 || shM.getLastColumn() < 8) return;
+      const vmod = shM.getRange(2, 1, shM.getLastRow() - 1, 8).getValues();
+      for (let i = 0; i < vmod.length; i++) {
+        const sk = cleanInvCell_(vmod[i][2]).toUpperCase();
+        if (!sk) continue;
+        const dims = [vmod[i][5], vmod[i][6], vmod[i][7]]
+          .map((x) => cleanInvCell_(x).replace(/\s*cm\.?$/i, '').trim())
+          .filter((x) => x && /\d/.test(x));
+        const prev = mueblesRef[sk] || {};
+        if (!prev.modPadre && cleanInvCell_(vmod[i][1])) prev.modPadre = cleanInvCell_(vmod[i][1]);
+        if (!prev.nom && cleanInvCell_(vmod[i][3])) prev.nom = cleanInvCell_(vmod[i][3]);
+        if (!prev.med && dims.length >= 2) prev.med = dims.join('X') + ' CM';
+        mueblesRef[sk] = prev;
+      }
+    });
+  } catch (eCat) {}
+
+  const metaErpSku = options.metaErpSku || {};
+  const invPorSku = options.invPorSku || {};
+  const lpptLibre = options.lpptLibre || {};
+  const lpptProvBySku = options.lpptProvBySku || {};
+
+  // 2) Leer filas actuales de INVENTARIO_EN_VIVO (A3:N y O3:AV)
+  const lastRow = shInv.getLastRow();
+  const oldNumRows = Math.max(0, lastRow - 2);
+  const rawAtoN = oldNumRows > 0 ? shInv.getRange(3, 1, oldNumRows, 14).getValues() : [];
+  const rawOtoAv = oldNumRows > 0 ? shInv.getRange(3, 15, oldNumRows, 34).getValues() : [];
+
+  const recordsBySku = {};
+  const originalSkuOrder = [];
+  let removedBlanks = 0;
+
+  for (let i = 0; i < oldNumRows; i++) {
+    const r = rawAtoN[i];
+    const oRow = rawOtoAv[i] || new Array(34).fill('');
+    const skuRaw = cleanInvCell_(r[0]);
+    const sku = skuRaw.toUpperCase();
+    if (!sku || sku === 'SKU') {
+      removedBlanks++;
+      continue;
+    }
+    originalSkuOrder.push(sku);
+    if (!recordsBySku[sku]) {
+      recordsBySku[sku] = {
+        skuRaw: skuRaw,
+        sku: sku,
+        aToN: r.slice(0, 14),
+        oToAv: oRow.slice(0, 34),
+        isNew: false
+      };
+    } else {
+      removedBlanks++;
+      const existing = recordsBySku[sku].aToN;
+      for (let c = 1; c < 14; c++) {
+        if (c === 5) continue;
+        if (!cleanInvCell_(existing[c]) && cleanInvCell_(r[c])) {
+          existing[c] = r[c];
+        }
+      }
+    }
+  }
+
+  // 3) Detectar automáticamente cualquier SKU nuevo activo en ERP, Hoja '1', plantilla!AE:AH o LPPT
+  let addedCount = 0;
+  function tryRegisterNewCandidateSku(candSkuRaw, candNom, candMo, candCat, candProv, forceHasStock) {
+    const sk = cleanInvCell_(candSkuRaw).toUpperCase();
+    if (!sk || sk.length < 2 || sk === 'SKU' || sk === 'SKU_ERP' || sk === 'CLAVE') return;
+    if (recordsBySku[sk]) return;
+    const nomCheck = cleanInvCell_(candNom);
+    const provCheck = cleanInvCell_(candProv);
+    if (!forceHasStock) {
+      if (/^DESC[-\s]|DESCONTINUAD/i.test(nomCheck)) return;
+      if (/DESCONTINUAD|BAJA|AJUSTE DE INVENTARIO/i.test(provCheck)) return;
+    }
+    if (!nomCheck && !cleanInvCell_(candMo) && !hoja1Ref[sk] && !plantillaRef[sk] && !forceHasStock) return;
+
+    const blankOAv = new Array(34).fill('');
+    blankOAv[1] = 0;
+    blankOAv[2] = 'Sin piezas solicitadas';
+    for (let z = 3; z < 33; z++) blankOAv[z] = 0;
+
+    recordsBySku[sk] = {
+      skuRaw: cleanInvCell_(candSkuRaw) || sk,
+      sku: sk,
+      aToN: [
+        cleanInvCell_(candSkuRaw) || sk,
+        '',
+        cleanInvCell_(candMo),
+        nomCheck,
+        '',
+        '',
+        cleanInvCell_(candCat),
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        provCheck
+      ],
+      oToAv: blankOAv,
+      isNew: true
+    };
+    addedCount++;
+  }
+
+  Object.keys(hoja1Ref).forEach((sk) => {
+    const h = hoja1Ref[sk];
+    tryRegisterNewCandidateSku(h.skuRaw || sk, h.nom, '', '', '', false);
+  });
+
+  Object.keys(plantillaRef).forEach((sk) => {
+    const p = plantillaRef[sk];
+    tryRegisterNewCandidateSku(p.skuRaw || sk, p.nom, '', '', '', false);
+  });
+
+  Object.keys(metaErpSku).forEach((sk) => {
+    const m = metaErpSku[sk] || {};
+    const sucMap = invPorSku[sk] || {};
+    let sumSt = Number(lpptLibre[sk] || 0);
+    Object.keys(sucMap).forEach((kSuc) => {
+      sumSt += (sucMap[kSuc][0] || 0) + (sucMap[kSuc][1] || 0);
+    });
+    tryRegisterNewCandidateSku(sk, m.NOMBRE, m.MODELO, m.CATEGORIA, m.PROVEEDOR, sumSt > 0);
+  });
+
+  Object.keys(lpptLibre).forEach((sk) => {
+    if ((lpptLibre[sk] || 0) > 0) {
+      const m = metaErpSku[sk] || {};
+      const p = plantillaRef[sk] || {};
+      const h = hoja1Ref[sk] || {};
+      tryRegisterNewCandidateSku(sk, m.NOMBRE || h.nom || p.nom || sk, m.MODELO || '', m.CATEGORIA || '', lpptProvBySku[sk] || m.PROVEEDOR || '', true);
+    }
+  });
+
+  // 4) Si hay SKUs nuevos que aún no están en plantilla!AE:AH, consultar hasta 10 por ciclo en S Mueblería WCF
+  //    para que la columna AW (PRECIO DE LISTA por ARRAYFORMULA) se llene automáticamente.
+  if (shPlantilla) {
+    const missingInPlantilla = Object.keys(recordsBySku).filter((sk) => !plantillaRef[sk] && recordsBySku[sk].isNew);
+    const toFetchWcf = missingInPlantilla.slice(0, 10);
+    const rowsToAppendPlantilla = [];
+    for (let f = 0; f < toFetchWcf.length; f++) {
+      const sk = toFetchWcf[f];
+      try {
+        const liveProd = buscarProductoPorClaveWcf_(sk);
+        if (liveProd && liveProd.IdProducto) {
+          rowsToAppendPlantilla.push([
+            sk,
+            String(liveProd.IdProducto).trim(),
+            cleanInvCell_(liveProd.Nombre) || cleanInvCell_(recordsBySku[sk].aToN[3]) || sk,
+            Number(liveProd.Precio || 0) || ''
+          ]);
+          plantillaRef[sk] = {
+            skuRaw: sk,
+            idProd: String(liveProd.IdProducto).trim(),
+            nom: cleanInvCell_(liveProd.Nombre),
+            precio: Number(liveProd.Precio || 0) || 0
+          };
+        }
+      } catch (wcfErr) {
+        break;
+      }
+    }
+    if (rowsToAppendPlantilla.length > 0) {
+      try {
+        const aeVals = shPlantilla.getRange(2, 31, Math.max(1, shPlantilla.getLastRow() - 1), 1).getValues();
+        let lastAeRow = 1;
+        for (let rIdx = aeVals.length - 1; rIdx >= 0; rIdx--) {
+          if (cleanInvCell_(aeVals[rIdx][0])) {
+            lastAeRow = rIdx + 2;
+            break;
+          }
+        }
+        const writeStart = lastAeRow + 1;
+        if (shPlantilla.getMaxRows() < writeStart + rowsToAppendPlantilla.length - 1) {
+          shPlantilla.insertRowsAfter(
+            shPlantilla.getMaxRows(),
+            (writeStart + rowsToAppendPlantilla.length - 1) - shPlantilla.getMaxRows()
+          );
+        }
+        shPlantilla.getRange(writeStart, 31, rowsToAppendPlantilla.length, 1).setNumberFormat('@');
+        shPlantilla.getRange(writeStart, 31, rowsToAppendPlantilla.length, 4).setValues(rowsToAppendPlantilla);
+      } catch (ePlWrite) {}
+    }
+  }
+
+  // 5) Cosechar vocabulario curado existente (Telas + Colores y Prefijos SKU -> Proveedor)
+  const badFabrics = {
+    TELA: 1, 'TELA ARTELL': 1, ARTELL: 1, 'SIN TELA': 1, VARIOS: 1, ESTANDAR: 1, NATURAL: 1,
+    ALGODON: 1, LINO: 1, POLIESTER: 1, TERCIOPELO: 1, PIEL: 1, GAMUZA: 1, YUTE: 1
+  };
+  const knownFabrics = {};
+  Object.keys(INV_EXTRA_FABRICS_).forEach((k) => {
+    knownFabrics[normPlainUpper_(k)] = { tl: k, ct: INV_EXTRA_FABRICS_[k] };
+  });
+  const prefixCounts = {};
+  const allSkus = Object.keys(recordsBySku);
+  for (let i = 0; i < allSkus.length; i++) {
+    const rec = recordsBySku[allSkus[i]];
+    const r = rec.aToN;
+    const tl = cleanInvCell_(r[7]);
+    const ct = cleanInvCell_(r[8]);
+    const pv = cleanInvCell_(r[13]);
+    if (tl && tl.length >= 4) {
+      const tln = normPlainUpper_(tl);
+      if (!badFabrics[tln] && tln.split(/\s+/).length >= 2) {
+        if (!knownFabrics[tln] || (ct && !knownFabrics[tln].ct)) {
+          knownFabrics[tln] = { tl: tl.toUpperCase(), ct: ct ? ct.toUpperCase() : '' };
+        }
+      }
+    }
+    const mPfx = rec.sku.match(/^([A-Z]{2,5})/);
+    if (mPfx && pv && !/DESCONTINUAD|AJUSTE DE INVENTARIO/i.test(pv)) {
+      const pfx = mPfx[1];
+      if (!prefixCounts[pfx]) prefixCounts[pfx] = {};
+      const pvUp = pv.toUpperCase();
+      prefixCounts[pfx][pvUp] = (prefixCounts[pfx][pvUp] || 0) + 1;
+    }
+  }
+  const fabricsSorted = Object.keys(knownFabrics).sort((a, b) => b.length - a.length);
+  const skuPrefixProv = {};
+  Object.keys(prefixCounts).forEach((pfx) => {
+    let bestP = '';
+    let bestC = 0;
+    Object.keys(prefixCounts[pfx]).forEach((pv) => {
+      if (prefixCounts[pfx][pv] > bestC) {
+        bestC = prefixCounts[pfx][pv];
+        bestP = pv;
+      }
+    });
+    if (bestP && bestC >= 2) skuPrefixProv[pfx] = bestP;
+  });
+
+  // 6) Limpiar medidas del NOMBRE y autocompletar columnas B:E y G:N para todas las filas
+  let updatedRows = 0;
+  const enrichedList = [];
+
+  for (let i = 0; i < allSkus.length; i++) {
+    const rec = recordsBySku[allSkus[i]];
+    const sku = rec.sku;
+    const r = rec.aToN;
+    const hRef = hoja1Ref[sku] || {};
+    const pRef = plantillaRef[sku] || {};
+    const mRef = mueblesRef[sku] || {};
+    const eRef = metaErpSku[sku] || {};
+
+    let tp = cleanInvCell_(r[1]);
+    let mo = cleanInvCell_(r[2]) || cleanInvCell_(eRef.MODELO) || cleanInvCell_(mRef.modPadre) || '';
+    let nom = cleanInvCell_(r[3]);
+    let vr = cleanInvCell_(r[4]);
+    let cat = cleanInvCell_(r[6]) || cleanInvCell_(mRef.cat) || cleanInvCell_(eRef.CATEGORIA) || '';
+    let tl = cleanInvCell_(r[7]);
+    let ct = cleanInvCell_(r[8]);
+    let md = cleanInvCell_(r[9]);
+    let cm = cleanInvCell_(r[10]);
+    let mt = cleanInvCell_(r[11]) || cleanInvCell_(mRef.mat) || '';
+    let med = cleanInvCell_(r[12]);
+    let prov = cleanInvCell_(r[13]) || cleanInvCell_(eRef.PROVEEDOR) || cleanInvCell_(lpptProvBySku[sku]) || '';
+
+    if (!nom || nom.toUpperCase() === sku || /^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(nom)) {
+      const badParsed = stripDimensionsAndExtractInv_(nom);
+      if (!med && badParsed.med) med = badParsed.med;
+      const candNames = [hRef.nom, pRef.nom, eRef.NOMBRE, mRef.nom, mo];
+      for (let c = 0; c < candNames.length; c++) {
+        const cn = cleanInvCell_(candNames[c]);
+        if (cn && cn.toUpperCase() !== sku && !/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(cn)) {
+          nom = cn;
+          break;
+        }
+      }
+    }
+    if (/^T\.\s+[A-Z]/i.test(nom)) nom = nom.replace(/^T\.\s+/i, 'TAPETE ');
+    if (/^TEL-ARTELL\s+/i.test(nom)) nom = nom.replace(/^TEL-ARTELL\s+/i, 'TELA ARTELL ');
+
+    const parsedNom = stripDimensionsAndExtractInv_(nom);
+    if (parsedNom.text && /[A-Za-zÁÉÍÓÚáéíóúÑñ]{2,}/.test(parsedNom.text)) {
+      nom = parsedNom.text;
+    }
+    if (!med && parsedNom.med) med = parsedNom.med;
+    if (!med && mo) {
+      const parsedMo = stripDimensionsAndExtractInv_(mo);
+      if (parsedMo.med) med = parsedMo.med;
+    }
+    if (!med && hRef.nom) {
+      const parsedH = stripDimensionsAndExtractInv_(hRef.nom);
+      if (parsedH.med) med = parsedH.med;
+    }
+    if (!med && pRef.nom) {
+      const parsedP = stripDimensionsAndExtractInv_(pRef.nom);
+      if (parsedP.med) med = parsedP.med;
+    }
+    if (!med && mRef.med) med = mRef.med;
+    if (med && /^\d+(?:\.\d+)?(?:\s*[xX*×]\s*\d+(?:\.\d+)?)+$/.test(med)) {
+      med = med.replace(/\s*[xX*×]\s*/g, 'X') + ' CM';
+    }
+
+    if (!tp) tp = deduceProductTypeInv_(nom, cat, mo) || 'ACCESORIO DECORATIVO';
+    mo = cleanOrExtractModelInv_(mo, nom, tp);
+    if (!mo) {
+      const tpWords = {};
+      normPlainUpper_(tp).split(/\s+/).forEach((w) => { if (w) tpWords[w] = 1; });
+      const remWords = (nom.match(/[A-Za-zÁÉÍÓÚáéíóúÑñ0-9]+/g) || [])
+        .map((w) => w.toUpperCase())
+        .filter((w) => !tpWords[normPlainUpper_(w)] && !/^(DE|DEL|LA|EL|Y|CON|EN)$/.test(normPlainUpper_(w)));
+      mo = remWords[0] || sku;
+    }
+
+    if (!cat || /\d.*x.*\d/i.test(cat) || !/SALAS|SILLAS|COMEDORES|BUFETERAS|MESAS|RECÁMARAS|OFICINA|ILUMINACIÓN|ESPEJOS|EXTERIOR|COJINES|ACCESORIOS|COMPLEMENTOS/.test(cat)) {
+      cat = deduceCategoryInv_(tp, nom, cat);
+    }
+
+    const searchBlob = ' ' + normPlainUpper_(nom) + ' ';
+    if (tp === 'TELA' && !tl && mo) tl = mo;
+    if (!tl && fabricsSorted.length > 0) {
+      for (let f = 0; f < fabricsSorted.length; f++) {
+        const fk = fabricsSorted[f];
+        if (searchBlob.indexOf(' ' + fk + ' ') >= 0) {
+          tl = knownFabrics[fk].tl;
+          if (!ct && knownFabrics[fk].ct) ct = knownFabrics[fk].ct;
+          break;
+        }
+      }
+    } else if (tl && !ct && knownFabrics[normPlainUpper_(tl)]) {
+      ct = knownFabrics[normPlainUpper_(tl)].ct || '';
+    }
+
+    if (!md) {
+      for (let w = 0; w < INV_WOOD_PATTERNS_.length; w++) {
+        if (INV_WOOD_PATTERNS_[w][0].test(searchBlob)) {
+          md = INV_WOOD_PATTERNS_[w][1];
+          break;
+        }
+      }
+    }
+    if (!cm) {
+      for (let w = 0; w < INV_WOOD_COLOR_PATTERNS_.length; w++) {
+        if (INV_WOOD_COLOR_PATTERNS_[w][0].test(searchBlob)) {
+          cm = INV_WOOD_COLOR_PATTERNS_[w][1];
+          break;
+        }
+      }
+    }
+    if (!mt) {
+      const mats = [];
+      for (let mIdx = 0; mIdx < INV_MATERIAL_PATTERNS_.length; mIdx++) {
+        if (INV_MATERIAL_PATTERNS_[mIdx][0].test(searchBlob) && mats.indexOf(INV_MATERIAL_PATTERNS_[mIdx][1]) < 0) {
+          mats.push(INV_MATERIAL_PATTERNS_[mIdx][1]);
+        }
+      }
+      if (mats.length > 0) mt = mats.slice(0, 3).join(', ');
+    }
+
+    if (vr) {
+      const vrParsed = stripDimensionsAndExtractInv_(vr);
+      if (vrParsed.text && /[A-Za-z]{2,}/.test(vrParsed.text)) vr = vrParsed.text;
+    }
+    if (!vr) {
+      const vParts = [];
+      if (tl) vParts.push(tl);
+      if (md) vParts.push(md + (cm && md.indexOf(cm) < 0 ? ' ' + cm : ''));
+      else if (cm) vParts.push(cm);
+      if (mt && vParts.length === 0) vParts.push(mt);
+      if (vParts.length > 0) {
+        vr = vParts.join(' · ');
+      } else {
+        const used = {};
+        normPlainUpper_(tp + ' ' + mo).split(/\s+/).forEach((w) => { if (w) used[w] = 1; });
+        const remVar = (nom || '').split(/\s+/).filter((w) => {
+          const nw = normPlainUpper_(w);
+          return nw && !used[nw] && !/^(DE|DEL|LA|EL|EN|CON|Y)$/.test(nw);
+        });
+        vr = remVar.join(' ').trim() || 'ESTÁNDAR';
+      }
+    }
+
+    if (!prov) {
+      const mPfx = sku.match(/^([A-Z]{2,5})/);
+      if (mPfx && skuPrefixProv[mPfx[1]]) prov = skuPrefixProv[mPfx[1]];
+    }
+
+    if (!nom) nom = [tp, mo, vr].filter(Boolean).join(' ').trim() || sku;
+
+    const newAtoE = [rec.skuRaw || sku, tp, mo, nom, vr];
+    const newGtoN = [cat, tl, ct, md, cm, mt, med, prov];
+
+    const rowChanged = rec.isNew ||
+      tp !== String(r[1] || '').trim() ||
+      mo !== String(r[2] || '').trim() ||
+      nom !== String(r[3] || '').trim() ||
+      vr !== String(r[4] || '').trim() ||
+      cat !== String(r[6] || '').trim() ||
+      tl !== String(r[7] || '').trim() ||
+      ct !== String(r[8] || '').trim() ||
+      md !== String(r[9] || '').trim() ||
+      cm !== String(r[10] || '').trim() ||
+      mt !== String(r[11] || '').trim() ||
+      med !== String(r[12] || '').trim() ||
+      prov !== String(r[13] || '').trim();
+    if (rowChanged) updatedRows++;
+
+    enrichedList.push({
+      sku: sku,
+      nom: nom,
+      aToE: newAtoE,
+      gToN: newGtoN,
+      oToAv: rec.oToAv
+    });
+  }
+
+  // 7) Ordenar estrictamente A-Z por NOMBRE (letras A-Z primero, números 0-9 después, desempate por SKU)
+  enrichedList.sort((a, b) => compareAlphaEs_(a.nom || a.sku, b.nom || b.sku) || a.sku.localeCompare(b.sku));
+
+  const totalRows = enrichedList.length;
+  let reordered = totalRows !== originalSkuOrder.length;
+  if (!reordered) {
+    for (let i = 0; i < totalRows; i++) {
+      if (enrichedList[i].sku !== originalSkuOrder[i]) {
+        reordered = true;
+        break;
+      }
+    }
+  }
+
+  // 8) Escribir atómicamente A3:E, G3:N y O3:AV sin tocar jamás F (col 6) ni AW (col 49)
+  if (totalRows > 0 && (updatedRows > 0 || reordered || addedCount > 0 || removedBlanks > 0)) {
+    if (shInv.getMaxRows() < 2 + totalRows) {
+      shInv.insertRowsAfter(shInv.getMaxRows(), (2 + totalRows) - shInv.getMaxRows());
+    }
+    const outAE = new Array(totalRows);
+    const outGN = new Array(totalRows);
+    const outOAV = new Array(totalRows);
+    for (let i = 0; i < totalRows; i++) {
+      outAE[i] = enrichedList[i].aToE;
+      outGN[i] = enrichedList[i].gToN;
+      outOAV[i] = enrichedList[i].oToAv;
+    }
+
+    shInv.getRange(3, 1, totalRows, 1).setNumberFormat('@');
+    shInv.getRange(3, 1, totalRows, 5).setValues(outAE);
+    shInv.getRange(3, 7, totalRows, 8).setValues(outGN);
+    if (reordered || addedCount > 0 || removedBlanks > 0) {
+      shInv.getRange(3, 15, totalRows, 34).setValues(outOAV);
+    }
+
+    if (oldNumRows > totalRows) {
+      const rem = oldNumRows - totalRows;
+      shInv.getRange(3 + totalRows, 1, rem, 5).clearContent();
+      shInv.getRange(3 + totalRows, 7, rem, 8).clearContent();
+      shInv.getRange(3 + totalRows, 15, rem, 34).clearContent();
+    }
+
+    if (!options.skipFlush) {
+      SpreadsheetApp.flush();
+    }
+  }
+
+  try {
+    CacheService.getScriptCache().put('inv_auto_sort_v1', '1', 180);
+  } catch (ce) {}
+
+  return {
+    ok: true,
+    total: totalRows,
+    added: addedCount,
+    updated: updatedRows,
+    reordered: reordered
+  };
+}
+
 
 
 

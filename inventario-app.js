@@ -35,15 +35,14 @@
     ];
 
     const PAGE_SIZE = 80;
-    const TOP_SEARCH_LIMIT = 50;
-    const TOP_SEARCH_SHEET_NAME = 'TOP_BUSCADOS';
-    const TOP_CLOUD_CACHE_KEY = 'creata_inv_top_cloud_v1';
-    const TOP_PENDING_QUEUE_KEY = 'creata_inv_top_pending_v1';
-    const SEARCH_DEBOUNCE_MS = 1200;
-    const SEARCH_DEDUP_COOLDOWN_MS = 180000;
     const CANONICAL_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwWdasvfk3W5FJVZvbEylibYXFxGAr0W4zVb3dq-ws0BqStyiSYQ8oZWLqOPagQBrxv/exec';
     const CART_KEY = 'creata_inv_open_cart_v1';
     const DEFAULT_MIN_STOCK = 2;
+
+    try {
+        localStorage.removeItem('creata_inv_top_cloud_v1');
+        localStorage.removeItem('creata_inv_top_pending_v1');
+    } catch (e) {}
 
     let allItems = Array.isArray(window.CREATA_INV_DATA) ? window.CREATA_INV_DATA : [];
     const bySkuMap = new Map();
@@ -53,25 +52,13 @@
     let renderedCount = 0;
 
     let isMainCoverActive = true;
-    let lastMainCoverSig = '';
-    let deferCoverRefreshUntilMs = 0;
-    let deferCoverRefreshTimer = null;
-    let searchInputRecordTimer = null;
-    let cloudTopEntries = [];
-    let pendingSearchQueue = [];
-    let lastLocalAckAtMs = 0;
-    let flushTopInFlight = false;
-    let fetchTopInFlight = false;
-    let lastWebAppTopAttemptMs = 0;
-    let webAppTopNeedsRedeploy = false;
-    const recentRecordedByGroup = new Map();
-    let topSyncChannel = null;
 
     let currentGroup = null;
     let currentDetailItem = null;
     let cart = loadCart();
     let lastLiveSignature = '';
     let liveLpptBySku = new Map();
+    let liveErpPricesBySku = new Map();
 
     function emptyStocks() {
         return new Array(WAREHOUSES.length).fill(0);
@@ -212,13 +199,13 @@
 
     const LIVE_DIM_PATTERNS = [
         /\b(?:CON\s+)?MEDIDAS?\s*:?\s*ALTO\s*:\s*\d+(?:[.,]\d+)?\s*ANCHO\s*:\s*\d+(?:[.,]\d+)?\s*LARGO\s*:\s*\d+(?:[.,]\d+)?(?:\s*CM\.?)?/gi,
-        /\b(?:CON\s+)?MEDIDAS?\s*:?\s*(?:DE\s+)?\.?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?(?:\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?)?\s*(?:CM\.?|MTS?\.?|M\.?)?(?:\s*C\/U)?\.?/gi,
+        /\b(?:CON\s+)?MEDIDAS?\s*:?\s*(?:DE\s+)?\.?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?|DIAM(?:ETRO)?\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?(?:\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?)?\s*(?:CM\.?|MTS?\.?|M\.?)?(?:\s*(?:C\/U|DIAMETRO|DIÁMETRO|DIAM\.?|Ø))?\.?/gi,
         /\b(?:DE\s+)?(?:DIAM(?:ETRO)?\.?|Ø)\s*\d+(?:[.,]\d+)?(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?)?\s*(?:CM\.?|MTS?\.?|M\.?)?\.?/gi,
-        /\b(?:DE\s+)?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?\s*(?:DE\s+)?(?:DIAMETRO|DIAM\.?|Ø)\b\.?/gi,
-        /(?:\bDE\s+)?(?:^|(?<=[\s(,\/]))[HL]?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?(?:\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?)?\s*(?:CM\.?|MTS?\.?|M\.?)?(?:\s*C\/U)?\.?/gi,
+        /\b(?:DE\s+)?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?\s*(?:DE\s+)?(?:DIAMETRO|DIÁMETRO|DIAM\.?|Ø)(?:\s*[xX*×]\s*\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?)?\.?/gi,
+        /(?:\bDE\s+)?(?:^|(?<=[\s(,\/]))[HL]?\d+(?:[.,]\d+)?\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?(?:\s*(?:CM\.?|MTS?\.?|M\.?)?\s*[xX*×]\s*\.?\d+(?:[.,]\d+)?)?\s*(?:CM\.?|MTS?\.?|M\.?)?(?:\s*(?:C\/U|DIAMETRO|DIÁMETRO|DIAM\.?|Ø))?\.?/gi,
         /\b\d+(?:[.,]\d+)?\s*CM\.?(?:\s*,?\s*\d+(?:[.,]\d+)?\s*CM\.?)*(?:\s+Y\s+\d+(?:[.,]\d+)?\s*CM\.?)/gi,
         /(?:^|(?<=[\s(,\/]))\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?)+(?:\s+Y\s+\d+(?:\.\d+)?)?\s*(?:CM\.?|MTS?\.?)\b/gi,
-        /(?:\bDE\s+)?(?:^|(?<=[\s(,\/]))[HL]?\d+(?:-\d+)?(?:[.,]\d+)?\s*(?:CM\.?|MTS\.?|MT\.?)(?!\w)\.?/gi
+        /(?:\bDE\s+)?(?:^|(?<=[\s(,\/]))[HL]?\d+(?:-\d+)?(?:[.,]\d+)?\s*(?:CM\.?|MTS\.?|MT\.?|MM\.?)(?!\w)\.?/gi
     ];
 
     function normalizeExtractedDimLive(rawDim) {
@@ -237,7 +224,7 @@
             return rClean + ' CM';
         }
         const isDiam = /DIAM|Ø/.test(s);
-        s = s.replace(/\b(?:DIAMETRO|DIAM\.?|Ø|DE|C\/U)\b/g, ' ').replace(/(\d),(\d)/g, '$1.$2').replace(/[*,×]/g, 'X');
+        s = s.replace(/\b(?:DIAMETRO|DIÁMETRO|DIAM\.?|Ø|DE|C\/U)\b/g, ' ').replace(/(\d),(\d)/g, '$1.$2').replace(/[*,×]/g, 'X');
         const hasMeters = /\bMTS?\.?\b|\bM\b/.test(s) || /\b[1-4]\.\d{2}\s*X\s*[0-5]\.\d{2}\b/.test(s);
         const nums = s.match(/(?:\d+\.\d+|\.\d+|\d+)/g) || [];
         while (nums.length >= 2 && parseFloat(nums[0]) === 0) nums.shift();
@@ -263,6 +250,9 @@
             extracted.push(mGlue[1] + 'X' + mGlue[2]);
             s = s.slice(0, mGlue.index) + mGlue[3] + s.slice(mGlue.index + mGlue[0].length);
         }
+        s = s
+            .replace(/([A-Za-zÁÉÍÓÚáéíóúÑñ]{3,})(\d{2,3}\s*(?:[xX*×]\s*\d{2,3}(?:\s*[xX*×]\s*\d{1,3})?(?:\s*CM)?|DIAMETRO\b|DIÁMETRO\b|DIAM\b))/gi, '$1 $2')
+            .replace(/\b(\d{2,3})(DIAMETRO\b|DIÁMETRO\b|DIAM\b)/gi, '$1 $2');
         for (let i = 0; i < LIVE_DIM_PATTERNS.length; i++) {
             const pat = LIVE_DIM_PATTERNS[i];
             pat.lastIndex = 0;
@@ -275,7 +265,7 @@
         s = s
             .replace(/\(\s*\)/g, ' ')
             .replace(/\s+([,.])/g, '$1')
-            .replace(/\b(?:CON\s+MEDIDAS?|MEDIDAS?)\b\s*:?/gi, ' ')
+            .replace(/\b(?:CON\s+MEDIDAS?|MEDIDAS?|DIAMETRO|DIÁMETRO|DIAM)\b\.?\s*:?/gi, ' ')
             .replace(/\s+\b(?:DE|CON\s+MEDIDA)\s*$/i, '')
             .replace(/\s{2,}/g, ' ')
             .replace(/^[,\s.\-·\/]+|[,\s.\-·\/]+$/g, '')
@@ -291,6 +281,250 @@
     function stripDimensionsFromProductText(rawText) {
         const res = stripDimensionsAndExtractLive(rawText);
         return (res.text && /[A-Za-zÁÉÍÓÚáéíóúÑñ]{2,}/.test(res.text)) ? res.text : cleanStr(rawText);
+    }
+
+    function sortKeyAlphaEs(raw) {
+        return String(raw || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/^[^A-Za-z0-9]+/, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toUpperCase();
+    }
+
+    function compareAlphaEs(aRaw, bRaw) {
+        const ka = sortKeyAlphaEs(aRaw);
+        const kb = sortKeyAlphaEs(bRaw);
+        if (!ka && !kb) return 0;
+        if (!ka) return 1;
+        if (!kb) return -1;
+        const aIsLetter = /^[A-Z]/.test(ka);
+        const bIsLetter = /^[A-Z]/.test(kb);
+        if (aIsLetter !== bIsLetter) return aIsLetter ? -1 : 1;
+        return ka.localeCompare(kb, 'es', { numeric: true, sensitivity: 'base' });
+    }
+
+    let liveErpCatalogBySku = new Map();
+    let livePhotosBySku = new Map();
+
+    const LIVE_EXTRA_FABRICS = {
+        'SORRENTO IVORY': 'MARFIL / IVORY',
+        'VOIRON OLIVO': 'VERDE OLIVO',
+        'VOIRON PERLA': 'BLANCO PERLA',
+        'BOLTON FLAX': 'ARENA / LINO',
+        'LINEN NATURE': 'LINO NATURAL',
+        'NATURE LINEN': 'LINO NATURAL',
+        'OSI FLAX': 'ARENA / FLAX',
+        'OSI IVORY': 'MARFIL / IVORY',
+        'BAKER LINEN': 'ARENA / LINO',
+        'BAKER MUSHROOM': 'TAUPE / MUSHROOM',
+        'BAKER OLIVE': 'VERDE OLIVO',
+        'FOREVER PLUS MOSS': 'VERDE MUSGO',
+        'FOREVER PLUS BUTTERMILK': 'CREMA / BUTTERMILK',
+        'FOREVER MOSS': 'VERDE MUSGO',
+        'REFLECT PLATINUM': 'GRIS PLATINO',
+        'REFLECT CHARCOAL': 'GRIS OXFORD / CHARCOAL',
+        'LULLABY OLIVE': 'VERDE OLIVO',
+        'LULLABY OYSTER': 'OSTIÓN / MARFIL',
+        'DISTRACTION NATURAL': 'ARENA / LINO NATURAL',
+        'LOVEME SAND': 'ARENA',
+        'LOVEME COTTON': 'BLANCO ALGODÓN',
+        'GELLAR MARBLE': 'BLANCO MÁRMOL',
+        'GELLAR JUTE': 'YUTE NATURAL',
+        'NIZA FOSSIL': 'GRIS FÓSIL',
+        'TITTUS PEARL': 'BLANCO PERLA',
+        'MADISON SAND': 'ARENA',
+        'COPENHAGUE NATURAL': 'NATURAL',
+        'COPENHAGUE LINEN': 'LINO',
+        'PIXEL FOSIL': 'GRIS FÓSIL',
+        'PIXEL LINEN': 'LINO',
+        'GLOSS COTTON': 'BLANCO ALGODÓN',
+        'SUNSET IVORY': 'MARFIL / IVORY',
+        'FRANCE BEIGE': 'BEIGE',
+        'GG FRANCE BEIGE': 'BEIGE',
+        'MOHAIR 4 CURRY': 'MOSTAZA / CURRY',
+        'MOHAIR CURRY': 'MOSTAZA / CURRY',
+        'SAILCLOTH SUMMER SAND': 'ARENA',
+        'SESAME RICE': 'BLANCO ARROZ',
+        'NOSTALGIA BONE BROWN': 'HUESO / CAFÉ',
+        'MIST GRAY': 'GRIS NIEBLA',
+        'BAJA TUSK': 'MARFIL / TUSK',
+        'BERKELEY NATURAL': 'NATURAL',
+        'HADI LINEN': 'LINO',
+        'HADY IVORY': 'MARFIL / IVORY',
+        'BRAXTON OAT': 'AVENA / OAT',
+        'BRAXTON SNOW': 'BLANCO NIEVE',
+        'ALTMAN COTTON': 'BLANCO ALGODÓN',
+        'MERCURY PEYOTE': 'TAUPE / PEYOTE',
+        'KELSI COTTON': 'BLANCO ALGODÓN',
+        'SCAR PUTTY': 'ARENA / PUTTY',
+        'FRESH FLAX': 'ARENA / FLAX',
+        'LUXOR IVORY': 'MARFIL / IVORY',
+        'RHONA ECRU': 'CRUDO / ECRU',
+        'RHONA IVORY': 'MARFIL / IVORY',
+        'RUSTY NATURAL': 'NATURAL',
+        'KIMI PORCELAINE': 'BLANCO PORCELANA',
+        'PRISMA OLIVE': 'VERDE OLIVO',
+        'ALINE CASHMERE': 'CACHEMIRA / BEIGE',
+        'ALINE TOAST': 'TOSTADO / TOAST',
+        'LILA LINEN': 'LINO',
+        'NANTES CREAM': 'CREMA',
+        'ELITE GREY': 'GRIS'
+    };
+
+    const LIVE_WOOD_PATTERNS = [
+        [/\bPAROTA\s+LAMINAD[OA]\b/, 'PAROTA LAMINADO'],
+        [/\bROSA\s+MORADA\s+SOLID[OA]\b/, 'ROSA MORADA SOLIDA'],
+        [/\bROSA\s+MORADA\b|\bRM\b/, 'ROSA MORADA'],
+        [/\bPAROTA\b/, 'PAROTA'],
+        [/\bCHAPA\s+(?:DE\s+)?NOGAL\b/, 'CHAPA DE NOGAL'],
+        [/\bNOGAL\b/, 'NOGAL'],
+        [/\bENCINO\b/, 'ENCINO'],
+        [/\bTECA\b|\bTEKA\b/, 'TECA'],
+        [/\bPINO\b/, 'PINO'],
+        [/\bTZALAM\b/, 'TZALAM'],
+        [/\bROBLE\b/, 'ROBLE'],
+        [/\bFRESNO\b/, 'FRESNO'],
+        [/\bPALO\s+DE\s+ROSA\b/, 'PALO DE ROSA'],
+        [/\bCAOBILLA\b/, 'CAOBILLA'],
+        [/\bBEJUCO\b/, 'BEJUCO'],
+        [/\bRATTAN\b|\bRATAN\b/, 'RATTAN']
+    ];
+
+    const LIVE_WOOD_COLOR_PATTERNS = [
+        [/\bLACA\s+BELLOTA\b/, 'LACA BELLOTA'],
+        [/\bLACA\s+TACUBA\b/, 'LACA TACUBA'],
+        [/\bLACA\s+BLANCA\b/, 'LACA BLANCA'],
+        [/\bLACA\s+NEGRA\b/, 'LACA NEGRA'],
+        [/\bTONO\s+NATURAL\b/, 'TONO NATURAL'],
+        [/\bBARNIZ\s+MATTE\b|\bACABADO\s+NATURAL\s+BARNIZ\s+MATTE\b/, 'NATURAL BARNIZ MATTE'],
+        [/\bTABACO\s+CLARO\b/, 'TABACO CLARO'],
+        [/\bTABACO\b/, 'TABACO'],
+        [/\bWARM\s+SAND\b/, 'WARM SAND'],
+        [/\bROSA\s+MORADA\s+CLAR[OA]\b|\bRM\s+CLAR[OA]\b/, 'CLARA'],
+        [/\bROSA\s+MORADA\s+CAFE\b/, 'CAFÉ'],
+        [/\bENTINTAD[OA]\b/, 'ENTINTADO'],
+        [/\bSPALTED\s+HABANO\b/, 'SPALTED HABANO'],
+        [/\bSPALTED\b/, 'SPALTED'],
+        [/\bHABANO\b/, 'HABANO'],
+        [/\bBELLOTA\b/, 'LACA BELLOTA'],
+        [/\bTACUBA\b/, 'LACA TACUBA'],
+        [/\bESPIGA\b/, 'ESPIGA'],
+        [/\bNUEZ\b/, 'NUEZ']
+    ];
+
+    const LIVE_MATERIAL_PATTERNS = [
+        [/\bMARMOL\s+CALACATA\s+ROMA\b/, 'MÁRMOL CALACATTA ROMA'],
+        [/\bMARMOL\s+OJINAGA\s+GREY\b/, 'MÁRMOL OJINAGA GREY'],
+        [/\bMARMOL\b/, 'MÁRMOL'],
+        [/\bPIEDRA\s+SINTERIZADA\b/, 'PIEDRA SINTERIZADA'],
+        [/\bTRAVERTIN[OE]\b/, 'TRAVERTINO'],
+        [/\bONIX\b/, 'ÓNIX'],
+        [/\bGRANITO\b/, 'GRANITO'],
+        [/\bCRISTAL\b|\bVIDRIO\b/, 'CRISTAL'],
+        [/\bCEMENTO\b|\bCONCRETO\b/, 'CEMENTO'],
+        [/\bCUERDA\b/, 'CUERDA'],
+        [/\bNIQUEL\b/, 'NÍQUEL'],
+        [/\bMETAL\b|\bACERO\b|\bHIERRO\b|\bFIERRO\b/, 'METAL'],
+        [/\bPIEL\b|\bCUERO\b/, 'PIEL'],
+        [/\bCERAMICA\b|\bPORCELANA\b/, 'CERÁMICA'],
+        [/\bFIBRA\s+DE\s+VIDRIO\b|\bRESINA\b/, 'RESINA / FIBRA'],
+        [/\bMECATE\b|\bYUTE\b/, 'FIBRA NATURAL']
+    ];
+
+    const LIVE_BAD_FABRICS = new Set([
+        'TELA', 'TELA ARTELL', 'ARTELL', 'SIN TELA', 'VARIOS', 'ESTANDAR', 'NATURAL',
+        'ALGODON', 'LINO', 'POLIESTER', 'TERCIOPELO', 'PIEL', 'GAMUZA', 'YUTE'
+    ]);
+
+    const liveKnownFabrics = new Map();
+    let liveFabricsListSorted = [];
+    const liveSkuPrefixProv = new Map();
+
+    function seedBaseLiveVocab() {
+        Object.keys(LIVE_EXTRA_FABRICS).forEach(k => {
+            const kn = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+            if (!liveKnownFabrics.has(kn)) {
+                liveKnownFabrics.set(kn, { tl: k, ct: LIVE_EXTRA_FABRICS[k] });
+            }
+        });
+        liveFabricsListSorted = Array.from(liveKnownFabrics.keys()).sort((a, b) => b.length - a.length);
+    }
+    seedBaseLiveVocab();
+
+    function rebuildLiveAutoVocab(items) {
+        if (!Array.isArray(items) || items.length === 0) return;
+        const pfxCounts = new Map();
+        for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (!it) continue;
+            const tl = cleanStr(it.tl);
+            const ct = cleanStr(it.ct);
+            if (tl && tl.length >= 4) {
+                const tln = tl.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+                if (!LIVE_BAD_FABRICS.has(tln) && tln.indexOf(' ') !== -1) {
+                    const prev = liveKnownFabrics.get(tln);
+                    if (!prev || (ct && !prev.ct)) {
+                        liveKnownFabrics.set(tln, { tl: tl.toUpperCase(), ct: ct ? ct.toUpperCase() : (prev ? prev.ct : '') });
+                    }
+                }
+            }
+            const skuU = cleanStr(it.s).toUpperCase();
+            const prov = cleanStr(it.p).toUpperCase();
+            const mPfx = skuU.match(/^([A-Z]{2,5})/);
+            if (mPfx && prov) {
+                const pfx = mPfx[1];
+                let cmap = pfxCounts.get(pfx);
+                if (!cmap) {
+                    cmap = new Map();
+                    pfxCounts.set(pfx, cmap);
+                }
+                cmap.set(prov, (cmap.get(prov) || 0) + 1);
+            }
+        }
+        liveFabricsListSorted = Array.from(liveKnownFabrics.keys()).sort((a, b) => b.length - a.length);
+        pfxCounts.forEach((cmap, pfx) => {
+            let bestP = '';
+            let bestN = 0;
+            cmap.forEach((cnt, prName) => {
+                if (cnt > bestN) {
+                    bestN = cnt;
+                    bestP = prName;
+                }
+            });
+            if (bestP) liveSkuPrefixProv.set(pfx, bestP);
+        });
+    }
+
+    function deduceCategoryLive(tp, nom, curCat) {
+        const plainUpper = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+        const pairs = [[curCat, true], [tp, true], [nom, false]];
+        for (let i = 0; i < pairs.length; i++) {
+            const txt = plainUpper(pairs[i][0]);
+            const allowTelaWord = pairs[i][1];
+            if (!txt || /\d.*X.*\d/.test(txt)) continue;
+            if (/EXTERIOR|CAMASTRO|COLUMPIO/.test(txt)) return 'EXTERIOR';
+            if (/ESPEJO/.test(txt)) return 'ESPEJOS';
+            if (/CUADRO|ARTE OBJETO|DECORATIVO PARED|PINTURA|LIENZO/.test(txt)) return 'CUADROS';
+            if (/LAMPARA|CANDIL|ARBOTANTE|LUMINARIA/.test(txt)) return 'LÁMPARAS';
+            if (allowTelaWord) {
+                if (/COJIN|FUNDA|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|^T\.\s|\bTELA\b|RELLENO|DRACON/.test(txt)) return 'COJINES & TEXTILES';
+            } else {
+                if (/COJIN|FUNDA|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|^T\.\s|^TELA\s+ARTELL\b|RELLENO|DRACON/.test(txt)) return 'COJINES & TEXTILES';
+            }
+            if (/BUFETERA|BUFETERO|CREDENZA|TRINCHADOR|APARADOR|CONSOLA|CAVA/.test(txt)) return 'BUFETERAS & CREDENZAS';
+            if (/MESA DE CENTRO|MESA CENTRAL|MESA LATERAL|MESA AUXILIAR|MESAS DE SALA/.test(txt)) return 'MESAS DE CENTRO & LATERALES';
+            if (/RECAMARA|CAMA|CABECERA|BURO|COMODA|CAJONERA|TOCADOR|COLCHON|BOX|LITERA|BAUL/.test(txt)) return 'RECÁMARAS';
+            if (/ESCRITORIO|SECRETAIRE|ARCHIVERO|OFICINA|LIBRERO/.test(txt)) return 'OFICINA';
+            if (/SALA|SOFA|LOVE SEAT|CHAISE|OTTOMAN|FUTTON|FUTON|ESQUINERO/.test(txt)) return 'SALAS & SOFÁS';
+            if (/SILLA|SILLON|TABURETE|BANCO|BANCA/.test(txt)) return 'SILLAS & SILLONES';
+            if (/COMEDOR|MESA/.test(txt)) return 'COMEDORES';
+            if (/FLORERO|JARRON|ESCULTURA|CHAROLA|CANDELABRO|MACETA|PLANTA|PALMA|FOLLAJE|ACCESORIO|VELA|LIBRO|BOTELLA|BOTELLON|PLATO|ENSALADERA|CANASTO|LINTERNA|CORAL|CONCHA|AJEDREZ|ESFERA/.test(txt)) {
+                return 'ACCESORIOS DECORATIVOS';
+            }
+        }
+        return 'COMPLEMENTOS';
     }
 
     const LIVE_TYPE_RULES = [
@@ -335,6 +569,7 @@
         [/\bMAMPARA\b|\bBIOMBO\b/, 'MAMPARA'],
         [/\bESPEJO\b|\bMARCO\b/, 'ESPEJO'],
         [/\bCUADRO\b|\bPINTURA\b|\bLIENZO\b|\bGICLEE\b/, 'CUADRO'],
+        [/\bPAPEL\s+TAPIZ\b|\bDESC-WALL\b|^WALL\b/, 'PAPEL TAPIZ'],
         [/\bARTE\s+OBJETO\b|\bDECORATIVO\s+(?:DE\s+)?PARED\b|\bACCESORIO\s+DE\s+PARED\b/, 'DECORATIVO PARED'],
         [/\bTAPETE\b|\bALFOMBRAS?\b|^T\.\s+[A-Z]/, 'TAPETE'],
         [/\bARBOTANTE\b|^ARB\s+[A-Z]/, 'ARBOTANTE'],
@@ -355,6 +590,7 @@
         [/\bALMOHADA\b|\bCOJIN\b/, 'COJIN'],
         [/\bFRAZADA\b|\bMANTA\b|\bDUVET\b|\bEDREDON\b|\bSABANA\b|\bCOLCHA\b|\bCUBRECAMA\b/, 'BLANCOS'],
         [/\bTEL-ARTELL\b|^TELA\s+ARTELL\b|^TELA\b/, 'TELA'],
+        [/\bLAMINA\s+DE\s+PVC\b|\bLAMBRIN\b|\bPANEL\b/, 'LAMINA DE PVC'],
         [/\bMESA\b/, 'MESA'],
         [/\bCRISTAL\b|\bCUBIERTA\b/, 'CRISTAL'],
         [/\bACCESORIO\b|\bCAJA\b|\bALHAJERO\b|\bLIBRO\b|\bCANAST[OA]\b|\bCESTA\b|\bPORTARRETRATO\b|\bRELOJ\b|\bPERCHERO\b/, 'ACCESORIO DECORATIVO']
@@ -432,13 +668,21 @@
 
     function normalizeInventoryItemLive(it, prevIt) {
         if (!it) return it;
+        const plainUpper = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
         const sku = cleanStr(it.s);
+        const skuUpper = sku.toUpperCase();
+        const erpRef = skuUpper ? liveErpCatalogBySku.get(skuUpper) : null;
+
         let nom = cleanStr(it.n);
-        let mo = cleanStr(it.mo);
+        let mo = cleanStr(it.mo) || (erpRef && erpRef.mo) || '';
         let tp = cleanStr(it.tp);
         let vr = cleanStr(it.vr);
         let med = cleanStr(it.m);
         let cat = cleanStr(it.c);
+
+        if ((!nom || nom.toUpperCase() === skuUpper) && erpRef && erpRef.n) {
+            nom = erpRef.n;
+        }
 
         // 1) Si NOMBRE trae únicamente medidas ("MEDIDAS: 0 x 150 x 150" / "2.80 mts."), recuperar el nombre real
         if (/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(nom)) {
@@ -447,8 +691,11 @@
             const prevClean = prevIt && cleanStr(prevIt.n) && !/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(cleanStr(prevIt.n))
                 ? cleanStr(prevIt.n)
                 : '';
+            const erpClean = erpRef && erpRef.n && !/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(erpRef.n)
+                ? erpRef.n
+                : '';
             const moAlt = (mo && !/^[\d\s.,xX*×]+$/.test(mo)) ? mo.replace(/^TEL-ARTELL\s+/i, 'TELA ARTELL ') : '';
-            nom = prevClean || moAlt || sku;
+            nom = prevClean || erpClean || moAlt || sku;
         }
         if (/^T\.\s+[A-Z]/i.test(nom)) nom = nom.replace(/^T\.\s+/i, 'TAPETE ');
         if (/^TEL-ARTELL\s+/i.test(nom)) nom = nom.replace(/^TEL-ARTELL\s+/i, 'TELA ARTELL ');
@@ -468,10 +715,78 @@
             med = med.replace(/\s*[xX*×]\s*/g, 'X') + ' CM';
         }
 
-        // 3) Completar TIPO DE PRODUCTO, MODELO, VARIANTE, CATEGORIA y acabados en vivo
-        if (!tp) tp = (prevIt && cleanStr(prevIt.tp)) || deduceProductTypeLive(nom, cat, mo);
-        const cleanedMo = cleanOrExtractModelLive(mo, nom, tp);
-        mo = cleanedMo || (prevIt && cleanStr(prevIt.mo)) || '';
+        // 3) Completar automáticamente TIPO DE PRODUCTO, MODELO, CATEGORÍA, TELA, MADERA, MATERIALES, VARIANTE y PROVEEDOR
+        if (!tp) tp = (prevIt && cleanStr(prevIt.tp)) || deduceProductTypeLive(nom, cat, mo) || 'ACCESORIO DECORATIVO';
+        let cleanedMo = cleanOrExtractModelLive(mo, nom, tp);
+        if (!cleanedMo) {
+            cleanedMo = (prevIt && cleanStr(prevIt.mo) ? stripDimensionsFromProductText(prevIt.mo).toUpperCase() : '');
+        }
+        if (!cleanedMo) {
+            const tpWords = new Set(plainUpper(tp).split(/\s+/));
+            const remWords = (nom.match(/[A-Za-zÁÉÍÓÚáéíóúÑñ0-9]+/g) || [])
+                .map(w => w.toUpperCase())
+                .filter(w => !tpWords.has(plainUpper(w)) && !/^(DE|DEL|LA|EL|Y|CON|EN)$/.test(plainUpper(w)));
+            cleanedMo = remWords[0] || skuUpper;
+        }
+        mo = cleanedMo;
+
+        if (!cat || /\d.*x.*\d/i.test(cat)) {
+            cat = (prevIt && cleanStr(prevIt.c) && !/\d.*x.*\d/i.test(prevIt.c))
+                ? cleanStr(prevIt.c)
+                : deduceCategoryLive(tp, nom, cat);
+        }
+
+        let tl = cleanStr(it.tl) || (prevIt && cleanStr(prevIt.tl)) || '';
+        let ct = cleanStr(it.ct) || (prevIt && cleanStr(prevIt.ct)) || '';
+        let md = cleanStr(it.md) || (prevIt && cleanStr(prevIt.md)) || '';
+        let cm = cleanStr(it.cm) || (prevIt && cleanStr(prevIt.cm)) || '';
+        let mt = cleanStr(it.mt) || (prevIt && cleanStr(prevIt.mt)) || '';
+        let prov = cleanStr(it.p) || (prevIt && cleanStr(prevIt.p)) || '';
+
+        const searchBlob = ' ' + plainUpper(nom) + ' ';
+        if (tp === 'TELA' && !tl && mo) tl = mo;
+        if (!tl && liveFabricsListSorted.length > 0) {
+            for (let f = 0; f < liveFabricsListSorted.length; f++) {
+                const fk = liveFabricsListSorted[f];
+                if (searchBlob.indexOf(' ' + fk + ' ') !== -1) {
+                    const fInfo = liveKnownFabrics.get(fk);
+                    if (fInfo) {
+                        tl = fInfo.tl;
+                        if (!ct && fInfo.ct) ct = fInfo.ct;
+                    }
+                    break;
+                }
+            }
+        } else if (tl && !ct) {
+            const fInfo = liveKnownFabrics.get(plainUpper(tl));
+            if (fInfo && fInfo.ct) ct = fInfo.ct;
+        }
+
+        if (!md) {
+            for (let w = 0; w < LIVE_WOOD_PATTERNS.length; w++) {
+                if (LIVE_WOOD_PATTERNS[w][0].test(searchBlob)) {
+                    md = LIVE_WOOD_PATTERNS[w][1];
+                    break;
+                }
+            }
+        }
+        if (!cm) {
+            for (let w = 0; w < LIVE_WOOD_COLOR_PATTERNS.length; w++) {
+                if (LIVE_WOOD_COLOR_PATTERNS[w][0].test(searchBlob)) {
+                    cm = LIVE_WOOD_COLOR_PATTERNS[w][1];
+                    break;
+                }
+            }
+        }
+        if (!mt) {
+            const mats = [];
+            for (let mIdx = 0; mIdx < LIVE_MATERIAL_PATTERNS.length; mIdx++) {
+                if (LIVE_MATERIAL_PATTERNS[mIdx][0].test(searchBlob) && mats.indexOf(LIVE_MATERIAL_PATTERNS[mIdx][1]) === -1) {
+                    mats.push(LIVE_MATERIAL_PATTERNS[mIdx][1]);
+                }
+            }
+            if (mats.length > 0) mt = mats.slice(0, 3).join(', ');
+        }
 
         if (vr) {
             const vrParsed = stripDimensionsAndExtractLive(vr);
@@ -479,9 +794,29 @@
         } else if (prevIt && cleanStr(prevIt.vr)) {
             vr = stripDimensionsFromProductText(prevIt.vr);
         }
+        if (!vr) {
+            const vParts = [];
+            if (tl) vParts.push(tl);
+            if (md) vParts.push(md + (cm && md.indexOf(cm) === -1 ? ' ' + cm : ''));
+            else if (cm) vParts.push(cm);
+            if (mt && vParts.length === 0) vParts.push(mt);
+            if (vParts.length > 0) {
+                vr = vParts.join(' · ');
+            } else {
+                const usedWords = new Set(plainUpper(tp + ' ' + mo).split(/\s+/));
+                const remVar = (nom || '').split(/\s+/).filter(w => {
+                    const nw = plainUpper(w);
+                    return nw && !usedWords.has(nw) && !/^(DE|DEL|LA|EL|EN|CON|Y)$/.test(nw);
+                });
+                vr = remVar.join(' ').trim() || 'ESTÁNDAR';
+            }
+        }
 
-        if (!cat || /\d.*x.*\d/i.test(cat)) {
-            cat = (prevIt && cleanStr(prevIt.c) && !/\d.*x.*\d/i.test(prevIt.c)) ? cleanStr(prevIt.c) : '';
+        if (!prov && skuUpper) {
+            const mPfx = skuUpper.match(/^([A-Z]{2,5})/);
+            if (mPfx && liveSkuPrefixProv.has(mPfx[1])) {
+                prov = liveSkuPrefixProv.get(mPfx[1]);
+            }
         }
 
         it.n = nom || sku;
@@ -490,12 +825,18 @@
         it.vr = vr;
         it.m = med;
         it.c = cat;
-        if (!cleanStr(it.tl) && prevIt && cleanStr(prevIt.tl)) it.tl = cleanStr(prevIt.tl);
-        if (!cleanStr(it.ct) && prevIt && cleanStr(prevIt.ct)) it.ct = cleanStr(prevIt.ct);
-        if (!cleanStr(it.md) && prevIt && cleanStr(prevIt.md)) it.md = cleanStr(prevIt.md);
-        if (!cleanStr(it.cm) && prevIt && cleanStr(prevIt.cm)) it.cm = cleanStr(prevIt.cm);
-        if (!cleanStr(it.mt) && prevIt && cleanStr(prevIt.mt)) it.mt = cleanStr(prevIt.mt);
-        if (!cleanStr(it.p) && prevIt && cleanStr(prevIt.p)) it.p = cleanStr(prevIt.p);
+        it.tl = tl;
+        it.ct = ct;
+        it.md = md;
+        it.cm = cm;
+        it.mt = mt;
+        it.p = prov;
+        if (!cleanStr(it.f) && skuUpper && livePhotosBySku.has(skuUpper)) {
+            it.f = livePhotosBySku.get(skuUpper);
+        }
+        if (!cleanStr(it.pr) && erpRef && erpRef.pr) {
+            it.pr = erpRef.pr;
+        }
         return it;
     }
 
@@ -698,6 +1039,12 @@
     }
 
     function indexItemsAndGroups() {
+        rebuildLiveAutoVocab(allItems);
+        allItems.sort((a, b) =>
+            compareAlphaEs(a && (a.n || a.s), b && (b.n || b.s)) ||
+            String((a && a.s) || '').localeCompare(String((b && b.s) || ''))
+        );
+
         bySkuMap.clear();
         groupsByKey.clear();
         allGroups = [];
@@ -750,6 +1097,14 @@
 
         for (let i = 0; i < allGroups.length; i++) {
             const grp = allGroups[i];
+            grp.items.sort((a, b) =>
+                compareAlphaEs(a.n || a.vr || a.s, b.n || b.vr || b.s) ||
+                String(a.s || '').localeCompare(String(b.s || ''))
+            );
+            grp.displayTitle = (grp.items.length > 1
+                ? grp.title
+                : (stripDimensionsFromProductText(grp.items[0].n) || grp.title || grp.items[0].s)
+            ).toUpperCase();
             grp._plain = grp._plainParts.join(' ');
             grp._search = grp._searchParts.join(' ');
             grp._words = Array.from(new Set(grp._search.split(/\s+/).filter(w => w.length >= 4)));
@@ -758,6 +1113,11 @@
             delete grp._plainParts;
             delete grp._searchParts;
         }
+
+        allGroups.sort((a, b) =>
+            compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+            String(a.key || '').localeCompare(String(b.key || ''))
+        );
     }
 
     function loadCart() {
@@ -781,450 +1141,14 @@
     }
 
     // ------------------------------------------------------------------------
-    // REGISTRO GLOBAL Y PORTADA PRINCIPAL: TOP 20 ARTÍCULOS MÁS BUSCADOS
+    // PORTADA PRINCIPAL: TODOS LOS PRODUCTOS CON FOTOGRAFÍA EN ORDEN ALFABÉTICO (A-Z)
     // ------------------------------------------------------------------------
-    function sanitizeTopEntryObj(raw) {
-        if (!raw || typeof raw !== 'object') return null;
-        const sku = cleanStr(raw.sku).toUpperCase();
-        const title = stripDimensionsFromProductText(raw.title);
-        const gk = normalizePlain(raw.gk) || normalizePlain(title) || sku.toLowerCase();
-        const count = Math.max(0, Math.round(Number(raw.count) || 0));
-        if (!gk || count <= 0) return null;
-        return {
-            gk: gk,
-            sku: sku,
-            title: title || sku || gk.toUpperCase(),
-            cat: cleanStr(raw.cat),
-            count: count,
-            lastMs: Math.max(0, Math.round(Number(raw.lastMs) || 0))
-        };
-    }
-
-    function loadTopSearchedState() {
-        try {
-            const rawCloud = JSON.parse(localStorage.getItem(TOP_CLOUD_CACHE_KEY) || '[]');
-            if (Array.isArray(rawCloud)) {
-                cloudTopEntries = rawCloud.map(sanitizeTopEntryObj).filter(Boolean);
-            }
-        } catch (e) {
-            cloudTopEntries = [];
-        }
-        try {
-            const rawPending = JSON.parse(localStorage.getItem(TOP_PENDING_QUEUE_KEY) || '[]');
-            if (Array.isArray(rawPending)) {
-                pendingSearchQueue = rawPending.filter(ev => ev && typeof ev === 'object' && (ev.gk || ev.sku || ev.title));
-            }
-        } catch (e) {
-            pendingSearchQueue = [];
-        }
-    }
-
-    function saveCloudTopEntries() {
-        try {
-            localStorage.setItem(TOP_CLOUD_CACHE_KEY, JSON.stringify(cloudTopEntries.slice(0, 500)));
-        } catch (e) {}
-    }
-
-    function compactPendingQueueIfNeeded() {
-        if (pendingSearchQueue.length <= 80) return;
-        const compacted = [];
-        const byKeyIdx = new Map();
-        for (let i = 0; i < pendingSearchQueue.length; i++) {
-            const ev = pendingSearchQueue[i];
-            const gk = normalizePlain(ev.gk) || normalizePlain(ev.title) || String(ev.sku || '').toLowerCase();
-            if (!gk) continue;
-            const d = Math.max(1, Math.round(Number(ev.delta) || 1));
-            if (byKeyIdx.has(gk)) {
-                const prev = compacted[byKeyIdx.get(gk)];
-                if ((prev.delta || 1) + d <= 25) {
-                    prev.delta = (prev.delta || 1) + d;
-                    prev.ts = Math.max(Number(prev.ts) || 0, Number(ev.ts) || 0);
-                    continue;
-                }
-            }
-            const copy = Object.assign({}, ev, { gk: gk, delta: Math.min(25, d) });
-            byKeyIdx.set(gk, compacted.length);
-            compacted.push(copy);
-        }
-        pendingSearchQueue = compacted.slice(-120);
-    }
-
-    function savePendingSearchQueue() {
-        compactPendingQueueIfNeeded();
-        try {
-            localStorage.setItem(TOP_PENDING_QUEUE_KEY, JSON.stringify(pendingSearchQueue));
-        } catch (e) {}
-    }
-
-    function notifyTopSearchPeers() {
-        if (!topSyncChannel) return;
-        try {
-            topSyncChannel.postMessage({ type: 'top_updated', ts: Date.now() });
-        } catch (e) {}
-    }
-
-    function initTopSearchedSync() {
-        loadTopSearchedState();
-        if (typeof BroadcastChannel !== 'undefined' && !topSyncChannel) {
-            try {
-                topSyncChannel = new BroadcastChannel('creata_inv_top_sync');
-                topSyncChannel.onmessage = function () {
-                    loadTopSearchedState();
-                    refreshMainCoverIfChanged();
-                };
-            } catch (e) {
-                topSyncChannel = null;
-            }
-        }
-        window.addEventListener('storage', function (ev) {
-            if (!ev || (ev.key !== TOP_CLOUD_CACHE_KEY && ev.key !== TOP_PENDING_QUEUE_KEY)) return;
-            loadTopSearchedState();
-            refreshMainCoverIfChanged();
-        });
-    }
-
-    function resolveGroupForTopEntry(entry) {
-        if (!entry) return null;
-        const gkNorm = normalizePlain(entry.gk);
-        if (gkNorm && groupsByKey.has(gkNorm)) {
-            return groupsByKey.get(gkNorm);
-        }
-        const skuUpper = cleanStr(entry.sku).toUpperCase();
-        if (skuUpper && bySkuMap.has(skuUpper)) {
-            const it = bySkuMap.get(skuUpper);
-            if (it && groupsByKey.has(it._groupKey)) {
-                return groupsByKey.get(it._groupKey);
-            }
-        }
-        const titleNorm = normalizePlain(entry.title);
-        if (titleNorm && groupsByKey.has(titleNorm)) {
-            return groupsByKey.get(titleNorm);
-        }
-        return null;
-    }
-
-    function getTopSearchedGroups(limit) {
-        const cap = (typeof limit === 'number' && limit > 0) ? limit : Math.max(500, allGroups.length);
-        const agg = new Map();
-
-        for (let i = 0; i < cloudTopEntries.length; i++) {
-            const e = cloudTopEntries[i];
-            if (!e || e.count <= 0) continue;
-            const grp = resolveGroupForTopEntry(e);
-            if (!grp) continue;
-            const prev = agg.get(grp.key);
-            if (prev) {
-                prev.count += e.count;
-                if (e.lastMs > prev.lastMs) prev.lastMs = e.lastMs;
-            } else {
-                agg.set(grp.key, { grp: grp, count: e.count, lastMs: e.lastMs || 0 });
-            }
-        }
-
-        for (let i = 0; i < pendingSearchQueue.length; i++) {
-            const ev = pendingSearchQueue[i];
-            if (!ev) continue;
-            const grp = resolveGroupForTopEntry(ev);
-            if (!grp) continue;
-            const delta = Math.max(1, Math.round(Number(ev.delta) || 1));
-            const ts = Math.max(0, Math.round(Number(ev.ts) || 0));
-            const prev = agg.get(grp.key);
-            if (prev) {
-                prev.count += delta;
-                if (ts > prev.lastMs) prev.lastMs = ts;
-            } else {
-                agg.set(grp.key, { grp: grp, count: delta, lastMs: ts });
-            }
-        }
-
-        if (agg.size === 0) return [];
-        const ranked = Array.from(agg.values()).filter(x => x.count > 0);
-        ranked.sort((a, b) => {
-            if (b.count !== a.count) return b.count - a.count;
-            if (b.lastMs !== a.lastMs) return b.lastMs - a.lastMs;
-            return String(a.grp.title || '').localeCompare(String(b.grp.title || ''));
-        });
-        return ranked.slice(0, cap).map(x => x.grp);
-    }
-
-    // Portada principal: TODOS los productos que tienen fotografía, conservando el orden
-    // (1° más buscados con foto, 2° con foto + stock físico y título limpio, 3° con foto + stock físico, 4° resto con foto)
     function getMainCoverGroups() {
-        const out = [];
-        const seen = new Set();
-
-        const ranked = getTopSearchedGroups(Math.max(500, allGroups.length));
-        for (let i = 0; i < ranked.length; i++) {
-            const g = ranked[i];
-            if (!g || seen.has(g.key)) continue;
-            if (!firstPhotoItem(g.items)) continue;
-            seen.add(g.key);
-            out.push(g);
-        }
-
-        const hasStock = function (grp) {
-            for (let i = 0; i < grp.items.length; i++) {
-                if (getBodegaPisoStock(grp.items[i]) > 0) return true;
-            }
-            return false;
-        };
-
-        // Nivel 1: modelos con foto, stock físico disponible y título limpio (sin clave numérica inicial)
-        for (let i = 0; i < allGroups.length; i++) {
-            const g = allGroups[i];
-            if (seen.has(g.key)) continue;
-            if (!firstPhotoItem(g.items) || !hasStock(g) || /^\d/.test(String(g.title || ''))) continue;
-            seen.add(g.key);
-            out.push(g);
-        }
-
-        // Nivel 2: cualquier modelo con foto y stock físico disponible
-        for (let i = 0; i < allGroups.length; i++) {
-            const g = allGroups[i];
-            if (seen.has(g.key)) continue;
-            if (!firstPhotoItem(g.items) || !hasStock(g)) continue;
-            seen.add(g.key);
-            out.push(g);
-        }
-
-        // Nivel 3: todos los demás modelos que tienen foto
-        for (let i = 0; i < allGroups.length; i++) {
-            const g = allGroups[i];
-            if (seen.has(g.key)) continue;
-            if (!firstPhotoItem(g.items)) continue;
-            seen.add(g.key);
-            out.push(g);
-        }
-
-        if (out.length === 0) {
+        const withPhotos = allGroups.filter(g => !!firstPhotoItem(g.items));
+        if (withPhotos.length === 0) {
             return allGroups.slice(0, PAGE_SIZE);
         }
-
-        return out;
-    }
-
-    function computeMainCoverSig(groups) {
-        if (!Array.isArray(groups) || groups.length === 0) return '__EMPTY__';
-        return groups.map(g => g.key).join('\x1f');
-    }
-
-    function refreshMainCoverIfChanged() {
-        if (!isMainCoverActive) return;
-        const prodModal = document.getElementById('productDetailModal');
-        if (prodModal && prodModal.classList.contains('open')) return;
-        const quoteModal = document.getElementById('cartModal');
-        if (quoteModal && quoteModal.classList.contains('open')) return;
-
-        const now = Date.now();
-        if (now < deferCoverRefreshUntilMs) {
-            if (deferCoverRefreshTimer) clearTimeout(deferCoverRefreshTimer);
-            deferCoverRefreshTimer = setTimeout(function () {
-                deferCoverRefreshTimer = null;
-                refreshMainCoverIfChanged();
-            }, Math.max(30, deferCoverRefreshUntilMs - now + 25));
-            return;
-        }
-
-        const nextCover = getMainCoverGroups();
-        const nextSig = computeMainCoverSig(nextCover);
-        if (nextSig !== lastMainCoverSig) {
-            applyFilter('', true);
-        }
-    }
-
-    function recordGroupSearch(grp, preferredSku, deferCoverRefresh) {
-        if (!grp || !grp.key || !Array.isArray(grp.items) || grp.items.length === 0) return false;
-        const now = Date.now();
-        const prevTs = recentRecordedByGroup.get(grp.key) || 0;
-        if (now - prevTs < SEARCH_DEDUP_COOLDOWN_MS) return false;
-        recentRecordedByGroup.set(grp.key, now);
-
-        const prefUpper = cleanStr(preferredSku).toUpperCase();
-        let chosenItem = grp.items[0];
-        if (prefUpper) {
-            for (let i = 0; i < grp.items.length; i++) {
-                if (String(grp.items[i].s || '').toUpperCase() === prefUpper) {
-                    chosenItem = grp.items[i];
-                    break;
-                }
-            }
-        }
-
-        const primarySku = cleanStr(chosenItem && chosenItem.s).toUpperCase();
-        const title = cleanStr(grp.title) || cleanStr(chosenItem && chosenItem.n) || primarySku;
-        const mainCat = (grp.mains && grp.mains.size > 0) ? Array.from(grp.mains)[0] : '';
-        const branch = (typeof activeAdvisorSession !== 'undefined' && activeAdvisorSession)
-            ? cleanStr(activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '')
-            : '';
-
-        const evObj = {
-            id: 'ts_' + now.toString(36) + '_' + Math.random().toString(36).slice(2, 9),
-            gk: grp.key,
-            sku: primarySku,
-            title: title,
-            cat: mainCat,
-            delta: 1,
-            ts: now,
-            branch: branch
-        };
-
-        pendingSearchQueue.push(evObj);
-        savePendingSearchQueue();
-        notifyTopSearchPeers();
-        if (!deferCoverRefresh) {
-            refreshMainCoverIfChanged();
-        }
-        flushPendingSearchesToCloud().catch(() => {});
-        return true;
-    }
-
-    function recordSkuSearch(skuRaw) {
-        const key = cleanStr(skuRaw).toUpperCase();
-        if (!key) return false;
-        const it = bySkuMap.get(key);
-        if (!it) return false;
-        const grp = groupsByKey.get(it._groupKey);
-        if (!grp) return false;
-        return recordGroupSearch(grp, it.s);
-    }
-
-    function scheduleSearchQueryRecord(rawQuery) {
-        if (searchInputRecordTimer) {
-            clearTimeout(searchInputRecordTimer);
-            searchInputRecordTimer = null;
-        }
-        const trimmed = String(rawQuery || '').trim();
-        if (trimmed.length < 2) return;
-        searchInputRecordTimer = setTimeout(function () {
-            searchInputRecordTimer = null;
-            const inp = document.getElementById('invSearchInput');
-            const curVal = String((inp && inp.value) || '').trim();
-            if (!curVal || curVal !== trimmed) return;
-            const exact = bySkuMap.get(curVal.toUpperCase());
-            if (exact) {
-                recordSkuSearch(exact.s);
-                return;
-            }
-            if (curVal.length >= 3 && !isMainCoverActive && filteredGroups.length === 1) {
-                recordGroupSearch(filteredGroups[0]);
-            }
-        }, SEARCH_DEBOUNCE_MS);
-    }
-
-    async function flushPendingSearchesToCloud() {
-        if (flushTopInFlight || pendingSearchQueue.length === 0) return false;
-        if (webAppTopNeedsRedeploy && (Date.now() - lastWebAppTopAttemptMs < 60000)) return false;
-        flushTopInFlight = true;
-        lastWebAppTopAttemptMs = Date.now();
-        try {
-            const batch = pendingSearchQueue.slice(0, 50);
-            const res = await callInvWebAppPost('inv_record_search', { events: batch }, 10000);
-            if (res && res.needsRedeploy) {
-                webAppTopNeedsRedeploy = true;
-                return false;
-            }
-            if (res && res.ok) {
-                webAppTopNeedsRedeploy = false;
-                const ackList = Array.isArray(res.ackIds) && res.ackIds.length > 0
-                    ? res.ackIds
-                    : batch.map(e => e.id);
-                const ackSet = new Set(ackList);
-                pendingSearchQueue = pendingSearchQueue.filter(e => !ackSet.has(e.id));
-                savePendingSearchQueue();
-
-                if (Array.isArray(res.top)) {
-                    cloudTopEntries = res.top.map(sanitizeTopEntryObj).filter(Boolean);
-                    lastLocalAckAtMs = Date.now();
-                    saveCloudTopEntries();
-                }
-                notifyTopSearchPeers();
-                refreshMainCoverIfChanged();
-
-                if (pendingSearchQueue.length > 0) {
-                    setTimeout(() => { flushPendingSearchesToCloud().catch(() => {}); }, 80);
-                }
-                return true;
-            }
-        } catch (e) {} finally {
-            flushTopInFlight = false;
-        }
-        return false;
-    }
-
-    async function fetchLiveTopSearchedFromCloud() {
-        if (fetchTopInFlight) return;
-        fetchTopInFlight = true;
-        try {
-            if (pendingSearchQueue.length > 0) {
-                const flushed = await flushPendingSearchesToCloud();
-                if (flushed && pendingSearchQueue.length === 0) {
-                    return;
-                }
-            }
-
-            const rows = await fetchSheetCsvRows(TOP_SEARCH_SHEET_NAME, 'range=A1:I500');
-            if (
-                rows &&
-                rows.length >= 1 &&
-                Array.isArray(rows[0]) &&
-                normHeader(rows[0][0]) === 'POSICION' &&
-                normHeader(rows[0][1]) === 'CLAVE_GRUPO' &&
-                normHeader(rows[0][5]) === 'BUSQUEDAS'
-            ) {
-                const parsed = [];
-                for (let i = 1; i < rows.length; i++) {
-                    const r = rows[i];
-                    if (!r || r.length < 6) continue;
-                    const entry = sanitizeTopEntryObj({
-                        gk: r[1],
-                        sku: r[2],
-                        title: r[3],
-                        cat: r[4],
-                        count: r[5],
-                        lastMs: r[6]
-                    });
-                    if (entry) parsed.push(entry);
-                }
-
-                if (Date.now() - lastLocalAckAtMs < 20000 && cloudTopEntries.length > 0) {
-                    const byGk = new Map();
-                    for (let i = 0; i < parsed.length; i++) byGk.set(parsed[i].gk, parsed[i]);
-                    for (let i = 0; i < cloudTopEntries.length; i++) {
-                        const loc = cloudTopEntries[i];
-                        const rem = byGk.get(loc.gk);
-                        if (!rem) {
-                            byGk.set(loc.gk, loc);
-                        } else if (loc.count > rem.count) {
-                            rem.count = loc.count;
-                            rem.lastMs = Math.max(rem.lastMs, loc.lastMs);
-                        }
-                    }
-                    cloudTopEntries = Array.from(byGk.values());
-                } else {
-                    cloudTopEntries = parsed;
-                }
-
-                saveCloudTopEntries();
-                notifyTopSearchPeers();
-                refreshMainCoverIfChanged();
-                return;
-            }
-
-            if (!webAppTopNeedsRedeploy && (Date.now() - lastWebAppTopAttemptMs > 45000)) {
-                lastWebAppTopAttemptMs = Date.now();
-                const res = await callInvWebAppPost('inv_top_searched', {}, 8000);
-                if (res && res.needsRedeploy) {
-                    webAppTopNeedsRedeploy = true;
-                } else if (res && res.ok && Array.isArray(res.top)) {
-                    cloudTopEntries = res.top.map(sanitizeTopEntryObj).filter(Boolean);
-                    saveCloudTopEntries();
-                    notifyTopSearchPeers();
-                    refreshMainCoverIfChanged();
-                }
-            }
-        } catch (e) {} finally {
-            fetchTopInFlight = false;
-        }
+        return withPhotos;
     }
 
     // ------------------------------------------------------------------------
@@ -1239,7 +1163,6 @@
 
         if (isMainCoverActive) {
             filteredGroups = getMainCoverGroups();
-            lastMainCoverSig = computeMainCoverSig(filteredGroups);
         } else if (!rawTrim) {
             filteredGroups = allGroups;
         } else {
@@ -1382,28 +1305,14 @@
         '</div>';
     }
 
-    function bindCardCartControlEvents(ctrlWrapEl, skuRaw, grp, deferOnCover) {
+    function bindCardCartControlEvents(ctrlWrapEl, skuRaw) {
         if (!ctrlWrapEl) return;
         ctrlWrapEl.onclick = function (ev) {
             ev.stopPropagation();
             const actBtn = ev.target && ev.target.closest ? ev.target.closest('[data-cart-act]') : null;
             if (!actBtn) return;
             const act = actBtn.getAttribute('data-cart-act');
-            const defer = !!(deferOnCover && isMainCoverActive);
-            if (defer) {
-                deferCoverRefreshUntilMs = Date.now() + 1800;
-            }
-            if (act === 'sub') {
-                addToCart(skuRaw, -1);
-            } else {
-                addToCart(skuRaw, 1);
-                if (grp) {
-                    recordGroupSearch(grp, skuRaw, defer);
-                }
-            }
-            if (defer) {
-                refreshMainCoverIfChanged();
-            }
+            addToCart(skuRaw, act === 'sub' ? -1 : 1);
         };
     }
 
@@ -1440,14 +1349,12 @@
             if (grp.items.length > 1) {
                 // Listado limpio sin precio afuera (el precio se muestra adentro al abrir el inventario del producto)
                 row.onclick = function () {
-                    const defer = isMainCoverActive;
                     openGroupModal(grp.key);
-                    recordGroupSearch(grp, '', defer);
                 };
                 row.innerHTML =
                     buildThumbHtml(firstPhotoItem(grp.items)) +
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.title) + '</div>' +
+                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
                     '</div>' +
                     '<svg class="w-4 h-4 shrink-0" style="color:#A38251;" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
                         '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 5l7 7-7 7"></path>' +
@@ -1456,20 +1363,18 @@
                 const it = grp.items[0];
                 const skuKey = String(it.s || '').toUpperCase();
                 row.onclick = function () {
-                    const defer = isMainCoverActive;
                     openProductDetail(it.s, false);
-                    recordGroupSearch(grp, it.s, defer);
                 };
                 row.innerHTML =
                     buildThumbHtml(it) +
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
+                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
                         '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
                     buildCardCartControlHtml(skuKey);
 
                 const ctrlWrap = row.querySelector('[data-sku-ctrl]');
-                bindCardCartControlEvents(ctrlWrap, it.s, grp, true);
+                bindCardCartControlEvents(ctrlWrap, it.s);
             }
 
             frag.appendChild(row);
@@ -1485,10 +1390,6 @@
     };
 
     window.clearInvSearch = function () {
-        if (searchInputRecordTimer) {
-            clearTimeout(searchInputRecordTimer);
-            searchInputRecordTimer = null;
-        }
         const inp = document.getElementById('invSearchInput');
         if (inp) {
             inp.value = '';
@@ -1550,10 +1451,7 @@
         applyFilter(code);
         const exact = bySkuMap.get(code.toUpperCase());
         if (exact) {
-            recordSkuSearch(exact.s);
             openProductDetail(exact.s, false);
-        } else if (!isMainCoverActive && filteredGroups.length === 1) {
-            recordGroupSearch(filteredGroups[0]);
         }
     }
 
@@ -1754,7 +1652,7 @@
                     openProductDetail(sku, true);
                 };
                 const ctrlWrap = rowEl.querySelector('[data-sku-ctrl]');
-                bindCardCartControlEvents(ctrlWrap, sku, grp, false);
+                bindCardCartControlEvents(ctrlWrap, sku);
             });
         }
 
@@ -1816,7 +1714,6 @@
         if (modal) modal.classList.remove('open');
         currentDetailItem = null;
         currentGroup = null;
-        refreshMainCoverIfChanged();
     };
 
     function renderDetailModal(it, showGroupBack) {
@@ -2045,7 +1942,7 @@
             if (a.tier !== b.tier) return a.tier - b.tier;
             if (b.hasPhoto !== a.hasPhoto) return b.hasPhoto - a.hasPhoto;
             if (b.stock !== a.stock) return b.stock - a.stock;
-            return String(a.it.n || a.it.s).localeCompare(String(b.it.n || b.it.s));
+            return compareAlphaEs(a.it.n || a.it.s, b.it.n || b.it.s);
         });
 
         return matches;
@@ -2161,15 +2058,13 @@
 
         listEl.querySelectorAll('.inv-row[data-rel-sku]').forEach(rowEl => {
             const sku = rowEl.getAttribute('data-rel-sku');
-            const candIt = bySkuMap.get(String(sku || '').toUpperCase());
-            const candGrp = candIt && groupsByKey.get(candIt._groupKey) ? groupsByKey.get(candIt._groupKey) : null;
             rowEl.onclick = function () {
                 openProductDetail(sku, false);
                 const modalCard = document.querySelector('#productDetailModal > div');
                 if (modalCard) modalCard.scrollTo({ top: 0, behavior: 'smooth' });
             };
             const ctrlWrap = rowEl.querySelector('[data-sku-ctrl]');
-            bindCardCartControlEvents(ctrlWrap, sku, candGrp, false);
+            bindCardCartControlEvents(ctrlWrap, sku);
         });
     }
 
@@ -2693,39 +2588,88 @@
         }
     }
 
-    let liveErpPricesBySku = new Map();
+    let lastErpCatalogSyncMs = 0;
 
     async function loadErpCatalogLiveFromSheet() {
-        const rows = await fetchSheetCsvRows('plantilla', 'range=AA2:AH5500');
-        if (!rows || !rows.length) return;
+        const [rows, h1Rows] = await Promise.all([
+            fetchSheetCsvRows('plantilla', 'range=AA2:AH5500'),
+            fetchSheetCsvRows('1', 'range=A2:D5500').catch(() => null)
+        ]);
         const stores = DEFAULT_ERP_STORES.slice();
         const advisors = [];
         const nextPrices = new Map();
-        for (let i = 0; i < rows.length; i++) {
-            const r = rows[i] || [];
-            const st = cleanStr(r[0]);
-            if (st && stores.indexOf(st) === -1) stores.push(st);
-            const label = cleanStr(r[1]);
-            const branch = cleanStr(r[2]);
-            if (branch && stores.indexOf(branch) === -1) stores.push(branch);
-            const idVal = cleanKeyCellValue(r[3]) || extractErpIdFromLabel(label);
-            if (label && label.toUpperCase() !== 'ASESOR_ERP_ETIQUETA') {
-                advisors.push({
-                    label: label,
-                    branch: branch,
-                    id: idVal,
-                    tokens: normAdvisorTokens(label.split('|')[0])
-                });
-            }
-            const erpSku = cleanStr(r[4]).toUpperCase();
-            if (erpSku && erpSku !== 'SKU_ERP') {
-                const prFmt = formatPrice(r[7]);
-                if (prFmt) nextPrices.set(erpSku, prFmt);
+        const nextErpCatalog = new Map();
+        const nextPhotos = new Map();
+
+        if (Array.isArray(rows)) {
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i] || [];
+                const st = cleanStr(r[0]);
+                if (st && stores.indexOf(st) === -1) stores.push(st);
+                const label = cleanStr(r[1]);
+                const branch = cleanStr(r[2]);
+                if (branch && stores.indexOf(branch) === -1) stores.push(branch);
+                const idVal = cleanKeyCellValue(r[3]) || extractErpIdFromLabel(label);
+                if (label && label.toUpperCase() !== 'ASESOR_ERP_ETIQUETA') {
+                    advisors.push({
+                        label: label,
+                        branch: branch,
+                        id: idVal,
+                        tokens: normAdvisorTokens(label.split('|')[0])
+                    });
+                }
+                const erpSku = cleanStr(r[4]).toUpperCase();
+                if (erpSku && erpSku !== 'SKU_ERP') {
+                    const prFmt = formatPrice(r[7]);
+                    if (prFmt) nextPrices.set(erpSku, prFmt);
+                    const rawAf = cleanStr(r[5]);
+                    const erpMo = (rawAf && !/^\d+$/.test(rawAf) && !/^(ID_PRODUCTO_ERP|MODELO_ERP)$/i.test(rawAf)) ? rawAf : '';
+                    const erpNom = cleanStr(r[6]);
+                    if (erpNom && erpNom.toUpperCase() !== 'NOMBRE_ERP' && !/^DESC[-\s]|DESCONTINUAD/i.test(erpNom)) {
+                        nextErpCatalog.set(erpSku, {
+                            sku: cleanStr(r[4]),
+                            mo: erpMo,
+                            n: erpNom,
+                            pr: prFmt,
+                            f: ''
+                        });
+                    }
+                }
             }
         }
+
+        if (Array.isArray(h1Rows)) {
+            for (let j = 0; j < h1Rows.length; j++) {
+                const hr = h1Rows[j] || [];
+                const hSkuRaw = cleanStr(hr[0]);
+                const hSku = hSkuRaw.toUpperCase();
+                if (!hSku || hSku === 'SKU') continue;
+                const hNom = cleanStr(hr[1]);
+                const hFoto = cleanStr(hr[3]) || (cleanStr(hr[2]).indexOf('http') === 0 ? cleanStr(hr[2]) : '');
+                if (hFoto) nextPhotos.set(hSku, hFoto);
+                if (hNom && /^DESC[-\s]|DESCONTINUAD/i.test(hNom)) continue;
+                const prevEntry = nextErpCatalog.get(hSku);
+                if (prevEntry) {
+                    if (!prevEntry.n && hNom) prevEntry.n = hNom;
+                    if (hFoto) prevEntry.f = hFoto;
+                } else if (hNom || hFoto) {
+                    nextErpCatalog.set(hSku, {
+                        sku: hSkuRaw,
+                        mo: '',
+                        n: hNom || hSkuRaw,
+                        pr: nextPrices.get(hSku) || '',
+                        f: hFoto
+                    });
+                }
+            }
+        }
+
         if (stores.length > 0) erpStoresCatalog = stores;
         if (advisors.length > 0) erpAdvisorsCatalog = advisors;
         if (nextPrices.size > 0) liveErpPricesBySku = nextPrices;
+        if (nextPhotos.size > 0) livePhotosBySku = nextPhotos;
+        if (nextErpCatalog.size > 0) liveErpCatalogBySku = nextErpCatalog;
+        lastErpCatalogSyncMs = Date.now();
     }
 
     async function fetchAllAdvisorRowsLiveGviz() {
@@ -3090,7 +3034,6 @@
         if (modal) modal.classList.remove('open');
         renderAdvisorHeaderBar();
         refreshMyLiveQuotesInfo();
-        fetchLiveTopSearchedFromCloud().catch(() => {});
 
         if (pendingQuoteRetrySendToErp !== null) {
             const retrySendFlag = pendingQuoteRetrySendToErp;
@@ -4000,7 +3943,6 @@
 
     window.closeCartModal = function () {
         document.getElementById('cartModal').classList.remove('open');
-        refreshMainCoverIfChanged();
     };
 
     window.clearCart = function () {
@@ -4604,7 +4546,6 @@
             const val = String(document.activeElement.value || '').trim();
             if (val) {
                 if (openProductDetail(val, false)) {
-                    recordSkuSearch(val);
                     ev.preventDefault();
                     document.activeElement.select();
                     return;
@@ -4612,7 +4553,6 @@
                 if (filteredGroups.length === 1) {
                     ev.preventDefault();
                     const g = filteredGroups[0];
-                    recordGroupSearch(g);
                     if (g.items.length > 1) openGroupModal(g.key);
                     else openProductDetail(g.items[0].s, false);
                     return;
@@ -4636,11 +4576,8 @@
                 const inp = document.getElementById('invSearchInput');
                 if (inp) inp.value = code;
                 applyFilter(code);
-                if (openProductDetail(code, false)) {
-                    recordSkuSearch(code);
-                } else if (filteredGroups.length === 1) {
+                if (!openProductDetail(code, false) && filteredGroups.length === 1) {
                     const g = filteredGroups[0];
-                    recordGroupSearch(g);
                     if (g.items.length > 1) openGroupModal(g.key);
                     else openProductDetail(g.items[0].s, false);
                 }
@@ -4941,12 +4878,14 @@
         const whCols = WAREHOUSES.map(wh => resolveWarehouseCol(wh));
 
         const liveItems = [];
+        const seenLiveSkus = new Set();
 
         for (let i = startRowIdx; i < table.rows.length; i++) {
             const rowCells = (table.rows[i] && table.rows[i].c) || [];
             const sku = cleanStr(gvizCellRaw(rowCells, colSku));
             if (!sku || sku.toUpperCase() === 'SKU') continue;
             const skuUpper = sku.toUpperCase();
+            seenLiveSkus.add(skuUpper);
             const prevIt = bySkuMap.get(skuUpper);
 
             const st = new Array(WAREHOUSES.length);
@@ -4995,7 +4934,48 @@
             }, prevIt));
         }
 
+        // Si existe un producto nuevo en el catálogo ERP de S Mueblería (plantilla!AE:AH) que aún no está en INVENTARIO_EN_VIVO, agregarlo y completarlo en automático
+        if (liveErpCatalogBySku.size > 0) {
+            rebuildLiveAutoVocab(liveItems);
+            liveErpCatalogBySku.forEach((erpMeta, skuUpper) => {
+                if (!skuUpper || seenLiveSkus.has(skuUpper)) return;
+                seenLiveSkus.add(skuUpper);
+                const prevIt = bySkuMap.get(skuUpper) || null;
+                const st = emptyStocks();
+                const lpptInfo = computeLpptAndLeadTime(skuUpper, '', 0, '', prevIt);
+                if (isLpptWarehouse(WAREHOUSES[0])) {
+                    st[0] = lpptInfo.lpptQty;
+                }
+                liveItems.push(normalizeInventoryItemLive({
+                    s: erpMeta.sku || skuUpper,
+                    tp: (prevIt && prevIt.tp) || '',
+                    mo: (erpMeta && erpMeta.mo) || (prevIt && prevIt.mo) || '',
+                    n: (erpMeta && erpMeta.n) || (prevIt && prevIt.n) || skuUpper,
+                    vr: (prevIt && prevIt.vr) || '',
+                    f: (erpMeta && erpMeta.f) || (prevIt && prevIt.f) || '',
+                    c: (prevIt && prevIt.c) || '',
+                    tl: (prevIt && prevIt.tl) || '',
+                    ct: (prevIt && prevIt.ct) || '',
+                    md: (prevIt && prevIt.md) || '',
+                    cm: (prevIt && prevIt.cm) || '',
+                    mt: (prevIt && prevIt.mt) || '',
+                    m: (prevIt && prevIt.m) || '',
+                    p: (prevIt && prevIt.p) || '',
+                    pr: formatPrice(erpMeta && erpMeta.pr) || (prevIt && formatPrice(prevIt.pr)) || '',
+                    lt: lpptInfo.lt,
+                    baseLt: lpptInfo.baseLt,
+                    fe: lpptInfo.fe,
+                    st: st
+                }, prevIt));
+            });
+        }
+
         if (liveItems.length === 0) return false;
+
+        liveItems.sort((a, b) =>
+            compareAlphaEs(a.n || a.s, b.n || b.s) ||
+            String(a.s || '').localeCompare(String(b.s || ''))
+        );
 
         const nextSig = computeItemsSignature(liveItems);
         if (nextSig !== lastLiveSignature) {
@@ -5103,7 +5083,9 @@
         liveSyncInFlight = true;
         try {
             syncPendingKeyUpdatesToCloud().catch(() => {});
-            fetchLiveTopSearchedFromCloud().catch(() => {});
+            if (Date.now() - lastErpCatalogSyncMs > 60000) {
+                await loadErpCatalogLiveFromSheet().catch(() => {});
+            }
             await fetchLiveLpptOrders();
             let ok = false;
             if (META.gid != null) {
@@ -5170,21 +5152,58 @@
     document.addEventListener('DOMContentLoaded', async function () {
         openAuthModalForStartup();
         loadErpCatalogLiveFromSheet().then(() => {
-            if (liveErpPricesBySku.size > 0 && Array.isArray(allItems) && allItems.length > 0) {
-                let updatedAnyPrice = false;
+            if ((liveErpPricesBySku.size > 0 || liveErpCatalogBySku.size > 0 || livePhotosBySku.size > 0) && Array.isArray(allItems) && allItems.length > 0) {
+                let updatedCatalog = false;
+                const existingSkus = new Set();
                 for (let i = 0; i < allItems.length; i++) {
                     const it = allItems[i];
-                    if (it && !it.pr && it.s) {
-                        const livePr = liveErpPricesBySku.get(String(it.s).toUpperCase());
+                    if (!it || !it.s) continue;
+                    const skuU = String(it.s).toUpperCase();
+                    existingSkus.add(skuU);
+                    if (!it.pr) {
+                        const livePr = liveErpPricesBySku.get(skuU);
                         if (livePr) {
                             it.pr = livePr;
-                            updatedAnyPrice = true;
+                            updatedCatalog = true;
                         }
                     }
+                    if (!it.f && livePhotosBySku.has(skuU)) {
+                        it.f = livePhotosBySku.get(skuU);
+                        updatedCatalog = true;
+                    }
                 }
-                if (updatedAnyPrice) {
-                    lastLiveSignature = computeItemsSignature(allItems);
+                liveErpCatalogBySku.forEach((erpMeta, skuU) => {
+                    if (!skuU || existingSkus.has(skuU)) return;
+                    existingSkus.add(skuU);
+                    const st = emptyStocks();
+                    const lpptInfo = computeLpptAndLeadTime(skuU, '', 0, '', null);
+                    if (isLpptWarehouse(WAREHOUSES[0])) st[0] = lpptInfo.lpptQty;
+                    allItems.push(normalizeInventoryItemLive({
+                        s: erpMeta.sku || skuU,
+                        tp: '',
+                        mo: erpMeta.mo || '',
+                        n: erpMeta.n || skuU,
+                        vr: '',
+                        f: erpMeta.f || '',
+                        c: '',
+                        tl: '',
+                        ct: '',
+                        md: '',
+                        cm: '',
+                        mt: '',
+                        m: '',
+                        p: '',
+                        pr: formatPrice(erpMeta.pr) || '',
+                        lt: lpptInfo.lt,
+                        baseLt: lpptInfo.baseLt,
+                        fe: lpptInfo.fe,
+                        st: st
+                    }, null));
+                    updatedCatalog = true;
+                });
+                if (updatedCatalog) {
                     indexItemsAndGroups();
+                    lastLiveSignature = computeItemsSignature(allItems);
                     const curInp = document.getElementById('invSearchInput');
                     applyFilter(curInp ? curInp.value : '', true);
                 }
@@ -5205,15 +5224,13 @@
         });
 
         await unpackInitialInventoryIfNeeded();
-        lastLiveSignature = computeItemsSignature(allItems);
         indexItemsAndGroups();
-        initTopSearchedSync();
+        lastLiveSignature = computeItemsSignature(allItems);
         updateCartBadge();
         const inp = document.getElementById('invSearchInput');
         if (inp) {
             inp.addEventListener('input', function () {
                 applyFilter(this.value);
-                scheduleSearchQueryRecord(this.value);
             });
             if (activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
                 inp.focus();
@@ -5228,23 +5245,6 @@
         }, 12000);
         window.addEventListener('focus', refreshLiveSheetNow);
         window.addEventListener('online', refreshLiveSheetNow);
-        window.addEventListener('pagehide', function () {
-            if (pendingSearchQueue.length > 0 && navigator && typeof navigator.sendBeacon === 'function' && !webAppTopNeedsRedeploy) {
-                try {
-                    const cfgUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
-                        ? window.CREATA_CLOUD_CONFIG.getApiUrl()
-                        : '';
-                    const apiUrl = cfgUrl || CANONICAL_WEBAPP_URL;
-                    if (apiUrl) {
-                        const blob = new Blob(
-                            [JSON.stringify({ action: 'inv_record_search', events: pendingSearchQueue.slice(0, 50) })],
-                            { type: 'text/plain;charset=utf-8' }
-                        );
-                        navigator.sendBeacon(apiUrl, blob);
-                    }
-                } catch (e) {}
-            }
-        });
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') {
                 refreshLiveSheetNow();
