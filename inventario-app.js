@@ -2404,11 +2404,14 @@
         }
     }
 
+    let liveErpPricesBySku = new Map();
+
     async function loadErpCatalogLiveFromSheet() {
-        const rows = await fetchSheetCsvRows('plantilla', 'range=AA2:AD200');
+        const rows = await fetchSheetCsvRows('plantilla', 'range=AA2:AH5500');
         if (!rows || !rows.length) return;
         const stores = DEFAULT_ERP_STORES.slice();
         const advisors = [];
+        const nextPrices = new Map();
         for (let i = 0; i < rows.length; i++) {
             const r = rows[i] || [];
             const st = cleanStr(r[0]);
@@ -2425,9 +2428,15 @@
                     tokens: normAdvisorTokens(label.split('|')[0])
                 });
             }
+            const erpSku = cleanStr(r[4]).toUpperCase();
+            if (erpSku && erpSku !== 'SKU_ERP') {
+                const prFmt = formatPrice(r[7]);
+                if (prFmt) nextPrices.set(erpSku, prFmt);
+            }
         }
         if (stores.length > 0) erpStoresCatalog = stores;
         if (advisors.length > 0) erpAdvisorsCatalog = advisors;
+        if (nextPrices.size > 0) liveErpPricesBySku = nextPrices;
     }
 
     async function fetchAllAdvisorRowsLiveGviz() {
@@ -4630,7 +4639,7 @@
         const colMat = findCol('MATERIALES');
         const colMed = findCol('MEDIDAS');
         const colProv = findCol('PROVEEDOR');
-        const colPrecio = findCol('PRECIO');
+        const colPrecio = findCol(['PRECIO DE LISTA', 'PRECIO LISTA', 'PRECIO']);
         const colLt = findCol(['TIEMPO DE ENTREGA (DIAS)', 'TIEMPO DE ENTREGA']);
         const colFe = findCol(['FECHA ESTIMADA DE LLEGADA', 'FECHA ESTIMADA']);
         const whCols = WAREHOUSES.map(wh => resolveWarehouseCol(wh));
@@ -4660,8 +4669,12 @@
                 st[0] = lpptInfo.lpptQty;
             }
 
-            const rawPr = colPrecio !== -1 ? gvizCellFormatted(rowCells, colPrecio) : '';
-            const prFormatted = formatPrice(rawPr) || (prevIt && formatPrice(prevIt.pr)) || '';
+            const rawPrCell = colPrecio !== -1 ? gvizCellRaw(rowCells, colPrecio) : '';
+            const rawPr = (rawPrCell !== '' && rawPrCell !== null && rawPrCell !== undefined)
+                ? rawPrCell
+                : (colPrecio !== -1 ? gvizCellFormatted(rowCells, colPrecio) : '');
+            const erpFallbackPr = liveErpPricesBySku.get(skuUpper) || '';
+            const prFormatted = formatPrice(rawPr) || formatPrice(erpFallbackPr) || (prevIt && formatPrice(prevIt.pr)) || '';
 
             liveItems.push({
                 s: sku,
@@ -4861,6 +4874,25 @@
     document.addEventListener('DOMContentLoaded', async function () {
         openAuthModalForStartup();
         loadErpCatalogLiveFromSheet().then(() => {
+            if (liveErpPricesBySku.size > 0 && Array.isArray(allItems) && allItems.length > 0) {
+                let updatedAnyPrice = false;
+                for (let i = 0; i < allItems.length; i++) {
+                    const it = allItems[i];
+                    if (it && !it.pr && it.s) {
+                        const livePr = liveErpPricesBySku.get(String(it.s).toUpperCase());
+                        if (livePr) {
+                            it.pr = livePr;
+                            updatedAnyPrice = true;
+                        }
+                    }
+                }
+                if (updatedAnyPrice) {
+                    lastLiveSignature = computeItemsSignature(allItems);
+                    indexItemsAndGroups();
+                    const curInp = document.getElementById('invSearchInput');
+                    applyFilter(curInp ? curInp.value : '', true);
+                }
+            }
             if (activeAdvisorSession) {
                 if (!activeAdvisorSession.erpAdvisorLabel && erpAdvisorsCatalog.length > 0) {
                     const matched = matchBestErpAdvisorClient(activeAdvisorSession.nombre, activeAdvisorSession.erpStore, erpAdvisorsCatalog);

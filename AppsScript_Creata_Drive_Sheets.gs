@@ -51,6 +51,7 @@ function onOpen() {
       .addItem('6. Activar Sincronización S Mueblería 24/7 (Cada 5 min)', 'instalarTriggerErpEnVivo')
       .addSeparator()
       .addItem('7. Organizar Cuentas, Contraseñas Temporales y Columna Descuento', 'organizarCuentasYDescuentosEnHojas')
+      .addItem('8. Agregar / Actualizar Columna PRECIO DE LISTA (Cotizador)', 'agregarColumnaPrecioListaInventario')
       .addToUi();
   } catch (e) {}
 }
@@ -805,9 +806,19 @@ function doGet(e) {
         sincronizarPestanaInventarioEnVivo({ silentUi: true });
         shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
       }
+      asegurarColumnaPrecioListaInventario_(ss, { silentUi: true });
       const rawRows = shInv ? shInv.getDataRange().getValues() : [];
       const rows = rawRows.filter((r, idx) => idx === 0 || String((r && r[0]) || '').trim() !== '');
       return jsonResponse_({ ok: true, tab: CONFIG.TAB_INVENTORY, rows: rows });
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  if (action === 'inv_ensure_precio_lista') {
+    try {
+      const resCol = asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true, force: true });
+      return jsonResponse_(Object.assign({ ok: true, action: 'inv_ensure_precio_lista' }, resCol));
     } catch (err) {
       return jsonResponse_({ ok: false, error: err.message || String(err) });
     }
@@ -902,6 +913,10 @@ function doPost(e) {
     }
     if (action === 'inv_top_searched') {
       return jsonResponse_(handleInvTopSearched_());
+    }
+    if (action === 'inv_ensure_precio_lista') {
+      const resCol = asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true, force: true });
+      return jsonResponse_(Object.assign({ ok: true }, resCol));
     }
     if (action === 'inv_erp_sync_now') {
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
@@ -4776,6 +4791,7 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     shInv.getRange(1, 15, 1, 34).setValues([headersOAv]);
     shInv.getRange(2, 15, 1, 34).setValues([heartbeatRow]);
     shInv.getRange(3, 15, outMatrix.length, 34).setValues(outMatrix);
+    asegurarColumnaPrecioListaInventario_(ss, { silentUi: true });
 
     if (!silentUi) {
       try {
@@ -4792,6 +4808,112 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Agrega / actualiza la columna "PRECIO DE LISTA" en INVENTARIO_EN_VIVO (Columna AW = 49,
+ * justo después de AV "ULTIMA ACTUALIZACION EN VIVO") vinculada por ARRAYFORMULA + XLOOKUP
+ * a la lista oficial de precios de S Mueblería (plantilla!AE2:AH), sin desplazar A..AV (1..48)
+ * ni alterar F2, sincronizador_inventario_vivo.py ni las hojas del Catálogo.
+ */
+function agregarColumnaPrecioListaInventario() {
+  return asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: false, force: true });
+}
+
+function asegurarColumnaPrecioListaInventario_(ss, opts) {
+  const silentUi = !opts || opts.silentUi !== false;
+  const force = !!(opts && opts.force);
+  const cacheKey = 'inv_precio_lista_col_ready_v1';
+
+  if (!force) {
+    try {
+      const c = CacheService.getScriptCache();
+      if (c && c.get(cacheKey) === '1') {
+        return { ok: true, alreadyReady: true, cached: true };
+      }
+    } catch (ce) {}
+  }
+
+  const book = ss || getSpreadsheet_();
+  const shInv = book.getSheetByName(CONFIG.TAB_INVENTORY);
+  if (!shInv || shInv.getLastRow() < 2) {
+    return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no encontrada.' };
+  }
+
+  // Columnas 1..48 (A..AV) están reservadas para atributos curados (A..N, incluyendo F2 ARRAYFORMULA)
+  // y existencias dinámicas (O..AV). Colocamos PRECIO DE LISTA en AW (col 49) o reutilizamos si ya existe en >= 49.
+  const maxColsNow = shInv.getMaxColumns();
+  let targetCol = 49; // AW
+  if (maxColsNow >= 49) {
+    const hdrTail = shInv.getRange(1, 49, 1, maxColsNow - 48).getDisplayValues()[0] || [];
+    for (let k = 0; k < hdrTail.length; k++) {
+      const normH = normPlainUpper_(hdrTail[k]);
+      if (normH === 'PRECIO DE LISTA' || normH === 'PRECIO LISTA') {
+        targetCol = 49 + k;
+        break;
+      }
+    }
+  }
+
+  if (shInv.getMaxColumns() < targetCol) {
+    shInv.insertColumnsAfter(shInv.getMaxColumns(), targetCol - shInv.getMaxColumns());
+  }
+
+  const formulaStr = '=ARRAYFORMULA(IF($A$2:$A="","",IFERROR(XLOOKUP(TRIM($A$2:$A),plantilla!$AE$2:$AE,plantilla!$AH$2:$AH,"",0),"")))';
+
+  if (!force) {
+    const curHdr = normPlainUpper_(shInv.getRange(1, targetCol).getDisplayValue());
+    const curFormula = String(shInv.getRange(2, targetCol).getFormula() || '').trim();
+    if (curHdr === 'PRECIO DE LISTA' && /^=ARRAYFORMULA/i.test(curFormula)) {
+      try {
+        CacheService.getScriptCache().put(cacheKey, '1', 21600);
+      } catch (ce) {}
+      return { ok: true, alreadyReady: true, column: targetCol, columnLetter: 'AW' };
+    }
+  }
+
+  const maxRows = Math.max(shInv.getMaxRows(), shInv.getLastRow(), 3);
+  if (maxRows >= 2) {
+    shInv.getRange(2, targetCol, maxRows - 1, 1).clearContent();
+  }
+
+  shInv.getRange(1, targetCol)
+    .setValue('PRECIO DE LISTA')
+    .setBackground('#A38251')
+    .setFontColor('#FFFFFF')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+
+  shInv.setColumnWidth(targetCol, 145);
+  shInv.getRange(2, targetCol).setFormula(formulaStr);
+
+  if (maxRows >= 3) {
+    shInv.getRange(3, targetCol, maxRows - 2, 1)
+      .setNumberFormat('$#,##0.00')
+      .setHorizontalAlignment('right');
+  }
+
+  SpreadsheetApp.flush();
+
+  try {
+    CacheService.getScriptCache().put(cacheKey, '1', 21600);
+  } catch (ce) {}
+
+  if (!silentUi) {
+    try {
+      SpreadsheetApp.getUi().alert(
+        'Columna "PRECIO DE LISTA" agregada y vinculada en vivo en INVENTARIO_EN_VIVO (Columna AW) sin afectar el resto del documento.'
+      );
+    } catch (e) {}
+  }
+
+  return {
+    ok: true,
+    column: targetCol,
+    columnLetter: targetCol === 49 ? 'AW' : String(targetCol),
+    header: 'PRECIO DE LISTA'
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -4908,6 +5030,9 @@ function sortTopSearchedEntries_(byGk) {
 
 function handleInvTopSearched_() {
   const ss = getSpreadsheet_();
+  try {
+    asegurarColumnaPrecioListaInventario_(ss, { silentUi: true });
+  } catch (eCol) {}
   const sh = ss.getSheetByName(TAB_TOP_SEARCHED_);
   if (!sh || sh.getLastRow() < 2) {
     return { ok: true, updatedAtMs: Date.now(), top: [] };
