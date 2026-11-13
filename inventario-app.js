@@ -323,7 +323,7 @@
         const fid = extractDriveFileId(it.f);
         const small = fid ? ('https://lh3.googleusercontent.com/d/' + fid + '=w400') : url;
         const fallback = fid ? ('https://drive.google.com/thumbnail?id=' + fid + '&sz=w400') : '';
-        return '<div class="inv-thumb"><img loading="lazy" alt="" src="' + escapeHtml(small) + '" ' +
+        return '<div class="inv-thumb"><img loading="lazy" decoding="async" alt="" src="' + escapeHtml(small) + '" ' +
             'data-fb="' + escapeHtml(fallback) + '" ' +
             'onerror="if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=\'\';}else{this.parentNode.innerHTML=window.__INV_THUMB_PH||\'\';}"></div>';
     }
@@ -532,7 +532,7 @@
 
     function saveCloudTopEntries() {
         try {
-            localStorage.setItem(TOP_CLOUD_CACHE_KEY, JSON.stringify(cloudTopEntries.slice(0, 120)));
+            localStorage.setItem(TOP_CLOUD_CACHE_KEY, JSON.stringify(cloudTopEntries.slice(0, 500)));
         } catch (e) {}
     }
 
@@ -615,7 +615,7 @@
     }
 
     function getTopSearchedGroups(limit) {
-        const cap = (typeof limit === 'number' && limit > 0) ? limit : TOP_SEARCH_LIMIT;
+        const cap = (typeof limit === 'number' && limit > 0) ? limit : Math.max(500, allGroups.length);
         const agg = new Map();
 
         for (let i = 0; i < cloudTopEntries.length; i++) {
@@ -658,13 +658,20 @@
         return ranked.slice(0, cap).map(x => x.grp);
     }
 
-    function getMainCoverGroups(limit) {
-        const cap = (typeof limit === 'number' && limit > 0) ? limit : TOP_SEARCH_LIMIT;
-        const ranked = getTopSearchedGroups(cap);
-        if (ranked.length >= cap) return ranked.slice(0, cap);
+    // Portada principal: TODOS los productos que tienen fotografía, conservando el orden
+    // (1° más buscados con foto, 2° con foto + stock físico y título limpio, 3° con foto + stock físico, 4° resto con foto)
+    function getMainCoverGroups() {
+        const out = [];
+        const seen = new Set();
 
-        const out = ranked.slice();
-        const seen = new Set(out.map(g => g.key));
+        const ranked = getTopSearchedGroups(Math.max(500, allGroups.length));
+        for (let i = 0; i < ranked.length; i++) {
+            const g = ranked[i];
+            if (!g || seen.has(g.key)) continue;
+            if (!firstPhotoItem(g.items)) continue;
+            seen.add(g.key);
+            out.push(g);
+        }
 
         const hasStock = function (grp) {
             for (let i = 0; i < grp.items.length; i++) {
@@ -674,7 +681,7 @@
         };
 
         // Nivel 1: modelos con foto, stock físico disponible y título limpio (sin clave numérica inicial)
-        for (let i = 0; i < allGroups.length && out.length < cap; i++) {
+        for (let i = 0; i < allGroups.length; i++) {
             const g = allGroups[i];
             if (seen.has(g.key)) continue;
             if (!firstPhotoItem(g.items) || !hasStock(g) || /^\d/.test(String(g.title || ''))) continue;
@@ -683,7 +690,7 @@
         }
 
         // Nivel 2: cualquier modelo con foto y stock físico disponible
-        for (let i = 0; i < allGroups.length && out.length < cap; i++) {
+        for (let i = 0; i < allGroups.length; i++) {
             const g = allGroups[i];
             if (seen.has(g.key)) continue;
             if (!firstPhotoItem(g.items) || !hasStock(g)) continue;
@@ -691,8 +698,8 @@
             out.push(g);
         }
 
-        // Nivel 3: cualquier modelo con foto
-        for (let i = 0; i < allGroups.length && out.length < cap; i++) {
+        // Nivel 3: todos los demás modelos que tienen foto
+        for (let i = 0; i < allGroups.length; i++) {
             const g = allGroups[i];
             if (seen.has(g.key)) continue;
             if (!firstPhotoItem(g.items)) continue;
@@ -700,15 +707,11 @@
             out.push(g);
         }
 
-        // Nivel 4: respaldo general del catálogo hasta completar los 50 lugares
-        for (let i = 0; i < allGroups.length && out.length < cap; i++) {
-            const g = allGroups[i];
-            if (seen.has(g.key)) continue;
-            seen.add(g.key);
-            out.push(g);
+        if (out.length === 0) {
+            return allGroups.slice(0, PAGE_SIZE);
         }
 
-        return out.slice(0, cap);
+        return out;
     }
 
     function computeMainCoverSig(groups) {
@@ -733,10 +736,10 @@
             return;
         }
 
-        const nextCover = getMainCoverGroups(TOP_SEARCH_LIMIT);
+        const nextCover = getMainCoverGroups();
         const nextSig = computeMainCoverSig(nextCover);
         if (nextSig !== lastMainCoverSig) {
-            applyFilter('', false);
+            applyFilter('', true);
         }
     }
 
@@ -870,7 +873,7 @@
                 }
             }
 
-            const rows = await fetchSheetCsvRows(TOP_SEARCH_SHEET_NAME, 'range=A1:I120');
+            const rows = await fetchSheetCsvRows(TOP_SEARCH_SHEET_NAME, 'range=A1:I500');
             if (
                 rows &&
                 rows.length >= 1 &&
@@ -946,7 +949,7 @@
         isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
 
         if (isMainCoverActive) {
-            filteredGroups = getMainCoverGroups(TOP_SEARCH_LIMIT);
+            filteredGroups = getMainCoverGroups();
             lastMainCoverSig = computeMainCoverSig(filteredGroups);
         } else if (!rawTrim) {
             filteredGroups = allGroups;
@@ -1005,7 +1008,7 @@
         renderCategoryBar();
 
         const targetInitial = isMainCoverActive
-            ? TOP_SEARCH_LIMIT
+            ? filteredGroups.length
             : (preserveCount ? Math.max(PAGE_SIZE, renderedCount) : PAGE_SIZE);
         renderedCount = 0;
         const container = document.getElementById('invListContainer');
@@ -1120,9 +1123,7 @@
         const moreWrap = document.getElementById('invLoadMoreWrap');
         if (!container) return;
 
-        const maxAllowed = isMainCoverActive
-            ? Math.min(filteredGroups.length, TOP_SEARCH_LIMIT)
-            : filteredGroups.length;
+        const maxAllowed = filteredGroups.length;
 
         if (maxAllowed === 0) {
             if (isMainCoverActive) {
@@ -1189,7 +1190,7 @@
         renderedCount = nextEnd;
 
         if (moreWrap) {
-            if (!isMainCoverActive && renderedCount < maxAllowed) moreWrap.classList.remove('hidden');
+            if (renderedCount < maxAllowed) moreWrap.classList.remove('hidden');
             else moreWrap.classList.add('hidden');
         }
     };
