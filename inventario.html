@@ -248,50 +248,58 @@
         </div>
     </div>
 
-    <!-- MODAL DE PLANTILLA DE COTIZACIÓN · VINCULADA AL SISTEMA -->
+    <!-- MODAL DE PLANTILLA DE COTIZACIÓN · VINCULADA EN VIVO A S MUEBLERÍA -->
     <div id="cartModal" class="modal-backdrop" onclick="if(event.target===this) closeCartModal()">
         <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-4 border-b flex items-center justify-between gap-3" style="background:#252C32; color:#FFFFFF;">
                 <div class="min-w-0">
-                    <h2 class="text-sm sm:text-base font-extrabold uppercase tracking-wider">Plantilla de Cotización</h2>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h2 id="quoteModalTitle" class="text-sm sm:text-base font-extrabold uppercase tracking-wider">Cotización en Vivo · S Mueblería</h2>
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider"
+                              style="background:rgba(16,185,129,0.2); color:#6EE7B7; border:1px solid rgba(110,231,183,0.35);">
+                            <span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#10B981;"></span>
+                            En Vivo
+                        </span>
+                    </div>
                     <div id="quoteHeaderAdvisorInfo" class="text-[11px] font-semibold truncate mt-0.5" style="color:#E1DBC5;"></div>
                 </div>
                 <button type="button" onclick="closeCartModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0">✕</button>
             </div>
 
             <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-                <!-- SECCIÓN 1: CUENTA DE USUARIO DEL SISTEMA Y UBICACIÓN -->
+                <!-- SECCIÓN 1: CUENTA EXCLUSIVA BLOQUEADA AL CORREO Y ORDEN POR SUCURSAL / PROYECTO -->
                 <div class="rounded-xl border p-3.5 space-y-3" style="border-color:#E1DBC5; background:#FAF9F6;">
-                    <div class="flex items-center justify-between gap-2">
-                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">1. Cuenta de Usuario y Sucursal del Sistema</span>
-                        <span id="quoteErpUserIdBadge" class="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full" style="background:#252C32; color:#FFFFFF;"></span>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">
+                            1. Cuenta Exclusiva y Orden de Cotización (Bloqueada a tu Correo)
+                        </span>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span id="quoteOriginTypeBadge" class="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full"
+                                  style="background:#A38251; color:#FFFFFF;">SUCURSAL</span>
+                            <span id="quoteNextOrderBadge" class="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border"
+                                  style="border-color:#A38251; background:#FFFFFF; color:#252C32;">Orden: ---</span>
+                            <span id="quoteErpUserIdBadge" class="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full"
+                                  style="background:#252C32; color:#FFFFFF;"></span>
+                        </div>
                     </div>
+
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        <div>
-                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Tienda / Sucursal</label>
-                            <select id="quoteErpStoreSelect" onchange="onQuoteStoreChange()"
-                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
-                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
-                                <option value="CREATA PUERTO CANCUN">CREATA PUERTO CANCUN</option>
-                                <option value="CASA CREATA BONAMPAK">CASA CREATA BONAMPAK</option>
-                                <option value="CREATA LIVING COLOSIO">CREATA LIVING COLOSIO</option>
-                                <option value="CREATA LIVING PLAYA">CREATA LIVING PLAYA</option>
-                                <option value="OUTLET COLOSIO">OUTLET COLOSIO</option>
-                                <option value="PROYECTOS ANIPA INTERIOR">PROYECTOS ANIPA INTERIOR</option>
-                                <option value="CEDIS">CEDIS</option>
-                            </select>
+                        <div class="rounded-lg border px-3 py-2" style="border-color:#E1DBC5; background:#FFFFFF;">
+                            <div id="quoteLockedStoreLabel" class="text-[10px] font-extrabold uppercase opacity-70" style="color:#252C32;">Sucursal Asignada</div>
+                            <div id="quoteLockedStoreText" class="text-xs font-extrabold uppercase mt-0.5 truncate" style="color:#252C32;">—</div>
                         </div>
-                        <div class="sm:col-span-2">
-                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Usuario / Asesor Sistema (S Mueblería)</label>
-                            <select id="quoteErpAdvisorSelect" onchange="onQuoteAdvisorChange()"
-                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
-                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
-                            </select>
+                        <div class="sm:col-span-2 rounded-lg border px-3 py-2" style="border-color:#E1DBC5; background:#FFFFFF;">
+                            <div class="text-[10px] font-extrabold uppercase opacity-70" style="color:#252C32;">Usuario Exclusivo en S Mueblería</div>
+                            <div id="quoteLockedAdvisorText" class="text-xs font-extrabold mt-0.5 truncate" style="color:#252C32;">—</div>
                         </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold pt-0.5" style="color:#252C32;">
+                        <span id="quoteLockedEmailText" class="truncate opacity-85"></span>
                     </div>
                 </div>
 
-                <!-- SECCIÓN 2: DATOS DEL CLIENTE Y CONDICIONES DE LA COTIZACIÓN -->
+                <!-- SECCIÓN 2: DATOS DEL CLIENTE / PROYECTO Y CONDICIONES -->
                 <div class="rounded-xl border p-3.5 space-y-3" style="border-color:#E8E4DE; background:#FFFFFF;">
                     <div class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">2. Datos Necesarios para la Cotización</div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -316,7 +324,7 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Nombre del Cliente / Prospecto *</label>
+                            <label id="quoteClientNameLabel" class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Nombre del Cliente / Prospecto *</label>
                             <input id="quoteClientNameInput" type="text" oninput="saveQuoteDraftMeta()"
                                    placeholder="Nombre completo o proyecto..."
                                    class="w-full rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
@@ -350,7 +358,7 @@
                 <!-- SECCIÓN 3: PARTIDAS SELECCIONADAS -->
                 <div class="space-y-2">
                     <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">3. Productos en la Cotización (Máx. 15 partidas en plantilla)</span>
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">3. Productos en la Cotización (Máx. 15 partidas)</span>
                         <span id="quoteItemsCountLabel" class="text-[11px] font-bold" style="color:#252C32;">0 partidas</span>
                     </div>
                     <div id="cartItemsContainer" class="space-y-2"></div>
@@ -378,8 +386,17 @@
                     </div>
                 </div>
 
-                <!-- ESTADO DE ENVÍO AL SISTEMA / HOJA PLANTILLA -->
+                <!-- ESTADO EN VIVO DE ENVÍO A S MUEBLERÍA -->
                 <div id="quoteSystemStatusBox" class="hidden rounded-xl border p-3.5 text-xs space-y-1.5"></div>
+
+                <!-- MIS COTIZACIONES RECIENTES EN VIVO (EXCLUSIVAS DE ESTE CORREO) -->
+                <div id="quoteMyRecentWrap" class="hidden rounded-xl border p-3.5 space-y-2" style="border-color:#E8E4DE; background:#FAF9F6;">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">Mis Cotizaciones Enviadas a S Mueblería</span>
+                        <span class="text-[10px] font-bold uppercase" style="color:#A38251;">En Vivo</span>
+                    </div>
+                    <div id="quoteMyRecentList" class="space-y-1.5"></div>
+                </div>
             </div>
 
             <div class="p-4 border-t flex flex-wrap items-center justify-between gap-2" style="border-color:#E8E4DE; background:#FFFFFF;">
@@ -396,14 +413,14 @@
                 </div>
                 <div class="flex flex-wrap items-center gap-2 ml-auto">
                     <button type="button" id="btnLoadPlantillaReview" onclick="submitQuoteToSystem(false)"
-                            class="px-3.5 py-2 rounded-lg text-xs font-extrabold uppercase tracking-wider border transition"
-                            style="border-color:#252C32; background:#252C32; color:#FFFFFF;">
-                        Cargar en Plantilla
+                            class="px-3 py-2 rounded-lg text-xs font-bold border transition"
+                            style="border-color:#252C32; background:#FFFFFF; color:#252C32;">
+                        Solo Revisar en Hoja
                     </button>
                     <button type="button" id="btnSendQuoteErp" onclick="submitQuoteToSystem(true)"
-                            class="px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-wider transition"
+                            class="px-4 py-2.5 rounded-lg text-xs font-extrabold uppercase tracking-wider transition shadow-sm"
                             style="background:#A38251; color:#FFFFFF;">
-                        Enviar Cotización al Sistema
+                        Enviar Cotización en Vivo a S Mueblería
                     </button>
                 </div>
             </div>
@@ -502,12 +519,12 @@
         </div>
     </div>
 
-    <script src="creata-finishes.js?v=29"></script>
-    <script src="creata-img.js?v=29"></script>
-    <script src="creata-cloud.js?v=29"></script>
-    <script src="inventario-data-1.js?v=29"></script>
-    <script src="inventario-data-2.js?v=29"></script>
-    <script src="inventario-data-3.js?v=29"></script>
-    <script src="inventario-app.js?v=29"></script>
+    <script src="creata-finishes.js?v=30"></script>
+    <script src="creata-img.js?v=30"></script>
+    <script src="creata-cloud.js?v=30"></script>
+    <script src="inventario-data-1.js?v=30"></script>
+    <script src="inventario-data-2.js?v=30"></script>
+    <script src="inventario-data-3.js?v=30"></script>
+    <script src="inventario-app.js?v=30"></script>
 </body>
 </html>

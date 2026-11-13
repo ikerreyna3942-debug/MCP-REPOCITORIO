@@ -47,6 +47,8 @@ function onOpen() {
       .addItem('3. Activar Automatización Cada 10 Minutos', 'installSyncTrigger')
       .addSeparator()
       .addItem('4. Crear / Actualizar Pestaña INVENTARIO_EN_VIVO', 'sincronizarPestanaInventarioEnVivo')
+      .addItem('5. Sincronizar Stock S Mueblería + LPPT En Vivo (Ahora)', 'sincronizarInventarioEnVivoDesdeERP')
+      .addItem('6. Activar Sincronización S Mueblería 24/7 (Cada 5 min)', 'instalarTriggerErpEnVivo')
       .addToUi();
   } catch (e) {}
 }
@@ -794,6 +796,7 @@ function doGet(e) {
 
   if (action === 'cm_inventory') {
     try {
+      ensureLiveErpSyncTrigger_();
       const ss = getSpreadsheet_();
       let shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
       if (!shInv || shInv.getLastRow() <= 1) {
@@ -803,6 +806,16 @@ function doGet(e) {
       const rawRows = shInv ? shInv.getDataRange().getValues() : [];
       const rows = rawRows.filter((r, idx) => idx === 0 || String((r && r[0]) || '').trim() !== '');
       return jsonResponse_({ ok: true, tab: CONFIG.TAB_INVENTORY, rows: rows });
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: err.message || String(err) });
+    }
+  }
+
+  if (action === 'inv_erp_sync_now') {
+    try {
+      const resSync = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
+      ensureLiveErpSyncTrigger_();
+      return jsonResponse_(Object.assign({ ok: true, action: 'inv_erp_sync_now' }, resSync));
     } catch (err) {
       return jsonResponse_({ ok: false, error: err.message || String(err) });
     }
@@ -858,7 +871,7 @@ function doPost(e) {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     const action = body.action || '';
 
-    // Acciones públicas exclusivas de inventario.html (autenticación de asesores y plantilla S Mueblería)
+    // Acciones públicas exclusivas de inventario.html (autenticación de asesores y cotización en vivo S Mueblería)
     if (action === 'inv_login') {
       return jsonResponse_(handleInvLogin_(body));
     }
@@ -868,8 +881,16 @@ function doPost(e) {
     if (action === 'inv_submit_quote') {
       return jsonResponse_(handleInvSubmitQuote_(body));
     }
+    if (action === 'inv_my_quotes') {
+      return jsonResponse_(handleInvMyQuotes_(body));
+    }
     if (action === 'inv_plantilla_status') {
       return jsonResponse_(handleInvPlantillaStatus_());
+    }
+    if (action === 'inv_erp_sync_now') {
+      const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
+      ensureLiveErpSyncTrigger_();
+      return jsonResponse_(Object.assign({ ok: true }, syncRes));
     }
 
     const adminPin = getProp_('ADMIN_PIN');
@@ -1857,18 +1878,114 @@ function sincronizarPestanaInventarioEnVivo(opts) {
 }
 
 // ============================================================================
-// USUARIOS POR SUCURSAL Y PLANTILLA DE COTIZACIÓN VINCULADA A S MUEBLERÍA
-// (Exclusivo para inventario.html — no altera index.html ni admin.html)
+// USUARIOS POR SUCURSAL / PROYECTO, ORDEN CONSECUTIVA Y CONEXIÓN EN VIVO 24/7
+// DIRECTA A S MUEBLERÍA ERP (WCF SOAP 1.2) + INVENTARIO EN VIVO CLOUD
+// (Exclusivo para inventario.html — NO altera index.html, admin.html ni LPPT)
 // ============================================================================
 
 const INV_USER_TABS_ = [
-  { tab: 'PLAYA', label: 'Playa del Carmen', erpStore: 'CREATA LIVING PLAYA' },
-  { tab: 'COLOCIO', label: 'Colosio', erpStore: 'CREATA LIVING COLOSIO' },
-  { tab: 'PTC', label: 'Puerto Cancún (PTC)', erpStore: 'CREATA PUERTO CANCUN' },
-  { tab: 'CASA CREATA', label: 'Casa Creata', erpStore: 'CASA CREATA BONAMPAK' },
-  { tab: 'PROYECTOS', label: 'Proyectos', erpStore: 'PROYECTOS ANIPA INTERIOR' },
-  { tab: 'CUENTAS ADMINISTRATIVAS', label: 'Administración / Todas', erpStore: 'CEDIS' }
+  {
+    tab: 'PLAYA',
+    branchKey: 'PLAYA',
+    label: 'Playa del Carmen',
+    erpStore: 'CREATA LIVING PLAYA',
+    orderPrefix: 'PL',
+    quoteType: 'SUCURSAL',
+    isProyecto: false,
+    serieLabel: 'Sucursal Playa · Serie PL'
+  },
+  {
+    tab: 'COLOCIO',
+    branchKey: 'COLOSIO',
+    label: 'Colosio',
+    erpStore: 'CREATA LIVING COLOSIO',
+    orderPrefix: 'DTC',
+    quoteType: 'SUCURSAL',
+    isProyecto: false,
+    serieLabel: 'Sucursal Colosio · Serie DTC'
+  },
+  {
+    tab: 'PTC',
+    branchKey: 'PTC',
+    label: 'Puerto Cancún (PTC)',
+    erpStore: 'CREATA PUERTO CANCUN',
+    orderPrefix: 'PTC',
+    quoteType: 'SUCURSAL',
+    isProyecto: false,
+    serieLabel: 'Sucursal Puerto Cancún · Serie PTC'
+  },
+  {
+    tab: 'CASA CREATA',
+    branchKey: 'CASA CREATA',
+    label: 'Casa Creata',
+    erpStore: 'CASA CREATA BONAMPAK',
+    orderPrefix: 'CCB',
+    quoteType: 'SUCURSAL',
+    isProyecto: false,
+    serieLabel: 'Sucursal Casa Creata · Serie CCB'
+  },
+  {
+    tab: 'PROYECTOS',
+    branchKey: 'PROYECTOS',
+    label: 'Proyectos',
+    erpStore: 'PROYECTOS ANIPA INTERIOR',
+    orderPrefix: 'PRO',
+    quoteType: 'PROYECTO',
+    isProyecto: true,
+    serieLabel: 'Modalidad Proyecto · Serie PRO'
+  },
+  {
+    tab: 'CUENTAS ADMINISTRATIVAS',
+    branchKey: 'ADMIN',
+    label: 'Administración',
+    erpStore: 'CEDIS',
+    orderPrefix: 'ADM',
+    quoteType: 'ADMINISTRACIÓN',
+    isProyecto: false,
+    serieLabel: 'Administración · Serie ADM'
+  }
 ];
+
+const TAB_QUOTES_LIVE_ = 'COTIZACIONES_EN_VIVO';
+const ERP_DRIVE_FOLDER_NAME_ = 'PRESENTACION_DISENO';
+const LPPT_READONLY_DEFAULT_ID_ = '1t78KDg_DMbGfauNWRrjUc3ULh-SzrxO9XwOHPrtJtWE';
+
+const ERP_WAREHOUSES_ORDER_ = [
+  ['CEDIS', 'CEDIS'],
+  ['CASA CREATA BONAMPAK', 'CASA CREATA'],
+  ['CREATA PUERTO CANCUN', 'PUERTO CANCUN'],
+  ['CREATA LIVING COLOSIO', 'COLOSIO'],
+  ['CREATA LIVING PLAYA', 'PLAYA'],
+  ['OUTLET COLOSIO', 'OUTLET COLOSIO'],
+  ['CONSIGNAS SHOWROOM Y PRESTAMO CLIENTE', 'CONSIGNAS Y SHOWROOM'],
+  ['TRANSITO TIENDAS', 'TRANSITO TIENDAS'],
+  ['ADMINISTRACION', 'ADMINISTRACION'],
+  ['REPARACIONES', 'REPARACIONES'],
+  ['GARANTIAS', 'GARANTIAS'],
+  ['INCOMPLETOS', 'INCOMPLETOS'],
+  ['REZAGADOS', 'REZAGADOS'],
+  ['TRANSITO PENDIENTE ELIMINAR', 'TRANSITO PEND.']
+];
+
+const ERP_PROVIDER_ALIASES_ = {
+  'SKANOR INDUSTRIAS': 'SKANOR',
+  'TAPETES DICSA': 'DICSA',
+  'LUIS PEDRO MUEBLES': 'LUIS PEDRO',
+  'ECLISSARE': 'ECCLISARE',
+  'ECCLISEA': 'ECCLISARE',
+  'GOMPE': 'GOMPE / GRUPO ALBAR',
+  'GRUPO ALBAR': 'GOMPE / GRUPO ALBAR',
+  'MDO MUEBLES': 'MDO',
+  'CASA V&V': 'CASA V & V'
+};
+
+function formatCancunNow_() {
+  try {
+    return Utilities.formatDate(new Date(), 'America/Cancun', 'dd/MM/yyyy HH:mm:ss');
+  } catch (e) {
+    return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT-5', 'dd/MM/yyyy HH:mm:ss');
+  }
+}
 
 function cleanSheetKeyCell_(val) {
   if (val === null || val === undefined) return '';
@@ -1880,11 +1997,17 @@ function cleanSheetKeyCell_(val) {
   return s;
 }
 
-function normAdvisorTokens_(txt) {
-  const clean = String(txt || '')
+function normPlainUpper_(txt) {
+  return String(txt || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normAdvisorTokens_(txt) {
+  const clean = normPlainUpper_(txt)
     .replace(/\bLUPITA\b/g, 'GUADALUPE')
     .replace(/\bDADVID\b/g, 'DAVID')
     .replace(/\bJOHANNA\b/g, 'JOHANA')
@@ -1892,6 +2015,57 @@ function normAdvisorTokens_(txt) {
   const m = clean.match(/[A-Z]+/g) || [];
   const stop = { DE: 1, LA: 1, DEL: 1, LOS: 1, LAS: 1, Y: 1, PROYECTOS: 1, OUTLET: 1, ADMON: 1 };
   return m.filter((w) => w.length >= 2 && !stop[w]);
+}
+
+// ----------------------------------------------------------------------------
+// FIRMA CRIPTOGRÁFICA DE SESIÓN POR CORREO Y SUCURSAL/PROYECTO
+// ----------------------------------------------------------------------------
+function getInvAuthSecret_() {
+  const props = PropertiesService.getScriptProperties();
+  let sec = props.getProperty('INV_AUTH_SECRET');
+  if (!sec || sec.length < 24) {
+    sec = Utilities.getUuid() + '-' + Utilities.getUuid();
+    props.setProperty('INV_AUTH_SECRET', sec);
+  }
+  return sec;
+}
+
+function bytesToHex_(bytes) {
+  return bytes.map((b) => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+}
+
+function issueInvAuthToken_(email, sheetTab) {
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanTab = String(sheetTab || '').trim();
+  const payload = cleanEmail + '|' + cleanTab + '|' + Date.now();
+  const b64 = Utilities.base64EncodeWebSafe(Utilities.newBlob(payload, 'text/plain').getBytes()).replace(/=+$/, '');
+  const sig = bytesToHex_(Utilities.computeHmacSha256Signature(payload, getInvAuthSecret_()));
+  return b64 + '.' + sig;
+}
+
+function verifyInvAuthToken_(token) {
+  const raw = String(token || '').trim();
+  const dot = raw.indexOf('.');
+  if (dot <= 0) return null;
+  const b64Part = raw.slice(0, dot);
+  const sigPart = raw.slice(dot + 1);
+  try {
+    const padded = b64Part + '==='.slice((b64Part.length + 3) % 4);
+    const payload = Utilities.newBlob(Utilities.base64DecodeWebSafe(padded)).getDataAsString('UTF-8');
+    const expectedSig = bytesToHex_(Utilities.computeHmacSha256Signature(payload, getInvAuthSecret_()));
+    if (expectedSig !== sigPart) return null;
+    const parts = payload.split('|');
+    if (parts.length < 3) return null;
+    const email = String(parts[0] || '').trim().toLowerCase();
+    const sheetTab = String(parts[1] || '').trim();
+    const issuedMs = Number(parts[2] || 0);
+    if (!email || !sheetTab || !issuedMs) return null;
+    // Vigencia de 90 días
+    if (Date.now() - issuedMs > 90 * 24 * 3600 * 1000) return null;
+    return { email: email, sheetTab: sheetTab, issuedMs: issuedMs };
+  } catch (e) {
+    return null;
+  }
 }
 
 function readErpAdvisorsFromPlantilla_(ss) {
@@ -1972,9 +2146,13 @@ function readAllBranchUsers_(ss, erpAdvisors) {
       list.push({
         sheetTab: actualTabName,
         rowNum: i + 3,
-        branchKey: cfg.tab === 'COLOCIO' ? 'COLOSIO' : cfg.tab,
+        branchKey: cfg.branchKey,
         branchLabel: cfg.label,
         erpStore: cfg.erpStore,
+        orderPrefix: cfg.orderPrefix,
+        quoteType: cfg.quoteType,
+        isProyecto: !!cfg.isProyecto,
+        serieLabel: cfg.serieLabel,
         nombre: nombre,
         puesto: puesto,
         correo: correo,
@@ -1990,13 +2168,17 @@ function readAllBranchUsers_(ss, erpAdvisors) {
   return list;
 }
 
-function sanitizeUserForClient_(u) {
-  return {
+function sanitizeUserForClient_(u, includeSignedToken) {
+  const out = {
     sheetTab: u.sheetTab,
     rowNum: u.rowNum,
     branchKey: u.branchKey,
     branchLabel: u.branchLabel,
     erpStore: u.erpStore,
+    orderPrefix: u.orderPrefix || 'COT',
+    quoteType: u.quoteType || 'SUCURSAL',
+    isProyecto: !!u.isProyecto,
+    serieLabel: u.serieLabel || '',
     nombre: u.nombre,
     puesto: u.puesto,
     correo: u.correo,
@@ -2005,6 +2187,10 @@ function sanitizeUserForClient_(u) {
     erpAdvisorId: u.erpAdvisorId || '',
     erpAdvisorBranch: u.erpAdvisorBranch || ''
   };
+  if (includeSignedToken) {
+    out.authToken = issueInvAuthToken_(u.correo, u.sheetTab);
+  }
+  return out;
 }
 
 function handleInvUsersDirectory_() {
@@ -2015,7 +2201,7 @@ function handleInvUsersDirectory_() {
     ok: true,
     stores: erpMeta.stores,
     advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id })),
-    users: users.map(sanitizeUserForClient_)
+    users: users.map((u) => sanitizeUserForClient_(u, false))
   };
 }
 
@@ -2037,6 +2223,7 @@ function handleInvLogin_(body) {
     return { ok: false, error: 'Ingresa tu correo y tu contraseña.' };
   }
 
+  ensureLiveErpSyncTrigger_();
   const ss = getSpreadsheet_();
   const erpMeta = readErpAdvisorsFromPlantilla_(ss);
   const allUsers = readAllBranchUsers_(ss, erpMeta.advisors);
@@ -2056,33 +2243,40 @@ function handleInvLogin_(body) {
   });
 
   if (!validMatches.length) {
-    return { ok: false, error: 'Contraseña incorrecta. Verifica tu contraseña temporal o definitiva.' };
+    return { ok: false, error: 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.' };
   }
 
-  // Si el correo está repetido en varias hojas y aún no eligió en cuál estará:
-  if (validMatches.length > 1 && !selectedTab) {
+  // Emitir tokens firmados únicamente para las ubicaciones autorizadas de este correo
+  const authorizedLocs = validMatches.map((u) => {
+    const usedTemp = !u.defKey && !!u.tempKey && keysEqualNormalized_(inputKey, u.tempKey);
+    const sanitized = sanitizeUserForClient_(u, true);
+    sanitized.mustChangeKey = usedTemp;
+    return sanitized;
+  });
+
+  if (authorizedLocs.length > 1 && !selectedTab) {
     return {
       ok: true,
       chooseBranch: true,
-      locations: validMatches.map(sanitizeUserForClient_),
+      locations: authorizedLocs,
       stores: erpMeta.stores,
       advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id }))
     };
   }
 
-  const chosen = selectedTab
-    ? (validMatches.find((u) => u.sheetTab.toUpperCase() === selectedTab.toUpperCase() || u.branchKey.toUpperCase() === selectedTab.toUpperCase()) || validMatches[0])
-    : validMatches[0];
+  const chosenOut = selectedTab
+    ? (authorizedLocs.find((u) => u.sheetTab.toUpperCase() === selectedTab.toUpperCase() || u.branchKey.toUpperCase() === selectedTab.toUpperCase()) || authorizedLocs[0])
+    : authorizedLocs[0];
 
-  const usedTemp = !chosen.defKey && !!chosen.tempKey && keysEqualNormalized_(inputKey, chosen.tempKey);
-  const userOut = sanitizeUserForClient_(chosen);
-  userOut.mustChangeKey = usedTemp;
+  const shQuotes = ss.getSheetByName(TAB_QUOTES_LIVE_);
+  const nextOrderCode = peekNextBranchOrderCode_(shQuotes, chosenOut.orderPrefix);
 
   return {
     ok: true,
     chooseBranch: false,
-    user: userOut,
-    allLocationsForEmail: emailMatches.map(sanitizeUserForClient_),
+    user: chosenOut,
+    nextOrderCode: nextOrderCode,
+    allLocationsForEmail: authorizedLocs,
     stores: erpMeta.stores,
     advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id }))
   };
@@ -2092,6 +2286,7 @@ function handleInvUpdateKey_(body) {
   const email = String(body.email || '').trim().toLowerCase();
   const currentKey = String(body.currentKey || '').trim();
   const newKey = String(body.newKey || '').trim();
+  const activeTab = String(body.sheetTab || '').trim();
   if (!email || !newKey) {
     return { ok: false, error: 'Datos incompletos para actualizar la contraseña.' };
   }
@@ -2100,8 +2295,10 @@ function handleInvUpdateKey_(body) {
   }
 
   const ss = getSpreadsheet_();
+  const tokenCheck = verifyInvAuthToken_(body.authToken);
+  const tokenMatchesEmail = !!(tokenCheck && tokenCheck.email === email);
   const matchedTargets = [];
-  let anyAuthorized = !currentKey;
+  let anyAuthorized = tokenMatchesEmail || !currentKey;
 
   for (let t = 0; t < INV_USER_TABS_.length; t++) {
     const cfg = INV_USER_TABS_[t];
@@ -2118,7 +2315,7 @@ function handleInvUpdateKey_(body) {
       if (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey)) {
         anyAuthorized = true;
       }
-      matchedTargets.push({ sh: sh, rowNum: i + 3 });
+      matchedTargets.push({ sh: sh, rowNum: i + 3, tabName: sh.getName() });
     }
   }
 
@@ -2126,99 +2323,1163 @@ function handleInvUpdateKey_(body) {
     return { ok: false, error: 'No fue posible validar el usuario para actualizar la contraseña en la hoja.' };
   }
 
+  const tokensByTab = {};
   for (let k = 0; k < matchedTargets.length; k++) {
     const tgt = matchedTargets[k];
     // Borrar la contraseña temporal (Columna F = 6) y guardar la nueva definitiva (Columna G = 7)
     tgt.sh.getRange(tgt.rowNum, 6).clearContent();
     tgt.sh.getRange(tgt.rowNum, 7).setNumberFormat('@').setValue(newKey);
+    tokensByTab[tgt.tabName] = issueInvAuthToken_(email, tgt.tabName);
   }
 
   SpreadsheetApp.flush();
-  return { ok: true, updatedRows: matchedTargets.length };
+  const primaryTab = activeTab && tokensByTab[activeTab] ? activeTab : matchedTargets[0].tabName;
+  return {
+    ok: true,
+    updatedRows: matchedTargets.length,
+    authToken: tokensByTab[primaryTab] || issueInvAuthToken_(email, primaryTab),
+    tokensByTab: tokensByTab
+  };
 }
 
-function handleInvSubmitQuote_(body) {
-  const ss = getSpreadsheet_();
-  const sh = ss.getSheetByName('plantilla');
-  if (!sh) {
-    return { ok: false, error: 'No se encontró la hoja "plantilla" en CONTROL DE PRODUCTOS PRESENTACIÓN.' };
-  }
+/**
+ * Verifica que quien cotiza sea EXCLUSIVAMENTE el titular autenticado del correo y de su ubicación asignada.
+ */
+function resolveAuthenticatedAdvisor_(ss, erpAdvisors, body) {
+  const allUsers = readAllBranchUsers_(ss, erpAdvisors);
+  const verifiedToken = verifyInvAuthToken_(body && body.authToken);
 
-  const items = Array.isArray(body.items) ? body.items : [];
-  if (!items.length) {
-    return { ok: false, error: 'Agrega al menos un producto a la cotización.' };
-  }
-  if (items.length > 15) {
-    return { ok: false, error: 'La plantilla admite máximo 15 partidas por cotización (tienes ' + items.length + ').' };
-  }
+  let targetEmail = '';
+  let targetTab = '';
 
-  const erpStore = String(body.erpStore || 'CREATA PUERTO CANCUN').trim();
-  const erpAdvisorLabel = String(body.erpAdvisorLabel || '').trim();
-  const categoryLabel = String(body.categoryLabel || 'COTIZACIONES [ID: 2]').trim();
-  const clientMode = String(body.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)').trim();
-  const clientName = String(body.clientName || 'PROSPECTO PRESENTACION DISENO').trim();
-  const clientPhone = String(body.clientPhone || '').trim();
-  const deliveryDate = String(body.deliveryDate || '').trim();
-  const notes = String(body.notes || '').trim();
-  const extraDiscount = Math.max(0, Number(body.extraDiscount) || 0);
-  const sendToErp = body.sendToErp !== false;
-
-  // 1) Poner primero K5 en SOLO REVISIÓN mientras cargamos los datos
-  sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
-  sh.getRange('K7').clearContent();
-  sh.getRange('M7').clearContent();
-
-  // 2) Encabezado de Tienda, Usuario/Asesor ERP y Datos del Cliente
-  sh.getRange('C5').setValue(erpStore);
-  if (erpAdvisorLabel) {
-    sh.getRange('C6').setValue(erpAdvisorLabel);
-  }
-  sh.getRange('C7').setValue(categoryLabel);
-  sh.getRange('C9').setValue(clientMode);
-  sh.getRange('G9').setNumberFormat('@').setValue(clientPhone);
-  sh.getRange('C10').setValue(clientName);
-  if (deliveryDate) {
-    sh.getRange('G10').setValue(deliveryDate);
-  }
-  sh.getRange('C11').setValue(notes);
-  sh.getRange('H30').setValue(extraDiscount);
-
-  // 3) Limpiar y escribir únicamente las columnas editables de las filas 15..29 (B = SKU, D = CANT, F = % DESC)
-  // preservando al 100% las fórmulas XLOOKUP de C, E, G, H, I, J, K, L, M
-  const bVals = [];
-  const dVals = [];
-  const fVals = [];
-  for (let i = 0; i < 15; i++) {
-    if (i < items.length) {
-      const it = items[i] || {};
-      const sku = String(it.sku || '').trim().toUpperCase();
-      const qty = Math.max(1, Math.round(Number(it.qty) || 1));
-      let discPct = Number(it.discountPct) || 0;
-      if (discPct > 1) discPct = discPct / 100;
-      discPct = Math.max(0, Math.min(1, discPct));
-      bVals.push([sku]);
-      dVals.push([qty]);
-      fVals.push([discPct]);
-    } else {
-      bVals.push(['']);
-      dVals.push(['']);
-      fVals.push(['']);
+  if (verifiedToken && verifiedToken.email) {
+    targetEmail = verifiedToken.email;
+    targetTab = verifiedToken.sheetTab;
+  } else {
+    const reqEmail = String((body && body.advisorEmail) || '').trim().toLowerCase();
+    const reqKey = String((body && body.accessKey) || '').trim();
+    const reqTab = String((body && body.sheetTab) || '').trim();
+    if (reqEmail && reqKey) {
+      const matchByKey = allUsers.find((u) => {
+        if (u.correo !== reqEmail) return false;
+        if (reqTab && u.sheetTab.toUpperCase() !== reqTab.toUpperCase() && u.branchKey.toUpperCase() !== reqTab.toUpperCase()) return false;
+        if (u.defKey) return keysEqualNormalized_(reqKey, u.defKey);
+        if (u.tempKey) return keysEqualNormalized_(reqKey, u.tempKey);
+        return false;
+      });
+      if (matchByKey) {
+        targetEmail = matchByKey.correo;
+        targetTab = matchByKey.sheetTab;
+      }
     }
   }
-  sh.getRange(15, 2, 15, 1).setNumberFormat('@').setValues(bVals);
-  sh.getRange(15, 4, 15, 1).setValues(dVals);
-  sh.getRange(15, 6, 15, 1).setValues(fVals);
 
-  SpreadsheetApp.flush();
-
-  // 4) Si el asesor indicó enviar al sistema S Mueblería, activar K5 = 'ENVIAR COTIZACIÓN A S MUEBLERÍA'
-  if (sendToErp) {
-    sh.getRange('K6').setValue('⏳ ENVIANDO COTIZACIÓN A S MUEBLERÍA...');
-    sh.getRange('K5').setValue('ENVIAR COTIZACIÓN A S MUEBLERÍA');
-    SpreadsheetApp.flush();
+  if (!targetEmail) {
+    return {
+      ok: false,
+      authRequired: true,
+      error: 'Por seguridad, vuelve a confirmar tu correo y contraseña personal para emitir cotizaciones con tu usuario exclusivo.'
+    };
   }
 
-  return handleInvPlantillaStatus_();
+  const userMatches = allUsers.filter((u) => u.correo === targetEmail);
+  if (!userMatches.length) {
+    return {
+      ok: false,
+      authRequired: true,
+      error: 'El correo de la sesión ya no aparece activo en las hojas de usuarios.'
+    };
+  }
+
+  const chosen = targetTab
+    ? (userMatches.find((u) => u.sheetTab.toUpperCase() === targetTab.toUpperCase() || u.branchKey.toUpperCase() === targetTab.toUpperCase()) || null)
+    : userMatches[0];
+
+  if (!chosen) {
+    return {
+      ok: false,
+      authRequired: true,
+      error: 'Tu correo no tiene permisos asignados en la ubicación solicitada.'
+    };
+  }
+
+  if (chosen.mustChangeKey) {
+    return {
+      ok: false,
+      authRequired: true,
+      error: 'Debes establecer primero tu contraseña definitiva antes de generar cotizaciones.'
+    };
+  }
+
+  return { ok: true, advisor: chosen };
+}
+
+// ----------------------------------------------------------------------------
+// BITÁCORA Y ORDEN CONSECUTIVA POR SUCURSAL / PROYECTO (COTIZACIONES_EN_VIVO)
+// ----------------------------------------------------------------------------
+function ensureQuotesLedgerSheet_(ss) {
+  let sh = ss.getSheetByName(TAB_QUOTES_LIVE_);
+  const headers = [
+    'ORDEN_SUCURSAL',
+    'FOLIO_SMUEBLERIA',
+    'ID_COTIZACION_ERP',
+    'FECHA_HORA',
+    'MODALIDAD_ORIGEN',
+    'HOJA_UBICACION',
+    'TIENDA_ERP',
+    'CORREO_ASESOR',
+    'NOMBRE_ASESOR',
+    'USUARIO_ERP',
+    'ID_USUARIO_ERP',
+    'CLIENTE_PROYECTO',
+    'TELEFONO',
+    'MODALIDAD_CLIENTE',
+    'CATEGORIA_ERP',
+    'ENTREGA_TENTATIVA',
+    'PARTIDAS_CANT',
+    'RESUMEN_SKUS',
+    'SUBTOTAL_SIN_IVA',
+    'IVA',
+    'DESCUENTO_EXTRA',
+    'TOTAL_CON_IVA',
+    'ESTADO_ERP',
+    'NOTAS'
+  ];
+
+  if (!sh) {
+    sh = ss.insertSheet(TAB_QUOTES_LIVE_);
+    if (sh.getMaxColumns() < headers.length) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
+    }
+    sh.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setBackground('#252C32')
+      .setFontColor('#FFFFFF')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    sh.getRange(1, 1, 1, 3).setBackground('#A38251');
+    sh.setFrozenRows(1);
+  } else if (sh.getLastRow() < 1) {
+    sh.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setBackground('#252C32')
+      .setFontColor('#FFFFFF')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function peekNextBranchOrderCode_(shQuotes, orderPrefix) {
+  const prefix = String(orderPrefix || 'COT').trim().toUpperCase();
+  if (!shQuotes || shQuotes.getLastRow() < 2) {
+    return prefix + '-0001';
+  }
+  const lastRow = shQuotes.getLastRow();
+  const colA = shQuotes.getRange(2, 1, lastRow - 1, 1).getDisplayValues();
+  const re = new RegExp('^' + prefix.replace(/[^A-Z0-9]/g, '') + '-(\\d+)$', 'i');
+  let maxSeq = 0;
+  for (let i = 0; i < colA.length; i++) {
+    const val = String(colA[i][0] || '').trim();
+    const m = val.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > maxSeq) maxSeq = n;
+    }
+  }
+  const nextNum = maxSeq + 1;
+  return prefix + '-' + String(nextNum).padStart(4, '0');
+}
+
+function readRecentQuotesForAdvisor_(shQuotes, advisorEmail, maxItems) {
+  if (!shQuotes || shQuotes.getLastRow() < 2) return [];
+  const limit = maxItems || 8;
+  const lastR = shQuotes.getLastRow();
+  const startR = Math.max(2, lastR - 200);
+  const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 24).getDisplayValues();
+  const emailNorm = String(advisorEmail || '').trim().toLowerCase();
+  const out = [];
+  for (let i = vals.length - 1; i >= 0 && out.length < limit; i--) {
+    const r = vals[i];
+    if (String(r[7] || '').trim().toLowerCase() !== emailNorm) continue;
+    out.push({
+      orderCode: r[0] || '',
+      folio: r[1] || '',
+      quoteId: r[2] || '',
+      createdAt: r[3] || '',
+      quoteType: r[4] || '',
+      branchTab: r[5] || '',
+      erpStore: r[6] || '',
+      clientName: r[11] || '',
+      itemsCount: r[16] || '',
+      skusSummary: r[17] || '',
+      total: r[21] || '',
+      status: r[22] || ''
+    });
+  }
+  return out;
+}
+
+function handleInvMyQuotes_(body) {
+  const ss = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+  const authCheck = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, body);
+  if (!authCheck.ok) return authCheck;
+
+  const u = authCheck.advisor;
+  const shQuotes = ss.getSheetByName(TAB_QUOTES_LIVE_);
+  const nextOrderCode = peekNextBranchOrderCode_(shQuotes, u.orderPrefix);
+  const recentQuotes = readRecentQuotesForAdvisor_(shQuotes, u.correo, 8);
+
+  return {
+    ok: true,
+    advisor: sanitizeUserForClient_(u, false),
+    nextOrderCode: nextOrderCode,
+    recentQuotes: recentQuotes
+  };
+}
+
+// ----------------------------------------------------------------------------
+// CLIENTE DIRECTO S MUEBLERÍA ERP (WCF SOAP 1.2) — 100% EN VIVO EN LA NUBE
+// Sin secretos en código: lee configuración privada desde ScriptProperties / Drive
+// ----------------------------------------------------------------------------
+function xmlEscape_(str) {
+  return String(str === null || str === undefined ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function decodeXmlEntities_(str) {
+  return String(str || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+function extractXmlTag_(block, tagName) {
+  const re = new RegExp('<(?:[a-zA-Z0-9_]+:)?' + tagName + '(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[a-zA-Z0-9_]+:)?' + tagName + '>');
+  const m = String(block || '').match(re);
+  return m ? decodeXmlEntities_(m[1]).trim() : '';
+}
+
+function parseDotEnvText_(txt) {
+  const out = {};
+  const lines = String(txt || '').split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i].trim();
+    if (!ln || ln.charAt(0) === '#') continue;
+    const eq = ln.indexOf('=');
+    if (eq <= 0) continue;
+    const k = ln.slice(0, eq).trim();
+    let v = ln.slice(eq + 1).trim();
+    if ((v.charAt(0) === '"' && v.slice(-1) === '"') || (v.charAt(0) === "'" && v.slice(-1) === "'")) {
+      v = v.slice(1, -1);
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+function findPresentacionDisenoDriveFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const cachedFolderId = (props.getProperty('ERP_DRIVE_FOLDER_ID') || '').trim();
+  if (cachedFolderId) {
+    try {
+      return DriveApp.getFolderById(cachedFolderId);
+    } catch (e) {}
+  }
+  const it = DriveApp.getFoldersByName(ERP_DRIVE_FOLDER_NAME_);
+  if (it.hasNext()) {
+    const f = it.next();
+    props.setProperty('ERP_DRIVE_FOLDER_ID', f.getId());
+    return f;
+  }
+  return null;
+}
+
+function getErpRuntimeConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  let user = (props.getProperty('ERP_USER') || '').trim();
+  let pass = (props.getProperty('ERP_PASS') || '').trim();
+  let loginUrl = (props.getProperty('ERP_LOGIN_URL') || '').trim();
+  let wcfUrl = (props.getProperty('ERP_WCF_URL') || '').trim();
+  let masterId = (props.getProperty('ERP_ID_USUARIO_MAESTRO') || '').trim();
+  let lpptId = (props.getProperty('LPPT_PROVEDORES_SPREADSHEET_ID') || '').trim();
+
+  if (!user || !pass) {
+    try {
+      const folder = findPresentacionDisenoDriveFolder_();
+      if (folder) {
+        const fIt = folder.getFilesByName('.env');
+        if (fIt.hasNext()) {
+          const envMap = parseDotEnvText_(fIt.next().getBlob().getDataAsString('UTF-8'));
+          user = user || envMap.ERP_USER || '';
+          pass = pass || envMap.ERP_PASS || '';
+          loginUrl = loginUrl || envMap.ERP_LOGIN_URL || '';
+          wcfUrl = wcfUrl || envMap.ERP_WCF_URL || '';
+          masterId = masterId || envMap.ERP_ID_USUARIO_MAESTRO || '';
+          lpptId = lpptId || envMap.LPPT_PROVEDORES_SPREADSHEET_ID || '';
+          const toSave = {};
+          if (user) toSave.ERP_USER = user;
+          if (pass) toSave.ERP_PASS = pass;
+          if (loginUrl) toSave.ERP_LOGIN_URL = loginUrl;
+          if (wcfUrl) toSave.ERP_WCF_URL = wcfUrl;
+          if (masterId) toSave.ERP_ID_USUARIO_MAESTRO = masterId;
+          if (lpptId) toSave.LPPT_PROVEDORES_SPREADSHEET_ID = lpptId;
+          if (Object.keys(toSave).length > 0) props.setProperties(toSave);
+        }
+      }
+    } catch (e) {}
+  }
+
+  return {
+    loginUrl: loginUrl || 'https://sistema.smuebleria.com/Login.aspx',
+    wcfUrl: wcfUrl || 'https://sistema.smuebleria.com/smuebleriaservice.svc',
+    user: user,
+    pass: pass,
+    masterUserId: parseInt(masterId || '38954', 10) || 38954,
+    lpptSpreadsheetId: lpptId || LPPT_READONLY_DEFAULT_ID_
+  };
+}
+
+function isErpJwtValid_(token) {
+  const raw = String(token || '').trim();
+  const parts = raw.split('.');
+  if (parts.length < 2) return false;
+  try {
+    const b64 = parts[1] + '==='.slice((parts[1].length + 3) % 4);
+    const jsonTxt = Utilities.newBlob(Utilities.base64DecodeWebSafe(b64)).getDataAsString('UTF-8');
+    const payload = JSON.parse(jsonTxt);
+    const exp = Number(payload.exp || 0);
+    return exp > (Math.floor(Date.now() / 1000) + 600);
+  } catch (e) {
+    return false;
+  }
+}
+
+function buildCookieHeaderFromCacheObj_(cacheObj) {
+  if (!cacheObj) return '';
+  if (cacheObj.cookieHeader) return String(cacheObj.cookieHeader);
+  const arr = Array.isArray(cacheObj.cookies) ? cacheObj.cookies : [];
+  const pairs = [];
+  for (let i = 0; i < arr.length; i++) {
+    const c = arr[i];
+    if (c && c.name && c.value !== undefined) {
+      pairs.push(c.name + '=' + c.value);
+    }
+  }
+  return pairs.join('; ');
+}
+
+function readDriveErpSessionCache_() {
+  try {
+    const folder = findPresentacionDisenoDriveFolder_();
+    if (!folder) return null;
+    const subIt = folder.getFoldersByName('credenciales');
+    if (!subIt.hasNext()) return null;
+    const credFolder = subIt.next();
+    const fIt = credFolder.getFilesByName('.erp_session_cache.json');
+    if (!fIt.hasNext()) return null;
+    return JSON.parse(fIt.next().getBlob().getDataAsString('UTF-8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveErpSessionCacheEverywhere_(sessionObj) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('ERP_SESSION_CACHE_JSON', JSON.stringify(sessionObj));
+  } catch (e) {}
+  try {
+    const folder = findPresentacionDisenoDriveFolder_();
+    if (!folder) return;
+    const subIt = folder.getFoldersByName('credenciales');
+    const credFolder = subIt.hasNext() ? subIt.next() : folder.createFolder('credenciales');
+    const fIt = credFolder.getFilesByName('.erp_session_cache.json');
+    const jsonStr = JSON.stringify(sessionObj);
+    if (fIt.hasNext()) {
+      fIt.next().setContent(jsonStr);
+    } else {
+      credFolder.createFile('.erp_session_cache.json', jsonStr, MimeType.PLAIN_TEXT);
+    }
+  } catch (e) {}
+}
+
+function mergeSetCookiesIntoJar_(headersObj, jar) {
+  if (!headersObj) return;
+  const raw = headersObj['Set-Cookie'] || headersObj['set-cookie'];
+  if (!raw) return;
+  const list = Array.isArray(raw) ? raw : [raw];
+  for (let i = 0; i < list.length; i++) {
+    const firstPart = String(list[i] || '').split(';')[0].trim();
+    const eq = firstPart.indexOf('=');
+    if (eq > 0) {
+      const cname = firstPart.slice(0, eq).trim();
+      const cval = firstPart.slice(eq + 1).trim();
+      jar[cname] = cval;
+    }
+  }
+}
+
+function cookieJarToHeader_(jar) {
+  return Object.keys(jar).map((k) => k + '=' + jar[k]).join('; ');
+}
+
+function extractHtmlInputAttr_(tagHtml, attrName) {
+  const re = new RegExp('\\b' + attrName + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i');
+  const m = tagHtml.match(re);
+  if (!m) return '';
+  return decodeXmlEntities_(m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : (m[3] || '')));
+}
+
+function resolveRelativeUrl_(baseUrl, locationHdr) {
+  const loc = String(locationHdr || '').trim();
+  if (/^https?:\/\//i.test(loc)) return loc;
+  const originMatch = String(baseUrl || '').match(/^(https?:\/\/[^\/]+)/i);
+  const origin = originMatch ? originMatch[1] : 'https://sistema.smuebleria.com';
+  if (loc.charAt(0) === '/') return origin + loc;
+  return origin + '/' + loc;
+}
+
+/**
+ * Renueva automáticamente el JWT 24h de S Mueblería directo desde Google Cloud vía HTTP WebForms.
+ */
+function loginErpViaHttp_(cfg) {
+  if (!cfg.user || !cfg.pass) {
+    throw new Error('No se encontraron credenciales ERP en ScriptProperties ni en la carpeta privada PRESENTACION_DISENO.');
+  }
+  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+  const jar = {};
+
+  const getResp = UrlFetchApp.fetch(cfg.loginUrl, {
+    method: 'get',
+    headers: { 'User-Agent': ua },
+    followRedirects: true,
+    muteHttpExceptions: true
+  });
+  mergeSetCookiesIntoJar_(getResp.getAllHeaders(), jar);
+  const loginHtml = getResp.getContentText('UTF-8');
+
+  const formFields = {};
+  let emailFieldName = 'CampoCorreoElectronico';
+  let passFieldName = 'CampoContrasena';
+  let submitFieldName = 'BotonValidar';
+  let submitFieldVal = 'Ingresar';
+
+  const inputTags = loginHtml.match(/<input\b[^>]*>/gi) || [];
+  for (let i = 0; i < inputTags.length; i++) {
+    const tag = inputTags[i];
+    const type = extractHtmlInputAttr_(tag, 'type').toLowerCase();
+    const name = extractHtmlInputAttr_(tag, 'name');
+    const id = extractHtmlInputAttr_(tag, 'id');
+    const val = extractHtmlInputAttr_(tag, 'value');
+
+    if (type === 'hidden' && name) {
+      formFields[name] = val;
+    }
+    if (/CampoCorreoElectronico$/i.test(id) || /CampoCorreoElectronico$/i.test(name)) {
+      if (name) emailFieldName = name;
+    } else if (/CampoContrasena$/i.test(id) || /CampoContrasena$/i.test(name)) {
+      if (name) passFieldName = name;
+    } else if (/BotonValidar$/i.test(id) || /BotonValidar$/i.test(name)) {
+      if (name) submitFieldName = name;
+      if (val) submitFieldVal = val;
+    }
+  }
+
+  formFields[emailFieldName] = cfg.user;
+  formFields[passFieldName] = cfg.pass;
+  formFields[submitFieldName] = submitFieldVal;
+
+  const encodedPayload = Object.keys(formFields)
+    .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(formFields[k]))
+    .join('&');
+
+  let curResp = UrlFetchApp.fetch(cfg.loginUrl, {
+    method: 'post',
+    contentType: 'application/x-www-form-urlencoded',
+    payload: encodedPayload,
+    headers: {
+      'User-Agent': ua,
+      Referer: cfg.loginUrl,
+      Cookie: cookieJarToHeader_(jar)
+    },
+    followRedirects: false,
+    muteHttpExceptions: true
+  });
+  mergeSetCookiesIntoJar_(curResp.getAllHeaders(), jar);
+
+  let currentUrl = cfg.loginUrl;
+  let finalHtml = curResp.getContentText('UTF-8');
+  let tokenFound = '';
+
+  for (let hop = 0; hop < 6; hop++) {
+    const code = curResp.getResponseCode();
+    const hdrs = curResp.getAllHeaders();
+    const loc = hdrs.Location || hdrs.location || '';
+    const mUrlTok = String(loc).match(/Token=([a-zA-Z0-9_\-\.]+)/);
+    if (mUrlTok) tokenFound = mUrlTok[1];
+
+    if (code >= 300 && code < 400 && loc) {
+      currentUrl = resolveRelativeUrl_(currentUrl, loc);
+      curResp = UrlFetchApp.fetch(currentUrl, {
+        method: 'get',
+        headers: {
+          'User-Agent': ua,
+          Referer: cfg.loginUrl,
+          Cookie: cookieJarToHeader_(jar)
+        },
+        followRedirects: false,
+        muteHttpExceptions: true
+      });
+      mergeSetCookiesIntoJar_(curResp.getAllHeaders(), jar);
+      finalHtml = curResp.getContentText('UTF-8');
+    } else {
+      break;
+    }
+  }
+
+  if (!tokenFound) {
+    const mHtml = String(finalHtml || '').match(/Token=([a-zA-Z0-9_\-\.]+)/);
+    if (mHtml) tokenFound = mHtml[1];
+  }
+  if (!tokenFound && jar.access_token && isErpJwtValid_(jar.access_token)) {
+    tokenFound = jar.access_token;
+  }
+  if (!tokenFound) {
+    throw new Error('No fue posible obtener el Token JWT desde Sistema.aspx al renovar sesión S Mueblería.');
+  }
+
+  const cookiesArr = Object.keys(jar).map((k) => ({
+    name: k,
+    value: jar[k],
+    domain: 'sistema.smuebleria.com',
+    path: '/'
+  }));
+  const sessionObj = {
+    token: tokenFound,
+    cookies: cookiesArr,
+    saved_at: Date.now() / 1000
+  };
+  saveErpSessionCacheEverywhere_(sessionObj);
+  return {
+    token: tokenFound,
+    cookieHeader: cookieJarToHeader_(jar)
+  };
+}
+
+function getValidErpSession_(forceRefresh, cfg) {
+  const props = PropertiesService.getScriptProperties();
+  if (!forceRefresh) {
+    try {
+      const rawProp = props.getProperty('ERP_SESSION_CACHE_JSON');
+      if (rawProp) {
+        const parsedProp = JSON.parse(rawProp);
+        if (parsedProp && isErpJwtValid_(parsedProp.token)) {
+          return {
+            token: parsedProp.token,
+            cookieHeader: buildCookieHeaderFromCacheObj_(parsedProp)
+          };
+        }
+      }
+    } catch (e) {}
+
+    const driveCached = readDriveErpSessionCache_();
+    if (driveCached && isErpJwtValid_(driveCached.token)) {
+      try {
+        props.setProperty('ERP_SESSION_CACHE_JSON', JSON.stringify(driveCached));
+      } catch (e) {}
+      return {
+        token: driveCached.token,
+        cookieHeader: buildCookieHeaderFromCacheObj_(driveCached)
+      };
+    }
+  }
+
+  return loginErpViaHttp_(cfg || getErpRuntimeConfig_());
+}
+
+function buildSmuebleriaSoapEnvelope_(wcfUrl, soapAction, method, innerRendered) {
+  return '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">' +
+    '<s:Header>' +
+      '<a:Action s:mustUnderstand="1">' + soapAction + '</a:Action>' +
+      '<a:To s:mustUnderstand="1">' + wcfUrl + '</a:To>' +
+    '</s:Header>' +
+    '<s:Body>' +
+      '<' + method + ' xmlns="http://tempuri.org/">' +
+        innerRendered +
+      '</' + method + '>' +
+    '</s:Body>' +
+  '</s:Envelope>';
+}
+
+function callSmuebleriaWcf_(method, innerXml) {
+  const cfg = getErpRuntimeConfig_();
+  let sess = getValidErpSession_(false, cfg);
+  const soapAction = 'http://tempuri.org/ISMuebleriaService/' + method;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const rendered = String(innerXml || '').replace(/\{TOKEN\}/g, sess.token);
+    const envelope = buildSmuebleriaSoapEnvelope_(cfg.wcfUrl, soapAction, method, rendered);
+    const headers = {
+      Authorization: 'Bearer ' + sess.token,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    };
+    if (sess.cookieHeader) headers.Cookie = sess.cookieHeader;
+
+    const resp = UrlFetchApp.fetch(cfg.wcfUrl, {
+      method: 'post',
+      contentType: 'application/soap+xml; charset=utf-8; action="' + soapAction + '"',
+      headers: headers,
+      payload: Utilities.newBlob(envelope, 'application/soap+xml; charset=utf-8').getBytes(),
+      muteHttpExceptions: true
+    });
+
+    const code = resp.getResponseCode();
+    if ((code === 401 || code === 403) && attempt === 0) {
+      sess = getValidErpSession_(true, cfg);
+      continue;
+    }
+    if (code !== 200) {
+      throw new Error('Error WCF S Mueblería (' + method + '): HTTP ' + code + ' - ' + resp.getContentText('UTF-8').slice(0, 300));
+    }
+    return resp.getContentText('UTF-8');
+  }
+  throw new Error('No fue posible autenticar la petición WCF en ' + method);
+}
+
+function buscarProductoPorClaveWcf_(sku) {
+  const cfg = getErpRuntimeConfig_();
+  const claveClean = String(sku || '').trim();
+  if (!claveClean) return null;
+  const xmlText = callSmuebleriaWcf_(
+    'ObtenerProductos',
+    '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro>' + xmlEscape_(claveClean) + '</Filtro>'
+  );
+  // Buscar bloques que contengan <Clave> y <IdProducto>
+  const itemRe = /<([a-zA-Z0-9_:]*Producto[a-zA-Z0-9_:]*)>([\s\S]*?)<\/\1>/g;
+  let m;
+  let fallback = null;
+  while ((m = itemRe.exec(xmlText)) !== null) {
+    const blk = m[2];
+    const idProd = extractXmlTag_(blk, 'IdProducto');
+    const clave = extractXmlTag_(blk, 'Clave');
+    if (!idProd || !clave) continue;
+    const item = {
+      IdProducto: idProd,
+      Clave: clave,
+      Nombre: extractXmlTag_(blk, 'Nombre'),
+      Precio: parseFloat(extractXmlTag_(blk, 'Precio') || '0') || 0
+    };
+    if (!fallback) fallback = item;
+    if (clave.toUpperCase() === claveClean.toUpperCase()) return item;
+  }
+  return fallback;
+}
+
+function crearProspectoProvisionalWcf_(nombre, telefono, correo, idUsuarioResponsable) {
+  const inner =
+    '<ClaveServicio>{TOKEN}</ClaveServicio>' +
+    '<IdUsuario>' + idUsuarioResponsable + '</IdUsuario>' +
+    '<IdLead>0</IdLead>' +
+    '<Nombre>' + xmlEscape_(String(nombre || '').trim() || 'PROSPECTO PRESENTACION') + '</Nombre>' +
+    '<Paterno></Paterno>' +
+    '<Materno></Materno>' +
+    '<Correo>' + xmlEscape_(String(correo || '').trim()) + '</Correo>' +
+    '<FechaNacimiento>2000-01-01T00:00:00</FechaNacimiento>' +
+    '<Telefono>' + xmlEscape_(String(telefono || '').trim()) + '</Telefono>' +
+    '<Celular>' + xmlEscape_(String(telefono || '').trim()) + '</Celular>' +
+    '<Oficina></Oficina>' +
+    '<IdResponsable>' + idUsuarioResponsable + '</IdResponsable>' +
+    '<IdFase>0</IdFase>' +
+    '<IdOrigen>0</IdOrigen>' +
+    '<Casa2></Casa2>' +
+    '<Nextel></Nextel>' +
+    '<Extension></Extension>' +
+    '<IdTipoCliente>1</IdTipoCliente>';
+
+  const xmlResp = callSmuebleriaWcf_('InsertarLead', inner);
+  const m = xmlResp.match(/<[^>]*InsertarLeadResult>(-?\d+)</);
+  const idLead = m ? parseInt(m[1], 10) : 0;
+  if (!idLead || idLead <= 0) {
+    throw new Error('Error al crear prospecto provisional en S Mueblería: ' + xmlResp.slice(0, 260));
+  }
+  return idLead;
+}
+
+function extractFolioForIdVentaXml_(xmlCot, newId) {
+  if (!xmlCot || !newId) return '';
+  const idRe = new RegExp('<(?:[a-zA-Z0-9_]+:)?IdVenta>' + String(newId) + '<\\/(?:[a-zA-Z0-9_]+:)?IdVenta>');
+  const m = idRe.exec(xmlCot);
+  if (!m) return '';
+  const pos = m.index;
+  const winStart = Math.max(0, pos - 4000);
+  const winEnd = Math.min(xmlCot.length, pos + 4000);
+  const chunk = xmlCot.slice(winStart, winEnd);
+  const relPos = pos - winStart;
+
+  const before = chunk.slice(0, relPos);
+  const after = chunk.slice(relPos);
+
+  // Acotar exactamente al registro actual (entre el IdVenta previo y el siguiente IdVenta)
+  const prevIdIdx = before.lastIndexOf('IdVenta>');
+  const safeBefore = prevIdIdx >= 0 ? before.slice(prevIdIdx) : before;
+  const boundaryRe = /<\/([a-zA-Z0-9_:]+)>\s*<\1[\s>]/g;
+  let bMatch;
+  let itemStartInSafe = 0;
+  while ((bMatch = boundaryRe.exec(safeBefore)) !== null) {
+    itemStartInSafe = bMatch.index + bMatch[0].indexOf('<', 2);
+  }
+  const recordBefore = safeBefore.slice(itemStartInSafe);
+
+  const nextIdMatch = after.slice(m[0].length).search(/<(?:[a-zA-Z0-9_]+:)?IdVenta>/);
+  const recordAfter = nextIdMatch >= 0 ? after.slice(0, m[0].length + nextIdMatch) : after;
+
+  return extractXmlTag_(recordBefore + recordAfter, 'Folio');
+}
+
+function parseDeliveryDateToErpIso_(dateStr) {
+  const s = String(dateStr || '').trim();
+  let dt = null;
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) {
+    dt = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+  } else {
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) {
+      dt = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    }
+  }
+  if (!dt || isNaN(dt.getTime())) {
+    dt = new Date();
+    dt.setDate(dt.getDate() + 30);
+  }
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return yyyy + '-' + mm + '-' + dd + 'T00:00:00';
+}
+
+function insertarCotizacionDirectoWcf_(opts) {
+  const cfg = getErpRuntimeConfig_();
+  const tasaIva = 0.16;
+  const idCotizacion = Number(opts.idCotizacion || 0);
+  const idUsuarioAsesor = Number(opts.idUsuarioAsesor);
+  const idCliente = Number(opts.idCliente || 0);
+  const idLead = Number(opts.idLead || 0);
+  const descuentoExtra = Math.max(0, Number(opts.descuentoExtra || 0));
+  const partidas = opts.partidas || [];
+
+  let sumPartidas = 0;
+  const itemsXml = [];
+  for (let i = 0; i < partidas.length; i++) {
+    const p = partidas[i];
+    const idProd = parseInt(String(p.IdProducto), 10);
+    const cant = Math.max(1, Math.round(Number(p.Cantidad) || 1));
+    const precioOrig = Number(p.PrecioOriginal || 0);
+    const precioUnit = Number(p.PrecioUnitario || 0);
+    const totLinea = Math.round(cant * precioUnit * 10000) / 10000;
+    sumPartidas += totLinea;
+
+    const modeloTxt = xmlEscape_((String(p.Clave || '') + ' ' + String(p.Nombre || '')).trim());
+    const precioF = '$' + precioUnit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // Orden alfabético estricto requerido por DataContractSerializer de S Mueblería WCF
+    itemsXml.push(
+      '<b:ProductosVentas>' +
+        '<b:Bodega>0</b:Bodega>' +
+        '<b:Cantidad>' + cant + '</b:Cantidad>' +
+        '<b:CantidadDescontinuada>0</b:CantidadDescontinuada>' +
+        '<b:CantidadOriginal>' + cant + '</b:CantidadOriginal>' +
+        '<b:Descripcion> </b:Descripcion>' +
+        '<b:Detalle i:nil="true"/>' +
+        '<b:DiasEntrega>0</b:DiasEntrega>' +
+        '<b:EsTela>false</b:EsTela>' +
+        '<b:Estatus i:nil="true"/>' +
+        '<b:IdCategoria>0</b:IdCategoria>' +
+        '<b:IdModleo>0</b:IdModleo>' +
+        '<b:IdMoneda>0</b:IdMoneda>' +
+        '<b:IdPaquete>0</b:IdPaquete>' +
+        '<b:IdProducto>' + idProd + '</b:IdProducto>' +
+        '<b:IdProductoTelaLigada>0</b:IdProductoTelaLigada>' +
+        '<b:IdPromocion>0</b:IdPromocion>' +
+        '<b:IdProveedor>0</b:IdProveedor>' +
+        '<b:IdRama>0</b:IdRama>' +
+        '<b:IdTiempoEntrega>0</b:IdTiempoEntrega>' +
+        '<b:ImagenVenta/>' +
+        '<b:IvaProducto>' + tasaIva.toFixed(4) + '</b:IvaProducto>' +
+        '<b:Mensaje1>Material Base:</b:Mensaje1>' +
+        '<b:Mensaje2>Material Cubierta:</b:Mensaje2>' +
+        '<b:Mensaje3>Material Otro:</b:Mensaje3>' +
+        '<b:MetrosMaterial2>0.0000</b:MetrosMaterial2>' +
+        '<b:MetrosMaterial3>0.0000</b:MetrosMaterial3>' +
+        '<b:MetrosMaterial4>0.0000</b:MetrosMaterial4>' +
+        '<b:MetrosMaterial5>0.0000</b:MetrosMaterial5>' +
+        '<b:MetrosTela>0.0000</b:MetrosTela>' +
+        '<b:Modelo>' + modeloTxt + '</b:Modelo>' +
+        '<b:PedirTelaLigada>false</b:PedirTelaLigada>' +
+        '<b:Piso>0</b:Piso>' +
+        '<b:Precio>' + precioUnit.toFixed(4) + '</b:Precio>' +
+        '<b:PrecioF>' + xmlEscape_(precioF) + '</b:PrecioF>' +
+        '<b:PrecioMinimo>0.0000</b:PrecioMinimo>' +
+        '<b:PrecioOriginal>' + precioOrig.toFixed(4) + '</b:PrecioOriginal>' +
+        '<b:PrecioOriginalCotizador>0.0000</b:PrecioOriginalCotizador>' +
+        '<b:Total>' + totLinea.toFixed(4) + '</b:Total>' +
+      '</b:ProductosVentas>'
+    );
+  }
+
+  const totalFinal = Math.max(0, sumPartidas - descuentoExtra);
+  const subtotal = Math.round((totalFinal / (1 + tasaIva)) * 10000) / 10000;
+  const iva = Math.round((totalFinal - subtotal) * 10000) / 10000;
+
+  const productosBlock =
+    '<Productos xmlns:b="http://schemas.datacontract.org/2004/07/" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">' +
+      itemsXml.join('') +
+    '</Productos>';
+
+  const inner =
+    '<ClaveServicio>{TOKEN}</ClaveServicio>' +
+    '<IdCotizacion>' + idCotizacion + '</IdCotizacion>' +
+    '<IdCliente>' + idCliente + '</IdCliente>' +
+    '<IdLead>' + idLead + '</IdLead>' +
+    '<Nombre>' + xmlEscape_(opts.nombreCliente || 'PROSPECTO PRESENTACION') + '</Nombre>' +
+    '<FechaEntrega>' + opts.fechaEntregaIso + '</FechaEntrega>' +
+    '<IdUsuario>' + idUsuarioAsesor + '</IdUsuario>' +
+    '<subtotal>' + subtotal.toFixed(4) + '</subtotal>' +
+    '<iva>' + iva.toFixed(4) + '</iva>' +
+    '<Total>' + totalFinal.toFixed(4) + '</Total>' +
+    '<descuento>' + descuentoExtra.toFixed(4) + '</descuento>' +
+    productosBlock +
+    '<Comentarios>' + xmlEscape_(opts.comentarios || '') + '</Comentarios>' +
+    '<IdCategoriaVenta>' + Number(opts.idCategoriaVenta || 2) + '</IdCategoriaVenta>' +
+    '<TAX>0</TAX>' +
+    '<IdDireccion>0</IdDireccion>' +
+    '<IdFormaPagoCredito>0</IdFormaPagoCredito>' +
+    '<IdTipoPago>0</IdTipoPago>' +
+    '<PagoParcial>0</PagoParcial>' +
+    '<NoPagosCredito>0</NoPagosCredito>' +
+    '<Enganche>0</Enganche>' +
+    '<TipoCambio>0</TipoCambio>' +
+    '<IdMoneda>0</IdMoneda>' +
+    '<IdCajero>' + idUsuarioAsesor + '</IdCajero>' +
+    '<IdOrigen>0</IdOrigen>' +
+    '<TasaIva>' + tasaIva.toFixed(4) + '</TasaIva>';
+
+  const xmlResp = callSmuebleriaWcf_('InsertarCotizacion', inner);
+  const m = xmlResp.match(/<[^>]*InsertarCotizacionResult>([^<]+)</);
+  const rawRes = m ? m[1].trim() : '';
+  const newId = /^\d+$/.test(rawRes) ? parseInt(rawRes, 10) : 0;
+  if (!newId || newId <= 0) {
+    throw new Error('S Mueblería no devolvió un ID de cotización válido (' + (rawRes || xmlResp.slice(0, 200)) + ').');
+  }
+
+  let folioOficial = '';
+  try {
+    const xmlCot = callSmuebleriaWcf_(
+      'ObtenerCotizacionesTodas',
+      '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Venta></Venta><Filtro></Filtro>'
+    );
+    folioOficial = extractFolioForIdVentaXml_(xmlCot, newId);
+  } catch (folioErr) {
+    Logger.log('Aviso al consultar Folio en ObtenerCotizacionesTodas: ' + folioErr);
+  }
+
+  return {
+    idCotizacion: newId,
+    folio: folioOficial,
+    subtotal: subtotal,
+    iva: iva,
+    total: totalFinal
+  };
+}
+
+function readPlantillaProductCatalogMap_(shPlantilla) {
+  const map = {};
+  if (!shPlantilla || shPlantilla.getLastColumn() < 34 || shPlantilla.getLastRow() < 2) return map;
+  const vals = shPlantilla.getRange(2, 31, shPlantilla.getLastRow() - 1, 4).getValues(); // AE..AH
+  for (let i = 0; i < vals.length; i++) {
+    const r = vals[i];
+    const sku = String(r[0] || '').trim().toUpperCase();
+    if (!sku) continue;
+    map[sku] = {
+      idProducto: cleanSheetKeyCell_(r[1]),
+      nombre: String(r[2] || '').trim(),
+      precio: Number(r[3] || 0) || 0
+    };
+  }
+  return map;
+}
+
+/**
+ * Procesa la cotización exigiendo identidad autenticada por correo, bloqueando Sucursal/Proyecto
+ * y enviando EN VIVO directo a S Mueblería ERP (sistema.smuebleria.com).
+ */
+function handleInvSubmitQuote_(body) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    ensureLiveErpSyncTrigger_();
+    const ss = getSpreadsheet_();
+    const sh = ss.getSheetByName('plantilla');
+    if (!sh) {
+      return { ok: false, error: 'No se encontró la hoja "plantilla" en CONTROL DE PRODUCTOS PRESENTACIÓN.' };
+    }
+
+    const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+    const authCheck = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, body);
+    if (!authCheck.ok) {
+      return authCheck;
+    }
+    const verifiedUser = authCheck.advisor;
+
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) {
+      return { ok: false, error: 'Agrega al menos un producto a la cotización.' };
+    }
+    if (items.length > 15) {
+      return { ok: false, error: 'La plantilla admite máximo 15 partidas por cotización (tienes ' + items.length + ').' };
+    }
+
+    // Bloqueo estricto de Sucursal / Modalidad Proyecto y Usuario S Mueblería según el correo autenticado
+    const erpStore = verifiedUser.erpStore;
+    let idUsuarioNum = parseInt(String(verifiedUser.erpAdvisorId || '').trim(), 10) || 0;
+    let erpAdvisorLabel = verifiedUser.erpAdvisorLabel || '';
+    if (!idUsuarioNum && verifiedUser.branchKey === 'ADMIN') {
+      const cfg = getErpRuntimeConfig_();
+      idUsuarioNum = cfg.masterUserId;
+      erpAdvisorLabel = verifiedUser.nombre + ' | CEDIS [ID: ' + idUsuarioNum + ']';
+    }
+
+    const sendToErp = body.sendToErp !== false;
+    if (sendToErp && (!idUsuarioNum || idUsuarioNum <= 0)) {
+      return {
+        ok: false,
+        error: 'Tu cuenta (' + verifiedUser.correo + ') aún no tiene un ID de usuario activo vinculado en S Mueblería.'
+      };
+    }
+
+    const categoryLabel = String(body.categoryLabel || 'COTIZACIONES [ID: 2]').trim();
+    const clientMode = String(body.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)').trim();
+    const clientNameRaw = String(body.clientName || '').trim() || (verifiedUser.isProyecto ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA');
+    const clientPhone = String(body.clientPhone || '').trim();
+    const deliveryDate = String(body.deliveryDate || '').trim();
+    const rawNotes = String(body.notes || '').trim();
+    const extraDiscount = Math.max(0, Number(body.extraDiscount) || 0);
+
+    const shQuotes = ensureQuotesLedgerSheet_(ss);
+    const orderCode = peekNextBranchOrderCode_(shQuotes, verifiedUser.orderPrefix);
+    const originHeaderTag = verifiedUser.isProyecto
+      ? ('[PROYECTO · ORDEN ' + orderCode + ' · ' + verifiedUser.nombre + ' <' + verifiedUser.correo + '>]')
+      : ('[' + verifiedUser.branchLabel.toUpperCase() + ' · ORDEN ' + orderCode + ' · ' + verifiedUser.nombre + ' <' + verifiedUser.correo + '>]');
+    const finalNotesForErp = rawNotes ? (originHeaderTag + ' ' + rawNotes) : originHeaderTag;
+
+    // 1) Mantener K5 en SOLO REVISIÓN para que ningún script externo reenvíe por duplicado
+    sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
+    sh.getRange('K7').clearContent();
+    sh.getRange('M7').clearContent();
+
+    // 2) Escribir sucursal/proyecto y asesor EXCLUSIVOS del correo autenticado
+    sh.getRange('C5').setValue(erpStore);
+    if (erpAdvisorLabel) {
+      sh.getRange('C6').setValue(erpAdvisorLabel);
+    }
+    sh.getRange('C7').setValue(categoryLabel);
+    sh.getRange('C9').setValue(clientMode);
+    sh.getRange('G9').setNumberFormat('@').setValue(clientPhone);
+    sh.getRange('C10').setValue(clientNameRaw);
+    if (deliveryDate) {
+      sh.getRange('G10').setValue(deliveryDate);
+    }
+    sh.getRange('C11').setValue(finalNotesForErp);
+    sh.getRange('H30').setValue(extraDiscount);
+
+    // 3) Escribir columnas editables B (SKU), D (Cantidad), F (% Desc) en filas 15..29
+    const bVals = [];
+    const dVals = [];
+    const fVals = [];
+    for (let i = 0; i < 15; i++) {
+      if (i < items.length) {
+        const it = items[i] || {};
+        const sku = String(it.sku || '').trim().toUpperCase();
+        const qty = Math.max(1, Math.round(Number(it.qty) || 1));
+        let discPct = Number(it.discountPct) || 0;
+        if (discPct > 1) discPct = discPct / 100;
+        discPct = Math.max(0, Math.min(1, discPct));
+        bVals.push([sku]);
+        dVals.push([qty]);
+        fVals.push([discPct]);
+      } else {
+        bVals.push(['']);
+        dVals.push(['']);
+        fVals.push(['']);
+      }
+    }
+    sh.getRange(15, 2, 15, 1).setNumberFormat('@').setValues(bVals);
+    sh.getRange(15, 4, 15, 1).setValues(dVals);
+    sh.getRange(15, 6, 15, 1).setValues(fVals);
+
+    SpreadsheetApp.flush();
+
+    const ahoraStr = formatCancunNow_();
+    if (!sendToErp) {
+      sh.getRange('K6').setValue('🟢 EN REVISIÓN (' + orderCode + ' · ' + verifiedUser.quoteType + ')');
+      sh.getRange('K9').setValue(ahoraStr);
+      SpreadsheetApp.flush();
+      const previewStatus = handleInvPlantillaStatus_();
+      previewStatus.orderCode = orderCode;
+      previewStatus.quoteType = verifiedUser.quoteType;
+      previewStatus.isProyecto = verifiedUser.isProyecto;
+      previewStatus.serieLabel = verifiedUser.serieLabel;
+      previewStatus.sentLiveToErp = false;
+      previewStatus.recentQuotes = readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 8);
+      return previewStatus;
+    }
+
+    // 4) Resolver IdProducto y precios reales para enviar EN VIVO directo a S Mueblería WCF
+    const catalogMap = readPlantillaProductCatalogMap_(sh);
+    const sheetRows = sh.getRange(15, 2, items.length, 12).getValues(); // B..M
+    const partidasErp = [];
+    const skusSummaryParts = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const reqItem = items[i] || {};
+      const rSheet = sheetRows[i] || [];
+      const sku = String(reqItem.sku || rSheet[0] || '').trim().toUpperCase();
+      const cant = Math.max(1, Math.round(Number(reqItem.qty || rSheet[2]) || 1));
+      let discFrac = Number(reqItem.discountPct) || 0;
+      if (discFrac > 1) discFrac = discFrac / 100;
+      discFrac = Math.max(0, Math.min(1, discFrac));
+
+      const catEntry = catalogMap[sku] || {};
+      let idProd = cleanSheetKeyCell_(rSheet[11]) || catEntry.idProducto || '';
+      let nombreProd = String(rSheet[1] || catEntry.nombre || reqItem.name || sku).trim();
+      let precioOrig = Number(rSheet[3] || catEntry.precio || reqItem.unitList || 0) || 0;
+
+      if (!idProd || !/^\d+$/.test(idProd) || precioOrig <= 0) {
+        const liveProd = buscarProductoPorClaveWcf_(sku);
+        if (!liveProd || !liveProd.IdProducto) {
+          return {
+            ok: false,
+            error: 'El SKU "' + sku + '" no existe o no está dado de alta en el sistema S Mueblería.'
+          };
+        }
+        idProd = String(liveProd.IdProducto).trim();
+        if (!nombreProd || nombreProd.indexOf('SKU no') >= 0) {
+          nombreProd = liveProd.Nombre || sku;
+        }
+        if (precioOrig <= 0 && liveProd.Precio > 0) {
+          precioOrig = Number(liveProd.Precio);
+        }
+      }
+
+      const precioUnit = Math.round(precioOrig * (1 - discFrac) * 10000) / 10000;
+      partidasErp.push({
+        Clave: sku,
+        Nombre: nombreProd,
+        Cantidad: cant,
+        PrecioOriginal: precioOrig,
+        PrecioUnitario: precioUnit,
+        IdProducto: idProd
+      });
+      skusSummaryParts.push(sku + ' x' + cant);
+    }
+
+    const catMatch = categoryLabel.match(/(\d+)/);
+    const idCategoriaVenta = catMatch ? parseInt(catMatch[1], 10) : 2;
+
+    const cliMatch = clientMode.match(/ID CLIENTE:\s*(\d+)/i);
+    let idCliente = 0;
+    let idLead = 0;
+    const displayClientForErp = verifiedUser.isProyecto && !/^\[?PROYECTO/i.test(clientNameRaw)
+      ? ('PROYECTO - ' + clientNameRaw)
+      : clientNameRaw;
+
+    if (cliMatch) {
+      idCliente = parseInt(cliMatch[1], 10);
+      idLead = 0;
+    } else {
+      idLead = crearProspectoProvisionalWcf_(displayClientForErp, clientPhone, '', idUsuarioNum);
+    }
+
+    const fechaEntregaIso = parseDeliveryDateToErpIso_(deliveryDate);
+    const erpResult = insertarCotizacionDirectoWcf_({
+      idCotizacion: 0,
+      idUsuarioAsesor: idUsuarioNum,
+      idCliente: idCliente,
+      idLead: idLead,
+      nombreCliente: displayClientForErp,
+      fechaEntregaIso: fechaEntregaIso,
+      comentarios: finalNotesForErp,
+      idCategoriaVenta: idCategoriaVenta,
+      partidas: partidasErp,
+      descuentoExtra: extraDiscount
+    });
+
+    const refSujeto = idLead ? ('Lead ' + idLead) : ('Cliente ' + idCliente);
+    const statusBannerTxt = '✅ COTIZACIÓN ENVIADA EN VIVO A SMUEBLERIA (' + ahoraStr + ') · ' + orderCode;
+    const folioFinal = erpResult.folio || ('ID-' + erpResult.idCotizacion);
+
+    sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
+    sh.getRange('K6').setValue(statusBannerTxt);
+    sh.getRange('K7').setValue(String(erpResult.idCotizacion));
+    sh.getRange('M7').setValue(folioFinal);
+    sh.getRange('K8').setValue(refSujeto);
+    sh.getRange('K9').setValue(ahoraStr);
+
+    // 5) Registrar orden consecutiva de Sucursal / Proyecto en COTIZACIONES_EN_VIVO
+    shQuotes.appendRow([
+      orderCode,
+      folioFinal,
+      String(erpResult.idCotizacion),
+      ahoraStr,
+      verifiedUser.quoteType,
+      verifiedUser.sheetTab,
+      erpStore,
+      verifiedUser.correo,
+      verifiedUser.nombre,
+      erpAdvisorLabel,
+      String(idUsuarioNum),
+      displayClientForErp,
+      clientPhone,
+      clientMode,
+      categoryLabel,
+      deliveryDate,
+      partidasErp.length,
+      skusSummaryParts.join(', '),
+      erpResult.subtotal,
+      erpResult.iva,
+      extraDiscount,
+      erpResult.total,
+      'EN VIVO EN S MUEBLERÍA',
+      rawNotes
+    ]);
+    const appendedRow = shQuotes.getLastRow();
+    shQuotes.getRange(appendedRow, 19, 1, 4).setNumberFormat('$#,##0.00');
+
+    SpreadsheetApp.flush();
+
+    const finalOut = handleInvPlantillaStatus_();
+    finalOut.sentLiveToErp = true;
+    finalOut.orderCode = orderCode;
+    finalOut.nextOrderCode = peekNextBranchOrderCode_(shQuotes, verifiedUser.orderPrefix);
+    finalOut.quoteType = verifiedUser.quoteType;
+    finalOut.isProyecto = verifiedUser.isProyecto;
+    finalOut.serieLabel = verifiedUser.serieLabel;
+    finalOut.folio = folioFinal;
+    finalOut.quoteId = String(erpResult.idCotizacion);
+    finalOut.erpStatus = statusBannerTxt;
+    finalOut.recentQuotes = readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 8);
+    return finalOut;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function handleInvPlantillaStatus_() {
@@ -2246,4 +3507,361 @@ function handleInvPlantillaStatus_() {
     total: totVals[3][2] || ''
   };
 }
+
+// ----------------------------------------------------------------------------
+// SINCRONIZADOR CLOUD 24/7 DE INVENTARIO_EN_VIVO (S MUEBLERÍA WCF + LPPT RO)
+// Mantiene Bodega y Piso de todas las sucursales + LPPT libre al día sin PC local
+// ----------------------------------------------------------------------------
+function ensureLiveErpSyncTrigger_() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    const exists = triggers.some((t) => t.getHandlerFunction() === 'sincronizarInventarioEnVivoDesdeERP');
+    if (!exists) {
+      ScriptApp.newTrigger('sincronizarInventarioEnVivoDesdeERP')
+        .timeBased()
+        .everyMinutes(5)
+        .create();
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function instalarTriggerErpEnVivo() {
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach((t) => {
+    if (t.getHandlerFunction() === 'sincronizarInventarioEnVivoDesdeERP') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('sincronizarInventarioEnVivoDesdeERP')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+  try {
+    SpreadsheetApp.getUi().alert('Sincronización automática 24/7 con S Mueblería ERP activada cada 5 minutos.');
+  } catch (e) {}
+  return { ok: true };
+}
+
+function parseSheetOrStrDate_(rawVal, fmtStr) {
+  if (rawVal instanceof Date && !isNaN(rawVal.getTime())) {
+    return new Date(rawVal.getFullYear(), rawVal.getMonth(), rawVal.getDate());
+  }
+  if (typeof rawVal === 'number' && rawVal >= 35000 && rawVal <= 75000) {
+    const epoch = new Date(1899, 11, 30);
+    epoch.setDate(epoch.getDate() + Math.round(rawVal));
+    return epoch;
+  }
+  const s = String(fmtStr || rawVal || '').trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    let p0 = parseInt(m[1], 10);
+    let p1 = parseInt(m[2], 10);
+    let yr = parseInt(m[3], 10);
+    if (yr < 100) yr += 2000;
+    if (p1 > 12 && p0 <= 12) return new Date(yr, p0 - 1, p1);
+    return new Date(yr, p1 - 1, p0);
+  }
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  }
+  return null;
+}
+
+function resolveSupplierDays_(provRaw, tiemposInf, tiemposBackup) {
+  const p = normPlainUpper_(provRaw);
+  if (!p || p.indexOf('DESCONTINUADO') >= 0 || p.indexOf('AJUSTE DE INVENTARIO') >= 0) return '';
+  const alias = normPlainUpper_(ERP_PROVIDER_ALIASES_[p] || '');
+  if (tiemposInf[p] !== undefined) return tiemposInf[p];
+  if (alias && tiemposInf[alias] !== undefined) return tiemposInf[alias];
+  const keys = Object.keys(tiemposInf);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (k.length >= 4 && (p.indexOf(k) >= 0 || k.indexOf(p) >= 0)) return tiemposInf[k];
+  }
+  if (tiemposBackup[p] !== undefined) return tiemposBackup[p];
+  if (alias && tiemposBackup[alias] !== undefined) return tiemposBackup[alias];
+  return '';
+}
+
+/**
+ * Sincroniza INVENTARIO_EN_VIVO directo desde S Mueblería WCF + LPPT (estricto solo lectura).
+ */
+function sincronizarInventarioEnVivoDesdeERP(opts) {
+  const silentUi = !opts || opts.silentUi !== false;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) {
+    return { ok: true, skippedBusy: true };
+  }
+  try {
+    const cfg = getErpRuntimeConfig_();
+    const ss = getSpreadsheet_();
+    const shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+    if (!shInv || shInv.getLastRow() < 3) {
+      return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no inicializada.' };
+    }
+
+    // 1) Obtener existencias Bodega y Piso en vivo desde S Mueblería ERP
+    const xmlInv = callSmuebleriaWcf_(
+      'ObtenerProductosInventariosSucursalesTodos',
+      '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro></Filtro>'
+    );
+
+    const invPorSku = {};
+    const metaErpSku = {};
+    const prodRe = /<(?:[a-zA-Z0-9_]+:)?ProductoInventarioSucursal>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?ProductoInventarioSucursal>/g;
+    let match;
+    while ((match = prodRe.exec(xmlInv)) !== null) {
+      const blk = match[1];
+      const sku = extractXmlTag_(blk, 'Clave').toUpperCase();
+      if (!sku) continue;
+      const sucNorm = normPlainUpper_(extractXmlTag_(blk, 'Sucursal'));
+      const bod = Math.round(parseFloat(extractXmlTag_(blk, 'Existensia') || '0') || 0);
+      const pis = Math.round(parseFloat(extractXmlTag_(blk, 'Piso') || '0') || 0);
+
+      if (!metaErpSku[sku]) {
+        metaErpSku[sku] = {
+          MODELO: extractXmlTag_(blk, 'Modelo'),
+          NOMBRE: extractXmlTag_(blk, 'Nombre'),
+          CATEGORIA: extractXmlTag_(blk, 'Categoria'),
+          PROVEEDOR: extractXmlTag_(blk, 'Proveedor')
+        };
+      }
+      if (!invPorSku[sku]) invPorSku[sku] = {};
+      const prev = invPorSku[sku][sucNorm] || [0, 0];
+      invPorSku[sku][sucNorm] = [prev[0] + bod, prev[1] + pis];
+    }
+
+    // 2) Tiempos de entrega de INF. PRODUC
+    const tiemposInf = {};
+    const tiemposBackup = {};
+    const shInf = ss.getSheetByName('INF. PRODUC');
+    if (shInf && shInf.getLastRow() >= 3) {
+      const infVals = shInf.getRange(3, 1, Math.min(shInf.getLastRow() - 2, 200), 3).getDisplayValues();
+      for (let i = 0; i < infVals.length; i++) {
+        const mDias = String(infVals[i][1] || '').match(/\d+/);
+        const pNorm = normPlainUpper_(infVals[i][2]);
+        if (pNorm && mDias) {
+          const dInt = parseInt(mDias[0], 10);
+          tiemposInf[pNorm] = dInt;
+          if (pNorm.indexOf('/') >= 0) {
+            pNorm.split('/').forEach((sub) => {
+              const sc = sub.trim();
+              if (sc) tiemposInf[sc] = dInt;
+            });
+          }
+        }
+      }
+    }
+
+    // 3) Lectura ESTRICTAMENTE SOLO LECTURA de LPPT PROVEDORES (Principal)
+    let lpptOk = false;
+    const lpptLibre = {};
+    const fechaLlegadaMap = {};
+    try {
+      const lpptSs = SpreadsheetApp.openById(cfg.lpptSpreadsheetId);
+      ['Config GDL', 'Config CDMX'].forEach((cfgTab) => {
+        try {
+          const shC = lpptSs.getSheetByName(cfgTab);
+          if (shC && shC.getLastRow() >= 2) {
+            const cVals = shC.getRange(2, 5, Math.min(shC.getLastRow() - 1, 50), 2).getDisplayValues();
+            cVals.forEach((r) => {
+              const pn = normPlainUpper_(r[0]);
+              const md = String(r[1] || '').match(/\d+/);
+              if (pn && md) tiemposBackup[pn] = parseInt(md[0], 10);
+            });
+          }
+        } catch (eCfg) {}
+      });
+
+      const shLppt = lpptSs.getSheetByName('Principal');
+      if (shLppt && shLppt.getLastRow() >= 3) {
+        const numLpptRows = Math.min(shLppt.getLastRow() - 2, 2000);
+        const rng = shLppt.getRange(3, 1, numLpptRows, 20);
+        const fmtRows = rng.getDisplayValues();
+        const rawRows = rng.getValues();
+        const nowD = new Date();
+        const todayMidnight = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate());
+        const fechasCandidatas = {};
+        const reApartadoParcial = /\b[A-Z]{2,5}\s*\d{3,7}\s*\(\s*(\d+)\s*\)/gi;
+        const reFolioSuelto = /\b(?:PTC|CCB|DTC|PL|PRO|CED|OUT)\s*\d{3,7}\b/i;
+
+        for (let i = 0; i < fmtRows.length; i++) {
+          const rf = fmtRows[i];
+          const ru = rawRows[i];
+          const sku = String(rf[9] || '').trim().toUpperCase();
+          if (!sku) continue;
+          const cantTotal = Math.round(parseFloat(String(ru[6] !== '' ? ru[6] : rf[6]).replace(/,/g, '')) || 0);
+          if (cantTotal <= 0) continue;
+
+          const folioVenta = String(rf[12] || '').trim();
+          const cliente = String(rf[15] || '').trim();
+          if (folioVenta || cliente) continue;
+
+          const estatus = normPlainUpper_(rf[16]);
+          if (/CANCEL|RECIBID|ENTREGAD|BAJA/.test(estatus)) continue;
+
+          const comProv = normPlainUpper_(rf[17]);
+          const comCompras = normPlainUpper_(rf[18]);
+          if (/NO DISPONIBLE|GARANTIA|APARTAD|ASIGNAD/.test(comCompras)) continue;
+          if (comProv.indexOf('GARANTIA') >= 0 && comCompras.indexOf('STOCK') < 0) continue;
+
+          const comAsesorRaw = String(rf[19] || '').trim();
+          const comAsesorNorm = normPlainUpper_(comAsesorRaw);
+          let apartadas = 0;
+          let pm;
+          reApartadoParcial.lastIndex = 0;
+          let foundParcial = false;
+          while ((pm = reApartadoParcial.exec(comAsesorRaw)) !== null) {
+            apartadas += parseInt(pm[1], 10) || 0;
+            foundParcial = true;
+          }
+          if (!foundParcial && comAsesorNorm) {
+            if (reFolioSuelto.test(comAsesorNorm) || /APARTAD|ASIGNAD|VENDID|CLIENTE/.test(comAsesorNorm)) {
+              apartadas = cantTotal;
+            }
+          }
+
+          const libres = Math.max(0, cantTotal - apartadas);
+          if (libres <= 0) continue;
+          lpptLibre[sku] = (lpptLibre[sku] || 0) + libres;
+
+          const prov = String(rf[1] || '').trim();
+          const fCompra = parseSheetOrStrDate_(ru[2], rf[2]);
+          const fComp = parseSheetOrStrDate_(ru[5], rf[5]);
+          const diasProv = resolveSupplierDays_(prov, tiemposInf, tiemposBackup);
+
+          let fechaInf = null;
+          if (fCompra && diasProv !== '') {
+            fechaInf = new Date(fCompra.getTime());
+            fechaInf.setDate(fechaInf.getDate() + Number(diasProv));
+          }
+
+          let fechaEst = null;
+          if (fechaInf && fComp) {
+            if (fechaInf < todayMidnight && fComp >= fechaInf) fechaEst = fComp;
+            else if (fComp > fechaInf) fechaEst = fComp;
+            else fechaEst = fechaInf;
+          } else if (fechaInf) {
+            fechaEst = fechaInf;
+          } else if (fComp) {
+            fechaEst = fComp;
+          } else if (diasProv !== '') {
+            fechaEst = new Date(todayMidnight.getTime());
+            fechaEst.setDate(fechaEst.getDate() + Number(diasProv));
+          }
+
+          if (fechaEst) {
+            if (!fechasCandidatas[sku]) fechasCandidatas[sku] = [];
+            fechasCandidatas[sku].push(fechaEst);
+          }
+        }
+
+        Object.keys(lpptLibre).forEach((sk) => {
+          const cands = fechasCandidatas[sk] || [];
+          if (lpptLibre[sk] > 0 && cands.length > 0) {
+            const vigentes = cands.filter((d) => d >= todayMidnight);
+            const chosenD = vigentes.length > 0
+              ? vigentes.reduce((a, b) => (a < b ? a : b))
+              : cands.reduce((a, b) => (a > b ? a : b));
+            const dd = String(chosenD.getDate()).padStart(2, '0');
+            const mm = String(chosenD.getMonth() + 1).padStart(2, '0');
+            fechaLlegadaMap[sk] = dd + '/' + mm + '/' + chosenD.getFullYear();
+          } else {
+            fechaLlegadaMap[sk] = 'Sin piezas solicitadas';
+          }
+        });
+        lpptOk = true;
+      }
+    } catch (lpptErr) {
+      Logger.log('Aviso lectura LPPT solo lectura: ' + lpptErr);
+    }
+
+    // 4) Actualizar columnas dinámicas O..AV en INVENTARIO_EN_VIVO respetando A..N y F2 ARRAYFORMULA
+    const lastRow = shInv.getLastRow();
+    const numCatalogRows = lastRow - 2;
+    const catRange = shInv.getRange(3, 1, numCatalogRows, Math.min(shInv.getMaxColumns(), 17)).getValues();
+    if (shInv.getMaxColumns() < 48) {
+      shInv.insertColumnsAfter(shInv.getMaxColumns(), 48 - shInv.getMaxColumns());
+    }
+
+    const ahoraStr = formatCancunNow_();
+    const headersOAv = [
+      'TIEMPO DE ENTREGA (DIAS)',
+      'LPPT',
+      'FECHA ESTIMADA DE LLEGADA',
+      'TOTAL BODEGA',
+      'TOTAL PISO'
+    ];
+    ERP_WAREHOUSES_ORDER_.forEach((pair) => {
+      headersOAv.push(pair[1] + ' BODEGA');
+      headersOAv.push(pair[1] + ' PISO');
+    });
+    headersOAv.push('ULTIMA ACTUALIZACION EN VIVO');
+
+    const outMatrix = [];
+    for (let i = 0; i < numCatalogRows; i++) {
+      const r = catRange[i];
+      const sku = String(r[0] || '').trim().toUpperCase();
+      if (!sku) {
+        const blank = new Array(34).fill('');
+        outMatrix.push(blank);
+        continue;
+      }
+      const provHoja = String(r[13] || '').trim() || (metaErpSku[sku] && metaErpSku[sku].PROVEEDOR) || '';
+      const dias = resolveSupplierDays_(provHoja, tiemposInf, tiemposBackup);
+      const colDias = dias !== '' ? dias : (r[14] !== '' ? r[14] : '');
+
+      const cantLppt = lpptOk ? (lpptLibre[sku] || 0) : (Number(r[15]) || 0);
+      const fechaEst = lpptOk
+        ? (cantLppt > 0 ? (fechaLlegadaMap[sku] || 'Sin piezas solicitadas') : 'Sin piezas solicitadas')
+        : (r[16] || 'Sin piezas solicitadas');
+
+      const sucMap = invPorSku[sku] || {};
+      let totBod = 0;
+      let totPis = 0;
+      Object.keys(sucMap).forEach((skSuc) => {
+        totBod += sucMap[skSuc][0] || 0;
+        totPis += sucMap[skSuc][1] || 0;
+      });
+
+      const rowVals = [colDias, cantLppt, fechaEst, totBod, totPis];
+      for (let w = 0; w < ERP_WAREHOUSES_ORDER_.length; w++) {
+        const sucKey = ERP_WAREHOUSES_ORDER_[w][0];
+        const bp = sucMap[sucKey] || [0, 0];
+        rowVals.push(bp[0] || 0);
+        rowVals.push(bp[1] || 0);
+      }
+      rowVals.push(ahoraStr);
+      outMatrix.push(rowVals);
+    }
+
+    const heartbeatRow = new Array(33).fill('');
+    heartbeatRow.push('EN VIVO | ' + ahoraStr);
+
+    shInv.getRange(1, 15, 1, 34).setValues([headersOAv]);
+    shInv.getRange(2, 15, 1, 34).setValues([heartbeatRow]);
+    shInv.getRange(3, 15, outMatrix.length, 34).setValues(outMatrix);
+
+    if (!silentUi) {
+      try {
+        SpreadsheetApp.getUi().alert('Inventario sincronizado en vivo desde S Mueblería ERP (' + outMatrix.length + ' filas, ' + ahoraStr + ').');
+      } catch (e) {}
+    }
+
+    return {
+      ok: true,
+      rowsUpdated: outMatrix.length,
+      lpptSynced: lpptOk,
+      timestamp: ahoraStr
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 

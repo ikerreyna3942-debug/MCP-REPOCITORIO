@@ -803,12 +803,66 @@
     const QUOTE_META_STORAGE = 'creata_inv_quote_draft_meta_v1';
 
     const USER_BRANCH_TABS = [
-        { tab: 'PLAYA', branchKey: 'PLAYA', label: 'Playa del Carmen', erpStore: 'CREATA LIVING PLAYA' },
-        { tab: 'COLOCIO', branchKey: 'COLOSIO', label: 'Colosio', erpStore: 'CREATA LIVING COLOSIO' },
-        { tab: 'PTC', branchKey: 'PTC', label: 'Puerto Cancún (PTC)', erpStore: 'CREATA PUERTO CANCUN' },
-        { tab: 'CASA CREATA', branchKey: 'CASA CREATA', label: 'Casa Creata', erpStore: 'CASA CREATA BONAMPAK' },
-        { tab: 'PROYECTOS', branchKey: 'PROYECTOS', label: 'Proyectos', erpStore: 'PROYECTOS ANIPA INTERIOR' },
-        { tab: 'CUENTAS ADMINISTRATIVAS', branchKey: 'ADMIN', label: 'Administración / Todas', erpStore: 'CEDIS' }
+        {
+            tab: 'PLAYA',
+            branchKey: 'PLAYA',
+            label: 'Playa del Carmen',
+            erpStore: 'CREATA LIVING PLAYA',
+            orderPrefix: 'PL',
+            quoteType: 'SUCURSAL',
+            isProyecto: false,
+            serieLabel: 'SERIE PL · PLAYA'
+        },
+        {
+            tab: 'COLOCIO',
+            branchKey: 'COLOSIO',
+            label: 'Colosio',
+            erpStore: 'CREATA LIVING COLOSIO',
+            orderPrefix: 'DTC',
+            quoteType: 'SUCURSAL',
+            isProyecto: false,
+            serieLabel: 'SERIE DTC · COLOSIO'
+        },
+        {
+            tab: 'PTC',
+            branchKey: 'PTC',
+            label: 'Puerto Cancún (PTC)',
+            erpStore: 'CREATA PUERTO CANCUN',
+            orderPrefix: 'PTC',
+            quoteType: 'SUCURSAL',
+            isProyecto: false,
+            serieLabel: 'SERIE PTC · PUERTO CANCÚN'
+        },
+        {
+            tab: 'CASA CREATA',
+            branchKey: 'CASA CREATA',
+            label: 'Casa Creata',
+            erpStore: 'CASA CREATA BONAMPAK',
+            orderPrefix: 'CCB',
+            quoteType: 'SUCURSAL',
+            isProyecto: false,
+            serieLabel: 'SERIE CCB · CASA CREATA'
+        },
+        {
+            tab: 'PROYECTOS',
+            branchKey: 'PROYECTOS',
+            label: 'Proyectos',
+            erpStore: 'PROYECTOS ANIPA INTERIOR',
+            orderPrefix: 'PRO',
+            quoteType: 'PROYECTO',
+            isProyecto: true,
+            serieLabel: 'MODALIDAD PROYECTO · SERIE PRO'
+        },
+        {
+            tab: 'CUENTAS ADMINISTRATIVAS',
+            branchKey: 'ADMIN',
+            label: 'Administración / Todas',
+            erpStore: 'CEDIS',
+            orderPrefix: 'ADM',
+            quoteType: 'ADMINISTRATIVO',
+            isProyecto: false,
+            serieLabel: 'SERIE ADM · ADMINISTRACIÓN'
+        }
     ];
 
     const DEFAULT_ERP_STORES = [
@@ -821,27 +875,66 @@
         'CEDIS'
     ];
 
+    function findBranchConfig(tabOrKey, erpStoreHint) {
+        const up = String(tabOrKey || '').trim().toUpperCase();
+        const storeUp = String(erpStoreHint || '').trim().toUpperCase();
+        for (let i = 0; i < USER_BRANCH_TABS.length; i++) {
+            const cfg = USER_BRANCH_TABS[i];
+            if (cfg.tab.toUpperCase() === up || cfg.branchKey.toUpperCase() === up) return cfg;
+            if (up === 'COLOSIO' && cfg.tab === 'COLOCIO') return cfg;
+        }
+        if (storeUp) {
+            for (let j = 0; j < USER_BRANCH_TABS.length; j++) {
+                if (USER_BRANCH_TABS[j].erpStore.toUpperCase() === storeUp) return USER_BRANCH_TABS[j];
+            }
+        }
+        return null;
+    }
+
+    function enrichAdvisorLocation(u) {
+        if (!u || typeof u !== 'object') return u;
+        const cfg = findBranchConfig(u.sheetTab || u.branchKey, u.erpStore);
+        const isProy = cfg ? !!cfg.isProyecto : (!!u.isProyecto || String(u.branchKey || u.sheetTab || '').toUpperCase() === 'PROYECTOS');
+        return Object.assign({}, u, {
+            branchKey: u.branchKey || (cfg ? cfg.branchKey : ''),
+            branchLabel: u.branchLabel || (cfg ? cfg.label : (u.sheetTab || '')),
+            erpStore: (cfg ? cfg.erpStore : u.erpStore) || 'CREATA PUERTO CANCUN',
+            orderPrefix: u.orderPrefix || (cfg ? cfg.orderPrefix : (isProy ? 'PRO' : 'COT')),
+            quoteType: u.quoteType || (cfg ? cfg.quoteType : (isProy ? 'PROYECTO' : 'SUCURSAL')),
+            isProyecto: isProy,
+            serieLabel: u.serieLabel || (cfg ? cfg.serieLabel : '')
+        });
+    }
+
     let erpStoresCatalog = DEFAULT_ERP_STORES.slice();
     let erpAdvisorsCatalog = [];
     let activeAdvisorSession = loadAdvisorSession();
     let pendingAuthContext = null; // { email, inputKey, locations, switchingFromActive }
     let quoteDraftMeta = loadQuoteDraftMeta();
     let quoteSubmitInFlight = false;
+    let currentNextOrderCode = '';
+    let myRecentQuotesList = [];
+    let lastSubmittedQuoteMeta = null;
+    let pendingQuoteRetrySendToErp = null;
 
     function loadAdvisorSession() {
         try {
             const raw = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null');
-            if (raw && typeof raw === 'object' && raw.correo && raw.branchLabel) {
-                return raw;
+            if (raw && typeof raw === 'object' && raw.correo && (raw.branchLabel || raw.sheetTab)) {
+                const enriched = enrichAdvisorLocation(raw);
+                if (Array.isArray(enriched.allLocations)) {
+                    enriched.allLocations = enriched.allLocations.map(enrichAdvisorLocation);
+                }
+                return enriched;
             }
         } catch (e) {}
         return null;
     }
 
     function saveAdvisorSession(sess) {
-        activeAdvisorSession = sess || null;
+        activeAdvisorSession = sess ? enrichAdvisorLocation(sess) : null;
         try {
-            if (sess) localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sess));
+            if (activeAdvisorSession) localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(activeAdvisorSession));
             else localStorage.removeItem(AUTH_SESSION_KEY);
         } catch (e) {}
     }
@@ -901,8 +994,6 @@
     }
 
     window.saveQuoteDraftMeta = function () {
-        const storeEl = document.getElementById('quoteErpStoreSelect');
-        const advEl = document.getElementById('quoteErpAdvisorSelect');
         const modeEl = document.getElementById('quoteClientModeSelect');
         const catEl = document.getElementById('quoteCategorySelect');
         const nameEl = document.getElementById('quoteClientNameInput');
@@ -911,8 +1002,11 @@
         const notesEl = document.getElementById('quoteNotesInput');
         const extraEl = document.getElementById('quoteExtraDiscountInput');
 
-        if (storeEl) quoteDraftMeta.erpStore = storeEl.value;
-        if (advEl) quoteDraftMeta.erpAdvisorLabel = advEl.value;
+        // Sucursal/Proyecto y Usuario ERP siempre quedan bloqueados exclusivamente al correo en sesión
+        if (activeAdvisorSession) {
+            quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || '';
+            quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
+        }
         if (modeEl) quoteDraftMeta.clientMode = modeEl.value;
         if (catEl) quoteDraftMeta.categoryLabel = catEl.value;
         if (nameEl) quoteDraftMeta.clientName = nameEl.value;
@@ -1092,6 +1186,10 @@
                     branchKey: cfg.branchKey,
                     branchLabel: cfg.label,
                     erpStore: cfg.erpStore,
+                    orderPrefix: cfg.orderPrefix,
+                    quoteType: cfg.quoteType,
+                    isProyecto: !!cfg.isProyecto,
+                    serieLabel: cfg.serieLabel,
                     nombre: nombre,
                     puesto: puesto,
                     correo: correo,
@@ -1123,6 +1221,10 @@
                 newKey: item.newKey
             }, 9000);
             if (res && res.ok) {
+                if (activeAdvisorSession && activeAdvisorSession.correo === em && res.authToken) {
+                    activeAdvisorSession.authToken = res.authToken;
+                    saveAdvisorSession(activeAdvisorSession);
+                }
                 delete mapObj[em];
                 changed = true;
             }
@@ -1174,10 +1276,17 @@
         }
 
         if (nameEl) nameEl.textContent = activeAdvisorSession.nombre || activeAdvisorSession.correo;
-        if (branchEl) branchEl.textContent = activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '';
+        if (branchEl) {
+            const prefix = activeAdvisorSession.orderPrefix || 'COT';
+            if (activeAdvisorSession.isProyecto) {
+                branchEl.textContent = 'PROYECTO · SERIE ' + prefix;
+            } else {
+                branchEl.textContent = (activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '') + ' · SERIE ' + prefix;
+            }
+        }
         if (erpEl) {
             if (activeAdvisorSession.erpAdvisorId) {
-                erpEl.textContent = 'Usuario Sistema #' + activeAdvisorSession.erpAdvisorId;
+                erpEl.textContent = 'Usuario S Mueblería #' + activeAdvisorSession.erpAdvisorId;
                 erpEl.classList.remove('hidden');
             } else {
                 erpEl.textContent = '';
@@ -1193,12 +1302,9 @@
 
     function applyAdvisorDefaultsToQuoteForm(forceOverwriteStoreAndUser) {
         if (!activeAdvisorSession) return;
-        if (forceOverwriteStoreAndUser || !quoteDraftMeta.erpStore) {
-            quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || 'CREATA PUERTO CANCUN';
-        }
-        if (forceOverwriteStoreAndUser || !quoteDraftMeta.erpAdvisorLabel) {
-            quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
-        }
+        // Sucursal/Proyecto y Asesor S Mueblería siempre se bloquean al titular del correo autenticado
+        quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || 'CREATA PUERTO CANCUN';
+        quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
         try {
             localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
         } catch (e) {}
@@ -1225,6 +1331,22 @@
         }
         modal.classList.remove('open');
         renderAdvisorHeaderBar();
+        refreshMyLiveQuotesInfo();
+    }
+
+    function promptSessionReauth(reasonMsg, retrySendFlag) {
+        pendingQuoteRetrySendToErp = (typeof retrySendFlag === 'boolean') ? retrySendFlag : null;
+        const modal = document.getElementById('authModal');
+        const emInp = document.getElementById('authEmailInput');
+        const keyInp = document.getElementById('authKeyInput');
+        if (emInp && activeAdvisorSession && activeAdvisorSession.correo) {
+            emInp.value = activeAdvisorSession.correo;
+        }
+        if (keyInp) keyInp.value = '';
+        setAuthStepVisible('login');
+        showAuthBanner('authLoginMsg', reasonMsg || 'Confirma tu contraseña personal para emitir la cotización con tu usuario exclusivo.', 'warn');
+        if (modal) modal.classList.add('open');
+        if (keyInp) setTimeout(() => keyInp.focus(), 60);
     }
 
     function renderBranchChoicesStep(locations, subtitleText) {
@@ -1233,15 +1355,20 @@
         if (subEl && subtitleText) subEl.textContent = subtitleText;
         if (!listEl) return;
 
-        listEl.innerHTML = locations.map((loc, idx) => {
+        listEl.innerHTML = locations.map((rawLoc, idx) => {
+            const loc = enrichAdvisorLocation(rawLoc);
             const isCurrent = activeAdvisorSession &&
                 activeAdvisorSession.sheetTab === loc.sheetTab &&
                 activeAdvisorSession.correo === loc.correo;
+            const modeTag = loc.isProyecto ? ('PROYECTO · SERIE ' + (loc.orderPrefix || 'PRO')) : ('SERIE ' + (loc.orderPrefix || 'COT'));
             return '<button type="button" data-branch-idx="' + idx + '" ' +
                 'class="w-full text-left rounded-xl border p-3.5 transition flex items-center justify-between gap-3 hover:shadow-sm" ' +
                 'style="border-color:' + (isCurrent ? '#A38251' : '#E1DBC5') + '; background:' + (isCurrent ? '#FAF9F6' : '#FFFFFF') + ';">' +
                 '<div class="min-w-0">' +
-                    '<div class="text-xs font-extrabold uppercase tracking-wider" style="color:#252C32;">' + escapeHtml(loc.branchLabel || loc.sheetTab) + '</div>' +
+                    '<div class="flex flex-wrap items-center gap-1.5">' +
+                        '<span class="text-xs font-extrabold uppercase tracking-wider" style="color:#252C32;">' + escapeHtml(loc.branchLabel || loc.sheetTab) + '</span>' +
+                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (loc.isProyecto ? '#252C32' : '#E1DBC5') + '; color:' + (loc.isProyecto ? '#FFFFFF' : '#252C32') + ';">' + escapeHtml(modeTag) + '</span>' +
+                    '</div>' +
                     '<div class="text-[11px] font-semibold mt-0.5" style="color:#A38251;">' +
                         escapeHtml((loc.puesto ? (loc.puesto + ' · ') : '') + (loc.erpStore || '')) +
                     '</div>' +
@@ -1254,7 +1381,7 @@
             btn.onclick = function () {
                 const idx = parseInt(btn.getAttribute('data-branch-idx'), 10) || 0;
                 const chosen = locations[idx];
-                if (chosen) finalizeLocationChoice(chosen, locations);
+                if (chosen) finalizeLocationChoice(chosen, locations, '');
             };
         });
 
@@ -1263,38 +1390,54 @@
         if (modal) modal.classList.add('open');
     }
 
-    function finalizeLocationChoice(chosenLoc, allLocs) {
-        const cleanAll = (allLocs || [chosenLoc]).map(u => ({
-            sheetTab: u.sheetTab,
-            rowNum: u.rowNum,
-            branchKey: u.branchKey,
-            branchLabel: u.branchLabel,
-            erpStore: u.erpStore,
-            nombre: u.nombre,
-            puesto: u.puesto,
-            correo: u.correo,
-            mustChangeKey: !!u.mustChangeKey,
-            erpAdvisorLabel: u.erpAdvisorLabel || '',
-            erpAdvisorId: u.erpAdvisorId || '',
-            erpAdvisorBranch: u.erpAdvisorBranch || ''
-        }));
+    function finalizeLocationChoice(chosenLoc, allLocs, nextOrderFromLogin) {
+        const enrichedChosen = enrichAdvisorLocation(chosenLoc);
+        const cleanAll = (allLocs || [enrichedChosen]).map(rawU => {
+            const u = enrichAdvisorLocation(rawU);
+            return {
+                sheetTab: u.sheetTab,
+                rowNum: u.rowNum,
+                branchKey: u.branchKey,
+                branchLabel: u.branchLabel,
+                erpStore: u.erpStore,
+                orderPrefix: u.orderPrefix,
+                quoteType: u.quoteType,
+                isProyecto: !!u.isProyecto,
+                serieLabel: u.serieLabel,
+                nombre: u.nombre,
+                puesto: u.puesto,
+                correo: u.correo,
+                mustChangeKey: !!u.mustChangeKey,
+                erpAdvisorLabel: u.erpAdvisorLabel || '',
+                erpAdvisorId: u.erpAdvisorId || '',
+                erpAdvisorBranch: u.erpAdvisorBranch || '',
+                authToken: u.authToken || ''
+            };
+        });
 
         const sessionObj = {
-            sheetTab: chosenLoc.sheetTab,
-            rowNum: chosenLoc.rowNum,
-            branchKey: chosenLoc.branchKey,
-            branchLabel: chosenLoc.branchLabel,
-            erpStore: chosenLoc.erpStore,
-            nombre: chosenLoc.nombre,
-            puesto: chosenLoc.puesto,
-            correo: chosenLoc.correo,
-            mustChangeKey: !!chosenLoc.mustChangeKey,
-            erpAdvisorLabel: chosenLoc.erpAdvisorLabel || '',
-            erpAdvisorId: chosenLoc.erpAdvisorId || '',
-            erpAdvisorBranch: chosenLoc.erpAdvisorBranch || '',
+            sheetTab: enrichedChosen.sheetTab,
+            rowNum: enrichedChosen.rowNum,
+            branchKey: enrichedChosen.branchKey,
+            branchLabel: enrichedChosen.branchLabel,
+            erpStore: enrichedChosen.erpStore,
+            orderPrefix: enrichedChosen.orderPrefix,
+            quoteType: enrichedChosen.quoteType,
+            isProyecto: !!enrichedChosen.isProyecto,
+            serieLabel: enrichedChosen.serieLabel,
+            nombre: enrichedChosen.nombre,
+            puesto: enrichedChosen.puesto,
+            correo: enrichedChosen.correo,
+            mustChangeKey: !!enrichedChosen.mustChangeKey,
+            erpAdvisorLabel: enrichedChosen.erpAdvisorLabel || '',
+            erpAdvisorId: enrichedChosen.erpAdvisorId || '',
+            erpAdvisorBranch: enrichedChosen.erpAdvisorBranch || '',
+            authToken: enrichedChosen.authToken || '',
             allLocations: cleanAll
         };
 
+        lastSubmittedQuoteMeta = null;
+        currentNextOrderCode = cleanStr(nextOrderFromLogin) || ((sessionObj.orderPrefix || 'COT') + '-0001');
         saveAdvisorSession(sessionObj);
         applyAdvisorDefaultsToQuoteForm(true);
 
@@ -1315,8 +1458,20 @@
         const modal = document.getElementById('authModal');
         if (modal) modal.classList.remove('open');
         renderAdvisorHeaderBar();
-        const searchInp = document.getElementById('invSearchInput');
-        if (searchInp) setTimeout(() => searchInp.focus(), 60);
+        refreshMyLiveQuotesInfo();
+
+        if (pendingQuoteRetrySendToErp !== null) {
+            const retrySendFlag = pendingQuoteRetrySendToErp;
+            pendingQuoteRetrySendToErp = null;
+            submitQuoteToSystem(retrySendFlag);
+            return;
+        }
+
+        const cartModalEl = document.getElementById('cartModal');
+        if (!cartModalEl || !cartModalEl.classList.contains('open')) {
+            const searchInp = document.getElementById('invSearchInput');
+            if (searchInp) setTimeout(() => searchInp.focus(), 60);
+        }
     }
 
     window.submitAdvisorLogin = async function (ev) {
@@ -1332,6 +1487,10 @@
             return;
         }
 
+        const preferredTab = (pendingQuoteRetrySendToErp !== null && activeAdvisorSession && activeAdvisorSession.correo === email)
+            ? (activeAdvisorSession.sheetTab || '')
+            : '';
+
         if (btnEl) {
             btnEl.disabled = true;
             btnEl.textContent = 'Verificando cuenta...';
@@ -1339,11 +1498,12 @@
         showAuthBanner('authLoginMsg', '', 'err');
 
         try {
-            // 1) Intentar validación directa vía Apps Script WebApp si ya está actualizada
+            // 1) Validación directa y emisión de token firmado vía Apps Script WebApp
             const cloudRes = await callInvWebAppPost('inv_login', {
                 email: email,
-                accessKey: inputKey
-            }, 9000);
+                accessKey: inputKey,
+                sheetTab: preferredTab
+            }, 10000);
 
             if (cloudRes && cloudRes.ok) {
                 if (Array.isArray(cloudRes.stores) && cloudRes.stores.length > 0) {
@@ -1379,7 +1539,11 @@
                         locations: cloudRes.allLocationsForEmail || [cloudRes.user],
                         switchingFromActive: false
                     };
-                    finalizeLocationChoice(cloudRes.user, cloudRes.allLocationsForEmail || [cloudRes.user]);
+                    finalizeLocationChoice(
+                        cloudRes.user,
+                        cloudRes.allLocationsForEmail || [cloudRes.user],
+                        cloudRes.nextOrderCode || ''
+                    );
                     return;
                 }
             } else if (cloudRes && !cloudRes.unavailable && !cloudRes.needsRedeploy && cloudRes.error) {
@@ -1387,7 +1551,7 @@
                 return;
             }
 
-            // 2) Lectura directa en vivo desde las hojas PLAYA, COLOCIO, PTC, CASA CREATA, PROYECTOS y plantilla
+            // 2) Respaldo de lectura directa en vivo desde las hojas PLAYA, COLOCIO, PTC, CASA CREATA, PROYECTOS y plantilla
             const allUsers = await fetchAllAdvisorRowsLiveGviz();
             if (!allUsers.length) {
                 showAuthBanner('authLoginMsg', 'No fue posible consultar las hojas de usuarios. Verifica tu conexión a internet.', 'err');
@@ -1423,13 +1587,16 @@
                 switchingFromActive: false
             };
 
-            if (preparedLocs.length > 1) {
+            if (preparedLocs.length > 1 && !preferredTab) {
                 renderBranchChoicesStep(
                     preparedLocs,
                     'Hola ' + (preparedLocs[0].nombre || '') + '. Tu correo aparece en varias hojas; selecciona en cuál ubicación estarás:'
                 );
             } else {
-                finalizeLocationChoice(preparedLocs[0], emailMatches);
+                const picked = preferredTab
+                    ? (preparedLocs.find(u => u.sheetTab === preferredTab) || preparedLocs[0])
+                    : preparedLocs[0];
+                finalizeLocationChoice(picked, preparedLocs, '');
             }
         } finally {
             if (btnEl) {
@@ -1461,7 +1628,7 @@
         };
         renderBranchChoicesStep(
             activeAdvisorSession.allLocations,
-            'Selecciona la ubicación en la que operarás para tus cotizaciones:'
+            'Selecciona la ubicación autorizada de tu correo en la que emitirás tus cotizaciones:'
         );
     };
 
@@ -1500,10 +1667,24 @@
             const res = await callInvWebAppPost('inv_update_key', {
                 email: activeAdvisorSession.correo,
                 currentKey: prevTempKey,
-                newKey: newKey
+                newKey: newKey,
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                authToken: activeAdvisorSession.authToken || ''
             }, 12000);
 
-            if (!res || !res.ok) {
+            if (res && res.ok) {
+                if (res.authToken) {
+                    activeAdvisorSession.authToken = res.authToken;
+                }
+                if (res.tokensByTab && Array.isArray(activeAdvisorSession.allLocations)) {
+                    activeAdvisorSession.allLocations = activeAdvisorSession.allLocations.map(l =>
+                        Object.assign({}, l, {
+                            mustChangeKey: false,
+                            authToken: res.tokensByTab[l.sheetTab] || l.authToken || res.authToken || ''
+                        })
+                    );
+                }
+            } else {
                 // Guardar actualización pendiente para sincronizar apenas responda el WebApp y reemplazar la temporal de inmediato
                 const mapObj = loadUpdatedKeysMap();
                 mapObj[activeAdvisorSession.correo] = {
@@ -1529,6 +1710,16 @@
             const modal = document.getElementById('authModal');
             if (modal) modal.classList.remove('open');
             renderAdvisorHeaderBar();
+            populateQuoteAdvisorControls();
+            refreshMyLiveQuotesInfo();
+
+            if (pendingQuoteRetrySendToErp !== null) {
+                const retrySendFlag = pendingQuoteRetrySendToErp;
+                pendingQuoteRetrySendToErp = null;
+                submitQuoteToSystem(retrySendFlag);
+                return;
+            }
+
             const searchInp = document.getElementById('invSearchInput');
             if (searchInp) setTimeout(() => searchInp.focus(), 60);
         } finally {
@@ -1542,20 +1733,109 @@
     window.logoutAdvisorSession = function () {
         saveAdvisorSession(null);
         pendingAuthContext = null;
+        pendingQuoteRetrySendToErp = null;
+        currentNextOrderCode = '';
+        myRecentQuotesList = [];
+        lastSubmittedQuoteMeta = null;
         renderAdvisorHeaderBar();
+        renderMyRecentQuotes([]);
         const keyInp = document.getElementById('authKeyInput');
         if (keyInp) keyInp.value = '';
+        closeCartModal();
         openAuthModalForStartup();
     };
 
     // ------------------------------------------------------------------------
-    // PLANTILLA DE COTIZACIÓN · VINCULADA AL USUARIO Y SISTEMA S MUEBLERÍA
+    // PLANTILLA DE COTIZACIÓN · BLOQUEADA AL CORREO Y EN VIVO CON S MUEBLERÍA
     // ------------------------------------------------------------------------
+    function renderMyRecentQuotes(list) {
+        const wrap = document.getElementById('quoteMyRecentWrap');
+        const listEl = document.getElementById('quoteMyRecentList');
+        if (!wrap || !listEl) return;
+
+        if (!Array.isArray(list) || !list.length || !activeAdvisorSession) {
+            listEl.innerHTML = '';
+            wrap.classList.add('hidden');
+            return;
+        }
+
+        listEl.innerHTML = list.map(q => {
+            const isProy = String(q.quoteType || '').toUpperCase() === 'PROYECTO';
+            const folioTxt = cleanStr(q.folio) || (q.quoteId ? ('ID-' + q.quoteId) : 'En proceso');
+            return '<div class="rounded-lg border px-3 py-2 flex flex-wrap items-center justify-between gap-2 bg-white" style="border-color:#E1DBC5;">' +
+                '<div class="min-w-0">' +
+                    '<div class="flex flex-wrap items-center gap-1.5">' +
+                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (isProy ? '#252C32' : '#A38251') + '; color:#FFFFFF;">' +
+                            escapeHtml(q.orderCode || (isProy ? 'PRO' : 'COT')) +
+                        '</span>' +
+                        '<span class="text-xs font-extrabold uppercase" style="color:#252C32;">Folio S Mueblería: ' + escapeHtml(folioTxt) + '</span>' +
+                        (q.quoteId ? ('<span class="text-[10px] font-bold opacity-70" style="color:#252C32;">(ID ' + escapeHtml(q.quoteId) + ')</span>') : '') +
+                    '</div>' +
+                    '<div class="text-[11px] font-semibold truncate mt-0.5" style="color:#252C32;">' +
+                        escapeHtml(q.clientName || 'Prospecto') +
+                        (q.skusSummary ? (' · ' + escapeHtml(q.skusSummary)) : '') +
+                    '</div>' +
+                '</div>' +
+                '<div class="text-right shrink-0 ml-auto">' +
+                    '<div class="text-xs font-black" style="color:#A38251;">' + escapeHtml(q.total || '') + '</div>' +
+                    '<div class="text-[10px] font-semibold opacity-70" style="color:#252C32;">' + escapeHtml(q.createdAt || '') + '</div>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+        wrap.classList.remove('hidden');
+    }
+
+    async function refreshMyLiveQuotesInfo() {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            renderMyRecentQuotes([]);
+            return;
+        }
+        const fallbackOrder = (activeAdvisorSession.orderPrefix || 'COT') + '-0001';
+        if (!currentNextOrderCode) {
+            currentNextOrderCode = fallbackOrder;
+            const nextBadge = document.getElementById('quoteNextOrderBadge');
+            if (nextBadge) nextBadge.textContent = 'Orden: ' + currentNextOrderCode;
+        }
+
+        if (!activeAdvisorSession.authToken) {
+            return;
+        }
+
+        const res = await callInvWebAppPost('inv_my_quotes', {
+            authToken: activeAdvisorSession.authToken,
+            advisorEmail: activeAdvisorSession.correo,
+            sheetTab: activeAdvisorSession.sheetTab || ''
+        }, 10000);
+
+        if (res && res.ok) {
+            if (res.advisor) {
+                const updatedAdv = enrichAdvisorLocation(res.advisor);
+                if (updatedAdv.erpAdvisorLabel) activeAdvisorSession.erpAdvisorLabel = updatedAdv.erpAdvisorLabel;
+                if (updatedAdv.erpAdvisorId) activeAdvisorSession.erpAdvisorId = updatedAdv.erpAdvisorId;
+                saveAdvisorSession(activeAdvisorSession);
+                renderAdvisorHeaderBar();
+            }
+            if (res.nextOrderCode) {
+                currentNextOrderCode = res.nextOrderCode;
+            }
+            myRecentQuotesList = Array.isArray(res.recentQuotes) ? res.recentQuotes : [];
+            populateQuoteAdvisorControls();
+            renderMyRecentQuotes(myRecentQuotesList);
+        }
+    }
+
     function populateQuoteAdvisorControls() {
-        const storeSel = document.getElementById('quoteErpStoreSelect');
-        const advSel = document.getElementById('quoteErpAdvisorSelect');
-        const idBadge = document.getElementById('quoteErpUserIdBadge');
+        const titleEl = document.getElementById('quoteModalTitle');
         const hdrInfo = document.getElementById('quoteHeaderAdvisorInfo');
+        const originBadge = document.getElementById('quoteOriginTypeBadge');
+        const nextOrderBadge = document.getElementById('quoteNextOrderBadge');
+        const idBadge = document.getElementById('quoteErpUserIdBadge');
+        const storeLbl = document.getElementById('quoteLockedStoreLabel');
+        const storeTxt = document.getElementById('quoteLockedStoreText');
+        const advTxt = document.getElementById('quoteLockedAdvisorText');
+        const emailTxt = document.getElementById('quoteLockedEmailText');
+        const clientNameLbl = document.getElementById('quoteClientNameLabel');
+
         const modeSel = document.getElementById('quoteClientModeSelect');
         const catSel = document.getElementById('quoteCategorySelect');
         const nameInp = document.getElementById('quoteClientNameInput');
@@ -1564,72 +1844,84 @@
         const notesInp = document.getElementById('quoteNotesInput');
         const extraInp = document.getElementById('quoteExtraDiscountInput');
 
+        const sess = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
+        const isProy = !!(sess && sess.isProyecto);
+        const prefix = (sess && sess.orderPrefix) || 'COT';
+        const orderDisplay = currentNextOrderCode || (prefix + '-0001');
+
+        if (sess && !sess.erpAdvisorLabel && erpAdvisorsCatalog.length > 0) {
+            const matched = matchBestErpAdvisorClient(sess.nombre, sess.erpStore, erpAdvisorsCatalog);
+            if (matched) {
+                sess.erpAdvisorLabel = matched.label;
+                sess.erpAdvisorId = matched.id;
+                sess.erpAdvisorBranch = matched.branch;
+                saveAdvisorSession(sess);
+            }
+        }
+
+        if (titleEl) {
+            titleEl.textContent = isProy
+                ? 'Cotización de Proyecto · S Mueblería En Vivo'
+                : 'Cotización de Sucursal · S Mueblería En Vivo';
+        }
+
         if (hdrInfo) {
-            if (activeAdvisorSession) {
-                hdrInfo.textContent = (activeAdvisorSession.nombre || activeAdvisorSession.correo) +
-                    ' · Ubicación: ' + (activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '');
+            if (sess) {
+                hdrInfo.textContent = (sess.nombre || sess.correo) + ' · ' +
+                    (isProy ? 'MODALIDAD PROYECTO' : ('Sucursal: ' + (sess.branchLabel || sess.sheetTab))) +
+                    ' · Orden ' + orderDisplay;
             } else {
                 hdrInfo.textContent = '';
             }
         }
 
-        const targetStore = quoteDraftMeta.erpStore ||
-            (activeAdvisorSession && activeAdvisorSession.erpStore) ||
-            'CREATA PUERTO CANCUN';
+        if (originBadge) {
+            originBadge.textContent = isProy
+                ? ('PROYECTO · SERIE ' + prefix)
+                : ((sess && sess.branchKey === 'ADMIN') ? ('ADMIN · SERIE ' + prefix) : ('SUCURSAL · SERIE ' + prefix));
+            originBadge.style.background = isProy ? '#252C32' : '#A38251';
+            originBadge.style.color = '#FFFFFF';
+        }
 
-        if (storeSel) {
-            const storesList = erpStoresCatalog.length ? erpStoresCatalog : DEFAULT_ERP_STORES;
-            storeSel.innerHTML = storesList.map(st =>
-                '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + '</option>'
-            ).join('');
-            if (storesList.indexOf(targetStore) !== -1) {
-                storeSel.value = targetStore;
+        if (nextOrderBadge) {
+            nextOrderBadge.textContent = 'Orden: ' + orderDisplay;
+        }
+
+        const uid = (sess && sess.erpAdvisorId) || extractErpIdFromLabel(sess && sess.erpAdvisorLabel) || '';
+        if (idBadge) {
+            idBadge.textContent = uid ? ('ID S Mueblería: ' + uid) : 'Usuario Vinculado';
+        }
+
+        if (storeLbl) {
+            storeLbl.textContent = isProy ? 'Área / Modalidad Proyecto' : 'Sucursal Asignada';
+        }
+        if (storeTxt) {
+            storeTxt.textContent = sess ? (sess.erpStore || '—') : 'Inicia sesión';
+        }
+        if (advTxt) {
+            if (sess) {
+                advTxt.textContent = sess.erpAdvisorLabel ||
+                    ((sess.nombre || sess.correo).toUpperCase() + ' | ' + (sess.erpStore || ''));
+            } else {
+                advTxt.textContent = '—';
+            }
+        }
+        if (emailTxt) {
+            if (sess) {
+                emailTxt.textContent = 'Cotización exclusiva del correo autenticado: ' + sess.correo +
+                    (isProy ? ' · Registrada en S Mueblería como PROYECTO' : (' · Serie ' + prefix));
+            } else {
+                emailTxt.textContent = '';
             }
         }
 
-        if (advSel) {
-            const selectedStore = storeSel ? storeSel.value : targetStore;
-            const list = erpAdvisorsCatalog.slice();
-            // Ordenar poniendo primero los asesores de la sucursal seleccionada
-            list.sort((a, b) => {
-                const aSame = String(a.branch || '').toUpperCase() === String(selectedStore || '').toUpperCase() ? 0 : 1;
-                const bSame = String(b.branch || '').toUpperCase() === String(selectedStore || '').toUpperCase() ? 0 : 1;
-                if (aSame !== bSame) return aSame - bSame;
-                return String(a.label || '').localeCompare(String(b.label || ''));
-            });
-
-            let targetAdvisor = quoteDraftMeta.erpAdvisorLabel ||
-                (activeAdvisorSession && activeAdvisorSession.erpAdvisorLabel) || '';
-
-            if (targetAdvisor && !list.some(a => a.label === targetAdvisor)) {
-                list.unshift({
-                    label: targetAdvisor,
-                    branch: selectedStore,
-                    id: extractErpIdFromLabel(targetAdvisor)
-                });
-            }
-
-            if (list.length > 0) {
-                advSel.innerHTML = list.map(a =>
-                    '<option value="' + escapeHtml(a.label) + '">' + escapeHtml(a.label) + '</option>'
-                ).join('');
-                if (targetAdvisor && list.some(a => a.label === targetAdvisor)) {
-                    advSel.value = targetAdvisor;
-                } else if (activeAdvisorSession) {
-                    const matched = matchBestErpAdvisorClient(activeAdvisorSession.nombre, selectedStore, list);
-                    if (matched) advSel.value = matched.label;
-                }
-            } else if (activeAdvisorSession) {
-                const fallbackLbl = (activeAdvisorSession.nombre || activeAdvisorSession.correo).toUpperCase() +
-                    ' | ' + selectedStore;
-                advSel.innerHTML = '<option value="' + escapeHtml(fallbackLbl) + '">' + escapeHtml(fallbackLbl) + '</option>';
-            }
+        if (clientNameLbl) {
+            clientNameLbl.textContent = isProy ? 'Nombre del Proyecto / Cliente *' : 'Nombre del Cliente / Prospecto *';
         }
-
-        if (idBadge && advSel) {
-            const uid = extractErpIdFromLabel(advSel.value) ||
-                (activeAdvisorSession && activeAdvisorSession.erpAdvisorId) || '';
-            idBadge.textContent = uid ? ('ID ERP: ' + uid) : 'Asesor Activo';
+        if (nameInp) {
+            nameInp.placeholder = isProy
+                ? 'Ej. Proyecto Residencial / Nombre del cliente...'
+                : 'Nombre completo del cliente o prospecto...';
         }
 
         if (modeSel && quoteDraftMeta.clientMode) modeSel.value = quoteDraftMeta.clientMode;
@@ -1644,29 +1936,6 @@
             extraInp.value = String(Math.max(0, Number(quoteDraftMeta.extraDiscount) || 0));
         }
     }
-
-    window.onQuoteStoreChange = function () {
-        const storeSel = document.getElementById('quoteErpStoreSelect');
-        if (storeSel) {
-            quoteDraftMeta.erpStore = storeSel.value;
-            if (activeAdvisorSession && erpAdvisorsCatalog.length > 0) {
-                const matched = matchBestErpAdvisorClient(activeAdvisorSession.nombre, storeSel.value, erpAdvisorsCatalog);
-                if (matched) quoteDraftMeta.erpAdvisorLabel = matched.label;
-            }
-        }
-        populateQuoteAdvisorControls();
-        saveQuoteDraftMeta();
-    };
-
-    window.onQuoteAdvisorChange = function () {
-        const advSel = document.getElementById('quoteErpAdvisorSelect');
-        const idBadge = document.getElementById('quoteErpUserIdBadge');
-        if (advSel && idBadge) {
-            const uid = extractErpIdFromLabel(advSel.value);
-            idBadge.textContent = uid ? ('ID ERP: ' + uid) : 'Asesor Activo';
-        }
-        saveQuoteDraftMeta();
-    };
 
     window.onExtraDiscountChange = function () {
         saveQuoteDraftMeta();
@@ -1728,12 +1997,18 @@
     };
 
     window.openCartModal = async function () {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            openAuthModalForStartup();
+            return;
+        }
         if (!erpAdvisorsCatalog.length) {
             loadErpCatalogLiveFromSheet().then(() => populateQuoteAdvisorControls());
         }
         populateQuoteAdvisorControls();
         renderCartItems();
+        renderMyRecentQuotes(myRecentQuotesList);
         document.getElementById('cartModal').classList.add('open');
+        refreshMyLiveQuotesInfo();
     };
 
     window.closeCartModal = function () {
@@ -1742,6 +2017,7 @@
 
     window.clearCart = function () {
         cart = {};
+        lastSubmittedQuoteMeta = null;
         saveCart();
         const statusBox = document.getElementById('quoteSystemStatusBox');
         if (statusBox) {
@@ -1871,23 +2147,29 @@
     function collectQuoteSubmissionPayload(sendToErp) {
         saveQuoteDraftMeta();
         const bd = computeQuoteBreakdown();
-        const storeSel = document.getElementById('quoteErpStoreSelect');
-        const advSel = document.getElementById('quoteErpAdvisorSelect');
-        const erpStore = (storeSel && storeSel.value) || quoteDraftMeta.erpStore ||
-            (activeAdvisorSession && activeAdvisorSession.erpStore) || 'CREATA PUERTO CANCUN';
-        const erpAdvisorLabel = (advSel && advSel.value) || quoteDraftMeta.erpAdvisorLabel ||
-            (activeAdvisorSession && activeAdvisorSession.erpAdvisorLabel) || '';
+        const sess = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
+        const prefix = (sess && sess.orderPrefix) || 'COT';
+        const erpStore = (sess && sess.erpStore) || 'CREATA PUERTO CANCUN';
+        const erpAdvisorLabel = (sess && sess.erpAdvisorLabel) ||
+            (sess ? ((sess.nombre || sess.correo).toUpperCase() + ' | ' + erpStore) : '');
 
         return {
             sendToErp: !!sendToErp,
-            advisorEmail: activeAdvisorSession ? activeAdvisorSession.correo : '',
-            advisorName: activeAdvisorSession ? activeAdvisorSession.nombre : '',
-            branchLabel: activeAdvisorSession ? activeAdvisorSession.branchLabel : '',
+            authToken: sess ? (sess.authToken || '') : '',
+            sheetTab: sess ? (sess.sheetTab || '') : '',
+            advisorEmail: sess ? sess.correo : '',
+            advisorName: sess ? sess.nombre : '',
+            branchLabel: sess ? sess.branchLabel : '',
+            orderPrefix: prefix,
+            orderCode: (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.orderCode) || currentNextOrderCode || (prefix + '-0001'),
+            quoteType: sess ? sess.quoteType : 'SUCURSAL',
+            isProyecto: !!(sess && sess.isProyecto),
             erpStore: erpStore,
             erpAdvisorLabel: erpAdvisorLabel,
+            erpAdvisorId: sess ? (sess.erpAdvisorId || '') : '',
             categoryLabel: quoteDraftMeta.categoryLabel || 'COTIZACIONES [ID: 2]',
             clientMode: quoteDraftMeta.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)',
-            clientName: cleanStr(quoteDraftMeta.clientName) || 'PROSPECTO EN TIENDA',
+            clientName: cleanStr(quoteDraftMeta.clientName) || (sess && sess.isProyecto ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA'),
             clientPhone: cleanStr(quoteDraftMeta.clientPhone),
             deliveryDate: isoDateToDMY(quoteDraftMeta.deliveryDateIso || getDefaultDeliveryIsoDate()),
             notes: cleanStr(quoteDraftMeta.notes),
@@ -1906,14 +2188,21 @@
 
     function buildFormattedQuoteText(payload) {
         const bd = payload.breakdown;
+        const folioLine = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio)
+            ? ('Folio S Mueblería: ' + lastSubmittedQuoteMeta.folio + (lastSubmittedQuoteMeta.quoteId ? (' (ID ' + lastSubmittedQuoteMeta.quoteId + ')') : ''))
+            : '';
         const lines = [
-            'PLANTILLA DE COTIZACIÓN — CREATA MUEBLES',
-            'Sucursal Sistema: ' + payload.erpStore,
-            'Usuario / Asesor: ' + (payload.erpAdvisorLabel || payload.advisorName || ''),
-            'Correo Asesor: ' + (payload.advisorEmail || '') + (payload.branchLabel ? (' (' + payload.branchLabel + ')') : ''),
+            payload.isProyecto
+                ? 'COTIZACIÓN DE PROYECTO — CREATA MUEBLES'
+                : 'COTIZACIÓN DE SUCURSAL — CREATA MUEBLES',
+            'Orden de Cotización: ' + (payload.orderCode || ''),
+            folioLine,
+            (payload.isProyecto ? 'Modalidad / Área: PROYECTO · ' : 'Sucursal Sistema: ') + payload.erpStore,
+            'Usuario Exclusivo S Mueblería: ' + (payload.erpAdvisorLabel || payload.advisorName || ''),
+            'Correo Titular: ' + (payload.advisorEmail || '') + (payload.branchLabel ? (' (' + payload.branchLabel + ')') : ''),
             'Categoría: ' + payload.categoryLabel,
             'Modalidad Cliente: ' + payload.clientMode,
-            'Cliente / Prospecto: ' + payload.clientName,
+            (payload.isProyecto ? 'Proyecto / Cliente: ' : 'Cliente / Prospecto: ') + payload.clientName,
             payload.clientPhone ? ('Teléfono: ' + payload.clientPhone) : '',
             'Entrega Tentativa: ' + payload.deliveryDate,
             payload.notes ? ('Notas: ' + payload.notes) : '',
@@ -1964,6 +2253,9 @@
         const payload = collectQuoteSubmissionPayload(false);
         const todayStr = formatDateDMY(new Date());
         const logoSrc = window.CREATA_LOGO_B64 || '';
+        const folioTxt = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio) ? lastSubmittedQuoteMeta.folio : '';
+        const qidTxt = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.quoteId) ? lastSubmittedQuoteMeta.quoteId : '';
+        const docHeading = payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización de Sucursal';
 
         const rowsHtml = bd.lines.map((ln, idx) =>
             '<tr>' +
@@ -1980,7 +2272,7 @@
         const win = window.open('', '_blank');
         if (!win) return;
         win.document.write(
-            '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Cotización — ' + escapeHtml(payload.clientName) + '</title>' +
+            '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>' + escapeHtml(docHeading) + ' — ' + escapeHtml(payload.clientName) + '</title>' +
             '<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700;800&display=swap" rel="stylesheet">' +
             '<style>body{font-family:Raleway,sans-serif;color:#252C32;margin:28px;font-size:12px;} ' +
             'table{width:100%;border-collapse:collapse;margin-top:16px;} th{background:#252C32;color:#FFF;padding:9px 8px;text-transform:uppercase;font-size:11px;letter-spacing:0.04em;} ' +
@@ -1989,17 +2281,21 @@
             '<div style="display:flex;align-items:center;justify-content:space-between;background:#252C32;color:#FFF;padding:16px 20px;border-radius:12px;">' +
                 '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:48px;object-fit:contain;">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                 '<div style="text-align:right;">' +
-                    '<div style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">Plantilla de Cotización</div>' +
-                    '<div style="color:#E1DBC5;font-size:11px;margin-top:3px;">Fecha: ' + escapeHtml(todayStr) + ' · ' + escapeHtml(payload.erpStore) + '</div>' +
+                    '<div style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">' + escapeHtml(docHeading) + '</div>' +
+                    '<div style="color:#E1DBC5;font-size:11px;margin-top:3px;">Orden: <strong>' + escapeHtml(payload.orderCode || '') + '</strong>' +
+                        (folioTxt ? (' · Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>') : '') +
+                        (qidTxt ? (' (ID ' + escapeHtml(qidTxt) + ')') : '') +
+                    '</div>' +
+                    '<div style="color:#E1DBC5;font-size:11px;margin-top:2px;">Fecha: ' + escapeHtml(todayStr) + ' · ' + escapeHtml(payload.erpStore) + '</div>' +
                 '</div>' +
             '</div>' +
             '<div class="box" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
-                '<div><strong>Cliente / Prospecto:</strong> ' + escapeHtml(payload.clientName) + '</div>' +
-                '<div><strong>Modalidad:</strong> ' + escapeHtml(payload.clientMode) + '</div>' +
+                '<div><strong>' + (payload.isProyecto ? 'Proyecto / Cliente:' : 'Cliente / Prospecto:') + '</strong> ' + escapeHtml(payload.clientName) + '</div>' +
+                '<div><strong>Origen / Modalidad:</strong> ' + escapeHtml(payload.isProyecto ? 'PROYECTO' : ('SUCURSAL (' + (payload.branchLabel || payload.erpStore) + ')')) + '</div>' +
                 '<div><strong>Teléfono:</strong> ' + escapeHtml(payload.clientPhone || 'Por definir') + '</div>' +
                 '<div><strong>Entrega Tentativa:</strong> ' + escapeHtml(payload.deliveryDate) + '</div>' +
-                '<div><strong>Asesor / Usuario Sistema:</strong> ' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</div>' +
-                '<div><strong>Categoría:</strong> ' + escapeHtml(payload.categoryLabel) + '</div>' +
+                '<div><strong>Asesor Exclusivo S Mueblería:</strong> ' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</div>' +
+                '<div><strong>Correo Titular:</strong> ' + escapeHtml(payload.advisorEmail || '') + '</div>' +
                 (payload.notes ? ('<div style="grid-column:span 2;"><strong>Notas:</strong> ' + escapeHtml(payload.notes) + '</div>') : '') +
             '</div>' +
             '<table><thead><tr><th>#</th><th>SKU</th><th style="text-align:left;">Descripción</th><th>Cant.</th><th style="text-align:right;">Precio Lista</th><th>% Desc.</th><th style="text-align:right;">Importe</th></tr></thead>' +
@@ -2050,6 +2346,11 @@
 
     window.submitQuoteToSystem = async function (sendToErp) {
         if (quoteSubmitInFlight) return;
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            openAuthModalForStartup();
+            return;
+        }
+
         const bd = computeQuoteBreakdown();
         if (!bd.lines.length) {
             renderQuoteStatusBanner('err', '<div>Agrega al menos un producto antes de generar o enviar la cotización.</div>');
@@ -2063,7 +2364,12 @@
         const nameInp = document.getElementById('quoteClientNameInput');
         if (nameInp && !cleanStr(nameInp.value)) {
             nameInp.focus();
-            renderQuoteStatusBanner('warn', '<div>Ingresa el <strong>Nombre del Cliente / Prospecto</strong> para registrar la cotización.</div>');
+            renderQuoteStatusBanner(
+                'warn',
+                '<div>Ingresa el <strong>' +
+                    (activeAdvisorSession.isProyecto ? 'Nombre del Proyecto / Cliente' : 'Nombre del Cliente / Prospecto') +
+                '</strong> para registrar la cotización.</div>'
+            );
             return;
         }
 
@@ -2077,28 +2383,86 @@
         renderQuoteStatusBanner(
             'warn',
             '<div class="font-extrabold uppercase">' +
-                (sendToErp ? 'Enviando cotización al sistema S Mueblería...' : 'Cargando datos en la hoja Plantilla...') +
+                (sendToErp
+                    ? ('Enviando ' + (payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización de Sucursal') + ' en vivo a S Mueblería...')
+                    : 'Cargando orden de cotización en revisión en Google Sheets...') +
             '</div>' +
-            '<div>Usuario asignado: <strong>' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</strong> · ' + escapeHtml(payload.erpStore) + '</div>'
+            '<div>Orden: <strong>' + escapeHtml(payload.orderCode) + '</strong> · Titular exclusivo: <strong>' + escapeHtml(payload.advisorEmail) + '</strong> (' + escapeHtml(payload.erpStore) + ')</div>'
         );
 
         try {
-            const res = await callInvWebAppPost('inv_submit_quote', payload, 18000);
+            const res = await callInvWebAppPost('inv_submit_quote', payload, 38000);
+
+            if (res && res.authRequired) {
+                renderQuoteStatusBanner(
+                    'warn',
+                    '<div class="font-extrabold uppercase">Verificación de titular requerida</div>' +
+                    '<div>' + escapeHtml(res.error || 'Confirma tu contraseña personal para emitir esta cotización con tu usuario exclusivo.') + '</div>'
+                );
+                promptSessionReauth(
+                    res.error || 'Confirma tu contraseña personal para emitir tu cotización en vivo en S Mueblería.',
+                    !!sendToErp
+                );
+                return;
+            }
+
             if (res && res.ok) {
+                const assignedOrder = cleanStr(res.orderCode) || payload.orderCode;
+                if (res.nextOrderCode) {
+                    currentNextOrderCode = res.nextOrderCode;
+                }
+                if (Array.isArray(res.recentQuotes)) {
+                    myRecentQuotesList = res.recentQuotes;
+                    renderMyRecentQuotes(myRecentQuotesList);
+                }
+                populateQuoteAdvisorControls();
+
                 if (!sendToErp) {
+                    lastSubmittedQuoteMeta = {
+                        orderCode: assignedOrder,
+                        folio: '',
+                        quoteId: '',
+                        createdAt: cleanStr(res.lastSync),
+                        quoteType: res.quoteType || payload.quoteType
+                    };
                     renderQuoteStatusBanner(
                         'ok',
-                        '<div class="font-extrabold uppercase">✓ Plantilla cargada en revisión en Google Sheets</div>' +
-                        '<div>Sucursal: <strong>' + escapeHtml(res.erpStore || payload.erpStore) + '</strong> · Usuario ERP: <strong>' + escapeHtml(res.erpAdvisor || payload.erpAdvisorLabel) + '</strong></div>' +
+                        '<div class="font-extrabold uppercase">✓ Orden ' + escapeHtml(assignedOrder) + ' cargada en revisión en Google Sheets</div>' +
+                        '<div>' + (payload.isProyecto ? 'Modalidad: <strong>PROYECTO</strong>' : 'Sucursal: <strong>' + escapeHtml(res.erpStore || payload.erpStore) + '</strong>') +
+                            ' · Usuario exclusivo: <strong>' + escapeHtml(res.erpAdvisor || payload.erpAdvisorLabel) + '</strong></div>' +
                         (res.erpStatus ? ('<div>Estado: ' + escapeHtml(res.erpStatus) + '</div>') : '')
                     );
                     return;
                 }
 
-                // Esperar confirmación de Folio ERP generado por servicio_en_vivo.py (hasta ~24s)
+                // Flujo directo 24/7 en vivo hacia sistema.smuebleria.com
+                if (res.sentLiveToErp) {
+                    const folioTxt = cleanStr(res.folio) || ('ID-' + cleanStr(res.quoteId));
+                    const qidTxt = cleanStr(res.quoteId);
+                    lastSubmittedQuoteMeta = {
+                        orderCode: assignedOrder,
+                        folio: folioTxt,
+                        quoteId: qidTxt,
+                        createdAt: cleanStr(res.lastSync),
+                        quoteType: res.quoteType || payload.quoteType
+                    };
+                    renderQuoteStatusBanner(
+                        'ok',
+                        '<div class="font-extrabold uppercase">✓ Cotización creada en vivo en el sistema S Mueblería</div>' +
+                        '<div>Orden ' + (payload.isProyecto ? 'Proyecto' : 'Sucursal') + ': <strong>' + escapeHtml(assignedOrder) + '</strong>' +
+                            ' · Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>' +
+                            (qidTxt ? (' · ID Cotización ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') +
+                        '</div>' +
+                        '<div>Emitida exclusivamente por: <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong> (' + escapeHtml(payload.advisorEmail) + ')</div>' +
+                        '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button></div>'
+                    );
+                    return;
+                }
+
+                // Compatibilidad en caso de que la implementación WebApp aún no se haya actualizado a la nueva versión
                 let latest = res;
-                for (let attempt = 0; attempt < 8; attempt++) {
-                    if (latest && (cleanStr(latest.folio) || cleanStr(latest.quoteId) || /COTIZACI[ÓO]N CREADA|ERROR/i.test(String(latest.erpStatus || '')))) {
+                for (let attempt = 0; attempt < 6; attempt++) {
+                    if (latest && (cleanStr(latest.folio) || cleanStr(latest.quoteId) || /COTIZACI[ÓO]N CREADA|ENVIADA EN VIVO|ERROR/i.test(String(latest.erpStatus || '')))) {
                         break;
                     }
                     await new Promise(r => setTimeout(r, 3000));
@@ -2106,36 +2470,47 @@
                     if (polled) latest = polled;
                 }
 
-                const folioTxt = cleanStr(latest && latest.folio);
-                const qidTxt = cleanStr(latest && latest.quoteId);
-                const stTxt = cleanStr(latest && latest.erpStatus);
-
-                if (folioTxt || qidTxt) {
+                const folioFallback = cleanStr(latest && latest.folio);
+                const qidFallback = cleanStr(latest && latest.quoteId);
+                if (folioFallback || qidFallback) {
+                    lastSubmittedQuoteMeta = {
+                        orderCode: assignedOrder,
+                        folio: folioFallback,
+                        quoteId: qidFallback,
+                        createdAt: cleanStr(latest && latest.lastSync),
+                        quoteType: payload.quoteType
+                    };
                     renderQuoteStatusBanner(
                         'ok',
                         '<div class="font-extrabold uppercase">✓ Cotización registrada en S Mueblería</div>' +
-                        '<div>Folio ERP: <strong>' + escapeHtml(folioTxt || 'Generado') + '</strong>' +
-                            (qidTxt ? (' · ID Cotización: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') +
-                        '</div>' +
-                        (stTxt ? ('<div>' + escapeHtml(stTxt) + '</div>') : '')
+                        '<div>Orden: <strong>' + escapeHtml(assignedOrder) + '</strong> · Folio S Mueblería: <strong>' + escapeHtml(folioFallback || 'Generado') + '</strong>' +
+                            (qidFallback ? (' · ID Cotización: <strong>' + escapeHtml(qidFallback) + '</strong>') : '') +
+                        '</div>'
                     );
                 } else {
                     renderQuoteStatusBanner(
-                        'ok',
-                        '<div class="font-extrabold uppercase">✓ Solicitud enviada a la hoja Plantilla (S Mueblería)</div>' +
-                        '<div>La orden quedó marcada en <strong>ENVIAR COTIZACIÓN A S MUEBLERÍA</strong> con tu usuario <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong>.</div>' +
-                        (stTxt ? ('<div>Estado actual en hoja: ' + escapeHtml(stTxt) + '</div>') : '')
+                        'warn',
+                        '<div class="font-extrabold uppercase">Plantilla registrada · Falta activar nueva versión de Apps Script para envío directo 24/7</div>' +
+                        '<div>Para que la cotización se inserte directo en vivo en <strong>sistema.smuebleria.com</strong> sin depender de ninguna computadora encendida, pega el código actualizado de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.</div>'
                     );
                 }
                 return;
             }
 
-            // Si el Apps Script de Google Sheets requiere publicar su nueva versión:
+            if (res && !res.ok && !res.unavailable && !res.needsRedeploy && res.error) {
+                renderQuoteStatusBanner(
+                    'err',
+                    '<div class="font-extrabold uppercase">No se pudo registrar la cotización en S Mueblería</div>' +
+                    '<div>' + escapeHtml(res.error) + '</div>'
+                );
+                return;
+            }
+
             window.copyCartSummary();
             renderQuoteStatusBanner(
                 'warn',
                 '<div class="font-extrabold uppercase">Plantilla generada y copiada al portapapeles</div>' +
-                '<div>Para que el botón escriba automáticamente en la pestaña <strong>plantilla</strong> y actualice contraseñas directo en Google Sheets, publica la nueva versión de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Nueva implementación</em>.</div>' +
+                '<div>Actualiza la versión publicada de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em> para enviar en vivo directo a S Mueblería.</div>' +
                 '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / PDF de esta Cotización →</button></div>'
             );
         } finally {
@@ -2144,6 +2519,7 @@
             if (btnSend) btnSend.disabled = false;
         }
     };
+
 
     // ------------------------------------------------------------------------
     // ESCÁNER BLUETOOTH (HID KEYBOARD WEDGE) + ENTER DIRECTO EN BUSCADOR
