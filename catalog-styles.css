@@ -730,3 +730,25 @@ font-size: 9.5px !important;
 padding: 5px 10px !important;
 }
 }
+
+/* ENCABEZADO EN PC: LOGO ARRIBA A LA DERECHA + BUSCADOR A LA IZQUIERDA (SIN CAMBIAR TAMAÑOS) */
+@media (min-width: 1024px) {
+.header-top-row {
+display: flex;
+flex-direction: row-reverse;
+align-items: center;
+justify-content: space-between;
+gap: 24px;
+margin-bottom: 18px;
+}
+.header-top-row .header-logo-cell {
+margin-bottom: 0;
+flex: 0 0 auto;
+}
+.header-top-row .logo-img {
+margin: 0 0 0 auto;
+}
+.header-top-row .catalog-search-wrap {
+margin: 0;
+}
+}

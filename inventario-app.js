@@ -195,6 +195,87 @@
         return cleanStr(it.n || it.s).toUpperCase();
     }
 
+    // ------------------------------------------------------------------------
+    // CATEGORÍAS NORMALIZADAS (COLUMNA CATEGORIA; SI ESTÁ VACÍA SE DEDUCE DEL TIPO DE PRODUCTO)
+    // ------------------------------------------------------------------------
+    const CATEGORY_ORDER = [
+        'SALAS & SOFÁS',
+        'SILLAS & SILLONES',
+        'COMEDORES',
+        'BUFETERAS & CREDENZAS',
+        'MESAS DE CENTRO & LATERALES',
+        'RECÁMARAS',
+        'OFICINA',
+        'EXTERIOR',
+        'ESPEJOS',
+        'CUADROS',
+        'LÁMPARAS',
+        'COJINES & TEXTILES',
+        'ACCESORIOS DECORATIVOS',
+        'COMPLEMENTOS',
+        'OTROS'
+    ];
+    const CATEGORY_RULES = [
+        [/EXTERIOR|CAMASTRO/, 'EXTERIOR'],
+        [/ESPEJO/, 'ESPEJOS'],
+        [/CUADRO|ARTE OBJETO|DECORATIVO PARED/, 'CUADROS'],
+        [/LAMPARA|CANDIL|ARBOTANTE/, 'LÁMPARAS'],
+        [/COJIN|FUNDA|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|TELA|RELLENO/, 'COJINES & TEXTILES'],
+        [/BUFETERA|CREDENZA|TRINCHADOR|CONSOLA|CAVA/, 'BUFETERAS & CREDENZAS'],
+        [/COMEDOR/, 'COMEDORES'],
+        [/MESA DE CENTRO|MESAS? LATERAL|MESA AUXILIAR|MESAS DE SALA|ESQUINERO|AUXILIAR/, 'MESAS DE CENTRO & LATERALES'],
+        [/RECAMARA|CAMA|CABECERA|BURO|COMODA|CAJONERA|COLCHON|BOX|LITERA|BEBE|BAUL/, 'RECÁMARAS'],
+        [/ESCRITORIO|ARCHIVERO|OFICINA|LIBRERO/, 'OFICINA'],
+        [/SALA|SOFA|LOVE SEAT|CHAISE|OTTOMAN|FUTTON|FUTON/, 'SALAS & SOFÁS'],
+        [/SILLA|SILLON|TABURETE|BANCO|BANCA/, 'SILLAS & SILLONES'],
+        [/MESA/, 'COMEDORES'],
+        [/FLORERO|ESCULTURA|CHAROLA|CANDELABRO|MACETA|PLANTA|FOLLAJE|ACCESORIO|ACCECORIO|VELA|LIBRO|BOTELLON|PLATO|ENSALADERA|CANASTO|LINTERNA|DECORATIV/, 'ACCESORIOS DECORATIVOS'],
+        [/COMPLEMENTO|MUEBLE DE TV|PERCHERO|CENTRO DE ENTRETENIMIENTO|CENTRO DE ENCETRENIMIENTO/, 'COMPLEMENTOS']
+    ];
+
+    function resolveItemCategory(it) {
+        const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+        const cat = norm(cleanStr(it.c));
+        const tp = norm(cleanStr(it.tp));
+        // Si no hay categoría ni tipo, se intenta con el nombre del producto
+        const sources = (cat || tp) ? [cat, tp] : [norm(cleanStr(it.n))];
+        for (let s = 0; s < sources.length; s++) {
+            const txt = sources[s];
+            if (!txt) continue;
+            for (let r = 0; r < CATEGORY_RULES.length; r++) {
+                if (CATEGORY_RULES[r][0].test(txt)) return CATEGORY_RULES[r][1];
+            }
+        }
+        return 'OTROS';
+    }
+
+    function photoUrlForItem(it) {
+        return it ? resolveDriveOrImgUrl(it.f) : '';
+    }
+
+    function firstPhotoItem(items) {
+        for (let i = 0; i < items.length; i++) {
+            if (photoUrlForItem(items[i])) return items[i];
+        }
+        return null;
+    }
+
+    const THUMB_PLACEHOLDER_SVG =
+        '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
+
+    // Miniatura con respaldo a la miniatura de Drive y luego al ícono vacío
+    function buildThumbHtml(it) {
+        const url = photoUrlForItem(it);
+        if (!url) return '<div class="inv-thumb">' + THUMB_PLACEHOLDER_SVG + '</div>';
+        const fid = extractDriveFileId(it.f);
+        const small = fid ? ('https://lh3.googleusercontent.com/d/' + fid + '=w200') : url;
+        const fallback = fid ? ('https://drive.google.com/thumbnail?id=' + fid + '&sz=w200') : '';
+        return '<div class="inv-thumb"><img loading="lazy" alt="" src="' + escapeHtml(small) + '" ' +
+            'data-fb="' + escapeHtml(fallback) + '" ' +
+            'onerror="if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=\'\';}else{this.parentNode.innerHTML=window.__INV_THUMB_PH||\'\';}"></div>';
+    }
+    window.__INV_THUMB_PH = THUMB_PLACEHOLDER_SVG;
+
     function formatTitleWithPriceHtml(titleText, priceStr) {
         const cleanTitle = escapeHtml(titleText || '');
         const cleanPr = formatPrice(priceStr);
@@ -317,6 +398,9 @@
             grp.items.push(it);
             grp._plainParts.push(it._plain);
             grp._searchParts.push(it._search);
+            it._cat = resolveItemCategory(it);
+            if (!grp.cats) grp.cats = new Set();
+            grp.cats.add(it._cat);
         }
 
         for (let i = 0; i < allGroups.length; i++) {
@@ -406,12 +490,56 @@
             }
         }
 
+        const isExactSkuHit = !!(rawTrim && bySkuMap.get(rawTrim.toUpperCase()));
+        if (activeCategory !== 'ALL' && !isExactSkuHit) {
+            filteredGroups = filteredGroups.filter(grp => grp.cats && grp.cats.has(activeCategory));
+        }
+        renderCategoryBar();
+
         const targetInitial = preserveCount ? Math.max(PAGE_SIZE, renderedCount) : PAGE_SIZE;
         renderedCount = 0;
         const container = document.getElementById('invListContainer');
         if (container) container.innerHTML = '';
         renderMoreItems(targetInitial);
     }
+
+    let activeCategory = 'ALL';
+    let lastCategoryBarSig = '';
+
+    function renderCategoryBar() {
+        const bar = document.getElementById('invCategoryBar');
+        if (!bar) return;
+        const counts = new Map();
+        for (let i = 0; i < allGroups.length; i++) {
+            const cats = allGroups[i].cats;
+            if (!cats) continue;
+            cats.forEach(c => counts.set(c, (counts.get(c) || 0) + 1));
+        }
+        const cats = CATEGORY_ORDER.filter(c => counts.get(c) > 0);
+        const sig = allGroups.length + '|' + cats.map(c => c + ':' + counts.get(c)).join('|');
+        if (sig === lastCategoryBarSig && bar.children.length) {
+            bar.querySelectorAll('.inv-cat-pill').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-cat') === activeCategory);
+            });
+            return;
+        }
+        lastCategoryBarSig = sig;
+        const pills = ['<button type="button" class="inv-cat-pill' + (activeCategory === 'ALL' ? ' active' : '') + '" data-cat="ALL">TODOS (' + allGroups.length + ')</button>'];
+        cats.forEach(c => {
+            pills.push('<button type="button" class="inv-cat-pill' + (activeCategory === c ? ' active' : '') + '" data-cat="' + escapeHtml(c) + '">' +
+                escapeHtml(c) + ' (' + counts.get(c) + ')</button>');
+        });
+        bar.innerHTML = pills.join('');
+        bar.querySelectorAll('.inv-cat-pill').forEach(btn => {
+            btn.onclick = function () { setInvCategory(btn.getAttribute('data-cat')); };
+        });
+    }
+
+    window.setInvCategory = function (cat) {
+        activeCategory = cat || 'ALL';
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+    };
 
     window.renderMoreItems = function (batchSize) {
         const container = document.getElementById('invListContainer');
@@ -437,6 +565,7 @@
                 // Listado limpio sin precio afuera (el precio se muestra adentro al abrir el inventario del producto)
                 row.onclick = function () { openGroupModal(grp.key); };
                 row.innerHTML =
+                    buildThumbHtml(firstPhotoItem(grp.items)) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.title) + '</div>' +
                     '</div>' +
@@ -449,6 +578,7 @@
                 const inCartQty = cart[skuKey] ? cart[skuKey].qty : 0;
                 row.onclick = function () { openProductDetail(it.s, false); };
                 row.innerHTML =
+                    buildThumbHtml(it) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.title || it.n || it.s) + '</div>' +
                         '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
@@ -483,6 +613,106 @@
             inp.focus();
         }
         applyFilter('');
+    };
+
+    // ------------------------------------------------------------------------
+    // ESCÁNER CON LA CÁMARA DEL TELÉFONO (CÓDIGO DE BARRAS / QR → SKU)
+    // ------------------------------------------------------------------------
+    const SCAN_LIB_URL = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+    let scanLibPromise = null;
+    let scanInstance = null;
+    let scanHandled = false;
+
+    function loadScanLib() {
+        if (window.Html5Qrcode) return Promise.resolve();
+        if (scanLibPromise) return scanLibPromise;
+        scanLibPromise = new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = SCAN_LIB_URL;
+            s.async = true;
+            s.onload = () => resolve();
+            s.onerror = () => { scanLibPromise = null; reject(new Error('No se pudo cargar el lector de códigos.')); };
+            document.head.appendChild(s);
+        });
+        return scanLibPromise;
+    }
+
+    function setScanStatus(msg, isError) {
+        const el = document.getElementById('scanStatus');
+        if (!el) return;
+        el.textContent = msg;
+        el.style.color = isError ? '#991B1B' : '#252C32';
+    }
+
+    function handleScannedCode(rawText) {
+        if (scanHandled) return;
+        const code = String(rawText || '').trim();
+        if (!code) return;
+        scanHandled = true;
+        if (navigator.vibrate) { try { navigator.vibrate(80); } catch (e) {} }
+        closeBarcodeScanner();
+        const inp = document.getElementById('invSearchInput');
+        if (inp) inp.value = code;
+        applyFilter(code);
+        const exact = bySkuMap.get(code.toUpperCase());
+        if (exact) openProductDetail(exact.s, false);
+    }
+
+    window.openBarcodeScanner = async function () {
+        const modal = document.getElementById('scanModal');
+        if (!modal) return;
+        if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert('La cámara solo está disponible desde un navegador compatible y una página segura (https).');
+            return;
+        }
+        scanHandled = false;
+        modal.classList.add('open');
+        setScanStatus('Iniciando cámara...', false);
+        try {
+            await loadScanLib();
+            const reader = document.getElementById('scanReader');
+            if (reader) reader.innerHTML = '';
+            const inst = new window.Html5Qrcode('scanReader', {
+                verbose: false,
+                experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+            });
+            scanInstance = inst;
+            await inst.start(
+                { facingMode: 'environment' },
+                {
+                    fps: 12,
+                    qrbox: function (w, h) {
+                        const bw = Math.floor(Math.min(w * 0.85, 360));
+                        const bh = Math.floor(Math.min(h * 0.5, 180));
+                        return { width: Math.max(bw, 120), height: Math.max(bh, 80) };
+                    }
+                },
+                function (decodedText) { handleScannedCode(decodedText); },
+                function () {}
+            );
+            // Si el usuario cerró el modal mientras la cámara arrancaba, apagarla
+            if (scanInstance !== inst || !modal.classList.contains('open')) {
+                try { await inst.stop(); inst.clear(); } catch (e) {}
+                return;
+            }
+            setScanStatus('Apunta la cámara al código de barras o QR del producto.', false);
+        } catch (err) {
+            console.error('[Escáner]', err);
+            setScanStatus('No fue posible abrir la cámara. Revisa que hayas dado permiso de cámara al navegador.', true);
+        }
+    };
+
+    window.closeBarcodeScanner = function () {
+        const modal = document.getElementById('scanModal');
+        if (modal) modal.classList.remove('open');
+        const inst = scanInstance;
+        scanInstance = null;
+        if (inst) {
+            try {
+                const p = inst.isScanning ? inst.stop() : Promise.resolve();
+                Promise.resolve(p).then(() => { try { inst.clear(); } catch (e) {} }).catch(() => {});
+            } catch (e) {}
+        }
     };
 
     // ------------------------------------------------------------------------
@@ -573,6 +803,7 @@
                     varLabel = varLabel + ' · ' + medUpper;
                 }
                 return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
+                    buildThumbHtml(it) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
                             formatTitleWithPriceHtml(varLabel, it.pr) +
@@ -788,11 +1019,31 @@
         document.getElementById('detTotalStock').textContent = String(totalBodegaPiso);
         document.getElementById('detWarehousesGrid').innerHTML = whHtml.join('');
 
-        // Sin cuadros inferiores de Proveedor / Tiempo de entrega (BORRAR.png)
+        // Ficha de información del producto (sin Proveedor / Tiempo de entrega, según BORRAR.png)
         const specsWrap = document.getElementById('detSpecsWrap');
         const specsGrid = document.getElementById('detSpecsGrid');
-        if (specsGrid) specsGrid.innerHTML = '';
-        if (specsWrap) specsWrap.classList.add('hidden');
+        const specRows = [
+            ['SKU / Clave', it.s],
+            ['Categoría', it._cat && it._cat !== 'OTROS' ? it._cat : cleanStr(it.c)],
+            ['Tipo de producto', cleanStr(it.tp)],
+            ['Modelo', cleanStr(it.mo)],
+            ['Variante', cleanStr(it.vr)],
+            ['Medidas', cleanStr(it.m)],
+            ['Tela', cleanStr(it.tl)],
+            ['Color de tela', cleanStr(it.ct)],
+            ['Madera', cleanStr(it.md)],
+            ['Color de madera', cleanStr(it.cm)],
+            ['Materiales', cleanStr(it.mt)]
+        ].filter(r => cleanStr(r[1]));
+        if (specsGrid) {
+            specsGrid.innerHTML = specRows.map(r =>
+                '<div class="rounded-lg border px-3 py-2" style="border-color:#E8E4DE;">' +
+                    '<div class="text-[10px] font-extrabold uppercase tracking-wider opacity-60" style="color:#252C32;">' + escapeHtml(r[0]) + '</div>' +
+                    '<div class="text-xs font-bold uppercase mt-0.5 break-words" style="color:#252C32;">' + escapeHtml(r[1]) + '</div>' +
+                '</div>'
+            ).join('');
+        }
+        if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0);
     }
 
     // ------------------------------------------------------------------------
@@ -1942,12 +2193,38 @@
         renderQuoteTotalsOnly();
     };
 
+    // ------------------------------------------------------------------------
+    // LÍMITE DE DESCUENTO POR PUESTO (COLUMNA PUESTO DE LA HOJA DE SUCURSAL)
+    // ASESOR: 24% · GERENTE / SUBGERENTE (SUB): 100%
+    // ------------------------------------------------------------------------
+    const ADVISOR_MAX_DISCOUNT_PCT = 24;
+    const MANAGER_MAX_DISCOUNT_PCT = 100;
+
+    function getAdvisorRoleInfo() {
+        const puestoRaw = cleanStr(activeAdvisorSession && activeAdvisorSession.puesto);
+        const p = String(puestoRaw || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        const isManager = /GERENTE|\bSUB/.test(p);
+        return {
+            puesto: puestoRaw ? puestoRaw.toUpperCase() : 'ASESOR',
+            isManager: isManager,
+            maxPct: isManager ? MANAGER_MAX_DISCOUNT_PCT : ADVISOR_MAX_DISCOUNT_PCT
+        };
+    }
+
+    function getMaxDiscountPct() {
+        return getAdvisorRoleInfo().maxPct;
+    }
+
     window.setCartItemDiscount = function (skuRaw, rawPct) {
         const key = String(skuRaw || '').trim().toUpperCase();
         if (!cart[key]) return;
         let pct = Number(rawPct);
         if (isNaN(pct) || !isFinite(pct)) pct = 0;
-        pct = Math.max(0, Math.min(100, pct));
+        const maxPct = getMaxDiscountPct();
+        if (pct > maxPct) {
+            alert('Tu puesto (' + getAdvisorRoleInfo().puesto + ') permite un descuento máximo de ' + maxPct + '% por partida.');
+        }
+        pct = Math.max(0, Math.min(maxPct, pct));
         cart[key].discountPct = pct;
         saveCart();
         renderCartItems();
@@ -2033,6 +2310,8 @@
         const entries = Object.values(cart);
         const lines = [];
         let sumLines = 0;
+        let sumList = 0;
+        const maxPct = getMaxDiscountPct();
 
         for (let i = 0; i < entries.length; i++) {
             const row = entries[i];
@@ -2042,10 +2321,11 @@
             const itemPriceStr = (liveIt && formatPrice(liveIt.pr)) || formatPrice(row.price);
             const unitList = parsePriceNum(itemPriceStr);
             const qty = Math.max(1, Number(row.qty) || 1);
-            const discPct = Math.max(0, Math.min(100, Number(row.discountPct) || 0));
+            const discPct = Math.max(0, Math.min(maxPct, Number(row.discountPct) || 0));
             const unitFinal = unitList * (1 - (discPct / 100));
             const lineSubtotal = unitFinal * qty;
             sumLines += lineSubtotal;
+            sumList += unitList * qty;
 
             lines.push({
                 key: key,
@@ -2055,11 +2335,18 @@
                 discountPct: discPct,
                 unitList: unitList,
                 unitFinal: unitFinal,
-                lineSubtotal: lineSubtotal
+                lineSubtotal: lineSubtotal,
+                photoUrl: liveIt ? photoUrlForItem(liveIt) : '',
+                measures: liveIt ? cleanStr(liveIt.m) : '',
+                variant: liveIt ? cleanStr(liveIt.vr) : ''
             });
         }
 
-        const extraDiscount = Math.max(0, Number(quoteDraftMeta.extraDiscount) || 0);
+        // El descuento total (partidas + descuento extra en $) no puede superar el % permitido por puesto
+        const minAllowedTotal = sumList * (1 - (maxPct / 100));
+        const maxExtraAllowed = Math.max(0, Math.floor((sumLines - minAllowedTotal) * 100) / 100);
+        const requestedExtra = Math.max(0, Number(quoteDraftMeta.extraDiscount) || 0);
+        const extraDiscount = Math.min(requestedExtra, maxExtraAllowed);
         const totalWithIva = Math.max(0, sumLines - extraDiscount);
         const subtotalNoIva = totalWithIva / 1.16;
         const ivaAmount = totalWithIva - subtotalNoIva;
@@ -2067,6 +2354,10 @@
         return {
             lines: lines,
             sumLines: sumLines,
+            sumList: sumList,
+            maxPct: maxPct,
+            maxExtraAllowed: maxExtraAllowed,
+            requestedExtra: requestedExtra,
             extraDiscount: extraDiscount,
             subtotalNoIva: subtotalNoIva,
             ivaAmount: ivaAmount,
@@ -2079,6 +2370,7 @@
         const subEl = document.getElementById('quoteSubtotalNoIva');
         const ivaEl = document.getElementById('quoteIvaAmount');
         const totalAmtEl = document.getElementById('cartTotalAmount');
+        const limitEl = document.getElementById('quoteDiscountLimitInfo');
         const bd = computeQuoteBreakdown();
 
         if (!bd.lines.length) {
@@ -2086,6 +2378,17 @@
             return;
         }
         if (totalBar) totalBar.classList.remove('hidden');
+        if (limitEl) {
+            const role = getAdvisorRoleInfo();
+            const effPct = bd.sumList > 0 ? ((bd.sumList - bd.totalWithIva) / bd.sumList) * 100 : 0;
+            let html = 'Puesto: <strong>' + escapeHtml(role.puesto) + '</strong> · Descuento máximo permitido: <strong>' + role.maxPct + '%</strong>' +
+                ' · Descuento aplicado: <strong>' + effPct.toFixed(1) + '%</strong>';
+            if (bd.requestedExtra > bd.extraDiscount + 0.004) {
+                html += '<div style="color:#991B1B;margin-top:3px;">El descuento extra se ajustó a ' + escapeHtml(formatPrice(bd.extraDiscount) || '$0.00') +
+                    ' para no superar el ' + role.maxPct + '% permitido.</div>';
+            }
+            limitEl.innerHTML = html;
+        }
         if (subEl) subEl.textContent = formatPrice(bd.subtotalNoIva) || '$0.00';
         if (ivaEl) ivaEl.textContent = formatPrice(bd.ivaAmount) || '$0.00';
         if (totalAmtEl) totalAmtEl.textContent = formatPrice(bd.totalWithIva) || '$0.00';
@@ -2113,6 +2416,7 @@
             const unitStr = ln.unitList > 0 ? formatPrice(ln.unitList) : 'Sin precio';
             const lineSubStr = ln.lineSubtotal > 0 ? formatPrice(ln.lineSubtotal) : '$0.00';
             return '<div class="rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5" style="border-color:#E8E4DE; background:#FFFFFF;">' +
+                (function () { const liveIt = bySkuMap.get(ln.key); return liveIt ? buildThumbHtml(liveIt) : ''; })() +
                 '<div class="min-w-0 flex-1 cursor-pointer" onclick="closeCartModal(); openProductDetail(\'' + escapeHtml(ln.key) + '\', false)">' +
                     '<div class="text-xs font-extrabold uppercase leading-snug" style="color:#252C32;">' +
                         '<span class="opacity-50 mr-1">' + (idx + 1) + '.</span>' +
@@ -2126,8 +2430,8 @@
                 '</div>' +
                 '<div class="flex items-center gap-2 shrink-0 ml-auto">' +
                     '<div class="flex items-center gap-1" title="Porcentaje de descuento en esta partida">' +
-                        '<span class="text-[10px] font-bold uppercase opacity-70">Desc%</span>' +
-                        '<input type="number" min="0" max="100" step="0.5" value="' + (ln.discountPct || 0) + '" ' +
+                        '<span class="text-[10px] font-bold uppercase opacity-70">Desc% (máx ' + bd.maxPct + ')</span>' +
+                        '<input type="number" min="0" max="' + bd.maxPct + '" step="0.5" value="' + (ln.discountPct || 0) + '" ' +
                                'onchange="setCartItemDiscount(\'' + escapeHtml(ln.key) + '\', this.value)" ' +
                                'class="w-14 rounded-lg border px-1.5 py-1 text-center text-xs font-bold outline-none" ' +
                                'style="border-color:#E1DBC5; color:#252C32;">' +
@@ -2260,8 +2564,13 @@
         const rowsHtml = bd.lines.map((ln, idx) =>
             '<tr>' +
                 '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (idx + 1) + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid #E8E4DE;text-align:center;">' +
+                    (ln.photoUrl ? ('<img src="' + escapeHtml(ln.photoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E8E4DE;border-radius:6px;background:#FFF;">') : '') +
+                '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E8E4DE;font-weight:700;">' + escapeHtml(ln.sku) + '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;">' + escapeHtml(ln.name) + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;">' + escapeHtml(ln.name) +
+                    (ln.measures ? ('<div style="font-size:10px;color:#6B7280;margin-top:2px;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
+                '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;font-weight:700;">' + ln.qty + '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:right;">' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (ln.discountPct > 0 ? (ln.discountPct + '%') : '0%') + '</td>' +
@@ -2298,7 +2607,7 @@
                 '<div><strong>Correo Titular:</strong> ' + escapeHtml(payload.advisorEmail || '') + '</div>' +
                 (payload.notes ? ('<div style="grid-column:span 2;"><strong>Notas:</strong> ' + escapeHtml(payload.notes) + '</div>') : '') +
             '</div>' +
-            '<table><thead><tr><th>#</th><th>SKU</th><th style="text-align:left;">Descripción</th><th>Cant.</th><th style="text-align:right;">Precio Lista</th><th>% Desc.</th><th style="text-align:right;">Importe</th></tr></thead>' +
+            '<table><thead><tr><th>#</th><th>Imagen</th><th>SKU</th><th style="text-align:left;">Descripción</th><th>Cant.</th><th style="text-align:right;">Precio Lista</th><th>% Desc.</th><th style="text-align:right;">Importe</th></tr></thead>' +
             '<tbody>' + rowsHtml + '</tbody></table>' +
             '<div style="margin-left:auto;max-width:300px;margin-top:16px;border:1px solid #E1DBC5;border-radius:10px;padding:12px 14px;background:#FAF9F6;">' +
                 (bd.extraDiscount > 0 ? ('<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Descuento Extra:</span><strong>-' + escapeHtml(formatPrice(bd.extraDiscount)) + '</strong></div>') : '') +

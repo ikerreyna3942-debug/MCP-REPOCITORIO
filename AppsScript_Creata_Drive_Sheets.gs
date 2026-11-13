@@ -2473,6 +2473,15 @@ function ensureQuotesLedgerSheet_(ss) {
   return sh;
 }
 
+/**
+ * Descuento máximo permitido según el PUESTO de la hoja de sucursal.
+ * ASESOR (y cualquier otro puesto): 24% · GERENTE / SUBGERENTE / SUB: 100%
+ */
+function getMaxDiscountPctForPuesto_(puesto) {
+  const p = String(puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  return /GERENTE|\bSUB/.test(p) ? 100 : 24;
+}
+
 function peekNextBranchOrderCode_(shQuotes, orderPrefix) {
   const prefix = String(orderPrefix || 'COT').trim().toUpperCase();
   if (!shQuotes || shQuotes.getLastRow() < 2) {
@@ -3275,6 +3284,34 @@ function handleInvSubmitQuote_(body) {
     const rawNotes = String(body.notes || '').trim();
     const extraDiscount = Math.max(0, Number(body.extraDiscount) || 0);
 
+    // Límite de descuento por PUESTO (columna D de la hoja de sucursal): ASESOR 24% · GERENTE / SUBGERENTE 100%
+    const maxDiscPct = getMaxDiscountPctForPuesto_(verifiedUser.puesto);
+    let sumListReq = 0;
+    let sumNetReq = 0;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i] || {};
+      const pct = Math.max(0, Number(it.discountPct) || 0); // inventario.html siempre envía el % (ej. 24 = 24%)
+      if (pct > maxDiscPct + 0.0001) {
+        return {
+          ok: false,
+          error: 'Tu puesto (' + (verifiedUser.puesto || 'ASESOR') + ') permite un descuento máximo de ' + maxDiscPct + '% por partida. Revisa el SKU ' + String(it.sku || '') + '.'
+        };
+      }
+      const qtyReq = Math.max(1, Math.round(Number(it.qty) || 1));
+      const listReq = Math.max(0, Number(it.unitList) || 0) * qtyReq;
+      sumListReq += listReq;
+      sumNetReq += listReq * (1 - pct / 100);
+    }
+    if (sumListReq > 0 && extraDiscount > 0) {
+      const effPct = ((sumListReq - Math.max(0, sumNetReq - extraDiscount)) / sumListReq) * 100;
+      if (effPct > maxDiscPct + 0.01) {
+        return {
+          ok: false,
+          error: 'El descuento total (' + effPct.toFixed(1) + '%) supera el máximo permitido para tu puesto (' + maxDiscPct + '%).'
+        };
+      }
+    }
+
     const shQuotes = ensureQuotesLedgerSheet_(ss);
     const orderCode = peekNextBranchOrderCode_(shQuotes, verifiedUser.orderPrefix);
     const originHeaderTag = verifiedUser.isProyecto
@@ -3311,8 +3348,7 @@ function handleInvSubmitQuote_(body) {
         const it = items[i] || {};
         const sku = String(it.sku || '').trim().toUpperCase();
         const qty = Math.max(1, Math.round(Number(it.qty) || 1));
-        let discPct = Number(it.discountPct) || 0;
-        if (discPct > 1) discPct = discPct / 100;
+        let discPct = (Number(it.discountPct) || 0) / 100; // siempre viene en % (1 = 1%, no 100%)
         discPct = Math.max(0, Math.min(1, discPct));
         bVals.push([sku]);
         dVals.push([qty]);
@@ -3355,8 +3391,7 @@ function handleInvSubmitQuote_(body) {
       const rSheet = sheetRows[i] || [];
       const sku = String(reqItem.sku || rSheet[0] || '').trim().toUpperCase();
       const cant = Math.max(1, Math.round(Number(reqItem.qty || rSheet[2]) || 1));
-      let discFrac = Number(reqItem.discountPct) || 0;
-      if (discFrac > 1) discFrac = discFrac / 100;
+      let discFrac = (Number(reqItem.discountPct) || 0) / 100; // siempre viene en % (1 = 1%, no 100%)
       discFrac = Math.max(0, Math.min(1, discFrac));
 
       const catEntry = catalogMap[sku] || {};
