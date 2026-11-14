@@ -1033,27 +1033,9 @@
                         <div id="newErpClientMsg" class="hidden rounded-lg border px-3 py-2 text-xs font-bold"></div>
                     </div>
 
+                    <input type="hidden" id="quoteClientModeSelect" value="PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)">
+                    <input type="hidden" id="quoteCategorySelect" value="COTIZACIONES [ID: 2]">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Modalidad de Cliente</label>
-                            <select id="quoteClientModeSelect" onchange="onQuoteClientModeSelectChange()"
-                                     class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
-                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
-                                <option value="PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)">Prospecto provisional (solo nombre)</option>
-                                <option value="PUBLICO EN GENERAL [ID CLIENTE: 3558954]">Público en General [ID: 3558954]</option>
-                                <option value="MOSTRADOR CREATA [ID CLIENTE: 2730703]">Mostrador Creata [ID: 2730703]</option>
-                                <option value="VENTA GENERAL [ID CLIENTE: 3149126]">Venta General [ID: 3149126]</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Categoría de Cotización</label>
-                            <select id="quoteCategorySelect" onchange="saveQuoteDraftMeta()"
-                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
-                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
-                                <option value="COTIZACIONES [ID: 2]">COTIZACIONES [ID: 2]</option>
-                                <option value="COTIZACION A CREDITO [ID: 304]">COTIZACIÓN A CRÉDITO [ID: 304]</option>
-                            </select>
-                        </div>
                         <div>
                             <label id="quoteClientNameLabel" class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Nombre del Cliente / Prospecto *</label>
                             <input id="quoteClientNameInput" type="text" oninput="saveQuoteDraftMeta()"
@@ -1353,6 +1335,6 @@
     <script src="inventario-data-1.js?v=41"></script>
     <script src="inventario-data-2.js?v=41"></script>
     <script src="inventario-data-3.js?v=41"></script>
-    <script src="inventario-app.js?v=48"></script>
+    <script src="inventario-app.js?v=49"></script>
 </body>
 </html>

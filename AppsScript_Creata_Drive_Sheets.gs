@@ -4038,9 +4038,15 @@ function handleInvSubmitQuote_(body) {
       };
     }
 
-    const categoryLabel = String(body.categoryLabel || 'COTIZACIONES [ID: 2]').trim();
-    const clientMode = String(body.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)').trim();
+    const categoryLabel = 'COTIZACIONES [ID: 2]';
     const clientNameRaw = String(body.clientName || '').trim() || (isProyQuote ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA');
+    const explicitCliId = parseInt(String(body.erpClientId || '').trim(), 10) || 0;
+    const explicitLeadId = parseInt(String(body.erpLeadId || '').trim(), 10) || 0;
+    const clientMode = explicitCliId > 0
+      ? (clientNameRaw + ' [ID CLIENTE: ' + explicitCliId + ']')
+      : (explicitLeadId > 0
+        ? (clientNameRaw + ' [ID LEAD: ' + explicitLeadId + ']')
+        : 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)');
     const clientPhone = String(body.clientPhone || '').trim();
     const deliveryDate = String(body.deliveryDate || '').trim();
     const rawNotes = String(body.notes || '').trim();
@@ -4245,13 +4251,7 @@ function handleInvSubmitQuote_(body) {
         skusSummaryParts.push(sku + ' x' + cant);
       }
 
-      const catMatch = categoryLabel.match(/(\d+)/);
-      const idCategoriaVenta = catMatch ? parseInt(catMatch[1], 10) : 2;
-
-      const cliMatch = clientMode.match(/ID CLIENTE:\s*(\d+)/i);
-      const leadMatch = clientMode.match(/ID LEAD:\s*(\d+)/i);
-      const explicitCliId = parseInt(String(body.erpClientId || '').trim(), 10) || 0;
-      const explicitLeadId = parseInt(String(body.erpLeadId || '').trim(), 10) || 0;
+      const idCategoriaVenta = 2;
       const clientEmail = String(body.clientEmail || '').trim();
       let idCliente = 0;
       let idLead = 0;
@@ -4259,15 +4259,9 @@ function handleInvSubmitQuote_(body) {
       if (explicitCliId > 0) {
         idCliente = explicitCliId;
         idLead = 0;
-      } else if (cliMatch) {
-        idCliente = parseInt(cliMatch[1], 10);
-        idLead = 0;
       } else if (explicitLeadId > 0) {
         idCliente = 0;
         idLead = explicitLeadId;
-      } else if (leadMatch) {
-        idCliente = 0;
-        idLead = parseInt(leadMatch[1], 10);
       } else {
         idLead = crearProspectoProvisionalWcf_(displayClientForErp, clientPhone, clientEmail, idUsuarioNum);
       }

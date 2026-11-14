@@ -3121,13 +3121,16 @@
         return s;
     }
 
+    const FIXED_QUOTE_CLIENT_MODE = 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)';
+    const FIXED_QUOTE_CATEGORY_LABEL = 'COTIZACIONES [ID: 2]';
+
     function createBlankQuoteMeta() {
         return {
             erpStore: '',
             erpAdvisorLabel: '',
             erpAdvisorId: '',
-            clientMode: 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)',
-            categoryLabel: 'COTIZACIONES [ID: 2]',
+            clientMode: FIXED_QUOTE_CLIENT_MODE,
+            categoryLabel: FIXED_QUOTE_CATEGORY_LABEL,
             clientName: '',
             clientPhone: '',
             clientEmail: '',
@@ -3147,6 +3150,8 @@
             const saved = JSON.parse(localStorage.getItem(QUOTE_META_STORAGE) || 'null');
             if (saved && typeof saved === 'object') {
                 return Object.assign(fallback, saved, {
+                    clientMode: FIXED_QUOTE_CLIENT_MODE,
+                    categoryLabel: FIXED_QUOTE_CATEGORY_LABEL,
                     deliveryDateIso: saved.deliveryDateIso || getDefaultDeliveryIsoDate()
                 });
             }
@@ -3189,8 +3194,10 @@
                 quoteDraftMeta.erpAdvisorId = activeAdvisorSession.erpAdvisorId || '';
             }
         }
-        if (modeEl) quoteDraftMeta.clientMode = modeEl.value;
-        if (catEl) quoteDraftMeta.categoryLabel = catEl.value;
+        if (modeEl) modeEl.value = FIXED_QUOTE_CLIENT_MODE;
+        if (catEl) catEl.value = FIXED_QUOTE_CATEGORY_LABEL;
+        quoteDraftMeta.clientMode = FIXED_QUOTE_CLIENT_MODE;
+        quoteDraftMeta.categoryLabel = FIXED_QUOTE_CATEGORY_LABEL;
         if (nameEl) quoteDraftMeta.clientName = nameEl.value;
         if (phoneEl) quoteDraftMeta.clientPhone = phoneEl.value;
         if (emailEl) quoteDraftMeta.clientEmail = emailEl.value;
@@ -4655,8 +4662,8 @@
         }
 
         syncDynamicClientModeOption();
-        if (modeSel && quoteDraftMeta.clientMode) modeSel.value = quoteDraftMeta.clientMode;
-        if (catSel && quoteDraftMeta.categoryLabel) catSel.value = quoteDraftMeta.categoryLabel;
+        if (modeSel) modeSel.value = FIXED_QUOTE_CLIENT_MODE;
+        if (catSel) catSel.value = FIXED_QUOTE_CATEGORY_LABEL;
         if (nameInp && (forceInputs || document.activeElement !== nameInp)) nameInp.value = quoteDraftMeta.clientName || '';
         if (phoneInp && (forceInputs || document.activeElement !== phoneInp)) phoneInp.value = quoteDraftMeta.clientPhone || '';
         if (emailInp && (forceInputs || document.activeElement !== emailInp)) emailInp.value = quoteDraftMeta.clientEmail || '';
@@ -4793,7 +4800,10 @@
             completed: false,
             submittedMeta: null,
             cart: cloneCartMap(initialCart || {}),
-            meta: Object.assign(createBlankQuoteMeta(), initialMeta || {})
+            meta: Object.assign(createBlankQuoteMeta(), initialMeta || {}, {
+                clientMode: FIXED_QUOTE_CLIENT_MODE,
+                categoryLabel: FIXED_QUOTE_CATEGORY_LABEL
+            })
         };
     }
 
@@ -4827,7 +4837,10 @@
         } else {
             const wasBlank = isDraftUntouchedBlank(d);
             d.cart = cloneCartMap(cart);
-            d.meta = Object.assign(createBlankQuoteMeta(), quoteDraftMeta);
+            d.meta = Object.assign(createBlankQuoteMeta(), quoteDraftMeta, {
+                clientMode: FIXED_QUOTE_CLIENT_MODE,
+                categoryLabel: FIXED_QUOTE_CATEGORY_LABEL
+            });
             d.submittedMeta = lastSubmittedQuoteMeta ? Object.assign({}, lastSubmittedQuoteMeta) : null;
             d.updatedAt = Date.now();
             // Si el borrador estaba completamente en blanco y apenas se empieza a usar, iniciar su ventana de 3 horas desde este momento
@@ -4844,7 +4857,10 @@
         if (!d) return;
         activeQuoteDraftId = d.id;
         cart = cloneCartMap(d.cart || {});
-        quoteDraftMeta = Object.assign(createBlankQuoteMeta(), d.meta || {});
+        quoteDraftMeta = Object.assign(createBlankQuoteMeta(), d.meta || {}, {
+            clientMode: FIXED_QUOTE_CLIENT_MODE,
+            categoryLabel: FIXED_QUOTE_CATEGORY_LABEL
+        });
         if (activeAdvisorSession && !activeAdvisorSession.isAdmin) {
             quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || quoteDraftMeta.erpStore || '';
             quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || quoteDraftMeta.erpAdvisorLabel || '';
@@ -4929,7 +4945,15 @@
         const now = Date.now();
         if (loaded && Array.isArray(loaded.drafts) && loaded.drafts.length > 0) {
             // Al abrir / recargar la pestaña del navegador, las cotizaciones ya terminadas quedan descartadas automáticamente
-            quoteDrafts = loaded.drafts.filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now);
+            quoteDrafts = loaded.drafts
+                .filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now)
+                .map(d => {
+                    d.meta = Object.assign(createBlankQuoteMeta(), d.meta || {}, {
+                        clientMode: FIXED_QUOTE_CLIENT_MODE,
+                        categoryLabel: FIXED_QUOTE_CATEGORY_LABEL
+                    });
+                    return d;
+                });
             activeQuoteDraftId = String(loaded.activeId || '');
         } else {
             // Migrar carrito / metadatos previos en caso de existir
@@ -5170,29 +5194,12 @@
     let erpClientCreateInFlight = false;
 
     function syncDynamicClientModeOption() {
+        quoteDraftMeta.clientMode = FIXED_QUOTE_CLIENT_MODE;
+        quoteDraftMeta.categoryLabel = FIXED_QUOTE_CATEGORY_LABEL;
         const sel = document.getElementById('quoteClientModeSelect');
-        if (!sel) return;
-        const prevDyn = sel.querySelectorAll('option[data-dynamic-erp="1"]');
-        prevDyn.forEach(o => o.remove());
-
-        const cid = Number(quoteDraftMeta.erpClientId) || 0;
-        const lid = Number(quoteDraftMeta.erpLeadId) || 0;
-        if (cid > 0 || lid > 0) {
-            const nm = cleanStr(quoteDraftMeta.clientName) || (cid > 0 ? 'CLIENTE S MUEBLERÍA' : 'PROSPECTO S MUEBLERÍA');
-            const val = cid > 0
-                ? (nm + ' [ID CLIENTE: ' + cid + ']')
-                : (nm + ' [ID LEAD: ' + lid + ']');
-            const lbl = cid > 0
-                ? ('Cliente S Mueblería: ' + nm + (quoteDraftMeta.erpNoCliente ? (' (No. ' + quoteDraftMeta.erpNoCliente + ')') : '') + ' [ID: ' + cid + ']')
-                : ('Prospecto S Mueblería: ' + nm + ' [ID Lead: ' + lid + ']');
-            const opt = document.createElement('option');
-            opt.value = val;
-            opt.textContent = lbl;
-            opt.setAttribute('data-dynamic-erp', '1');
-            sel.insertBefore(opt, sel.firstChild);
-            sel.value = val;
-            quoteDraftMeta.clientMode = val;
-        }
+        if (sel) sel.value = FIXED_QUOTE_CLIENT_MODE;
+        const catSel = document.getElementById('quoteCategorySelect');
+        if (catSel) catSel.value = FIXED_QUOTE_CATEGORY_LABEL;
     }
 
     function renderSelectedErpClientBadge() {
@@ -5222,18 +5229,8 @@
     }
 
     window.onQuoteClientModeSelectChange = function () {
-        const sel = document.getElementById('quoteClientModeSelect');
-        if (!sel) return;
-        const chosenOpt = sel.options[sel.selectedIndex];
-        if (!chosenOpt || !chosenOpt.getAttribute('data-dynamic-erp')) {
-            quoteDraftMeta.erpClientId = 0;
-            quoteDraftMeta.erpLeadId = 0;
-            quoteDraftMeta.erpNoCliente = '';
-            quoteDraftMeta.erpClientAddress = '';
-            const prevDyn = sel.querySelectorAll('option[data-dynamic-erp="1"]');
-            prevDyn.forEach(o => o.remove());
-            renderSelectedErpClientBadge();
-        }
+        quoteDraftMeta.clientMode = FIXED_QUOTE_CLIENT_MODE;
+        quoteDraftMeta.categoryLabel = FIXED_QUOTE_CATEGORY_LABEL;
         saveQuoteDraftMeta();
     };
 
@@ -5243,12 +5240,10 @@
         quoteDraftMeta.erpLeadId = 0;
         quoteDraftMeta.erpNoCliente = '';
         quoteDraftMeta.erpClientAddress = '';
-        quoteDraftMeta.clientMode = 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)';
+        quoteDraftMeta.clientMode = FIXED_QUOTE_CLIENT_MODE;
+        quoteDraftMeta.categoryLabel = FIXED_QUOTE_CATEGORY_LABEL;
         const sel = document.getElementById('quoteClientModeSelect');
-        if (sel) {
-            sel.querySelectorAll('option[data-dynamic-erp="1"]').forEach(o => o.remove());
-            sel.value = quoteDraftMeta.clientMode;
-        }
+        if (sel) sel.value = FIXED_QUOTE_CLIENT_MODE;
         renderSelectedErpClientBadge();
         saveQuoteDraftMeta();
     };
@@ -5874,8 +5869,8 @@
             erpStore: erpStore,
             erpAdvisorLabel: erpAdvisorLabel,
             erpAdvisorId: erpAdvisorId,
-            categoryLabel: quoteDraftMeta.categoryLabel || 'COTIZACIONES [ID: 2]',
-            clientMode: quoteDraftMeta.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)',
+            categoryLabel: FIXED_QUOTE_CATEGORY_LABEL,
+            clientMode: FIXED_QUOTE_CLIENT_MODE,
             clientName: cleanStr(quoteDraftMeta.clientName) || (isProy ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA'),
             clientPhone: cleanStr(quoteDraftMeta.clientPhone),
             clientEmail: cleanStr(quoteDraftMeta.clientEmail),
@@ -5910,8 +5905,6 @@
             (payload.isProyecto ? 'Modalidad / Área: PROYECTO · ' : 'Tienda / Bodega S Mueblería: ') + payload.erpStore,
             'Asesor S Mueblería: ' + (payload.erpAdvisorLabel || payload.advisorName || ''),
             'Cuenta Cotizador: ' + (payload.advisorEmail || ''),
-            'Categoría: ' + payload.categoryLabel,
-            'Modalidad Cliente: ' + payload.clientMode,
             (payload.isProyecto ? 'Proyecto / Cliente: ' : 'Cliente / Prospecto: ') + payload.clientName,
             payload.clientPhone ? ('Teléfono: ' + payload.clientPhone) : '',
             payload.clientEmail ? ('Correo Cliente: ' + payload.clientEmail) : '',
@@ -6077,7 +6070,6 @@
                 '<div><span class="opacity-75">Entrega tentativa:</span> <strong>' + escapeHtml((payload && payload.deliveryDate) || '') + '</strong></div>' +
                 '<div class="sm:col-span-2"><span class="opacity-75">Asesor S Mueblería:</span> <strong>' + escapeHtml((payload && (payload.erpAdvisorLabel || payload.advisorName)) || '') + '</strong></div>' +
                 (payload && payload.clientPhone ? ('<div><span class="opacity-75">Teléfono:</span> <strong>' + escapeHtml(payload.clientPhone) + '</strong></div>') : '') +
-                '<div><span class="opacity-75">Categoría:</span> <strong>' + escapeHtml((payload && payload.categoryLabel) || '') + '</strong></div>' +
             '</div>' +
             '<div class="pt-1.5 border-t" style="border-color:#E1DBC5;">' +
                 '<div class="text-[10px] font-extrabold uppercase tracking-wider mb-1 opacity-80">Partidas (' + lines.length + ' · ' + totalQty + (totalQty === 1 ? ' pieza' : ' piezas') + ')</div>' +
