@@ -1173,20 +1173,51 @@
         </div>
     </div>
 
-    <!-- MODAL DE CONFIRMACIÓN AL GENERAR COTIZACIÓN (AL ACEPTAR CREA UNA NUEVA PLANTILLA VACÍA) -->
-    <div id="quoteAcceptedModal" class="modal-backdrop" style="z-index:75;" onclick="if(event.target===this) acceptGeneratedQuoteAndReset()">
+    <!-- MODAL DE CONFIRMACIÓN PREVIA ANTES DE CREAR LA COTIZACIÓN EN S MUEBLERÍA -->
+    <div id="quoteConfirmCreateModal" class="modal-backdrop" style="z-index:74;" onclick="if(event.target===this) closeQuoteConfirmCreateModal()">
+        <div class="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
+            <div class="px-5 py-4 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <span class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-black shrink-0" style="background:#A38251; color:#FFFFFF;">?</span>
+                    <h3 id="quoteConfirmCreateTitle" class="text-sm font-extrabold uppercase tracking-wider truncate">Confirmar Creación de Cotización</h3>
+                </div>
+                <button type="button" onclick="closeQuoteConfirmCreateModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0" title="Cancelar y revisar">✕</button>
+            </div>
+            <div class="p-5 space-y-3.5 text-xs overflow-y-auto" style="color:#252C32;">
+                <div id="quoteConfirmCreateSummary" class="rounded-xl border p-3.5 space-y-2" style="border-color:#E1DBC5; background:#FAF9F6;"></div>
+                <div class="rounded-xl border px-3.5 py-2.5 text-[11px] font-semibold leading-relaxed" style="border-color:#FDE68A; background:#FFFBEB; color:#92400E;">
+                    ¿Confirmas crear esta cotización en vivo en el sistema <strong>S Mueblería</strong>? Al confirmar se registrará oficialmente con su folio en el ERP.
+                </div>
+                <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
+                    <button type="button" onclick="closeQuoteConfirmCreateModal()"
+                            class="px-4 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider border transition"
+                            style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                        Cancelar / Revisar
+                    </button>
+                    <button type="button" id="btnConfirmCreateQuoteErp" onclick="confirmCreateQuoteInErp()"
+                            class="px-5 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition"
+                            style="background:#A38251; color:#FFFFFF;">
+                        ✓ Confirmar y Crear Cotización
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE CONFIRMACIÓN AL GENERAR COTIZACIÓN (AL CONFIRMAR CREA UNA NUEVA PLANTILLA VACÍA) -->
+    <div id="quoteAcceptedModal" class="modal-backdrop" style="z-index:75;">
         <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-4 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
                 <div class="flex items-center gap-2.5 min-w-0">
                     <span class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-black shrink-0" style="background:#10B981; color:#FFFFFF;">✓</span>
-                    <h3 id="quoteAcceptedTitle" class="text-sm font-extrabold uppercase tracking-wider truncate">Cotización Generada</h3>
+                    <h3 id="quoteAcceptedTitle" class="text-sm font-extrabold uppercase tracking-wider truncate">Cotización Creada en S Mueblería</h3>
                 </div>
-                <button type="button" onclick="acceptGeneratedQuoteAndReset()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0" title="Aceptar y continuar">✕</button>
+                <button type="button" onclick="acceptGeneratedQuoteAndReset()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0" title="Confirmar y continuar">✕</button>
             </div>
             <div class="p-5 space-y-3.5 text-xs" style="color:#252C32;">
                 <div id="quoteAcceptedSummary" class="rounded-xl border p-3.5 space-y-1.5" style="border-color:#A7F3D0; background:#ECFDF5; color:#065F46;"></div>
                 <p class="text-[11px] font-semibold leading-relaxed opacity-85">
-                    Al presionar <strong>Aceptar</strong> se creará una nueva plantilla vacía para tu siguiente cotización, evitando que esta cotización se vuelva a generar por error.
+                    Al presionar <strong>Confirmar y nueva plantilla</strong> se abrirá una plantilla vacía para tu siguiente cotización, evitando que esta cotización se vuelva a generar por error.
                 </p>
                 <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
                     <button type="button" onclick="printAcceptedQuoteSnapshot()"
@@ -1197,7 +1228,7 @@
                     <button type="button" id="btnAcceptGeneratedQuote" onclick="acceptGeneratedQuoteAndReset()"
                             class="px-5 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition"
                             style="background:#A38251; color:#FFFFFF;">
-                        Aceptar y nueva plantilla
+                        ✓ Confirmar y nueva plantilla
                     </button>
                 </div>
             </div>
@@ -1322,6 +1353,6 @@
     <script src="inventario-data-1.js?v=41"></script>
     <script src="inventario-data-2.js?v=41"></script>
     <script src="inventario-data-3.js?v=41"></script>
-    <script src="inventario-app.js?v=46"></script>
+    <script src="inventario-app.js?v=47"></script>
 </body>
 </html>

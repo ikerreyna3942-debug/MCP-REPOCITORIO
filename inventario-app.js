@@ -3790,7 +3790,7 @@
         if (pendingQuoteRetrySendToErp !== null) {
             const retrySendFlag = pendingQuoteRetrySendToErp;
             pendingQuoteRetrySendToErp = null;
-            submitQuoteToSystem(retrySendFlag);
+            submitQuoteToSystem(retrySendFlag, true);
             return;
         }
 
@@ -4051,7 +4051,7 @@
             if (pendingQuoteRetrySendToErp !== null) {
                 const retrySendFlag = pendingQuoteRetrySendToErp;
                 pendingQuoteRetrySendToErp = null;
-                submitQuoteToSystem(retrySendFlag);
+                submitQuoteToSystem(retrySendFlag, true);
                 return;
             }
 
@@ -5471,6 +5471,9 @@
     };
 
     window.closeCartModal = function () {
+        if (typeof window.closeQuoteConfirmCreateModal === 'function') {
+            window.closeQuoteConfirmCreateModal();
+        }
         const modalEl = document.getElementById('cartModal');
         if (modalEl) modalEl.classList.remove('open');
         // Cuando se termina una cotización y se cierra la pestaña/ventana, descartar la terminada y dejar lista únicamente una nueva cotización
@@ -5844,6 +5847,82 @@
         openPrintableQuoteWindow(payload, lastSubmittedQuoteMeta);
     };
 
+    function openQuoteConfirmCreateModal(payload) {
+        const modalEl = document.getElementById('quoteConfirmCreateModal');
+        const titleEl = document.getElementById('quoteConfirmCreateTitle');
+        const sumEl = document.getElementById('quoteConfirmCreateSummary');
+        if (!modalEl || !sumEl) return;
+
+        const bd = (payload && payload.breakdown) || computeQuoteBreakdown();
+        const lines = (bd && Array.isArray(bd.lines)) ? bd.lines : [];
+        const totalQty = lines.reduce((s, ln) => s + (Number(ln && ln.qty) || 0), 0);
+
+        if (titleEl) {
+            titleEl.textContent = payload && payload.isProyecto
+                ? 'Confirmar Creación · Cotización Proyecto'
+                : 'Confirmar Creación de Cotización';
+        }
+
+        const linesHtml = lines.map((ln, idx) => {
+            const discBadge = (Number(ln.discountPct) || 0) > 0
+                ? (' <span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold" style="background:#ECFDF5;color:#065F46;">-' + escapeHtml(String(ln.discountPct)) + '%</span>')
+                : '';
+            return '<div class="flex items-start justify-between gap-2 py-1.5 border-b last:border-b-0" style="border-color:#E8E4DE;">' +
+                '<div class="min-w-0">' +
+                    '<div class="font-bold leading-snug">' + (idx + 1) + '. ' + escapeHtml(ln.name || ln.sku) + discBadge + '</div>' +
+                    '<div class="text-[10px] font-semibold opacity-75">SKU: ' + escapeHtml(ln.sku) + ' · Cant: <strong>' + ln.qty + '</strong> · P. Lista: ' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</div>' +
+                '</div>' +
+                '<div class="font-extrabold shrink-0 text-right">' + escapeHtml(formatPrice(ln.lineSubtotal) || '$0.00') + '</div>' +
+            '</div>';
+        }).join('');
+
+        sumEl.innerHTML =
+            '<div class="font-extrabold uppercase tracking-wider text-[11px]" style="color:#A38251;">' +
+                'Resumen para enviar en vivo a S Mueblería' +
+            '</div>' +
+            '<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11px]">' +
+                '<div><span class="opacity-75">' + (payload && payload.isProyecto ? 'Proyecto / Cliente:' : 'Cliente / Prospecto:') + '</span> <strong>' + escapeHtml((payload && payload.clientName) || '') + '</strong></div>' +
+                '<div><span class="opacity-75">Tienda / Bodega:</span> <strong>' + escapeHtml((payload && payload.erpStore) || '') + '</strong></div>' +
+                '<div><span class="opacity-75">Folio estimado:</span> <strong>' + escapeHtml((payload && payload.orderCode) || '') + '</strong></div>' +
+                '<div><span class="opacity-75">Entrega tentativa:</span> <strong>' + escapeHtml((payload && payload.deliveryDate) || '') + '</strong></div>' +
+                '<div class="sm:col-span-2"><span class="opacity-75">Asesor S Mueblería:</span> <strong>' + escapeHtml((payload && (payload.erpAdvisorLabel || payload.advisorName)) || '') + '</strong></div>' +
+                (payload && payload.clientPhone ? ('<div><span class="opacity-75">Teléfono:</span> <strong>' + escapeHtml(payload.clientPhone) + '</strong></div>') : '') +
+                '<div><span class="opacity-75">Categoría:</span> <strong>' + escapeHtml((payload && payload.categoryLabel) || '') + '</strong></div>' +
+            '</div>' +
+            '<div class="pt-1.5 border-t" style="border-color:#E1DBC5;">' +
+                '<div class="text-[10px] font-extrabold uppercase tracking-wider mb-1 opacity-80">Partidas (' + lines.length + ' · ' + totalQty + (totalQty === 1 ? ' pieza' : ' piezas') + ')</div>' +
+                '<div class="max-h-40 overflow-y-auto pr-1">' + linesHtml + '</div>' +
+            '</div>' +
+            '<div class="pt-2 border-t space-y-1 text-[11px]" style="border-color:#E1DBC5;">' +
+                (bd && bd.extraDiscount > 0
+                    ? ('<div class="flex items-center justify-between"><span>Descuento extra:</span><strong style="color:#065F46;">-' + escapeHtml(formatPrice(bd.extraDiscount)) + '</strong></div>')
+                    : '') +
+                '<div class="flex items-center justify-between"><span>Subtotal (sin IVA):</span><strong>' + escapeHtml(formatPrice(bd && bd.subtotalNoIva) || '$0.00') + '</strong></div>' +
+                '<div class="flex items-center justify-between"><span>IVA (16%):</span><strong>' + escapeHtml(formatPrice(bd && bd.ivaAmount) || '$0.00') + '</strong></div>' +
+                '<div class="flex items-center justify-between pt-1 border-t text-xs font-extrabold uppercase" style="border-color:#E1DBC5;">' +
+                    '<span>Total Cotización:</span>' +
+                    '<span class="text-sm font-black" style="color:#A38251;">' + escapeHtml(formatPrice(bd && bd.totalWithIva) || '$0.00') + '</span>' +
+                '</div>' +
+            '</div>';
+
+        const confirmBtn = document.getElementById('btnConfirmCreateQuoteErp');
+        if (confirmBtn) confirmBtn.disabled = false;
+        modalEl.classList.add('open');
+        if (confirmBtn) setTimeout(() => confirmBtn.focus(), 40);
+    }
+
+    window.closeQuoteConfirmCreateModal = function () {
+        const modalEl = document.getElementById('quoteConfirmCreateModal');
+        if (modalEl) modalEl.classList.remove('open');
+    };
+
+    window.confirmCreateQuoteInErp = function () {
+        const confirmBtn = document.getElementById('btnConfirmCreateQuoteErp');
+        if (confirmBtn) confirmBtn.disabled = true;
+        window.closeQuoteConfirmCreateModal();
+        window.submitQuoteToSystem(true, true);
+    };
+
     function openQuoteAcceptedModal(payload, metaObj, opts) {
         const o = opts || {};
         const folioTxt = cleanStr((metaObj && (metaObj.folio || metaObj.orderCode)) || (payload && payload.orderCode));
@@ -5864,7 +5943,7 @@
         if (!modalEl || !sumEl) return;
 
         if (titleEl) {
-            titleEl.textContent = o.isQueued ? 'Cotización en Cola Automática' : 'Cotización Generada';
+            titleEl.textContent = o.isQueued ? 'Cotización en Cola Automática' : 'Cotización Creada en S Mueblería';
         }
         sumEl.style.background = o.isQueued ? '#FFFBEB' : '#ECFDF5';
         sumEl.style.borderColor = o.isQueued ? '#FDE68A' : '#A7F3D0';
@@ -5872,10 +5951,11 @@
 
         sumEl.innerHTML =
             '<div class="font-extrabold uppercase">' +
-                (o.isQueued ? '⏳ Cotización guardada en cola hacia S Mueblería' : '✓ Cotización registrada en S Mueblería') +
+                (o.isQueued ? '⏳ Cotización guardada en cola hacia S Mueblería' : '✓ Cotización creada en vivo en el sistema S Mueblería') +
             '</div>' +
-            (folioTxt ? ('<div>Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>' + (qidTxt ? (' · ID ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') + '</div>') : '') +
+            (folioTxt ? ('<div>Folio S Mueblería: <strong class="text-sm">' + escapeHtml(folioTxt) + '</strong>' + (qidTxt ? (' · ID ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') + '</div>') : '') +
             '<div>Cliente / Proyecto: <strong>' + escapeHtml((payload && payload.clientName) || 'Por definir') + '</strong></div>' +
+            '<div>Asesor S Mueblería: <strong>' + escapeHtml((payload && (payload.erpAdvisorLabel || payload.advisorName)) || '') + '</strong></div>' +
             '<div>Tienda / Bodega: <strong>' + escapeHtml((payload && payload.erpStore) || '') + '</strong> · Piezas: <strong>' + totalQty + '</strong> · Total: <strong>' + escapeHtml(formatPrice(bd && bd.totalWithIva) || '$0.00') + '</strong></div>';
 
         modalEl.classList.add('open');
@@ -5934,7 +6014,7 @@
         };
     }
 
-    window.submitQuoteToSystem = async function (sendToErp) {
+    window.submitQuoteToSystem = async function (sendToErp, confirmed) {
         if (quoteSubmitInFlight) return;
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             openAuthModalForStartup();
@@ -5970,6 +6050,14 @@
             );
             return;
         }
+
+        // Solicitar confirmación explícita antes de crear la cotización en vivo en S Mueblería
+        if (sendToErp && !confirmed) {
+            openQuoteConfirmCreateModal(payload);
+            return;
+        }
+
+        window.closeQuoteConfirmCreateModal();
 
         const btnRev = document.getElementById('btnLoadPlantillaReview');
         const btnSend = document.getElementById('btnSendQuoteErp');
@@ -6177,6 +6265,11 @@
         }
 
         if (ev.key === 'Escape') {
+            const confirmCreateEl = document.getElementById('quoteConfirmCreateModal');
+            if (confirmCreateEl && confirmCreateEl.classList.contains('open')) {
+                window.closeQuoteConfirmCreateModal();
+                return;
+            }
             const acceptedModalEl = document.getElementById('quoteAcceptedModal');
             if (acceptedModalEl && acceptedModalEl.classList.contains('open')) {
                 acceptGeneratedQuoteAndReset();
