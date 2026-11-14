@@ -1503,7 +1503,11 @@
     function itemMatchesActiveFilter(it, cat, sub) {
         if (!it || !it._avail) return false;
         if (!cat || cat === 'ALL') return true;
-        if (cat === 'STOCK') return it._avail === 'STOCK';
+        if (cat === 'STOCK') {
+            if (getBodegaPisoStock(it) < 1) return false;
+            if (sub && sub !== 'ALL') return it._main === sub;
+            return true;
+        }
         if (cat === 'LPPT_STOCK') return it._avail === 'LPPT_STOCK';
         if (cat === 'LPPT') {
             if (it._avail !== 'LPPT') return false;
@@ -1530,6 +1534,42 @@
         });
     }
 
+    // Vista individual por pieza para el botón STOCK: toma únicamente la cantidad física en Bodega + Piso (sin contar LPPT)
+    function buildSinglePieceStockView(baseGrp, it) {
+        const ownQty = getBodegaPisoStock(it);
+        if (!it || ownQty < 1) return null;
+        const skuKey = String(it.s || '').trim().toUpperCase();
+        const pieceTitle = (
+            stripDimensionsFromProductText(it.n) ||
+            (baseGrp && baseGrp.title) ||
+            skuKey
+        ).toUpperCase();
+        return {
+            key: 'stock_sku_' + skuKey,
+            title: pieceTitle,
+            displayTitle: pieceTitle,
+            tp: cleanStr(it.tp).toUpperCase(),
+            mo: cleanStr(it.mo).toUpperCase(),
+            items: [it],
+            totalStock: ownQty,
+            lpptStock: 0
+        };
+    }
+
+    function filterItemsMatchingSearchIfSubset(matchedItems, rawTrim) {
+        if (!rawTrim || matchedItems.length <= 1) return matchedItems;
+        const qNorm = normSearch(rawTrim);
+        const rawTokens = qNorm.split(/\s+/).filter(Boolean);
+        const meaningful = rawTokens.filter(t => t.length >= 2 && !SEARCH_STOPWORDS.has(t));
+        const qTokens = meaningful.length > 0 ? meaningful : rawTokens;
+        if (!qTokens.length) return matchedItems;
+        const directHits = matchedItems.filter(it => {
+            const s = it._search || '';
+            return qTokens.every(tok => s.indexOf(tok) !== -1);
+        });
+        return directHits.length > 0 ? directHits : matchedItems;
+    }
+
     function formatActiveFilterLabel() {
         if (activeCategory === 'ALL') return 'TODOS';
         let baseLabel = activeCategory === 'LPPT_STOCK' ? 'LPPT+STOCK' : activeCategory;
@@ -1544,7 +1584,8 @@
     }
 
     // ------------------------------------------------------------------------
-    // FILTRADO AGRUPADO POR MODELO + BÚSQUEDA POR COINCIDENCIAS + ESCÁNER SKU (SIEMPRE A-Z AUTOMÁTICO)
+    // FILTRADO AGRUPADO POR MODELO + BÚSQUEDA POR COINCIDENCIAS + ESCÁNER SKU
+    // (BOTÓN STOCK: PIEZAS CON MAYOR CANTIDAD FÍSICA SIN CONTAR LPPT)
     // ------------------------------------------------------------------------
     function applyFilter(query, preserveCount) {
         const rawTrim = String(query || '').trim();
@@ -1641,14 +1682,33 @@
 
         if (activeCategory !== 'ALL' && !isExactSkuHit) {
             const nextFiltered = [];
-            for (let i = 0; i < baseGroups.length; i++) {
-                const grp = baseGroups[i];
-                const matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, activeCategory, activeSubCategory));
-                if (matchedItems.length > 0) {
-                    const viewGrp = buildFilteredGroupView(grp, matchedItems);
-                    if (viewGrp) {
-                        activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
-                        nextFiltered.push(viewGrp);
+            if (activeCategory === 'STOCK') {
+                // Desglose por pieza individual con existencia física en Bodega/Piso (sin contar LPPT)
+                for (let i = 0; i < baseGroups.length; i++) {
+                    const grp = baseGroups[i];
+                    let matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, 'STOCK', activeSubCategory));
+                    if (matchedItems.length > 0) {
+                        matchedItems = filterItemsMatchingSearchIfSubset(matchedItems, rawTrim);
+                        const parentScore = scoreByKey.get(grp.key);
+                        for (let j = 0; j < matchedItems.length; j++) {
+                            const pieceView = buildSinglePieceStockView(grp, matchedItems[j]);
+                            if (pieceView) {
+                                if (parentScore) scoreByKey.set(pieceView.key, parentScore);
+                                nextFiltered.push(pieceView);
+                            }
+                        }
+                    }
+                }
+            } else {
+                for (let i = 0; i < baseGroups.length; i++) {
+                    const grp = baseGroups[i];
+                    const matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, activeCategory, activeSubCategory));
+                    if (matchedItems.length > 0) {
+                        const viewGrp = buildFilteredGroupView(grp, matchedItems);
+                        if (viewGrp) {
+                            activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
+                            nextFiltered.push(viewGrp);
+                        }
                     }
                 }
             }
@@ -1657,8 +1717,28 @@
             filteredGroups = baseGroups.slice();
         }
 
-        // Orden alfabético automático (A-Z) en todos los listados y resultados
-        if (rawTrim && !isExactSkuHit && scoreByKey.size > 0) {
+        // En STOCK: ordenar de mayor a menor cantidad física en Bodega/Piso (sin contar LPPT); en el resto: A-Z automático
+        if (activeCategory === 'STOCK' && !isExactSkuHit) {
+            if (rawTrim && scoreByKey.size > 0) {
+                filteredGroups.sort((a, b) => {
+                    const sa = scoreByKey.get(a.key) || { matched: 0, score: 0 };
+                    const sb = scoreByKey.get(b.key) || { matched: 0, score: 0 };
+                    const tierA = sa.score >= 12 ? 2 : 1;
+                    const tierB = sb.score >= 12 ? 2 : 1;
+                    return (sb.matched - sa.matched) ||
+                        (tierB - tierA) ||
+                        ((Number(b.totalStock) || 0) - (Number(a.totalStock) || 0)) ||
+                        compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                        String(a.key || '').localeCompare(String(b.key || ''));
+                });
+            } else {
+                filteredGroups.sort((a, b) =>
+                    ((Number(b.totalStock) || 0) - (Number(a.totalStock) || 0)) ||
+                    compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                    String(a.key || '').localeCompare(String(b.key || ''))
+                );
+            }
+        } else if (rawTrim && !isExactSkuHit && scoreByKey.size > 0) {
             filteredGroups.sort((a, b) => {
                 const sa = scoreByKey.get(a.key) || { matched: 0, score: 0 };
                 const sb = scoreByKey.get(b.key) || { matched: 0, score: 0 };
@@ -1694,6 +1774,8 @@
         const subCounts = new Map();
         const availCounts = new Map();
         const lpptRangeCounts = new Map();
+        const stockMainCounts = new Map();
+        let stockPieceCount = 0;
 
         for (let i = 0; i < allGroups.length; i++) {
             const g = allGroups[i];
@@ -1704,8 +1786,19 @@
             }
             if (g.avails) {
                 g.avails.forEach(a => {
-                    if (a) availCounts.set(a, (availCounts.get(a) || 0) + 1);
+                    if (a && a !== 'STOCK') availCounts.set(a, (availCounts.get(a) || 0) + 1);
                 });
+            }
+            if (Array.isArray(g.items)) {
+                for (let j = 0; j < g.items.length; j++) {
+                    const it = g.items[j];
+                    if (getBodegaPisoStock(it) >= 1) {
+                        stockPieceCount++;
+                        if (it._main) {
+                            stockMainCounts.set(it._main, (stockMainCounts.get(it._main) || 0) + 1);
+                        }
+                    }
+                }
             }
             if (activeCategory === 'LPPT' && g.lpptBuckets) {
                 g.lpptBuckets.forEach(b => {
@@ -1719,6 +1812,7 @@
                 });
             }
         }
+        availCounts.set('STOCK', stockPieceCount);
 
         const pill = (cls, attr, val, label, isActive) =>
             '<button type="button" class="' + cls + (isActive ? ' active' : '') + '" ' + attr + '="' + escapeHtml(val) + '">' + escapeHtml(label) + '</button>';
@@ -1749,6 +1843,22 @@
             ];
             subs.forEach(c => {
                 subPills.push(pill('inv-cat-pill inv-sub-pill', 'data-sub', c, c + ' (' + (subCounts.get(c) || 0) + ')', activeSubCategory === c));
+            });
+            subBar.innerHTML = subPills.join('');
+            subBar.style.display = '';
+            subBar.querySelectorAll('.inv-sub-pill[data-sub]').forEach(btn => {
+                btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
+            });
+            return;
+        }
+
+        if (activeCategory === 'STOCK') {
+            const subPills = [
+                pill('inv-cat-pill inv-sub-pill', 'data-sub', 'ALL', 'TODO STOCK (' + stockPieceCount + ')', activeSubCategory === 'ALL')
+            ];
+            MAIN_CATEGORY_ORDER.forEach(c => {
+                const cnt = stockMainCounts.get(c) || 0;
+                subPills.push(pill('inv-cat-pill inv-sub-pill', 'data-sub', c, c + ' (' + cnt + ')', activeSubCategory === c));
             });
             subBar.innerHTML = subPills.join('');
             subBar.style.display = '';
@@ -1878,6 +1988,10 @@
             } else {
                 const it = grp.items[0];
                 const skuKey = String(it.s || '').toUpperCase();
+                const ownPhysQty = getBodegaPisoStock(it);
+                const stockBadgeHtml = (activeCategory === 'STOCK' && ownPhysQty > 0)
+                    ? ' <span class="inline-flex items-center ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold border align-middle" style="background:#ECFDF5; border-color:#A7F3D0; color:#065F46;">Stock: ' + ownPhysQty + ' pz</span>'
+                    : '';
                 row.onclick = function () {
                     openProductDetail(it.s, false);
                 };
@@ -1885,7 +1999,7 @@
                     buildThumbHtml(it) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
-                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
+                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + stockBadgeHtml + '</div>' +
                     '</div>' +
                     buildCardCartControlHtml(skuKey);
 
@@ -2673,6 +2787,7 @@
 
         matches.sort((a, b) => {
             if (a.tier !== b.tier) return a.tier - b.tier;
+            if (b.stock !== a.stock) return b.stock - a.stock;
             return compareAlphaEs(
                 stripDimensionsFromProductText(a.it.n) || a.it.s,
                 stripDimensionsFromProductText(b.it.n) || b.it.s
