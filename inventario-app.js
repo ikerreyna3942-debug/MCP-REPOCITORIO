@@ -61,8 +61,6 @@
     let liveLpptBySku = new Map();
     let liveErpPricesBySku = new Map();
     let liveErpCatalogBySku = new Map();
-    let livePhotosBySku = new Map();
-    let liveNewPhotosBySku = new Map();
 
     function emptyStocks() {
         return new Array(WAREHOUSES.length).fill(0);
@@ -927,11 +925,7 @@
         it.cm = cm;
         it.mt = mt;
         it.p = prov;
-        if (skuUpper && liveNewPhotosBySku.has(skuUpper)) {
-            it.f = liveNewPhotosBySku.get(skuUpper);
-        } else if ((!cleanStr(it.f) || !resolveDriveOrImgUrl(it.f)) && skuUpper && livePhotosBySku.has(skuUpper)) {
-            it.f = livePhotosBySku.get(skuUpper);
-        }
+        it.f = cleanStr(it.f);
         if (!cleanStr(it.pr) && erpRef && erpRef.pr) {
             it.pr = erpRef.pr;
         }
@@ -2756,7 +2750,9 @@
     }
 
     // ------------------------------------------------------------------------
-    // EXCLUSIVO GERENTES / SUBGERENTES Y ADMINISTRADORES: AGREGAR FOTO EN "FOTOS NUEVAS"
+    // EXCLUSIVO GERENTES / SUBGERENTES Y ADMINISTRADORES:
+    // SUBIR ARCHIVO DESCARGABLE A CARPETA DRIVE "FOTOS NUEVAS CARGADO"
+    // (SIN COLOCAR EN EL DOCUMENTO DE GOOGLE SHEETS NI REEMPLAZAR COLUMNA "F" DE INVENTARIO_EN_VIVO)
     // ------------------------------------------------------------------------
     let managerPhotoUploadInFlight = false;
 
@@ -2765,16 +2761,20 @@
         return !!getAdvisorRoleInfo().isManager;
     }
 
-    function setDetailUploadPhotoStatus(text, tone) {
+    function setDetailUploadPhotoStatus(text, tone, htmlContent) {
         const el = document.getElementById('detUploadPhotoStatus');
         if (!el) return;
-        if (!text) {
+        if (!text && !htmlContent) {
             el.textContent = '';
             el.classList.add('hidden');
             return;
         }
-        el.textContent = text;
-        el.className = 'rounded-xl border px-3.5 py-2 text-xs font-bold ' +
+        if (htmlContent) {
+            el.innerHTML = htmlContent;
+        } else {
+            el.textContent = text;
+        }
+        el.className = 'rounded-xl border px-3.5 py-2.5 text-xs font-bold ' +
             (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
     }
 
@@ -2794,7 +2794,7 @@
         wrap.classList.remove('hidden');
         if (inp) inp.disabled = managerPhotoUploadInFlight;
         if (btnTxt && !managerPhotoUploadInFlight) {
-            btnTxt.textContent = photoUrlForItem(it) ? '📷 Actualizar foto' : '📷 Agregar foto';
+            btnTxt.textContent = '📷 Subir foto a Drive';
         }
     }
 
@@ -2845,7 +2845,7 @@
         if (!file || managerPhotoUploadInFlight) return;
 
         if (!canManageProductPhotos()) {
-            setDetailUploadPhotoStatus('Acceso restringido: únicamente Gerentes y Administradores pueden agregar fotos a los productos.', 'err');
+            setDetailUploadPhotoStatus('Acceso restringido: únicamente Gerentes y Administradores pueden subir fotos a la carpeta Drive.', 'err');
             return;
         }
         if (!currentDetailItem || !currentDetailItem.s) return;
@@ -2856,8 +2856,8 @@
 
         managerPhotoUploadInFlight = true;
         if (inputEl) inputEl.disabled = true;
-        if (btnTxt) btnTxt.textContent = '⏳ Guardando foto...';
-        setDetailUploadPhotoStatus('Subiendo fotografía a Drive ("FOTOS NUEVAS CARGADO") y registrando responsable y producto...', 'warn');
+        if (btnTxt) btnTxt.textContent = '⏳ Subiendo a Drive...';
+        setDetailUploadPhotoStatus('Guardando archivo descargable en carpeta Drive ("FOTOS NUEVAS CARGADO") sin colocarlo en el documento...', 'warn');
 
         try {
             const dataUrl = await compressImageFileToDataUrl(file, 1200, 0.84);
@@ -2869,13 +2869,14 @@
                 sku: targetSku,
                 productName: targetName,
                 targetFolderId: FOTOS_NUEVAS_CARGADO_FOLDER_ID,
-                targetSheetName: FOTOS_NUEVAS_CARGADO_SHEET,
+                driveOnly: true,
+                skipSheetWrite: true,
                 dataUrl: dataUrl
             }, 35000);
 
             if (res && res.authRequired) {
-                setDetailUploadPhotoStatus('Confirma tu contraseña personal para guardar la fotografía en "FOTOS NUEVAS CARGADO".', 'warn');
-                promptSessionReauth(res.error || 'Confirma tu contraseña para subir fotografías a "FOTOS NUEVAS CARGADO".', null);
+                setDetailUploadPhotoStatus('Confirma tu contraseña personal para guardar el archivo en la carpeta Drive "FOTOS NUEVAS CARGADO".', 'warn');
+                promptSessionReauth(res.error || 'Confirma tu contraseña para subir fotografías a la carpeta Drive "FOTOS NUEVAS CARGADO".', null);
                 return;
             }
 
@@ -2889,7 +2890,7 @@
                     detail: 'El endpoint inv_upload_product_photo requiere publicar Nueva versión de AppsScript_Creata_Drive_Sheets.gs.',
                     analysis: 'Publicar Nueva versión en Extensiones → Apps Script → Implementar → Administrar implementaciones.'
                 });
-                setDetailUploadPhotoStatus('Para activar el guardado directo en la carpeta Drive y hoja "FOTOS NUEVAS CARGADO", publica una Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Extensiones → Apps Script → Implementar → Administrar implementaciones.', 'warn');
+                setDetailUploadPhotoStatus('Para activar el guardado únicamente en carpeta Drive (sin colocar en Google Sheets), publica una Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Extensiones → Apps Script → Implementar → Administrar implementaciones.', 'warn');
                 return;
             }
 
@@ -2897,36 +2898,33 @@
                 reportSystemHistoryEvent({
                     classification: 'FALLO DE CÓDIGO',
                     module: 'inventario-app.js · uploadManagerProductPhoto',
-                    event: 'ERROR AL GUARDAR FOTOGRAFÍA EN DRIVE',
+                    event: 'ERROR AL GUARDAR ARCHIVO DE FOTO EN DRIVE',
                     status: '❌ ERROR',
                     ref: targetSku + ' · ' + targetName,
                     detail: res.error || 'Respuesta sin éxito al subir fotografía.',
                     analysis: 'Revisar permisos de carpeta Drive FOTOS NUEVAS CARGADO o sesión del usuario.'
                 });
-                setDetailUploadPhotoStatus(res.error || 'No se pudo guardar la fotografía.', 'err');
+                setDetailUploadPhotoStatus(res.error || 'No se pudo guardar la fotografía en Drive.', 'err');
                 return;
             }
 
-            const finalUrl = cleanStr(res.url) || dataUrl;
-            liveNewPhotosBySku.set(targetSku, finalUrl);
-            livePhotosBySku.set(targetSku, finalUrl);
+            const fileId = cleanStr(res.fileId) || extractDriveFileId(res.downloadUrl || res.driveUrl || res.url || '');
+            const downloadUrl = cleanStr(res.downloadUrl) || (fileId ? ('https://drive.google.com/uc?export=download&id=' + fileId) : cleanStr(res.url));
+            const folderUrl = cleanStr(res.folderUrl) || ('https://drive.google.com/drive/folders/' + FOTOS_NUEVAS_CARGADO_FOLDER_ID);
 
-            const mappedIt = bySkuMap.get(targetSku);
-            if (mappedIt) mappedIt.f = finalUrl;
-            if (currentDetailItem && String(currentDetailItem.s).trim().toUpperCase() === targetSku) {
-                currentDetailItem.f = finalUrl;
-            }
-            lastLiveSignature = computeItemsSignature(allItems);
-            scheduleSaveLiveInventoryCache(allItems);
-
-            const curInp = document.getElementById('invSearchInput');
-            applyFilter(curInp ? curInp.value : '', true);
-
-            if (currentDetailItem && String(currentDetailItem.s).trim().toUpperCase() === targetSku) {
-                const crumbVisible = !document.getElementById('detGroupCrumb').classList.contains('hidden');
-                renderDetailModal(currentDetailItem, crumbVisible && !!currentGroup);
-            }
-            setDetailUploadPhotoStatus('✓ Fotografía guardada en Drive y hoja "FOTOS NUEVAS CARGADO" (' + targetSku + ' · ' + targetName + ').', 'ok');
+            // NO se modifica it.f ni se coloca en la ficha del producto:
+            // inventario.html muestra exclusivamente las fotografías oficiales de la Columna "F" de INVENTARIO_EN_VIVO.
+            const statusHtml =
+                '<div class="space-y-1.5">' +
+                    '<div>✓ Archivo guardado en carpeta Drive <strong>FOTOS NUEVAS CARGADO</strong> (' + escapeHtml(targetSku + ' · ' + targetName) + '). No se colocó en el documento ni en la ficha.</div>' +
+                    '<div class="flex flex-wrap items-center gap-2 pt-0.5">' +
+                        (downloadUrl
+                            ? ('<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener" download class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-extrabold uppercase tracking-wider text-[10px]" style="background:#FFFFFF; border-color:#059669; color:#065F46;">⬇ Descargar archivo</a>')
+                            : '') +
+                        '<a href="' + escapeHtml(folderUrl) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-extrabold uppercase tracking-wider text-[10px]" style="background:#FFFFFF; border-color:#E1DBC5; color:#252C32;">Abrir carpeta Drive</a>' +
+                    '</div>' +
+                '</div>';
+            setDetailUploadPhotoStatus('', 'ok', statusHtml);
         } catch (err) {
             const msgErr = err && err.message ? err.message : 'Error al procesar la fotografía.';
             reportSystemHistoryEvent({
@@ -3763,18 +3761,14 @@
     let lastErpCatalogSyncMs = 0;
 
     async function loadErpCatalogLiveFromSheet() {
-        const [rows, h1Rows, cargadoFotoRows, legacyFotoRows] = await Promise.all([
+        const [rows, h1Rows] = await Promise.all([
             fetchSheetCsvRows('plantilla', 'range=AA2:AH5500'),
-            fetchSheetCsvRows('1', 'range=A2:D5500').catch(() => null),
-            fetchSheetCsvRows(FOTOS_NUEVAS_CARGADO_SHEET, 'range=A1:J5500').catch(() => null),
-            fetchSheetCsvRows('FOTOS NUEVAS', 'range=A1:D5500').catch(() => null)
+            fetchSheetCsvRows('1', 'range=A2:B5500').catch(() => null)
         ]);
         const stores = DEFAULT_ERP_STORES.slice();
         const advisors = [];
         const nextPrices = new Map();
         const nextErpCatalog = new Map();
-        const nextPhotos = new Map();
-        const nextNewPhotos = new Map();
 
         if (Array.isArray(rows)) {
             for (let i = 0; i < rows.length; i++) {
@@ -3820,53 +3814,17 @@
                 const hSku = hSkuRaw.toUpperCase();
                 if (!hSku || hSku === 'SKU') continue;
                 const hNom = cleanStr(hr[1]);
-                const hFoto = cleanStr(hr[3]) || (cleanStr(hr[2]).indexOf('http') === 0 ? cleanStr(hr[2]) : '');
-                if (hFoto && resolveDriveOrImgUrl(hFoto)) nextPhotos.set(hSku, hFoto);
                 if (hNom && /^DESC[-\s]|DESCONTINUAD/i.test(hNom)) continue;
                 const prevEntry = nextErpCatalog.get(hSku);
                 if (prevEntry) {
                     if (!prevEntry.n && hNom) prevEntry.n = hNom;
-                    if (hFoto && resolveDriveOrImgUrl(hFoto)) prevEntry.f = hFoto;
-                } else if (hNom || hFoto) {
+                } else if (hNom) {
                     nextErpCatalog.set(hSku, {
                         sku: hSkuRaw,
                         mo: '',
-                        n: hNom || hSkuRaw,
+                        n: hNom,
                         pr: nextPrices.get(hSku) || '',
-                        f: hFoto
-                    });
-                }
-            }
-        }
-
-        // Las fotografías agregadas por Gerentes / Administradores en "FOTOS NUEVAS CARGADO" tienen prioridad inmediata
-        const mergedPhotoSets = [];
-        if (Array.isArray(legacyFotoRows)) mergedPhotoSets.push(legacyFotoRows);
-        if (Array.isArray(cargadoFotoRows)) mergedPhotoSets.push(cargadoFotoRows);
-
-        for (let sIdx = 0; sIdx < mergedPhotoSets.length; sIdx++) {
-            const newFotoRows = mergedPhotoSets[sIdx];
-            for (let k = 0; k < newFotoRows.length; k++) {
-                const nr = newFotoRows[k] || [];
-                const nSkuRaw = cleanStr(nr[0]);
-                const nSku = nSkuRaw.toUpperCase();
-                if (!nSku || nSku === 'SKU' || nSku === 'SKU PRODUCTO') continue;
-                const nNom = cleanStr(nr[1]);
-                const nFoto = cleanStr(nr[3]) || cleanStr(nr[4]) || (cleanStr(nr[2]).indexOf('http') === 0 ? cleanStr(nr[2]) : '');
-                if (!nFoto || !resolveDriveOrImgUrl(nFoto)) continue;
-                nextNewPhotos.set(nSku, nFoto);
-                nextPhotos.set(nSku, nFoto);
-                const prevEntry = nextErpCatalog.get(nSku);
-                if (prevEntry) {
-                    if (!prevEntry.n && nNom) prevEntry.n = nNom;
-                    prevEntry.f = nFoto;
-                } else if (nNom) {
-                    nextErpCatalog.set(nSku, {
-                        sku: nSkuRaw,
-                        mo: '',
-                        n: nNom,
-                        pr: nextPrices.get(nSku) || '',
-                        f: nFoto
+                        f: ''
                     });
                 }
             }
@@ -3875,27 +3833,6 @@
         if (stores.length > 0) erpStoresCatalog = stores;
         if (advisors.length > 0) erpAdvisorsCatalog = advisors;
         if (nextPrices.size > 0) liveErpPricesBySku = nextPrices;
-        if (nextPhotos.size > 0) livePhotosBySku = nextPhotos;
-        if (nextNewPhotos.size > 0) {
-            liveNewPhotosBySku = nextNewPhotos;
-            let anyApplied = false;
-            for (let m = 0; m < allItems.length; m++) {
-                const it = allItems[m];
-                if (!it || !it.s) continue;
-                const skuU = String(it.s).toUpperCase();
-                if (liveNewPhotosBySku.has(skuU)) {
-                    const urlNew = liveNewPhotosBySku.get(skuU);
-                    if (urlNew && it.f !== urlNew) {
-                        it.f = urlNew;
-                        anyApplied = true;
-                    }
-                }
-            }
-            if (anyApplied) {
-                const curInp = document.getElementById('invSearchInput');
-                applyFilter(curInp ? curInp.value : '', true);
-            }
-        }
         if (nextErpCatalog.size > 0) liveErpCatalogBySku = nextErpCatalog;
         lastErpCatalogSyncMs = Date.now();
     }
@@ -6879,14 +6816,17 @@
     // RESPALDO SIN CONEXIÓN: último inventario en vivo guardado en este dispositivo
     // (Bodega/Piso de CEDIS, CASA CREATA, PTC, COLOSIO, PLAYA + LPPT y fecha estimada)
     // ------------------------------------------------------------------------
-    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v2';
+    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v3';
     const LIVE_OK_TS_KEY = 'creata_inv_live_ok_ts_v1';
     const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe', 'fcomp'];
     const LIVE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
     let liveCacheSaveTimer = null;
     let liveSyncFailStreak = 0;
     let lastLiveOkMs = 0;
-    try { lastLiveOkMs = Number(localStorage.getItem(LIVE_OK_TS_KEY) || 0) || 0; } catch (e) {}
+    try {
+        localStorage.removeItem('creata_inv_live_cache_v2');
+        lastLiveOkMs = Number(localStorage.getItem(LIVE_OK_TS_KEY) || 0) || 0;
+    } catch (e) {}
 
     async function gzipTextToB64(text) {
         const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
@@ -7360,7 +7300,7 @@
                 mo: cleanStr(gvizCellRaw(rowCells, colMo)) || (prevIt && prevIt.mo) || '',
                 n: cleanStr(gvizCellRaw(rowCells, colNombre)) || (prevIt && prevIt.n) || sku,
                 vr: cleanStr(gvizCellRaw(rowCells, colVar)) || (prevIt && prevIt.vr) || '',
-                f: cleanStr(gvizCellRaw(rowCells, colFoto)) || (prevIt && prevIt.f) || '',
+                f: colFoto >= 0 ? cleanStr(gvizCellRaw(rowCells, colFoto)) : ((prevIt && prevIt.f) || ''),
                 c: cleanStr(gvizCellRaw(rowCells, colCat)) || (prevIt && prevIt.c) || '',
                 tl: cleanStr(gvizCellRaw(rowCells, colTela)) || (prevIt && prevIt.tl) || '',
                 ct: cleanStr(gvizCellRaw(rowCells, colColorTela)) || (prevIt && prevIt.ct) || '',
@@ -7396,7 +7336,7 @@
                     mo: (erpMeta && erpMeta.mo) || (prevIt && prevIt.mo) || '',
                     n: (erpMeta && erpMeta.n) || (prevIt && prevIt.n) || skuUpper,
                     vr: (prevIt && prevIt.vr) || '',
-                    f: (erpMeta && erpMeta.f) || (prevIt && prevIt.f) || '',
+                    f: '',
                     c: (prevIt && prevIt.c) || '',
                     tl: (prevIt && prevIt.tl) || '',
                     ct: (prevIt && prevIt.ct) || '',
@@ -7436,7 +7376,7 @@
                     mo: (prevIt && prevIt.mo) || '',
                     n: firstEntry.nom || (prevIt && prevIt.n) || skuUpper,
                     vr: (prevIt && prevIt.vr) || '',
-                    f: livePhotosBySku.get(skuUpper) || (prevIt && prevIt.f) || '',
+                    f: '',
                     c: (prevIt && prevIt.c) || '',
                     tl: (prevIt && prevIt.tl) || '',
                     ct: (prevIt && prevIt.ct) || '',
@@ -7651,7 +7591,7 @@
         initQuoteDraftsSystem();
         openAuthModalForStartup();
         loadErpCatalogLiveFromSheet().then(() => {
-            if ((liveErpPricesBySku.size > 0 || liveErpCatalogBySku.size > 0 || livePhotosBySku.size > 0 || liveNewPhotosBySku.size > 0) && Array.isArray(allItems) && allItems.length > 0) {
+            if ((liveErpPricesBySku.size > 0 || liveErpCatalogBySku.size > 0) && Array.isArray(allItems) && allItems.length > 0) {
                 let updatedCatalog = false;
                 const existingSkus = new Set();
                 for (let i = 0; i < allItems.length; i++) {
@@ -7669,16 +7609,6 @@
                     if (!it._avail && getLpptStock(it) >= 1 && hasValidErpPrice(it)) {
                         updatedCatalog = true;
                     }
-                    if (liveNewPhotosBySku.has(skuU)) {
-                        const newFoto = liveNewPhotosBySku.get(skuU);
-                        if (newFoto && it.f !== newFoto) {
-                            it.f = newFoto;
-                            updatedCatalog = true;
-                        }
-                    } else if ((!cleanStr(it.f) || !resolveDriveOrImgUrl(it.f)) && livePhotosBySku.has(skuU)) {
-                        it.f = livePhotosBySku.get(skuU);
-                        updatedCatalog = true;
-                    }
                 }
                 liveErpCatalogBySku.forEach((erpMeta, skuU) => {
                     if (!skuU || existingSkus.has(skuU)) return;
@@ -7692,7 +7622,7 @@
                         mo: erpMeta.mo || '',
                         n: erpMeta.n || skuU,
                         vr: '',
-                        f: liveNewPhotosBySku.get(skuU) || erpMeta.f || '',
+                        f: '',
                         c: '',
                         tl: '',
                         ct: '',

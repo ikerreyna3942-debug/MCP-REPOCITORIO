@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v52 · SW v11',
+            version: 'v53 · SW v12',
             commit: 'Actual',
+            date: '14/11/2026',
+            module: 'inventario-app.js · AppsScript_Creata_Drive_Sheets.gs',
+            title: 'Fotografías subidas solo como archivo descargable en Drive y fotos del cotizador exclusivas de Columna F',
+            summary: 'Al cargar una foto en inventario.html se guarda únicamente como archivo descargable en la carpeta Drive FOTOS NUEVAS CARGADO sin colocarse en el documento de Google Sheets ni en la ficha; el cotizador muestra exclusivamente las fotos de la Columna F de INVENTARIO_EN_VIVO.'
+        },
+        {
+            version: 'v52 · SW v11',
+            commit: '41e283b',
             date: '14/11/2026',
             module: 'inventario.html · inventario-app.js · inventario-sw.js',
             title: 'Calculadora visual de descuento al costado del precio, botón Espejos y Accesorios y visibilidad 100% (>= 1 pz)',
@@ -116,9 +124,9 @@
             desc: 'Muestra piezas individuales con existencia física en las 10 ubicaciones Bodega/Piso (>= 1 pz) ordenadas estrictamente de mayor a menor sin sumar LPPT.'
         },
         {
-            key: 'Auditoría y Fotografías Nuevas',
-            val: 'Hoja única HISTORIAL + Drive FOTOS NUEVAS CARGADO',
-            desc: 'Todo movimiento o excepción JS/AppsScript se concentra únicamente en HISTORIAL; cada foto subida guarda URL directa, autor, sucursal y producto.'
+            key: 'Fotografías Oficiales vs. Carga en Drive',
+            val: 'Columna F (INVENTARIO_EN_VIVO) · Descarga en Drive',
+            desc: 'El cotizador muestra únicamente las fotos de la Columna F de INVENTARIO_EN_VIVO; las fotos cargadas desde el sistema se alojan solo como archivos descargables en la carpeta Drive FOTOS NUEVAS CARGADO sin colocarse en el documento.'
         }
     ];
 
@@ -740,12 +748,15 @@
 
             if (!sku && !directUrl && !driveLink) continue;
             const previewUrl = resolveDrivePhotoPreview(directUrl, driveLink);
+            const idMatch = (directUrl + ' ' + driveLink).match(/(?:\/d\/|[?&]id=)([a-zA-Z0-9_-]{18,})/);
+            const dlUrl = idMatch ? ('https://drive.google.com/uc?export=download&id=' + idMatch[1]) : (directUrl || driveLink);
 
             out.push({
                 idx: i + 1,
                 sku: sku || 'SIN-SKU',
                 nombreProducto: nombreProducto || sku || 'Producto sin título',
                 previewUrl,
+                downloadUrl: dlUrl,
                 directUrl: directUrl || previewUrl,
                 driveLink: driveLink || carpetaDrive,
                 quienSubio,
@@ -759,6 +770,52 @@
         }
         out.sort((a, b) => (b.ts - a.ts) || (b.idx - a.idx));
         return out;
+    }
+
+    function mergeDrivePhotosFromHistorial(existingPhotos, histRows) {
+        const list = Array.isArray(existingPhotos) ? existingPhotos.slice() : [];
+        if (!Array.isArray(histRows) || !histRows.length) return list;
+        const seenIds = new Set();
+        list.forEach(p => {
+            const m = String((p.downloadUrl || '') + ' ' + (p.directUrl || '') + ' ' + (p.driveLink || '')).match(/(?:\/d\/|[?&]id=)([a-zA-Z0-9_-]{18,})/);
+            if (m) seenIds.add(m[1]);
+        });
+        for (let i = 0; i < histRows.length; i++) {
+            const h = histRows[i];
+            if (!h || !/ARCHIVO DE FOTO GUARDADO|FOTOGRAF[ÍI]A CARGADA/i.test(String(h.evento || ''))) continue;
+            const idMatch = String(h.detalle || '').match(/(?:\/d\/|[?&]id=)([a-zA-Z0-9_-]{18,})/);
+            if (!idMatch || seenIds.has(idMatch[1])) continue;
+            const fid = idMatch[1];
+            seenIds.add(fid);
+            const refParts = String(h.referencia || '').split('·').map(s => s.trim()).filter(Boolean);
+            const sku = refParts[0] || 'SIN-SKU';
+            const nombreProducto = refParts.slice(1).join(' · ') || sku;
+            const usrMatch = String(h.usuario || '').match(/^([^(]+)(?:\(([^)]+)\))?/);
+            const quienSubio = cleanStr(usrMatch ? usrMatch[1] : h.usuario) || 'Usuario Autorizado';
+            const correoUsuario = cleanStr(usrMatch && usrMatch[2] ? usrMatch[2] : '');
+            const carpetaDrive = 'https://drive.google.com/drive/folders/' + DRIVE_PHOTOS_FOLDER_ID;
+            const previewUrl = 'https://lh3.googleusercontent.com/d/' + fid + '=w800';
+            const downloadUrl = 'https://drive.google.com/uc?export=download&id=' + fid;
+            const driveLink = 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing';
+            list.push({
+                idx: 10000 + i,
+                sku,
+                nombreProducto,
+                previewUrl,
+                downloadUrl,
+                directUrl: downloadUrl,
+                driveLink,
+                quienSubio,
+                puestoSucursal: h.sucursal || '',
+                correoUsuario,
+                fechaHora: h.fecha || '',
+                ts: h.ts || parseMxDateTime(h.fecha || ''),
+                carpetaDrive,
+                _search: normalizeSearchText([sku, nombreProducto, quienSubio, h.sucursal, correoUsuario, h.fecha].join(' '))
+            });
+        }
+        list.sort((a, b) => (b.ts - a.ts) || (b.idx - a.idx));
+        return list;
     }
 
     // ------------------------------------------------------------------------
@@ -792,9 +849,8 @@
             if (Array.isArray(quotesRaw)) {
                 state.quoteRows = parseQuotesSheetRows(quotesRaw);
             }
-            if (Array.isArray(photosRaw)) {
-                state.photoRows = parsePhotosSheetRows(photosRaw);
-            }
+            const basePhotos = Array.isArray(photosRaw) ? parsePhotosSheetRows(photosRaw) : [];
+            state.photoRows = mergeDrivePhotosFromHistorial(basePhotos, state.historialRows);
             if (Array.isArray(invStatusRaw) && invStatusRaw.length >= 2) {
                 const cellVal = cleanStr((invStatusRaw[1] && invStatusRaw[1][0]) || (invStatusRaw[2] && invStatusRaw[2][0]));
                 if (cellVal) state.erpLiveCellText = cellVal;
@@ -1139,7 +1195,7 @@
                         (p.fechaHora ? ('<div class="tabular" style="margin-top:0.2rem;color:var(--ink-muted);">' + escapeHtml(p.fechaHora) + '</div>') : '') +
                     '</div>' +
                     '<div class="photo-card-actions">' +
-                        (p.directUrl ? ('<a class="btn-outline-sm" href="' + escapeHtml(p.directUrl) + '" target="_blank" rel="noopener">URL Foto</a>') : '') +
+                        ((p.downloadUrl || p.directUrl) ? ('<a class="btn-outline-sm" href="' + escapeHtml(p.downloadUrl || p.directUrl) + '" target="_blank" rel="noopener" download>⬇ Descargar</a>') : '') +
                         (p.driveLink ? ('<a class="btn-outline-sm" href="' + escapeHtml(p.driveLink) + '" target="_blank" rel="noopener">Abrir Drive</a>') : '') +
                     '</div>' +
                 '</div>' +

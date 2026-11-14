@@ -6746,11 +6746,18 @@ function handleInvUploadProductPhoto_(body) {
       return { ok: false, error: 'Formato de imagen inválido.' };
     }
 
+    const ahoraStr = formatCancunNow_();
+    const uploaderName = verifiedUser.nombre || verifiedUser.correo;
+    const roleStore = [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'GERENTE'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
+      .filter(Boolean)
+      .join(' · ');
+
     const mime = m[1];
     const base64Body = m[2];
     const ext = mime.indexOf('webp') !== -1 ? 'webp' : (mime.indexOf('png') !== -1 ? 'png' : 'jpg');
     const safeSku = skuUpper.replace(/[^A-Z0-9_-]/g, '');
-    const fileName = 'INV-' + safeSku + '-' + Date.now() + '.' + ext;
+    const safeProd = productName.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const fileName = safeSku + (safeProd && safeProd.toUpperCase() !== safeSku ? (' - ' + safeProd) : '') + ' - ' + Date.now() + '.' + ext;
 
     const bytes = Utilities.base64Decode(base64Body);
     const blob = Utilities.newBlob(bytes, mime, fileName);
@@ -6772,84 +6779,46 @@ function handleInvUploadProductPhoto_(body) {
         uploaded = DriveApp.createFile(blob);
       }
     }
+    try {
+      uploaded.setDescription(
+        'SKU: ' + skuUpper +
+        ' | Producto: ' + productName +
+        ' | Subió: ' + uploaderName + ' (' + roleStore + ' · ' + verifiedUser.correo + ')' +
+        ' | Fecha: ' + ahoraStr
+      );
+    } catch (eDesc) {}
     uploaded.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     const fileId = uploaded.getId();
-    const publicUrl = 'https://lh3.googleusercontent.com/d/' + fileId + '=w1000';
+    const downloadUrl = 'https://drive.google.com/uc?export=download&id=' + fileId;
     const driveViewUrl = 'https://drive.google.com/file/d/' + fileId + '/view?usp=sharing';
     const folderUrl = 'https://drive.google.com/drive/folders/' + usedFolderId;
 
-    let shFotos = ss.getSheetByName(TAB_FOTOS_NUEVAS_CARGADO_);
-    if (!shFotos) {
-      shFotos = ss.insertSheet(TAB_FOTOS_NUEVAS_CARGADO_);
-    }
-
-    const headers = [
-      'SKU PRODUCTO',
-      'NOMBRE DEL PRODUCTO',
-      'VISTA PREVIA',
-      'URL DIRECTA FOTO',
-      'LINK ARCHIVO EN DRIVE',
-      'QUIÉN SUBIÓ LA FOTO',
-      'PUESTO Y SUCURSAL',
-      'CORREO USUARIO',
-      'FECHA Y HORA',
-      'CARPETA DRIVE (FOTOS NUEVAS CARGADO)'
-    ];
-    const lastRow = shFotos.getLastRow();
-    if (lastRow === 0 || !String(shFotos.getRange(1, 1).getDisplayValue() || '').trim()) {
-      shFotos.getRange(1, 1, 1, headers.length).setValues([headers]);
-      shFotos.getRange(1, 1, 1, headers.length)
-        .setBackground('#252C32')
-        .setFontColor('#FFFFFF')
-        .setFontWeight('bold')
-        .setHorizontalAlignment('center');
-      shFotos.setFrozenRows(1);
-    }
-
-    const ahoraStr = formatCancunNow_();
-    const uploaderName = verifiedUser.nombre || verifiedUser.correo;
-    const roleStore = [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'GERENTE'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
-      .filter(Boolean)
-      .join(' · ');
-
-    // Agregar nuevo registro conservando trazabilidad completa (última fila prevalece en vivo por SKU)
-    const targetRow = Math.max(2, shFotos.getLastRow() + 1);
-    shFotos.getRange(targetRow, 1, 1, 10).setValues([[
-      skuUpper,
-      productName,
-      '',
-      publicUrl,
-      driveViewUrl,
-      uploaderName,
-      roleStore,
-      verifiedUser.correo,
-      ahoraStr,
-      folderUrl
-    ]]);
-    shFotos.getRange(targetRow, 3).setFormula('=IMAGE("' + publicUrl + '")');
-    SpreadsheetApp.flush();
-
+    // NO se inserta ni coloca la fotografía en el documento de Google Sheets ("FOTOS NUEVAS CARGADO");
+    // únicamente queda alojada como archivo descargable en la carpeta de Google Drive "FOTOS NUEVAS CARGADO"
+    // y se registra el movimiento en texto plano dentro de la bitácora HISTORIAL.
     registrarEventoHistorial_(ss, {
       clasificacion: 'MOVIMIENTO',
-      modulo: 'AppsScript · FOTOS NUEVAS CARGADO',
-      evento: 'FOTOGRAFÍA CARGADA EN DRIVE Y HOJA',
+      modulo: 'AppsScript · Drive FOTOS NUEVAS CARGADO',
+      evento: 'ARCHIVO DE FOTO GUARDADO EN DRIVE PARA DESCARGA',
       estado: '✅ OK',
       usuario: uploaderName + ' (' + verifiedUser.correo + ')',
       sucursal: roleStore,
       referencia: skuUpper + ' · ' + productName,
-      detalle: 'Foto guardada en carpeta Drive "FOTOS NUEVAS CARGADO" (' + fileName + ') · URL: ' + publicUrl,
-      analisis: 'Archivo alojado con acceso de visualización por enlace en PRESENTACION_DISENO/FOTOS NUEVAS CARGADO y registrado en fila ' + targetRow + '.'
+      detalle: 'Archivo descargable guardado únicamente en carpeta Drive "FOTOS NUEVAS CARGADO" (' + fileName + ') · Descarga: ' + downloadUrl,
+      analisis: 'Sin colocar en el documento Google Sheets ni reemplazar Columna F de INVENTARIO_EN_VIVO. Carpeta: ' + folderUrl
     });
 
     return {
       ok: true,
+      driveOnly: true,
       sku: skuUpper,
       productName: productName,
-      url: publicUrl,
+      fileId: fileId,
+      fileName: fileName,
+      downloadUrl: downloadUrl,
+      url: downloadUrl,
       driveUrl: driveViewUrl,
       folderUrl: folderUrl,
-      sheetName: TAB_FOTOS_NUEVAS_CARGADO_,
-      row: targetRow,
       uploadedBy: uploaderName,
       timestamp: ahoraStr
     };
