@@ -120,16 +120,16 @@
         return !!(erpEntry && parsePriceNum(erpEntry.pr) > 0);
     }
 
-    // Clasificación mutuamente excluyente de disponibilidad:
-    // - 'STOCK': solo piezas físicas en las 5 ubicaciones (Bodega + Piso) sin LPPT
-    // - 'LPPT': únicamente en LPPT (0 en ubicaciones físicas) con registro y precio en S Mueblería
-    // - 'LPPT_STOCK': piezas tanto en inventario físico como en LPPT
+    // Clasificación de disponibilidad para todos los productos con >= 1 pz:
+    // - 'STOCK': piezas físicas en las 5 ubicaciones (Bodega + Piso >= 1) sin LPPT
+    // - 'LPPT': piezas en LPPT (>= 1) con 0 en ubicaciones físicas
+    // - 'LPPT_STOCK': piezas tanto en inventario físico (>= 1) como en LPPT (>= 1)
     function getItemAvailabilityKind(it) {
         const stock = getBodegaPisoStock(it);
         const lppt = getLpptStock(it);
         if (stock >= 1 && lppt >= 1) return 'LPPT_STOCK';
         if (stock >= 1) return 'STOCK';
-        if (lppt >= 1 && hasValidErpPrice(it)) return 'LPPT';
+        if (lppt >= 1) return 'LPPT';
         return '';
     }
 
@@ -948,7 +948,13 @@
     // ------------------------------------------------------------------------
     // CATEGORÍAS PRINCIPALES, SUBCATEGORÍAS (A-Z) Y FILTROS DE DISPONIBILIDAD (STOCK / LPPT / LPPT+STOCK)
     // ------------------------------------------------------------------------
-    const MAIN_CATEGORY_ORDER = ['COMEDORES', 'SALAS', 'RECÁMARAS', 'COMPLEMENTOS'];
+    const MAIN_CATEGORY_ORDER = [
+        'COMEDORES',
+        'SALAS',
+        'RECÁMARAS',
+        'COMPLEMENTOS',
+        'ESPEJOS Y ACCESORIOS'
+    ];
 
     const SUBCATEGORIES_BY_MAIN = {
         'COMEDORES': [
@@ -971,15 +977,24 @@
             'BURÓS',
             'CABECERAS',
             'CAMAS',
+            'COLCHONES',
             'COMODAS Y TOCADORES',
             'PIE DE CAMA'
         ],
         'COMPLEMENTOS': [
             'CREDENZAS',
             'ESCRITORIOS',
+            'EXTERIOR',
             'LIBREROS',
             'MUEBLES DE BAR',
             'MUEBLES PARA TV'
+        ],
+        'ESPEJOS Y ACCESORIOS': [
+            'ACCESORIOS DECORATIVOS',
+            'COJINES & TEXTILES',
+            'CUADROS',
+            'ESPEJOS',
+            'LÁMPARAS'
         ]
     };
 
@@ -989,6 +1004,7 @@
             MAIN_OF_SUB[subCat] = mainCat;
         });
     });
+    MAIN_OF_SUB['OTROS'] = 'ESPEJOS Y ACCESORIOS';
 
     const AVAILABILITY_FILTERS = [
         { key: 'STOCK', label: 'STOCK' },
@@ -1385,9 +1401,9 @@
             it._groupTitle = title;
 
             it._cat = resolveItemSubcategory(it, resolveItemCategory(it));
-            it._main = MAIN_OF_SUB[it._cat] || '';
+            it._main = MAIN_OF_SUB[it._cat] || 'ESPEJOS Y ACCESORIOS';
             it._avail = getItemAvailabilityKind(it);
-            it._lpptBucket = it._avail === 'LPPT' ? getItemLpptDaysBucket(it) : '';
+            it._lpptBucket = getLpptStock(it) >= 1 ? getItemLpptDaysBucket(it) : '';
 
             const rawText = [
                 it.s, title, it.n, it.vr, it.tp, it.mo, it.c, it._cat, it._main,
@@ -1487,14 +1503,17 @@
     }
 
     // ------------------------------------------------------------------------
-    // PORTADA PRINCIPAL: TODOS LOS PRODUCTOS CON FOTOGRAFÍA EN ORDEN ALFABÉTICO (A-Z)
+    // PORTADA PRINCIPAL (TODOS): TODOS LOS PRODUCTOS CON >= 1 PZ (PRIMERO CON FOTO A-Z Y DEBAJO SIN FOTO A-Z)
     // ------------------------------------------------------------------------
     function getMainCoverGroups() {
-        const withPhotos = allGroups.filter(g => !!firstPhotoItem(g.items));
-        if (withPhotos.length === 0) {
-            return allGroups.slice(0, PAGE_SIZE);
+        const withPhotos = [];
+        const withoutPhotos = [];
+        for (let i = 0; i < allGroups.length; i++) {
+            const g = allGroups[i];
+            if (firstPhotoItem(g.items)) withPhotos.push(g);
+            else withoutPhotos.push(g);
         }
-        return withPhotos;
+        return withPhotos.concat(withoutPhotos);
     }
 
     let activeCategory = 'ALL';
@@ -1510,7 +1529,7 @@
         }
         if (cat === 'LPPT_STOCK') return it._avail === 'LPPT_STOCK';
         if (cat === 'LPPT') {
-            if (it._avail !== 'LPPT') return false;
+            if (getLpptStock(it) < 1) return false;
             if (sub && sub !== 'ALL') return it._lpptBucket === sub;
             return true;
         }
@@ -1749,6 +1768,14 @@
                     compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
                     String(a.key || '').localeCompare(String(b.key || ''));
             });
+        } else if (isMainCoverActive) {
+            filteredGroups.sort((a, b) => {
+                const pa = firstPhotoItem(a.items) ? 1 : 0;
+                const pb = firstPhotoItem(b.items) ? 1 : 0;
+                if (pb !== pa) return pb - pa;
+                return compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                    String(a.key || '').localeCompare(String(b.key || ''));
+            });
         } else {
             filteredGroups.sort((a, b) =>
                 compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
@@ -1758,9 +1785,8 @@
 
         renderCategoryBar();
 
-        const targetInitial = isMainCoverActive
-            ? filteredGroups.length
-            : (preserveCount ? Math.max(PAGE_SIZE, renderedCount) : PAGE_SIZE);
+        const initialCap = isMainCoverActive ? 120 : PAGE_SIZE;
+        const targetInitial = preserveCount ? Math.max(initialCap, renderedCount) : initialCap;
         renderedCount = 0;
         const container = document.getElementById('invListContainer');
         if (container) container.innerHTML = '';
@@ -1776,6 +1802,7 @@
         const lpptRangeCounts = new Map();
         const stockMainCounts = new Map();
         let stockPieceCount = 0;
+        let lpptGroupCount = 0;
 
         for (let i = 0; i < allGroups.length; i++) {
             const g = allGroups[i];
@@ -1786,8 +1813,11 @@
             }
             if (g.avails) {
                 g.avails.forEach(a => {
-                    if (a && a !== 'STOCK') availCounts.set(a, (availCounts.get(a) || 0) + 1);
+                    if (a && a !== 'STOCK' && a !== 'LPPT') availCounts.set(a, (availCounts.get(a) || 0) + 1);
                 });
+            }
+            if ((Number(g.lpptStock) || 0) >= 1) {
+                lpptGroupCount++;
             }
             if (Array.isArray(g.items)) {
                 for (let j = 0; j < g.items.length; j++) {
@@ -1813,6 +1843,7 @@
             }
         }
         availCounts.set('STOCK', stockPieceCount);
+        availCounts.set('LPPT', lpptGroupCount);
 
         const pill = (cls, attr, val, label, isActive) =>
             '<button type="button" class="' + cls + (isActive ? ' active' : '') + '" ' + attr + '="' + escapeHtml(val) + '">' + escapeHtml(label) + '</button>';
@@ -1837,7 +1868,10 @@
         if (!subBar) return;
 
         if (SUBCATEGORIES_BY_MAIN[activeCategory]) {
-            const subs = SUBCATEGORIES_BY_MAIN[activeCategory];
+            const subs = SUBCATEGORIES_BY_MAIN[activeCategory].slice();
+            if (activeCategory === 'ESPEJOS Y ACCESORIOS' && (subCounts.get('OTROS') || 0) > 0 && subs.indexOf('OTROS') === -1) {
+                subs.push('OTROS');
+            }
             const subPills = [
                 pill('inv-cat-pill inv-sub-pill', 'data-sub', 'ALL', 'TODO ' + activeCategory + ' (' + (mainCounts.get(activeCategory) || 0) + ')', activeSubCategory === 'ALL')
             ];
@@ -2362,11 +2396,55 @@
         return true;
     };
 
+    let visualDiscActiveSku = '';
+
+    window.updateDetailVisualDiscount = function () {
+        const discInp = document.getElementById('detVisualDiscInput');
+        const finalBox = document.getElementById('detVisualFinalBox');
+        const finalLbl = document.getElementById('detVisualFinalLabel');
+        const finalPriceEl = document.getElementById('detVisualFinalPrice');
+        if (!finalPriceEl) return;
+
+        const baseNum = currentDetailItem ? parsePriceNum(currentDetailItem.pr) : 0;
+        if (baseNum <= 0) {
+            finalPriceEl.textContent = '';
+            return;
+        }
+
+        const rawStr = discInp ? String(discInp.value || '').replace(',', '.').trim() : '';
+        let pct = rawStr === '' ? 0 : parseFloat(rawStr);
+        if (isNaN(pct) || !isFinite(pct) || pct < 0) {
+            pct = 0;
+        } else if (pct > 100) {
+            pct = 100;
+            if (discInp) discInp.value = '100';
+        }
+
+        const discountedNum = Math.max(0, Math.round((baseNum * (1 - pct / 100)) * 100) / 100);
+        finalPriceEl.textContent = '$' + discountedNum.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+
+        const hasActiveDisc = pct > 0;
+        if (finalBox) {
+            finalBox.style.borderColor = hasActiveDisc ? '#A7F3D0' : '#E1DBC5';
+            finalBox.style.background = hasActiveDisc ? '#ECFDF5' : '#FAF9F6';
+        }
+        if (finalLbl) {
+            finalLbl.style.color = hasActiveDisc ? '#065F46' : '#252C32';
+        }
+        finalPriceEl.style.color = hasActiveDisc ? '#065F46' : '#252C32';
+    };
+
     window.closeProductDetail = function () {
         const modal = document.getElementById('productDetailModal');
         if (modal) modal.classList.remove('open');
         currentDetailItem = null;
         currentGroup = null;
+        visualDiscActiveSku = '';
+        const discInp = document.getElementById('detVisualDiscInput');
+        if (discInp) discInp.value = '';
     };
 
     function renderDetailModal(it, showGroupBack) {
@@ -2375,6 +2453,7 @@
         const nameEl = document.getElementById('detName');
         const priceWrapEl = document.getElementById('detPriceWrap');
         const priceEl = document.getElementById('detPrice');
+        const discInp = document.getElementById('detVisualDiscInput');
         const addBtn = document.getElementById('detAddCartBtn');
         const subBtn = document.getElementById('detSubCartBtn');
         const remAllBtn = document.getElementById('detRemoveAllCartBtn');
@@ -2394,16 +2473,23 @@
             skuEl.classList.toggle('hidden', !it.s);
         }
 
+        const keyUpperForDisc = String(it.s || '').toUpperCase();
+        if (visualDiscActiveSku !== keyUpperForDisc) {
+            visualDiscActiveSku = keyUpperForDisc;
+            if (discInp) discInp.value = '';
+        }
+
         const baseTitle = stripDimensionsFromProductText(it.n) || cleanStr(it._groupTitle) || it.s || '';
         const formattedPrice = formatPrice(it.pr);
         if (nameEl) {
             nameEl.textContent = baseTitle;
         }
-        // Precio adentro del recuadro de inventario (junto a Stock Total)
+        // Precio adentro del recuadro de inventario + calculadora visual de descuento al costado
         if (priceEl && priceWrapEl) {
             if (formattedPrice) {
                 priceEl.textContent = formattedPrice;
                 priceWrapEl.classList.remove('hidden');
+                updateDetailVisualDiscount();
             } else {
                 priceEl.textContent = '';
                 priceWrapEl.classList.add('hidden');
@@ -7663,6 +7749,15 @@
             }
         }
         applyFilter('');
+        const loadMoreSentinel = document.getElementById('invLoadMoreWrap');
+        if (loadMoreSentinel && typeof IntersectionObserver !== 'undefined') {
+            const moreObs = new IntersectionObserver(function (entries) {
+                if (entries && entries.some(e => e.isIntersecting) && renderedCount < filteredGroups.length) {
+                    renderMoreItems(isMainCoverActive ? 120 : PAGE_SIZE);
+                }
+            }, { rootMargin: '420px 0px' });
+            moreObs.observe(loadMoreSentinel);
+        }
         refreshLiveSheetNow();
         setInterval(function () {
             if (document.visibilityState !== 'hidden') {

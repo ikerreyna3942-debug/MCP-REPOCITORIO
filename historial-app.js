@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
+            version: 'v52 · SW v11',
+            commit: 'Actual',
+            date: '14/11/2026',
+            module: 'inventario.html · inventario-app.js · inventario-sw.js',
+            title: 'Calculadora visual de descuento al costado del precio, botón Espejos y Accesorios y visibilidad 100% (>= 1 pz)',
+            summary: 'Recuadro libre de Descuento (%) y Precio con descuento aplicado 100% visual (sin alterar cotización), nueva categoría ESPEJOS Y ACCESORIOS y visualización completa en TODOS y filtros desde 1 pz aunque no tengan foto.'
+        },
+        {
             version: 'Portal Privado',
-            commit: 'historial.html',
+            commit: 'd7db911',
             date: '14/11/2026',
             module: 'historial.html · historial-app.js · historial-styles.css',
             title: 'Panel Ejecutivo Privado de Historial del Proyecto de Cotización',

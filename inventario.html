@@ -159,6 +159,15 @@
         .modal-backdrop.open {
             display: flex;
         }
+        #detVisualDiscInput::-webkit-outer-spin-button,
+        #detVisualDiscInput::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        #detVisualDiscInput {
+            -moz-appearance: textfield;
+            appearance: textfield;
+        }
         /* CATEGORÍAS DEL INVENTARIO CENTRADAS Y EQUILIBRADAS */
         .inv-cats-cell {
             display: flex;
@@ -792,9 +801,33 @@
 
                 <div class="rounded-xl border p-4 space-y-3" style="border-color:#E1DBC5; background:#FFFFFF;">
                     <div class="flex flex-wrap items-center justify-between gap-2">
-                        <div id="detPriceWrap" class="hidden flex items-center gap-2">
-                            <span class="text-xs font-bold uppercase" style="color:#252C32;">Precio:</span>
-                            <span id="detPrice" class="px-3 py-1 rounded-full text-sm font-black" style="background:#A38251; color:#FFFFFF;"></span>
+                        <div id="detPriceWrap" class="hidden flex flex-wrap items-center gap-2">
+                            <div class="inline-flex items-center gap-1.5">
+                                <span class="text-xs font-bold uppercase" style="color:#252C32;">Precio:</span>
+                                <span id="detPrice" class="px-3 py-1 rounded-lg text-sm font-black" style="background:#A38251; color:#FFFFFF;"></span>
+                            </div>
+                            <div id="detVisualDiscBox" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border" style="border-color:#A38251; background:#FAF9F6;" title="Calculadora visual rápida (no modifica la cotización)">
+                                <label for="detVisualDiscInput" class="text-[11px] font-extrabold uppercase tracking-wide select-none" style="color:#252C32;">Descuento:</label>
+                                <input
+                                    type="number"
+                                    id="detVisualDiscInput"
+                                    min="0"
+                                    max="100"
+                                    step="any"
+                                    inputmode="decimal"
+                                    placeholder="0"
+                                    oninput="updateDetailVisualDiscount()"
+                                    onclick="this.select()"
+                                    aria-label="Porcentaje de descuento visual"
+                                    class="w-12 text-center text-xs font-black rounded border px-1 py-0.5 outline-none"
+                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;"
+                                >
+                                <span class="text-xs font-black" style="color:#A38251;">%</span>
+                            </div>
+                            <div id="detVisualFinalBox" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition" style="border-color:#E1DBC5; background:#FAF9F6;">
+                                <span id="detVisualFinalLabel" class="text-[11px] font-extrabold uppercase tracking-wide" style="color:#252C32;">Con descuento:</span>
+                                <span id="detVisualFinalPrice" class="text-sm font-black" style="color:#252C32;"></span>
+                            </div>
                         </div>
                         <div class="flex items-center gap-2 ml-auto">
                             <span class="text-xs font-bold uppercase" style="color:#252C32;">Stock Total:</span>
@@ -1335,6 +1368,6 @@
     <script src="inventario-data-1.js?v=41"></script>
     <script src="inventario-data-2.js?v=41"></script>
     <script src="inventario-data-3.js?v=41"></script>
-    <script src="inventario-app.js?v=51"></script>
+    <script src="inventario-app.js?v=52"></script>
 </body>
 </html>
