@@ -47,6 +47,7 @@
     let allItems = Array.isArray(window.CREATA_INV_DATA) ? window.CREATA_INV_DATA : [];
     const bySkuMap = new Map();
     const groupsByKey = new Map();
+    const activeFilteredGroupsByKey = new Map();
     let allGroups = [];
     let filteredGroups = [];
     let renderedCount = 0;
@@ -59,6 +60,9 @@
     let lastLiveSignature = '';
     let liveLpptBySku = new Map();
     let liveErpPricesBySku = new Map();
+    let liveErpCatalogBySku = new Map();
+    let livePhotosBySku = new Map();
+    let liveNewPhotosBySku = new Map();
 
     function emptyStocks() {
         return new Array(WAREHOUSES.length).fill(0);
@@ -90,11 +94,6 @@
         return total;
     }
 
-    // El cotizador solo muestra piezas con al menos 1 pz en Bodega/Piso o que vienen en LPPT
-    function isQuotableItem(it) {
-        return getBodegaPisoStock(it) >= 1 || getLpptStock(it) >= 1;
-    }
-
     function parsePriceNum(raw) {
         if (raw === null || raw === undefined) return 0;
         if (typeof raw === 'number') return isFinite(raw) && raw > 0 ? raw : 0;
@@ -110,6 +109,35 @@
         return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
+    // Verifica que el producto tenga registro y precio válido en S Mueblería
+    function hasValidErpPrice(it) {
+        if (!it) return false;
+        if (parsePriceNum(it.pr) > 0) return true;
+        const skuKey = String(it.s || '').trim().toUpperCase();
+        if (!skuKey) return false;
+        if (parsePriceNum(liveErpPricesBySku.get(skuKey)) > 0) return true;
+        const erpEntry = liveErpCatalogBySku.get(skuKey);
+        return !!(erpEntry && parsePriceNum(erpEntry.pr) > 0);
+    }
+
+    // Clasificación mutuamente excluyente de disponibilidad:
+    // - 'STOCK': solo piezas físicas en las 5 ubicaciones (Bodega + Piso) sin LPPT
+    // - 'LPPT': únicamente en LPPT (0 en ubicaciones físicas) con registro y precio en S Mueblería
+    // - 'LPPT_STOCK': piezas tanto en inventario físico como en LPPT
+    function getItemAvailabilityKind(it) {
+        const stock = getBodegaPisoStock(it);
+        const lppt = getLpptStock(it);
+        if (stock >= 1 && lppt >= 1) return 'LPPT_STOCK';
+        if (stock >= 1) return 'STOCK';
+        if (lppt >= 1 && hasValidErpPrice(it)) return 'LPPT';
+        return '';
+    }
+
+    // El cotizador muestra piezas con stock físico o piezas de LPPT con registro/precio en S Mueblería
+    function isQuotableItem(it) {
+        return getItemAvailabilityKind(it) !== '';
+    }
+
     function computeItemsSignature(items) {
         const parts = new Array(items.length);
         for (let i = 0; i < items.length; i++) {
@@ -118,7 +146,7 @@
             parts[i] = [
                 it.s, it.tp, it.mo, it.n, it.vr, it.f, it.c,
                 it.tl, it.ct, it.md, it.cm, it.mt, it.m, it.p,
-                it.lt, it.pr, it.fe, st
+                it.lt, it.pr, it.fe, it.fcomp || '', st
             ].join('\x1f');
         }
         return parts.join('\n');
@@ -375,10 +403,6 @@
         if (aIsLetter !== bIsLetter) return aIsLetter ? -1 : 1;
         return ka.localeCompare(kb, 'es', { numeric: true, sensitivity: 'base' });
     }
-
-    let liveErpCatalogBySku = new Map();
-    let livePhotosBySku = new Map();
-    let liveNewPhotosBySku = new Map();
 
     const LIVE_EXTRA_FABRICS = {
         'SORRENTO IVORY': 'MARFIL / IVORY',
@@ -922,121 +946,223 @@
     }
 
     // ------------------------------------------------------------------------
-    // CATEGORÍAS Y SUBCATEGORÍAS NORMALIZADAS (PRIORIZA TIPO DE PRODUCTO SOBRE CATEGORÍA GENÉRICA)
+    // CATEGORÍAS PRINCIPALES, SUBCATEGORÍAS (A-Z) Y FILTROS DE DISPONIBILIDAD (STOCK / LPPT / LPPT+STOCK)
     // ------------------------------------------------------------------------
-    const CATEGORY_ORDER = [
-        'SALAS & SOFÁS',
-        'SILLAS & SILLONES',
-        'COMEDORES',
-        'BUFETERAS & CREDENZAS',
-        'MESAS DE CENTRO & LATERALES',
-        'RECÁMARAS',
-        'OFICINA',
-        'EXTERIOR',
-        'ESPEJOS',
-        'CUADROS',
-        'LÁMPARAS',
-        'COJINES & TEXTILES',
-        'ACCESORIOS DECORATIVOS',
-        'COMPLEMENTOS',
-        'OTROS'
+    const MAIN_CATEGORY_ORDER = ['COMEDORES', 'SALAS', 'RECÁMARAS', 'COMPLEMENTOS'];
+
+    const SUBCATEGORIES_BY_MAIN = {
+        'COMEDORES': [
+            'BANCOS & BANCAS',
+            'BUFETERAS',
+            'MESAS',
+            'SILLAS'
+        ],
+        'SALAS': [
+            'FUTONES & SOFÁ CAMAS',
+            'MESAS DE CENTRO',
+            'MESAS LATERALES',
+            'SALAS EN L',
+            'SALAS MODULARES',
+            'SILLONES',
+            'SOFAS & LOVESEATS'
+        ],
+        'RECÁMARAS': [
+            'BASES',
+            'BURÓS',
+            'CABECERAS',
+            'CAMAS',
+            'COMODAS Y TOCADORES',
+            'PIE DE CAMA'
+        ],
+        'COMPLEMENTOS': [
+            'CREDENZAS',
+            'ESCRITORIOS',
+            'LIBREROS',
+            'MUEBLES DE BAR',
+            'MUEBLES PARA TV'
+        ]
+    };
+
+    const MAIN_OF_SUB = {};
+    MAIN_CATEGORY_ORDER.forEach(mainCat => {
+        (SUBCATEGORIES_BY_MAIN[mainCat] || []).forEach(subCat => {
+            MAIN_OF_SUB[subCat] = mainCat;
+        });
+    });
+
+    const AVAILABILITY_FILTERS = [
+        { key: 'STOCK', label: 'STOCK' },
+        { key: 'LPPT', label: 'LPPT' },
+        { key: 'LPPT_STOCK', label: 'LPPT+STOCK' }
     ];
 
-    // CATEGORÍAS PRINCIPALES (COMEDORES / SALAS / RECÁMARAS / COMPLEMENTOS) → SUBCATEGORÍAS
-    const MAIN_CATEGORY_ORDER = ['COMEDORES', 'SALAS', 'RECÁMARAS', 'COMPLEMENTOS'];
-    const SUBCATEGORY_ORDER = [
-        'MESAS DE COMEDOR', 'SILLAS', 'BUFETERAS & CREDENZAS',
-        'SALAS & SOFÁS', 'SILLONES', 'MESAS DE CENTRO & LATERALES',
-        'CAMAS & CABECERAS', 'BURÓS', 'CÓMODAS & CAJONERAS', 'COLCHONES & BOX', 'OTROS DE RECÁMARA',
-        'OFICINA', 'EXTERIOR', 'ESPEJOS', 'CUADROS', 'LÁMPARAS', 'COJINES & TEXTILES',
-        'ACCESORIOS DECORATIVOS', 'COMPLEMENTOS', 'OTROS'
+    // Submenú de días restantes para LPPT (rangos separados excluyendo 0)
+    const LPPT_DAY_RANGES = [
+        { key: '-15', label: '-15', min: 1, max: 15 },
+        { key: '-30', label: '-30', min: 16, max: 30 },
+        { key: '-45', label: '-45', min: 31, max: 45 },
+        { key: '-75', label: '-75', min: 46, max: 75 },
+        { key: '-90', label: '-90', min: 76, max: 90 }
     ];
-    const MAIN_OF_SUB = {
-        'MESAS DE COMEDOR': 'COMEDORES', 'SILLAS': 'COMEDORES', 'BUFETERAS & CREDENZAS': 'COMEDORES',
-        'SALAS & SOFÁS': 'SALAS', 'SILLONES': 'SALAS', 'MESAS DE CENTRO & LATERALES': 'SALAS',
-        'CAMAS & CABECERAS': 'RECÁMARAS', 'BURÓS': 'RECÁMARAS', 'CÓMODAS & CAJONERAS': 'RECÁMARAS',
-        'COLCHONES & BOX': 'RECÁMARAS', 'OTROS DE RECÁMARA': 'RECÁMARAS'
-    };
+
+    const MODULAR_SALA_MODELS = new Set([
+        'CARRARA', 'DYLAN', 'LUGANO', 'MONACO', 'SHELBY', 'ARIA', 'LUNNO', 'NILO',
+        'ASPEN', 'AVALANCHE', 'AVENZANO', 'GALARDI', 'KASSIA', 'PONZETTA', 'TRENTO', 'SANTHOMAS'
+    ]);
+
+    const SALA_EN_L_MODELS = new Set([
+        'DONATI', 'MATERA', 'AMARETO', 'DOVELLI', 'GALES', 'IBIZA',
+        'LEXY', 'MAWI', 'PIERO', 'TEREANI', 'VALENTI', 'VARENA',
+        'CITY', 'LUNA', 'MELODY', 'MEMPHIS', 'PERRY'
+    ]);
 
     function classifyItemSubcategory(it) {
         const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
         const cat = norm(cleanStr(it && it.c));
         const tp = norm(cleanStr(it && it.tp));
+        const mo = norm(cleanStr(it && it.mo));
         const nom = norm(cleanStr(it && it.n));
+        const prodTxt = (tp + ' ' + nom).trim();
+        const allTxt = (tp + ' ' + nom + ' ' + mo + ' ' + cat).trim();
 
-        if (/\bEXTERIOR\b|\bCAMASTRO\b|\bCOLUMPIO\b/.test(cat + ' ' + tp + ' ' + nom)) {
-            return 'EXTERIOR';
+        // 0) Muebles de TV explícitos antes de cualquier exclusión de recubrimientos (ej. "WALL UNIT MESA DE TV")
+        if (
+            /^PTV\b/.test(tp) ||
+            /\b(MUEBLES?\s+(?:PARA\s+|DE\s+)?TV|MESAS?\s+(?:PARA\s+|DE\s+)?TV|MODULOS?\s+(?:PARA\s+|DE\s+)?TV|CENTROS?\s+DE\s+TV|CENTROS?\s+DE\s+ENTRETENIMIENTO|CENTROS?\s+DE\s+ENCETRENIMIENTO|\bPTV\b)\b/.test(prodTxt)
+        ) {
+            return 'MUEBLES PARA TV';
         }
 
-        const matchText = (txt, isCatSource) => {
-            if (!txt) return '';
-            if (/\bSOFA\s+CAMA\b/.test(txt)) return 'SALAS & SOFÁS';
-            if (/\b(MESA\s+(?:DE\s+)?CENTRO|MESA\s+CENTRAL|MESA\s+LATERAL|MESAS?\s+LATERAL(?:ES)?|MESA\s+AUXILIAR|MESAS\s+DE\s+SALA)\b/.test(txt)) {
-                return 'MESAS DE CENTRO & LATERALES';
-            }
-            if (/\b(MESA\s+(?:DE\s+)?COMEDOR|ANTECOMEDOR|DESAYUNADOR)\b/.test(txt)) {
-                return 'MESAS DE COMEDOR';
-            }
-            if (/\b(BUFETERA|BUFERETERA|BUFETERO|CREDENZA|TRINCHADOR|APARADOR|CONSOLA|CAVA|CONTRABARRA)\b/.test(txt)) {
-                return 'BUFETERAS & CREDENZAS';
-            }
-            if (/\b(ESCRITORIO|SECRETAIRE|ARCHIVERO|OFICINA|LIBRERO|REPISA|ESTANTE)\b/.test(txt)) {
-                return 'OFICINA';
-            }
-            if (/\b(SILLON(?:\s+OCASIONAL)?|BUTACA|MECEDORA|RECLINABLE)\b/.test(txt)) {
-                return 'SILLONES';
-            }
-            if (/\b(SILLA(?:\s+COMEDOR)?|TABURETE|BANCO(?:\s+BAR)?|BANCA)\b/.test(txt)) {
-                if (/\bRECAMARA/.test(cat) && /\bBANCA\b/.test(txt)) return 'OTROS DE RECÁMARA';
-                return 'SILLAS';
-            }
-            if (/\b(SALA|SOFA|LOVE\s*SEAT|LOVESEAT|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|POUF|PUFF?|FUTTON|FUTON|ESQUINERO|RINCONERA|REMATE)\b/.test(txt)) {
-                return 'SALAS & SOFÁS';
-            }
-            if (/\bBURO\b/.test(txt)) return 'BURÓS';
-            if (/\b(COLCHON|BOX\s+SPRING)\b|\bBOX\b/.test(txt)) return 'COLCHONES & BOX';
-            if (/\b(COMODA|CAJONERA|CHIFONIER|TOCADOR)\b/.test(txt)) return 'CÓMODAS & CAJONERAS';
-            if (/\b(CABECERA|BASE\s+(?:DE\s+)?CAMA|BASE\s+(?:KS|QS|MAT|IND|KING|QUEEN)|PIE\s+DE\s+CAMA|CAMA|LITERA|CUNA)\b/.test(txt)) {
-                return 'CAMAS & CABECERAS';
-            }
-            if (/\b(BAUL|SET\s+DE\s+EXTENSIONES)\b/.test(txt)) return 'OTROS DE RECÁMARA';
-            if (/\bESPEJO\b/.test(txt)) return 'ESPEJOS';
-            if (/\b(CUADRO|ARTE\s+OBJETO|DECORATIVO\s+(?:DE\s+)?PARED|PINTURA|LIENZO|GICLEE)\b/.test(txt)) return 'CUADROS';
-            if (/\b(LAMPARA(?:\s+(?:DE\s+)?(?:MESA|PISO|PIE|COLGANTE))?|CANDIL|ARBOTANTE|LUMINARIA)\b/.test(txt)) return 'LÁMPARAS';
-            if (/\b(COJIN(?:ES)?|FUNDA(?:\s+DECORATIVA)?|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|RELLENO|DRACON|COLCHA|EDREDON|SABANA|CUBRECAMA|TOALLA(?:\s+DE\s+MANO)?)\b/.test(txt)) {
-                return 'COJINES & TEXTILES';
-            }
-            if (isCatSource || txt === tp) {
-                if (/\bTELAS?\b|\bTEL-ARTELL\b|\bPROTECTOR\s+DE\s+TELA\b/.test(txt)) return 'COJINES & TEXTILES';
-            }
-            if (/^T\.\s+|^TELA\s+ARTELL\b/.test(txt)) return 'COJINES & TEXTILES';
-            if (/\bMESA\b/.test(txt)) {
-                if (/\b(SALA|AUXILIAR|CENTRO|LATERAL)\b/.test(cat + ' ' + nom)) return 'MESAS DE CENTRO & LATERALES';
-                return 'MESAS DE COMEDOR';
-            }
-            if (/\b(FLORERO|JARRON|ESCULTURA|CHAROLA|BANDEJA|FRUTERO|ENSALADERA|CANDELABRO|PORTAVELAS?|MACETA|MATERA|PLANTA(?:\s+DECORATIVA)?|FOLLAJE|VELA|LIBRO|BOTELLA|BOTELLON|PLATO(?:\s+HONDO)?|CANAST[OA]|CESTA|LINTERNA|FAROL|CORAL|CONCHA|BOWL|ACCESORIO(?:S)?(?:\s+DECORATIVO)?|ACCECORIO)\b/.test(txt)) {
-                return 'ACCESORIOS DECORATIVOS';
-            }
-            if (/\bCRISTAL\b/.test(txt)) {
-                if (/\bCOMEDOR/.test(cat)) return 'MESAS DE COMEDOR';
-                if (/\b(MESA|SALA|AUXILIAR)\b/.test(cat + ' ' + nom)) return 'MESAS DE CENTRO & LATERALES';
-                return 'ACCESORIOS DECORATIVOS';
-            }
-            if (/\b(MUEBLE\s+(?:DE\s+)?TV|CENTRO\s+DE\s+ENTRETENIMIENTO|CENTRO\s+DE\s+ENCETRENIMIENTO|PERCHERO|MAMPARA|BIOMBO|PAPEL\s+TAPIZ|LAMBRIN|LAMINA\s+DE\s+PVC|TELFOR|TAPICERIA)\b/.test(txt)) {
-                return 'COMPLEMENTOS';
-            }
-            if (isCatSource) {
-                if (/\bCOMEDOR/.test(txt)) return 'MESAS DE COMEDOR';
-                if (/\bSALA/.test(txt)) return 'SALAS & SOFÁS';
-                if (/\bRECAMARA/.test(txt)) return 'OTROS DE RECÁMARA';
-                if (/\bAUXILIAR/.test(txt)) return 'MESAS DE CENTRO & LATERALES';
-                if (/\bCOMPLEMENTO/.test(txt)) return 'COMPLEMENTOS';
-                if (/\bDECORATIV/.test(txt)) return 'ACCESORIOS DECORATIVOS';
-            }
-            return '';
-        };
+        // 1) Exclusión temprana de exterior, iluminación, textiles, colchones y decoración (evita falsos positivos como "LAMPARA DE MESA", "CAMINO MESA", "CHAROLA BAR", etc.)
+        if (/\b(EXTERIOR|CAMASTRO|COLUMPIO|SOMBRILLA)\b/.test(allTxt)) {
+            return 'EXTERIOR';
+        }
+        if (/\b(LAMPARA|CANDIL|ARBOTANTE|LUMINARIA|PLAFON)\b/.test(prodTxt) || cat === 'ILUMINACION') {
+            return 'LÁMPARAS';
+        }
+        if (
+            /\b(COJIN(?:ES)?|FUNDA(?:\s+DECORATIVA|\s+RINONERA)?|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|RELLENO|DRACON|COLCHA|EDREDON|SABANA|CUBRECAMA|TOALLA|CAMINO\s+(?:DE\s+)?MESA|MANTEL|INDIVIDUAL(?:ES)?|PORTAVASO|SERVILLETERO)\b/.test(prodTxt) ||
+            /^(?:T\.\s+|TELA\s+|TEL-ARTELL\b|TEL-?FOR\b|TELART\b)/.test(nom) ||
+            /^(?:TELA(?:\s+ARTELL)?|TEL-?FOR|TELART|TAPICERIA|COMPONENTES\s+TAPICERIA|SINTETICO)$/.test(tp)
+        ) {
+            return 'COJINES & TEXTILES';
+        }
+        if (/\b(COLCHON|CUBRE\s*COLCHON|PROTECTOR\s+DE\s+COLCHON)\b/.test(nom) || /^COLCHON$/.test(tp)) {
+            return 'COLCHONES';
+        }
+        if (/\bESPEJOS?\b/.test(tp) || (/^ESPEJO\b/.test(nom) && !/\b(TOCADOR|COMODA)\b/.test(prodTxt))) {
+            return 'ESPEJOS';
+        }
+        if (/\b(CUADRO|ARTE\s+OBJETO|DECORATIVO\s+(?:DE\s+)?PARED|PINTURA|LIENZO|GICLEE)\b/.test(prodTxt)) {
+            return 'CUADROS';
+        }
+        if (
+            /^(?:ACCESORIOS?(?:\s+DECORATIVOS?)?|ACCECORIO|FLORERO|JARRON|ESCULTURA|CHAROLA|BANDEJA|FRUTERO|ENSALADERA|CANDELABRO|PORTAVELAS?|PORTARRETRATO|MACETA|PLANTA(?:\s+DECORATIVA)?|FOLLAJE|VELAS?|LIBRO(?:\s+DECORATIVO)?|BOTELLA|BOTELLON|PLATO(?:\s+HONDO)?(?:\s+DECORATIVO)?|PLATON|SET\s+PLATO|TAZON|BATEA|BOLSA|CANAST[OA]|CESTA|LINTERNA|FAROL|CORAL|CONCHA|BOWL|CORDON\s+DECORATIVO|DECORATIVO\s+NAVIDAD|PERCHERO|MAMPARA|BIOMBO|PAPEL\s+TAPIZ|LAMBRIN(?:\s+DECORATIVO)?|LAMINA\s+DE\s+PVC|PISOS?\s+MODULARES?|ARCHIVERO|PEDESTAL|GARANTIA|MAQFOR|PRODUCTO\s+ESPECIAL|SET\s+DE\s+PUERTAS|SET\s+DE\s+EXTENSIONES|BAUL)$/.test(tp) ||
+            /\b(CENTRO\s+DE\s+MESA|RELOJ\s+DE\s+MESA|ADORNO\s+DE\s+MESA|LIBRO\s+DECORATIVO|PLANTA\s+DECORATIVA)\b/.test(prodTxt) ||
+            (tp === 'ESCUADRA' && /\b(PATA|CARPINTERIA)\b/.test(allTxt))
+        ) {
+            return 'ACCESORIOS DECORATIVOS';
+        }
 
-        return matchText(tp, false) || matchText(nom, false) || matchText(cat, true) || 'OTROS';
+        // 2) Subcategorías de RECÁMARAS, COMEDORES, SALAS y COMPLEMENTOS
+        if (/\bPIE\s+DE\s+CAMA\b/.test(prodTxt) || (/\bBANCAS?\b/.test(prodTxt) && /\bPIE\s+DE\s+CAMA\b/.test(allTxt))) {
+            return 'PIE DE CAMA';
+        }
+        if (/\b(BANCOS?|BANCAS?|TABURETES?)\b/.test(prodTxt) && !/\bSALA\b/.test(tp)) {
+            return 'BANCOS & BANCAS';
+        }
+        if (
+            /\b(MUEBLES?\s+(?:DE\s+|PARA\s+)?BAR|CARRITOS?\s+(?:DE\s+)?BAR|CAVAS?|CONTRABARRAS?|CANTINAS?|BAR\s+GABINETE|GABINETES?\s+(?:DE\s+)?BAR)\b/.test(prodTxt) ||
+            /^BAR\b/.test(tp)
+        ) {
+            return 'MUEBLES DE BAR';
+        }
+        if (/\b(ESCRITORIOS?|SECRETAIRES?)\b/.test(prodTxt)) {
+            return 'ESCRITORIOS';
+        }
+        if (/\b(SOFAS?\s*CAMAS?|SOFA-CAMA|FUTON(?:ES)?|FUTTON(?:ES)?|DAYBED)\b/.test(prodTxt)) {
+            return 'FUTONES & SOFÁ CAMAS';
+        }
+        if (/\bCABECERAS?\b/.test(prodTxt)) {
+            return 'CABECERAS';
+        }
+        if (
+            /\b(BASES?\s+(?:DE\s+)?CAMA|BASES?\s+(?:PARA\s+)?COLCHON|BASES?\s+(?:KS|QS|MAT|IND|KING(?:\s+SIZE)?|QUEEN(?:\s+SIZE)?|MATRIMONIAL|INDIVIDUAL)|BOX\s*SPRING)\b/.test(prodTxt) ||
+            tp === 'BOX' ||
+            (/^BASES?\b/.test(tp) && !/\b(COMEDOR|MESA|CUBIERTA|CRISTAL|MARMOL|LAMPARA)\b/.test(allTxt))
+        ) {
+            return 'BASES';
+        }
+        if (/\b(CAMAS?|LITERAS?|CUNAS?)\b/.test(prodTxt)) {
+            return 'CAMAS';
+        }
+        if (/\bBUROS?\b/.test(prodTxt)) {
+            return 'BURÓS';
+        }
+        if (/\b(COMODAS?|TOCADOR(?:ES)?|CHIFONIERS?|CAJONERAS?)\b/.test(prodTxt)) {
+            return 'COMODAS Y TOCADORES';
+        }
+        if (/\b(LIBREROS?|ESTANTERIAS?|ESTANTES?|REPISAS?|VITRINAS?)\b/.test(prodTxt)) {
+            return 'LIBREROS';
+        }
+        if (/\b(CREDENZAS?|CONSOLAS?|RECIBIDOR(?:ES)?)\b/.test(prodTxt)) {
+            return 'CREDENZAS';
+        }
+        if (/\b(BUFETERAS?|BUFERETERAS?|BUFETEROS?|TRINCHADOR(?:ES)?|APARADOR(?:ES)?)\b/.test(prodTxt)) {
+            return 'BUFETERAS';
+        }
+        if (/\b(MESAS?\s+(?:DE\s+)?CENTRO|MESAS?\s+CENTRAL(?:ES)?|SETS?\s+(?:DE\s+)?MESAS?\s+(?:DE\s+)?CENTRO)\b/.test(prodTxt)) {
+            return 'MESAS DE CENTRO';
+        }
+        if (/\b(MESAS?\s+LATERAL(?:ES)?|MESAS?\s+AUXILIAR(?:ES)?|MESAS?\s+DE\s+RINCON|MESAS?\s+NIDO|MESAS?\s+OCASIONAL(?:ES)?)\b/.test(prodTxt)) {
+            return 'MESAS LATERALES';
+        }
+        if (/\b(MESAS?\s+(?:DE\s+|PARA\s+)?COMEDOR|COMEDOR(?:ES)?|ANTECOMEDOR(?:ES)?|DESAYUNADOR(?:ES)?|CUBIERTAS?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA|CRISTAL)|BASES?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA))\b/.test(prodTxt)) {
+            return 'MESAS';
+        }
+        if (/\bCRISTAL\b/.test(tp)) {
+            if (/\bCOMEDOR\b/.test(allTxt)) return 'MESAS';
+            if (/\bLATERAL|AUXILIAR\b/.test(allTxt)) return 'MESAS LATERALES';
+            if (/\bCENTRO|SALA|MESA\b/.test(allTxt)) return 'MESAS DE CENTRO';
+            return 'ACCESORIOS DECORATIVOS';
+        }
+        if (/\bMESAS?\b/.test(prodTxt)) {
+            if (/\b(LATERAL|AUXILIAR|RINCON|NIDO)\b/.test(allTxt)) return 'MESAS LATERALES';
+            if (/\b(CENTRO|CENTRAL|SALA)\b/.test(allTxt)) return 'MESAS DE CENTRO';
+            return 'MESAS';
+        }
+        if (/\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(prodTxt)) {
+            return 'SILLONES';
+        }
+        if (/\bSILLAS?\b/.test(prodTxt)) {
+            return 'SILLAS';
+        }
+        if (
+            /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|MODULOS?|MODULAR(?:ES)?|ESQUINEROS?|ESQUINERAS?|RINCONERAS?|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|POUF|PUFF?|SECCIONAL(?:ES)?|REMATES?)\b/.test(prodTxt)
+        ) {
+            const moFirst = mo.split(/\s+/)[0] || '';
+            if (/\b(SALAS?\s+EN\s+L|SECCIONAL(?:ES)?\s+EN\s+L|EN\s+ESCUADRA)\b/.test(prodTxt)) {
+                return 'SALAS EN L';
+            }
+            if (
+                /\b(MODULAR(?:ES)?|MODULOS?|ESQUINEROS?|REMATES?)\b/.test(prodTxt) ||
+                MODULAR_SALA_MODELS.has(mo) ||
+                MODULAR_SALA_MODELS.has(moFirst)
+            ) {
+                return 'SALAS MODULARES';
+            }
+            if (
+                /\b(CHAISE(?:\s+LONGUE)?|EN\s+L|ESQUINERAS?|SECCIONAL(?:ES)?)\b/.test(prodTxt) ||
+                SALA_EN_L_MODELS.has(mo) ||
+                SALA_EN_L_MODELS.has(moFirst) ||
+                (/\b(SOFAS?|LOVE\s*SEATS?|LOVESEATS?|SALAS?)\b/.test(prodTxt) && /\b(BRAZO\s+DER(?:ECHO)?|BRAZO\s+IZQ(?:UIERDO)?|B\/DER|B\/IZQ|DERECHO|IZQUIERDO|DER|IZQ)\b/.test(prodTxt))
+            ) {
+                return 'SALAS EN L';
+            }
+            return 'SOFAS & LOVESEATS';
+        }
+
+        return 'OTROS';
     }
 
     function resolveItemCategory(it) {
@@ -1125,32 +1251,93 @@
         return dayNum + ' de ' + monthName;
     }
 
-    // Construye el mensaje limpio para LPPT cuando existen piezas disponibles (> 0); vacío si no hay piezas
+    // Días restantes para la llegada de la pieza en LPPT (null si no hay dato o no tiene piezas en LPPT)
+    function getItemLpptRemainingDays(it) {
+        if (!it || getLpptStock(it) <= 0) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const feRaw = cleanStr(it.fe);
+        if (feRaw && feRaw !== 'Sin piezas solicitadas') {
+            const dFe = parseSheetDate(feRaw);
+            if (dFe) {
+                return Math.max(0, Math.round((dFe.getTime() - today.getTime()) / 86400000));
+            }
+        }
+
+        const fcompRaw = cleanStr(it.fcomp);
+        if (fcompRaw) {
+            const dComp = parseSheetDate(fcompRaw);
+            if (dComp) {
+                return Math.max(0, Math.round((dComp.getTime() - today.getTime()) / 86400000));
+            }
+        }
+
+        if (it.lt !== '' && it.lt !== null && it.lt !== undefined) {
+            const ltNum = Number(it.lt);
+            if (!isNaN(ltNum) && isFinite(ltNum) && ltNum >= 0) {
+                return Math.round(ltNum);
+            }
+        }
+        return null;
+    }
+
+    function getItemLpptDaysBucket(it) {
+        const days = getItemLpptRemainingDays(it);
+        if (days === null || days === undefined || !isFinite(days)) return '';
+        const d = Math.round(days);
+        for (let i = 0; i < LPPT_DAY_RANGES.length; i++) {
+            const r = LPPT_DAY_RANGES[i];
+            if (d >= r.min && d <= r.max) return r.key;
+        }
+        return '';
+    }
+
+    // Construye el mensaje de LPPT mostrando los días faltantes y, si existe, la fecha compromiso del proveedor
     function formatLpptArrivalText(it, lpptQty) {
         const qty = Math.max(0, Number(lpptQty) || 0);
         if (qty <= 0) return '';
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
         let arrivalDate = null;
         const feRaw = cleanStr(it && it.fe);
         if (feRaw && feRaw !== 'Sin piezas solicitadas') {
             arrivalDate = parseSheetDate(feRaw);
         }
-        if (!arrivalDate && it && it.lt !== '' && it.lt !== null && it.lt !== undefined) {
-            const ltNum = Number(it.lt);
-            if (!isNaN(ltNum) && isFinite(ltNum) && ltNum >= 0) {
-                const d = new Date();
-                d.setHours(0, 0, 0, 0);
-                d.setDate(d.getDate() + Math.round(ltNum));
-                arrivalDate = d;
-            }
+
+        const fcompRaw = cleanStr(it && it.fcomp);
+        const compDate = fcompRaw ? parseSheetDate(fcompRaw) : null;
+
+        const remDays = getItemLpptRemainingDays(it);
+        if (!arrivalDate && remDays !== null) {
+            const d = new Date(today.getTime());
+            d.setDate(d.getDate() + remDays);
+            arrivalDate = d;
         }
 
         const dispWord = qty === 1 ? 'disponible' : 'disponibles';
-        const dayMonth = arrivalDate ? formatSpanishDayMonth(arrivalDate) : '';
-        if (dayMonth) {
-            return 'LPPT: ' + qty + ' ' + dispWord + ' · Para entregar a partir del día ' + dayMonth;
+        const parts = ['LPPT: ' + qty + ' ' + dispWord];
+
+        if (remDays !== null) {
+            if (remDays === 0) {
+                parts.push('Por llegar (0 días restantes)');
+            } else if (remDays === 1) {
+                parts.push('Falta 1 día por llegar');
+            } else {
+                parts.push('Faltan ' + remDays + ' días por llegar');
+            }
         }
-        return 'LPPT: ' + qty + ' ' + dispWord;
+
+        if (compDate) {
+            parts.push('Fecha compromiso proveedor: ' + formatDateDMY(compDate) + ' (' + formatSpanishDayMonth(compDate) + ')');
+        } else if (arrivalDate) {
+            const dayMonth = formatSpanishDayMonth(arrivalDate);
+            if (dayMonth) parts.push('Entrega estimada: ' + dayMonth);
+        }
+
+        return parts.join(' · ');
     }
 
     function indexItemsAndGroups() {
@@ -1162,6 +1349,7 @@
 
         bySkuMap.clear();
         groupsByKey.clear();
+        activeFilteredGroupsByKey.clear();
         allGroups = [];
 
         for (let i = 0; i < allItems.length; i++) {
@@ -1177,7 +1365,9 @@
             it._groupTitle = title;
 
             it._cat = resolveItemSubcategory(it, resolveItemCategory(it));
-            it._main = MAIN_OF_SUB[it._cat] || 'COMPLEMENTOS';
+            it._main = MAIN_OF_SUB[it._cat] || '';
+            it._avail = getItemAvailabilityKind(it);
+            it._lpptBucket = it._avail === 'LPPT' ? getItemLpptDaysBucket(it) : '';
 
             const rawText = [
                 it.s, title, it.n, it.vr, it.tp, it.mo, it.c, it._cat, it._main,
@@ -1189,9 +1379,9 @@
             bySkuMap.set(skuKey, it);
 
             // Cotizador: solo se muestran piezas con al menos 1 pz en Bodega/Piso
-            // o con piezas disponibles en LPPT. El resto queda oculto (sigue en
-            // bySkuMap para que las partidas ya agregadas conserven sus datos).
-            if (!isQuotableItem(it)) continue;
+            // o piezas de LPPT con registro y precio en S Mueblería. El resto queda
+            // oculto (sigue en bySkuMap para conservar partidas previas).
+            if (!it._avail) continue;
 
             let grp = groupsByKey.get(gKey);
             if (!grp) {
@@ -1212,8 +1402,12 @@
             grp._searchParts.push(it._search);
             if (!grp.cats) grp.cats = new Set();
             if (!grp.mains) grp.mains = new Set();
-            grp.cats.add(it._cat);
-            grp.mains.add(it._main);
+            if (!grp.avails) grp.avails = new Set();
+            if (!grp.lpptBuckets) grp.lpptBuckets = new Set();
+            if (it._cat) grp.cats.add(it._cat);
+            if (it._main) grp.mains.add(it._main);
+            grp.avails.add(it._avail);
+            if (it._lpptBucket) grp.lpptBuckets.add(it._lpptBucket);
         }
 
         for (let i = 0; i < allGroups.length; i++) {
@@ -1285,31 +1479,75 @@
 
     let activeCategory = 'ALL';
     let activeSubCategory = 'ALL';
-    let sortByMostStock = false;
+
+    function itemMatchesActiveFilter(it, cat, sub) {
+        if (!it || !it._avail) return false;
+        if (!cat || cat === 'ALL') return true;
+        if (cat === 'STOCK') return it._avail === 'STOCK';
+        if (cat === 'LPPT_STOCK') return it._avail === 'LPPT_STOCK';
+        if (cat === 'LPPT') {
+            if (it._avail !== 'LPPT') return false;
+            if (sub && sub !== 'ALL') return it._lpptBucket === sub;
+            return true;
+        }
+        if (it._main !== cat) return false;
+        if (sub && sub !== 'ALL') return it._cat === sub;
+        return true;
+    }
+
+    function buildFilteredGroupView(baseGrp, matchedItems) {
+        if (!baseGrp || !matchedItems || matchedItems.length === 0) return null;
+        if (matchedItems.length === baseGrp.items.length) return baseGrp;
+        const singleTitle = (matchedItems.length > 1
+            ? baseGrp.title
+            : (stripDimensionsFromProductText(matchedItems[0].n) || baseGrp.title || matchedItems[0].s)
+        ).toUpperCase();
+        return Object.assign({}, baseGrp, {
+            items: matchedItems,
+            displayTitle: singleTitle,
+            totalStock: matchedItems.reduce((acc, x) => acc + getBodegaPisoStock(x), 0),
+            lpptStock: matchedItems.reduce((acc, x) => acc + getLpptStock(x), 0)
+        });
+    }
+
+    function formatActiveFilterLabel() {
+        if (activeCategory === 'ALL') return 'TODOS';
+        let baseLabel = activeCategory === 'LPPT_STOCK' ? 'LPPT+STOCK' : activeCategory;
+        if (activeSubCategory && activeSubCategory !== 'ALL') {
+            if (activeCategory === 'LPPT') {
+                baseLabel += ' (' + activeSubCategory + ' días)';
+            } else {
+                baseLabel += ' · ' + activeSubCategory;
+            }
+        }
+        return baseLabel;
+    }
 
     // ------------------------------------------------------------------------
-    // FILTRADO AGRUPADO POR MODELO + BÚSQUEDA POR COINCIDENCIAS + ESCÁNER SKU + CON MÁS STOCK
+    // FILTRADO AGRUPADO POR MODELO + BÚSQUEDA POR COINCIDENCIAS + ESCÁNER SKU (SIEMPRE A-Z AUTOMÁTICO)
     // ------------------------------------------------------------------------
     function applyFilter(query, preserveCount) {
         const rawTrim = String(query || '').trim();
         const clearBtn = document.getElementById('invClearBtn');
         if (clearBtn) clearBtn.style.display = rawTrim ? 'block' : 'none';
 
-        isMainCoverActive = (!rawTrim && activeCategory === 'ALL' && !sortByMostStock);
+        isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
+        activeFilteredGroupsByKey.clear();
 
         const exactHitItem = rawTrim ? bySkuMap.get(rawTrim.toUpperCase()) : null;
         const isExactSkuHit = !!(exactHitItem && isQuotableItem(exactHitItem));
         const scoreByKey = new Map();
 
+        let baseGroups = [];
         if (isMainCoverActive) {
-            filteredGroups = getMainCoverGroups();
+            baseGroups = getMainCoverGroups();
         } else if (!rawTrim) {
-            filteredGroups = allGroups;
+            baseGroups = allGroups;
         } else {
             if (exactHitItem && !isQuotableItem(exactHitItem)) {
-                filteredGroups = [];
+                baseGroups = [];
             } else if (isExactSkuHit && groupsByKey.has(exactHitItem._groupKey)) {
-                filteredGroups = [groupsByKey.get(exactHitItem._groupKey)];
+                baseGroups = [groupsByKey.get(exactHitItem._groupKey)];
             } else {
                 const qNorm = normSearch(rawTrim);
                 const rawTokens = qNorm.split(/\s+/).filter(Boolean);
@@ -1318,7 +1556,7 @@
                 const compactQ = qNorm.replace(/\s+/g, '');
 
                 if (qTokens.length === 0) {
-                    filteredGroups = allGroups;
+                    baseGroups = allGroups;
                 } else {
                     const candidateList = [];
                     for (let i = 0; i < allGroups.length; i++) {
@@ -1376,36 +1614,46 @@
                     selected.forEach(entry => {
                         scoreByKey.set(entry.grp.key, entry);
                     });
-                    filteredGroups = selected.map(entry => entry.grp);
+                    baseGroups = selected.map(entry => entry.grp);
                 }
             }
         }
 
         if (activeCategory !== 'ALL' && !isExactSkuHit) {
-            filteredGroups = filteredGroups.filter(grp => grp.mains && grp.mains.has(activeCategory));
-            if (activeSubCategory !== 'ALL') {
-                filteredGroups = filteredGroups.filter(grp => grp.cats && grp.cats.has(activeSubCategory));
+            const nextFiltered = [];
+            for (let i = 0; i < baseGroups.length; i++) {
+                const grp = baseGroups[i];
+                const matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, activeCategory, activeSubCategory));
+                if (matchedItems.length > 0) {
+                    const viewGrp = buildFilteredGroupView(grp, matchedItems);
+                    if (viewGrp) {
+                        activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
+                        nextFiltered.push(viewGrp);
+                    }
+                }
             }
+            filteredGroups = nextFiltered;
+        } else {
+            filteredGroups = baseGroups.slice();
         }
 
-        if (sortByMostStock) {
-            filteredGroups = filteredGroups
-                .filter(grp => (Number(grp.totalStock) || 0) >= 1)
-                .slice()
-                .sort((a, b) =>
-                    ((Number(b.totalStock) || 0) - (Number(a.totalStock) || 0)) ||
-                    compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
-                    String(a.key || '').localeCompare(String(b.key || ''))
-                );
-        } else if (rawTrim && !isExactSkuHit && scoreByKey.size > 0) {
-            filteredGroups = filteredGroups.slice().sort((a, b) => {
+        // Orden alfabético automático (A-Z) en todos los listados y resultados
+        if (rawTrim && !isExactSkuHit && scoreByKey.size > 0) {
+            filteredGroups.sort((a, b) => {
                 const sa = scoreByKey.get(a.key) || { matched: 0, score: 0 };
                 const sb = scoreByKey.get(b.key) || { matched: 0, score: 0 };
+                const tierA = sa.score >= 12 ? 2 : 1;
+                const tierB = sb.score >= 12 ? 2 : 1;
                 return (sb.matched - sa.matched) ||
-                    (sb.score - sa.score) ||
+                    (tierB - tierA) ||
                     compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
                     String(a.key || '').localeCompare(String(b.key || ''));
             });
+        } else {
+            filteredGroups.sort((a, b) =>
+                compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                String(a.key || '').localeCompare(String(b.key || ''))
+            );
         }
 
         renderCategoryBar();
@@ -1424,56 +1672,95 @@
         if (!bar) return;
         const mainCounts = new Map();
         const subCounts = new Map();
+        const availCounts = new Map();
+        const lpptRangeCounts = new Map();
+
         for (let i = 0; i < allGroups.length; i++) {
             const g = allGroups[i];
-            if (g.mains) g.mains.forEach(c => mainCounts.set(c, (mainCounts.get(c) || 0) + 1));
-            if (activeCategory !== 'ALL' && g.mains && g.mains.has(activeCategory) && g.cats) {
+            if (g.mains) {
+                g.mains.forEach(c => {
+                    if (c) mainCounts.set(c, (mainCounts.get(c) || 0) + 1);
+                });
+            }
+            if (g.avails) {
+                g.avails.forEach(a => {
+                    if (a) availCounts.set(a, (availCounts.get(a) || 0) + 1);
+                });
+            }
+            if (activeCategory === 'LPPT' && g.lpptBuckets) {
+                g.lpptBuckets.forEach(b => {
+                    if (b) lpptRangeCounts.set(b, (lpptRangeCounts.get(b) || 0) + 1);
+                });
+            } else if (SUBCATEGORIES_BY_MAIN[activeCategory] && g.cats) {
                 g.cats.forEach(c => {
-                    if ((MAIN_OF_SUB[c] || 'COMPLEMENTOS') === activeCategory) subCounts.set(c, (subCounts.get(c) || 0) + 1);
+                    if (MAIN_OF_SUB[c] === activeCategory) {
+                        subCounts.set(c, (subCounts.get(c) || 0) + 1);
+                    }
                 });
             }
         }
+
         const pill = (cls, attr, val, label, isActive) =>
             '<button type="button" class="' + cls + (isActive ? ' active' : '') + '" ' + attr + '="' + escapeHtml(val) + '">' + escapeHtml(label) + '</button>';
 
         const pills = [
-            pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allGroups.length + ')', activeCategory === 'ALL' && !sortByMostStock),
-            '<button type="button" id="invMostStockBtn" class="inv-cat-pill stock-pill' + (sortByMostStock ? ' active' : '') + '">Con más stock</button>'
+            pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allGroups.length + ')', activeCategory === 'ALL')
         ];
         MAIN_CATEGORY_ORDER.forEach(c => {
-            if (mainCounts.get(c) > 0) pills.push(pill('inv-cat-pill', 'data-cat', c, c + ' (' + mainCounts.get(c) + ')', activeCategory === c));
+            const cnt = mainCounts.get(c) || 0;
+            pills.push(pill('inv-cat-pill', 'data-cat', c, c + ' (' + cnt + ')', activeCategory === c));
+        });
+        AVAILABILITY_FILTERS.forEach(af => {
+            const cnt = availCounts.get(af.key) || 0;
+            pills.push(pill('inv-cat-pill stock-pill', 'data-cat', af.key, af.label + ' (' + cnt + ')', activeCategory === af.key));
         });
         bar.innerHTML = pills.join('');
         bar.querySelectorAll('.inv-cat-pill[data-cat]').forEach(btn => {
             btn.onclick = function () { setInvCategory(btn.getAttribute('data-cat')); };
         });
-        const stockBtn = document.getElementById('invMostStockBtn');
-        if (stockBtn) {
-            stockBtn.onclick = function () { window.toggleMostStockSort(); };
-        }
 
         const subBar = document.getElementById('invSubCategoryBar');
         if (!subBar) return;
-        if (activeCategory === 'ALL') {
-            subBar.innerHTML = '';
-            subBar.style.display = 'none';
+
+        if (SUBCATEGORIES_BY_MAIN[activeCategory]) {
+            const subs = SUBCATEGORIES_BY_MAIN[activeCategory];
+            const subPills = [
+                pill('inv-cat-pill inv-sub-pill', 'data-sub', 'ALL', 'TODO ' + activeCategory + ' (' + (mainCounts.get(activeCategory) || 0) + ')', activeSubCategory === 'ALL')
+            ];
+            subs.forEach(c => {
+                subPills.push(pill('inv-cat-pill inv-sub-pill', 'data-sub', c, c + ' (' + (subCounts.get(c) || 0) + ')', activeSubCategory === c));
+            });
+            subBar.innerHTML = subPills.join('');
+            subBar.style.display = '';
+            subBar.querySelectorAll('.inv-sub-pill[data-sub]').forEach(btn => {
+                btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
+            });
             return;
         }
-        const subs = SUBCATEGORY_ORDER.filter(c => subCounts.get(c) > 0);
-        const subPills = [pill('inv-cat-pill inv-sub-pill', 'data-sub', 'ALL', 'TODO ' + activeCategory + ' (' + (mainCounts.get(activeCategory) || 0) + ')', activeSubCategory === 'ALL')];
-        subs.forEach(c => subPills.push(pill('inv-cat-pill inv-sub-pill', 'data-sub', c, c + ' (' + subCounts.get(c) + ')', activeSubCategory === c)));
-        subBar.innerHTML = subPills.join('');
-        subBar.style.display = '';
-        subBar.querySelectorAll('.inv-sub-pill[data-sub]').forEach(btn => {
-            btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
-        });
+
+        if (activeCategory === 'LPPT') {
+            const lpptTotal = availCounts.get('LPPT') || 0;
+            const subPills = [
+                pill('inv-cat-pill inv-sub-pill', 'data-sub', 'ALL', 'TODO LPPT (' + lpptTotal + ')', activeSubCategory === 'ALL')
+            ];
+            LPPT_DAY_RANGES.forEach(r => {
+                const cnt = lpptRangeCounts.get(r.key) || 0;
+                subPills.push(pill('inv-cat-pill inv-sub-pill', 'data-sub', r.key, r.label + ' (' + cnt + ')', activeSubCategory === r.key));
+            });
+            subBar.innerHTML = subPills.join('');
+            subBar.style.display = '';
+            subBar.querySelectorAll('.inv-sub-pill[data-sub]').forEach(btn => {
+                btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
+            });
+            return;
+        }
+
+        subBar.innerHTML = '';
+        subBar.style.display = 'none';
     }
 
     window.setInvCategory = function (cat) {
         const next = cat || 'ALL';
-        if (next === 'ALL') {
-            sortByMostStock = false;
-        }
         if (next !== activeCategory) activeSubCategory = 'ALL';
         activeCategory = next;
         const inp = document.getElementById('invSearchInput');
@@ -1482,16 +1769,6 @@
 
     window.setInvSubCategory = function (sub) {
         activeSubCategory = sub || 'ALL';
-        const inp = document.getElementById('invSearchInput');
-        applyFilter(inp ? inp.value : '');
-    };
-
-    window.toggleMostStockSort = function (forceVal) {
-        if (typeof forceVal === 'boolean') {
-            sortByMostStock = forceVal;
-        } else {
-            sortByMostStock = !sortByMostStock;
-        }
         const inp = document.getElementById('invSearchInput');
         applyFilter(inp ? inp.value : '');
     };
@@ -1541,12 +1818,13 @@
             } else {
                 const inp = document.getElementById('invSearchInput');
                 const curQ = cleanStr(inp && inp.value);
+                const filterLbl = formatActiveFilterLabel();
                 container.innerHTML =
                     '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold leading-relaxed space-y-2" ' +
                     'style="grid-column: 1 / -1; border-color:#E8E4DE; color:#252C32; background:#FFFFFF;">' +
                     '<div>No se encontraron productos que coincidan' +
                         (curQ ? (' con <strong>“' + escapeHtml(curQ) + '”</strong>') : '') +
-                        (activeCategory !== 'ALL' ? (' en <strong>' + escapeHtml(activeCategory) + '</strong>') : '') +
+                        (activeCategory !== 'ALL' ? (' en <strong>' + escapeHtml(filterLbl) + '</strong>') : '') +
                     '.</div>' +
                     '<div class="text-[11px] opacity-75">Prueba con otras palabras o cambia a <strong>TODOS</strong> para buscar en todo el inventario.</div>' +
                     '</div>';
@@ -1563,10 +1841,6 @@
             const grp = filteredGroups[i];
             const row = document.createElement('div');
             row.className = 'inv-row';
-            const grpStockNum = Number(grp.totalStock) || 0;
-            const stockBadgeHtml = (sortByMostStock && grpStockNum > 0)
-                ? '<div class="mt-1"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border" style="background:#ECFDF5; border-color:#A7F3D0; color:#065F46;">Stock: ' + grpStockNum + ' pz</span></div>'
-                : '';
 
             if (grp.items.length > 1) {
                 // Listado limpio sin precio afuera (el precio se muestra adentro al abrir el inventario del producto)
@@ -1577,7 +1851,6 @@
                     buildThumbHtml(firstPhotoItem(grp.items)) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
-                        stockBadgeHtml +
                     '</div>' +
                     '<svg class="w-4 h-4 shrink-0" style="color:#A38251;" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
                         '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 5l7 7-7 7"></path>' +
@@ -1593,7 +1866,6 @@
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
                         '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
-                        stockBadgeHtml +
                     '</div>' +
                     buildCardCartControlHtml(skuKey);
 
@@ -1845,37 +2117,38 @@
         }
 
         if (varList) {
-            const displayItems = sortByMostStock
-                ? grp.items.slice().sort((a, b) =>
-                    (getBodegaPisoStock(b) - getBodegaPisoStock(a)) ||
-                    compareAlphaEs(a.n || a.vr || a.s, b.n || b.vr || b.s) ||
-                    String(a.s || '').localeCompare(String(b.s || ''))
-                )
-                : grp.items;
-            const baseLabels = displayItems.map(it => buildVariantLabel(it, grp));
+            const baseLabels = grp.items.map(it => buildVariantLabel(it, grp));
             const labelCounts = new Map();
             for (let i = 0; i < baseLabels.length; i++) {
                 labelCounts.set(baseLabels[i], (labelCounts.get(baseLabels[i]) || 0) + 1);
             }
 
-            varList.innerHTML = displayItems.map((it, idx) => {
-                const skuKey = String(it.s || '').toUpperCase();
+            const variantEntries = grp.items.map((it, idx) => {
                 let varLabel = baseLabels[idx];
                 const medUpper = cleanStr(it.m).toUpperCase();
                 if (medUpper && labelCounts.get(varLabel) > 1 && varLabel.indexOf(medUpper) === -1) {
                     varLabel = varLabel + ' · ' + medUpper;
                 }
-                const itStockNum = getBodegaPisoStock(it);
-                const varStockBadge = (sortByMostStock && itStockNum > 0)
-                    ? ' <span class="inline-flex items-center ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold border" style="background:#ECFDF5; border-color:#A7F3D0; color:#065F46;">Stock: ' + itStockNum + ' pz</span>'
-                    : '';
+                return { it: it, varLabel: varLabel };
+            });
+
+            variantEntries.sort((a, b) =>
+                compareAlphaEs(a.varLabel, b.varLabel) ||
+                compareAlphaEs(a.it.n || a.it.s, b.it.n || b.it.s) ||
+                String(a.it.s || '').localeCompare(String(b.it.s || ''))
+            );
+
+            varList.innerHTML = variantEntries.map(entry => {
+                const it = entry.it;
+                const skuKey = String(it.s || '').toUpperCase();
+                const varLabel = entry.varLabel;
                 return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
                     buildThumbHtml(it) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
                             formatTitleWithPriceHtml(varLabel, it.pr) +
                         '</div>' +
-                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + varStockBadge + '</div>' +
+                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
                     buildCardCartControlHtml(skuKey) +
                 '</div>';
@@ -1896,8 +2169,16 @@
         prepareRelatedInStockSection(grp && grp.items && grp.items.length ? grp.items[0] : null, false);
     }
 
+    function resolveActiveGroup(groupKey) {
+        if (!groupKey) return null;
+        if (activeCategory !== 'ALL' && activeFilteredGroupsByKey.has(groupKey)) {
+            return activeFilteredGroupsByKey.get(groupKey);
+        }
+        return groupsByKey.get(groupKey) || null;
+    }
+
     window.openGroupModal = function (groupKey) {
-        const grp = groupsByKey.get(groupKey);
+        const grp = resolveActiveGroup(groupKey);
         if (!grp) return false;
         if (grp.items.length === 1) {
             return openProductDetail(grp.items[0].s, false);
@@ -1924,13 +2205,13 @@
         const key = String(skuRaw || '').trim().toUpperCase();
         const it = bySkuMap.get(key);
         if (!it) return false;
-        // Piezas sin existencia en Bodega/Piso ni LPPT no se muestran en el cotizador
+        // Piezas sin existencia en Bodega/Piso ni LPPT (con precio ERP) no se muestran en el cotizador
         // (solo se permite abrirlas desde una partida que ya estaba en la cotización).
         if (!allowHidden && !isQuotableItem(it)) return false;
 
         currentDetailItem = it;
         if (!fromGroupList) {
-            const grp = groupsByKey.get(it._groupKey);
+            const grp = resolveActiveGroup(it._groupKey);
             currentGroup = (grp && grp.items.length > 1) ? grp : null;
         }
 
@@ -2341,9 +2622,10 @@
 
         matches.sort((a, b) => {
             if (a.tier !== b.tier) return a.tier - b.tier;
-            if (b.hasPhoto !== a.hasPhoto) return b.hasPhoto - a.hasPhoto;
-            if (b.stock !== a.stock) return b.stock - a.stock;
-            return compareAlphaEs(a.it.n || a.it.s, b.it.n || b.it.s);
+            return compareAlphaEs(
+                stripDimensionsFromProductText(a.it.n) || a.it.s,
+                stripDimensionsFromProductText(b.it.n) || b.it.s
+            ) || String(a.it.s || '').localeCompare(String(b.it.s || ''));
         });
 
         return matches;
@@ -5963,7 +6245,7 @@
     // ------------------------------------------------------------------------
     const LIVE_CACHE_KEY = 'creata_inv_live_cache_v1';
     const LIVE_OK_TS_KEY = 'creata_inv_live_ok_ts_v1';
-    const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe'];
+    const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe', 'fcomp'];
     const LIVE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
     let liveCacheSaveTimer = null;
     let liveSyncFailStreak = 0;
@@ -6002,7 +6284,7 @@
                     r.push(Array.isArray(it.st) ? it.st : []);
                     rows[i] = r;
                 }
-                const gz = await gzipTextToB64(JSON.stringify({ v: 1, wh: WAREHOUSES, rows: rows }));
+                const gz = await gzipTextToB64(JSON.stringify({ v: 2, fields: LIVE_CACHE_FIELDS, wh: WAREHOUSES, rows: rows }));
                 localStorage.setItem(LIVE_CACHE_KEY, JSON.stringify({ ts: Date.now(), gz: gz }));
             } catch (e) {
                 // Si el almacenamiento del navegador está lleno, simplemente no se guarda el respaldo
@@ -6020,13 +6302,17 @@
             const data = JSON.parse(await gunzipB64ToText(obj.gz));
             if (!data || !Array.isArray(data.rows) || !Array.isArray(data.wh)) return false;
             if (data.wh.join('|') !== WAREHOUSES.join('|')) return false;
+            const fieldList = Array.isArray(data.fields)
+                ? data.fields
+                : ((Number(data.v) || 1) >= 2 ? LIVE_CACHE_FIELDS : LIVE_CACHE_FIELDS.slice(0, 18));
             const items = [];
             for (let i = 0; i < data.rows.length; i++) {
                 const r = data.rows[i];
                 if (!Array.isArray(r)) continue;
                 const it = {};
-                for (let k = 0; k < LIVE_CACHE_FIELDS.length; k++) it[LIVE_CACHE_FIELDS[k]] = r[k];
-                const st = r[LIVE_CACHE_FIELDS.length];
+                for (let k = 0; k < fieldList.length; k++) it[fieldList[k]] = r[k];
+                if (it.fcomp === undefined) it.fcomp = '';
+                const st = r[fieldList.length];
                 it.st = (Array.isArray(st) && st.length === WAREHOUSES.length) ? st.map(v => Math.max(0, Number(v) || 0)) : emptyStocks();
                 if (cleanStr(it.s)) items.push(it);
             }
@@ -6136,6 +6422,7 @@
             const rows = parseCsvText(text);
             if (rows.length < 3) return;
 
+            const normUp = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
             const nextMap = new Map();
             let observedAnyFolio = false;
             for (let i = 2; i < rows.length; i++) {
@@ -6161,8 +6448,17 @@
                 if (!sku || !oc || sku === 'CLA00E') continue;
 
                 const cliente = r.length > 15 ? cleanStr(r[15]) : '';
-                const comComp = (r.length > 18 ? cleanStr(r[18]) : '').toUpperCase();
-                if (folio || cliente || comComp.indexOf('NO DISPONIBLE') !== -1 || comComp.indexOf('GARANTIA') !== -1) {
+                const estatus = r.length > 16 ? normUp(r[16]) : '';
+                const garantia = r.length > 17 ? normUp(r[17]) : '';
+                const comComp = r.length > 18 ? normUp(r[18]) : '';
+                const comAsesNorm = normUp(comAses);
+                if (
+                    folio ||
+                    cliente ||
+                    /CANCEL|RECIBID|ENTREGAD|BAJA/.test(estatus) ||
+                    /NO DISPONIBLE|GARANTIA|APARTAD|ASIGNAD/.test(comComp) ||
+                    /GARANTIA|NO DISPONIBLE/.test(garantia)
+                ) {
                     continue;
                 }
 
@@ -6174,12 +6470,17 @@
                     for (let m = 0; m < matches.length; m++) {
                         reserved += parseInt(matches[m].slice(1, -1), 10) || 0;
                     }
+                } else if (
+                    comAsesNorm &&
+                    (/APARTAD|VENDID|NO DISPONIBLE|GARANTIA/.test(comAsesNorm) || /\b(?:PTC|CCB|DTC|PL|PRO|OUT|CED|ADM)\s*\d{2,7}\b/.test(comAsesNorm))
+                ) {
+                    continue;
                 }
                 const freeQty = Math.max(0, cant - reserved);
                 if (freeQty <= 0) continue;
 
                 const fcStr = cleanStr(r[2]); // Columna C: Fecha compra
-                const fcompStr = r.length > 5 ? cleanStr(r[5]) : '';
+                const fcompStr = r.length > 5 ? cleanStr(r[5]) : ''; // Columna F: Fecha compromiso proveedor
                 let list = nextMap.get(sku);
                 if (!list) {
                     list = [];
@@ -6243,20 +6544,37 @@
         if (entries && entries.length > 0) {
             let lpptQty = 0;
             let bestArr = null;
+            let bestComp = null;
 
             for (let k = 0; k < entries.length; k++) {
                 const e = entries[k];
                 lpptQty += e.free;
+
+                if (e.fcomp) {
+                    if (
+                        !bestComp ||
+                        (e.fcomp >= today && (bestComp < today || e.fcomp < bestComp)) ||
+                        (e.fcomp < today && bestComp < today && e.fcomp > bestComp)
+                    ) {
+                        bestComp = e.fcomp;
+                    }
+                }
 
                 let dCompraLt = null;
                 if (e.fc && validBaseLt) {
                     dCompraLt = new Date(e.fc.getTime());
                     dCompraLt.setDate(dCompraLt.getDate() + validBaseLt);
                 }
-                let arr = dCompraLt;
-                if ((!arr || arr < today) && e.fcomp && (!arr || e.fcomp > arr)) {
+
+                let arr = null;
+                if (e.fcomp && e.fcomp >= today) {
                     arr = e.fcomp;
+                } else if (dCompraLt && (!e.fcomp || dCompraLt > e.fcomp)) {
+                    arr = dCompraLt;
+                } else {
+                    arr = e.fcomp || dCompraLt;
                 }
+
                 if (arr) {
                     if (
                         !bestArr ||
@@ -6274,6 +6592,7 @@
             const feFormatted = bestArr
                 ? formatDateDMY(bestArr)
                 : (cleanStr(invFeStr) || 'Sin piezas solicitadas');
+            const fcompFormatted = bestComp ? formatDateDMY(bestComp) : '';
             const remDays = bestArr
                 ? Math.max(0, Math.round((bestArr.getTime() - today.getTime()) / 86400000))
                 : validBaseLt;
@@ -6282,7 +6601,8 @@
                 lpptQty: lpptQty,
                 lt: remDays,
                 baseLt: validBaseLt,
-                fe: feFormatted
+                fe: feFormatted,
+                fcomp: fcompFormatted
             };
         }
 
@@ -6300,7 +6620,8 @@
             lpptQty: fallbackQty,
             lt: ltOut,
             baseLt: validBaseLt || (prevItem && prevItem.baseLt) || '',
-            fe: feClean
+            fe: feClean,
+            fcomp: fallbackQty > 0 ? ((prevItem && cleanStr(prevItem.fcomp)) || '') : ''
         };
     }
 
@@ -6413,6 +6734,7 @@
                 lt: lpptInfo.lt,
                 baseLt: lpptInfo.baseLt,
                 fe: lpptInfo.fe,
+                fcomp: lpptInfo.fcomp,
                 st: st
             }, prevIt));
         }
@@ -6448,12 +6770,13 @@
                     lt: lpptInfo.lt,
                     baseLt: lpptInfo.baseLt,
                     fe: lpptInfo.fe,
+                    fcomp: lpptInfo.fcomp,
                     st: st
                 }, prevIt));
             });
         }
 
-        // Si viene una pieza nueva en la LPPT que aún no está en INVENTARIO_EN_VIVO ni en plantilla!AE:AH, mostrarla también
+        // Si viene una pieza nueva en la LPPT que aún no está en INVENTARIO_EN_VIVO ni en plantilla!AE:AH, registrarla en memoria (solo será cotizable si tiene precio ERP válido)
         if (liveLpptBySku.size > 0) {
             rebuildLiveAutoVocab(liveItems);
             liveLpptBySku.forEach((entries, skuUpper) => {
@@ -6487,6 +6810,7 @@
                     lt: lpptInfo.lt,
                     baseLt: lpptInfo.baseLt,
                     fe: lpptInfo.fe,
+                    fcomp: lpptInfo.fcomp,
                     st: st
                 }, prevIt));
             });
@@ -6518,7 +6842,7 @@
                     if (refreshed) {
                         currentDetailItem = refreshed;
                         if (currentGroup) {
-                            const updatedGrp = groupsByKey.get(refreshed._groupKey);
+                            const updatedGrp = resolveActiveGroup(refreshed._groupKey);
                             currentGroup = (updatedGrp && updatedGrp.items.length > 1) ? updatedGrp : null;
                         }
                         const crumbVisible = !document.getElementById('detGroupCrumb').classList.contains('hidden');
@@ -6527,7 +6851,7 @@
                         closeProductDetail();
                     }
                 } else if (currentGroup) {
-                    const refreshedGrp = groupsByKey.get(currentGroup.key);
+                    const refreshedGrp = resolveActiveGroup(currentGroup.key);
                     if (refreshedGrp && refreshedGrp.items.length > 1) {
                         renderGroupVariantsStep(refreshedGrp);
                     } else if (refreshedGrp && refreshedGrp.items.length === 1) {
@@ -6663,7 +6987,8 @@
                             st: Array.isArray(cols[15][i]) ? cols[15][i] : emptyStocks(),
                             pr: cols.length > 16 ? formatPrice(cols[16][i]) : '',
                             fe: cols.length > 17 ? cleanStr(cols[17][i]) : '',
-                            baseLt: cols.length > 20 ? normalizeLeadTimeVal(cols[20][i]) : normalizeLeadTimeVal(cols[14][i])
+                            baseLt: cols.length > 20 ? normalizeLeadTimeVal(cols[20][i]) : normalizeLeadTimeVal(cols[14][i]),
+                            fcomp: cols.length > 21 ? cleanStr(cols[21][i]) : ''
                         }, null);
                     }
                     allItems = unpacked;
@@ -6693,6 +7018,9 @@
                             it.pr = livePr;
                             updatedCatalog = true;
                         }
+                    }
+                    if (!it._avail && getLpptStock(it) >= 1 && hasValidErpPrice(it)) {
+                        updatedCatalog = true;
                     }
                     if (liveNewPhotosBySku.has(skuU)) {
                         const newFoto = liveNewPhotosBySku.get(skuU);
@@ -6730,6 +7058,7 @@
                         lt: lpptInfo.lt,
                         baseLt: lpptInfo.baseLt,
                         fe: lpptInfo.fe,
+                        fcomp: lpptInfo.fcomp,
                         st: st
                     }, null));
                     updatedCatalog = true;
