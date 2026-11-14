@@ -917,6 +917,15 @@ function doPost(e) {
     if (action === 'inv_my_quotes') {
       return jsonResponse_(handleInvMyQuotes_(body));
     }
+    if (action === 'inv_search_erp_clients') {
+      return jsonResponse_(handleInvSearchErpClients_(body));
+    }
+    if (action === 'inv_create_erp_client') {
+      return jsonResponse_(handleInvCreateErpClient_(body));
+    }
+    if (action === 'inv_upload_product_photo') {
+      return jsonResponse_(handleInvUploadProductPhoto_(body));
+    }
     if (action === 'inv_plantilla_status') {
       return jsonResponse_(handleInvPlantillaStatus_());
     }
@@ -4111,14 +4120,27 @@ function handleInvSubmitQuote_(body) {
       const idCategoriaVenta = catMatch ? parseInt(catMatch[1], 10) : 2;
 
       const cliMatch = clientMode.match(/ID CLIENTE:\s*(\d+)/i);
+      const leadMatch = clientMode.match(/ID LEAD:\s*(\d+)/i);
+      const explicitCliId = parseInt(String(body.erpClientId || '').trim(), 10) || 0;
+      const explicitLeadId = parseInt(String(body.erpLeadId || '').trim(), 10) || 0;
+      const clientEmail = String(body.clientEmail || '').trim();
       let idCliente = 0;
       let idLead = 0;
 
-      if (cliMatch) {
+      if (explicitCliId > 0) {
+        idCliente = explicitCliId;
+        idLead = 0;
+      } else if (cliMatch) {
         idCliente = parseInt(cliMatch[1], 10);
         idLead = 0;
+      } else if (explicitLeadId > 0) {
+        idCliente = 0;
+        idLead = explicitLeadId;
+      } else if (leadMatch) {
+        idCliente = 0;
+        idLead = parseInt(leadMatch[1], 10);
       } else {
-        idLead = crearProspectoProvisionalWcf_(displayClientForErp, clientPhone, '', idUsuarioNum);
+        idLead = crearProspectoProvisionalWcf_(displayClientForErp, clientPhone, clientEmail, idUsuarioNum);
       }
 
       const fechaEntregaIso = parseDeliveryDateToErpIso_(deliveryDate);
@@ -6086,6 +6108,476 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     reordered: reordered
   };
 }
+
+// ============================================================================
+// CLIENTES S MUEBLERÍA EN VIVO (BÚSQUEDA Y ALTA) + FOTOS NUEVAS (SOLO GERENTES)
+// ============================================================================
+
+function handleInvSearchErpClients_(body) {
+  const ss = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+  const authCheck = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, body || {});
+  if (!authCheck.ok) {
+    return authCheck;
+  }
+
+  const query = String((body && body.query) || '').trim();
+  if (query.length < 2) {
+    return { ok: false, error: 'Escribe al menos 2 letras o dígitos para buscar en S Mueblería.' };
+  }
+
+  const cfg = getErpRuntimeConfig_();
+  const results = [];
+  const seenKeys = {};
+
+  // 1) Clientes formales registrados en S Mueblería (ObtenerClientes -> Cliente2)
+  let clientErrMsg = '';
+  try {
+    const xmlCli = callSmuebleriaWcf_(
+      'ObtenerClientes',
+      '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro>' + xmlEscape_(query) + '</Filtro>'
+    );
+    const cliRe = /<([a-zA-Z0-9_:]*Cliente2?)\b[^>]*>([\s\S]*?)<\/\1>/g;
+    let m;
+    while ((m = cliRe.exec(xmlCli)) !== null) {
+      const blk = m[2];
+      const idCli = parseInt(extractXmlTag_(blk, 'IdCliente') || '0', 10) || 0;
+      if (idCli <= 0) continue;
+      const key = 'C:' + idCli;
+      if (seenKeys[key]) continue;
+      seenKeys[key] = true;
+
+      const nomComp = extractXmlTag_(blk, 'NombreCompleto');
+      const nomParts = [
+        extractXmlTag_(blk, 'Nombre'),
+        extractXmlTag_(blk, 'Paterno'),
+        extractXmlTag_(blk, 'Materno')
+      ].filter(Boolean).join(' ').trim();
+      const nombreFinal = String(nomComp || nomParts || ('CLIENTE #' + idCli)).replace(/\s+/g, ' ').trim();
+      const tel = extractXmlTag_(blk, 'Telefono');
+      const cel = extractXmlTag_(blk, 'Celular');
+
+      results.push({
+        type: 'CLIENTE',
+        idCliente: idCli,
+        idLead: 0,
+        noCliente: extractXmlTag_(blk, 'NoCliente') || '',
+        nombre: nombreFinal,
+        telefono: tel || cel || '',
+        celular: cel || tel || '',
+        correo: extractXmlTag_(blk, 'Correo') || '',
+        direccion: extractXmlTag_(blk, 'Direccion') || ''
+      });
+      if (results.length >= 30) break;
+    }
+  } catch (eCli) {
+    clientErrMsg = String((eCli && eCli.message) || eCli || '');
+  }
+
+  // 2) Prospectos / Leads activos en S Mueblería (ObtenerLeads -> Lead)
+  if (results.length < 25) {
+    try {
+      const xmlLeads = callSmuebleriaWcf_(
+        'ObtenerLeads',
+        '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro>' + xmlEscape_(query) + '</Filtro>'
+      );
+      const leadRe = /<([a-zA-Z0-9_:]*Lead)\b[^>]*>([\s\S]*?)<\/\1>/g;
+      let ml;
+      while ((ml = leadRe.exec(xmlLeads)) !== null) {
+        const blk = ml[2];
+        const idLead = parseInt(extractXmlTag_(blk, 'IdLead') || '0', 10) || 0;
+        if (idLead <= 0) continue;
+        const key = 'L:' + idLead;
+        if (seenKeys[key]) continue;
+        seenKeys[key] = true;
+
+        const nomComp = extractXmlTag_(blk, 'NombreCompleto');
+        const nomParts = [
+          extractXmlTag_(blk, 'Nombre'),
+          extractXmlTag_(blk, 'Paterno'),
+          extractXmlTag_(blk, 'Materno')
+        ].filter(Boolean).join(' ').trim();
+        const nombreFinal = String(nomComp || nomParts || ('PROSPECTO #' + idLead)).replace(/\s+/g, ' ').trim();
+        const tel = extractXmlTag_(blk, 'Telefono');
+        const cel = extractXmlTag_(blk, 'Celular');
+
+        results.push({
+          type: 'LEAD',
+          idCliente: 0,
+          idLead: idLead,
+          noCliente: '',
+          nombre: nombreFinal,
+          telefono: tel || cel || '',
+          celular: cel || tel || '',
+          correo: extractXmlTag_(blk, 'Correo') || '',
+          direccion: extractXmlTag_(blk, 'Direccion') || ''
+        });
+        if (results.length >= 30) break;
+      }
+    } catch (eLead) {
+      if (!results.length && !clientErrMsg) {
+        clientErrMsg = String((eLead && eLead.message) || eLead || '');
+      }
+    }
+  }
+
+  if (!results.length && clientErrMsg) {
+    return { ok: false, error: 'No fue posible consultar S Mueblería en este momento: ' + clientErrMsg };
+  }
+
+  return {
+    ok: true,
+    query: query,
+    clients: results.slice(0, 25)
+  };
+}
+
+function handleInvCreateErpClient_(body) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const ss = getSpreadsheet_();
+    const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+    const authCheck = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, body || {});
+    if (!authCheck.ok) {
+      return authCheck;
+    }
+    const verifiedUser = authCheck.advisor;
+    const cfg = getErpRuntimeConfig_();
+
+    let idAgente = parseInt(String(verifiedUser.erpAdvisorId || '').trim(), 10) || 0;
+    if (verifiedUser.isAdmin && body && body.erpAdvisorId) {
+      idAgente = parseInt(String(body.erpAdvisorId).trim(), 10) || idAgente;
+    }
+    if (!idAgente || idAgente <= 0) {
+      idAgente = cfg.masterUserId;
+    }
+
+    const nombre = String((body && body.nombre) || '').trim();
+    const paterno = String((body && body.paterno) || '').trim();
+    const materno = String((body && body.materno) || '').trim();
+    const telefono = String((body && body.telefono) || '').trim();
+    const celular = String((body && body.celular) || telefono || '').trim();
+    const correo = String((body && body.correo) || '').trim();
+    const empresa = String((body && body.empresa) || '').trim();
+    const rfc = String((body && body.rfc) || '').trim().toUpperCase();
+    const razonSocial = String((body && body.razonSocial) || empresa || '').trim();
+    const calle = String((body && body.calle) || '').trim();
+    const noExterior = String((body && body.noExterior) || '').trim();
+    const noInterior = String((body && body.noInterior) || '').trim();
+    const colonia = String((body && body.colonia) || '').trim();
+    const cp = String((body && body.cp) || '').trim();
+    const ciudad = String((body && body.ciudad) || '').trim();
+    const municipio = String((body && body.municipio) || ciudad || '').trim();
+    const estado = String((body && body.estado) || '').trim();
+    const referencias = String((body && body.referencias) || '').trim();
+
+    if (!nombre) {
+      return { ok: false, error: 'Ingresa el nombre del cliente para darlo de alta en S Mueblería.' };
+    }
+
+    const fullName = [nombre, paterno, materno].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
+    // 1) Obtener consecutivo automático de NoCliente en S Mueblería
+    let noClienteAuto = '';
+    try {
+      const xmlNo = callSmuebleriaWcf_(
+        'ObtenerNoClienteAutomatico',
+        '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario>'
+      );
+      noClienteAuto = String(extractXmlTag_(xmlNo, 'ObtenerNoClienteAutomaticoResult') || '').trim();
+    } catch (eNo) {}
+    if (!noClienteAuto) {
+      noClienteAuto = 'CL' + String(Date.now()).slice(-7);
+    }
+
+    // 2) Insertar Cliente formal en S Mueblería (orden exacto de parámetros WCF ISMuebleriaService.InsertarCliente)
+    let idCliente = 0;
+    let clientWarn = '';
+    try {
+      const innerCli =
+        '<ClaveServicio>{TOKEN}</ClaveServicio>' +
+        '<IdUsuario>' + cfg.masterUserId + '</IdUsuario>' +
+        '<IdCliente>0</IdCliente>' +
+        '<Nombre>' + xmlEscape_(nombre) + '</Nombre>' +
+        '<Paterno>' + xmlEscape_(paterno) + '</Paterno>' +
+        '<Materno>' + xmlEscape_(materno) + '</Materno>' +
+        '<Correo>' + xmlEscape_(correo) + '</Correo>' +
+        '<FechaNacimiento>2000-01-01T00:00:00</FechaNacimiento>' +
+        '<Telefono>' + xmlEscape_(telefono || celular) + '</Telefono>' +
+        '<Celular>' + xmlEscape_(celular || telefono) + '</Celular>' +
+        '<Oficina></Oficina>' +
+        '<IdTipoCliente>1</IdTipoCliente>' +
+        '<NoCliente>' + xmlEscape_(noClienteAuto) + '</NoCliente>' +
+        '<Casa2></Casa2>' +
+        '<Nextel></Nextel>' +
+        '<Extension></Extension>' +
+        '<IdAgenteVentas>' + idAgente + '</IdAgenteVentas>' +
+        '<Ruta>0</Ruta>' +
+        '<IdOrigen>0</IdOrigen>' +
+        '<Empresa>' + xmlEscape_(empresa) + '</Empresa>' +
+        '<Incoterm></Incoterm>' +
+        '<numRegIdTrib></numRegIdTrib>' +
+        '<ClavePedimento></ClavePedimento>' +
+        '<CURP></CURP>' +
+        '<ClienteConAcceso>false</ClienteConAcceso>' +
+        '<Password></Password>' +
+        '<ClienteCrearVentas>false</ClienteCrearVentas>';
+
+      const xmlIns = callSmuebleriaWcf_('InsertarCliente', innerCli);
+      const mId = xmlIns.match(/<[^>]*InsertarClienteResult>(-?\d+)</);
+      idCliente = mId ? parseInt(mId[1], 10) : 0;
+      if (!idCliente || idCliente <= 0) {
+        clientWarn = 'InsertarCliente devolvió ' + (mId ? mId[1] : xmlIns.slice(0, 180));
+      }
+    } catch (eInsCli) {
+      clientWarn = String((eInsCli && eInsCli.message) || eInsCli || '');
+    }
+
+    const addressSummary = [calle, noExterior ? ('#' + noExterior) : '', colonia, cp ? ('CP ' + cp) : '', ciudad, estado]
+      .filter(Boolean)
+      .join(', ');
+
+    if (idCliente > 0) {
+      if (calle || cp || colonia || ciudad || estado || rfc || razonSocial) {
+        try {
+          const innerDir =
+            '<ClaveServicio>{TOKEN}</ClaveServicio>' +
+            '<IdCliente>' + idCliente + '</IdCliente>' +
+            '<IdDireccion>0</IdDireccion>' +
+            '<Calle>' + xmlEscape_(calle || 'CONOCIDO') + '</Calle>' +
+            '<CP>' + xmlEscape_(cp || '77500') + '</CP>' +
+            '<Asentamiento>0</Asentamiento>' +
+            '<Telefono>' + xmlEscape_(telefono || celular) + '</Telefono>' +
+            '<RFC>' + xmlEscape_(rfc || 'XAXX010101000') + '</RFC>' +
+            '<RazonSocial>' + xmlEscape_(razonSocial || fullName) + '</RazonSocial>' +
+            '<Colonia>' + xmlEscape_(colonia) + '</Colonia>' +
+            '<Municipio>' + xmlEscape_(municipio) + '</Municipio>' +
+            '<Ciudad>' + xmlEscape_(ciudad) + '</Ciudad>' +
+            '<Estado>' + xmlEscape_(estado || 'QUINTANA ROO') + '</Estado>' +
+            '<NoExterior>' + xmlEscape_(noExterior || 'S/N') + '</NoExterior>' +
+            '<NoInterior>' + xmlEscape_(noInterior) + '</NoInterior>' +
+            '<Referencias>' + xmlEscape_(referencias) + '</Referencias>' +
+            '<RetencionIva>false</RetencionIva>' +
+            '<IdPais>1</IdPais>' +
+            '<IdRegimenFiscal>0</IdRegimenFiscal>';
+          callSmuebleriaWcf_('InsertarDireccionCliente', innerDir);
+        } catch (eDir) {
+          Logger.log('Aviso al guardar dirección opcional del cliente ' + idCliente + ': ' + eDir);
+        }
+      }
+
+      return {
+        ok: true,
+        client: {
+          type: 'CLIENTE',
+          idCliente: idCliente,
+          idLead: 0,
+          noCliente: noClienteAuto,
+          nombre: fullName,
+          telefono: telefono || celular,
+          celular: celular || telefono,
+          correo: correo,
+          direccion: addressSummary
+        }
+      };
+    }
+
+    // Respaldo inmediato: si S Mueblería rechaza InsertarCliente (ej. correo duplicado o restricción de sucursal),
+    // registrar como Lead con todos sus datos (Nombre, Paterno, Materno, Teléfono, Correo) para no frenar la cotización.
+    const innerLead =
+      '<ClaveServicio>{TOKEN}</ClaveServicio>' +
+      '<IdUsuario>' + idAgente + '</IdUsuario>' +
+      '<IdLead>0</IdLead>' +
+      '<Nombre>' + xmlEscape_(nombre) + '</Nombre>' +
+      '<Paterno>' + xmlEscape_(paterno) + '</Paterno>' +
+      '<Materno>' + xmlEscape_(materno) + '</Materno>' +
+      '<Correo>' + xmlEscape_(correo) + '</Correo>' +
+      '<FechaNacimiento>2000-01-01T00:00:00</FechaNacimiento>' +
+      '<Telefono>' + xmlEscape_(telefono || celular) + '</Telefono>' +
+      '<Celular>' + xmlEscape_(celular || telefono) + '</Celular>' +
+      '<Oficina></Oficina>' +
+      '<IdResponsable>' + idAgente + '</IdResponsable>' +
+      '<IdFase>0</IdFase>' +
+      '<IdOrigen>0</IdOrigen>' +
+      '<Casa2></Casa2>' +
+      '<Nextel></Nextel>' +
+      '<Extension></Extension>' +
+      '<IdTipoCliente>1</IdTipoCliente>';
+    const xmlLeadResp = callSmuebleriaWcf_('InsertarLead', innerLead);
+    const mLead = xmlLeadResp.match(/<[^>]*InsertarLeadResult>(-?\d+)</);
+    const idLeadNew = mLead ? parseInt(mLead[1], 10) : 0;
+    if (!idLeadNew || idLeadNew <= 0) {
+      return {
+        ok: false,
+        error: 'No se pudo dar de alta al cliente en S Mueblería (' + (clientWarn || xmlLeadResp.slice(0, 180)) + ').'
+      };
+    }
+
+    if (calle || cp || colonia || ciudad || estado || rfc || razonSocial) {
+      try {
+        const innerLeadDir =
+          '<ClaveServicio>{TOKEN}</ClaveServicio>' +
+          '<IdLead>' + idLeadNew + '</IdLead>' +
+          '<IdDireccion>0</IdDireccion>' +
+          '<Calle>' + xmlEscape_(calle || 'CONOCIDO') + '</Calle>' +
+          '<CP>' + xmlEscape_(cp || '77500') + '</CP>' +
+          '<Asentamiento>0</Asentamiento>' +
+          '<Telefono>' + xmlEscape_(telefono || celular) + '</Telefono>' +
+          '<RFC>' + xmlEscape_(rfc || 'XAXX010101000') + '</RFC>' +
+          '<RazonSocial>' + xmlEscape_(razonSocial || fullName) + '</RazonSocial>' +
+          '<Colonia>' + xmlEscape_(colonia) + '</Colonia>' +
+          '<Municipio>' + xmlEscape_(municipio) + '</Municipio>' +
+          '<Ciudad>' + xmlEscape_(ciudad) + '</Ciudad>' +
+          '<Estado>' + xmlEscape_(estado || 'QUINTANA ROO') + '</Estado>' +
+          '<NoExterior>' + xmlEscape_(noExterior || 'S/N') + '</NoExterior>' +
+          '<NoInterior>' + xmlEscape_(noInterior) + '</NoInterior>' +
+          '<Referencias>' + xmlEscape_(referencias) + '</Referencias>' +
+          '<RetencionIva>false</RetencionIva>';
+        callSmuebleriaWcf_('InsertarDireccionLead', innerLeadDir);
+      } catch (eLDir) {}
+    }
+
+    return {
+      ok: true,
+      client: {
+        type: 'LEAD',
+        idCliente: 0,
+        idLead: idLeadNew,
+        noCliente: '',
+        nombre: fullName,
+        telefono: telefono || celular,
+        celular: celular || telefono,
+        correo: correo,
+        direccion: addressSummary
+      }
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function handleInvUploadProductPhoto_(body) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const ss = getSpreadsheet_();
+    const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+    const authCheck = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, body || {});
+    if (!authCheck.ok) {
+      return authCheck;
+    }
+    const verifiedUser = authCheck.advisor;
+    const puestoNorm = String(verifiedUser.puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    const isAllowedManager = !!(verifiedUser.isAdmin || /GERENTE|\bSUB/.test(puestoNorm));
+    if (!isAllowedManager) {
+      return {
+        ok: false,
+        error: 'Acceso restringido: únicamente las cuentas de Gerente o Administrador pueden agregar fotos a los productos.'
+      };
+    }
+
+    const skuUpper = String((body && body.sku) || '').trim().toUpperCase();
+    const productName = String((body && body.productName) || skuUpper).trim();
+    if (!skuUpper) {
+      return { ok: false, error: 'SKU inválido para asociar la fotografía.' };
+    }
+
+    const dataUrl = String((body && body.dataUrl) || '');
+    const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!m) {
+      return { ok: false, error: 'Formato de imagen inválido.' };
+    }
+
+    const mime = m[1];
+    const base64Body = m[2];
+    const ext = mime.indexOf('webp') !== -1 ? 'webp' : (mime.indexOf('png') !== -1 ? 'png' : 'jpg');
+    const safeSku = skuUpper.replace(/[^A-Z0-9_-]/g, '');
+    const fileName = 'INV-' + safeSku + '-' + Date.now() + '.' + ext;
+
+    const bytes = Utilities.base64Decode(base64Body);
+    const blob = Utilities.newBlob(bytes, mime, fileName);
+
+    let uploaded = null;
+    try {
+      const rootFolder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
+      const subIt = rootFolder.getFoldersByName('FOTOS NUEVAS');
+      const targetFolder = subIt.hasNext() ? subIt.next() : rootFolder.createFolder('FOTOS NUEVAS');
+      uploaded = targetFolder.createFile(blob);
+    } catch (eFolder) {
+      uploaded = DriveApp.createFile(blob);
+    }
+    uploaded.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const fileId = uploaded.getId();
+    const publicUrl = 'https://lh3.googleusercontent.com/d/' + fileId + '=w1000';
+    const driveViewUrl = 'https://drive.google.com/file/d/' + fileId + '/view?usp=sharing';
+
+    let shFotos = ss.getSheetByName('FOTOS NUEVAS');
+    if (!shFotos) {
+      shFotos = ss.insertSheet('FOTOS NUEVAS');
+    }
+
+    const headers = ['SKU', 'NOMBRE', 'FOTO', 'LINK FOTO', 'GERENTE / USUARIO', 'PUESTO / SUCURSAL', 'CORREO', 'FECHA HORA'];
+    const lastRow = shFotos.getLastRow();
+    if (lastRow === 0) {
+      shFotos.getRange(1, 1, 1, headers.length).setValues([headers]);
+      shFotos.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    } else {
+      const firstCell = String(shFotos.getRange(1, 1).getDisplayValue() || '').trim().toUpperCase();
+      if (!firstCell) {
+        shFotos.getRange(1, 1, 1, headers.length).setValues([headers]);
+        shFotos.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+      }
+    }
+
+    const ahoraStr = Utilities.formatDate(new Date(), 'America/Cancun', 'dd/MM/yyyy HH:mm:ss');
+    const roleStore = [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'GERENTE'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
+      .filter(Boolean)
+      .join(' · ');
+
+    const curLastRow = shFotos.getLastRow();
+    let targetRow = 0;
+    if (curLastRow >= 2) {
+      const skuVals = shFotos.getRange(2, 1, curLastRow - 1, 1).getValues();
+      for (let i = 0; i < skuVals.length; i++) {
+        if (String(skuVals[i][0] || '').trim().toUpperCase() === skuUpper) {
+          targetRow = i + 2;
+          break;
+        }
+      }
+    }
+    if (!targetRow) {
+      targetRow = Math.max(2, curLastRow + 1);
+    }
+
+    shFotos.getRange(targetRow, 1, 1, 8).setValues([[
+      skuUpper,
+      productName,
+      '',
+      publicUrl,
+      verifiedUser.nombre || verifiedUser.correo,
+      roleStore,
+      verifiedUser.correo,
+      ahoraStr
+    ]]);
+    shFotos.getRange(targetRow, 3).setFormula('=IMAGE("' + publicUrl + '")');
+    SpreadsheetApp.flush();
+
+    return {
+      ok: true,
+      sku: skuUpper,
+      url: publicUrl,
+      driveUrl: driveViewUrl,
+      sheetName: 'FOTOS NUEVAS',
+      row: targetRow,
+      uploadedBy: verifiedUser.nombre || verifiedUser.correo,
+      timestamp: ahoraStr
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
 
 
 

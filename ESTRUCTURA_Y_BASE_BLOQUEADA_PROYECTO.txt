@@ -1,0 +1,145 @@
+================================================================================
+PROYECTO CREATA MUEBLES — ESTRUCTURA OFICIAL Y BASE BLOQUEADA (NO ROMPER)
+Repositorio GitHub : ikerreyna3942-debug/MCP-REPOCITORIO (rama: main)
+Tag Git Bloqueado  : base-bloqueada-2026-11-13 (commit base: 8bc1e96)
+Sitio publicado    : https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/
+Fecha de corte     : 13 de noviembre de 2026
+Estado del archivo : BLOQUEADO (SOLO LECTURA - REFERENCIA DE PROTECCIÓN)
+================================================================================
+
+IMPORTANTE — REGLA DE BLOQUEO OBLIGATORIA:
+Todo lo documentado en las Secciones 1, 2 y 3 de este archivo constituye la BASE
+ESTABLE Y BLOQUEADA del ecosistema CREATA Muebles. Cualquier mejora nueva debe
+agregarse de forma modular ENCIMA de esta base, SIN romper, desconectar, borrar
+ni alterar los módulos, fórmulas, hojas ni proyectos hermanos aquí listados.
+
+--------------------------------------------------------------------------------
+1. ESTRUCTURA COMPLETA DEL PROYECTO Y ARCHIVOS
+--------------------------------------------------------------------------------
+
+A) PROYECTO 1 — CATÁLOGO DIGITAL PÚBLICO Y PANEL ADMIN (INTACTO / INDEPENDIENTE)
+   - index.html               : Catálogo digital público CREATA Muebles.
+   - catalog-app.js           : Lógica del catálogo público (NO TOCAR).
+   - catalog-data-1.js        : Datos base del catálogo público parte 1 (NO TOCAR).
+   - catalog-data-2.js        : Datos base del catálogo público parte 2 (NO TOCAR).
+   - catalog-styles.css       : Estilos del catálogo público (NO TOCAR).
+   - admin.html               : Panel administrativo del catálogo digital (NO TOCAR).
+   - admin-core.js            : Núcleo del panel admin (NO TOCAR).
+   - admin-crud.js            : Altas/bajas/edición del catálogo admin (NO TOCAR).
+   - admin-editor.js          : Editor visual de productos del catálogo (NO TOCAR).
+   - admin-modal.js           : Modales del panel admin (NO TOCAR).
+   - admin-salas.js           : Gestión de salas modulares del catálogo (NO TOCAR).
+   - admin-data-1.js / 2.js   : Datos del panel admin (NO TOCAR).
+   - admin-sku-db-1.js / 2.js : Base auxiliar de SKUs de admin (NO TOCAR).
+   - admin-styles.css         : Estilos del panel admin (NO TOCAR).
+   - creata-finishes.js       : Catálogo compartido de acabados.
+   - creata-img.js            : Resolución de miniaturas e imágenes de Google Drive.
+   - creata-logo.js           : Logotipo oficial CREATA en Base64.
+   - creata-cloud.js          : Conector hacia Web App de Google Apps Script.
+   - fotos/                   : Carpeta de imágenes públicas del repositorio.
+
+B) PROYECTO 2 — INVENTARIO EN VIVO Y COTIZADOR S MUEBLERÍA (WEB + OFFLINE)
+   - inventario.html          : Interfaz web responsiva (PC y móvil) del buscador de
+                                inventario en vivo y plantilla de cotización.
+   - inventario-app.js        : Lógica integral de inventario en vivo, LPPT, modo
+                                offline, autenticación por asesor/tienda y cotizador
+                                conectado en tiempo real a S Mueblería ERP.
+   - inventario-sw.js         : Service Worker exclusivo con scope './inventario'
+                                (red primero + respaldo sin conexión; jamás controla
+                                index.html ni admin.html).
+   - inventario-data-1/2/3.js : Respaldo inicial comprimido del inventario.
+
+C) BACKEND EN LA NUBE — GOOGLE APPS SCRIPT + GOOGLE SHEETS + GOOGLE DRIVE
+   - AppsScript_Creata_Drive_Sheets.gs :
+       Código maestro del Web App y triggers automáticos 24/7 en Google Apps Script:
+       * Renovación automática en la nube de la sesión de 24h de S Mueblería
+         (Login.aspx con Telerik RadTextBox ClientState + caché en Drive
+         .erp_session_cache.json + protección anti-bloqueo de 4 min en CacheService).
+       * Sincronización automática de existencias por sucursal (Bodega y Piso) desde
+         smuebleriaservice.svc (WCF SOAP 1.2) hacia INVENTARIO_EN_VIVO.
+       * Lectura en solo lectura de LPPT Proveedores (pestaña Principal) para calcular
+         piezas libres entrantes y fecha estimada de llegada.
+       * Protección ante caída del ERP: si S Mueblería no responde, conserva intacto
+         el último inventario válido de Bodega/Piso, sigue actualizando LPPT y marca
+         el estado en INVENTARIO_EN_VIVO!AV2 sin borrar existencias.
+       * Autenticación firmada con HMAC-SHA256 por correo y sucursal, control de
+         descuento máximo (Asesor 24% / Gerente y Administrador 100%) y emisión de
+         cotizaciones en vivo en S Mueblería (InsertarCotizacion).
+
+   - Hoja Maestra Google Sheets: CONTROL DE PRODUCTOS PRESENTACIÓN
+       ID: 1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8
+       Pestañas críticas (PROHIBIDO BORRAR O DESCONECTAR):
+       * INVENTARIO_EN_VIVO   : Inventario sincronizado A-Z (gid: 690403633).
+                                Conservar intactas fórmulas F2 (fotos) y AW2 (precio).
+       * plantilla            : Plantilla oficial vinculada con S Mueblería y catálogo
+                                ERP en columnas AA:AH. Conservar intacta fórmula K8.
+       * COTIZACIONES_EN_VIVO : Historial oficial de cotizaciones y folios emitidos.
+       * FOTOS NUEVAS         : Registro de fotografías de productos subidas por
+                                Gerentes / Administradores.
+       * 1                    : Base histórica de vínculos SKU -> Link Foto Drive.
+       * PLAYA, COLOCIO, PTC, CASA CREATA, PROYECTOS :
+                                Directorio de usuarios, puestos, correos, contraseñas
+                                y usuarios vinculados de S Mueblería por sucursal.
+       * CATALOGO_PRODUCTOS, SALAS_MODULARES, PIEZAS_MODULOS, MUEBLES_INDIVIDUALES :
+                                Hojas exclusivas del Catálogo Digital (NO TOCAR).
+
+   - Hoja Externa LPPT Proveedores (SOLO LECTURA ESTRICTA):
+       ID: 1t78KDg_DMbGfauNWRrjUc3ULh-SzrxO9XwOHPrtJtWE (pestaña Principal, gid 1025729459).
+
+D) PROYECTO AUXILIAR EN DRIVE — PRESENTACION_DISENO (PYTHON / RESPALDO PC)
+   - Carpeta Google Drive: PRESENTACION_DISENO (1cEirbNnx-s2Jdsf0-jOTVUTFsdltvLev)
+   - Scripts: servicio_en_vivo.py, sincronizador_inventario_vivo.py,
+     cotizador_smuebleria.py, erp_smuebleria_client.py (NO DAÑAR NI DESCONECTAR;
+     comparten de forma compatible .erp_session_cache.json y la hoja plantilla).
+
+--------------------------------------------------------------------------------
+2. LO QUE SE HA CONSTRUIDO Y QUEDÓ FUNCIONANDO AL 100% HASTA HOY (BASE BLOQUEADA)
+--------------------------------------------------------------------------------
+
+1) UBICACIONES DE INVENTARIO ESTRICTAS (PISO Y BODEGA + LPPT):
+   En inventario.html únicamente se muestran estas 11 posiciones en orden oficial:
+     1. LPPT ("LPPT: N disponibles · Para entregar a partir del día X de mes")
+     2. CEDIS (BODEGA)
+     3. CEDIS (PISO)
+     4. CASA CREATA (BODEGA)
+     5. CASA CREATA (PISO)
+     6. PUERTO CANCUN (BODEGA)
+     7. PUERTO CANCUN (PISO)
+     8. COLOSIO (BODEGA)
+     9. COLOSIO (PISO)
+    10. PLAYA (BODEGA)
+    11. PLAYA (PISO)
+
+2) FILTRO DE DISPONIBILIDAD EN EL COTIZADOR:
+   Únicamente se muestran en el cotizador las piezas que cumplen al menos una de:
+     - Tener >= 1 pieza física en cualquiera de las 10 ubicaciones Bodega/Piso, O
+     - Venir en la LPPT con >= 1 pieza libre disponible.
+   Todo SKU con 0 en Bodega/Piso y 0 en LPPT permanece oculto en portada, categorías,
+   variantes, buscador y escáner (manteniendo soporte para partidas ya en carrito).
+
+3) CONEXIÓN 24/7 A S MUEBLERÍA Y MODO SIN CONEXIÓN (OFFLINE):
+   - Renovación automática de token WCF de 24h desde Apps Script sin depender de PC.
+   - Si se pierde internet en tienda o cae el ERP, la página inventario.html abre
+     desde caché local (Service Worker + localStorage gzip) mostrando el último
+     inventario guardado con aviso de estado y reconecta sola al volver la red.
+   - Las sesiones de asesores/gerentes/administradores persisten sin desconectarse.
+
+4) SEGURIDAD Y REGLAS COMERCIALES DE COTIZACIÓN:
+   - Acceso autenticado por correo y contraseña personal por sucursal/proyecto.
+   - Sucursal y asesor ERP bloqueados al usuario en sesión (salvo modo Administrador).
+   - Tope estricto de descuento: 24% Asesores / 100% Gerentes y Administradores.
+   - Envío directo en vivo a S Mueblería (InsertarCotizacion) con folio oficial por
+     serie de tienda/proyecto (PTC, CCB, DTC, PL, PRO, CED).
+
+--------------------------------------------------------------------------------
+3. CANDADOS TÉCNICOS PARA FUTURAS MEJORAS (PROHIBIDO VIOLAR)
+--------------------------------------------------------------------------------
+[BLOQUEADO-1] NO modificar index.html, catalog-*.js/css ni admin*.html/js/css.
+[BLOQUEADO-2] NO cambiar el scope './inventario' de inventario-sw.js.
+[BLOQUEADO-3] NO alterar las 10 ubicaciones Bodega/Piso ni el formato de LPPT.
+[BLOQUEADO-4] NO escribir jamás sobre LPPT Proveedores (solo lectura).
+[BLOQUEADO-5] NO sobrescribir fórmulas nativas INVENTARIO_EN_VIVO!F2, AW2 ni plantilla!K8.
+[BLOQUEADO-6] NO borrar ni invalidar sesiones activas de usuarios ni .erp_session_cache.json.
+[BLOQUEADO-7] Para restaurar la base exacta previa a nuevas mejoras en cualquier
+              momento: git checkout base-bloqueada-2026-11-13
+================================================================================

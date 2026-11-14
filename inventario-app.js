@@ -323,6 +323,7 @@
 
     let liveErpCatalogBySku = new Map();
     let livePhotosBySku = new Map();
+    let liveNewPhotosBySku = new Map();
 
     const LIVE_EXTRA_FABRICS = {
         'SORRENTO IVORY': 'MARFIL / IVORY',
@@ -847,7 +848,9 @@
         it.cm = cm;
         it.mt = mt;
         it.p = prov;
-        if (!cleanStr(it.f) && skuUpper && livePhotosBySku.has(skuUpper)) {
+        if (skuUpper && liveNewPhotosBySku.has(skuUpper)) {
+            it.f = liveNewPhotosBySku.get(skuUpper);
+        } else if ((!cleanStr(it.f) || !resolveDriveOrImgUrl(it.f)) && skuUpper && livePhotosBySku.has(skuUpper)) {
             it.f = livePhotosBySku.get(skuUpper);
         }
         if (!cleanStr(it.pr) && erpRef && erpRef.pr) {
@@ -891,10 +894,10 @@
         [/COJIN|FUNDA|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|TELA|RELLENO/, 'COJINES & TEXTILES'],
         [/BUFETERA|CREDENZA|TRINCHADOR|CONSOLA|CAVA/, 'BUFETERAS & CREDENZAS'],
         [/COMEDOR/, 'COMEDORES'],
-        [/MESA DE CENTRO|MESAS? LATERAL|MESA AUXILIAR|MESAS DE SALA|ESQUINERO|AUXILIAR/, 'MESAS DE CENTRO & LATERALES'],
+        [/MESA DE CENTRO|MESAS? LATERAL|MESA AUXILIAR|MESAS DE SALA|AUXILIAR/, 'MESAS DE CENTRO & LATERALES'],
         [/RECAMARA|CAMA|CABECERA|BURO|COMODA|CAJONERA|COLCHON|BOX|LITERA|BEBE|BAUL/, 'RECÁMARAS'],
         [/ESCRITORIO|ARCHIVERO|OFICINA|LIBRERO/, 'OFICINA'],
-        [/SALA|SOFA|LOVE SEAT|CHAISE|OTTOMAN|FUTTON|FUTON/, 'SALAS & SOFÁS'],
+        [/SALA|SOFA|LOVE SEAT|CHAISE|OTTOMAN|FUTTON|FUTON|ESQUINERO|RINCONERA|MODULAR/, 'SALAS & SOFÁS'],
         [/SILLA|SILLON|TABURETE|BANCO|BANCA/, 'SILLAS & SILLONES'],
         [/MESA/, 'COMEDORES'],
         [/FLORERO|ESCULTURA|CHAROLA|CANDELABRO|MACETA|PLANTA|FOLLAJE|ACCESORIO|ACCECORIO|VELA|LIBRO|BOTELLON|PLATO|ENSALADERA|CANASTO|LINTERNA|DECORATIV/, 'ACCESORIOS DECORATIVOS'],
@@ -905,8 +908,8 @@
         const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
         const cat = norm(cleanStr(it.c));
         const tp = norm(cleanStr(it.tp));
-        // Si no hay categoría ni tipo, se intenta con el nombre del producto
-        const sources = (cat || tp) ? [cat, tp] : [norm(cleanStr(it.n))];
+        // Evaluamos primero categoría, luego tipo de producto y finalmente el nombre completo
+        const sources = [cat, tp, norm(cleanStr(it.n))];
         for (let s = 0; s < sources.length; s++) {
             const txt = sources[s];
             if (!txt) continue;
@@ -1126,6 +1129,8 @@
                 ? grp.title
                 : (stripDimensionsFromProductText(grp.items[0].n) || grp.title || grp.items[0].s)
             ).toUpperCase();
+            grp.totalStock = grp.items.reduce((acc, x) => acc + getBodegaPisoStock(x), 0);
+            grp.lpptStock = grp.items.reduce((acc, x) => acc + getLpptStock(x), 0);
             grp._plain = grp._plainParts.join(' ');
             grp._search = grp._searchParts.join(' ');
             grp._words = Array.from(new Set(grp._search.split(/\s+/).filter(w => w.length >= 4)));
@@ -1152,11 +1157,15 @@
 
     function saveCart() {
         try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch (e) {}
+        if (typeof syncActiveQuoteDraftStorage === 'function') syncActiveQuoteDraftStorage();
         updateCartBadge();
     }
 
     function updateCartBadge() {
-        const totalQty = Object.values(cart).reduce((acc, row) => acc + (Number(row.qty) || 0), 0);
+        const isLockedDone = (typeof isActiveQuoteCompleted === 'function' && isActiveQuoteCompleted());
+        const totalQty = isLockedDone
+            ? 0
+            : Object.values(cart).reduce((acc, row) => acc + (Number(row.qty) || 0), 0);
         const el = document.getElementById('headerCartCount');
         if (el) el.textContent = String(totalQty);
     }
@@ -1172,15 +1181,19 @@
         return withPhotos;
     }
 
+    let activeCategory = 'ALL';
+    let activeSubCategory = 'ALL';
+    let sortByMostStock = false;
+
     // ------------------------------------------------------------------------
-    // FILTRADO AGRUPADO POR MODELO + TOLERANCIA ORTOGRÁFICA + ESCÁNER SKU
+    // FILTRADO AGRUPADO POR MODELO + TOLERANCIA ORTOGRÁFICA + ESCÁNER SKU + CON MÁS STOCK
     // ------------------------------------------------------------------------
     function applyFilter(query, preserveCount) {
         const rawTrim = String(query || '').trim();
         const clearBtn = document.getElementById('invClearBtn');
         if (clearBtn) clearBtn.style.display = rawTrim ? 'block' : 'none';
 
-        isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
+        isMainCoverActive = (!rawTrim && activeCategory === 'ALL' && !sortByMostStock);
 
         if (isMainCoverActive) {
             filteredGroups = getMainCoverGroups();
@@ -1241,6 +1254,18 @@
                 filteredGroups = filteredGroups.filter(grp => grp.cats && grp.cats.has(activeSubCategory));
             }
         }
+
+        if (sortByMostStock) {
+            filteredGroups = filteredGroups
+                .filter(grp => (Number(grp.totalStock) || 0) >= 1)
+                .slice()
+                .sort((a, b) =>
+                    ((Number(b.totalStock) || 0) - (Number(a.totalStock) || 0)) ||
+                    compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                    String(a.key || '').localeCompare(String(b.key || ''))
+                );
+        }
+
         renderCategoryBar();
 
         const targetInitial = isMainCoverActive
@@ -1251,9 +1276,6 @@
         if (container) container.innerHTML = '';
         renderMoreItems(targetInitial);
     }
-
-    let activeCategory = 'ALL';
-    let activeSubCategory = 'ALL';
 
     function renderCategoryBar() {
         const bar = document.getElementById('invCategoryBar');
@@ -1272,14 +1294,21 @@
         const pill = (cls, attr, val, label, isActive) =>
             '<button type="button" class="' + cls + (isActive ? ' active' : '') + '" ' + attr + '="' + escapeHtml(val) + '">' + escapeHtml(label) + '</button>';
 
-        const pills = [pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allGroups.length + ')', activeCategory === 'ALL')];
+        const pills = [
+            pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allGroups.length + ')', activeCategory === 'ALL' && !sortByMostStock),
+            '<button type="button" id="invMostStockBtn" class="inv-cat-pill stock-pill' + (sortByMostStock ? ' active' : '') + '">Con más stock</button>'
+        ];
         MAIN_CATEGORY_ORDER.forEach(c => {
             if (mainCounts.get(c) > 0) pills.push(pill('inv-cat-pill', 'data-cat', c, c + ' (' + mainCounts.get(c) + ')', activeCategory === c));
         });
         bar.innerHTML = pills.join('');
-        bar.querySelectorAll('.inv-cat-pill').forEach(btn => {
+        bar.querySelectorAll('.inv-cat-pill[data-cat]').forEach(btn => {
             btn.onclick = function () { setInvCategory(btn.getAttribute('data-cat')); };
         });
+        const stockBtn = document.getElementById('invMostStockBtn');
+        if (stockBtn) {
+            stockBtn.onclick = function () { window.toggleMostStockSort(); };
+        }
 
         const subBar = document.getElementById('invSubCategoryBar');
         if (!subBar) return;
@@ -1293,13 +1322,16 @@
         subs.forEach(c => subPills.push(pill('inv-cat-pill inv-sub-pill', 'data-sub', c, c + ' (' + subCounts.get(c) + ')', activeSubCategory === c)));
         subBar.innerHTML = subPills.join('');
         subBar.style.display = '';
-        subBar.querySelectorAll('.inv-sub-pill').forEach(btn => {
+        subBar.querySelectorAll('.inv-sub-pill[data-sub]').forEach(btn => {
             btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
         });
     }
 
     window.setInvCategory = function (cat) {
         const next = cat || 'ALL';
+        if (next === 'ALL') {
+            sortByMostStock = false;
+        }
         if (next !== activeCategory) activeSubCategory = 'ALL';
         activeCategory = next;
         const inp = document.getElementById('invSearchInput');
@@ -1308,6 +1340,16 @@
 
     window.setInvSubCategory = function (sub) {
         activeSubCategory = sub || 'ALL';
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+    };
+
+    window.toggleMostStockSort = function (forceVal) {
+        if (typeof forceVal === 'boolean') {
+            sortByMostStock = forceVal;
+        } else {
+            sortByMostStock = !sortByMostStock;
+        }
         const inp = document.getElementById('invSearchInput');
         applyFilter(inp ? inp.value : '');
     };
@@ -1369,6 +1411,10 @@
             const grp = filteredGroups[i];
             const row = document.createElement('div');
             row.className = 'inv-row';
+            const grpStockNum = Number(grp.totalStock) || 0;
+            const stockBadgeHtml = (sortByMostStock && grpStockNum > 0)
+                ? '<div class="mt-1"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border" style="background:#ECFDF5; border-color:#A7F3D0; color:#065F46;">Stock: ' + grpStockNum + ' pz</span></div>'
+                : '';
 
             if (grp.items.length > 1) {
                 // Listado limpio sin precio afuera (el precio se muestra adentro al abrir el inventario del producto)
@@ -1379,6 +1425,7 @@
                     buildThumbHtml(firstPhotoItem(grp.items)) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
+                        stockBadgeHtml +
                     '</div>' +
                     '<svg class="w-4 h-4 shrink-0" style="color:#A38251;" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
                         '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 5l7 7-7 7"></path>' +
@@ -1394,6 +1441,7 @@
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
                         '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
+                        stockBadgeHtml +
                     '</div>' +
                     buildCardCartControlHtml(skuKey);
 
@@ -1645,26 +1693,37 @@
         }
 
         if (varList) {
-            const baseLabels = grp.items.map(it => buildVariantLabel(it, grp));
+            const displayItems = sortByMostStock
+                ? grp.items.slice().sort((a, b) =>
+                    (getBodegaPisoStock(b) - getBodegaPisoStock(a)) ||
+                    compareAlphaEs(a.n || a.vr || a.s, b.n || b.vr || b.s) ||
+                    String(a.s || '').localeCompare(String(b.s || ''))
+                )
+                : grp.items;
+            const baseLabels = displayItems.map(it => buildVariantLabel(it, grp));
             const labelCounts = new Map();
             for (let i = 0; i < baseLabels.length; i++) {
                 labelCounts.set(baseLabels[i], (labelCounts.get(baseLabels[i]) || 0) + 1);
             }
 
-            varList.innerHTML = grp.items.map((it, idx) => {
+            varList.innerHTML = displayItems.map((it, idx) => {
                 const skuKey = String(it.s || '').toUpperCase();
                 let varLabel = baseLabels[idx];
                 const medUpper = cleanStr(it.m).toUpperCase();
                 if (medUpper && labelCounts.get(varLabel) > 1 && varLabel.indexOf(medUpper) === -1) {
                     varLabel = varLabel + ' · ' + medUpper;
                 }
+                const itStockNum = getBodegaPisoStock(it);
+                const varStockBadge = (sortByMostStock && itStockNum > 0)
+                    ? ' <span class="inline-flex items-center ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold border" style="background:#ECFDF5; border-color:#A7F3D0; color:#065F46;">Stock: ' + itStockNum + ' pz</span>'
+                    : '';
                 return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
                     buildThumbHtml(it) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
                             formatTitleWithPriceHtml(varLabel, it.pr) +
                         '</div>' +
-                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
+                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + varStockBadge + '</div>' +
                     '</div>' +
                     buildCardCartControlHtml(skuKey) +
                 '</div>';
@@ -1823,6 +1882,9 @@
             emptyEl.classList.remove('hidden');
         }
 
+        const sameSkuRefresh = !!(relatedStockRefSku && relatedStockRefSku === key);
+        refreshDetailManagerPhotoControls(it, sameSkuRefresh);
+
         // Stock Total (solo las 10 ubicaciones físicas Bodega/Piso) y Semáforo + LPPT
         const stocks = Array.isArray(it.st) ? it.st : emptyStocks();
         let totalBodegaPiso = 0;
@@ -1903,9 +1965,169 @@
         }
         if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0);
 
-        const sameSkuRefresh = !!(relatedStockRefSku && relatedStockRefSku === key);
         prepareRelatedInStockSection(it, sameSkuRefresh ? relatedStockExpanded : false);
     }
+
+    // ------------------------------------------------------------------------
+    // EXCLUSIVO GERENTES / SUBGERENTES Y ADMINISTRADORES: AGREGAR FOTO EN "FOTOS NUEVAS"
+    // ------------------------------------------------------------------------
+    let managerPhotoUploadInFlight = false;
+
+    function canManageProductPhotos() {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
+        return !!getAdvisorRoleInfo().isManager;
+    }
+
+    function setDetailUploadPhotoStatus(text, tone) {
+        const el = document.getElementById('detUploadPhotoStatus');
+        if (!el) return;
+        if (!text) {
+            el.textContent = '';
+            el.classList.add('hidden');
+            return;
+        }
+        el.textContent = text;
+        el.className = 'rounded-xl border px-3.5 py-2 text-xs font-bold ' +
+            (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
+    }
+
+    function refreshDetailManagerPhotoControls(it, preserveStatus) {
+        const wrap = document.getElementById('detManagerPhotoWrap');
+        const btnTxt = document.getElementById('detUploadPhotoBtnText');
+        const inp = document.getElementById('detUploadPhotoInput');
+        if (!preserveStatus) {
+            setDetailUploadPhotoStatus('', '');
+        }
+        if (!wrap) return;
+        if (!it || !canManageProductPhotos()) {
+            wrap.classList.add('hidden');
+            if (inp) inp.disabled = true;
+            return;
+        }
+        wrap.classList.remove('hidden');
+        if (inp) inp.disabled = managerPhotoUploadInFlight;
+        if (btnTxt && !managerPhotoUploadInFlight) {
+            btnTxt.textContent = photoUrlForItem(it) ? '📷 Actualizar foto' : '📷 Agregar foto';
+        }
+    }
+
+    function compressImageFileToDataUrl(file, maxDim, quality) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('No se pudo leer el archivo de imagen seleccionado.'));
+            reader.onload = function () {
+                const rawDataUrl = String(reader.result || '');
+                if (!rawDataUrl.startsWith('data:image/')) {
+                    reject(new Error('Selecciona un archivo de imagen válido (JPG, PNG o WEBP).'));
+                    return;
+                }
+                const img = new Image();
+                img.onerror = function () {
+                    // Si el navegador no decodifica en canvas (ej. HEIC convertido parcial), enviar dataUrl original si es moderado
+                    resolve(rawDataUrl);
+                };
+                img.onload = function () {
+                    try {
+                        const w = img.naturalWidth || img.width || 1;
+                        const h = img.naturalHeight || img.height || 1;
+                        const limit = maxDim || 1200;
+                        const scale = Math.min(1, limit / Math.max(w, h));
+                        const nw = Math.max(1, Math.round(w * scale));
+                        const nh = Math.max(1, Math.round(h * scale));
+                        const canvas = document.createElement('canvas');
+                        canvas.width = nw;
+                        canvas.height = nh;
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, nw, nh);
+                        ctx.drawImage(img, 0, 0, nw, nh);
+                        resolve(canvas.toDataURL('image/jpeg', quality || 0.84));
+                    } catch (eCanvas) {
+                        resolve(rawDataUrl);
+                    }
+                };
+                img.src = rawDataUrl;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    window.uploadManagerProductPhoto = async function (inputEl) {
+        const file = inputEl && inputEl.files && inputEl.files[0] ? inputEl.files[0] : null;
+        if (inputEl) inputEl.value = '';
+        if (!file || managerPhotoUploadInFlight) return;
+
+        if (!canManageProductPhotos()) {
+            setDetailUploadPhotoStatus('Acceso restringido: únicamente Gerentes y Administradores pueden agregar fotos a los productos.', 'err');
+            return;
+        }
+        if (!currentDetailItem || !currentDetailItem.s) return;
+
+        const targetSku = String(currentDetailItem.s).trim().toUpperCase();
+        const targetName = stripDimensionsFromProductText(currentDetailItem.n) || targetSku;
+        const btnTxt = document.getElementById('detUploadPhotoBtnText');
+
+        managerPhotoUploadInFlight = true;
+        if (inputEl) inputEl.disabled = true;
+        if (btnTxt) btnTxt.textContent = '⏳ Guardando foto...';
+        setDetailUploadPhotoStatus('Subiendo fotografía y registrándola en la hoja "FOTOS NUEVAS"...', 'warn');
+
+        try {
+            const dataUrl = await compressImageFileToDataUrl(file, 1200, 0.84);
+            const res = await callInvWebAppPost('inv_upload_product_photo', {
+                authToken: activeAdvisorSession.authToken || '',
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                advisorEmail: activeAdvisorSession.correo || '',
+                sku: targetSku,
+                productName: targetName,
+                dataUrl: dataUrl
+            }, 35000);
+
+            if (res && res.authRequired) {
+                setDetailUploadPhotoStatus('Confirma tu contraseña personal para guardar la fotografía en "FOTOS NUEVAS".', 'warn');
+                promptSessionReauth(res.error || 'Confirma tu contraseña para subir fotografías a "FOTOS NUEVAS".', null);
+                return;
+            }
+
+            if (!res || res.needsRedeploy || res.unavailable) {
+                setDetailUploadPhotoStatus('Para activar el guardado automático en la hoja "FOTOS NUEVAS", publica una Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Extensiones → Apps Script → Implementar → Administrar implementaciones.', 'warn');
+                return;
+            }
+
+            if (!res.ok) {
+                setDetailUploadPhotoStatus(res.error || 'No se pudo guardar la fotografía.', 'err');
+                return;
+            }
+
+            const finalUrl = cleanStr(res.url) || dataUrl;
+            liveNewPhotosBySku.set(targetSku, finalUrl);
+            livePhotosBySku.set(targetSku, finalUrl);
+
+            const mappedIt = bySkuMap.get(targetSku);
+            if (mappedIt) mappedIt.f = finalUrl;
+            if (currentDetailItem && String(currentDetailItem.s).trim().toUpperCase() === targetSku) {
+                currentDetailItem.f = finalUrl;
+            }
+            lastLiveSignature = computeItemsSignature(allItems);
+            scheduleSaveLiveInventoryCache(allItems);
+
+            const curInp = document.getElementById('invSearchInput');
+            applyFilter(curInp ? curInp.value : '', true);
+
+            if (currentDetailItem && String(currentDetailItem.s).trim().toUpperCase() === targetSku) {
+                const crumbVisible = !document.getElementById('detGroupCrumb').classList.contains('hidden');
+                renderDetailModal(currentDetailItem, crumbVisible && !!currentGroup);
+            }
+            setDetailUploadPhotoStatus('✓ Fotografía guardada en la hoja "FOTOS NUEVAS" (' + targetSku + ').', 'ok');
+        } catch (err) {
+            setDetailUploadPhotoStatus(err && err.message ? err.message : 'Error al procesar la fotografía.', 'err');
+        } finally {
+            managerPhotoUploadInFlight = false;
+            if (currentDetailItem) {
+                refreshDetailManagerPhotoControls(currentDetailItem, true);
+            }
+        }
+    };
 
     let relatedStockExpanded = false;
     let relatedStockRefItem = null;
@@ -2414,8 +2636,8 @@
         return s;
     }
 
-    function loadQuoteDraftMeta() {
-        const fallback = {
+    function createBlankQuoteMeta() {
+        return {
             erpStore: '',
             erpAdvisorLabel: '',
             erpAdvisorId: '',
@@ -2423,10 +2645,19 @@
             categoryLabel: 'COTIZACIONES [ID: 2]',
             clientName: '',
             clientPhone: '',
+            clientEmail: '',
+            erpClientId: 0,
+            erpLeadId: 0,
+            erpNoCliente: '',
+            erpClientAddress: '',
             deliveryDateIso: getDefaultDeliveryIsoDate(),
             notes: '',
             extraDiscount: 0
         };
+    }
+
+    function loadQuoteDraftMeta() {
+        const fallback = createBlankQuoteMeta();
         try {
             const saved = JSON.parse(localStorage.getItem(QUOTE_META_STORAGE) || 'null');
             if (saved && typeof saved === 'object') {
@@ -2439,10 +2670,12 @@
     }
 
     window.saveQuoteDraftMeta = function () {
+        if (typeof isActiveQuoteCompleted === 'function' && isActiveQuoteCompleted()) return;
         const modeEl = document.getElementById('quoteClientModeSelect');
         const catEl = document.getElementById('quoteCategorySelect');
         const nameEl = document.getElementById('quoteClientNameInput');
         const phoneEl = document.getElementById('quoteClientPhoneInput');
+        const emailEl = document.getElementById('quoteClientEmailInput');
         const dateEl = document.getElementById('quoteDeliveryDateInput');
         const notesEl = document.getElementById('quoteNotesInput');
         const extraEl = document.getElementById('quoteExtraDiscountInput');
@@ -2475,6 +2708,7 @@
         if (catEl) quoteDraftMeta.categoryLabel = catEl.value;
         if (nameEl) quoteDraftMeta.clientName = nameEl.value;
         if (phoneEl) quoteDraftMeta.clientPhone = phoneEl.value;
+        if (emailEl) quoteDraftMeta.clientEmail = emailEl.value;
         if (dateEl && dateEl.value) quoteDraftMeta.deliveryDateIso = dateEl.value;
         if (notesEl) quoteDraftMeta.notes = notesEl.value;
         if (extraEl) quoteDraftMeta.extraDiscount = Math.max(0, Number(extraEl.value) || 0);
@@ -2482,6 +2716,9 @@
         try {
             localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
         } catch (e) {}
+        if (typeof syncActiveQuoteDraftStorage === 'function') {
+            syncActiveQuoteDraftStorage();
+        }
     };
 
     function cleanKeyCellValue(val) {
@@ -2618,15 +2855,17 @@
     let lastErpCatalogSyncMs = 0;
 
     async function loadErpCatalogLiveFromSheet() {
-        const [rows, h1Rows] = await Promise.all([
+        const [rows, h1Rows, newFotoRows] = await Promise.all([
             fetchSheetCsvRows('plantilla', 'range=AA2:AH5500'),
-            fetchSheetCsvRows('1', 'range=A2:D5500').catch(() => null)
+            fetchSheetCsvRows('1', 'range=A2:D5500').catch(() => null),
+            fetchSheetCsvRows('FOTOS NUEVAS', 'range=A1:D5500').catch(() => null)
         ]);
         const stores = DEFAULT_ERP_STORES.slice();
         const advisors = [];
         const nextPrices = new Map();
         const nextErpCatalog = new Map();
         const nextPhotos = new Map();
+        const nextNewPhotos = new Map();
 
         if (Array.isArray(rows)) {
             for (let i = 0; i < rows.length; i++) {
@@ -2673,12 +2912,12 @@
                 if (!hSku || hSku === 'SKU') continue;
                 const hNom = cleanStr(hr[1]);
                 const hFoto = cleanStr(hr[3]) || (cleanStr(hr[2]).indexOf('http') === 0 ? cleanStr(hr[2]) : '');
-                if (hFoto) nextPhotos.set(hSku, hFoto);
+                if (hFoto && resolveDriveOrImgUrl(hFoto)) nextPhotos.set(hSku, hFoto);
                 if (hNom && /^DESC[-\s]|DESCONTINUAD/i.test(hNom)) continue;
                 const prevEntry = nextErpCatalog.get(hSku);
                 if (prevEntry) {
                     if (!prevEntry.n && hNom) prevEntry.n = hNom;
-                    if (hFoto) prevEntry.f = hFoto;
+                    if (hFoto && resolveDriveOrImgUrl(hFoto)) prevEntry.f = hFoto;
                 } else if (hNom || hFoto) {
                     nextErpCatalog.set(hSku, {
                         sku: hSkuRaw,
@@ -2691,10 +2930,58 @@
             }
         }
 
+        // Las fotografías agregadas por Gerentes / Administradores en la hoja "FOTOS NUEVAS" tienen prioridad inmediata
+        if (Array.isArray(newFotoRows)) {
+            for (let k = 0; k < newFotoRows.length; k++) {
+                const nr = newFotoRows[k] || [];
+                const nSkuRaw = cleanStr(nr[0]);
+                const nSku = nSkuRaw.toUpperCase();
+                if (!nSku || nSku === 'SKU') continue;
+                const nNom = cleanStr(nr[1]);
+                const nFoto = cleanStr(nr[3]) || (cleanStr(nr[2]).indexOf('http') === 0 ? cleanStr(nr[2]) : '');
+                if (!nFoto || !resolveDriveOrImgUrl(nFoto)) continue;
+                nextNewPhotos.set(nSku, nFoto);
+                nextPhotos.set(nSku, nFoto);
+                const prevEntry = nextErpCatalog.get(nSku);
+                if (prevEntry) {
+                    if (!prevEntry.n && nNom) prevEntry.n = nNom;
+                    prevEntry.f = nFoto;
+                } else if (nNom) {
+                    nextErpCatalog.set(nSku, {
+                        sku: nSkuRaw,
+                        mo: '',
+                        n: nNom,
+                        pr: nextPrices.get(nSku) || '',
+                        f: nFoto
+                    });
+                }
+            }
+        }
+
         if (stores.length > 0) erpStoresCatalog = stores;
         if (advisors.length > 0) erpAdvisorsCatalog = advisors;
         if (nextPrices.size > 0) liveErpPricesBySku = nextPrices;
         if (nextPhotos.size > 0) livePhotosBySku = nextPhotos;
+        if (nextNewPhotos.size > 0) {
+            liveNewPhotosBySku = nextNewPhotos;
+            let anyApplied = false;
+            for (let m = 0; m < allItems.length; m++) {
+                const it = allItems[m];
+                if (!it || !it.s) continue;
+                const skuU = String(it.s).toUpperCase();
+                if (liveNewPhotosBySku.has(skuU)) {
+                    const urlNew = liveNewPhotosBySku.get(skuU);
+                    if (urlNew && it.f !== urlNew) {
+                        it.f = urlNew;
+                        anyApplied = true;
+                    }
+                }
+            }
+            if (anyApplied) {
+                const curInp = document.getElementById('invSearchInput');
+                applyFilter(curInp ? curInp.value : '', true);
+            }
+        }
         if (nextErpCatalog.size > 0) liveErpCatalogBySku = nextErpCatalog;
         lastErpCatalogSyncMs = Date.now();
     }
@@ -2853,6 +3140,10 @@
         const branchEl = document.getElementById('sessionBranchBadge');
         const erpEl = document.getElementById('sessionErpBadge');
         const switchBtn = document.getElementById('sessionSwitchBranchBtn');
+
+        if (currentDetailItem && typeof refreshDetailManagerPhotoControls === 'function') {
+            refreshDetailManagerPhotoControls(currentDetailItem, true);
+        }
 
         if (!bar) return;
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
@@ -3667,7 +3958,7 @@
         populateQuoteAdvisorControls();
     };
 
-    function populateQuoteAdvisorControls() {
+    function populateQuoteAdvisorControls(forceInputs) {
         const titleEl = document.getElementById('quoteModalTitle');
         const hdrInfo = document.getElementById('quoteHeaderAdvisorInfo');
         const originBadge = document.getElementById('quoteOriginTypeBadge');
@@ -3684,6 +3975,7 @@
         const catSel = document.getElementById('quoteCategorySelect');
         const nameInp = document.getElementById('quoteClientNameInput');
         const phoneInp = document.getElementById('quoteClientPhoneInput');
+        const emailInp = document.getElementById('quoteClientEmailInput');
         const dateInp = document.getElementById('quoteDeliveryDateInput');
         const notesInp = document.getElementById('quoteNotesInput');
         const extraInp = document.getElementById('quoteExtraDiscountInput');
@@ -3790,17 +4082,20 @@
                 : 'Nombre completo del cliente o prospecto...';
         }
 
+        syncDynamicClientModeOption();
         if (modeSel && quoteDraftMeta.clientMode) modeSel.value = quoteDraftMeta.clientMode;
         if (catSel && quoteDraftMeta.categoryLabel) catSel.value = quoteDraftMeta.categoryLabel;
-        if (nameInp && document.activeElement !== nameInp) nameInp.value = quoteDraftMeta.clientName || '';
-        if (phoneInp && document.activeElement !== phoneInp) phoneInp.value = quoteDraftMeta.clientPhone || '';
-        if (dateInp && document.activeElement !== dateInp) {
+        if (nameInp && (forceInputs || document.activeElement !== nameInp)) nameInp.value = quoteDraftMeta.clientName || '';
+        if (phoneInp && (forceInputs || document.activeElement !== phoneInp)) phoneInp.value = quoteDraftMeta.clientPhone || '';
+        if (emailInp && (forceInputs || document.activeElement !== emailInp)) emailInp.value = quoteDraftMeta.clientEmail || '';
+        if (dateInp && (forceInputs || document.activeElement !== dateInp)) {
             dateInp.value = quoteDraftMeta.deliveryDateIso || getDefaultDeliveryIsoDate();
         }
-        if (notesInp && document.activeElement !== notesInp) notesInp.value = quoteDraftMeta.notes || '';
-        if (extraInp && document.activeElement !== extraInp) {
+        if (notesInp && (forceInputs || document.activeElement !== notesInp)) notesInp.value = quoteDraftMeta.notes || '';
+        if (extraInp && (forceInputs || document.activeElement !== extraInp)) {
             extraInp.value = String(Math.max(0, Number(quoteDraftMeta.extraDiscount) || 0));
         }
+        renderSelectedErpClientBadge();
         renderQuoteTotalsOnly();
     }
 
@@ -3838,7 +4133,771 @@
         return getAdvisorRoleInfo().maxPct;
     }
 
+    // ------------------------------------------------------------------------
+    // MÚLTIPLES COTIZACIONES ABIERTAS SIN GUARDAR (VIGENCIA MÁXIMA: 3 HORAS)
+    // Y BLOQUEO / REINICIO AUTOMÁTICO AL TERMINAR Y CERRAR LA COTIZACIÓN
+    // ------------------------------------------------------------------------
+    const QUOTE_DRAFTS_KEY = 'creata_inv_quote_drafts_v1';
+    const QUOTE_DRAFT_TTL_MS = 3 * 60 * 60 * 1000; // 3 horas límite para cotizaciones sin guardar
+    let quoteDrafts = [];
+    let activeQuoteDraftId = '';
+    let quoteDraftsTimer = null;
+
+    function cloneCartMap(src) {
+        const out = {};
+        if (!src || typeof src !== 'object') return out;
+        Object.keys(src).forEach(k => {
+            if (src[k] && typeof src[k] === 'object') {
+                out[k] = Object.assign({}, src[k]);
+            }
+        });
+        return out;
+    }
+
+    function isDraftUntouchedBlank(d) {
+        if (!d || d.completed) return false;
+        const hasItems = d.cart && Object.keys(d.cart).length > 0;
+        const m = d.meta || {};
+        const hasClient = !!(cleanStr(m.clientName) || cleanStr(m.clientPhone) || cleanStr(m.clientEmail) || cleanStr(m.notes) || Number(m.erpClientId) > 0 || Number(m.erpLeadId) > 0);
+        return !hasItems && !hasClient;
+    }
+
+    function buildFreshDraftObject(initialCart, initialMeta) {
+        const now = Date.now();
+        return {
+            id: 'qd_' + now + '_' + Math.random().toString(36).slice(2, 7),
+            createdAt: now,
+            updatedAt: now,
+            expiresAt: now + QUOTE_DRAFT_TTL_MS,
+            completed: false,
+            submittedMeta: null,
+            cart: cloneCartMap(initialCart || {}),
+            meta: Object.assign(createBlankQuoteMeta(), initialMeta || {})
+        };
+    }
+
+    function getActiveQuoteDraft() {
+        for (let i = 0; i < quoteDrafts.length; i++) {
+            if (quoteDrafts[i].id === activeQuoteDraftId) return quoteDrafts[i];
+        }
+        return quoteDrafts[0] || null;
+    }
+
+    function isActiveQuoteCompleted() {
+        const d = getActiveQuoteDraft();
+        return !!(d && d.completed);
+    }
+
+    function persistQuoteDraftsToStorage() {
+        try {
+            localStorage.setItem(QUOTE_DRAFTS_KEY, JSON.stringify({
+                activeId: activeQuoteDraftId,
+                drafts: quoteDrafts
+            }));
+        } catch (e) {}
+    }
+
+    function syncActiveQuoteDraftStorage() {
+        let d = getActiveQuoteDraft();
+        if (!d) {
+            d = buildFreshDraftObject(cart, quoteDraftMeta);
+            quoteDrafts.push(d);
+            activeQuoteDraftId = d.id;
+        } else {
+            const wasBlank = isDraftUntouchedBlank(d);
+            d.cart = cloneCartMap(cart);
+            d.meta = Object.assign(createBlankQuoteMeta(), quoteDraftMeta);
+            d.submittedMeta = lastSubmittedQuoteMeta ? Object.assign({}, lastSubmittedQuoteMeta) : null;
+            d.updatedAt = Date.now();
+            // Si el borrador estaba completamente en blanco y apenas se empieza a usar, iniciar su ventana de 3 horas desde este momento
+            if (wasBlank && !isDraftUntouchedBlank(d)) {
+                d.createdAt = d.updatedAt;
+                d.expiresAt = d.updatedAt + QUOTE_DRAFT_TTL_MS;
+            }
+        }
+        persistQuoteDraftsToStorage();
+        renderQuoteDraftsBar();
+    }
+
+    function loadActiveDraftIntoMemory(d) {
+        if (!d) return;
+        activeQuoteDraftId = d.id;
+        cart = cloneCartMap(d.cart || {});
+        quoteDraftMeta = Object.assign(createBlankQuoteMeta(), d.meta || {});
+        if (activeAdvisorSession && !activeAdvisorSession.isAdmin) {
+            quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || quoteDraftMeta.erpStore || '';
+            quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || quoteDraftMeta.erpAdvisorLabel || '';
+            quoteDraftMeta.erpAdvisorId = activeAdvisorSession.erpAdvisorId || quoteDraftMeta.erpAdvisorId || '';
+        }
+        lastSubmittedQuoteMeta = d.submittedMeta ? Object.assign({}, d.submittedMeta) : null;
+        try {
+            if (d.completed) {
+                localStorage.removeItem(CART_KEY);
+                localStorage.removeItem(QUOTE_META_STORAGE);
+            } else {
+                localStorage.setItem(CART_KEY, JSON.stringify(cart));
+                localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
+            }
+        } catch (e) {}
+        persistQuoteDraftsToStorage();
+        updateCartBadge();
+    }
+
+    function syncAllCartControlsUI() {
+        const seen = new Set();
+        document.querySelectorAll('[data-sku-ctrl]').forEach(el => {
+            const k = el.getAttribute('data-sku-ctrl');
+            if (k && !seen.has(k)) {
+                seen.add(k);
+                syncSkuCartControls(k);
+            }
+        });
+        Object.keys(cart).forEach(k => {
+            if (!seen.has(k)) syncSkuCartControls(k);
+        });
+        if (currentDetailItem && currentDetailItem.s) {
+            syncSkuCartControls(String(currentDetailItem.s).toUpperCase());
+        }
+        updateCartBadge();
+    }
+
+    function formatRemainingDraftTime(expiresAt) {
+        const remMs = Math.max(0, (Number(expiresAt) || 0) - Date.now());
+        const totalMin = Math.ceil(remMs / 60000);
+        if (totalMin <= 0) return '0m';
+        const h = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
+        if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm';
+        return m + 'm';
+    }
+
+    function pruneExpiredQuoteDrafts(refreshUiIfChanged) {
+        const now = Date.now();
+        const beforeIds = quoteDrafts.map(d => d.id).join(',');
+        quoteDrafts = quoteDrafts.filter(d => {
+            if (!d || typeof d !== 'object') return false;
+            if (d.completed) return true;
+            return (Number(d.expiresAt) || 0) > now;
+        });
+        if (quoteDrafts.length === 0) {
+            const fresh = buildFreshDraftObject({}, createBlankQuoteMeta());
+            quoteDrafts.push(fresh);
+            loadActiveDraftIntoMemory(fresh);
+        } else if (!quoteDrafts.some(d => d.id === activeQuoteDraftId)) {
+            loadActiveDraftIntoMemory(quoteDrafts[0]);
+        }
+        const afterIds = quoteDrafts.map(d => d.id).join(',');
+        if (beforeIds !== afterIds) {
+            persistQuoteDraftsToStorage();
+            syncAllCartControlsUI();
+            if (refreshUiIfChanged) {
+                populateQuoteAdvisorControls(true);
+                renderCartItems();
+                applyQuoteCompletedLockUI();
+            }
+        }
+        renderQuoteDraftsBar();
+    }
+
+    function initQuoteDraftsSystem() {
+        let loaded = null;
+        try {
+            loaded = JSON.parse(localStorage.getItem(QUOTE_DRAFTS_KEY) || 'null');
+        } catch (e) {}
+
+        const now = Date.now();
+        if (loaded && Array.isArray(loaded.drafts) && loaded.drafts.length > 0) {
+            // Al abrir / recargar la pestaña del navegador, las cotizaciones ya terminadas quedan descartadas automáticamente
+            quoteDrafts = loaded.drafts.filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now);
+            activeQuoteDraftId = String(loaded.activeId || '');
+        } else {
+            // Migrar carrito / metadatos previos en caso de existir
+            const legacyCart = loadCart();
+            const legacyMeta = loadQuoteDraftMeta();
+            const initial = buildFreshDraftObject(legacyCart, legacyMeta);
+            quoteDrafts = [initial];
+            activeQuoteDraftId = initial.id;
+        }
+
+        if (quoteDrafts.length === 0) {
+            const fresh = buildFreshDraftObject({}, createBlankQuoteMeta());
+            quoteDrafts = [fresh];
+            activeQuoteDraftId = fresh.id;
+        }
+        const chosen = getActiveQuoteDraft() || quoteDrafts[0];
+        loadActiveDraftIntoMemory(chosen);
+
+        if (quoteDraftsTimer) clearInterval(quoteDraftsTimer);
+        quoteDraftsTimer = setInterval(function () {
+            pruneExpiredQuoteDrafts(true);
+        }, 15000);
+    }
+
+    function purgeCompletedQuoteDraftsOnExit() {
+        const hadCompleted = quoteDrafts.some(d => d && d.completed);
+        if (!hadCompleted) return;
+        const now = Date.now();
+        quoteDrafts = quoteDrafts.filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now);
+        if (!quoteDrafts.some(d => isDraftUntouchedBlank(d))) {
+            const fresh = buildFreshDraftObject({}, createBlankQuoteMeta());
+            quoteDrafts.push(fresh);
+            activeQuoteDraftId = fresh.id;
+        } else {
+            const blank = quoteDrafts.find(d => isDraftUntouchedBlank(d)) || quoteDrafts[0];
+            activeQuoteDraftId = blank.id;
+        }
+        const activeNow = getActiveQuoteDraft();
+        try {
+            localStorage.setItem(CART_KEY, JSON.stringify((activeNow && activeNow.cart) || {}));
+            localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify((activeNow && activeNow.meta) || createBlankQuoteMeta()));
+        } catch (e) {}
+        persistQuoteDraftsToStorage();
+    }
+
+    function purgeCompletedAndActivateBlankDraft() {
+        const now = Date.now();
+        quoteDrafts = quoteDrafts.filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now);
+        let nextBlank = quoteDrafts.find(d => isDraftUntouchedBlank(d));
+        if (!nextBlank) {
+            nextBlank = buildFreshDraftObject({}, createBlankQuoteMeta());
+            quoteDrafts.push(nextBlank);
+        }
+        loadActiveDraftIntoMemory(nextBlank);
+        syncAllCartControlsUI();
+        renderQuoteStatusBanner('', '');
+        toggleNewErpClientForm(false);
+        const resEl = document.getElementById('quoteErpClientResults');
+        if (resEl) {
+            resEl.innerHTML = '';
+            resEl.classList.add('hidden');
+        }
+        const searchEl = document.getElementById('quoteErpClientSearchInput');
+        if (searchEl) searchEl.value = '';
+        populateQuoteAdvisorControls(true);
+        renderCartItems();
+        applyQuoteCompletedLockUI();
+        renderQuoteDraftsBar();
+    }
+
+    function markActiveQuoteCompleted(submittedMetaObj) {
+        const d = getActiveQuoteDraft();
+        if (d) {
+            d.completed = true;
+            d.submittedMeta = submittedMetaObj ? Object.assign({}, submittedMetaObj) : null;
+            d.updatedAt = Date.now();
+        }
+        try {
+            localStorage.removeItem(CART_KEY);
+            localStorage.removeItem(QUOTE_META_STORAGE);
+        } catch (e) {}
+        persistQuoteDraftsToStorage();
+        updateCartBadge();
+        renderCartItems();
+        applyQuoteCompletedLockUI();
+        renderQuoteDraftsBar();
+    }
+
+    function applyQuoteCompletedLockUI() {
+        const locked = isActiveQuoteCompleted();
+        const banner = document.getElementById('quoteCompletedBanner');
+        if (banner) banner.classList.toggle('hidden', !locked);
+
+        const sec2 = document.getElementById('quoteSection2Fieldset');
+        if (sec2) {
+            sec2.querySelectorAll('input, select, textarea, button').forEach(el => {
+                el.disabled = locked;
+            });
+            sec2.style.opacity = locked ? '0.68' : '1';
+        }
+        const extraInp = document.getElementById('quoteExtraDiscountInput');
+        if (extraInp) extraInp.disabled = locked;
+        const adminStoreSel = document.getElementById('quoteAdminStoreSelect');
+        const adminAdvSel = document.getElementById('quoteAdminAdvisorSelect');
+        if (adminStoreSel) adminStoreSel.disabled = locked;
+        if (adminAdvSel) adminAdvSel.disabled = locked;
+
+        const btnRev = document.getElementById('btnLoadPlantillaReview');
+        const btnSend = document.getElementById('btnSendQuoteErp');
+        const btnClear = document.querySelector('#cartModal button[onclick="clearCart()"]');
+        if (btnRev) {
+            btnRev.disabled = locked || quoteSubmitInFlight;
+            btnRev.style.opacity = locked ? '0.45' : '1';
+        }
+        if (btnSend) {
+            btnSend.disabled = locked || quoteSubmitInFlight;
+            btnSend.style.opacity = locked ? '0.45' : '1';
+        }
+        if (btnClear) {
+            btnClear.disabled = locked;
+            btnClear.style.opacity = locked ? '0.45' : '1';
+        }
+    }
+
+    function renderQuoteDraftsBar() {
+        const listEl = document.getElementById('quoteDraftsTabsList');
+        if (!listEl) return;
+
+        const html = quoteDrafts.map((d, idx) => {
+            const isAct = d.id === activeQuoteDraftId;
+            const qtySum = Object.values(d.cart || {}).reduce((s, r) => s + (Number(r && r.qty) || 0), 0);
+            const cliShort = cleanStr(d.meta && d.meta.clientName);
+            const titleTxt = cliShort
+                ? (cliShort.length > 18 ? (cliShort.slice(0, 18) + '…') : cliShort)
+                : ('Cotización ' + (idx + 1));
+            const statusPart = d.completed
+                ? ('✓ Emitida' + (d.submittedMeta && d.submittedMeta.folio ? (' · ' + d.submittedMeta.folio) : ''))
+                : ((qtySum > 0 ? (qtySum + ' pz · ') : '') + '⏱ ' + formatRemainingDraftTime(d.expiresAt));
+
+            const bg = isAct ? '#252C32' : '#FFFFFF';
+            const fg = isAct ? '#FFFFFF' : '#252C32';
+            const brd = isAct ? '#252C32' : (d.completed ? '#A7F3D0' : '#E1DBC5');
+            const subColor = isAct ? '#E1DBC5' : '#A38251';
+            const canDiscard = quoteDrafts.length > 1 || !isDraftUntouchedBlank(d) || d.completed;
+
+            return '<div class="inline-flex items-center rounded-full border text-[11px] font-bold transition overflow-hidden" ' +
+                'style="background:' + bg + '; color:' + fg + '; border-color:' + brd + ';">' +
+                '<button type="button" onclick="switchQuoteDraft(\'' + escapeHtml(d.id) + '\')" class="px-2.5 py-1 flex items-center gap-1.5 text-left">' +
+                    '<span class="font-extrabold uppercase truncate max-w-[130px]">' + escapeHtml(titleTxt) + '</span>' +
+                    '<span class="text-[10px] font-bold" style="color:' + subColor + ';">(' + escapeHtml(statusPart) + ')</span>' +
+                '</button>' +
+                (canDiscard
+                    ? ('<button type="button" title="Cerrar / descartar esta cotización" onclick="discardQuoteDraft(\'' + escapeHtml(d.id) + '\')" ' +
+                        'class="pr-2.5 pl-1 py-1 text-[11px] font-extrabold opacity-75 hover:opacity-100">✕</button>')
+                    : '') +
+            '</div>';
+        }).join('');
+
+        listEl.innerHTML = html;
+    }
+
+    window.createNewQuoteDraft = function (switchNow) {
+        pruneExpiredQuoteDrafts(false);
+        // Si la cotización activa ya estaba terminada, descartarla de inmediato al abrir la nueva
+        if (isActiveQuoteCompleted()) {
+            quoteDrafts = quoteDrafts.filter(d => d && !d.completed);
+        } else {
+            syncActiveQuoteDraftStorage();
+        }
+        const fresh = buildFreshDraftObject({}, createBlankQuoteMeta());
+        quoteDrafts.push(fresh);
+        if (switchNow !== false) {
+            loadActiveDraftIntoMemory(fresh);
+            syncAllCartControlsUI();
+            renderQuoteStatusBanner('', '');
+            toggleNewErpClientForm(false);
+            populateQuoteAdvisorControls(true);
+            renderCartItems();
+            applyQuoteCompletedLockUI();
+        } else {
+            persistQuoteDraftsToStorage();
+        }
+        renderQuoteDraftsBar();
+        const nameInp = document.getElementById('quoteClientNameInput');
+        if (nameInp && !nameInp.disabled) setTimeout(() => nameInp.focus(), 40);
+    };
+
+    window.switchQuoteDraft = function (draftId) {
+        if (!draftId || draftId === activeQuoteDraftId) return;
+        pruneExpiredQuoteDrafts(false);
+        const target = quoteDrafts.find(d => d.id === draftId);
+        if (!target) return;
+        if (!isActiveQuoteCompleted()) {
+            syncActiveQuoteDraftStorage();
+        }
+        loadActiveDraftIntoMemory(target);
+        syncAllCartControlsUI();
+        renderQuoteStatusBanner('', '');
+        toggleNewErpClientForm(false);
+        populateQuoteAdvisorControls(true);
+        renderCartItems();
+        applyQuoteCompletedLockUI();
+        renderQuoteDraftsBar();
+    };
+
+    window.discardQuoteDraft = function (draftId) {
+        const target = quoteDrafts.find(d => d.id === draftId);
+        if (!target) return;
+        quoteDrafts = quoteDrafts.filter(d => d.id !== draftId);
+        if (quoteDrafts.length === 0) {
+            const fresh = buildFreshDraftObject({}, createBlankQuoteMeta());
+            quoteDrafts.push(fresh);
+            loadActiveDraftIntoMemory(fresh);
+        } else if (activeQuoteDraftId === draftId) {
+            loadActiveDraftIntoMemory(quoteDrafts[quoteDrafts.length - 1]);
+        } else {
+            persistQuoteDraftsToStorage();
+        }
+        syncAllCartControlsUI();
+        renderQuoteStatusBanner('', '');
+        populateQuoteAdvisorControls(true);
+        renderCartItems();
+        applyQuoteCompletedLockUI();
+        renderQuoteDraftsBar();
+    };
+
+    window.startFreshQuoteAfterCompleted = function () {
+        purgeCompletedAndActivateBlankDraft();
+        const nameInp = document.getElementById('quoteClientNameInput');
+        if (nameInp && !nameInp.disabled) setTimeout(() => nameInp.focus(), 40);
+    };
+
+    // ------------------------------------------------------------------------
+    // BUSCADOR Y ALTA DE CLIENTES EN VIVO EN LA BASE DE DATOS S MUEBLERÍA
+    // ------------------------------------------------------------------------
+    let lastErpClientSearchResults = [];
+    let erpClientSearchInFlight = false;
+    let erpClientCreateInFlight = false;
+
+    function syncDynamicClientModeOption() {
+        const sel = document.getElementById('quoteClientModeSelect');
+        if (!sel) return;
+        const prevDyn = sel.querySelectorAll('option[data-dynamic-erp="1"]');
+        prevDyn.forEach(o => o.remove());
+
+        const cid = Number(quoteDraftMeta.erpClientId) || 0;
+        const lid = Number(quoteDraftMeta.erpLeadId) || 0;
+        if (cid > 0 || lid > 0) {
+            const nm = cleanStr(quoteDraftMeta.clientName) || (cid > 0 ? 'CLIENTE S MUEBLERÍA' : 'PROSPECTO S MUEBLERÍA');
+            const val = cid > 0
+                ? (nm + ' [ID CLIENTE: ' + cid + ']')
+                : (nm + ' [ID LEAD: ' + lid + ']');
+            const lbl = cid > 0
+                ? ('Cliente S Mueblería: ' + nm + (quoteDraftMeta.erpNoCliente ? (' (No. ' + quoteDraftMeta.erpNoCliente + ')') : '') + ' [ID: ' + cid + ']')
+                : ('Prospecto S Mueblería: ' + nm + ' [ID Lead: ' + lid + ']');
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = lbl;
+            opt.setAttribute('data-dynamic-erp', '1');
+            sel.insertBefore(opt, sel.firstChild);
+            sel.value = val;
+            quoteDraftMeta.clientMode = val;
+        }
+    }
+
+    function renderSelectedErpClientBadge() {
+        const badge = document.getElementById('quoteSelectedErpClientBadge');
+        if (!badge) return;
+        const cid = Number(quoteDraftMeta.erpClientId) || 0;
+        const lid = Number(quoteDraftMeta.erpLeadId) || 0;
+        if (cid <= 0 && lid <= 0) {
+            badge.innerHTML = '';
+            badge.classList.add('hidden');
+            return;
+        }
+        const nm = cleanStr(quoteDraftMeta.clientName) || 'Cliente seleccionado';
+        const tag = cid > 0
+            ? ('Cliente S Mueblería #' + cid + (quoteDraftMeta.erpNoCliente ? (' · No. ' + quoteDraftMeta.erpNoCliente) : ''))
+            : ('Prospecto S Mueblería #' + lid);
+        const extraInfo = [cleanStr(quoteDraftMeta.clientPhone), cleanStr(quoteDraftMeta.clientEmail), cleanStr(quoteDraftMeta.erpClientAddress)]
+            .filter(Boolean)
+            .join(' · ');
+        badge.innerHTML =
+            '<div class="min-w-0">' +
+                '<div class="font-extrabold uppercase truncate">✓ ' + escapeHtml(tag) + ': ' + escapeHtml(nm) + '</div>' +
+                (extraInfo ? ('<div class="text-[11px] font-semibold opacity-85 truncate">' + escapeHtml(extraInfo) + '</div>') : '') +
+            '</div>' +
+            '<button type="button" onclick="clearSelectedErpClient()" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border shrink-0" style="border-color:#065F46; background:#FFFFFF; color:#065F46;">Desvincular</button>';
+        badge.classList.remove('hidden');
+    }
+
+    window.onQuoteClientModeSelectChange = function () {
+        const sel = document.getElementById('quoteClientModeSelect');
+        if (!sel) return;
+        const chosenOpt = sel.options[sel.selectedIndex];
+        if (!chosenOpt || !chosenOpt.getAttribute('data-dynamic-erp')) {
+            quoteDraftMeta.erpClientId = 0;
+            quoteDraftMeta.erpLeadId = 0;
+            quoteDraftMeta.erpNoCliente = '';
+            quoteDraftMeta.erpClientAddress = '';
+            const prevDyn = sel.querySelectorAll('option[data-dynamic-erp="1"]');
+            prevDyn.forEach(o => o.remove());
+            renderSelectedErpClientBadge();
+        }
+        saveQuoteDraftMeta();
+    };
+
+    window.clearSelectedErpClient = function () {
+        if (isActiveQuoteCompleted()) return;
+        quoteDraftMeta.erpClientId = 0;
+        quoteDraftMeta.erpLeadId = 0;
+        quoteDraftMeta.erpNoCliente = '';
+        quoteDraftMeta.erpClientAddress = '';
+        quoteDraftMeta.clientMode = 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)';
+        const sel = document.getElementById('quoteClientModeSelect');
+        if (sel) {
+            sel.querySelectorAll('option[data-dynamic-erp="1"]').forEach(o => o.remove());
+            sel.value = quoteDraftMeta.clientMode;
+        }
+        renderSelectedErpClientBadge();
+        saveQuoteDraftMeta();
+    };
+
+    function selectErpClientObject(cli) {
+        if (!cli || typeof cli !== 'object') return;
+        const cid = parseInt(cli.idCliente, 10) || 0;
+        const lid = cid > 0 ? 0 : (parseInt(cli.idLead, 10) || 0);
+        const fullName = cleanStr(cli.nombre || cli.nombreCompleto);
+        const phone = cleanStr(cli.celular || cli.telefono);
+        const email = cleanStr(cli.correo);
+        const addr = cleanStr(cli.direccion);
+
+        quoteDraftMeta.erpClientId = cid;
+        quoteDraftMeta.erpLeadId = lid;
+        quoteDraftMeta.erpNoCliente = cleanStr(cli.noCliente);
+        quoteDraftMeta.erpClientAddress = addr;
+        if (fullName) quoteDraftMeta.clientName = fullName;
+        if (phone) quoteDraftMeta.clientPhone = phone;
+        if (email) quoteDraftMeta.clientEmail = email;
+
+        const nameInp = document.getElementById('quoteClientNameInput');
+        const phoneInp = document.getElementById('quoteClientPhoneInput');
+        const emailInp = document.getElementById('quoteClientEmailInput');
+        if (nameInp && fullName) nameInp.value = fullName;
+        if (phoneInp && phone) phoneInp.value = phone;
+        if (emailInp && email) emailInp.value = email;
+
+        syncDynamicClientModeOption();
+        renderSelectedErpClientBadge();
+        const resEl = document.getElementById('quoteErpClientResults');
+        if (resEl) {
+            resEl.innerHTML = '';
+            resEl.classList.add('hidden');
+        }
+        saveQuoteDraftMeta();
+    }
+
+    window.selectErpClientFromSearch = function (idx) {
+        if (isActiveQuoteCompleted()) return;
+        const cli = lastErpClientSearchResults[idx];
+        if (cli) selectErpClientObject(cli);
+    };
+
+    window.searchErpClientsLive = async function () {
+        if (erpClientSearchInFlight || isActiveQuoteCompleted()) return;
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            openAuthModalForStartup();
+            return;
+        }
+        const inp = document.getElementById('quoteErpClientSearchInput');
+        const btn = document.getElementById('btnSearchErpClients');
+        const resEl = document.getElementById('quoteErpClientResults');
+        if (!resEl) return;
+
+        const q = cleanStr(inp ? inp.value : '');
+        if (q.length < 2) {
+            resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Escribe al menos 2 letras o dígitos (nombre, teléfono, correo o No. de cliente) para buscar en S Mueblería.</div>';
+            resEl.classList.remove('hidden');
+            if (inp) inp.focus();
+            return;
+        }
+
+        erpClientSearchInFlight = true;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Buscando...';
+        }
+        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-semibold bg-white" style="border-color:#E1DBC5; color:#252C32;">Consultando base de datos en vivo de S Mueblería...</div>';
+        resEl.classList.remove('hidden');
+
+        try {
+            const res = await callInvWebAppPost('inv_search_erp_clients', {
+                authToken: activeAdvisorSession.authToken || '',
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                advisorEmail: activeAdvisorSession.correo || '',
+                query: q
+            }, 25000);
+
+            if (res && res.authRequired) {
+                resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Confirma tu contraseña personal para consultar clientes en S Mueblería.</div>';
+                promptSessionReauth(res.error || 'Confirma tu contraseña para buscar clientes en S Mueblería.', null);
+                return;
+            }
+
+            if (!res || res.needsRedeploy || res.unavailable) {
+                resEl.innerHTML =
+                    '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">' +
+                    'Para activar la búsqueda directa en la base de datos de S Mueblería, publica una <strong>Nueva versión</strong> de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones</em>.' +
+                    '</div>';
+                return;
+            }
+
+            if (!res.ok) {
+                resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-red">' + escapeHtml(res.error || 'No se pudo realizar la búsqueda en S Mueblería.') + '</div>';
+                return;
+            }
+
+            lastErpClientSearchResults = Array.isArray(res.clients) ? res.clients : [];
+            if (!lastErpClientSearchResults.length) {
+                resEl.innerHTML =
+                    '<div class="rounded-lg border px-3 py-2.5 text-xs font-semibold bg-white flex flex-wrap items-center justify-between gap-2" style="border-color:#E1DBC5; color:#252C32;">' +
+                        '<span>Sin coincidencias en S Mueblería para <strong>' + escapeHtml(q) + '</strong>.</span>' +
+                        '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase" style="background:#A38251; color:#FFFFFF;">+ Dar de alta cliente</button>' +
+                    '</div>';
+                return;
+            }
+
+            resEl.innerHTML = lastErpClientSearchResults.map((c, idx) => {
+                const isCli = Number(c.idCliente) > 0;
+                const badgeTxt = isCli
+                    ? ('CLIENTE #' + c.idCliente + (c.noCliente ? (' · No. ' + c.noCliente) : ''))
+                    : ('PROSPECTO #' + c.idLead);
+                const subParts = [cleanStr(c.telefono || c.celular), cleanStr(c.correo), cleanStr(c.direccion)].filter(Boolean);
+                return '<div class="rounded-lg border px-3 py-2 bg-white flex items-center justify-between gap-2 hover:shadow-sm transition" style="border-color:#E1DBC5;">' +
+                    '<div class="min-w-0">' +
+                        '<div class="flex flex-wrap items-center gap-1.5">' +
+                            '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (isCli ? '#252C32' : '#A38251') + '; color:#FFFFFF;">' + escapeHtml(badgeTxt) + '</span>' +
+                            '<span class="text-xs font-extrabold uppercase truncate" style="color:#252C32;">' + escapeHtml(c.nombre || '') + '</span>' +
+                        '</div>' +
+                        (subParts.length ? ('<div class="text-[11px] font-semibold opacity-80 truncate mt-0.5" style="color:#252C32;">' + escapeHtml(subParts.join(' · ')) + '</div>') : '') +
+                    '</div>' +
+                    '<button type="button" onclick="selectErpClientFromSearch(' + idx + ')" class="px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase shrink-0" style="background:#A38251; color:#FFFFFF;">Elegir</button>' +
+                '</div>';
+            }).join('');
+        } finally {
+            erpClientSearchInFlight = false;
+            if (btn) {
+                btn.disabled = isActiveQuoteCompleted();
+                btn.textContent = 'Buscar cliente';
+            }
+        }
+    };
+
+    window.toggleNewErpClientForm = function (forceState) {
+        const panel = document.getElementById('quoteNewErpClientPanel');
+        const msg = document.getElementById('newErpClientMsg');
+        if (!panel) return;
+        const nextOpen = (typeof forceState === 'boolean') ? forceState : panel.classList.contains('hidden');
+        if (nextOpen && isActiveQuoteCompleted()) return;
+        panel.classList.toggle('hidden', !nextOpen);
+        if (msg) {
+            msg.textContent = '';
+            msg.classList.add('hidden');
+        }
+        if (nextOpen) {
+            const searchInp = document.getElementById('quoteErpClientSearchInput');
+            const nomInp = document.getElementById('newCliNombre');
+            if (nomInp && !cleanStr(nomInp.value) && searchInp && cleanStr(searchInp.value) && !/\d{4,}/.test(searchInp.value)) {
+                nomInp.value = cleanStr(searchInp.value);
+            }
+            if (nomInp) setTimeout(() => nomInp.focus(), 40);
+        }
+    };
+
+    function showNewErpClientMsg(text, tone) {
+        const el = document.getElementById('newErpClientMsg');
+        if (!el) return;
+        if (!text) {
+            el.textContent = '';
+            el.classList.add('hidden');
+            return;
+        }
+        el.textContent = text;
+        el.className = 'rounded-lg border px-3 py-2 text-xs font-bold ' +
+            (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
+    }
+
+    window.submitNewErpClientLive = async function () {
+        if (erpClientCreateInFlight || isActiveQuoteCompleted()) return;
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            openAuthModalForStartup();
+            return;
+        }
+
+        const valOf = id => cleanStr((document.getElementById(id) || {}).value);
+        const nombre = valOf('newCliNombre');
+        const paterno = valOf('newCliPaterno');
+        const materno = valOf('newCliMaterno');
+        const telefono = valOf('newCliTelefono');
+        const correo = valOf('newCliCorreo');
+        const empresa = valOf('newCliEmpresa');
+        const rfc = valOf('newCliRfc').toUpperCase();
+        const calle = valOf('newCliCalle');
+        const colonia = valOf('newCliColonia');
+        const cp = valOf('newCliCp');
+        const ciudad = valOf('newCliCiudad');
+        const estado = valOf('newCliEstado') || 'QUINTANA ROO';
+
+        if (!nombre) {
+            showNewErpClientMsg('Ingresa el nombre del cliente.', 'err');
+            const nEl = document.getElementById('newCliNombre');
+            if (nEl) nEl.focus();
+            return;
+        }
+        if (!telefono) {
+            showNewErpClientMsg('Ingresa el teléfono o celular del cliente.', 'err');
+            const tEl = document.getElementById('newCliTelefono');
+            if (tEl) tEl.focus();
+            return;
+        }
+
+        const btn = document.getElementById('btnSaveNewErpClient');
+        erpClientCreateInFlight = true;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Guardando en S Mueblería...';
+        }
+        showNewErpClientMsg('Registrando nuevo cliente en vivo en S Mueblería...', 'warn');
+
+        try {
+            const sess = enrichAdvisorLocation(activeAdvisorSession);
+            const effAdvId = sess.isAdmin
+                ? (cleanStr(quoteDraftMeta.erpAdvisorId) || cleanStr(sess.erpAdvisorId))
+                : cleanStr(sess.erpAdvisorId);
+
+            const res = await callInvWebAppPost('inv_create_erp_client', {
+                authToken: sess.authToken || '',
+                sheetTab: sess.sheetTab || '',
+                advisorEmail: sess.correo || '',
+                erpStore: cleanStr(quoteDraftMeta.erpStore) || cleanStr(sess.erpStore),
+                erpAdvisorId: effAdvId,
+                nombre: nombre,
+                paterno: paterno,
+                materno: materno,
+                telefono: telefono,
+                celular: telefono,
+                correo: correo,
+                empresa: empresa,
+                rfc: rfc,
+                calle: calle,
+                colonia: colonia,
+                cp: cp,
+                ciudad: ciudad,
+                estado: estado
+            }, 30000);
+
+            if (res && res.authRequired) {
+                showNewErpClientMsg('Confirma tu contraseña personal para registrar clientes en S Mueblería.', 'warn');
+                promptSessionReauth(res.error || 'Confirma tu contraseña para dar de alta clientes en S Mueblería.', null);
+                return;
+            }
+
+            if (!res || res.needsRedeploy || res.unavailable) {
+                showNewErpClientMsg('Publica una Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Extensiones → Apps Script → Implementar para activar el alta directa en S Mueblería.', 'warn');
+                return;
+            }
+
+            if (!res.ok || !res.client) {
+                showNewErpClientMsg(res.error || 'No fue posible registrar al cliente en S Mueblería.', 'err');
+                return;
+            }
+
+            selectErpClientObject(res.client);
+            ['newCliNombre', 'newCliPaterno', 'newCliMaterno', 'newCliTelefono', 'newCliCorreo', 'newCliEmpresa', 'newCliRfc', 'newCliCalle', 'newCliColonia', 'newCliCp', 'newCliCiudad'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            toggleNewErpClientForm(false);
+        } finally {
+            erpClientCreateInFlight = false;
+            if (btn) {
+                btn.disabled = isActiveQuoteCompleted();
+                btn.textContent = 'Guardar cliente en S Mueblería';
+            }
+        }
+    };
+
     window.setCartItemDiscount = function (skuRaw, rawPct) {
+        if (isActiveQuoteCompleted()) return;
         const key = String(skuRaw || '').trim().toUpperCase();
         if (!cart[key]) return;
         let pct = Number(rawPct);
@@ -3854,7 +4913,7 @@
     };
 
     function syncSkuCartControls(key) {
-        const q = cart[key] ? (Number(cart[key].qty) || 0) : 0;
+        const q = (!isActiveQuoteCompleted() && cart[key]) ? (Number(cart[key].qty) || 0) : 0;
 
         // Actualizar controles inline (- qty + / +) en fichas de portada, listado y variantes
         const ctrlWraps = document.querySelectorAll('[data-sku-ctrl="' + CSS.escape(key) + '"]');
@@ -3898,6 +4957,11 @@
         const key = String(skuRaw || '').trim().toUpperCase();
         if (!key) return;
         const stepDelta = (typeof delta === 'number' && !isNaN(delta)) ? delta : 1;
+        // Si había una cotización recién terminada y se agrega un producto nuevo, abrir en automático una cotización nueva limpia
+        if (isActiveQuoteCompleted()) {
+            if (stepDelta <= 0) return;
+            purgeCompletedAndActivateBlankDraft();
+        }
         const it = bySkuMap.get(key);
         if (!cart[key]) {
             if (stepDelta <= 0 || !it || !isQuotableItem(it)) return;
@@ -3926,6 +4990,7 @@
     };
 
     window.removeFromCart = function (skuRaw) {
+        if (isActiveQuoteCompleted()) return;
         const key = String(skuRaw || '').trim().toUpperCase();
         if (!key || !cart[key]) return;
         delete cart[key];
@@ -3958,21 +5023,30 @@
             openAuthModalForStartup();
             return;
         }
+        pruneExpiredQuoteDrafts(false);
         if (!erpAdvisorsCatalog.length) {
             loadErpCatalogLiveFromSheet().then(() => populateQuoteAdvisorControls());
         }
         populateQuoteAdvisorControls();
+        renderQuoteDraftsBar();
         renderCartItems();
+        applyQuoteCompletedLockUI();
         renderMyRecentQuotes(myRecentQuotesList);
         document.getElementById('cartModal').classList.add('open');
         refreshMyLiveQuotesInfo();
     };
 
     window.closeCartModal = function () {
-        document.getElementById('cartModal').classList.remove('open');
+        const modalEl = document.getElementById('cartModal');
+        if (modalEl) modalEl.classList.remove('open');
+        // Cuando se termina una cotización y se cierra la pestaña/ventana, descartar la terminada y dejar lista únicamente una nueva cotización
+        if (quoteDrafts.some(d => d && d.completed)) {
+            purgeCompletedAndActivateBlankDraft();
+        }
     };
 
     window.clearCart = function () {
+        if (isActiveQuoteCompleted()) return;
         const prevKeys = Object.keys(cart);
         cart = {};
         lastSubmittedQuoteMeta = null;
@@ -4082,6 +5156,7 @@
         const countLbl = document.getElementById('quoteItemsCountLabel');
         if (!wrap) return;
 
+        const locked = isActiveQuoteCompleted();
         const bd = computeQuoteBreakdown();
         if (countLbl) {
             countLbl.textContent = bd.lines.length + (bd.lines.length === 1 ? ' partida' : ' partidas') +
@@ -4095,6 +5170,7 @@
             return;
         }
 
+        const disAttr = locked ? ' disabled' : '';
         wrap.innerHTML = bd.lines.map((ln, idx) => {
             const unitStr = ln.unitList > 0 ? formatPrice(ln.unitList) : 'Sin precio';
             const lineSubStr = ln.lineSubtotal > 0 ? formatPrice(ln.lineSubtotal) : '$0.00';
@@ -4113,17 +5189,19 @@
                 '<div class="flex flex-wrap items-center gap-2 shrink-0 ml-auto">' +
                     '<div class="flex items-center gap-1" title="Porcentaje de descuento en esta partida">' +
                         '<span class="text-[10px] font-bold uppercase opacity-70">Desc% (máx ' + bd.maxPct + ')</span>' +
-                        '<input type="number" min="0" max="' + bd.maxPct + '" step="0.5" value="' + (ln.discountPct || 0) + '" ' +
+                        '<input type="number" min="0" max="' + bd.maxPct + '" step="0.5" value="' + (ln.discountPct || 0) + '"' + disAttr + ' ' +
                                'onchange="setCartItemDiscount(\'' + escapeHtml(ln.key) + '\', this.value)" ' +
                                'class="w-14 rounded-lg border px-1.5 py-1 text-center text-xs font-bold outline-none" ' +
                                'style="border-color:#E1DBC5; color:#252C32;">' +
                     '</div>' +
-                    '<div class="flex items-center gap-1">' +
-                        '<button type="button" title="Restar 1 pieza" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-7 h-7 rounded-full border text-sm font-bold hover:bg-red-50" style="border-color:#E1DBC5;">−</button>' +
-                        '<span class="w-6 text-center text-xs font-extrabold">' + ln.qty + '</span>' +
-                        '<button type="button" title="Sumar 1 pieza" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#A38251; background:#A38251; color:#FFF;">+</button>' +
-                        '<button type="button" title="Quitar producto de la cotización" onclick="removeFromCart(\'' + escapeHtml(ln.key) + '\')" class="ml-1 px-2.5 h-7 rounded-full border text-[10px] font-extrabold uppercase tracking-wider transition" style="border-color:#FECACA; background:#FEF2F2; color:#991B1B;">✕ Quitar</button>' +
-                    '</div>' +
+                    (locked
+                        ? ('<span class="px-2.5 py-1 rounded-full text-xs font-extrabold border" style="border-color:#E1DBC5; color:#252C32;">Cant: ' + ln.qty + '</span>')
+                        : ('<div class="flex items-center gap-1">' +
+                            '<button type="button" title="Restar 1 pieza" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-7 h-7 rounded-full border text-sm font-bold hover:bg-red-50" style="border-color:#E1DBC5;">−</button>' +
+                            '<span class="w-6 text-center text-xs font-extrabold">' + ln.qty + '</span>' +
+                            '<button type="button" title="Sumar 1 pieza" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#A38251; background:#A38251; color:#FFF;">+</button>' +
+                            '<button type="button" title="Quitar producto de la cotización" onclick="removeFromCart(\'' + escapeHtml(ln.key) + '\')" class="ml-1 px-2.5 h-7 rounded-full border text-[10px] font-extrabold uppercase tracking-wider transition" style="border-color:#FECACA; background:#FEF2F2; color:#991B1B;">✕ Quitar</button>' +
+                        '</div>')) +
                 '</div>' +
             '</div>';
         }).join('');
@@ -4132,7 +5210,9 @@
     }
 
     function collectQuoteSubmissionPayload(sendToErp) {
-        saveQuoteDraftMeta();
+        if (!isActiveQuoteCompleted()) {
+            saveQuoteDraftMeta();
+        }
         const bd = computeQuoteBreakdown();
         const sess = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
         const isAdmin = !!(sess && sess.isAdmin);
@@ -4171,6 +5251,9 @@
             clientMode: quoteDraftMeta.clientMode || 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)',
             clientName: cleanStr(quoteDraftMeta.clientName) || (isProy ? 'PROYECTO CREATA' : 'PROSPECTO EN TIENDA'),
             clientPhone: cleanStr(quoteDraftMeta.clientPhone),
+            clientEmail: cleanStr(quoteDraftMeta.clientEmail),
+            erpClientId: Number(quoteDraftMeta.erpClientId) || 0,
+            erpLeadId: Number(quoteDraftMeta.erpLeadId) || 0,
             deliveryDate: isoDateToDMY(quoteDraftMeta.deliveryDateIso || getDefaultDeliveryIsoDate()),
             notes: cleanStr(quoteDraftMeta.notes),
             extraDiscount: bd.extraDiscount,
@@ -4204,6 +5287,7 @@
             'Modalidad Cliente: ' + payload.clientMode,
             (payload.isProyecto ? 'Proyecto / Cliente: ' : 'Cliente / Prospecto: ') + payload.clientName,
             payload.clientPhone ? ('Teléfono: ' + payload.clientPhone) : '',
+            payload.clientEmail ? ('Correo Cliente: ' + payload.clientEmail) : '',
             'Entrega Tentativa: ' + payload.deliveryDate,
             payload.notes ? ('Notas: ' + payload.notes) : '',
             '----------------------------------------',
@@ -4297,6 +5381,7 @@
                 '<div><strong>Tienda / Bodega S Mueblería:</strong> ' + escapeHtml(payload.erpStore) + '</div>' +
                 '<div><strong>Teléfono:</strong> ' + escapeHtml(payload.clientPhone || 'Por definir') + '</div>' +
                 '<div><strong>Entrega Tentativa:</strong> ' + escapeHtml(payload.deliveryDate) + '</div>' +
+                (payload.clientEmail ? ('<div><strong>Correo Cliente:</strong> ' + escapeHtml(payload.clientEmail) + '</div>') : '') +
                 '<div><strong>Asesor S Mueblería:</strong> ' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</div>' +
                 '<div><strong>Correo Cuenta:</strong> ' + escapeHtml(payload.advisorEmail || '') + '</div>' +
                 (payload.notes ? ('<div style="grid-column:span 2;"><strong>Notas:</strong> ' + escapeHtml(payload.notes) + '</div>') : '') +
@@ -4354,6 +5439,13 @@
         if (quoteSubmitInFlight) return;
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             openAuthModalForStartup();
+            return;
+        }
+        if (isActiveQuoteCompleted()) {
+            renderQuoteStatusBanner(
+                'warn',
+                '<div>Esta cotización ya fue terminada y cerrada. Presiona <strong>+ Agregar nueva cotización</strong> o cierra esta ventana para capturar una nueva.</div>'
+            );
             return;
         }
 
@@ -4444,6 +5536,7 @@
                         createdAt: cleanStr(res.lastSync),
                         quoteType: res.quoteType || payload.quoteType
                     };
+                    syncActiveQuoteDraftStorage();
                     renderQuoteStatusBanner(
                         'ok',
                         '<div class="font-extrabold uppercase">✓ Cotización cargada en revisión en Google Sheets (Serie ' + escapeHtml(payload.orderPrefix) + ')</div>' +
@@ -4465,6 +5558,7 @@
                         createdAt: cleanStr(res.lastSync),
                         quoteType: res.quoteType || payload.quoteType
                     };
+                    markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     renderQuoteStatusBanner(
                         'ok',
                         '<div class="font-extrabold uppercase">✓ Cotización creada en vivo en el sistema S Mueblería</div>' +
@@ -4472,7 +5566,10 @@
                             (qidTxt ? (' · ID Cotización ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') +
                         '</div>' +
                         '<div>Emitida con usuario S Mueblería: <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong></div>' +
-                        '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button></div>'
+                        '<div class="pt-1 flex flex-wrap items-center gap-3">' +
+                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button>' +
+                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
+                        '</div>'
                     );
                     return;
                 }
@@ -4499,6 +5596,7 @@
                         createdAt: cleanStr(latest && latest.lastSync),
                         quoteType: payload.quoteType
                     };
+                    markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     populateQuoteAdvisorControls();
                     renderQuoteStatusBanner(
                         'ok',
@@ -4506,14 +5604,28 @@
                         '<div>Folio S Mueblería: <strong>' + escapeHtml(folioFallback || assignedFolio) + '</strong>' +
                             (qidFallback ? (' · ID Cotización: <strong>' + escapeHtml(qidFallback) + '</strong>') : '') +
                         '</div>' +
-                        '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button></div>'
+                        '<div class="pt-1 flex flex-wrap items-center gap-3">' +
+                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button>' +
+                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
+                        '</div>'
                     );
                 } else if (res.queuedForDaemon) {
+                    lastSubmittedQuoteMeta = {
+                        orderCode: assignedFolio,
+                        folio: '',
+                        quoteId: '',
+                        createdAt: cleanStr(res.lastSync),
+                        quoteType: payload.quoteType
+                    };
+                    markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     renderQuoteStatusBanner(
                         'warn',
                         '<div class="font-extrabold uppercase">⏳ Cotización guardada en cola automática hacia S Mueblería</div>' +
                         '<div>La sesión directa en nube estaba por renovarse, así que la cotización quedó lista en <code>plantilla</code> (<strong>ENVIAR COTIZACIÓN A S MUEBLERÍA</strong>). En cuanto <code>servicio_en_vivo.py</code> esté activo en la PC sincronizadora, se cargará automáticamente con su folio oficial.</div>' +
-                        '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF provisional →</button></div>'
+                        '<div class="pt-1 flex flex-wrap items-center gap-3">' +
+                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF provisional →</button>' +
+                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
+                        '</div>'
                     );
                 } else {
                     renderQuoteStatusBanner(
@@ -4543,8 +5655,9 @@
             );
         } finally {
             quoteSubmitInFlight = false;
-            if (btnRev) btnRev.disabled = false;
-            if (btnSend) btnSend.disabled = false;
+            const lockedNow = isActiveQuoteCompleted();
+            if (btnRev) btnRev.disabled = lockedNow;
+            if (btnSend) btnSend.disabled = lockedNow;
         }
     };
 
@@ -5338,9 +6451,10 @@
     }
 
     document.addEventListener('DOMContentLoaded', async function () {
+        initQuoteDraftsSystem();
         openAuthModalForStartup();
         loadErpCatalogLiveFromSheet().then(() => {
-            if ((liveErpPricesBySku.size > 0 || liveErpCatalogBySku.size > 0 || livePhotosBySku.size > 0) && Array.isArray(allItems) && allItems.length > 0) {
+            if ((liveErpPricesBySku.size > 0 || liveErpCatalogBySku.size > 0 || livePhotosBySku.size > 0 || liveNewPhotosBySku.size > 0) && Array.isArray(allItems) && allItems.length > 0) {
                 let updatedCatalog = false;
                 const existingSkus = new Set();
                 for (let i = 0; i < allItems.length; i++) {
@@ -5355,7 +6469,13 @@
                             updatedCatalog = true;
                         }
                     }
-                    if (!it.f && livePhotosBySku.has(skuU)) {
+                    if (liveNewPhotosBySku.has(skuU)) {
+                        const newFoto = liveNewPhotosBySku.get(skuU);
+                        if (newFoto && it.f !== newFoto) {
+                            it.f = newFoto;
+                            updatedCatalog = true;
+                        }
+                    } else if ((!cleanStr(it.f) || !resolveDriveOrImgUrl(it.f)) && livePhotosBySku.has(skuU)) {
                         it.f = livePhotosBySku.get(skuU);
                         updatedCatalog = true;
                     }
@@ -5372,7 +6492,7 @@
                         mo: erpMeta.mo || '',
                         n: erpMeta.n || skuU,
                         vr: '',
-                        f: erpMeta.f || '',
+                        f: liveNewPhotosBySku.get(skuU) || erpMeta.f || '',
                         c: '',
                         tl: '',
                         ct: '',
@@ -5439,8 +6559,11 @@
         window.addEventListener('offline', function () {
             setLiveConnectionStatus(false);
         });
+        window.addEventListener('pagehide', purgeCompletedQuoteDraftsOnExit);
+        window.addEventListener('beforeunload', purgeCompletedQuoteDraftsOnExit);
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') {
+                pruneExpiredQuoteDrafts(true);
                 refreshLiveSheetNow();
             }
         });

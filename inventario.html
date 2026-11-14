@@ -159,12 +159,14 @@
         .modal-backdrop.open {
             display: flex;
         }
-        /* CATEGORÍAS DEL INVENTARIO COMPACTAS EN LÍNEA */
+        /* CATEGORÍAS DEL INVENTARIO CENTRADAS Y EQUILIBRADAS */
         .inv-cats-cell {
             display: flex;
             align-items: center;
-            gap: 5px;
-            overflow-x: auto;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            width: 100%;
             padding-top: 0;
             scrollbar-width: none;
             -webkit-overflow-scrolling: touch;
@@ -172,16 +174,17 @@
         .inv-cats-cell::-webkit-scrollbar { display: none; }
         .inv-cat-pill {
             flex: 0 0 auto;
-            height: 24px;
+            height: 25px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            gap: 4px;
             font-family: 'Raleway', sans-serif;
             font-size: 7.5px;
             font-weight: 700;
             letter-spacing: 0.45px;
             text-transform: uppercase;
-            padding: 0 9px;
+            padding: 0 10px;
             border-radius: 9999px;
             border: 1px solid rgba(225, 219, 197, 0.35);
             background: rgba(255, 255, 255, 0.1);
@@ -202,7 +205,22 @@
             color: #FFFFFF;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
         }
-        .inv-subcats-cell { padding-top: 6px; }
+        .inv-cat-pill.stock-pill {
+            border-color: rgba(225, 219, 197, 0.65);
+            background: rgba(163, 130, 81, 0.22);
+            color: #E1DBC5;
+            font-weight: 800;
+        }
+        .inv-cat-pill.stock-pill.active {
+            background: #10B981;
+            border-color: #10B981;
+            color: #FFFFFF;
+        }
+        .inv-subcats-cell {
+            justify-content: center;
+            flex-wrap: wrap;
+            padding-top: 7px;
+        }
         .inv-sub-pill {
             height: 22px;
             font-size: 7px;
@@ -215,6 +233,40 @@
             background: #FFFFFF;
             border-color: #FFFFFF;
             color: #252C32;
+        }
+        /* CONTENEDOR DE ACCIONES EN CABECERA (SEGUIMIENTO + COTIZACIÓN) */
+        .inv-header-actions {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            flex-wrap: nowrap;
+        }
+        .inv-track-btn {
+            flex: 0 0 auto;
+            height: 24px;
+            padding: 0 9px;
+            border-radius: 9999px;
+            border: 1px solid rgba(225, 219, 197, 0.55);
+            background: rgba(255, 255, 255, 0.09);
+            color: #E1DBC5;
+            font-size: 7px;
+            font-weight: 800;
+            letter-spacing: 0.35px;
+            text-transform: uppercase;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+        .inv-track-btn:hover {
+            background: rgba(225, 219, 197, 0.2);
+            border-color: #FFFFFF;
+            color: #FFFFFF;
         }
         /* BOTÓN COTIZACIÓN COMPACTO EN MÓVIL */
         .inv-quote-btn {
@@ -362,9 +414,11 @@
             .inv-controls-line { display: contents; }
             .inv-logo-cell { grid-area: logo; justify-self: start; margin: 0; }
             .inv-logo-cell .logo-img { height: 32px; margin: 0; }
-            .inv-quote-btn { grid-area: quote; justify-self: end; height: 26px; font-size: 8px; padding: 0 11px; }
+            .inv-header-actions { grid-area: quote; justify-self: end; gap: 5px; }
+            .inv-track-btn { height: 26px; font-size: 7px; padding: 0 8px; }
+            .inv-quote-btn { height: 26px; font-size: 8px; padding: 0 10px; }
             .inv-search-cell { grid-area: search; }
-            .inv-cats-cell { grid-area: cats; }
+            .inv-cats-cell { grid-area: cats; justify-content: center; flex-wrap: wrap; gap: 5px; }
             .inv-cat-pill { height: 25px; font-size: 8px; padding: 0 10px; }
         }
         /* ÚNICAMENTE EN PC (>= 920px): ENCABEZADO EQUILIBRADO EN 2 FILAS (LOGO IZQ · BUSCADOR CENTRO · COTIZACIÓN DER + CATEGORÍAS COMPLETAS CENTRADAS) */
@@ -375,7 +429,7 @@
             }
             .inv-top-line {
                 display: grid;
-                grid-template-columns: minmax(150px, 1fr) minmax(340px, 580px) minmax(150px, 1fr);
+                grid-template-columns: minmax(150px, 1fr) minmax(340px, 560px) minmax(210px, 1fr);
                 grid-template-areas:
                     "logo search quote"
                     "cats cats cats";
@@ -399,7 +453,7 @@
                 grid-area: search;
                 justify-self: center;
                 width: 100%;
-                max-width: 580px;
+                max-width: 560px;
                 gap: 8px;
             }
             .inv-search-box {
@@ -434,9 +488,17 @@
                 gap: 5px;
             }
             #invScanBtn svg { width: 14px; height: 14px; }
-            .inv-quote-btn {
+            .inv-header-actions {
                 grid-area: quote;
                 justify-self: end;
+                gap: 8px;
+            }
+            .inv-track-btn {
+                height: 34px;
+                padding: 0 12px;
+                font-size: 9.5px;
+            }
+            .inv-quote-btn {
                 height: 42px;
                 padding: 0 18px;
                 font-size: 11px;
@@ -479,15 +541,16 @@
         }
         @media (min-width: 1280px) {
             .inv-top-line {
-                grid-template-columns: minmax(180px, 1fr) minmax(420px, 640px) minmax(180px, 1fr);
+                grid-template-columns: minmax(180px, 1fr) minmax(420px, 620px) minmax(240px, 1fr);
                 column-gap: 24px;
             }
             .inv-logo-cell .logo-img { height: 54px; }
-            .inv-search-cell { max-width: 640px; }
+            .inv-search-cell { max-width: 620px; }
             .inv-search-box { height: 44px; }
             #invSearchInput { font-size: 14px; }
             #invScanBtn { height: 44px; padding: 0 16px; font-size: 11px; }
             .inv-cat-pill { height: 37px; font-size: 11px; padding: 0 15px; }
+            .inv-track-btn { height: 36px; padding: 0 13px; font-size: 10px; }
             .inv-quote-btn { height: 44px; padding: 0 20px; font-size: 11.5px; }
         }
         /* MINIATURA DEL PRODUCTO EN EL LISTADO */
@@ -586,11 +649,21 @@
                     <!-- CATEGORÍAS DEL INVENTARIO -->
                     <div id="invCategoryBar" class="inv-cats-cell"></div>
 
-                    <!-- BOTÓN COTIZACIÓN COMPACTO EN LA MISMA LÍNEA -->
-                    <button type="button" onclick="openCartModal()" id="headerCartBtn" class="inv-quote-btn" title="Abrir cotización">
-                        <span>Cotización</span>
-                        <span id="headerCartCount" class="inv-quote-badge">0</span>
-                    </button>
+                    <!-- BOTÓN PEQUEÑO SEGUIMIENTO DE COTIZACIÓN + BOTÓN COTIZACIÓN -->
+                    <div class="inv-header-actions">
+                        <a href="https://creata-muebles-qa8x.onrender.com/"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           id="headerTrackQuoteBtn"
+                           class="inv-track-btn"
+                           title="Ir a Seguimiento de cotización">
+                            <span>Seguimiento de cotización</span>
+                        </a>
+                        <button type="button" onclick="openCartModal()" id="headerCartBtn" class="inv-quote-btn" title="Abrir cotización">
+                            <span>Cotización</span>
+                            <span id="headerCartCount" class="inv-quote-badge">0</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="inv-logo-cell">
@@ -669,7 +742,17 @@
                             </svg>
                         </div>
                     </div>
+                    <!-- EXCLUSIVO GERENTES Y ADMINISTRADORES: AGREGAR / ACTUALIZAR FOTO EN HOJA "FOTOS NUEVAS" -->
+                    <div id="detManagerPhotoWrap" class="hidden absolute bottom-2.5 right-2.5 z-10">
+                        <label id="detUploadPhotoLabel"
+                               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-extrabold uppercase tracking-wider border shadow cursor-pointer transition"
+                               style="background:#252C32; border-color:#A38251; color:#FFFFFF;">
+                            <span id="detUploadPhotoBtnText">📷 Agregar foto</span>
+                            <input type="file" id="detUploadPhotoInput" accept="image/*" class="hidden" onchange="uploadManagerProductPhoto(this)">
+                        </label>
+                    </div>
                 </div>
+                <div id="detUploadPhotoStatus" class="hidden rounded-xl border px-3.5 py-2 text-xs font-bold"></div>
 
                 <div class="rounded-xl border p-4 space-y-3" style="border-color:#E1DBC5; background:#FFFFFF;">
                     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -725,7 +808,36 @@
                 <button type="button" onclick="closeCartModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0">✕</button>
             </div>
 
+            <!-- BARRA DE MÚLTIPLES COTIZACIONES ABIERTAS SIN GUARDAR (VIGENCIA MÁXIMA: 3 HORAS) -->
+            <div id="quoteDraftsBar" class="px-4 py-2.5 border-b flex flex-wrap items-center justify-between gap-2"
+                 style="background:#FAF9F6; border-color:#E1DBC5;">
+                <div id="quoteDraftsTabsList" class="flex flex-wrap items-center gap-1.5 min-w-0"></div>
+                <div class="flex items-center gap-2 shrink-0 ml-auto">
+                    <span class="text-[10px] font-bold opacity-75 hidden sm:inline" style="color:#252C32;">Tiempo máx. sin guardar: 3 h</span>
+                    <button type="button" onclick="createNewQuoteDraft(true)"
+                            class="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
+                            style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
+                        + Nueva cotización
+                    </button>
+                </div>
+            </div>
+
             <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+                <!-- AVISO DE COTIZACIÓN TERMINADA (BLOQUEADA · AL CERRAR SE INICIA UNA NUEVA) -->
+                <div id="quoteCompletedBanner" class="hidden rounded-xl border p-3.5 text-xs space-y-2 sem-green">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <div class="font-extrabold uppercase">✓ Cotización terminada y registrada</div>
+                            <div>Esta cotización quedó cerrada. Al cerrar esta ventana solo se abrirá una cotización nueva en blanco.</div>
+                        </div>
+                        <button type="button" onclick="startFreshQuoteAfterCompleted()"
+                                class="px-3.5 py-2 rounded-full text-[11px] font-extrabold uppercase tracking-wider shadow-sm"
+                                style="background:#252C32; color:#FFFFFF;">
+                            + Agregar nueva cotización
+                        </button>
+                    </div>
+                </div>
+
                 <!-- SECCIÓN 1: CUENTA Y FOLIO OFICIAL DE S MUEBLERÍA SEGÚN TIENDA / BODEGA -->
                 <div class="rounded-xl border p-3.5 space-y-3" style="border-color:#E1DBC5; background:#FAF9F6;">
                     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -779,13 +891,116 @@
                     </div>
                 </div>
 
-                <!-- SECCIÓN 2: DATOS DEL CLIENTE / PROYECTO Y CONDICIONES -->
-                <div class="rounded-xl border p-3.5 space-y-3" style="border-color:#E8E4DE; background:#FFFFFF;">
-                    <div class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">2. Datos Necesarios para la Cotización</div>
+                <!-- SECCIÓN 2: BUSCADOR / ALTA DE CLIENTES EN S MUEBLERÍA + CONDICIONES -->
+                <div id="quoteSection2Fieldset" class="rounded-xl border p-3.5 space-y-3" style="border-color:#E8E4DE; background:#FFFFFF;">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">2. Cliente en S Mueblería y Datos de la Cotización</div>
+                        <button type="button" id="btnToggleNewErpClient" onclick="toggleNewErpClientForm()"
+                                class="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
+                                style="border-color:#A38251; background:#FAF9F6; color:#252C32;">
+                            + Nuevo cliente en S Mueblería
+                        </button>
+                    </div>
+
+                    <!-- BUSCADOR EN VIVO EN LA BASE DE DATOS DE S MUEBLERÍA -->
+                    <div class="rounded-xl border p-2.5 space-y-2" style="border-color:#E1DBC5; background:#FAF9F6;">
+                        <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                            <input id="quoteErpClientSearchInput" type="search"
+                                   onkeydown="if(event.key==='Enter'){event.preventDefault();searchErpClientsLive();}"
+                                   placeholder="Buscar cliente en S Mueblería (nombre, teléfono, correo o No. cliente)..."
+                                   class="flex-1 min-w-0 rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
+                                   style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                            <button type="button" id="btnSearchErpClients" onclick="searchErpClientsLive()"
+                                    class="px-3.5 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-wider shrink-0 transition"
+                                    style="background:#252C32; color:#FFFFFF;">
+                                Buscar cliente
+                            </button>
+                        </div>
+                        <div id="quoteSelectedErpClientBadge" class="hidden rounded-lg border px-3 py-2 text-xs font-bold flex items-center justify-between gap-2 sem-green"></div>
+                        <div id="quoteErpClientResults" class="hidden space-y-1.5 max-h-48 overflow-y-auto pt-1"></div>
+                    </div>
+
+                    <!-- FORMULARIO PARA AGREGAR NUEVO CLIENTE DIRECTO EN S MUEBLERÍA -->
+                    <div id="quoteNewErpClientPanel" class="hidden rounded-xl border p-3 space-y-2.5" style="border-color:#A38251; background:#FAF9F6;">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">Alta de Nuevo Cliente en S Mueblería</span>
+                            <button type="button" onclick="toggleNewErpClientForm(false)" class="text-xs font-extrabold opacity-70 hover:opacity-100" style="color:#252C32;">✕ Cerrar</button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Nombre(s) *</label>
+                                <input id="newCliNombre" type="text" placeholder="Ej. María Fernanda"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Apellido Paterno</label>
+                                <input id="newCliPaterno" type="text" placeholder="Ej. López"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Apellido Materno</label>
+                                <input id="newCliMaterno" type="text" placeholder="Ej. García"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Teléfono / Celular *</label>
+                                <input id="newCliTelefono" type="tel" placeholder="998 000 0000"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Correo electrónico</label>
+                                <input id="newCliCorreo" type="email" placeholder="cliente@correo.com"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Empresa / Razón Social</label>
+                                <input id="newCliEmpresa" type="text" placeholder="Opcional"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">RFC (Opcional)</label>
+                                <input id="newCliRfc" type="text" placeholder="XAXX010101000"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold uppercase outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Calle y Número</label>
+                                <input id="newCliCalle" type="text" placeholder="Calle / Av. y número"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Colonia y C.P.</label>
+                                <div class="grid grid-cols-3 gap-1.5">
+                                    <input id="newCliColonia" type="text" placeholder="Colonia"
+                                           class="col-span-2 w-full rounded-lg border px-2 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                    <input id="newCliCp" type="text" placeholder="C.P."
+                                           class="w-full rounded-lg border px-2 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Ciudad</label>
+                                <input id="newCliCiudad" type="text" placeholder="Cancún / Playa del Carmen"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5">Estado</label>
+                                <input id="newCliEstado" type="text" value="QUINTANA ROO"
+                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                            </div>
+                            <div class="flex items-end">
+                                <button type="button" id="btnSaveNewErpClient" onclick="submitNewErpClientLive()"
+                                        class="w-full py-2 px-3 rounded-lg text-[11px] font-extrabold uppercase tracking-wider transition shadow-sm"
+                                        style="background:#A38251; color:#FFFFFF;">
+                                    Guardar cliente en S Mueblería
+                                </button>
+                            </div>
+                        </div>
+                        <div id="newErpClientMsg" class="hidden rounded-lg border px-3 py-2 text-xs font-bold"></div>
+                    </div>
+
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div>
                             <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Modalidad de Cliente</label>
-                            <select id="quoteClientModeSelect" onchange="saveQuoteDraftMeta()"
+                            <select id="quoteClientModeSelect" onchange="onQuoteClientModeSelectChange()"
                                      class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
                                     style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
                                 <option value="PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)">Prospecto provisional (solo nombre)</option>
@@ -825,7 +1040,14 @@
                                        style="border-color:#E1DBC5; color:#252C32;">
                             </div>
                         </div>
-                        <div class="sm:col-span-2">
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Correo del Cliente (Opcional)</label>
+                            <input id="quoteClientEmailInput" type="email" oninput="saveQuoteDraftMeta()"
+                                   placeholder="cliente@correo.com"
+                                   class="w-full rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
+                                   style="border-color:#E1DBC5; color:#252C32;">
+                        </div>
+                        <div>
                             <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Notas / Observaciones</label>
                             <input id="quoteNotesInput" type="text" oninput="saveQuoteDraftMeta()"
                                    placeholder="Acabados especiales, comentarios de entrega o referencias..."
@@ -1033,6 +1255,6 @@
     <script src="inventario-data-1.js?v=41"></script>
     <script src="inventario-data-2.js?v=41"></script>
     <script src="inventario-data-3.js?v=41"></script>
-    <script src="inventario-app.js?v=43"></script>
+    <script src="inventario-app.js?v=44"></script>
 </body>
 </html>
