@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v54 · SW v13',
+            version: 'v55 · SW v14',
             commit: 'Actual',
+            date: '14/11/2026',
+            module: 'AppsScript_Creata_Drive_Sheets.gs · inventario.html · inventario-app.js · WebApp v18',
+            title: 'Eliminación de Cotizaciones en Vivo global y nueva sección de PDFs Generados por Rol y Bodega Activa + Despliegue en Producción',
+            summary: 'Eliminación del bloque global Cotizaciones en Vivo (Todas las Tiendas y Bodegas). Incorporación de sección dinámica de PDFs de Cotización que aparece al generar el PDF con reglas estrictas en backend y frontend (Asesor: solo los suyos de su bodega activa; Gerente: los suyos y los de sus asesores de su bodega activa; Admin: por tienda seleccionada) + extracción posicional Telerik v8.0.14.507 desplegada en Apps Script.'
+        },
+        {
+            version: 'v54 · SW v13',
+            commit: '6d74822',
             date: '14/11/2026',
             module: 'AppsScript_Creata_Drive_Sheets.gs · inventario-app.js · historial-app.js',
             title: 'Descarga automática y a 1 clic del PDF original de cotización de S Mueblería',
@@ -110,6 +118,11 @@
             key: 'Conexión ERP en Vivo',
             val: 'sistema.smuebleria.com · WCF InsertarCotizacion',
             desc: 'Emisión directa de cotizaciones reales con confirmación previa obligatoria, asignación de Folio oficial por serie de tienda y respaldo en COTIZACIONES_EN_VIVO.'
+        },
+        {
+            key: 'Visibilidad de PDFs de Cotización',
+            val: 'Asesor (Propios + Bodega) · Gerente (Propios + Asesores de su Bodega)',
+            desc: 'La sección de PDFs aparece al generarse la cotización; el asesor solo ve y descarga los suyos de su bodega activa y el gerente solo los suyos y los de los asesores de su bodega activa.'
         },
         {
             key: 'Modalidad y Categoría Automáticas',

@@ -2418,6 +2418,7 @@ function sanitizeUserForClient_(u, includeSignedToken) {
     sheetTab: u.sheetTab,
     rowNum: u.rowNum,
     isAdmin: !!u.isAdmin,
+    isManager: isManagerUserRole_(u),
     maxDiscountPct: u.maxDiscountPct !== undefined ? u.maxDiscountPct : null,
     branchKey: u.branchKey,
     branchLabel: u.branchLabel,
@@ -2434,6 +2435,9 @@ function sanitizeUserForClient_(u, includeSignedToken) {
     erpAdvisorId: u.erpAdvisorId || '',
     erpAdvisorBranch: u.erpAdvisorBranch || ''
   };
+  if (Array.isArray(u.branchAdvisorEmails)) {
+    out.branchAdvisorEmails = u.branchAdvisorEmails;
+  }
   if (includeSignedToken) {
     out.authToken = issueInvAuthToken_(u.correo, u.sheetTab);
   }
@@ -2509,6 +2513,10 @@ function handleInvLogin_(body) {
     const usedTemp = !u.defKey && !!u.tempKey && keysEqualNormalized_(inputKey, u.tempKey);
     const sanitized = sanitizeUserForClient_(u, true);
     sanitized.mustChangeKey = usedTemp;
+    if (sanitized.isManager && !sanitized.isAdmin) {
+      const mgrStoreNorm = normalizeQuoteErpStore_(sanitized.erpStore, sanitized.sheetTab);
+      sanitized.branchAdvisorEmails = Object.keys(getAllowedAdvisorEmailsForManager_(allUsers, sanitized, mgrStoreNorm));
+    }
     return sanitized;
   });
 
@@ -2704,7 +2712,7 @@ function resolveAuthenticatedAdvisor_(ss, erpAdvisors, body) {
     };
   }
 
-  return { ok: true, advisor: chosen };
+  return { ok: true, advisor: chosen, allUsers: allUsers };
 }
 
 // ----------------------------------------------------------------------------
@@ -2978,19 +2986,143 @@ function peekNextStoreErpFolio_(erpStore, fallbackPrefix, folioSnap) {
   return 'Serie ' + pfx + ' (En vivo)';
 }
 
-function readRecentQuotesForAdvisor_(shQuotes, advisorEmail, maxItems) {
-  if (!shQuotes || shQuotes.getLastRow() < 2) return [];
-  const limit = maxItems || 10;
-  const lastR = shQuotes.getLastRow();
-  const startR = Math.max(2, lastR - 200);
-  const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 24).getDisplayValues();
-  const emailNorm = String(advisorEmail || '').trim().toLowerCase();
+function isManagerUserRole_(uOrPuesto) {
+  if (!uOrPuesto) return false;
+  if (typeof uOrPuesto === 'object' && uOrPuesto.isAdmin) return false;
+  const rawPuesto = typeof uOrPuesto === 'object' ? (uOrPuesto.puesto || '') : String(uOrPuesto || '');
+  const pNorm = normPlainUpper_(rawPuesto);
+  return /GERENTE|\bSUB/.test(pNorm);
+}
+
+function normalizeQuoteErpStore_(rawStore, rawBranchTab) {
+  const candidates = [rawStore, rawBranchTab];
+  for (let c = 0; c < candidates.length; c++) {
+    const s = normPlainUpper_(candidates[c]);
+    if (!s) continue;
+    if (ERP_STORE_FOLIO_SERIES_[s]) return s;
+    for (let i = 0; i < INV_USER_TABS_.length; i++) {
+      const cfg = INV_USER_TABS_[i];
+      if (
+        normPlainUpper_(cfg.erpStore) === s ||
+        normPlainUpper_(cfg.tab) === s ||
+        normPlainUpper_(cfg.branchKey) === s ||
+        normPlainUpper_(cfg.label) === s
+      ) {
+        return normPlainUpper_(cfg.erpStore);
+      }
+    }
+    if (s === 'COLOSIO' || s === 'COLOCIO') return 'CREATA LIVING COLOSIO';
+    if (s === 'PLAYA') return 'CREATA LIVING PLAYA';
+    if (s === 'PTC' || s === 'PUERTO CANCUN') return 'CREATA PUERTO CANCUN';
+    if (s === 'CASA CREATA') return 'CASA CREATA BONAMPAK';
+    if (s === 'PROYECTOS') return 'PROYECTOS ANIPA INTERIOR';
+    return s;
+  }
+  return '';
+}
+
+function getAllowedAdvisorEmailsForManager_(allUsers, managerUser, activeStoreNorm) {
+  const allowed = {};
+  const mgrEmail = String((managerUser && managerUser.correo) || '').trim().toLowerCase();
+  if (mgrEmail) allowed[mgrEmail] = true;
+  const storeTarget = activeStoreNorm || normalizeQuoteErpStore_(managerUser && managerUser.erpStore, managerUser && managerUser.sheetTab);
+  if (!storeTarget || !Array.isArray(allUsers)) return allowed;
+
+  for (let i = 0; i < allUsers.length; i++) {
+    const u = allUsers[i];
+    if (!u || !u.correo) continue;
+    const em = String(u.correo).trim().toLowerCase();
+    if (!em) continue;
+    if (em === mgrEmail) {
+      allowed[em] = true;
+      continue;
+    }
+    // Regla estricta: el gerente solo ve sus propias cotizaciones y las de los asesores de su bodega/tienda activa
+    if (u.isAdmin || ADMIN_MASTER_EMAILS_[em] || isManagerUserRole_(u)) continue;
+    const uStoreNorm = normalizeQuoteErpStore_(u.erpStore, u.sheetTab);
+    if (uStoreNorm && uStoreNorm === storeTarget) {
+      allowed[em] = true;
+    }
+  }
+  return allowed;
+}
+
+function hasGeneratedErpQuotePdf_(quoteIdRaw, folioRaw, statusRaw) {
+  const qidNum = parseInt(String(quoteIdRaw || '').replace(/[^\d]/g, ''), 10) || 0;
+  if (qidNum > 0) return true;
+  const fol = String(folioRaw || '').trim().toUpperCase();
+  if (!fol || /^[A-Z]+-\d+$/i.test(fol) || /^(EN PROCESO|PENDIENTE)$/i.test(fol)) return false;
+  if (/EN COLA|REVISION/i.test(String(statusRaw || ''))) return false;
+  return true;
+}
+
+function isQuoteRowAllowedForUser_(rowMeta, verifiedUser, allowedManagerEmailsMap, requestedAdminStoreNorm) {
+  if (!rowMeta || !verifiedUser) return false;
+  if (!hasGeneratedErpQuotePdf_(rowMeta.quoteId, rowMeta.folio || rowMeta.orderCode, rowMeta.status)) {
+    return false;
+  }
+
+  const rowStoreNorm = normalizeQuoteErpStore_(rowMeta.erpStore, rowMeta.branchTab);
+  const rowEmail = String(rowMeta.advisorEmail || '').trim().toLowerCase();
+
+  if (verifiedUser.isAdmin) {
+    if (requestedAdminStoreNorm && requestedAdminStoreNorm !== 'ALL') {
+      return rowStoreNorm === requestedAdminStoreNorm;
+    }
+    return true;
+  }
+
+  const activeStoreNorm = normalizeQuoteErpStore_(verifiedUser.erpStore, verifiedUser.sheetTab);
+  if (!activeStoreNorm || rowStoreNorm !== activeStoreNorm) {
+    return false;
+  }
+
+  if (isManagerUserRole_(verifiedUser)) {
+    return !!(rowEmail && allowedManagerEmailsMap && allowedManagerEmailsMap[rowEmail]);
+  }
+
+  const userEmail = String(verifiedUser.correo || '').trim().toLowerCase();
+  return !!(userEmail && rowEmail === userEmail);
+}
+
+function readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, allUsersOpt, requestedStore, maxItems) {
+  const isAdmin = !!(verifiedUser && verifiedUser.isAdmin);
+  const isManager = !isAdmin && isManagerUserRole_(verifiedUser);
+  const roleScope = isAdmin ? 'ADMIN' : (isManager ? 'GERENTE' : 'ASESOR');
+  const activeStoreNorm = isAdmin
+    ? (requestedStore && String(requestedStore).toUpperCase() !== 'ALL'
+        ? normalizeQuoteErpStore_(requestedStore, '')
+        : normalizeQuoteErpStore_(verifiedUser && verifiedUser.erpStore, verifiedUser && verifiedUser.sheetTab))
+    : normalizeQuoteErpStore_(verifiedUser && verifiedUser.erpStore, verifiedUser && verifiedUser.sheetTab);
+
+  let allowedManagerEmailsMap = {};
+  if (isManager) {
+    const usersList = Array.isArray(allUsersOpt)
+      ? allUsersOpt
+      : readAllBranchUsers_(ss || getSpreadsheet_(), []);
+    allowedManagerEmailsMap = getAllowedAdvisorEmailsForManager_(usersList, verifiedUser, activeStoreNorm);
+  }
+
+  const limit = maxItems || (isAdmin ? 30 : (isManager ? 25 : 15));
   const out = [];
+  if (!shQuotes || shQuotes.getLastRow() < 2 || !verifiedUser) {
+    return {
+      quotes: out,
+      roleScope: roleScope,
+      activeStore: activeStoreNorm,
+      allowedAdvisorEmails: Object.keys(allowedManagerEmailsMap)
+    };
+  }
+
+  const lastR = shQuotes.getLastRow();
+  const startR = Math.max(2, lastR - 400);
+  const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 24).getDisplayValues();
+  const seenKeys = {};
+
   for (let i = vals.length - 1; i >= 0 && out.length < limit; i--) {
     const r = vals[i];
-    if (String(r[7] || '').trim().toLowerCase() !== emailNorm) continue;
     const cleanOrd = r[1] || ((r[0] && !/^[A-Z]+-\d+$/i.test(r[0])) ? r[0] : '');
-    out.push({
+    const item = {
       orderCode: cleanOrd || r[0] || '',
       folio: r[1] || cleanOrd || '',
       quoteId: r[2] || '',
@@ -2998,7 +3130,7 @@ function readRecentQuotesForAdvisor_(shQuotes, advisorEmail, maxItems) {
       quoteType: r[4] || '',
       branchTab: r[5] || '',
       erpStore: r[6] || '',
-      advisorEmail: r[7] || '',
+      advisorEmail: String(r[7] || '').trim().toLowerCase(),
       advisorName: r[8] || '',
       erpAdvisor: r[9] || '',
       erpUserId: r[10] || '',
@@ -3007,59 +3139,25 @@ function readRecentQuotesForAdvisor_(shQuotes, advisorEmail, maxItems) {
       skusSummary: r[17] || '',
       total: r[21] || '',
       status: r[22] || ''
-    });
-  }
-  return out;
-}
+    };
 
-function readRecentQuotesForAdmin_(shQuotes, recentErpQuotes, maxItems) {
-  const limit = maxItems || 40;
-  const out = [];
-  const seenKeys = {};
-
-  if (shQuotes && shQuotes.getLastRow() >= 2) {
-    const lastR = shQuotes.getLastRow();
-    const startR = Math.max(2, lastR - 250);
-    const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 24).getDisplayValues();
-    for (let i = vals.length - 1; i >= 0 && out.length < limit; i--) {
-      const r = vals[i];
-      const cleanOrd = r[1] || ((r[0] && !/^[A-Z]+-\d+$/i.test(r[0])) ? r[0] : '');
-      const key = (r[2] ? ('ID:' + r[2]) : '') || (cleanOrd ? ('F:' + cleanOrd) : '');
-      if (key) seenKeys[key] = true;
-      out.push({
-        orderCode: cleanOrd || r[0] || '',
-        folio: r[1] || cleanOrd || '',
-        quoteId: r[2] || '',
-        createdAt: r[3] || '',
-        quoteType: r[4] || '',
-        branchTab: r[5] || '',
-        erpStore: r[6] || '',
-        advisorEmail: r[7] || '',
-        advisorName: r[8] || '',
-        erpAdvisor: r[9] || '',
-        erpUserId: r[10] || '',
-        clientName: r[11] || '',
-        itemsCount: r[16] || '',
-        skusSummary: r[17] || '',
-        total: r[21] || '',
-        status: r[22] || ''
-      });
+    if (!isQuoteRowAllowedForUser_(item, verifiedUser, allowedManagerEmailsMap, isAdmin ? activeStoreNorm : '')) {
+      continue;
     }
+
+    const dedupeKey = (item.quoteId ? ('ID:' + item.quoteId) : '') || (item.folio ? ('F:' + item.folio) : '');
+    if (dedupeKey && seenKeys[dedupeKey]) continue;
+    if (dedupeKey) seenKeys[dedupeKey] = true;
+
+    out.push(item);
   }
 
-  if (Array.isArray(recentErpQuotes)) {
-    for (let j = 0; j < recentErpQuotes.length && out.length < limit; j++) {
-      const eq = recentErpQuotes[j];
-      const kId = eq.quoteId ? ('ID:' + eq.quoteId) : '';
-      const kFol = eq.folio ? ('F:' + eq.folio) : '';
-      if ((kId && seenKeys[kId]) || (kFol && seenKeys[kFol])) continue;
-      if (kId) seenKeys[kId] = true;
-      if (kFol) seenKeys[kFol] = true;
-      out.push(eq);
-    }
-  }
-
-  return out;
+  return {
+    quotes: out,
+    roleScope: roleScope,
+    activeStore: activeStoreNorm,
+    allowedAdvisorEmails: Object.keys(allowedManagerEmailsMap)
+  };
 }
 
 function handleInvMyQuotes_(body) {
@@ -3073,16 +3171,21 @@ function handleInvMyQuotes_(body) {
   const folioSnap = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
   const targetStore = (u.isAdmin && body && body.erpStore) ? String(body.erpStore).trim() : u.erpStore;
   const nextOrderCode = peekNextStoreErpFolio_(targetStore, u.orderPrefix, folioSnap);
-  const recentQuotes = u.isAdmin
-    ? readRecentQuotesForAdmin_(shQuotes, folioSnap.recentErpQuotes, 40)
-    : readRecentQuotesForAdvisor_(shQuotes, u.correo, 12);
+  const allowedSnap = readAllowedGeneratedQuotesForUser_(ss, shQuotes, u, authCheck.allUsers, targetStore);
+  const sanitizedAdv = sanitizeUserForClient_(u, false);
+  if (allowedSnap.allowedAdvisorEmails.length > 0) {
+    sanitizedAdv.branchAdvisorEmails = allowedSnap.allowedAdvisorEmails;
+  }
 
   return {
     ok: true,
-    advisor: sanitizeUserForClient_(u, false),
+    advisor: sanitizedAdv,
+    roleScope: allowedSnap.roleScope,
+    activeStore: allowedSnap.activeStore,
+    branchAdvisorEmails: allowedSnap.allowedAdvisorEmails,
     nextOrderCode: nextOrderCode,
     nextFolioByStore: folioSnap.nextFolioByStore,
-    recentQuotes: recentQuotes
+    recentQuotes: allowedSnap.quotes
   };
 }
 
@@ -4358,9 +4461,11 @@ function handleInvSubmitQuote_(body) {
       finalOut.quoteId = String(erpResult.idCotizacion);
       finalOut.erpUserId = String(idUsuarioNum);
       finalOut.erpStatus = statusBannerTxt;
-      finalOut.recentQuotes = verifiedUser.isAdmin
-        ? readRecentQuotesForAdmin_(shQuotes, folioSnapAfter.recentErpQuotes, 40)
-        : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
+      const allowedAfterDirect = readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, authCheck.allUsers, erpStore);
+      finalOut.recentQuotes = allowedAfterDirect.quotes;
+      finalOut.roleScope = allowedAfterDirect.roleScope;
+      finalOut.activeStore = allowedAfterDirect.activeStore;
+      finalOut.branchAdvisorEmails = allowedAfterDirect.allowedAdvisorEmails;
       return finalOut;
     } catch (wcfErr) {
       // Respaldo automático: si el token caché en Drive expiró, encolar en plantilla!K5 para que servicio_en_vivo.py la suba e hidrate sesión
@@ -4447,9 +4552,11 @@ function handleInvSubmitQuote_(body) {
         outDaemon.quoteId = daemonQid;
         outDaemon.erpUserId = String(idUsuarioNum);
         outDaemon.erpStatus = daemonStatus;
-        outDaemon.recentQuotes = verifiedUser.isAdmin
-          ? readRecentQuotesForAdmin_(shQuotes, snapAfterDaemon.recentErpQuotes, 40)
-          : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
+        const allowedAfterDaemon = readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, authCheck.allUsers, erpStore);
+        outDaemon.recentQuotes = allowedAfterDaemon.quotes;
+        outDaemon.roleScope = allowedAfterDaemon.roleScope;
+        outDaemon.activeStore = allowedAfterDaemon.activeStore;
+        outDaemon.branchAdvisorEmails = allowedAfterDaemon.allowedAdvisorEmails;
         return outDaemon;
       }
 
@@ -4475,9 +4582,11 @@ function handleInvSubmitQuote_(body) {
       queuedOut.quoteType = activeQuoteType;
       queuedOut.isProyecto = isProyQuote;
       queuedOut.serieLabel = verifiedUser.serieLabel;
-      queuedOut.recentQuotes = verifiedUser.isAdmin
-        ? readRecentQuotesForAdmin_(shQuotes, folioSnapBefore.recentErpQuotes, 40)
-        : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
+      const allowedQueued = readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, authCheck.allUsers, erpStore);
+      queuedOut.recentQuotes = allowedQueued.quotes;
+      queuedOut.roleScope = allowedQueued.roleScope;
+      queuedOut.activeStore = allowedQueued.activeStore;
+      queuedOut.branchAdvisorEmails = allowedQueued.allowedAdvisorEmails;
       return queuedOut;
     }
   } finally {
@@ -4654,9 +4763,11 @@ function resolveErpQuoteMetadataForPdf_(ss, body) {
   let erpUserIdNum = parseInt(String((body && (body.erpUserId || body.erpAdvisorId)) || '').replace(/[^\d]/g, ''), 10) || 0;
   let clientName = String((body && body.clientName) || '').trim();
   let erpStore = String((body && body.erpStore) || '').trim();
+  let branchTab = '';
   let advisorEmailOwner = '';
+  let foundInLedger = false;
 
-  // 1) Buscar coincidencia en COTIZACIONES_EN_VIVO para completar quoteId / folio / erpUserId / propietario
+  // 1) Buscar coincidencia autoritativa en COTIZACIONES_EN_VIVO para completar quoteId / folio / tienda / propietario
   const shQuotes = ss ? ss.getSheetByName(TAB_QUOTES_LIVE_) : null;
   if (shQuotes && shQuotes.getLastRow() >= 2) {
     const lastR = shQuotes.getLastRow();
@@ -4670,12 +4781,14 @@ function resolveErpQuoteMetadataForPdf_(ss, body) {
       const matchById = quoteIdNum > 0 && rId === quoteIdNum;
       const matchByFolio = folioClean && (rFol === folioClean || rOrd === folioClean);
       if (matchById || matchByFolio) {
+        foundInLedger = true;
         if (!quoteIdNum && rId > 0) quoteIdNum = rId;
         if (!folioClean && rFol && !/^[A-Z]+-\d+$/i.test(rFol)) folioClean = rFol;
-        if (!erpStore && r[6]) erpStore = String(r[6]).trim();
-        if (!advisorEmailOwner && r[7]) advisorEmailOwner = String(r[7]).trim().toLowerCase();
-        if (!erpUserIdNum && r[10]) erpUserIdNum = parseInt(String(r[10]).replace(/[^\d]/g, ''), 10) || 0;
-        if (!clientName && r[11]) clientName = String(r[11]).trim();
+        if (r[5]) branchTab = String(r[5]).trim();
+        if (r[6]) erpStore = String(r[6]).trim();
+        if (r[7]) advisorEmailOwner = String(r[7]).trim().toLowerCase();
+        if (r[10]) erpUserIdNum = parseInt(String(r[10]).replace(/[^\d]/g, ''), 10) || erpUserIdNum;
+        if (r[11]) clientName = String(r[11]).trim() || clientName;
         if (quoteIdNum > 0) break;
       }
     }
@@ -4720,7 +4833,9 @@ function resolveErpQuoteMetadataForPdf_(ss, body) {
     erpUserIdNum: erpUserIdNum,
     clientName: clientName,
     erpStore: erpStore,
-    advisorEmailOwner: advisorEmailOwner
+    branchTab: branchTab,
+    advisorEmailOwner: advisorEmailOwner,
+    foundInLedger: foundInLedger
   };
 }
 
@@ -4807,7 +4922,24 @@ function extractTelerikExportTargetsFromVisorHtml_(html, baseVisorUrl) {
     }
   }
 
-  // 2) Respaldo: extraer instanceID desde el objeto JS new ReportViewer({...}) o $create(...)
+  // 2) Constructor posicional de Telerik WebForms ReportViewer (v8.0.14.507 en VisorReportes.aspx):
+  //    new ReportViewer(..., '/Telerik.ReportViewer.axd', '69399ed7e2624f07a16bce78292e2d68', ...)
+  if (!foundInstanceId) {
+    const ctorMatch = s.match(/new\s+ReportViewer\s*\([\s\S]{0,1400}?(['"])([^'"]*Telerik\.ReportViewer\.axd(?:\?[^'"]*)?)\1\s*,\s*(['"])([a-fA-F0-9\-]{16,64})\3/i) ||
+      s.match(/(['"])([^'"]*Telerik\.ReportViewer\.axd(?:\?[^'"]*)?)\1\s*,\s*(['"])([a-fA-F0-9\-]{16,64})\3/i);
+    if (ctorMatch) {
+      if (!firstHandlerBase && ctorMatch[2]) {
+        const resolvedCtorAxd = resolveRelativeUrl_(baseVisorUrl, ctorMatch[2]);
+        const qIdx = resolvedCtorAxd.indexOf('?');
+        firstHandlerBase = qIdx >= 0 ? resolvedCtorAxd.slice(0, qIdx) : resolvedCtorAxd;
+      }
+      if (ctorMatch[4]) {
+        foundInstanceId = ctorMatch[4];
+      }
+    }
+  }
+
+  // 3) Respaldo adicional: extraer instanceID desde propiedad nombrada JS
   if (!foundInstanceId) {
     const jsInst = s.match(/["']?instanceI[dD]["']?\s*[:=]\s*["']([a-zA-Z0-9\-]{16,64})["']/);
     if (jsInst && jsInst[1]) {
@@ -4832,7 +4964,7 @@ function extractTelerikExportTargetsFromVisorHtml_(html, baseVisorUrl) {
     );
   }
 
-  // 3) Si VisorReportes incrusta un enlace directo a PDF (<embed>, <iframe>, <object>)
+  // 4) Si VisorReportes incrusta un enlace directo a PDF (<embed>, <iframe>, <object>)
   const embedMatches = s.match(/(?:src|data|href)\s*=\s*["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi) || [];
   for (let j = 0; j < embedMatches.length; j++) {
     const mUrl = embedMatches[j].match(/["']([^"']+)["']/);
@@ -4940,18 +5072,40 @@ function handleInvDownloadErpQuotePdf_(body) {
       };
     }
 
-    const isManagerOrAdmin = !!verifiedUser.isAdmin || /ADMINISTRADOR|GERENTE|\bSUB/i.test(String(verifiedUser.puesto || ''));
-    if (
-      !isManagerOrAdmin &&
-      resolved.advisorEmailOwner &&
-      resolved.advisorEmailOwner !== String(verifiedUser.correo || '').toLowerCase() &&
-      resolved.erpStore &&
-      String(resolved.erpStore).toUpperCase() !== String(verifiedUser.erpStore || '').toUpperCase()
-    ) {
-      return {
-        ok: false,
-        error: 'Esta cotización pertenece a otra sucursal. Solicita la descarga con el gerente o administrador.'
-      };
+    // Validación estricta de permisos de visualización/descarga por rol y bodega/tienda activa:
+    // - Asesor: únicamente sus propias cotizaciones en la bodega/tienda activa de su sesión.
+    // - Gerente: únicamente sus propias cotizaciones y las de los asesores de su bodega/tienda activa.
+    // - Administrador: acceso completo.
+    if (!verifiedUser.isAdmin) {
+      const userEmail = String(verifiedUser.correo || '').trim().toLowerCase();
+      const userStoreNorm = normalizeQuoteErpStore_(verifiedUser.erpStore, verifiedUser.sheetTab);
+      const quoteStoreNorm = normalizeQuoteErpStore_(resolved.erpStore, resolved.branchTab);
+      const ownerEmail = String(resolved.advisorEmailOwner || '').trim().toLowerCase();
+      const isManager = isManagerUserRole_(verifiedUser);
+
+      if (resolved.foundInLedger) {
+        if (!isManager) {
+          if (ownerEmail !== userEmail || quoteStoreNorm !== userStoreNorm) {
+            return {
+              ok: false,
+              error: 'Como asesor únicamente puedes ver y descargar los PDFs de tus propias cotizaciones generadas en tu bodega/tienda activa (' + (verifiedUser.erpStore || verifiedUser.sheetTab) + ').'
+            };
+          }
+        } else {
+          const allowedMap = getAllowedAdvisorEmailsForManager_(authCheck.allUsers, verifiedUser, userStoreNorm);
+          if (quoteStoreNorm !== userStoreNorm || !ownerEmail || !allowedMap[ownerEmail]) {
+            return {
+              ok: false,
+              error: 'Como gerente únicamente puedes ver y descargar los PDFs de tus propias cotizaciones y las de los asesores de tu bodega/tienda (' + (verifiedUser.erpStore || verifiedUser.sheetTab) + ').'
+            };
+          }
+        }
+      } else {
+        return {
+          ok: false,
+          error: 'Esta cotización no pertenece a las cotizaciones registradas en tu cuenta y bodega/tienda activa.'
+        };
+      }
     }
 
     const cfg = getErpRuntimeConfig_();

@@ -3365,10 +3365,48 @@
         return null;
     }
 
+    function isManagerSessionUser(uOrPuesto) {
+        if (!uOrPuesto) return false;
+        if (typeof uOrPuesto === 'object' && isEmailOrRoleAdmin(uOrPuesto)) return false;
+        const rawPuesto = typeof uOrPuesto === 'object' ? (uOrPuesto.puesto || '') : String(uOrPuesto || '');
+        const pNorm = String(rawPuesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        return /GERENTE|\bSUB/.test(pNorm);
+    }
+
+    function normalizeQuoteErpStoreClient(rawStore, rawBranchTab) {
+        const candidates = [rawStore, rawBranchTab];
+        for (let c = 0; c < candidates.length; c++) {
+            const s = String(candidates[c] || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .trim()
+                .toUpperCase();
+            if (!s) continue;
+            for (let i = 0; i < USER_BRANCH_TABS.length; i++) {
+                const cfg = USER_BRANCH_TABS[i];
+                const cfgStore = String(cfg.erpStore || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+                const cfgTab = String(cfg.tab || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+                const cfgKey = String(cfg.branchKey || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+                const cfgLbl = String(cfg.label || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+                if (!cfg.isAdmin && (cfgStore === s || cfgTab === s || cfgKey === s || cfgLbl === s)) {
+                    return cfgStore;
+                }
+            }
+            if (s === 'COLOSIO' || s === 'COLOCIO') return 'CREATA LIVING COLOSIO';
+            if (s === 'PLAYA') return 'CREATA LIVING PLAYA';
+            if (s === 'PTC' || s === 'PUERTO CANCUN') return 'CREATA PUERTO CANCUN';
+            if (s === 'CASA CREATA') return 'CASA CREATA BONAMPAK';
+            if (s === 'PROYECTOS') return 'PROYECTOS ANIPA INTERIOR';
+            return s;
+        }
+        return '';
+    }
+
     function enrichAdvisorLocation(u) {
         if (!u || typeof u !== 'object') return u;
         const cfg = findBranchConfig(u.sheetTab || u.branchKey, u.erpStore);
         const adminFlag = isEmailOrRoleAdmin(u) || !!(cfg && cfg.isAdmin);
+        const managerFlag = !adminFlag && (!!u.isManager || isManagerSessionUser(u));
         const resolvedStore = cleanStr(u.erpAdvisorBranch && adminFlag ? u.erpAdvisorBranch : '') ||
             cleanStr(u.erpStore) ||
             (cfg ? cfg.erpStore : '') ||
@@ -3376,8 +3414,9 @@
         const isProy = !adminFlag && (cfg ? !!cfg.isProyecto : (!!u.isProyecto || String(u.branchKey || u.sheetTab || '').toUpperCase() === 'PROYECTOS'));
         const prefix = getStoreFolioPrefix(resolvedStore, u.orderPrefix || (cfg ? cfg.orderPrefix : (isProy ? 'PRO' : 'PTC')));
         const parsedDisc = parseDiscountPctCell(u.maxDiscountPct);
-        return Object.assign({}, u, {
+        const enrichedObj = Object.assign({}, u, {
             isAdmin: adminFlag,
+            isManager: managerFlag,
             maxDiscountPct: parsedDisc !== null ? parsedDisc : (u.maxDiscountPct !== undefined ? u.maxDiscountPct : null),
             branchKey: adminFlag ? 'ADMIN' : (u.branchKey || (cfg ? cfg.branchKey : '')),
             branchLabel: u.branchLabel || (cfg ? cfg.label : (u.sheetTab || '')),
@@ -3387,6 +3426,12 @@
             isProyecto: isProy,
             serieLabel: u.serieLabel || (cfg ? cfg.serieLabel : '')
         });
+        if (Array.isArray(u.branchAdvisorEmails)) {
+            enrichedObj.branchAdvisorEmails = u.branchAdvisorEmails
+                .map(em => String(em || '').trim().toLowerCase())
+                .filter(Boolean);
+        }
+        return enrichedObj;
     }
 
     const FIXED_QUOTE_CLIENT_MODE = 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)';
@@ -3400,7 +3445,7 @@
     let quoteSubmitInFlight = false;
     let currentNextOrderCode = '';
     let myRecentQuotesList = [];
-    let recentQuotesStoreFilter = 'ALL';
+    let newlyGeneratedQuoteHighlightKey = '';
     let lastSubmittedQuoteMeta = null;
     let pendingQuoteRetrySendToErp = null;
     let pendingPdfDownloadRetryOpts = null;
@@ -3907,6 +3952,7 @@
                     sheetTab: cfg.tab,
                     rowNum: i + 1,
                     isAdmin: isAdminUser,
+                    isManager: !isAdminUser && isManagerSessionUser(puesto),
                     maxDiscountPct: explicitDiscountPct,
                     branchKey: isAdminUser ? 'ADMIN' : cfg.branchKey,
                     branchLabel: cfg.label,
@@ -3928,7 +3974,24 @@
             }
             return tabUsers;
         }));
-        return results.flat();
+        const flatUsers = results.flat();
+        for (let m = 0; m < flatUsers.length; m++) {
+            const mu = flatUsers[m];
+            if (!mu || mu.isAdmin || !mu.isManager) continue;
+            const mgrStoreNorm = normalizeQuoteErpStoreClient(mu.erpStore, mu.sheetTab);
+            const allowedEmails = [String(mu.correo || '').trim().toLowerCase()];
+            for (let k = 0; k < flatUsers.length; k++) {
+                const cu = flatUsers[k];
+                if (!cu || !cu.correo || cu.isAdmin || cu.isManager) continue;
+                const cuStoreNorm = normalizeQuoteErpStoreClient(cu.erpStore, cu.sheetTab);
+                const cuEmail = String(cu.correo).trim().toLowerCase();
+                if (cuEmail && cuStoreNorm === mgrStoreNorm && allowedEmails.indexOf(cuEmail) === -1) {
+                    allowedEmails.push(cuEmail);
+                }
+            }
+            mu.branchAdvisorEmails = allowedEmails;
+        }
+        return flatUsers;
     }
 
     async function syncPendingKeyUpdatesToCloud() {
@@ -4130,10 +4193,11 @@
         const enrichedChosen = enrichAdvisorLocation(chosenLoc);
         const cleanAll = (allLocs || [enrichedChosen]).map(rawU => {
             const u = enrichAdvisorLocation(rawU);
-            return {
+            const locObj = {
                 sheetTab: u.sheetTab,
                 rowNum: u.rowNum,
                 isAdmin: !!u.isAdmin,
+                isManager: !!u.isManager,
                 maxDiscountPct: u.maxDiscountPct !== undefined ? u.maxDiscountPct : null,
                 branchKey: u.branchKey,
                 branchLabel: u.branchLabel,
@@ -4151,12 +4215,17 @@
                 erpAdvisorBranch: u.erpAdvisorBranch || '',
                 authToken: u.authToken || ''
             };
+            if (Array.isArray(u.branchAdvisorEmails)) {
+                locObj.branchAdvisorEmails = u.branchAdvisorEmails;
+            }
+            return locObj;
         });
 
         const sessionObj = {
             sheetTab: enrichedChosen.sheetTab,
             rowNum: enrichedChosen.rowNum,
             isAdmin: !!enrichedChosen.isAdmin,
+            isManager: !!enrichedChosen.isManager,
             maxDiscountPct: enrichedChosen.maxDiscountPct !== undefined ? enrichedChosen.maxDiscountPct : null,
             branchKey: enrichedChosen.branchKey,
             branchLabel: enrichedChosen.branchLabel,
@@ -4175,8 +4244,13 @@
             authToken: enrichedChosen.authToken || '',
             allLocations: cleanAll
         };
+        if (Array.isArray(enrichedChosen.branchAdvisorEmails)) {
+            sessionObj.branchAdvisorEmails = enrichedChosen.branchAdvisorEmails;
+        }
 
         lastSubmittedQuoteMeta = null;
+        myRecentQuotesList = [];
+        newlyGeneratedQuoteHighlightKey = '';
         const cleanLoginFolio = (nextOrderFromLogin && !/^[A-Z]+-\d+$/i.test(String(nextOrderFromLogin)))
             ? cleanStr(nextOrderFromLogin)
             : '';
@@ -4185,6 +4259,7 @@
         }
         currentNextOrderCode = cleanLoginFolio || getEstimatedStoreFolio(sessionObj.erpStore, sessionObj.orderPrefix);
         saveAdvisorSession(sessionObj);
+        renderMyRecentQuotes([]);
         applyAdvisorDefaultsToQuoteForm(true);
 
         if (sessionObj.mustChangeKey) {
@@ -4497,6 +4572,7 @@
         pendingQuoteRetrySendToErp = null;
         currentNextOrderCode = '';
         myRecentQuotesList = [];
+        newlyGeneratedQuoteHighlightKey = '';
         lastSubmittedQuoteMeta = null;
         renderAdvisorHeaderBar();
         renderMyRecentQuotes([]);
@@ -4507,92 +4583,170 @@
     };
 
     // ------------------------------------------------------------------------
-    // PLANTILLA DE COTIZACIÓN · BLOQUEADA AL CORREO Y EN VIVO CON S MUEBLERÍA
+    // SECCIÓN DE PDFs DE COTIZACIÓN GENERADOS · VISIBILIDAD ESTRICTA POR ROL Y BODEGA ACTIVA
+    // - Asesor: solo sus propios PDFs generados en su bodega/tienda activa.
+    // - Gerente: solo sus propios PDFs y los de los asesores de su bodega/tienda activa.
+    // - Administrador: PDFs generados en la tienda/bodega seleccionada en #quoteAdminStoreSelect.
     // ------------------------------------------------------------------------
-    window.onRecentQuotesStoreFilterChange = function () {
-        const sel = document.getElementById('quoteRecentStoreFilter');
-        recentQuotesStoreFilter = sel ? (sel.value || 'ALL') : 'ALL';
-        renderMyRecentQuotes(myRecentQuotesList);
-    };
+    function hasGeneratedErpQuotePdfClient(q) {
+        if (!q || typeof q !== 'object') return false;
+        const qidNum = parseInt(String(q.quoteId || '').replace(/[^\d]/g, ''), 10) || 0;
+        if (qidNum > 0) return true;
+        const rawOrder = cleanStr(q.orderCode);
+        const fol = cleanStr(q.folio) || ((rawOrder && !/^[A-Z]+-\d+$/i.test(rawOrder)) ? rawOrder : '');
+        if (!fol || /^[A-Z]+-\d+$/i.test(fol) || /^(EN PROCESO|PENDIENTE)$/i.test(fol)) return false;
+        if (/EN COLA|REVISION/i.test(String(q.status || ''))) return false;
+        return true;
+    }
 
-    function renderMyRecentQuotes(list) {
-        const wrap = document.getElementById('quoteMyRecentWrap');
-        const listEl = document.getElementById('quoteMyRecentList');
-        const headingEl = document.getElementById('quoteRecentHeading');
-        const filterSel = document.getElementById('quoteRecentStoreFilter');
-        if (!wrap || !listEl) return;
+    function filterAllowedGeneratedQuotesClient(rawList) {
+        if (!activeAdvisorSession || !Array.isArray(rawList) || !rawList.length) return [];
+        const sess = activeAdvisorSession;
+        const isAdmin = !!sess.isAdmin;
+        const isManager = !isAdmin && (!!sess.isManager || isManagerSessionUser(sess));
+        const sessEmail = String(sess.correo || '').trim().toLowerCase();
 
-        if (!Array.isArray(list) || !list.length || !activeAdvisorSession) {
-            listEl.innerHTML = '';
-            wrap.classList.add('hidden');
-            return;
-        }
+        const activeStoreNorm = isAdmin
+            ? normalizeQuoteErpStoreClient(quoteDraftMeta.erpStore || sess.erpStore, '')
+            : normalizeQuoteErpStoreClient(sess.erpStore, sess.sheetTab);
 
-        const isAdmin = !!activeAdvisorSession.isAdmin;
-        if (headingEl) {
-            headingEl.textContent = isAdmin
-                ? 'Cotizaciones en Vivo · Todas las Tiendas y Bodegas (Modo Administrador)'
-                : 'Mis Cotizaciones Enviadas a S Mueblería';
-        }
-
-        for (let i = 0; i < list.length; i++) {
-            const qi = list[i] || {};
-            if (qi.folio) registerObservedFolio(qi.folio, qi.erpStore);
-            else if (qi.orderCode) registerObservedFolio(qi.orderCode, qi.erpStore);
-        }
-
-        if (filterSel) {
-            if (isAdmin) {
-                const storesSeen = [];
-                list.forEach(q => {
-                    const st = cleanStr(q && q.erpStore);
-                    if (st && storesSeen.indexOf(st) === -1) storesSeen.push(st);
-                });
-                const prevVal = recentQuotesStoreFilter || 'ALL';
-                filterSel.innerHTML = '<option value="ALL">Todas las tiendas y bodegas (' + list.length + ')</option>' +
-                    storesSeen.map(st => '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + '</option>').join('');
-                filterSel.value = storesSeen.indexOf(prevVal) !== -1 ? prevVal : 'ALL';
-                recentQuotesStoreFilter = filterSel.value;
-                filterSel.classList.toggle('hidden', storesSeen.length <= 1);
-            } else {
-                filterSel.classList.add('hidden');
-                recentQuotesStoreFilter = 'ALL';
+        const allowedManagerSet = new Set();
+        if (sessEmail) allowedManagerSet.add(sessEmail);
+        if (isManager && Array.isArray(sess.branchAdvisorEmails)) {
+            for (let i = 0; i < sess.branchAdvisorEmails.length; i++) {
+                const em = String(sess.branchAdvisorEmails[i] || '').trim().toLowerCase();
+                if (em) allowedManagerSet.add(em);
             }
         }
 
-        const filtered = (isAdmin && recentQuotesStoreFilter !== 'ALL')
-            ? list.filter(q => cleanStr(q && q.erpStore).toUpperCase() === recentQuotesStoreFilter.toUpperCase())
-            : list;
+        const seenKeys = new Set();
+        const out = [];
+        for (let i = 0; i < rawList.length; i++) {
+            const q = rawList[i];
+            if (!hasGeneratedErpQuotePdfClient(q)) continue;
 
-        if (!filtered.length) {
-            listEl.innerHTML = '<div class="text-xs font-semibold opacity-70 py-2">No hay cotizaciones registradas para el filtro seleccionado.</div>';
-            wrap.classList.remove('hidden');
+            const rowStoreNorm = normalizeQuoteErpStoreClient(q.erpStore, q.branchTab);
+            const rowEmail = String(q.advisorEmail || '').trim().toLowerCase();
+
+            if (isAdmin) {
+                if (activeStoreNorm && rowStoreNorm !== activeStoreNorm) continue;
+            } else {
+                if (!activeStoreNorm || rowStoreNorm !== activeStoreNorm) continue;
+                if (isManager) {
+                    if (!rowEmail || !allowedManagerSet.has(rowEmail)) continue;
+                } else {
+                    if (!sessEmail || rowEmail !== sessEmail) continue;
+                }
+            }
+
+            const qidClean = cleanStr(q.quoteId);
+            const folClean = cleanStr(q.folio) || cleanStr(q.orderCode);
+            const dedupeKey = (qidClean ? ('ID:' + qidClean) : '') || (folClean ? ('F:' + folClean) : '');
+            if (dedupeKey && seenKeys.has(dedupeKey)) continue;
+            if (dedupeKey) seenKeys.add(dedupeKey);
+            out.push(q);
+        }
+        return out;
+    }
+
+    window.scrollToGeneratedQuotePdfs = function () {
+        const sec = document.getElementById('quoteGeneratedPdfsSection');
+        if (sec && !sec.classList.contains('hidden') && sec.scrollIntoView) {
+            sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    };
+
+    function renderMyRecentQuotes(list) {
+        const wrap = document.getElementById('quoteGeneratedPdfsSection');
+        const listEl = document.getElementById('quoteGeneratedPdfsList');
+        const titleEl = document.getElementById('quoteGeneratedPdfsTitle');
+        const countBadge = document.getElementById('quoteGeneratedPdfsCountBadge');
+        const hintEl = document.getElementById('quoteGeneratedPdfsRuleHint');
+        const jumpBtn = document.getElementById('quoteJumpToPdfsBtn');
+        const jumpCount = document.getElementById('quoteJumpToPdfsCount');
+        if (!wrap || !listEl) return;
+
+        if (Array.isArray(list)) {
+            for (let i = 0; i < list.length; i++) {
+                const qi = list[i] || {};
+                if (qi.folio) registerObservedFolio(qi.folio, qi.erpStore);
+                else if (qi.orderCode) registerObservedFolio(qi.orderCode, qi.erpStore);
+            }
+        }
+
+        const filtered = filterAllowedGeneratedQuotesClient(list);
+        if (!filtered.length || !activeAdvisorSession) {
+            listEl.innerHTML = '';
+            wrap.classList.add('hidden');
+            if (jumpBtn) jumpBtn.classList.add('hidden');
+            if (jumpCount) jumpCount.textContent = '0';
             return;
         }
+
+        const sess = activeAdvisorSession;
+        const isAdmin = !!sess.isAdmin;
+        const isManager = !isAdmin && (!!sess.isManager || isManagerSessionUser(sess));
+        const sessEmail = String(sess.correo || '').trim().toLowerCase();
+        const activeStoreDisplay = isAdmin
+            ? (cleanStr(quoteDraftMeta.erpStore) || cleanStr(sess.erpStore) || 'TIENDA ACTIVA')
+            : (cleanStr(sess.erpStore) || cleanStr(sess.branchLabel) || cleanStr(sess.sheetTab) || 'MI BODEGA');
+
+        if (titleEl) {
+            if (isAdmin) {
+                titleEl.textContent = '📄 PDFs de Cotización Generados · ' + activeStoreDisplay;
+            } else if (isManager) {
+                titleEl.textContent = '📄 PDFs de Cotización (Mi Bodega y Asesores) · ' + activeStoreDisplay;
+            } else {
+                titleEl.textContent = '📄 Mis PDFs de Cotización · ' + activeStoreDisplay;
+            }
+        }
+        if (hintEl) {
+            if (isAdmin) {
+                hintEl.textContent = ' PDFs generados en la tienda/bodega activa seleccionada (' + activeStoreDisplay + ').';
+            } else if (isManager) {
+                hintEl.textContent = 'Gerente: muestra únicamente tus propios PDFs y los generados por los asesores de ' + activeStoreDisplay + '.';
+            } else {
+                hintEl.textContent = 'Asesor: muestra únicamente tus propios PDFs generados en tu bodega activa (' + activeStoreDisplay + ').';
+            }
+        }
+        if (countBadge) countBadge.textContent = String(filtered.length);
+        if (jumpCount) jumpCount.textContent = String(filtered.length);
+        if (jumpBtn) jumpBtn.classList.remove('hidden');
 
         listEl.innerHTML = filtered.map(q => {
             const isProy = String(q.quoteType || '').toUpperCase() === 'PROYECTO' || /PROYECTO/i.test(String(q.erpStore || ''));
             const rawOrder = cleanStr(q.orderCode);
-            const cleanFolio = cleanStr(q.folio) || ((rawOrder && !/^[A-Z]+-\d+$/i.test(rawOrder)) ? rawOrder : '') || (q.quoteId ? ('ID-' + q.quoteId) : 'En proceso');
-            const storeTag = cleanStr(q.erpStore || q.branchTab) || (isProy ? 'PROYECTOS' : 'TIENDA');
-            const advTag = isAdmin && cleanStr(q.advisorName || q.erpAdvisor)
-                ? (' · Asesor: ' + cleanStr(q.advisorName || q.erpAdvisor))
-                : '';
-            const qidVal = cleanStr(q.quoteId);
             const folioOfficial = cleanStr(q.folio) || ((rawOrder && !/^[A-Z]+-\d+$/i.test(rawOrder)) ? rawOrder : '');
-            const canDownloadErpPdf = !!(qidVal || folioOfficial);
-            return '<div class="rounded-lg border px-3 py-2 flex flex-wrap items-center justify-between gap-2 bg-white" style="border-color:#E1DBC5;">' +
+            const qidVal = cleanStr(q.quoteId);
+            const cleanFolio = folioOfficial || (qidVal ? ('ID-' + qidVal) : 'PDF');
+            const storeTag = cleanStr(q.erpStore || q.branchTab) || activeStoreDisplay;
+            const rowEmail = String(q.advisorEmail || '').trim().toLowerCase();
+            const isOwnRow = !!(sessEmail && rowEmail === sessEmail);
+            const advDisplayName = cleanStr(q.advisorName || q.erpAdvisor);
+            const showAdvisorTag = (isAdmin || isManager) && advDisplayName;
+            const cardKey = (qidVal ? ('ID:' + qidVal) : '') || (folioOfficial ? ('F:' + folioOfficial) : '');
+            const isJustGenerated = !!(newlyGeneratedQuoteHighlightKey && cardKey === newlyGeneratedQuoteHighlightKey);
+
+            return '<div class="rounded-lg border px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 bg-white transition" ' +
+                'style="border-color:' + (isJustGenerated ? '#10B981' : '#E1DBC5') + ';' + (isJustGenerated ? ' box-shadow:0 0 0 1px rgba(16,185,129,0.25);' : '') + '">' +
                 '<div class="min-w-0">' +
                     '<div class="flex flex-wrap items-center gap-1.5">' +
                         '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (isProy ? '#252C32' : '#A38251') + '; color:#FFFFFF;">' +
                             escapeHtml(cleanFolio) +
                         '</span>' +
                         '<span class="text-[11px] font-extrabold uppercase" style="color:#252C32;">' + escapeHtml(storeTag) + '</span>' +
+                        '<span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase" style="background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0;">' +
+                            (isJustGenerated ? '✓ PDF RECIÉN GENERADO' : '✓ PDF LISTO') +
+                        '</span>' +
                         (qidVal ? ('<span class="text-[10px] font-bold opacity-70" style="color:#252C32;">(ID ERP ' + escapeHtml(qidVal) + ')</span>') : '') +
                     '</div>' +
                     '<div class="text-[11px] font-semibold truncate mt-0.5" style="color:#252C32;">' +
                         escapeHtml(q.clientName || 'Prospecto') +
-                        escapeHtml(advTag) +
+                        (showAdvisorTag
+                            ? (' · <span class="font-extrabold" style="color:#A38251;">' +
+                                (isManager && isOwnRow ? ('Mi cotización (' + escapeHtml(advDisplayName) + ')') : ('Asesor: ' + escapeHtml(advDisplayName))) +
+                               '</span>')
+                            : '') +
                         (q.skusSummary ? (' · ' + escapeHtml(q.skusSummary)) : '') +
                     '</div>' +
                 '</div>' +
@@ -4601,19 +4755,17 @@
                         '<div class="text-xs font-black" style="color:#A38251;">' + escapeHtml(q.total || '') + '</div>' +
                         '<div class="text-[10px] font-semibold opacity-70" style="color:#252C32;">' + escapeHtml(q.createdAt || '') + '</div>' +
                     '</div>' +
-                    (canDownloadErpPdf
-                        ? ('<button type="button" data-erp-pdf-btn="1" ' +
-                            'data-q-id="' + escapeHtml(qidVal) + '" ' +
-                            'data-q-folio="' + escapeHtml(folioOfficial) + '" ' +
-                            'data-q-uid="' + escapeHtml(cleanStr(q.erpUserId)) + '" ' +
-                            'data-q-client="' + escapeHtml(cleanStr(q.clientName)) + '" ' +
-                            'data-q-store="' + escapeHtml(cleanStr(q.erpStore || q.branchTab)) + '" ' +
-                            'class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider transition hover:opacity-90" ' +
-                            'style="background:#252C32; color:#FFFFFF;" ' +
-                            'title="Descargar PDF original generado por S Mueblería">' +
-                            '⬇ PDF S Mueblería' +
-                           '</button>')
-                        : '') +
+                    '<button type="button" data-erp-pdf-btn="1" ' +
+                        'data-q-id="' + escapeHtml(qidVal) + '" ' +
+                        'data-q-folio="' + escapeHtml(folioOfficial) + '" ' +
+                        'data-q-uid="' + escapeHtml(cleanStr(q.erpUserId)) + '" ' +
+                        'data-q-client="' + escapeHtml(cleanStr(q.clientName)) + '" ' +
+                        'data-q-store="' + escapeHtml(cleanStr(q.erpStore || q.branchTab)) + '" ' +
+                        'class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider transition hover:opacity-90" ' +
+                        'style="background:#252C32; color:#FFFFFF;" ' +
+                        'title="Descargar PDF original generado por S Mueblería">' +
+                        '⬇ Descargar PDF' +
+                    '</button>' +
                 '</div>' +
             '</div>';
         }).join('');
@@ -4637,43 +4789,58 @@
 
     async function fetchQuotesLedgerGvizFallback() {
         if (!activeAdvisorSession) return [];
+        if (!activeAdvisorSession.isAdmin && isManagerSessionUser(activeAdvisorSession) && !Array.isArray(activeAdvisorSession.branchAdvisorEmails)) {
+            try {
+                const liveUsers = await fetchAllAdvisorRowsLiveGviz();
+                const mgrStoreNorm = normalizeQuoteErpStoreClient(activeAdvisorSession.erpStore, activeAdvisorSession.sheetTab);
+                const allowed = [String(activeAdvisorSession.correo || '').trim().toLowerCase()];
+                for (let uIdx = 0; uIdx < liveUsers.length; uIdx++) {
+                    const u = liveUsers[uIdx];
+                    if (!u || !u.correo || u.isAdmin || u.isManager) continue;
+                    const uStoreNorm = normalizeQuoteErpStoreClient(u.erpStore, u.sheetTab);
+                    const uEmail = String(u.correo).trim().toLowerCase();
+                    if (uEmail && uStoreNorm === mgrStoreNorm && allowed.indexOf(uEmail) === -1) {
+                        allowed.push(uEmail);
+                    }
+                }
+                activeAdvisorSession.branchAdvisorEmails = allowed;
+                saveAdvisorSession(activeAdvisorSession);
+            } catch (e) {}
+        }
+
         const rows = await fetchSheetCsvRows('COTIZACIONES_EN_VIVO');
         if (!rows || rows.length < 2) return [];
         const hdr = rows[0] || [];
         if (!/ORDEN|FOLIO/i.test(cleanStr(hdr[0]) + ' ' + cleanStr(hdr[1]))) return [];
-        const isAdmin = !!activeAdvisorSession.isAdmin;
-        const emailNorm = String(activeAdvisorSession.correo || '').trim().toLowerCase();
-        const limit = isAdmin ? 40 : 10;
-        const out = [];
-        for (let i = rows.length - 1; i >= 1; i--) {
+
+        const rawItems = [];
+        const minIdx = Math.max(1, rows.length - 400);
+        for (let i = rows.length - 1; i >= minIdx; i--) {
             const r = rows[i] || [];
             const folioVal = cleanStr(r[1]) || cleanStr(r[0]);
             const storeVal = cleanStr(r[6]);
             if (folioVal) registerObservedFolio(folioVal, storeVal);
-            const rowEmail = cleanStr(r[7]).toLowerCase();
-            if (!isAdmin && rowEmail !== emailNorm) continue;
-            if (out.length < limit) {
-                out.push({
-                    orderCode: cleanStr(r[0]),
-                    folio: cleanStr(r[1]),
-                    quoteId: cleanStr(r[2]),
-                    createdAt: cleanStr(r[3]),
-                    quoteType: cleanStr(r[4]),
-                    branchTab: cleanStr(r[5]),
-                    erpStore: storeVal,
-                    advisorEmail: rowEmail,
-                    advisorName: cleanStr(r[8]),
-                    erpAdvisor: cleanStr(r[9]),
-                    erpUserId: cleanStr(r[10]),
-                    clientName: cleanStr(r[11]),
-                    itemsCount: cleanStr(r[16]),
-                    skusSummary: cleanStr(r[17]),
-                    total: cleanStr(r[21]),
-                    status: cleanStr(r[22])
-                });
-            }
+            rawItems.push({
+                orderCode: cleanStr(r[0]),
+                folio: cleanStr(r[1]),
+                quoteId: cleanStr(r[2]),
+                createdAt: cleanStr(r[3]),
+                quoteType: cleanStr(r[4]),
+                branchTab: cleanStr(r[5]),
+                erpStore: storeVal,
+                advisorEmail: cleanStr(r[7]).toLowerCase(),
+                advisorName: cleanStr(r[8]),
+                erpAdvisor: cleanStr(r[9]),
+                erpUserId: cleanStr(r[10]),
+                clientName: cleanStr(r[11]),
+                itemsCount: cleanStr(r[16]),
+                skusSummary: cleanStr(r[17]),
+                total: cleanStr(r[21]),
+                status: cleanStr(r[22])
+            });
         }
-        return out;
+        const limit = activeAdvisorSession.isAdmin ? 30 : (isManagerSessionUser(activeAdvisorSession) ? 25 : 15);
+        return filterAllowedGeneratedQuotesClient(rawItems).slice(0, limit);
     }
 
     async function refreshMyLiveQuotesInfo() {
@@ -4700,6 +4867,21 @@
                 if (res.nextFolioByStore) {
                     applyServerFolioMap(res.nextFolioByStore);
                 }
+                let sessionChanged = false;
+                if (Array.isArray(res.branchAdvisorEmails) && res.branchAdvisorEmails.length > 0) {
+                    activeAdvisorSession.branchAdvisorEmails = res.branchAdvisorEmails
+                        .map(em => String(em || '').trim().toLowerCase())
+                        .filter(Boolean);
+                    if (Array.isArray(activeAdvisorSession.allLocations)) {
+                        activeAdvisorSession.allLocations = activeAdvisorSession.allLocations.map(loc => {
+                            if (loc && loc.sheetTab === activeAdvisorSession.sheetTab) {
+                                return Object.assign({}, loc, { branchAdvisorEmails: activeAdvisorSession.branchAdvisorEmails });
+                            }
+                            return loc;
+                        });
+                    }
+                    sessionChanged = true;
+                }
                 if (res.advisor) {
                     const updatedAdv = enrichAdvisorLocation(res.advisor);
                     if (updatedAdv.erpAdvisorLabel) activeAdvisorSession.erpAdvisorLabel = updatedAdv.erpAdvisorLabel;
@@ -4708,6 +4890,13 @@
                         activeAdvisorSession.maxDiscountPct = updatedAdv.maxDiscountPct;
                     }
                     if (updatedAdv.isAdmin) activeAdvisorSession.isAdmin = true;
+                    if (updatedAdv.isManager) activeAdvisorSession.isManager = true;
+                    if (Array.isArray(updatedAdv.branchAdvisorEmails) && updatedAdv.branchAdvisorEmails.length > 0) {
+                        activeAdvisorSession.branchAdvisorEmails = updatedAdv.branchAdvisorEmails;
+                    }
+                    sessionChanged = true;
+                }
+                if (sessionChanged) {
                     saveAdvisorSession(activeAdvisorSession);
                     renderAdvisorHeaderBar();
                 }
@@ -4726,7 +4915,7 @@
             }
         }
 
-        // Respaldo directo por lectura de COTIZACIONES_EN_VIVO + LPPT
+        // Respaldo directo por lectura de COTIZACIONES_EN_VIVO filtrada estrictamente por rol y bodega activa
         const gvizQuotes = await fetchQuotesLedgerGvizFallback();
         currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
         myRecentQuotesList = gvizQuotes;
@@ -4833,11 +5022,14 @@
         lastSubmittedQuoteMeta = null;
         populateQuoteAdvisorControls();
         saveQuoteDraftMeta();
+        renderMyRecentQuotes(myRecentQuotesList);
+        refreshMyLiveQuotesInfo();
     };
 
     window.onAdminAdvisorChange = function () {
         const advSel = document.getElementById('quoteAdminAdvisorSelect');
         if (!advSel || !activeAdvisorSession || !activeAdvisorSession.isAdmin) return;
+        const prevStore = cleanStr(quoteDraftMeta.erpStore);
         const opt = advSel.options[advSel.selectedIndex];
         if (opt) {
             quoteDraftMeta.erpAdvisorId = opt.value;
@@ -4850,6 +5042,10 @@
         lastSubmittedQuoteMeta = null;
         saveQuoteDraftMeta();
         populateQuoteAdvisorControls();
+        renderMyRecentQuotes(myRecentQuotesList);
+        if (cleanStr(quoteDraftMeta.erpStore) !== prevStore) {
+            refreshMyLiveQuotesInfo();
+        }
     };
 
     function populateQuoteAdvisorControls(forceInputs) {
@@ -5315,12 +5511,25 @@
     }
 
     function purgeCompletedAndActivateBlankDraft() {
+        const prevAdminStore = (activeAdvisorSession && activeAdvisorSession.isAdmin) ? cleanStr(quoteDraftMeta.erpStore) : '';
+        const prevAdminAdvId = (activeAdvisorSession && activeAdvisorSession.isAdmin) ? cleanStr(quoteDraftMeta.erpAdvisorId) : '';
+        const prevAdminAdvLbl = (activeAdvisorSession && activeAdvisorSession.isAdmin) ? cleanStr(quoteDraftMeta.erpAdvisorLabel) : '';
         const now = Date.now();
         quoteDrafts = quoteDrafts.filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now);
         let nextBlank = quoteDrafts.find(d => isDraftUntouchedBlank(d));
         if (!nextBlank) {
-            nextBlank = buildFreshDraftObject({}, createBlankQuoteMeta());
+            const blankMeta = createBlankQuoteMeta();
+            if (prevAdminStore) {
+                blankMeta.erpStore = prevAdminStore;
+                blankMeta.erpAdvisorId = prevAdminAdvId;
+                blankMeta.erpAdvisorLabel = prevAdminAdvLbl;
+            }
+            nextBlank = buildFreshDraftObject({}, blankMeta);
             quoteDrafts.push(nextBlank);
+        } else if (prevAdminStore && nextBlank.meta && !cleanStr(nextBlank.meta.erpStore)) {
+            nextBlank.meta.erpStore = prevAdminStore;
+            nextBlank.meta.erpAdvisorId = prevAdminAdvId;
+            nextBlank.meta.erpAdvisorLabel = prevAdminAdvLbl;
         }
         loadActiveDraftIntoMemory(nextBlank);
         syncAllCartControlsUI();
@@ -5337,6 +5546,7 @@
         renderCartItems();
         applyQuoteCompletedLockUI();
         renderQuoteDraftsBar();
+        renderMyRecentQuotes(myRecentQuotesList);
     }
 
     function markActiveQuoteCompleted(submittedMetaObj) {
@@ -6848,6 +7058,45 @@
                     return;
                 }
 
+                const prependNewlyGeneratedQuotePdfToView = function (metaObj) {
+                    if (!metaObj) return;
+                    const qidClean = cleanStr(metaObj.quoteId);
+                    const folClean = cleanStr(metaObj.folio || metaObj.orderCode);
+                    if (!qidClean && (!folClean || /^[A-Z]+-\d+$/i.test(folClean))) return;
+                    newlyGeneratedQuoteHighlightKey = (qidClean ? ('ID:' + qidClean) : '') || (folClean ? ('F:' + folClean) : '');
+                    const alreadyPresent = Array.isArray(myRecentQuotesList) && myRecentQuotesList.some(existing => {
+                        if (!existing) return false;
+                        if (qidClean && cleanStr(existing.quoteId) === qidClean) return true;
+                        if (folClean && (cleanStr(existing.folio) === folClean || cleanStr(existing.orderCode) === folClean)) return true;
+                        return false;
+                    });
+                    if (!alreadyPresent) {
+                        const skusTxt = Array.isArray(bd.lines)
+                            ? bd.lines.map(ln => cleanStr(ln.sku) + ' x' + (Number(ln.qty) || 1)).join(', ')
+                            : '';
+                        const newEntry = {
+                            orderCode: folClean || qidClean,
+                            folio: folClean,
+                            quoteId: qidClean,
+                            createdAt: cleanStr(metaObj.createdAt) || new Date().toLocaleString('es-MX'),
+                            quoteType: cleanStr(metaObj.quoteType || payload.quoteType),
+                            branchTab: cleanStr(activeAdvisorSession && activeAdvisorSession.sheetTab),
+                            erpStore: cleanStr(payload.erpStore),
+                            advisorEmail: String((activeAdvisorSession && activeAdvisorSession.correo) || payload.advisorEmail || '').trim().toLowerCase(),
+                            advisorName: cleanStr((activeAdvisorSession && activeAdvisorSession.nombre) || payload.advisorName),
+                            erpAdvisor: cleanStr(payload.erpAdvisorLabel),
+                            erpUserId: cleanStr(metaObj.erpUserId || payload.erpAdvisorId),
+                            clientName: cleanStr(payload.clientName),
+                            itemsCount: String(Array.isArray(bd.lines) ? bd.lines.length : 0),
+                            skusSummary: skusTxt,
+                            total: formatPrice(bd && bd.totalWithIva) || '',
+                            status: 'COTIZACION CREADA EN VIVO'
+                        };
+                        myRecentQuotesList = [newEntry].concat(Array.isArray(myRecentQuotesList) ? myRecentQuotesList : []);
+                    }
+                    renderMyRecentQuotes(myRecentQuotesList);
+                };
+
                 // Flujo directo 24/7 en vivo hacia sistema.smuebleria.com
                 if (res.sentLiveToErp) {
                     const folioTxt = folioFromRes || assignedFolio || ('ID-' + cleanStr(res.quoteId));
@@ -6861,6 +7110,7 @@
                         createdAt: cleanStr(res.lastSync),
                         quoteType: res.quoteType || payload.quoteType
                     };
+                    prependNewlyGeneratedQuotePdfToView(lastSubmittedQuoteMeta);
                     markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     renderQuoteStatusBanner(
                         'ok',
@@ -6912,6 +7162,7 @@
                         createdAt: cleanStr(latest && latest.lastSync),
                         quoteType: payload.quoteType
                     };
+                    prependNewlyGeneratedQuotePdfToView(lastSubmittedQuoteMeta);
                     markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     populateQuoteAdvisorControls();
                     renderQuoteStatusBanner(

@@ -883,6 +883,12 @@
                 <div id="quoteDraftsTabsList" class="flex flex-wrap items-center gap-1.5 min-w-0"></div>
                 <div class="flex items-center gap-2 shrink-0 ml-auto">
                     <span class="text-[10px] font-bold opacity-75 hidden sm:inline" style="color:#252C32;">Tiempo máx. sin guardar: 3 h</span>
+                    <button type="button" id="quoteJumpToPdfsBtn" onclick="scrollToGeneratedQuotePdfs()"
+                            class="hidden px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
+                            style="border-color:#252C32; background:#252C32; color:#FFFFFF;"
+                            title="Ver PDFs de cotizaciones generadas">
+                        📄 PDFs (<span id="quoteJumpToPdfsCount">0</span>)
+                    </button>
                     <button type="button" onclick="createNewQuoteDraft(true)"
                             class="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
                             style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
@@ -1143,20 +1149,18 @@
                 <!-- ESTADO EN VIVO DE ENVÍO A S MUEBLERÍA -->
                 <div id="quoteSystemStatusBox" class="hidden rounded-xl border p-3.5 text-xs space-y-1.5"></div>
 
-                <!-- COTIZACIONES EN VIVO (PROPIAS O TODAS LAS TIENDAS EN MODO ADMINISTRADOR) -->
-                <div id="quoteMyRecentWrap" class="hidden rounded-xl border p-3.5 space-y-2" style="border-color:#E8E4DE; background:#FAF9F6;">
+                <!-- SECCIÓN DE PDFs DE COTIZACIONES GENERADAS (APARECE AL GENERAR PDF SEGÚN ROL Y BODEGA ACTIVA) -->
+                <div id="quoteGeneratedPdfsSection" class="hidden rounded-xl border p-3.5 space-y-2.5" style="border-color:#A38251; background:#FAF9F6;">
                     <div class="flex flex-wrap items-center justify-between gap-2">
-                        <span id="quoteRecentHeading" class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">Mis Cotizaciones Enviadas a S Mueblería</span>
-                        <div class="flex items-center gap-2">
-                            <select id="quoteRecentStoreFilter" onchange="onRecentQuotesStoreFilterChange()"
-                                    class="hidden rounded-lg border px-2 py-1 text-[11px] font-bold outline-none"
-                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
-                                <option value="ALL">Todas las tiendas y bodegas</option>
-                            </select>
-                            <span class="text-[10px] font-bold uppercase" style="color:#A38251;">En Vivo</span>
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span id="quoteGeneratedPdfsTitle" class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">PDFs de Cotización Generados</span>
+                                <span id="quoteGeneratedPdfsCountBadge" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:#A38251; color:#FFFFFF;">0</span>
+                            </div>
+                            <div id="quoteGeneratedPdfsRuleHint" class="text-[10px] font-semibold opacity-80 mt-0.5" style="color:#252C32;"></div>
                         </div>
                     </div>
-                    <div id="quoteMyRecentList" class="space-y-1.5 max-h-64 overflow-y-auto"></div>
+                    <div id="quoteGeneratedPdfsList" class="space-y-2 max-h-64 overflow-y-auto pr-0.5"></div>
                 </div>
             </div>
 
@@ -1374,6 +1378,6 @@
     <script src="inventario-data-1.js?v=41"></script>
     <script src="inventario-data-2.js?v=41"></script>
     <script src="inventario-data-3.js?v=41"></script>
-    <script src="inventario-app.js?v=54"></script>
+    <script src="inventario-app.js?v=55"></script>
 </body>
 </html>
