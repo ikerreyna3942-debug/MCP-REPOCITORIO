@@ -900,11 +900,18 @@ function doGet(e) {
  * Endpoint POST para admin.html e inventario.html (usuarios y plantilla de cotización)
  */
 function doPost(e) {
+  let parsedAction = '';
+  let parsedBody = {};
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    parsedBody = body || {};
     const action = body.action || '';
+    parsedAction = action;
 
     // Acciones públicas exclusivas de inventario.html (autenticación de asesores y cotización en vivo S Mueblería)
+    if (action === 'inv_log_event') {
+      return jsonResponse_(handleInvLogEvent_(body));
+    }
     if (action === 'inv_login') {
       return jsonResponse_(handleInvLogin_(body));
     }
@@ -991,6 +998,21 @@ function doPost(e) {
     }
     return jsonResponse_({ ok: false, error: 'Acción no reconocida: ' + action });
   } catch (err) {
+    if (parsedAction !== 'inv_log_event') {
+      try {
+        registrarEventoHistorial_(getSpreadsheet_(), {
+          clasificacion: 'FALLO DE CÓDIGO',
+          modulo: 'AppsScript · doPost (' + (parsedAction || 'sin_action') + ')',
+          evento: 'EXCEPCIÓN NO CONTROLADA EN ENDPOINT POST',
+          estado: '❌ ERROR',
+          usuario: String((parsedBody && (parsedBody.advisorEmail || parsedBody.email)) || 'WebApp'),
+          sucursal: String((parsedBody && (parsedBody.erpStore || parsedBody.sheetTab)) || ''),
+          referencia: parsedAction || 'doPost',
+          detalle: (err && err.message) ? err.message : String(err),
+          analisis: analizarCausaFalloCodigo_(err, 'AppsScript · doPost', parsedAction)
+        });
+      } catch (eHistIgnore) {}
+    }
     return jsonResponse_({ ok: false, error: err.message || String(err) });
   }
 }
@@ -2100,6 +2122,12 @@ function parseDiscountPctCell_(rawVal) {
 
 const TAB_QUOTES_LIVE_ = 'COTIZACIONES_EN_VIVO';
 const TAB_TOP_SEARCHED_ = 'TOP_BUSCADOS';
+const TAB_HISTORIAL_ = 'HISTORIAL';
+const TAB_FOTOS_NUEVAS_CARGADO_ = 'FOTOS NUEVAS CARGADO';
+const FOTOS_NUEVAS_CARGADO_FOLDER_ID_ = '1rPFbjvovC5fSDPHS29yYpbLwM90c-5L9';
+const PRESENTACION_DISENO_FOLDER_ID_ = '1cEirbNnx-s2Jdsf0-jOTVUTFsdltvLev';
+const LPPT_COMMITMENT_BUFFER_DAYS_ = 14; // +2 semanas adicionales en fecha compromiso proveedor
+const ADVISOR_PROMO_END_YMD_ = '2026-11-30'; // 30% asesores vigente hasta 30/11/2026
 const ERP_DRIVE_FOLDER_NAME_ = 'PRESENTACION_DISENO';
 const LPPT_READONLY_DEFAULT_ID_ = '1t78KDg_DMbGfauNWRrjUc3ULh-SzrxO9XwOHPrtJtWE';
 
@@ -2459,6 +2487,17 @@ function handleInvLogin_(body) {
   });
 
   if (!validMatches.length) {
+    registrarEventoHistorial_(ss, {
+      clasificacion: 'ALERTA TÉCNICA',
+      modulo: 'AppsScript · handleInvLogin_',
+      evento: 'INTENTO DE ACCESO CON CONTRASEÑA INCORRECTA',
+      estado: '⚠️ RECHAZADO',
+      usuario: email,
+      sucursal: selectedTab || (emailMatches[0] && emailMatches[0].erpStore) || 'INVENTARIO WEB',
+      referencia: 'Autenticación',
+      detalle: 'Contraseña ingresada no coincide con la clave activa del usuario (' + email + ').',
+      analisis: 'Validación de acceso ejecutada sin alterar la sesión ni las claves almacenadas.'
+    });
     return { ok: false, error: 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.' };
   }
 
@@ -2488,6 +2527,18 @@ function handleInvLogin_(body) {
     : authorizedLocs[0];
 
   const nextOrderCode = peekNextStoreErpFolio_(chosenOut.erpStore, chosenOut.orderPrefix, folioSnap);
+
+  registrarEventoHistorial_(ss, {
+    clasificacion: 'MOVIMIENTO',
+    modulo: 'AppsScript · handleInvLogin_',
+    evento: 'INICIO DE SESIÓN EN INVENTARIO',
+    estado: '✅ OK',
+    usuario: (chosenOut.nombre || email) + ' (' + email + ')',
+    sucursal: chosenOut.erpStore || chosenOut.sheetTab || '',
+    referencia: 'Serie ' + (chosenOut.orderPrefix || '') + ' · Desc. máx ' + getMaxDiscountPctForUser_(chosenOut) + '%',
+    detalle: 'Acceso autenticado en ubicación ' + (chosenOut.branchLabel || chosenOut.erpStore) + '.',
+    analisis: 'Token HMAC emitido correctamente para sesión activa.'
+  });
 
   return {
     ok: true,
@@ -2556,6 +2607,19 @@ function handleInvUpdateKey_(body) {
 
   SpreadsheetApp.flush();
   const primaryTab = activeTab && tokensByTab[activeTab] ? activeTab : matchedTargets[0].tabName;
+
+  registrarEventoHistorial_(ss, {
+    clasificacion: 'MOVIMIENTO',
+    modulo: 'AppsScript · handleInvUpdateKey_',
+    evento: 'ACTUALIZACIÓN DE CONTRASEÑA PERSONAL',
+    estado: '✅ OK',
+    usuario: email,
+    sucursal: matchedTargets.map((x) => x.tabName).join(', '),
+    referencia: 'Clave personal activada',
+    detalle: 'Contraseña definitiva guardada en Columna G y clave temporal limpiada en ' + matchedTargets.length + ' hoja(s).',
+    analisis: 'Tokens de sesión renovados automáticamente.'
+  });
+
   return {
     ok: true,
     updatedRows: matchedTargets.length,
@@ -2700,21 +2764,42 @@ function ensureQuotesLedgerSheet_(ss) {
 /**
  * Descuento máximo permitido:
  * 1) Administradores (Santiago y Kevin): 100%
- * 2) Columna I ("Descuento" junto a Usuario/ID Asesor): porcentaje explícito configurado en la hoja
- * 3) Respaldo por Puesto: GERENTE / SUBGERENTE = 100%, ASESOR = 24%
+ * 2) Gerentes / Subgerentes: 100%
+ * 3) Asesores: 30% vigente hasta el día 30 de noviembre de 2026 (America/Cancun); 24% automático a partir del 01/12/2026
+ * 4) Columna I ("Descuento" junto a Usuario/ID Asesor): porcentaje o fórmula dinámica configurada en la hoja
  */
+function isAdvisorPromo30Active_() {
+  let ymd = '';
+  try {
+    ymd = Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd');
+  } catch (e) {
+    ymd = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT-5', 'yyyy-MM-dd');
+  }
+  return ymd <= ADVISOR_PROMO_END_YMD_;
+}
+
 function getMaxDiscountPctForPuesto_(puesto) {
   const p = String(puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-  return /ADMINISTRADOR|GERENTE|\bSUB/.test(p) ? 100 : 24;
+  if (/ADMINISTRADOR|GERENTE|\bSUB/.test(p)) return 100;
+  return isAdvisorPromo30Active_() ? 30 : 24;
 }
 
 function getMaxDiscountPctForUser_(u) {
-  if (!u) return 24;
+  const promoActive = isAdvisorPromo30Active_();
+  const defaultAdvPct = promoActive ? 30 : 24;
+  if (!u) return defaultAdvPct;
   if (u.isAdmin) return 100;
+  const p = String(u.puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  const isMgr = /ADMINISTRADOR|GERENTE|\bSUB/.test(p);
   if (u.maxDiscountPct !== null && u.maxDiscountPct !== undefined && isFinite(Number(u.maxDiscountPct))) {
-    return Math.max(0, Math.min(100, Number(u.maxDiscountPct)));
+    const rawPct = Math.max(0, Math.min(100, Number(u.maxDiscountPct)));
+    if (!isMgr) {
+      if (promoActive && rawPct === 24) return 30;
+      if (!promoActive && rawPct === 30) return 24;
+    }
+    return rawPct;
   }
-  return getMaxDiscountPctForPuesto_(u.puesto);
+  return isMgr ? 100 : defaultAdvPct;
 }
 
 function invalidateErpFoliosCache_() {
@@ -3961,7 +4046,7 @@ function handleInvSubmitQuote_(body) {
     const rawNotes = String(body.notes || '').trim();
     const extraDiscount = Math.max(0, Number(body.extraDiscount) || 0);
 
-    // Límite de descuento por cuenta (Columna I "Descuento": Asesor 24% · Gerente 100% · Administrador 100%)
+    // Límite de descuento por cuenta (Columna I "Descuento": Asesor 30% hasta 30/11/2026 [24% desde 01/12/2026] · Gerente/Admin 100%)
     const maxDiscPct = getMaxDiscountPctForUser_(verifiedUser);
     let sumListReq = 0;
     let sumNetReq = 0;
@@ -3969,6 +4054,17 @@ function handleInvSubmitQuote_(body) {
       const it = items[i] || {};
       const pct = Math.max(0, Number(it.discountPct) || 0);
       if (pct > maxDiscPct + 0.0001) {
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'ALERTA TÉCNICA',
+          modulo: 'AppsScript · handleInvSubmitQuote_',
+          evento: 'DESCUENTO RECHAZADO POR TOPE DE PUESTO',
+          estado: '⚠️ BLOQUEADO',
+          usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+          sucursal: erpStore,
+          referencia: String(it.sku || ''),
+          detalle: 'Descuento solicitado ' + pct + '% supera el máximo permitido de ' + maxDiscPct + '% para ' + (verifiedUser.puesto || 'ASESOR') + '.',
+          analisis: 'Control de descuento activo: Asesores 30% hasta 30/11/2026 (24% desde 01/12/2026); Gerentes y Administradores 100%.'
+        });
         return {
           ok: false,
           error: 'Tu cuenta (' + (verifiedUser.puesto || 'ASESOR') + ') permite un descuento máximo de ' + maxDiscPct + '% por partida. Revisa el SKU ' + String(it.sku || '') + '.'
@@ -3982,6 +4078,17 @@ function handleInvSubmitQuote_(body) {
     if (sumListReq > 0 && extraDiscount > 0) {
       const effPct = ((sumListReq - Math.max(0, sumNetReq - extraDiscount)) / sumListReq) * 100;
       if (effPct > maxDiscPct + 0.01) {
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'ALERTA TÉCNICA',
+          modulo: 'AppsScript · handleInvSubmitQuote_',
+          evento: 'DESCUENTO EXTRA RECHAZADO POR TOPE DE PUESTO',
+          estado: '⚠️ BLOQUEADO',
+          usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+          sucursal: erpStore,
+          referencia: 'Descuento extra $' + extraDiscount.toFixed(2),
+          detalle: 'Descuento total efectivo ' + effPct.toFixed(1) + '% supera el máximo permitido de ' + maxDiscPct + '%.',
+          analisis: 'Control de descuento acumulado activo sobre partidas + descuento extra.'
+        });
         return {
           ok: false,
           error: 'El descuento total (' + effPct.toFixed(1) + '%) supera el máximo permitido para tu cuenta (' + maxDiscPct + '%).'
@@ -4048,6 +4155,17 @@ function handleInvSubmitQuote_(body) {
       sh.getRange('K6').setValue('🟢 EN REVISIÓN (' + estimatedFolio + ' · ' + activeQuoteType + ')');
       sh.getRange('K9').setValue(ahoraStr);
       SpreadsheetApp.flush();
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'AppsScript · plantilla',
+        evento: 'COTIZACIÓN GUARDADA EN REVISIÓN',
+        estado: '✅ OK',
+        usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+        sucursal: erpStore,
+        referencia: estimatedFolio,
+        detalle: 'Borrador en hoja plantilla para ' + clientNameRaw + ' (' + items.length + ' partidas).',
+        analisis: 'Guardada en modo SOLO REVISIÓN sin envío a S Mueblería.'
+      });
       const previewStatus = handleInvPlantillaStatus_();
       previewStatus.orderCode = estimatedFolio;
       previewStatus.nextOrderCode = estimatedFolio;
@@ -4090,6 +4208,17 @@ function handleInvSubmitQuote_(body) {
         if (!idProd || !/^\d+$/.test(idProd) || precioOrig <= 0) {
           const liveProd = buscarProductoPorClaveWcf_(sku);
           if (!liveProd || !liveProd.IdProducto) {
+            registrarEventoHistorial_(ss, {
+              clasificacion: 'FALLO DE CÓDIGO',
+              modulo: 'AppsScript WCF · BuscarProductoPorClave',
+              evento: 'SKU NO ENCONTRADO EN S MUEBLERÍA',
+              estado: '❌ ERROR',
+              usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+              sucursal: erpStore,
+              referencia: sku,
+              detalle: 'Intento de cotizar SKU "' + sku + '" sin IdProducto activo en S Mueblería.',
+              analisis: 'El SKU debe estar dado de alta en el catálogo oficial de sistema.smuebleria.com antes de emitir cotización.'
+            });
             return {
               ok: false,
               error: 'El SKU "' + sku + '" no existe o no está dado de alta en el sistema S Mueblería.'
@@ -4200,6 +4329,18 @@ function handleInvSubmitQuote_(body) {
       const appendedRow = shQuotes.getLastRow();
       shQuotes.getRange(appendedRow, 19, 1, 4).setNumberFormat('$#,##0.00');
 
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'AppsScript WCF · InsertarCotizacion',
+        evento: 'COTIZACIÓN CREADA EN S MUEBLERÍA',
+        estado: '✅ OK',
+        usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+        sucursal: erpStore,
+        referencia: 'Folio ' + folioFinal + ' (ID ERP ' + erpResult.idCotizacion + ')',
+        detalle: 'Cliente: ' + displayClientForErp + ' · Total: $' + Number(erpResult.total || 0).toFixed(2) + ' · Partidas: ' + skusSummaryParts.join(', '),
+        analisis: 'Inserción directa WCF SOAP 1.2 exitosa en sistema.smuebleria.com con usuario ERP ' + idUsuarioNum + '.'
+      });
+
       SpreadsheetApp.flush();
 
       const folioSnapAfter = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
@@ -4278,6 +4419,17 @@ function handleInvSubmitQuote_(body) {
         ]);
         const appRow = shQuotes.getLastRow();
         shQuotes.getRange(appRow, 19, 1, 4).setNumberFormat('$#,##0.00');
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'MOVIMIENTO',
+          modulo: 'AppsScript + servicio_en_vivo.py',
+          evento: 'COTIZACIÓN CREADA VÍA COLA DE RESPALDO',
+          estado: '✅ OK',
+          usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+          sucursal: erpStore,
+          referencia: 'Folio ' + folioResolved + ' (ID ERP ' + daemonQid + ')',
+          detalle: 'Cotización completada por servicio_en_vivo.py tras aviso WCF inicial (' + String((wcfErr && wcfErr.message) || wcfErr).slice(0, 140) + ').',
+          analisis: analizarCausaFalloCodigo_(wcfErr, 'AppsScript WCF · InsertarCotizacion', 'fallback_daemon')
+        });
         SpreadsheetApp.flush();
 
         const snapAfterDaemon = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
@@ -4298,6 +4450,18 @@ function handleInvSubmitQuote_(body) {
           : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
         return outDaemon;
       }
+
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript WCF · InsertarCotizacion',
+        evento: 'ENVÍO WCF DIRECTO EN COLA DE RESPALDO',
+        estado: '⚠️ EN COLA',
+        usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+        sucursal: erpStore,
+        referencia: estimatedFolio + ' (' + displayClientForErp + ')',
+        detalle: String((wcfErr && wcfErr.message) || wcfErr || 'Fallo WCF directo'),
+        analisis: analizarCausaFalloCodigo_(wcfErr, 'AppsScript WCF · InsertarCotizacion', 'inv_submit_quote')
+      });
 
       const queuedOut = handleInvPlantillaStatus_();
       queuedOut.sentLiveToErp = false;
@@ -4516,8 +4680,16 @@ function organizarCuentasYDescuentosEnHojas(opts) {
 
     if (dataRows.length > 0) {
       sh.getRange(3, 6, dataRows.length, 2).setNumberFormat('@');
-      sh.getRange(3, 9, dataRows.length, 1).setNumberFormat('@');
-      sh.getRange(3, 1, dataRows.length, 9).setValues(dataRows);
+      sh.getRange(3, 1, dataRows.length, 8).setValues(dataRows.map((r) => r.slice(0, 8)));
+      for (let dIdx = 0; dIdx < dataRows.length; dIdx++) {
+        const discSpec = String(dataRows[dIdx][8] || '');
+        const cellDisc = sh.getRange(3 + dIdx, 9);
+        if (discSpec === '24%' || /^=IF/i.test(discSpec)) {
+          cellDisc.setFormula('=IF(TODAY()<=DATE(2026,11,30),"30%","24%")');
+        } else {
+          cellDisc.setNumberFormat('@').setValue(discSpec);
+        }
+      }
       sh.getRange(3, 6, dataRows.length, 2).setHorizontalAlignment('center');
       sh.getRange(3, 9, dataRows.length, 1).setHorizontalAlignment('center').setFontWeight('bold');
       totalRowsWritten += dataRows.length;
@@ -4546,6 +4718,9 @@ function organizarCuentasYDescuentosEnHojas(opts) {
     'INF. PRODUC': true,
     'PLANTILLA': true,
     'COTIZACIONES_EN_VIVO': true,
+    'HISTORIAL': true,
+    'FOTOS NUEVAS CARGADO': true,
+    'FOTOS NUEVAS': true,
     '_CREATA_CONFIG': true
   };
   eliminarPestanaTopBuscadosSiExiste_(ss);
@@ -4854,7 +5029,12 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
           const prov = String(rf[1] || '').trim();
           if (prov && !lpptProvBySku[sku]) lpptProvBySku[sku] = prov;
           const fCompra = parseSheetOrStrDate_(ru[2], rf[2]);
-          const fComp = parseSheetOrStrDate_(ru[5], rf[5]);
+          const fCompRaw = parseSheetOrStrDate_(ru[5], rf[5]);
+          let fComp = null;
+          if (fCompRaw) {
+            fComp = new Date(fCompRaw.getTime());
+            fComp.setDate(fComp.getDate() + LPPT_COMMITMENT_BUFFER_DAYS_);
+          }
           const diasProv = resolveSupplierDays_(prov, tiemposInf, tiemposBackup);
 
           let fechaInf = null;
@@ -4901,6 +5081,17 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       }
     } catch (lpptErr) {
       Logger.log('Aviso lectura LPPT solo lectura: ' + lpptErr);
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'ALERTA TÉCNICA',
+        modulo: 'AppsScript · sincronizarInventarioEnVivoDesdeERP',
+        evento: 'LECTURA LPPT PROVEEDORES CON INCIDENCIA',
+        estado: '⚠️ ALERTA',
+        usuario: 'Sincronizador Automático',
+        sucursal: 'INVENTARIO_EN_VIVO',
+        referencia: 'LPPT Proveedores',
+        detalle: String((lpptErr && lpptErr.message) || lpptErr),
+        analisis: analizarCausaFalloCodigo_(lpptErr, 'AppsScript · LPPT', 'lectura_lppt')
+      });
     }
 
     // 4) Autocompletar nuevos productos (ERP / Hoja '1' / plantilla / LPPT), limpiar medidas y ordenar A-Z
@@ -5008,6 +5199,32 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       shInv.getRange(3, 15, outMatrix.length, 34).setValues(outMatrix);
     }
     asegurarColumnaPrecioListaInventario_(ss, { silentUi: true, force: !!(autoRes && autoRes.added > 0) });
+
+    if (!erpOk) {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript · sincronizarInventarioEnVivoDesdeERP',
+        evento: 'ERP S MUEBLERÍA SIN CONEXIÓN EN SINCRONIZACIÓN',
+        estado: '⚠️ RESPALDO ACTIVO',
+        usuario: 'Sincronizador Automático',
+        sucursal: 'INVENTARIO_EN_VIVO',
+        referencia: outMatrix.length + ' filas preservadas',
+        detalle: erpError || 'Sin respuesta WCF S Mueblería; se preservó inventario Bodega/Piso del último corte.',
+        analisis: analizarCausaFalloCodigo_(erpError, 'AppsScript · sincronizarInventarioEnVivoDesdeERP', 'sync_erp')
+      });
+    } else if (autoRes && autoRes.added > 0) {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'AppsScript · sincronizarInventarioEnVivoDesdeERP',
+        evento: 'ALTA AUTOMÁTICA DE NUEVOS SKUS EN INVENTARIO',
+        estado: '✅ OK',
+        usuario: 'Sincronizador Automático',
+        sucursal: 'INVENTARIO_EN_VIVO',
+        referencia: '+' + autoRes.added + ' SKUs nuevos',
+        detalle: 'Sincronización en vivo completada (' + outMatrix.length + ' filas ordenadas A-Z · LPPT +14 días activo).',
+        analisis: 'Fórmulas nativas F2 y AW2 respetadas intactas.'
+      });
+    }
 
     if (!silentUi) {
       try {
@@ -6367,6 +6584,18 @@ function handleInvCreateErpClient_(body) {
         }
       }
 
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'AppsScript WCF · InsertarCliente',
+        evento: 'ALTA DE CLIENTE EN S MUEBLERÍA',
+        estado: '✅ OK',
+        usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+        sucursal: verifiedUser.erpStore || verifiedUser.sheetTab || '',
+        referencia: 'Cliente ID ' + idCliente + ' (' + noClienteAuto + ')',
+        detalle: 'Cliente dado de alta en vivo: ' + fullName + ' · Tel: ' + (telefono || celular || '—'),
+        analisis: 'Inserción directa WCF InsertarCliente completada con consecutivo ' + noClienteAuto + '.'
+      });
+
       return {
         ok: true,
         client: {
@@ -6408,6 +6637,17 @@ function handleInvCreateErpClient_(body) {
     const mLead = xmlLeadResp.match(/<[^>]*InsertarLeadResult>(-?\d+)</);
     const idLeadNew = mLead ? parseInt(mLead[1], 10) : 0;
     if (!idLeadNew || idLeadNew <= 0) {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript WCF · InsertarCliente / InsertarLead',
+        evento: 'ERROR AL DAR DE ALTA CLIENTE EN S MUEBLERÍA',
+        estado: '❌ ERROR',
+        usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+        sucursal: verifiedUser.erpStore || verifiedUser.sheetTab || '',
+        referencia: fullName,
+        detalle: clientWarn || xmlLeadResp.slice(0, 220),
+        analisis: analizarCausaFalloCodigo_(clientWarn || xmlLeadResp, 'AppsScript WCF · InsertarLead', 'inv_create_erp_client')
+      });
       return {
         ok: false,
         error: 'No se pudo dar de alta al cliente en S Mueblería (' + (clientWarn || xmlLeadResp.slice(0, 180)) + ').'
@@ -6437,6 +6677,18 @@ function handleInvCreateErpClient_(body) {
         callSmuebleriaWcf_('InsertarDireccionLead', innerLeadDir);
       } catch (eLDir) {}
     }
+
+    registrarEventoHistorial_(ss, {
+      clasificacion: 'MOVIMIENTO',
+      modulo: 'AppsScript WCF · InsertarLead',
+      evento: 'ALTA DE PROSPECTO (LEAD) EN S MUEBLERÍA',
+      estado: '✅ OK',
+      usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+      sucursal: verifiedUser.erpStore || verifiedUser.sheetTab || '',
+      referencia: 'Lead ID ' + idLeadNew,
+      detalle: 'Prospecto registrado en vivo: ' + fullName + ' · Tel: ' + (telefono || celular || '—'),
+      analisis: clientWarn ? ('InsertarCliente devolvió aviso (' + clientWarn.slice(0, 120) + '); resuelto automáticamente como Lead.') : 'Inserción directa WCF InsertarLead exitosa.'
+    });
 
     return {
       ok: true,
@@ -6471,6 +6723,17 @@ function handleInvUploadProductPhoto_(body) {
     const puestoNorm = String(verifiedUser.puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
     const isAllowedManager = !!(verifiedUser.isAdmin || /GERENTE|\bSUB/.test(puestoNorm));
     if (!isAllowedManager) {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'ALERTA TÉCNICA',
+        modulo: 'AppsScript · handleInvUploadProductPhoto_',
+        evento: 'INTENTO DE SUBIDA DE FOTO SIN PERMISO',
+        estado: '⚠️ BLOQUEADO',
+        usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+        sucursal: verifiedUser.erpStore || verifiedUser.sheetTab || '',
+        referencia: String((body && body.sku) || '').trim().toUpperCase(),
+        detalle: 'Intento de carga de foto desde cuenta con puesto ' + (verifiedUser.puesto || 'ASESOR') + '.',
+        analisis: 'Validación activa: únicamente Gerentes, Subgerentes y Administradores tienen permiso de carga de fotografías.'
+      });
       return {
         ok: false,
         error: 'Acceso restringido: únicamente las cuentas de Gerente o Administrador pueden agregar fotos a los productos.'
@@ -6499,87 +6762,254 @@ function handleInvUploadProductPhoto_(body) {
     const blob = Utilities.newBlob(bytes, mime, fileName);
 
     let uploaded = null;
+    let usedFolderId = FOTOS_NUEVAS_CARGADO_FOLDER_ID_;
     try {
-      const rootFolder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
-      const subIt = rootFolder.getFoldersByName('FOTOS NUEVAS');
-      const targetFolder = subIt.hasNext() ? subIt.next() : rootFolder.createFolder('FOTOS NUEVAS');
+      const targetFolder = DriveApp.getFolderById(FOTOS_NUEVAS_CARGADO_FOLDER_ID_);
       uploaded = targetFolder.createFile(blob);
-    } catch (eFolder) {
-      uploaded = DriveApp.createFile(blob);
+      usedFolderId = targetFolder.getId();
+    } catch (ePrimaryFolder) {
+      try {
+        const projFolder = DriveApp.getFolderById(PRESENTACION_DISENO_FOLDER_ID_);
+        const subIt = projFolder.getFoldersByName(TAB_FOTOS_NUEVAS_CARGADO_);
+        const fallbackFolder = subIt.hasNext() ? subIt.next() : projFolder.createFolder(TAB_FOTOS_NUEVAS_CARGADO_);
+        uploaded = fallbackFolder.createFile(blob);
+        usedFolderId = fallbackFolder.getId();
+      } catch (eSecondaryFolder) {
+        uploaded = DriveApp.createFile(blob);
+      }
     }
     uploaded.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     const fileId = uploaded.getId();
     const publicUrl = 'https://lh3.googleusercontent.com/d/' + fileId + '=w1000';
     const driveViewUrl = 'https://drive.google.com/file/d/' + fileId + '/view?usp=sharing';
+    const folderUrl = 'https://drive.google.com/drive/folders/' + usedFolderId;
 
-    let shFotos = ss.getSheetByName('FOTOS NUEVAS');
+    let shFotos = ss.getSheetByName(TAB_FOTOS_NUEVAS_CARGADO_);
     if (!shFotos) {
-      shFotos = ss.insertSheet('FOTOS NUEVAS');
+      shFotos = ss.insertSheet(TAB_FOTOS_NUEVAS_CARGADO_);
     }
 
-    const headers = ['SKU', 'NOMBRE', 'FOTO', 'LINK FOTO', 'GERENTE / USUARIO', 'PUESTO / SUCURSAL', 'CORREO', 'FECHA HORA'];
+    const headers = [
+      'SKU PRODUCTO',
+      'NOMBRE DEL PRODUCTO',
+      'VISTA PREVIA',
+      'URL DIRECTA FOTO',
+      'LINK ARCHIVO EN DRIVE',
+      'QUIÉN SUBIÓ LA FOTO',
+      'PUESTO Y SUCURSAL',
+      'CORREO USUARIO',
+      'FECHA Y HORA',
+      'CARPETA DRIVE (FOTOS NUEVAS CARGADO)'
+    ];
     const lastRow = shFotos.getLastRow();
-    if (lastRow === 0) {
+    if (lastRow === 0 || !String(shFotos.getRange(1, 1).getDisplayValue() || '').trim()) {
       shFotos.getRange(1, 1, 1, headers.length).setValues([headers]);
-      shFotos.getRange(1, 1, 1, headers.length).setFontWeight('bold');
-    } else {
-      const firstCell = String(shFotos.getRange(1, 1).getDisplayValue() || '').trim().toUpperCase();
-      if (!firstCell) {
-        shFotos.getRange(1, 1, 1, headers.length).setValues([headers]);
-        shFotos.getRange(1, 1, 1, headers.length).setFontWeight('bold');
-      }
+      shFotos.getRange(1, 1, 1, headers.length)
+        .setBackground('#252C32')
+        .setFontColor('#FFFFFF')
+        .setFontWeight('bold')
+        .setHorizontalAlignment('center');
+      shFotos.setFrozenRows(1);
     }
 
-    const ahoraStr = Utilities.formatDate(new Date(), 'America/Cancun', 'dd/MM/yyyy HH:mm:ss');
+    const ahoraStr = formatCancunNow_();
+    const uploaderName = verifiedUser.nombre || verifiedUser.correo;
     const roleStore = [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'GERENTE'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
       .filter(Boolean)
       .join(' · ');
 
-    const curLastRow = shFotos.getLastRow();
-    let targetRow = 0;
-    if (curLastRow >= 2) {
-      const skuVals = shFotos.getRange(2, 1, curLastRow - 1, 1).getValues();
-      for (let i = 0; i < skuVals.length; i++) {
-        if (String(skuVals[i][0] || '').trim().toUpperCase() === skuUpper) {
-          targetRow = i + 2;
-          break;
-        }
-      }
-    }
-    if (!targetRow) {
-      targetRow = Math.max(2, curLastRow + 1);
-    }
-
-    shFotos.getRange(targetRow, 1, 1, 8).setValues([[
+    // Agregar nuevo registro conservando trazabilidad completa (última fila prevalece en vivo por SKU)
+    const targetRow = Math.max(2, shFotos.getLastRow() + 1);
+    shFotos.getRange(targetRow, 1, 1, 10).setValues([[
       skuUpper,
       productName,
       '',
       publicUrl,
-      verifiedUser.nombre || verifiedUser.correo,
+      driveViewUrl,
+      uploaderName,
       roleStore,
       verifiedUser.correo,
-      ahoraStr
+      ahoraStr,
+      folderUrl
     ]]);
     shFotos.getRange(targetRow, 3).setFormula('=IMAGE("' + publicUrl + '")');
     SpreadsheetApp.flush();
 
+    registrarEventoHistorial_(ss, {
+      clasificacion: 'MOVIMIENTO',
+      modulo: 'AppsScript · FOTOS NUEVAS CARGADO',
+      evento: 'FOTOGRAFÍA CARGADA EN DRIVE Y HOJA',
+      estado: '✅ OK',
+      usuario: uploaderName + ' (' + verifiedUser.correo + ')',
+      sucursal: roleStore,
+      referencia: skuUpper + ' · ' + productName,
+      detalle: 'Foto guardada en carpeta Drive "FOTOS NUEVAS CARGADO" (' + fileName + ') · URL: ' + publicUrl,
+      analisis: 'Archivo alojado con acceso de visualización por enlace en PRESENTACION_DISENO/FOTOS NUEVAS CARGADO y registrado en fila ' + targetRow + '.'
+    });
+
     return {
       ok: true,
       sku: skuUpper,
+      productName: productName,
       url: publicUrl,
       driveUrl: driveViewUrl,
-      sheetName: 'FOTOS NUEVAS',
+      folderUrl: folderUrl,
+      sheetName: TAB_FOTOS_NUEVAS_CARGADO_,
       row: targetRow,
-      uploadedBy: verifiedUser.nombre || verifiedUser.correo,
+      uploadedBy: uploaderName,
       timestamp: ahoraStr
+    };
+  } catch (errUp) {
+    try {
+      registrarEventoHistorial_(getSpreadsheet_(), {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript · handleInvUploadProductPhoto_',
+        evento: 'ERROR AL SUBIR FOTOGRAFÍA A DRIVE',
+        estado: '❌ ERROR',
+        usuario: String((body && (body.advisorName || body.advisorEmail)) || ''),
+        sucursal: String((body && body.sheetTab) || ''),
+        referencia: String((body && body.sku) || '') + ' · ' + String((body && body.productName) || ''),
+        detalle: (errUp && errUp.message) ? errUp.message : String(errUp),
+        analisis: analizarCausaFalloCodigo_(errUp, 'AppsScript · handleInvUploadProductPhoto_', 'inv_upload_product_photo')
+      });
+    } catch (eLog) {}
+    return {
+      ok: false,
+      error: (errUp && errUp.message) ? errUp.message : String(errUp)
     };
   } finally {
     try { lock.releaseLock(); } catch (e) {}
   }
 }
 
+// ============================================================================
+// MOTOR EXCLUSIVO DE AUDITORÍA DE MOVIMIENTOS Y ANÁLISIS DE FALLOS DE CÓDIGO
+// ÚNICAMENTE EN LA HOJA "HISTORIAL" (CERO PESTAÑAS ADICIONALES DE BITÁCORA)
+// ============================================================================
+function analizarCausaFalloCodigo_(errOrMsg, modulo, evento) {
+  const raw = String((errOrMsg && (errOrMsg.stack || errOrMsg.message)) || errOrMsg || '').trim();
+  const up = raw.toUpperCase();
 
+  if (/TOKEN|JWT|401|UNAUTHORIZED|CLAVESERVICIO|SESION|LOGIN\.ASPX/.test(up)) {
+    return 'Token JWT o cookie de sesión ERP S Mueblería expirada en .erp_session_cache.json; se activa respaldo de renovación o cola en plantilla!K5.';
+  }
+  if (/FAULT|SOAP|SMUEBLERIASERVICE|INSERTARCOTIZACION|INSERTARCLIENTE|INSERTARLEAD/.test(up)) {
+    return 'Excepción WCF SOAP 1.2 devuelta por sistema.smuebleria.com en ' + (modulo || 'servicio ERP') + '; revisar formato XML de parámetros o disponibilidad del servidor ERP.';
+  }
+  if (/SKU.*NO EXISTE|IDPRODUCTO|BUSCARPRODUCTO/.test(up)) {
+    return 'El SKU solicitado aún no tiene IdProducto activo en el catálogo maestro de S Mueblería; dar de alta primero en ERP.';
+  }
+  if (/DESCUENTO|SUPER.*M[ÁA]XIMO/.test(up)) {
+    return 'Regla de negocio aplicada: el porcentaje capturado excedía el tope autorizado para el puesto del usuario (30% Asesor vigente hasta 30/11/2026; 24% desde 01/12/2026; 100% Gerente/Admin).';
+  }
+  if (/DRIVE|FOLDER|PERMISSION|ACCESO DENEGADO/.test(up)) {
+    return 'Permiso o identificador de carpeta en Google Drive no accesible por el propietario del Apps Script; verificar acceso sobre carpeta FOTOS NUEVAS CARGADO (1rPFbjvovC5fSDPHS29yYpbLwM90c-5L9).';
+  }
+  if (/TIMEOUT|TIMED OUT|DEADLINE|LOCK|WAITLOCK/.test(up)) {
+    return 'Tiempo de espera agotado por concurrencia de LockService o latencia de red externa; reintentar operación.';
+  }
+  if (/TYPEERROR|REFERENCEERROR|SYNTAXERROR|CANNOT READ/.test(up)) {
+    return 'Excepción de código en tiempo de ejecución (' + (modulo || 'JS/AppsScript') + '): ' + raw.slice(0, 260);
+  }
+  return raw ? ('Diagnóstico automático (' + (modulo || 'Sistema') + ' · ' + (evento || 'Evento') + '): ' + raw.slice(0, 260)) : 'Operación auditada en hoja HISTORIAL.';
+}
 
+function ensureHistorialSheet_(ss) {
+  const book = ss || getSpreadsheet_();
+  let sh = book.getSheetByName(TAB_HISTORIAL_);
+  if (!sh) {
+    sh = book.insertSheet(TAB_HISTORIAL_);
+  }
+  if (sh.getLastRow() < 6) {
+    const hdrRow6 = [[
+      'FECHA Y HORA',
+      'CLASIFICACIÓN',
+      'MÓDULO / ARCHIVO',
+      'EVENTO / MOVIMIENTO',
+      'ESTADO',
+      'USUARIO / QUIÉN FUE',
+      'SUCURSAL / ÁREA',
+      'PRODUCTO / FOLIO / REF.',
+      'DETALLE DEL MOVIMIENTO O FALLO',
+      'ANÁLISIS TÉCNICO DEL CÓDIGO / CAUSA Y SOLUCIÓN'
+    ]];
+    if (sh.getLastRow() === 0) {
+      sh.getRange(1, 1).setValue('CENTRO DE ANÁLISIS DE FALLOS DE CÓDIGO Y MOVIMIENTOS DEL SISTEMA — CREATA MUEBLES (EXCLUSIVO HOJA HISTORIAL)');
+      sh.getRange(2, 1, 1, 10).setValues([[
+        'TOTAL REGISTROS', '=COUNTA(A7:A5000)',
+        'MOVIMIENTOS OK', '=COUNTIF(B7:B5000,"MOVIMIENTO")',
+        'FALLOS DE CÓDIGO / ERP', '=COUNTIF(B7:B5000,"FALLO DE CÓDIGO")',
+        'ALERTAS TÉCNICAS', '=COUNTIF(B7:B5000,"ALERTA TÉCNICA")',
+        'COTIZACIONES / FOTOS', '=COUNTIF(D7:D5000,"*COTIZACIÓN*")&" cot. · "&COUNTIF(D7:D5000,"*FOTO*")&" fotos"'
+      ]]);
+      sh.getRange(4, 1).setValue('Regla activa: Todo fallo de código y todo movimiento operativo del sistema se analiza y registra exclusivamente en esta pestaña HISTORIAL.');
+    }
+    sh.getRange(6, 1, 1, 10).setValues(hdrRow6);
+    sh.getRange(6, 1, 1, 10)
+      .setBackground('#252C32')
+      .setFontColor('#FFFFFF')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    sh.setFrozenRows(6);
+  }
+  return sh;
+}
 
+function registrarEventoHistorial_(ss, opts) {
+  try {
+    if (!opts) return false;
+    const book = ss || getSpreadsheet_();
+    const sh = ensureHistorialSheet_(book);
+    const fechaHora = String(opts.fechaHora || formatCancunNow_());
+    const clasificacion = String(opts.clasificacion || 'MOVIMIENTO').trim();
+    const modulo = String(opts.modulo || 'AppsScript').trim();
+    const evento = String(opts.evento || 'MOVIMIENTO SISTEMA').trim();
+    const estado = String(opts.estado || '✅ OK').trim();
+    const usuario = String(opts.usuario || 'Sistema Automático').trim();
+    const sucursal = String(opts.sucursal || 'GENERAL').trim();
+    const referencia = String(opts.referencia || '—').trim();
+    const detalle = String(opts.detalle || '').trim().slice(0, 1000);
+    const analisis = String(opts.analisis || analizarCausaFalloCodigo_(detalle, modulo, evento)).trim().slice(0, 1000);
 
+    const nextRow = Math.max(7, sh.getLastRow() + 1);
+    sh.getRange(nextRow, 1, 1, 10).setValues([[
+      fechaHora,
+      clasificacion,
+      modulo,
+      evento,
+      estado,
+      usuario,
+      sucursal,
+      referencia,
+      detalle,
+      analisis
+    ]]);
+    return true;
+  } catch (eHist) {
+    Logger.log('Aviso HISTORIAL: ' + eHist);
+    return false;
+  }
+}
 
+function handleInvLogEvent_(body) {
+  const b = body || {};
+  const ss = getSpreadsheet_();
+  const clasif = String(b.classification || 'FALLO DE CÓDIGO').trim().toUpperCase();
+  const mod = String(b.module || 'inventario-app.js').trim();
+  const ev = String(b.event || 'EVENTO CLIENTE WEB').trim();
+  const det = String(b.detail || '').trim();
+  const ana = String(b.analysis || '').trim() || analizarCausaFalloCodigo_(det, mod, ev);
+
+  const ok = registrarEventoHistorial_(ss, {
+    clasificacion: (clasif === 'MOVIMIENTO' || clasif === 'ALERTA TÉCNICA' || clasif === 'FALLO DE CÓDIGO') ? clasif : 'FALLO DE CÓDIGO',
+    modulo: mod,
+    evento: ev,
+    estado: String(b.status || (clasif === 'MOVIMIENTO' ? '✅ OK' : '❌ ERROR')).trim(),
+    usuario: String(b.user || 'Cliente Web').trim(),
+    sucursal: String(b.branch || 'INVENTARIO WEB').trim(),
+    referencia: String(b.ref || '—').trim(),
+    detalle: det,
+    analisis: ana
+  });
+  return { ok: ok, sheetName: TAB_HISTORIAL_ };
+}

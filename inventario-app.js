@@ -1236,12 +1236,32 @@
         return null;
     }
 
+    // Holgura operativa solicitada: +2 semanas (+14 días) sobre la Fecha compromiso del proveedor (LPPT Col F)
+    const SUPPLIER_COMMITMENT_BUFFER_DAYS = 14;
+
     function formatDateDMY(dt) {
         if (!dt || isNaN(dt.getTime())) return '';
         const dd = String(dt.getDate()).padStart(2, '0');
         const mm = String(dt.getMonth() + 1).padStart(2, '0');
         const yyyy = dt.getFullYear();
         return dd + '/' + mm + '/' + yyyy;
+    }
+
+    function addDaysLocal(dt, days) {
+        if (!dt || isNaN(dt.getTime())) return null;
+        const copy = new Date(dt.getTime());
+        copy.setDate(copy.getDate() + (Number(days) || 0));
+        copy.setHours(0, 0, 0, 0);
+        return copy;
+    }
+
+    function shiftDateStringDays(rawStr, days) {
+        const clean = cleanStr(rawStr);
+        if (!clean) return '';
+        const parsed = parseSheetDate(clean);
+        if (!parsed) return clean;
+        const shifted = addDaysLocal(parsed, days);
+        return shifted ? formatDateDMY(shifted) : clean;
     }
 
     function formatSpanishDayMonth(dt) {
@@ -2503,7 +2523,7 @@
         managerPhotoUploadInFlight = true;
         if (inputEl) inputEl.disabled = true;
         if (btnTxt) btnTxt.textContent = '⏳ Guardando foto...';
-        setDetailUploadPhotoStatus('Subiendo fotografía y registrándola en la hoja "FOTOS NUEVAS"...', 'warn');
+        setDetailUploadPhotoStatus('Subiendo fotografía a Drive ("FOTOS NUEVAS CARGADO") y registrando responsable y producto...', 'warn');
 
         try {
             const dataUrl = await compressImageFileToDataUrl(file, 1200, 0.84);
@@ -2511,23 +2531,44 @@
                 authToken: activeAdvisorSession.authToken || '',
                 sheetTab: activeAdvisorSession.sheetTab || '',
                 advisorEmail: activeAdvisorSession.correo || '',
+                advisorName: activeAdvisorSession.nombre || '',
                 sku: targetSku,
                 productName: targetName,
+                targetFolderId: FOTOS_NUEVAS_CARGADO_FOLDER_ID,
+                targetSheetName: FOTOS_NUEVAS_CARGADO_SHEET,
                 dataUrl: dataUrl
             }, 35000);
 
             if (res && res.authRequired) {
-                setDetailUploadPhotoStatus('Confirma tu contraseña personal para guardar la fotografía en "FOTOS NUEVAS".', 'warn');
-                promptSessionReauth(res.error || 'Confirma tu contraseña para subir fotografías a "FOTOS NUEVAS".', null);
+                setDetailUploadPhotoStatus('Confirma tu contraseña personal para guardar la fotografía en "FOTOS NUEVAS CARGADO".', 'warn');
+                promptSessionReauth(res.error || 'Confirma tu contraseña para subir fotografías a "FOTOS NUEVAS CARGADO".', null);
                 return;
             }
 
             if (!res || res.needsRedeploy || res.unavailable) {
-                setDetailUploadPhotoStatus('Para activar el guardado automático en la hoja "FOTOS NUEVAS", publica una Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Extensiones → Apps Script → Implementar → Administrar implementaciones.', 'warn');
+                reportSystemHistoryEvent({
+                    classification: 'ALERTA TÉCNICA',
+                    module: 'inventario-app.js · uploadManagerProductPhoto',
+                    event: 'SUBIDA DE FOTO PENDIENTE DE ACTUALIZAR WEBAPP',
+                    status: '⚠️ ALERTA',
+                    ref: targetSku + ' · ' + targetName,
+                    detail: 'El endpoint inv_upload_product_photo requiere publicar Nueva versión de AppsScript_Creata_Drive_Sheets.gs.',
+                    analysis: 'Publicar Nueva versión en Extensiones → Apps Script → Implementar → Administrar implementaciones.'
+                });
+                setDetailUploadPhotoStatus('Para activar el guardado directo en la carpeta Drive y hoja "FOTOS NUEVAS CARGADO", publica una Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Extensiones → Apps Script → Implementar → Administrar implementaciones.', 'warn');
                 return;
             }
 
             if (!res.ok) {
+                reportSystemHistoryEvent({
+                    classification: 'FALLO DE CÓDIGO',
+                    module: 'inventario-app.js · uploadManagerProductPhoto',
+                    event: 'ERROR AL GUARDAR FOTOGRAFÍA EN DRIVE',
+                    status: '❌ ERROR',
+                    ref: targetSku + ' · ' + targetName,
+                    detail: res.error || 'Respuesta sin éxito al subir fotografía.',
+                    analysis: 'Revisar permisos de carpeta Drive FOTOS NUEVAS CARGADO o sesión del usuario.'
+                });
                 setDetailUploadPhotoStatus(res.error || 'No se pudo guardar la fotografía.', 'err');
                 return;
             }
@@ -2551,9 +2592,19 @@
                 const crumbVisible = !document.getElementById('detGroupCrumb').classList.contains('hidden');
                 renderDetailModal(currentDetailItem, crumbVisible && !!currentGroup);
             }
-            setDetailUploadPhotoStatus('✓ Fotografía guardada en la hoja "FOTOS NUEVAS" (' + targetSku + ').', 'ok');
+            setDetailUploadPhotoStatus('✓ Fotografía guardada en Drive y hoja "FOTOS NUEVAS CARGADO" (' + targetSku + ' · ' + targetName + ').', 'ok');
         } catch (err) {
-            setDetailUploadPhotoStatus(err && err.message ? err.message : 'Error al procesar la fotografía.', 'err');
+            const msgErr = err && err.message ? err.message : 'Error al procesar la fotografía.';
+            reportSystemHistoryEvent({
+                classification: 'FALLO DE CÓDIGO',
+                module: 'inventario-app.js · uploadManagerProductPhoto',
+                event: 'EXCEPCIÓN PROCESANDO FOTOGRAFÍA',
+                status: '❌ ERROR',
+                ref: targetSku + ' · ' + targetName,
+                detail: msgErr,
+                analysis: cleanStr(err && err.stack) || 'Error en compresión canvas o envío de imagen.'
+            });
+            setDetailUploadPhotoStatus(msgErr, 'err');
         } finally {
             managerPhotoUploadInFlight = false;
             if (currentDetailItem) {
@@ -3270,6 +3321,87 @@
         return res;
     }
 
+    // ------------------------------------------------------------------------
+    // BITÁCORA EXCLUSIVA EN HOJA "HISTORIAL": FALLOS DE CÓDIGO Y MOVIMIENTOS
+    // ------------------------------------------------------------------------
+    const FOTOS_NUEVAS_CARGADO_FOLDER_ID = '1rPFbjvovC5fSDPHS29yYpbLwM90c-5L9';
+    const FOTOS_NUEVAS_CARGADO_SHEET = 'FOTOS NUEVAS CARGADO';
+    const historySentSignatures = new Map();
+    let historyEventsSentCount = 0;
+
+    function reportSystemHistoryEvent(opts) {
+        try {
+            if (!opts || historyEventsSentCount >= 20) return;
+            const sig = [
+                cleanStr(opts.classification),
+                cleanStr(opts.module),
+                cleanStr(opts.event),
+                cleanStr(opts.ref),
+                cleanStr(opts.detail).slice(0, 120)
+            ].join('|');
+            const now = Date.now();
+            const prevTs = historySentSignatures.get(sig) || 0;
+            if (now - prevTs < 300000) return; // Evitar duplicados en ventana de 5 min
+            historySentSignatures.set(sig, now);
+            historyEventsSentCount++;
+
+            const sess = activeAdvisorSession;
+            const userStr = cleanStr(opts.user) ||
+                (sess ? ((sess.nombre ? (sess.nombre + ' (' + sess.correo + ')') : sess.correo)) : 'Visitante / Sin sesión');
+            const branchStr = cleanStr(opts.branch) ||
+                (sess ? (sess.erpStore || sess.branchLabel || sess.sheetTab || '') : '');
+
+            callInvWebAppPost('inv_log_event', {
+                classification: cleanStr(opts.classification) || 'FALLO DE CÓDIGO',
+                module: cleanStr(opts.module) || 'inventario-app.js',
+                event: cleanStr(opts.event) || 'EVENTO SISTEMA',
+                status: cleanStr(opts.status) || '⚠️ ALERTA',
+                user: userStr,
+                branch: branchStr,
+                ref: cleanStr(opts.ref) || '',
+                detail: cleanStr(opts.detail) || '',
+                analysis: cleanStr(opts.analysis) || ''
+            }, 9000).catch(() => {});
+        } catch (eHist) {}
+    }
+
+    if (typeof window !== 'undefined') {
+        window.addEventListener('error', function (ev) {
+            try {
+                const msg = cleanStr(ev && ev.message);
+                if (!msg || /ResizeObserver loop/i.test(msg)) return;
+                const fileStr = cleanStr(ev && ev.filename).split('/').pop() || 'inventario.html';
+                const loc = (ev && ev.lineno) ? (fileStr + ':' + ev.lineno + (ev.colno ? (':' + ev.colno) : '')) : fileStr;
+                reportSystemHistoryEvent({
+                    classification: 'FALLO DE CÓDIGO',
+                    module: 'JS Cliente · ' + loc,
+                    event: 'ERROR DE EJECUCIÓN JAVASCRIPT',
+                    status: '❌ ERROR',
+                    ref: (currentDetailItem && currentDetailItem.s) ? currentDetailItem.s : '',
+                    detail: msg,
+                    analysis: cleanStr(ev && ev.error && ev.error.stack) || ('Excepción capturada en ventana (' + loc + ').')
+                });
+            } catch (e) {}
+        });
+
+        window.addEventListener('unhandledrejection', function (ev) {
+            try {
+                const r = ev ? ev.reason : null;
+                const msg = cleanStr((r && r.message) ? r.message : r);
+                if (!msg || /AbortError|The user aborted a request/i.test(msg)) return;
+                reportSystemHistoryEvent({
+                    classification: 'FALLO DE CÓDIGO',
+                    module: 'JS Cliente · Promise',
+                    event: 'PROMESA NO CONTROLADA (UNHANDLED REJECTION)',
+                    status: '❌ ERROR',
+                    ref: (currentDetailItem && currentDetailItem.s) ? currentDetailItem.s : '',
+                    detail: msg,
+                    analysis: cleanStr(r && r.stack) || 'Promesa asíncrona rechazada sin bloque catch.'
+                });
+            } catch (e) {}
+        });
+    }
+
     async function fetchSheetCsvRows(sheetName, extraParams) {
         if (!META.sheetId) return null;
         const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(META.sheetId) +
@@ -3289,9 +3421,10 @@
     let lastErpCatalogSyncMs = 0;
 
     async function loadErpCatalogLiveFromSheet() {
-        const [rows, h1Rows, newFotoRows] = await Promise.all([
+        const [rows, h1Rows, cargadoFotoRows, legacyFotoRows] = await Promise.all([
             fetchSheetCsvRows('plantilla', 'range=AA2:AH5500'),
             fetchSheetCsvRows('1', 'range=A2:D5500').catch(() => null),
+            fetchSheetCsvRows(FOTOS_NUEVAS_CARGADO_SHEET, 'range=A1:J5500').catch(() => null),
             fetchSheetCsvRows('FOTOS NUEVAS', 'range=A1:D5500').catch(() => null)
         ]);
         const stores = DEFAULT_ERP_STORES.slice();
@@ -3364,15 +3497,20 @@
             }
         }
 
-        // Las fotografías agregadas por Gerentes / Administradores en la hoja "FOTOS NUEVAS" tienen prioridad inmediata
-        if (Array.isArray(newFotoRows)) {
+        // Las fotografías agregadas por Gerentes / Administradores en "FOTOS NUEVAS CARGADO" tienen prioridad inmediata
+        const mergedPhotoSets = [];
+        if (Array.isArray(legacyFotoRows)) mergedPhotoSets.push(legacyFotoRows);
+        if (Array.isArray(cargadoFotoRows)) mergedPhotoSets.push(cargadoFotoRows);
+
+        for (let sIdx = 0; sIdx < mergedPhotoSets.length; sIdx++) {
+            const newFotoRows = mergedPhotoSets[sIdx];
             for (let k = 0; k < newFotoRows.length; k++) {
                 const nr = newFotoRows[k] || [];
                 const nSkuRaw = cleanStr(nr[0]);
                 const nSku = nSkuRaw.toUpperCase();
-                if (!nSku || nSku === 'SKU') continue;
+                if (!nSku || nSku === 'SKU' || nSku === 'SKU PRODUCTO') continue;
                 const nNom = cleanStr(nr[1]);
-                const nFoto = cleanStr(nr[3]) || (cleanStr(nr[2]).indexOf('http') === 0 ? cleanStr(nr[2]) : '');
+                const nFoto = cleanStr(nr[3]) || cleanStr(nr[4]) || (cleanStr(nr[2]).indexOf('http') === 0 ? cleanStr(nr[2]) : '');
                 if (!nFoto || !resolveDriveOrImgUrl(nFoto)) continue;
                 nextNewPhotos.set(nSku, nFoto);
                 nextPhotos.set(nSku, nFoto);
@@ -4540,10 +4678,39 @@
 
     // ------------------------------------------------------------------------
     // LÍMITE DE DESCUENTO (COLUMNA DESCUENTO EN HOJA DE USUARIOS / PUESTO)
-    // ASESOR: 24% · GERENTE / SUBGERENTE / ADMINISTRADOR: 100%
+    // ASESOR: 30% HASTA EL 30/11/2026 (24% A PARTIR DEL 01/12/2026) · GERENTE / SUBGERENTE / ADMINISTRADOR: 100%
     // ------------------------------------------------------------------------
-    const ADVISOR_MAX_DISCOUNT_PCT = 24;
+    const ADVISOR_BASE_MAX_DISCOUNT_PCT = 24;
+    const ADVISOR_PROMO_MAX_DISCOUNT_PCT = 30;
+    const ADVISOR_PROMO_END_YMD = '2026-11-30'; // Vigencia inclusive hasta el 30 de noviembre de 2026 (America/Cancun)
     const MANAGER_MAX_DISCOUNT_PCT = 100;
+
+    function getCancunTodayYmd() {
+        try {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'America/Cancun',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).formatToParts(new Date());
+            const y = (parts.find(p => p.type === 'year') || {}).value;
+            const m = (parts.find(p => p.type === 'month') || {}).value;
+            const d = (parts.find(p => p.type === 'day') || {}).value;
+            if (y && m && d) return y + '-' + m + '-' + d;
+        } catch (e) {}
+        const now = new Date();
+        return now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0');
+    }
+
+    function isAdvisorDiscount30Active() {
+        return getCancunTodayYmd() <= ADVISOR_PROMO_END_YMD;
+    }
+
+    function getEffectiveAdvisorMaxDiscountPct() {
+        return isAdvisorDiscount30Active() ? ADVISOR_PROMO_MAX_DISCOUNT_PCT : ADVISOR_BASE_MAX_DISCOUNT_PCT;
+    }
 
     function getAdvisorRoleInfo() {
         const sess = activeAdvisorSession;
@@ -4552,9 +4719,29 @@
         const isAdmin = !!(sess && sess.isAdmin) || /ADMINISTRADOR/.test(p);
         const isManager = isAdmin || /GERENTE|\bSUB/.test(p);
         const sheetPct = sess ? parseDiscountPctCell(sess.maxDiscountPct) : null;
-        const maxPct = isAdmin
-            ? MANAGER_MAX_DISCOUNT_PCT
-            : (sheetPct !== null ? sheetPct : (isManager ? MANAGER_MAX_DISCOUNT_PCT : ADVISOR_MAX_DISCOUNT_PCT));
+        const promoActive = isAdvisorDiscount30Active();
+        const advisorDefaultPct = getEffectiveAdvisorMaxDiscountPct();
+
+        let maxPct;
+        if (isAdmin) {
+            maxPct = MANAGER_MAX_DISCOUNT_PCT;
+        } else if (isManager) {
+            maxPct = sheetPct !== null ? sheetPct : MANAGER_MAX_DISCOUNT_PCT;
+        } else if (sheetPct !== null) {
+            // Sincronizar automáticamente sesiones cacheadas en localStorage:
+            // - Vigente hasta 30/11/2026: si la sesión guardó 24%, elevar a 30%
+            // - A partir del 01/12/2026: si la sesión guardó 30%, regresar automáticamente a 24%
+            if (promoActive && sheetPct === ADVISOR_BASE_MAX_DISCOUNT_PCT) {
+                maxPct = ADVISOR_PROMO_MAX_DISCOUNT_PCT;
+            } else if (!promoActive && sheetPct === ADVISOR_PROMO_MAX_DISCOUNT_PCT) {
+                maxPct = ADVISOR_BASE_MAX_DISCOUNT_PCT;
+            } else {
+                maxPct = sheetPct;
+            }
+        } else {
+            maxPct = advisorDefaultPct;
+        }
+
         return {
             puesto: puestoRaw ? puestoRaw.toUpperCase() : (isAdmin ? 'ADMINISTRADOR GENERAL' : 'ASESOR'),
             isAdmin: isAdmin,
@@ -5575,7 +5762,10 @@
         if (limitEl) {
             const role = getAdvisorRoleInfo();
             const effPct = bd.sumList > 0 ? ((bd.sumList - bd.totalWithIva) / bd.sumList) * 100 : 0;
-            let html = 'Puesto: <strong>' + escapeHtml(role.puesto) + '</strong> · Descuento autorizado: <strong>' + role.maxPct + '%</strong>' +
+            const promoSuffix = (!role.isManager && isAdvisorDiscount30Active() && role.maxPct === ADVISOR_PROMO_MAX_DISCOUNT_PCT)
+                ? ' (vigente hasta 30/11/2026)'
+                : '';
+            let html = 'Puesto: <strong>' + escapeHtml(role.puesto) + '</strong> · Descuento autorizado: <strong>' + role.maxPct + '%' + promoSuffix + '</strong>' +
                 ' · Descuento aplicado: <strong>' + effPct.toFixed(1) + '%</strong>';
             if (bd.requestedExtra > bd.extraDiscount + 0.004) {
                 html += '<div style="color:#991B1B;margin-top:3px;">El descuento extra se ajustó a ' + escapeHtml(formatPrice(bd.extraDiscount) || '$0.00') +
@@ -6236,12 +6426,38 @@
                 return;
             }
 
+            reportSystemHistoryEvent({
+                classification: 'ALERTA TÉCNICA',
+                module: 'inventario-app.js · submitQuoteOrder',
+                event: 'RESPALDO PORTAPAPELES EN COTIZACIÓN',
+                status: '⚠️ ALERTA',
+                ref: payload.orderCode || '',
+                detail: 'Respuesta WebApp no disponible o requiere publicar nueva versión (' + cleanStr((res && res.error) || 'sin conexión directa') + ').',
+                analysis: 'Verificar conexión de red o publicar Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Administrar implementaciones.'
+            });
+
             window.copyCartSummary();
             renderQuoteStatusBanner(
                 'warn',
                 '<div class="font-extrabold uppercase">Plantilla generada y copiada al portapapeles</div>' +
                 '<div>Actualiza la versión publicada de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em> para enviar en vivo directo a S Mueblería.</div>' +
                 '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / PDF de esta Cotización →</button></div>'
+            );
+        } catch (quoteErr) {
+            const msgErr = (quoteErr && quoteErr.message) ? quoteErr.message : String(quoteErr);
+            reportSystemHistoryEvent({
+                classification: 'FALLO DE CÓDIGO',
+                module: 'inventario-app.js · submitQuoteOrder',
+                event: 'EXCEPCIÓN EN ENVÍO DE COTIZACIÓN',
+                status: '❌ ERROR',
+                ref: payload.orderCode || '',
+                detail: msgErr,
+                analysis: cleanStr(quoteErr && quoteErr.stack) || 'Excepción en cliente durante el flujo de envío de cotización.'
+            });
+            renderQuoteStatusBanner(
+                'err',
+                '<div class="font-extrabold uppercase">Ocurrió un error al procesar la cotización</div>' +
+                '<div>' + escapeHtml(msgErr) + '</div>'
             );
         } finally {
             quoteSubmitInFlight = false;
@@ -6336,7 +6552,7 @@
     // RESPALDO SIN CONEXIÓN: último inventario en vivo guardado en este dispositivo
     // (Bodega/Piso de CEDIS, CASA CREATA, PTC, COLOSIO, PLAYA + LPPT y fecha estimada)
     // ------------------------------------------------------------------------
-    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v1';
+    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v2';
     const LIVE_OK_TS_KEY = 'creata_inv_live_ok_ts_v1';
     const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe', 'fcomp'];
     const LIVE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -6574,6 +6790,8 @@
 
                 const fcStr = cleanStr(r[2]); // Columna C: Fecha compra
                 const fcompStr = r.length > 5 ? cleanStr(r[5]) : ''; // Columna F: Fecha compromiso proveedor
+                const rawFcompDate = parseSheetDate(fcompStr);
+                const bufferedFcompDate = rawFcompDate ? addDaysLocal(rawFcompDate, SUPPLIER_COMMITMENT_BUFFER_DAYS) : null;
                 let list = nextMap.get(sku);
                 if (!list) {
                     list = [];
@@ -6583,7 +6801,8 @@
                     fc: parseSheetDate(fcStr),
                     fcStr: fcStr,
                     oc: oc,
-                    fcomp: parseSheetDate(fcompStr),
+                    fcomp: bufferedFcompDate,
+                    fcompOrig: rawFcompDate,
                     free: freeQty,
                     nom: r.length > 8 ? cleanStr(r[8]) : '',
                     prov: r.length > 1 ? cleanStr(r[1]) : ''
@@ -7081,7 +7300,7 @@
                             pr: cols.length > 16 ? formatPrice(cols[16][i]) : '',
                             fe: cols.length > 17 ? cleanStr(cols[17][i]) : '',
                             baseLt: cols.length > 20 ? normalizeLeadTimeVal(cols[20][i]) : normalizeLeadTimeVal(cols[14][i]),
-                            fcomp: cols.length > 21 ? cleanStr(cols[21][i]) : ''
+                            fcomp: cols.length > 21 ? shiftDateStringDays(cols[21][i], SUPPLIER_COMMITMENT_BUFFER_DAYS) : ''
                         }, null);
                     }
                     allItems = unpacked;
@@ -7089,6 +7308,14 @@
                 }
             } catch (err) {
                 console.error('[Inventario Unpack Error]', err);
+                reportSystemHistoryEvent({
+                    classification: 'FALLO DE CÓDIGO',
+                    module: 'inventario-app.js · unpackInitialInventoryIfNeeded',
+                    event: 'ERROR DESCOMPRIMIENDO INVENTARIO BASE',
+                    status: '❌ ERROR',
+                    detail: (err && err.message) ? err.message : String(err),
+                    analysis: 'Fallo al descomprimir CREATA_INV_GZ con DecompressionStream; el sistema continuará cargando en vivo desde Google Sheets.'
+                });
             }
         }
     }
