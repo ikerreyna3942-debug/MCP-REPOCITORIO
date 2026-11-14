@@ -2506,22 +2506,10 @@
         document.getElementById('detTotalStock').textContent = String(totalBodegaPiso);
         document.getElementById('detWarehousesGrid').innerHTML = whHtml.join('');
 
-        // Ficha de información del producto (sin Proveedor / Tiempo de entrega, según BORRAR.png)
+        // Ficha de información limpia sin datos repetidos (Variante / Tela / Color de tela / Madera / Materiales)
         const specsWrap = document.getElementById('detSpecsWrap');
         const specsGrid = document.getElementById('detSpecsGrid');
-        const specRows = [
-            ['SKU / Clave', it.s],
-            ['Categoría', it._cat && it._cat !== 'OTROS' ? it._cat : cleanStr(it.c)],
-            ['Tipo de producto', cleanStr(it.tp)],
-            ['Modelo', cleanStr(it.mo)],
-            ['Variante', cleanStr(it.vr)],
-            ['Medidas', cleanStr(it.m)],
-            ['Tela', cleanStr(it.tl)],
-            ['Color de tela', cleanStr(it.ct)],
-            ['Madera', cleanStr(it.md)],
-            ['Color de madera', cleanStr(it.cm)],
-            ['Materiales', cleanStr(it.mt)]
-        ].filter(r => cleanStr(r[1]));
+        const specRows = buildCleanProductSpecRows(it);
         if (specsGrid) {
             specsGrid.innerHTML = specRows.map(r =>
                 '<div class="rounded-lg border px-3 py-2" style="border-color:#E8E4DE;">' +
@@ -2533,6 +2521,152 @@
         if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0);
 
         prepareRelatedInStockSection(it, sameSkuRefresh ? relatedStockExpanded : false);
+    }
+
+    function buildCleanProductSpecRows(it) {
+        if (!it) return [];
+        const normSpec = s => String(s || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const singularizeEs = s => normSpec(s)
+            .split(' ')
+            .filter(Boolean)
+            .map(w => {
+                if (w.length > 4 && w.endsWith('ES') && !/[AEIOU]ES$/.test(w)) return w.slice(0, -2);
+                if (w.length > 3 && w.endsWith('S')) return w.slice(0, -1);
+                return w;
+            })
+            .join(' ');
+
+        const sku = cleanStr(it.s);
+        const cat = it._cat && it._cat !== 'OTROS' ? cleanStr(it._cat) : cleanStr(it.c);
+        let tp = cleanStr(it.tp);
+        const mo = cleanStr(it.mo);
+        const med = cleanStr(it.m);
+        const tl = cleanStr(it.tl);
+        let ct = cleanStr(it.ct);
+        const md = cleanStr(it.md);
+        let cm = cleanStr(it.cm);
+        let vr = cleanStr(it.vr);
+        const mtRaw = cleanStr(it.mt);
+
+        const normSku = normSpec(sku);
+        const normNom = normSpec(stripDimensionsFromProductText(it.n));
+        const normCat = normSpec(cat);
+        const normTp = normSpec(tp);
+        const normMo = normSpec(mo);
+        const normTl = normSpec(tl);
+        const normCt = normSpec(ct);
+        const normMd = normSpec(md);
+        const normCm = normSpec(cm);
+
+        // 1) Evitar repetir Tipo de producto si equivale a Categoría (ej. SILLONES vs SILLON)
+        if (normCat && normTp && (normCat === normTp || singularizeEs(normCat) === singularizeEs(normTp))) {
+            tp = '';
+        }
+
+        // 2) Evitar repetir Color de tela cuando ya está contenido en Tela (ej. LUXOR IVORY -> IVORY)
+        if (normTl && normCt) {
+            const tlPad = ' ' + normTl + ' ';
+            const ctWords = normCt.split(' ').filter(Boolean);
+            if (normTl === normCt || (ctWords.length > 0 && ctWords.every(w => tlPad.indexOf(' ' + w + ' ') !== -1))) {
+                ct = '';
+            }
+        }
+
+        // 3) Evitar repetir Color de madera cuando ya está contenido en Madera (ej. CHAPA DE NOGAL -> NOGAL)
+        if (normMd && normCm) {
+            const mdPad = ' ' + normMd + ' ';
+            const cmWords = normCm.split(' ').filter(Boolean);
+            if (normMd === normCm || (cmWords.length > 0 && cmWords.every(w => mdPad.indexOf(' ' + w + ' ') !== -1))) {
+                cm = '';
+            }
+        }
+
+        // 4) Limpiar Materiales quitando prefijos "TELA:", "MADERA:" y valores ya mostrados en Tela / Madera / Color
+        let mtClean = '';
+        if (mtRaw) {
+            const coveredTokens = new Set(
+                [normTl, normCt, normMd, normCm]
+                    .filter(Boolean)
+                    .join(' ')
+                    .split(' ')
+                    .filter(Boolean)
+            );
+            const seenMat = new Set();
+            const keptParts = [];
+            const segments = mtRaw.split(/[,;|\/]+|\s+·\s+/);
+            for (let i = 0; i < segments.length; i++) {
+                let seg = cleanStr(segments[i])
+                    .replace(/^(?:MATERIAL(?:ES)?|ACABADO(?:S)?|TAPIZ(?:ADO)?|TELA|MADERA)\s*:\s*/i, '')
+                    .trim();
+                if (!seg) continue;
+                const nSeg = normSpec(seg);
+                if (!nSeg) continue;
+                if ((nSeg === 'TELA' || nSeg === 'TAPIZ') && normTl) continue;
+                if (nSeg === 'MADERA' && normMd) continue;
+                if (nSeg === normTl || nSeg === normCt || nSeg === normMd || nSeg === normCm) continue;
+                const segWords = nSeg.split(' ').filter(w => !/^(DE|DEL|LA|EL|EN|CON|Y|TELA|MADERA)$/.test(w));
+                if (segWords.length > 0 && segWords.every(w => coveredTokens.has(w))) continue;
+                if (seenMat.has(nSeg)) continue;
+                seenMat.add(nSeg);
+                keptParts.push(seg);
+            }
+            mtClean = keptParts.join(', ');
+        }
+
+        // 5) Limpiar u omitir Variante cuando es ESTÁNDAR, igual al nombre/modelo/SKU, o repite Tela / Madera / Materiales / Medidas
+        if (vr) {
+            const alreadyCovered = new Set(
+                [normTp, normMo, normTl, normCt, normMd, normCm, normSpec(mtClean), normSpec(med)]
+                    .filter(Boolean)
+                    .join(' ')
+                    .split(' ')
+                    .filter(Boolean)
+            );
+            const vrSegments = vr.split(/\s*·\s*/).map(cleanStr).filter(Boolean).filter(seg => {
+                const nSeg = normSpec(seg);
+                if (!nSeg || nSeg === 'ESTANDAR' || nSeg === normNom || nSeg === normMo || nSeg === normSku || nSeg === normTl || nSeg === normMd) {
+                    return false;
+                }
+                const words = nSeg.split(' ').filter(w => !/^(DE|DEL|LA|EL|EN|CON|Y)$/.test(w));
+                return !(words.length > 0 && words.every(w => alreadyCovered.has(w)));
+            });
+            vr = vrSegments.join(' · ');
+        }
+
+        const candidateRows = [
+            ['SKU / Clave', sku],
+            ['Categoría', cat],
+            ['Tipo de producto', tp],
+            ['Modelo', mo],
+            ['Variante', vr],
+            ['Medidas', med],
+            ['Tela', tl],
+            ['Color de tela', ct],
+            ['Madera', md],
+            ['Color de madera', cm],
+            ['Materiales', mtClean]
+        ];
+
+        const seenBoxValues = new Set();
+        const finalRows = [];
+        for (let i = 0; i < candidateRows.length; i++) {
+            const label = candidateRows[i][0];
+            const val = cleanStr(candidateRows[i][1]);
+            if (!val) continue;
+            const nVal = normSpec(val);
+            if (!nVal) continue;
+            if (i > 0 && seenBoxValues.has(nVal)) continue;
+            seenBoxValues.add(nVal);
+            finalRows.push([label, val]);
+        }
+        return finalRows;
     }
 
     // ------------------------------------------------------------------------
@@ -3171,6 +3305,9 @@
         });
     }
 
+    const FIXED_QUOTE_CLIENT_MODE = 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)';
+    const FIXED_QUOTE_CATEGORY_LABEL = 'COTIZACIONES [ID: 2]';
+
     let erpStoresCatalog = DEFAULT_ERP_STORES.slice();
     let erpAdvisorsCatalog = [];
     let activeAdvisorSession = loadAdvisorSession();
@@ -3235,9 +3372,6 @@
         if (m) return m[3] + '/' + m[2] + '/' + m[1];
         return s;
     }
-
-    const FIXED_QUOTE_CLIENT_MODE = 'PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)';
-    const FIXED_QUOTE_CATEGORY_LABEL = 'COTIZACIONES [ID: 2]';
 
     function createBlankQuoteMeta() {
         return {
