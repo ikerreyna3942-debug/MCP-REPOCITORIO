@@ -3403,6 +3403,8 @@
     let recentQuotesStoreFilter = 'ALL';
     let lastSubmittedQuoteMeta = null;
     let pendingQuoteRetrySendToErp = null;
+    let pendingPdfDownloadRetryOpts = null;
+    let erpPdfDownloadInFlight = false;
 
     function loadAdvisorSession() {
         try {
@@ -4204,6 +4206,13 @@
         renderAdvisorHeaderBar();
         refreshMyLiveQuotesInfo();
 
+        if (pendingPdfDownloadRetryOpts) {
+            const retryPdfOpts = pendingPdfDownloadRetryOpts;
+            pendingPdfDownloadRetryOpts = null;
+            window.downloadOriginalErpQuotePdf(retryPdfOpts);
+            return;
+        }
+
         if (pendingQuoteRetrySendToErp !== null) {
             const retrySendFlag = pendingQuoteRetrySendToErp;
             pendingQuoteRetrySendToErp = null;
@@ -4231,7 +4240,7 @@
             return;
         }
 
-        const preferredTab = (pendingQuoteRetrySendToErp !== null && activeAdvisorSession && activeAdvisorSession.correo === email)
+        const preferredTab = ((pendingQuoteRetrySendToErp !== null || pendingPdfDownloadRetryOpts !== null) && activeAdvisorSession && activeAdvisorSession.correo === email)
             ? (activeAdvisorSession.sheetTab || '')
             : '';
 
@@ -4569,6 +4578,9 @@
             const advTag = isAdmin && cleanStr(q.advisorName || q.erpAdvisor)
                 ? (' · Asesor: ' + cleanStr(q.advisorName || q.erpAdvisor))
                 : '';
+            const qidVal = cleanStr(q.quoteId);
+            const folioOfficial = cleanStr(q.folio) || ((rawOrder && !/^[A-Z]+-\d+$/i.test(rawOrder)) ? rawOrder : '');
+            const canDownloadErpPdf = !!(qidVal || folioOfficial);
             return '<div class="rounded-lg border px-3 py-2 flex flex-wrap items-center justify-between gap-2 bg-white" style="border-color:#E1DBC5;">' +
                 '<div class="min-w-0">' +
                     '<div class="flex flex-wrap items-center gap-1.5">' +
@@ -4576,7 +4588,7 @@
                             escapeHtml(cleanFolio) +
                         '</span>' +
                         '<span class="text-[11px] font-extrabold uppercase" style="color:#252C32;">' + escapeHtml(storeTag) + '</span>' +
-                        (q.quoteId ? ('<span class="text-[10px] font-bold opacity-70" style="color:#252C32;">(ID ERP ' + escapeHtml(q.quoteId) + ')</span>') : '') +
+                        (qidVal ? ('<span class="text-[10px] font-bold opacity-70" style="color:#252C32;">(ID ERP ' + escapeHtml(qidVal) + ')</span>') : '') +
                     '</div>' +
                     '<div class="text-[11px] font-semibold truncate mt-0.5" style="color:#252C32;">' +
                         escapeHtml(q.clientName || 'Prospecto') +
@@ -4584,12 +4596,42 @@
                         (q.skusSummary ? (' · ' + escapeHtml(q.skusSummary)) : '') +
                     '</div>' +
                 '</div>' +
-                '<div class="text-right shrink-0 ml-auto">' +
-                    '<div class="text-xs font-black" style="color:#A38251;">' + escapeHtml(q.total || '') + '</div>' +
-                    '<div class="text-[10px] font-semibold opacity-70" style="color:#252C32;">' + escapeHtml(q.createdAt || '') + '</div>' +
+                '<div class="text-right shrink-0 ml-auto flex flex-col items-end gap-1">' +
+                    '<div>' +
+                        '<div class="text-xs font-black" style="color:#A38251;">' + escapeHtml(q.total || '') + '</div>' +
+                        '<div class="text-[10px] font-semibold opacity-70" style="color:#252C32;">' + escapeHtml(q.createdAt || '') + '</div>' +
+                    '</div>' +
+                    (canDownloadErpPdf
+                        ? ('<button type="button" data-erp-pdf-btn="1" ' +
+                            'data-q-id="' + escapeHtml(qidVal) + '" ' +
+                            'data-q-folio="' + escapeHtml(folioOfficial) + '" ' +
+                            'data-q-uid="' + escapeHtml(cleanStr(q.erpUserId)) + '" ' +
+                            'data-q-client="' + escapeHtml(cleanStr(q.clientName)) + '" ' +
+                            'data-q-store="' + escapeHtml(cleanStr(q.erpStore || q.branchTab)) + '" ' +
+                            'class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider transition hover:opacity-90" ' +
+                            'style="background:#252C32; color:#FFFFFF;" ' +
+                            'title="Descargar PDF original generado por S Mueblería">' +
+                            '⬇ PDF S Mueblería' +
+                           '</button>')
+                        : '') +
                 '</div>' +
             '</div>';
         }).join('');
+
+        listEl.querySelectorAll('button[data-erp-pdf-btn]').forEach(btn => {
+            btn.addEventListener('click', function () {
+                window.downloadOriginalErpQuotePdf({
+                    quoteId: btn.getAttribute('data-q-id') || '',
+                    folio: btn.getAttribute('data-q-folio') || '',
+                    erpUserId: btn.getAttribute('data-q-uid') || '',
+                    clientName: btn.getAttribute('data-q-client') || '',
+                    erpStore: btn.getAttribute('data-q-store') || '',
+                    autoTriggered: false,
+                    triggerBtn: btn
+                });
+            });
+        });
+
         wrap.classList.remove('hidden');
     }
 
@@ -4622,6 +4664,7 @@
                     advisorEmail: rowEmail,
                     advisorName: cleanStr(r[8]),
                     erpAdvisor: cleanStr(r[9]),
+                    erpUserId: cleanStr(r[10]),
                     clientName: cleanStr(r[11]),
                     itemsCount: cleanStr(r[16]),
                     skusSummary: cleanStr(r[17]),
@@ -6377,6 +6420,214 @@
         window.submitQuoteToSystem(true, true);
     };
 
+    function setAcceptedModalPdfStatus(tone, htmlText) {
+        const stEl = document.getElementById('quoteAcceptedPdfStatus');
+        if (!stEl) return;
+        if (!htmlText) {
+            stEl.innerHTML = '';
+            stEl.classList.add('hidden');
+            return;
+        }
+        if (tone === 'ok') {
+            stEl.style.background = '#ECFDF5';
+            stEl.style.borderColor = '#6EE7B7';
+            stEl.style.color = '#065F46';
+        } else if (tone === 'warn') {
+            stEl.style.background = '#FFFBEB';
+            stEl.style.borderColor = '#FDE68A';
+            stEl.style.color = '#92400E';
+        } else {
+            stEl.style.background = '#FEF2F2';
+            stEl.style.borderColor = '#FECACA';
+            stEl.style.color = '#991B1B';
+        }
+        stEl.innerHTML = htmlText;
+        stEl.classList.remove('hidden');
+    }
+
+    function triggerBase64PdfBrowserDownload(base64Str, fileName) {
+        const cleanB64 = String(base64Str || '').replace(/\s+/g, '');
+        const binaryStr = window.atob(cleanB64);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const blobUrl = URL.createObjectURL(blob);
+        const safeName = cleanStr(fileName) || 'Cotizacion_SMuebleria.pdf';
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = /\.pdf$/i.test(safeName) ? safeName : (safeName + '.pdf');
+        link.rel = 'noopener';
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+            if (link.parentNode) link.parentNode.removeChild(link);
+        }, 250);
+        setTimeout(() => {
+            try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+        }, 60000);
+    }
+
+    window.downloadOriginalErpQuotePdf = async function (opts) {
+        const o = opts || {};
+        if (erpPdfDownloadInFlight) return false;
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            if (!o.autoTriggered) openAuthModalForStartup();
+            return false;
+        }
+
+        const qid = cleanStr(o.quoteId);
+        const rawFolio = cleanStr(o.folio);
+        const folio = (!/^(EN PROCESO|PENDIENTE)$/i.test(rawFolio) && !/^ID-\d+$/i.test(rawFolio)) ? rawFolio : '';
+        const qidClean = qid || ((/^ID-(\d+)$/i.test(rawFolio)) ? rawFolio.replace(/^ID-/i, '') : '');
+        const uid = cleanStr(o.erpUserId || activeAdvisorSession.erpAdvisorId);
+        const cli = cleanStr(o.clientName);
+        const store = cleanStr(o.erpStore || activeAdvisorSession.erpStore);
+
+        if (!qidClean && !folio) {
+            if (!o.autoTriggered) {
+                setAcceptedModalPdfStatus('warn', '⏳ Esta cotización aún está en cola y todavía no cuenta con ID oficial en S Mueblería.');
+            }
+            return false;
+        }
+
+        const modalEl = document.getElementById('quoteAcceptedModal');
+        const modalOpen = !!(modalEl && modalEl.classList.contains('open'));
+        const modalPdfBtn = document.getElementById('btnDownloadErpPdfModal');
+        const activeBtn = o.triggerBtn || (modalOpen ? modalPdfBtn : null);
+        const prevBtnHtml = activeBtn ? activeBtn.innerHTML : '';
+
+        erpPdfDownloadInFlight = true;
+        if (activeBtn) {
+            activeBtn.disabled = true;
+            activeBtn.innerHTML = '⏳ Descargando PDF S Mueblería...';
+        }
+        if (modalPdfBtn && modalPdfBtn !== activeBtn) {
+            modalPdfBtn.disabled = true;
+        }
+        if (modalOpen) {
+            setAcceptedModalPdfStatus('warn', '⏳ Obteniendo el PDF original directo desde <strong>S Mueblería</strong>...');
+        }
+
+        let downloadedOk = false;
+        try {
+            const res = await callInvWebAppPost('inv_download_erp_quote_pdf', {
+                authToken: activeAdvisorSession.authToken || '',
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                advisorEmail: activeAdvisorSession.correo || '',
+                quoteId: qidClean,
+                folio: folio,
+                erpUserId: uid,
+                clientName: cli,
+                erpStore: store
+            }, 45000);
+
+            if (res && res.authRequired) {
+                if (o.autoTriggered) {
+                    if (modalOpen) {
+                        setAcceptedModalPdfStatus(
+                            'warn',
+                            '<div>Presiona <strong>⬇ Descargar PDF Original S Mueblería</strong> para confirmar tu contraseña y bajar el archivo.</div>'
+                        );
+                    }
+                } else {
+                    pendingPdfDownloadRetryOpts = {
+                        quoteId: qidClean,
+                        folio: folio,
+                        erpUserId: uid,
+                        clientName: cli,
+                        erpStore: store,
+                        autoTriggered: false,
+                        triggerBtn: o.triggerBtn || null
+                    };
+                    promptSessionReauth(
+                        res.error || 'Confirma tu contraseña personal para descargar el PDF original de S Mueblería.',
+                        null
+                    );
+                }
+                return false;
+            }
+
+            if (res && res.ok && res.pdfBase64) {
+                const finalFile = cleanStr(res.fileName) || ('Cotizacion_SMuebleria_' + (folio || ('ID_' + qidClean)) + '.pdf');
+                triggerBase64PdfBrowserDownload(res.pdfBase64, finalFile);
+                downloadedOk = true;
+                if (modalOpen) {
+                    setAcceptedModalPdfStatus(
+                        'ok',
+                        '✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(finalFile) + '</strong>'
+                    );
+                } else if (!o.triggerBtn) {
+                    renderQuoteStatusBanner(
+                        'ok',
+                        '<div>✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(finalFile) + '</strong></div>'
+                    );
+                }
+                if (activeBtn) {
+                    activeBtn.innerHTML = '✓ PDF S Mueblería Descargado';
+                    setTimeout(() => {
+                        if (activeBtn) activeBtn.innerHTML = prevBtnHtml;
+                    }, 2600);
+                }
+                return true;
+            }
+
+            if (res && (res.needsRedeploy || res.unavailable)) {
+                const redeployHtml =
+                    '<div>Para activar la descarga automática del PDF original de S Mueblería, publica una <strong>Nueva versión</strong> de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.</div>';
+                if (modalOpen) {
+                    setAcceptedModalPdfStatus('warn', redeployHtml);
+                } else {
+                    renderQuoteStatusBanner('warn', redeployHtml);
+                }
+                return false;
+            }
+
+            const errMsg = cleanStr((res && res.error) || 'S Mueblería no entregó el PDF en este intento.');
+            if (modalOpen) {
+                setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(errMsg));
+            } else {
+                renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(errMsg) + '</div>');
+            }
+            return false;
+        } catch (dlErr) {
+            const msg = cleanStr((dlErr && dlErr.message) || dlErr || 'Error de conexión al descargar el PDF.');
+            if (modalOpen) {
+                setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(msg));
+            } else {
+                renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(msg) + '</div>');
+            }
+            return false;
+        } finally {
+            erpPdfDownloadInFlight = false;
+            if (activeBtn) {
+                activeBtn.disabled = false;
+                if (!downloadedOk) activeBtn.innerHTML = prevBtnHtml;
+            }
+            if (modalPdfBtn && modalPdfBtn !== activeBtn) {
+                modalPdfBtn.disabled = false;
+            }
+        }
+    };
+
+    window.downloadAcceptedQuoteOriginalPdf = function (btnEl) {
+        const snap = lastAcceptedQuoteSnapshot;
+        const meta = (snap && snap.submittedMeta) || lastSubmittedQuoteMeta || {};
+        const pay = (snap && snap.payload) || {};
+        return window.downloadOriginalErpQuotePdf({
+            quoteId: meta.quoteId || '',
+            folio: meta.folio || meta.orderCode || '',
+            erpUserId: meta.erpUserId || pay.erpAdvisorId || '',
+            clientName: pay.clientName || '',
+            erpStore: pay.erpStore || '',
+            autoTriggered: false,
+            triggerBtn: btnEl || document.getElementById('btnDownloadErpPdfModal')
+        });
+    };
+
     function openQuoteAcceptedModal(payload, metaObj, opts) {
         const o = opts || {};
         const folioTxt = cleanStr((metaObj && (metaObj.folio || metaObj.orderCode)) || (payload && payload.orderCode));
@@ -6394,7 +6645,16 @@
         const modalEl = document.getElementById('quoteAcceptedModal');
         const titleEl = document.getElementById('quoteAcceptedTitle');
         const sumEl = document.getElementById('quoteAcceptedSummary');
+        const pdfBtn = document.getElementById('btnDownloadErpPdfModal');
         if (!modalEl || !sumEl) return;
+
+        setAcceptedModalPdfStatus('', '');
+        if (pdfBtn) {
+            const hasErpRef = !o.isQueued && !!(qidTxt || folioTxt);
+            pdfBtn.classList.toggle('hidden', !hasErpRef);
+            pdfBtn.disabled = false;
+            pdfBtn.innerHTML = '⬇ Descargar PDF Original S Mueblería';
+        }
 
         if (titleEl) {
             titleEl.textContent = o.isQueued ? 'Cotización en Cola Automática' : 'Cotización Creada en S Mueblería';
@@ -6592,10 +6852,12 @@
                 if (res.sentLiveToErp) {
                     const folioTxt = folioFromRes || assignedFolio || ('ID-' + cleanStr(res.quoteId));
                     const qidTxt = cleanStr(res.quoteId);
+                    const uidTxt = cleanStr(res.erpUserId || payload.erpAdvisorId);
                     lastSubmittedQuoteMeta = {
                         orderCode: folioTxt,
                         folio: folioTxt,
                         quoteId: qidTxt,
+                        erpUserId: uidTxt,
                         createdAt: cleanStr(res.lastSync),
                         quoteType: res.quoteType || payload.quoteType
                     };
@@ -6608,11 +6870,21 @@
                         '</div>' +
                         '<div>Emitida con usuario S Mueblería: <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong></div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
-                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button>' +
+                            '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#065F46;">⬇ Descargar PDF Original S Mueblería →</button>' +
+                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / Impresión CREATA →</button>' +
                             '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
                         '</div>'
                     );
                     openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: false });
+                    window.downloadOriginalErpQuotePdf({
+                        quoteId: qidTxt,
+                        folio: folioTxt,
+                        erpUserId: uidTxt,
+                        clientName: payload.clientName,
+                        erpStore: payload.erpStore,
+                        autoTriggered: true,
+                        triggerBtn: document.getElementById('btnDownloadErpPdfModal')
+                    });
                     return;
                 }
 
@@ -6631,10 +6903,12 @@
                 const qidFallback = cleanStr(latest && latest.quoteId);
                 if (folioFallback || qidFallback) {
                     if (folioFallback) registerObservedFolio(folioFallback, payload.erpStore);
+                    const uidFallback = cleanStr((latest && latest.erpUserId) || payload.erpAdvisorId);
                     lastSubmittedQuoteMeta = {
                         orderCode: folioFallback || assignedFolio,
                         folio: folioFallback,
                         quoteId: qidFallback,
+                        erpUserId: uidFallback,
                         createdAt: cleanStr(latest && latest.lastSync),
                         quoteType: payload.quoteType
                     };
@@ -6647,11 +6921,21 @@
                             (qidFallback ? (' · ID Cotización: <strong>' + escapeHtml(qidFallback) + '</strong>') : '') +
                         '</div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
-                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF con Folio S Mueblería →</button>' +
+                            '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#065F46;">⬇ Descargar PDF Original S Mueblería →</button>' +
+                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / Impresión CREATA →</button>' +
                             '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
                         '</div>'
                     );
                     openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: false });
+                    window.downloadOriginalErpQuotePdf({
+                        quoteId: qidFallback,
+                        folio: folioFallback || assignedFolio,
+                        erpUserId: uidFallback,
+                        clientName: payload.clientName,
+                        erpStore: payload.erpStore,
+                        autoTriggered: true,
+                        triggerBtn: document.getElementById('btnDownloadErpPdfModal')
+                    });
                 } else if (res.queuedForDaemon) {
                     lastSubmittedQuoteMeta = {
                         orderCode: assignedFolio,

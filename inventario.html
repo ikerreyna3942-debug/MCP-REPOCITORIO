@@ -1231,6 +1231,12 @@
             </div>
             <div class="p-5 space-y-3.5 text-xs" style="color:#252C32;">
                 <div id="quoteAcceptedSummary" class="rounded-xl border p-3.5 space-y-1.5" style="border-color:#A7F3D0; background:#ECFDF5; color:#065F46;"></div>
+                <div id="quoteAcceptedPdfStatus" class="hidden rounded-xl border px-3.5 py-2.5 text-[11px] font-bold"></div>
+                <button type="button" id="btnDownloadErpPdfModal" onclick="downloadAcceptedQuoteOriginalPdf(this)"
+                        class="w-full py-2.5 px-4 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition flex items-center justify-center gap-1.5"
+                        style="background:#252C32; color:#FFFFFF;">
+                    ⬇ Descargar PDF Original S Mueblería
+                </button>
                 <p class="text-[11px] font-semibold leading-relaxed opacity-85">
                     Al presionar <strong>Confirmar y nueva plantilla</strong> se abrirá una plantilla vacía para tu siguiente cotización, evitando que esta cotización se vuelva a generar por error.
                 </p>
@@ -1238,7 +1244,7 @@
                     <button type="button" onclick="printAcceptedQuoteSnapshot()"
                             class="px-3.5 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider border transition"
                             style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
-                        Vista / PDF
+                        Vista CREATA
                     </button>
                     <button type="button" id="btnAcceptGeneratedQuote" onclick="acceptGeneratedQuoteAndReset()"
                             class="px-5 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition"
@@ -1368,6 +1374,6 @@
     <script src="inventario-data-1.js?v=41"></script>
     <script src="inventario-data-2.js?v=41"></script>
     <script src="inventario-data-3.js?v=41"></script>
-    <script src="inventario-app.js?v=53"></script>
+    <script src="inventario-app.js?v=54"></script>
 </body>
 </html>

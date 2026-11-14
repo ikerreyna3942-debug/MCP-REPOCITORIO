@@ -924,6 +924,9 @@ function doPost(e) {
     if (action === 'inv_my_quotes') {
       return jsonResponse_(handleInvMyQuotes_(body));
     }
+    if (action === 'inv_download_erp_quote_pdf') {
+      return jsonResponse_(handleInvDownloadErpQuotePdf_(body));
+    }
     if (action === 'inv_search_erp_clients') {
       return jsonResponse_(handleInvSearchErpClients_(body));
     }
@@ -2914,6 +2917,7 @@ function computeLiveErpFoliosAndQuotes_(ss, erpAdvisors) {
               erpStore: storeFromAdv,
               advisorName: (advInfo && advInfo.name) || extractXmlTag_(blk, 'Vendedor') || extractXmlTag_(blk, 'Usuario') || '',
               erpAdvisor: (advInfo && advInfo.label) || '',
+              erpUserId: idUsu || '',
               clientName: extractXmlTag_(blk, 'Nombre') || extractXmlTag_(blk, 'Cliente') || 'Prospecto S Mueblería',
               itemsCount: '',
               skusSummary: '',
@@ -2997,6 +3001,7 @@ function readRecentQuotesForAdvisor_(shQuotes, advisorEmail, maxItems) {
       advisorEmail: r[7] || '',
       advisorName: r[8] || '',
       erpAdvisor: r[9] || '',
+      erpUserId: r[10] || '',
       clientName: r[11] || '',
       itemsCount: r[16] || '',
       skusSummary: r[17] || '',
@@ -3032,6 +3037,7 @@ function readRecentQuotesForAdmin_(shQuotes, recentErpQuotes, maxItems) {
         advisorEmail: r[7] || '',
         advisorName: r[8] || '',
         erpAdvisor: r[9] || '',
+        erpUserId: r[10] || '',
         clientName: r[11] || '',
         itemsCount: r[16] || '',
         skusSummary: r[17] || '',
@@ -4350,6 +4356,7 @@ function handleInvSubmitQuote_(body) {
       finalOut.serieLabel = verifiedUser.serieLabel;
       finalOut.folio = folioFinal;
       finalOut.quoteId = String(erpResult.idCotizacion);
+      finalOut.erpUserId = String(idUsuarioNum);
       finalOut.erpStatus = statusBannerTxt;
       finalOut.recentQuotes = verifiedUser.isAdmin
         ? readRecentQuotesForAdmin_(shQuotes, folioSnapAfter.recentErpQuotes, 40)
@@ -4438,6 +4445,7 @@ function handleInvSubmitQuote_(body) {
         outDaemon.serieLabel = verifiedUser.serieLabel;
         outDaemon.folio = folioResolved;
         outDaemon.quoteId = daemonQid;
+        outDaemon.erpUserId = String(idUsuarioNum);
         outDaemon.erpStatus = daemonStatus;
         outDaemon.recentQuotes = verifiedUser.isAdmin
           ? readRecentQuotesForAdmin_(shQuotes, snapAfterDaemon.recentErpQuotes, 40)
@@ -4474,6 +4482,585 @@ function handleInvSubmitQuote_(body) {
     }
   } finally {
     lock.releaseLock();
+  }
+}
+
+// ----------------------------------------------------------------------------
+// DESCARGA DEL PDF ORIGINAL DE COTIZACIÓN GENERADO POR S MUEBLERÍA (SOLO LECTURA)
+// Reconstruye exactamente la ruta oficial de Muebleria.dll hacia Telerik Reporting:
+//   https://sistema.smuebleria.com/VisorReportes.aspx?Reporte={Reporte}&Parametro={IdVenta}&Usuario={IdUsuario}
+//   -> Telerik.ReportViewer.axd?instanceID={instanceID}&optype=Export&ExportFormat=PDF
+// Sin modificar absolutamente ningún dato en S Mueblería.
+// ----------------------------------------------------------------------------
+function parseCookieHeaderToJar_(cookieHeader) {
+  const jar = {};
+  const raw = String(cookieHeader || '').trim();
+  if (!raw) return jar;
+  const parts = raw.split(';');
+  for (let i = 0; i < parts.length; i++) {
+    const seg = parts[i].trim();
+    if (!seg) continue;
+    const eq = seg.indexOf('=');
+    if (eq > 0) {
+      const k = seg.slice(0, eq).trim();
+      const v = seg.slice(eq + 1).trim();
+      if (k) jar[k] = v;
+    }
+  }
+  return jar;
+}
+
+function findPdfMagicOffset_(bytes) {
+  if (!bytes || bytes.length < 64) return -1;
+  const maxScan = Math.min(bytes.length - 5, 32);
+  for (let i = 0; i <= maxScan; i++) {
+    if (
+      (bytes[i] & 0xFF) === 0x25 &&     // %
+      (bytes[i + 1] & 0xFF) === 0x50 && // P
+      (bytes[i + 2] & 0xFF) === 0x44 && // D
+      (bytes[i + 3] & 0xFF) === 0x46 && // F
+      (bytes[i + 4] & 0xFF) === 0x2D    // -
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function extractCleanPdfBytes_(bytes) {
+  const off = findPdfMagicOffset_(bytes);
+  if (off < 0) return null;
+  return off === 0 ? bytes : bytes.slice(off);
+}
+
+function mapFormatoImpresionesToReportName_(formatoRaw, hasImages, idCategoriaVenta) {
+  if (Number(idCategoriaVenta) === 304) return 'CotizacionesCredito';
+  const fmt = String(formatoRaw || '').trim();
+  if (!fmt) return hasImages ? 'CotizacionesFotos' : 'Cotizaciones';
+  switch (fmt) {
+    case 'Elegante':
+      return hasImages ? 'CotizacionesEleganteFotos' : 'CotizacionesElegante';
+    case 'CEIMA':
+      return 'CotizacionesCEIMA';
+    case 'PERMO':
+      return 'CotizacionesPERMO';
+    case 'HOCHMAN':
+      return 'CotizacionesHOCHMAN';
+    case 'Stark':
+      return 'CotizacionesStark';
+    case 'EleganteVP':
+      return 'CotizacionesVP';
+    case 'Mudomo':
+      return 'CotizacionesMudomo';
+    case 'Itika':
+      return 'CotizacionesItika';
+    case 'Festi':
+      return 'CotizacionesFesti';
+    case 'EleganteDWR':
+      return 'CotizacionesDWR';
+    case 'EleganteDizzeno':
+      return 'CotizacionesDizzeno';
+    case 'EleganteDoble':
+      return 'CotizacionesDoble';
+    case 'EleganteNatulier':
+      return 'CotizacionesNatulier';
+    case 'EleganteAshley':
+      return 'CotizacionesAshley';
+    case 'EleganteTerracu':
+      return 'CotizacionesTerracu';
+    case 'ElegantePerfecto':
+      return 'CotizacionesPerfecto';
+    case 'FURU':
+      return hasImages ? 'CotizacionesFotosFuru' : 'Cotizaciones';
+    case 'ARMONIC':
+      return hasImages ? 'CotizacionesFotosArmonic' : 'Cotizaciones';
+    case 'VAIVEN':
+      return hasImages ? 'CotizacionesFotosVaiven' : 'CotizacionesVaiven';
+    case 'SANDERMO':
+      return 'CotizacionesSandermo';
+    case 'SANDERMOUSD':
+      return 'CotizacionesSandermoUSD';
+    case 'DELGADO':
+      return 'CotizacionesDelgado';
+    case 'CASANOVA':
+      return 'CotizacionCR';
+    default:
+      return hasImages ? 'CotizacionesEleganteFotos' : 'CotizacionesElegante';
+  }
+}
+
+function resolveErpQuoteReportCandidates_(idCotizacion, idUsuario, idCategoriaVenta) {
+  const cfg = getErpRuntimeConfig_();
+  const uid = parseInt(String(idUsuario || ''), 10) || cfg.masterUserId;
+  let formato = '';
+  let cachedFmtFound = false;
+
+  try {
+    const cache = CacheService.getScriptCache();
+    const cachedFmt = cache ? cache.get('erp_fmt_imp_v1_' + uid) : null;
+    if (cachedFmt !== null && cachedFmt !== undefined) {
+      formato = String(cachedFmt);
+      cachedFmtFound = true;
+    }
+  } catch (ce) {}
+
+  if (!cachedFmtFound) {
+    try {
+      const xmlCfg = callSmuebleriaWcf_(
+        'ObtenerConfiguracionVenta',
+        '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + uid + '</IdUsuario>'
+      );
+      formato = extractXmlTag_(xmlCfg, 'FormatoImpresiones');
+      try {
+        CacheService.getScriptCache().put('erp_fmt_imp_v1_' + uid, String(formato || ''), 21600);
+      } catch (cePut) {}
+    } catch (cfgErr) {
+      formato = 'Elegante';
+    }
+  }
+
+  let hasImages = false;
+  try {
+    const xmlImg = callSmuebleriaWcf_(
+      'ValidarImagenesEnProductosPorCotizacion',
+      '<ClaveServicio>{TOKEN}</ClaveServicio><IdCotizaciones>' + parseInt(String(idCotizacion), 10) + '</IdCotizaciones>'
+    );
+    const rawBool = extractXmlTag_(xmlImg, 'ValidarImagenesEnProductosPorCotizacionResult');
+    hasImages = /^true$/i.test(String(rawBool || '').trim());
+  } catch (imgErr) {
+    hasImages = false;
+  }
+
+  const primary = mapFormatoImpresionesToReportName_(formato, hasImages, idCategoriaVenta);
+  const candidates = [primary];
+  const altSameFmt = mapFormatoImpresionesToReportName_(formato, !hasImages, idCategoriaVenta);
+  if (candidates.indexOf(altSameFmt) === -1) candidates.push(altSameFmt);
+  if (candidates.indexOf('CotizacionesEleganteFotos') === -1) candidates.push('CotizacionesEleganteFotos');
+  if (candidates.indexOf('CotizacionesElegante') === -1) candidates.push('CotizacionesElegante');
+  if (candidates.indexOf('Cotizaciones') === -1) candidates.push('Cotizaciones');
+  return candidates;
+}
+
+function resolveErpQuoteMetadataForPdf_(ss, body) {
+  let quoteIdNum = parseInt(String((body && (body.quoteId || body.idCotizacion)) || '').replace(/[^\d]/g, ''), 10) || 0;
+  let folioClean = String((body && (body.folio || body.orderCode)) || '').trim().toUpperCase();
+  if (/^ID-\d+$/i.test(folioClean)) {
+    if (!quoteIdNum) quoteIdNum = parseInt(folioClean.slice(3), 10) || 0;
+    folioClean = '';
+  } else if (/^[A-Z]+-\d+$/i.test(folioClean)) {
+    folioClean = '';
+  }
+
+  let erpUserIdNum = parseInt(String((body && (body.erpUserId || body.erpAdvisorId)) || '').replace(/[^\d]/g, ''), 10) || 0;
+  let clientName = String((body && body.clientName) || '').trim();
+  let erpStore = String((body && body.erpStore) || '').trim();
+  let advisorEmailOwner = '';
+
+  // 1) Buscar coincidencia en COTIZACIONES_EN_VIVO para completar quoteId / folio / erpUserId / propietario
+  const shQuotes = ss ? ss.getSheetByName(TAB_QUOTES_LIVE_) : null;
+  if (shQuotes && shQuotes.getLastRow() >= 2) {
+    const lastR = shQuotes.getLastRow();
+    const startR = Math.max(2, lastR - 400);
+    const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 13).getDisplayValues();
+    for (let i = vals.length - 1; i >= 0; i--) {
+      const r = vals[i];
+      const rOrd = String(r[0] || '').trim().toUpperCase();
+      const rFol = String(r[1] || '').trim().toUpperCase();
+      const rId = parseInt(String(r[2] || '').replace(/[^\d]/g, ''), 10) || 0;
+      const matchById = quoteIdNum > 0 && rId === quoteIdNum;
+      const matchByFolio = folioClean && (rFol === folioClean || rOrd === folioClean);
+      if (matchById || matchByFolio) {
+        if (!quoteIdNum && rId > 0) quoteIdNum = rId;
+        if (!folioClean && rFol && !/^[A-Z]+-\d+$/i.test(rFol)) folioClean = rFol;
+        if (!erpStore && r[6]) erpStore = String(r[6]).trim();
+        if (!advisorEmailOwner && r[7]) advisorEmailOwner = String(r[7]).trim().toLowerCase();
+        if (!erpUserIdNum && r[10]) erpUserIdNum = parseInt(String(r[10]).replace(/[^\d]/g, ''), 10) || 0;
+        if (!clientName && r[11]) clientName = String(r[11]).trim();
+        if (quoteIdNum > 0) break;
+      }
+    }
+  }
+
+  // 2) Si solo teníamos el Folio y aún falta IdVenta (quoteIdNum), consultarlo en ObtenerCotizacionesTodas (solo lectura)
+  if (!quoteIdNum && folioClean) {
+    const cfg = getErpRuntimeConfig_();
+    const queries = [
+      '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Venta>' + xmlEscape_(folioClean) + '</Venta><Filtro></Filtro>',
+      '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Venta></Venta><Filtro></Filtro>'
+    ];
+    for (let qIdx = 0; qIdx < queries.length && !quoteIdNum; qIdx++) {
+      try {
+        const xmlCot = callSmuebleriaWcf_('ObtenerCotizacionesTodas', queries[qIdx]);
+        if (!xmlCot) continue;
+        const folRe = new RegExp('<(?:[a-zA-Z0-9_]+:)?Folio>\\s*' + folioClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*<\\/(?:[a-zA-Z0-9_]+:)?Folio>', 'i');
+        const fm = folRe.exec(xmlCot);
+        if (fm) {
+          const winStart = Math.max(0, fm.index - 2500);
+          const winEnd = Math.min(xmlCot.length, fm.index + 2500);
+          const chunk = xmlCot.slice(winStart, winEnd);
+          const idStr = extractXmlTag_(chunk, 'IdVenta');
+          const parsedId = parseInt(String(idStr || '').trim(), 10) || 0;
+          if (parsedId > 0) {
+            quoteIdNum = parsedId;
+            if (!erpUserIdNum) {
+              erpUserIdNum = parseInt(String(extractXmlTag_(chunk, 'IdUsuario') || '').trim(), 10) || 0;
+            }
+            if (!clientName) {
+              clientName = extractXmlTag_(chunk, 'Nombre') || extractXmlTag_(chunk, 'Cliente') || '';
+            }
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  return {
+    quoteIdNum: quoteIdNum,
+    folio: folioClean,
+    erpUserIdNum: erpUserIdNum,
+    clientName: clientName,
+    erpStore: erpStore,
+    advisorEmailOwner: advisorEmailOwner
+  };
+}
+
+function fetchHttpFollowingRedirectsWithJar_(startUrl, jar, ua, refererUrl, maxHops) {
+  let curUrl = startUrl;
+  const hops = maxHops || 6;
+  let lastResp = null;
+
+  for (let hop = 0; hop < hops; hop++) {
+    if (/\/Login\.aspx\b/i.test(curUrl)) {
+      return { needsLogin: true, finalUrl: curUrl, resp: lastResp };
+    }
+    const hdrs = {
+      'User-Agent': ua,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf,*/*;q=0.8'
+    };
+    if (refererUrl) hdrs.Referer = refererUrl;
+    const ck = cookieJarToHeader_(jar);
+    if (ck) hdrs.Cookie = ck;
+
+    const resp = UrlFetchApp.fetch(curUrl, {
+      method: 'get',
+      headers: hdrs,
+      followRedirects: false,
+      muteHttpExceptions: true
+    });
+    lastResp = resp;
+    mergeSetCookiesIntoJar_(resp.getAllHeaders(), jar);
+
+    const code = resp.getResponseCode();
+    if (code === 401 || code === 403) {
+      return { needsLogin: true, finalUrl: curUrl, resp: resp };
+    }
+    const loc = getHeaderCaseInsensitive_(resp.getAllHeaders(), 'Location');
+    if (code >= 300 && code < 400 && loc) {
+      const nextUrl = resolveRelativeUrl_(curUrl, loc);
+      if (/\/Login\.aspx\b/i.test(nextUrl)) {
+        return { needsLogin: true, finalUrl: nextUrl, resp: resp };
+      }
+      curUrl = nextUrl;
+      continue;
+    }
+    return { needsLogin: false, finalUrl: curUrl, resp: resp };
+  }
+  return { needsLogin: false, finalUrl: curUrl, resp: lastResp };
+}
+
+function extractTelerikExportTargetsFromVisorHtml_(html, baseVisorUrl) {
+  const s = decodeXmlEntities_(String(html || ''));
+  const exportUrls = [];
+  const warmUrls = [];
+  const pushUnique = (arr, u) => {
+    if (u && arr.indexOf(u) === -1) arr.push(u);
+  };
+
+  // 1) Localizar rutas a Telerik.ReportViewer.axd en el HTML del visor
+  const axdMatches = s.match(/[^\s"'<>()]*Telerik\.ReportViewer\.axd\?[^\s"'<>()]+/gi) || [];
+  let firstHandlerBase = '';
+  let foundInstanceId = '';
+  let cultureSuffix = '';
+
+  for (let i = 0; i < axdMatches.length; i++) {
+    const rawAxd = axdMatches[i];
+    const fullAxd = resolveRelativeUrl_(baseVisorUrl, rawAxd);
+    const qPos = fullAxd.indexOf('?');
+    const basePart = qPos >= 0 ? fullAxd.slice(0, qPos) : fullAxd;
+    const qsPart = qPos >= 0 ? fullAxd.slice(qPos + 1) : '';
+    if (!firstHandlerBase && basePart) firstHandlerBase = basePart;
+
+    const mInst = qsPart.match(/(?:^|&)instanceID=([^&]+)/i);
+    if (mInst && !foundInstanceId) {
+      foundInstanceId = decodeURIComponent(mInst[1]);
+    }
+    if (!cultureSuffix) {
+      const mCul = qsPart.match(/(?:^|&)(culture=[^&]+)/i);
+      const mUiCul = qsPart.match(/(?:^|&)(uiculture=[^&]+)/i);
+      cultureSuffix = (mCul ? ('&' + mCul[1]) : '') + (mUiCul ? ('&' + mUiCul[1]) : '');
+    }
+    if (/optype=ReportArea/i.test(qsPart) || /optype=Parameters/i.test(qsPart)) {
+      pushUnique(warmUrls, fullAxd);
+    }
+    if (/optype=Export/i.test(qsPart) && /ExportFormat=PDF/i.test(qsPart)) {
+      pushUnique(exportUrls, fullAxd);
+    }
+  }
+
+  // 2) Respaldo: extraer instanceID desde el objeto JS new ReportViewer({...}) o $create(...)
+  if (!foundInstanceId) {
+    const jsInst = s.match(/["']?instanceI[dD]["']?\s*[:=]\s*["']([a-zA-Z0-9\-]{16,64})["']/);
+    if (jsInst && jsInst[1]) {
+      foundInstanceId = jsInst[1];
+    }
+  }
+
+  if (!firstHandlerBase) {
+    firstHandlerBase = resolveRelativeUrl_(baseVisorUrl, '/Telerik.ReportViewer.axd');
+  }
+
+  if (foundInstanceId) {
+    if (cultureSuffix) {
+      pushUnique(
+        exportUrls,
+        firstHandlerBase + '?instanceID=' + encodeURIComponent(foundInstanceId) + cultureSuffix + '&optype=Export&ExportFormat=PDF'
+      );
+    }
+    pushUnique(
+      exportUrls,
+      firstHandlerBase + '?instanceID=' + encodeURIComponent(foundInstanceId) + '&optype=Export&ExportFormat=PDF'
+    );
+  }
+
+  // 3) Si VisorReportes incrusta un enlace directo a PDF (<embed>, <iframe>, <object>)
+  const embedMatches = s.match(/(?:src|data|href)\s*=\s*["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi) || [];
+  for (let j = 0; j < embedMatches.length; j++) {
+    const mUrl = embedMatches[j].match(/["']([^"']+)["']/);
+    if (mUrl && mUrl[1]) {
+      pushUnique(exportUrls, resolveRelativeUrl_(baseVisorUrl, mUrl[1]));
+    }
+  }
+
+  return {
+    instanceId: foundInstanceId,
+    exportUrls: exportUrls,
+    warmUrls: warmUrls
+  };
+}
+
+function downloadPdfBytesFromVisorUrl_(visorUrl, jar, ua) {
+  const visorHop = fetchHttpFollowingRedirectsWithJar_(visorUrl, jar, ua, 'https://sistema.smuebleria.com/Sistema.aspx', 6);
+  if (visorHop.needsLogin) {
+    return { ok: false, needsLogin: true };
+  }
+  const resp = visorHop.resp;
+  if (!resp) {
+    return { ok: false, error: 'Sin respuesta HTTP desde VisorReportes.aspx.' };
+  }
+
+  const rawBytes = resp.getContent();
+  const directPdf = extractCleanPdfBytes_(rawBytes);
+  if (directPdf) {
+    return { ok: true, pdfBytes: directPdf };
+  }
+
+  const html = resp.getContentText('UTF-8');
+  if (/CampoCorreoElectronico|CampoContrasena/i.test(html) || /<form[^>]*action=["'][^"']*Login\.aspx/i.test(html)) {
+    return { ok: false, needsLogin: true };
+  }
+
+  const code = resp.getResponseCode();
+  if (code >= 400) {
+    return { ok: false, error: 'VisorReportes.aspx devolvió HTTP ' + code + '.' };
+  }
+
+  const targets = extractTelerikExportTargetsFromVisorHtml_(html, visorHop.finalUrl);
+  if (!targets.exportUrls.length) {
+    return {
+      ok: false,
+      error: 'VisorReportes.aspx no expuso un documento PDF ni instanceID de Telerik ReportViewer (' + html.replace(/\s+/g, ' ').slice(0, 180) + ').'
+    };
+  }
+
+  // Intento directo sobre Telerik.ReportViewer.axd?instanceID=...&optype=Export&ExportFormat=PDF
+  for (let pass = 0; pass < 2; pass++) {
+    if (pass === 1) {
+      if (!targets.warmUrls.length) break;
+      for (let w = 0; w < targets.warmUrls.length; w++) {
+        fetchHttpFollowingRedirectsWithJar_(targets.warmUrls[w], jar, ua, visorHop.finalUrl, 4);
+      }
+    }
+    for (let i = 0; i < targets.exportUrls.length; i++) {
+      const expHop = fetchHttpFollowingRedirectsWithJar_(targets.exportUrls[i], jar, ua, visorHop.finalUrl, 6);
+      if (expHop.needsLogin) {
+        return { ok: false, needsLogin: true };
+      }
+      if (!expHop.resp) continue;
+      const expPdf = extractCleanPdfBytes_(expHop.resp.getContent());
+      if (expPdf) {
+        return { ok: true, pdfBytes: expPdf };
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    error: 'Telerik.ReportViewer.axd no devolvió bytes PDF válidos para instanceID=' + (targets.instanceId || 'N/A') + '.'
+  };
+}
+
+function buildSafeQuotePdfFileName_(folio, quoteId, clientName) {
+  const cleanPart = (txt, maxLen) => String(txt || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, maxLen || 28);
+
+  const fTag = cleanPart(folio || ('ID_' + quoteId), 20) || ('ID_' + quoteId);
+  const cTag = cleanPart(clientName, 26);
+  return 'Cotizacion_SMuebleria_' + fTag + (cTag ? ('_' + cTag) : '') + '.pdf';
+}
+
+function handleInvDownloadErpQuotePdf_(body) {
+  const ss = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+  const authCheck = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, body);
+  if (!authCheck.ok) {
+    return authCheck;
+  }
+  const verifiedUser = authCheck.advisor;
+
+  try {
+    const resolved = resolveErpQuoteMetadataForPdf_(ss, body || {});
+    if (!resolved.quoteIdNum || resolved.quoteIdNum <= 0) {
+      return {
+        ok: false,
+        error: 'No se encontró el ID oficial de esta cotización en S Mueblería para descargar su PDF original.'
+      };
+    }
+
+    const isManagerOrAdmin = !!verifiedUser.isAdmin || /ADMINISTRADOR|GERENTE|\bSUB/i.test(String(verifiedUser.puesto || ''));
+    if (
+      !isManagerOrAdmin &&
+      resolved.advisorEmailOwner &&
+      resolved.advisorEmailOwner !== String(verifiedUser.correo || '').toLowerCase() &&
+      resolved.erpStore &&
+      String(resolved.erpStore).toUpperCase() !== String(verifiedUser.erpStore || '').toUpperCase()
+    ) {
+      return {
+        ok: false,
+        error: 'Esta cotización pertenece a otra sucursal. Solicita la descarga con el gerente o administrador.'
+      };
+    }
+
+    const cfg = getErpRuntimeConfig_();
+    const idUsuarioReporte = resolved.erpUserIdNum ||
+      parseInt(String(verifiedUser.erpAdvisorId || '').trim(), 10) ||
+      cfg.masterUserId;
+    const idCategoriaVenta = parseInt(String((body && body.idCategoriaVenta) || '2'), 10) || 2;
+    const reportCandidates = resolveErpQuoteReportCandidates_(resolved.quoteIdNum, idUsuarioReporte, idCategoriaVenta);
+
+    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    let sess = getValidErpSession_(false, cfg);
+    if (!sess.cookieHeader) {
+      try {
+        sess = getValidErpSession_(true, cfg);
+      } catch (relogIgnore) {}
+    }
+
+    let lastErrMsg = '';
+    for (let authAttempt = 0; authAttempt < 2; authAttempt++) {
+      const jar = parseCookieHeaderToJar_(sess.cookieHeader);
+      let needFreshLogin = false;
+
+      for (let rIdx = 0; rIdx < reportCandidates.length; rIdx++) {
+        const repName = reportCandidates[rIdx];
+        const visorUrl = 'https://sistema.smuebleria.com/VisorReportes.aspx?Reporte=' +
+          encodeURIComponent(repName) +
+          '&Parametro=' + encodeURIComponent(String(resolved.quoteIdNum)) +
+          '&Usuario=' + encodeURIComponent(String(idUsuarioReporte));
+
+        const dlRes = downloadPdfBytesFromVisorUrl_(visorUrl, jar, ua);
+        if (dlRes && dlRes.ok && dlRes.pdfBytes) {
+          const fileName = buildSafeQuotePdfFileName_(resolved.folio, resolved.quoteIdNum, resolved.clientName);
+          const pdfBase64 = Utilities.base64Encode(dlRes.pdfBytes);
+          const refLabel = (resolved.folio ? ('Folio ' + resolved.folio + ' · ') : '') + 'ID ERP ' + resolved.quoteIdNum;
+
+          registrarEventoHistorial_(ss, {
+            clasificacion: 'MOVIMIENTO',
+            modulo: 'AppsScript · VisorReportes S Mueblería',
+            evento: 'DESCARGA DE PDF ORIGINAL S MUEBLERÍA',
+            estado: '✅ OK',
+            usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+            sucursal: resolved.erpStore || verifiedUser.erpStore || '',
+            referencia: refLabel,
+            detalle: 'Archivo original "' + fileName + '" (' + Math.round(dlRes.pdfBytes.length / 1024) + ' KB · Reporte ' + repName + ').',
+            analisis: 'PDF oficial obtenido en solo lectura desde sistema.smuebleria.com/VisorReportes.aspx sin alterar datos en S Mueblería.'
+          });
+
+          return {
+            ok: true,
+            pdfBase64: pdfBase64,
+            mimeType: 'application/pdf',
+            fileName: fileName,
+            quoteId: String(resolved.quoteIdNum),
+            folio: resolved.folio || ('ID-' + resolved.quoteIdNum),
+            reportName: repName,
+            byteLength: dlRes.pdfBytes.length
+          };
+        }
+
+        if (dlRes && dlRes.needsLogin) {
+          needFreshLogin = true;
+          break;
+        }
+        if (dlRes && dlRes.error) {
+          lastErrMsg = dlRes.error;
+        }
+      }
+
+      if (needFreshLogin && authAttempt === 0) {
+        sess = getValidErpSession_(true, cfg);
+        continue;
+      }
+      break;
+    }
+
+    const failMsg = lastErrMsg || 'No fue posible obtener el PDF original desde VisorReportes.aspx en S Mueblería.';
+    registrarEventoHistorial_(ss, {
+      clasificacion: 'ALERTA TÉCNICA',
+      modulo: 'AppsScript · VisorReportes S Mueblería',
+      evento: 'AVISO AL DESCARGAR PDF ORIGINAL S MUEBLERÍA',
+      estado: '⚠️ ALERTA',
+      usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+      sucursal: resolved.erpStore || verifiedUser.erpStore || '',
+      referencia: (resolved.folio || '') + ' (ID ERP ' + resolved.quoteIdNum + ')',
+      detalle: failMsg.slice(0, 260),
+      analisis: 'Verificar disponibilidad de VisorReportes.aspx / Telerik.ReportViewer.axd en sistema.smuebleria.com.'
+    });
+
+    return {
+      ok: false,
+      error: 'S Mueblería no entregó el PDF original en este momento (' + failMsg + '). Intenta nuevamente en unos segundos.'
+    };
+  } catch (err) {
+    const errTxt = String((err && err.message) || err || 'Error desconocido');
+    registrarEventoHistorial_(ss, {
+      clasificacion: 'FALLO DE CÓDIGO',
+      modulo: 'AppsScript · handleInvDownloadErpQuotePdf_',
+      evento: 'ERROR EN DESCARGA DE PDF ORIGINAL S MUEBLERÍA',
+      estado: '❌ ERROR',
+      usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
+      sucursal: verifiedUser.erpStore || '',
+      referencia: String((body && (body.folio || body.quoteId)) || ''),
+      detalle: errTxt.slice(0, 260),
+      analisis: analizarCausaFalloCodigo_(err, 'AppsScript · handleInvDownloadErpQuotePdf_', 'inv_download_erp_quote_pdf')
+    });
+    return {
+      ok: false,
+      error: 'No se pudo descargar el PDF original de S Mueblería: ' + errTxt
+    };
   }
 }
 

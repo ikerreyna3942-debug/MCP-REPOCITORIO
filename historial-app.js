@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v53 · SW v12',
+            version: 'v54 · SW v13',
             commit: 'Actual',
+            date: '14/11/2026',
+            module: 'AppsScript_Creata_Drive_Sheets.gs · inventario-app.js · historial-app.js',
+            title: 'Descarga automática y a 1 clic del PDF original de cotización de S Mueblería',
+            summary: 'Obtención 100% en solo lectura del PDF oficial generado por sistema.smuebleria.com (VisorReportes.aspx / Telerik.ReportViewer.axd), con descarga automática al emitir cotización y botones de descarga en Mis Cotizaciones y en este portal privado.'
+        },
+        {
+            version: 'v53 · SW v12',
+            commit: '94f6d1c',
             date: '14/11/2026',
             module: 'inventario-app.js · AppsScript_Creata_Drive_Sheets.gs',
             title: 'Fotografías subidas solo como archivo descargable en Drive y fotos del cotizador exclusivas de Columna F',
@@ -573,10 +581,15 @@
             }
 
             if (verified) {
+                const issuedToken = cleanStr(
+                    (cloudRes && (cloudRes.authToken || (cloudRes.user && cloudRes.user.authToken))) || ''
+                );
                 try {
                     localStorage.setItem(PRIVATE_SESSION_KEY, JSON.stringify({
                         correo: OWNER_EMAIL,
                         nombre: OWNER_DISPLAY_NAME,
+                        sheetTab: 'PROYECTOS',
+                        authToken: issuedToken,
                         verifiedAt: Date.now()
                     }));
                 } catch (e) {}
@@ -1221,11 +1234,181 @@
     // ------------------------------------------------------------------------
     // MODALS (QUOTE INSPECTOR & PHOTO LIGHTBOX)
     // ------------------------------------------------------------------------
+    let activeInspectedQuote = null;
+    let historyPdfDownloadInFlight = false;
+
+    function getOwnerAuthContextForPdf() {
+        let authToken = '';
+        let sheetTab = 'PROYECTOS';
+        try {
+            const priv = JSON.parse(localStorage.getItem(PRIVATE_SESSION_KEY) || 'null');
+            if (priv && cleanStr(priv.correo).toLowerCase() === OWNER_EMAIL && cleanStr(priv.authToken)) {
+                authToken = cleanStr(priv.authToken);
+                sheetTab = cleanStr(priv.sheetTab) || 'PROYECTOS';
+            }
+        } catch (e) {}
+        if (!authToken) {
+            try {
+                const inv = JSON.parse(localStorage.getItem(INV_SESSION_KEY) || 'null');
+                if (inv && cleanStr(inv.correo).toLowerCase() === OWNER_EMAIL && cleanStr(inv.authToken)) {
+                    authToken = cleanStr(inv.authToken);
+                    sheetTab = cleanStr(inv.sheetTab) || 'PROYECTOS';
+                }
+            } catch (e) {}
+        }
+        return { authToken: authToken, sheetTab: sheetTab };
+    }
+
+    function triggerHistoryBase64PdfDownload(base64Str, fileName) {
+        const cleanB64 = String(base64Str || '').replace(/\s+/g, '');
+        const bin = window.atob(cleanB64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) {
+            bytes[i] = bin.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const safeName = cleanStr(fileName) || 'Cotizacion_SMuebleria.pdf';
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = /\.pdf$/i.test(safeName) ? safeName : (safeName + '.pdf');
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 250);
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+    }
+
+    function setHistoryPdfStatus(tone, htmlContent) {
+        const box = document.getElementById('quoteInspectPdfStatus');
+        if (!box) return;
+        if (!htmlContent) {
+            box.innerHTML = '';
+            box.style.display = 'none';
+            return;
+        }
+        box.style.display = 'block';
+        box.style.marginTop = '0.65rem';
+        box.style.padding = '0.65rem 0.85rem';
+        box.style.borderRadius = '8px';
+        box.style.fontSize = '0.78rem';
+        box.style.fontWeight = '600';
+        if (tone === 'ok') {
+            box.style.background = '#ECFDF5';
+            box.style.border = '1px solid #6EE7B7';
+            box.style.color = '#065F46';
+        } else if (tone === 'warn') {
+            box.style.background = '#FFFBEB';
+            box.style.border = '1px solid #FDE68A';
+            box.style.color = '#92400E';
+        } else {
+            box.style.background = '#FEF2F2';
+            box.style.border = '1px solid #FECACA';
+            box.style.color = '#991B1B';
+        }
+        box.innerHTML = htmlContent;
+    }
+
+    window.verifyOwnerPwdAndDownloadPdf = async function (ev) {
+        if (ev && ev.preventDefault) ev.preventDefault();
+        const inp = document.getElementById('histInlineOwnerPwd');
+        const pwd = cleanStr(inp ? inp.value : '');
+        if (!pwd) return;
+        setHistoryPdfStatus('warn', '⏳ Verificando contraseña y descargando PDF original de S Mueblería...');
+        const loginRes = await callWebAppPost('inv_login', {
+            email: OWNER_EMAIL,
+            accessKey: pwd,
+            sheetTab: 'PROYECTOS'
+        }, 10000);
+        const tok = cleanStr((loginRes && (loginRes.authToken || (loginRes.user && loginRes.user.authToken))) || '');
+        if (loginRes && loginRes.ok && tok) {
+            try {
+                localStorage.setItem(PRIVATE_SESSION_KEY, JSON.stringify({
+                    correo: OWNER_EMAIL,
+                    nombre: OWNER_DISPLAY_NAME,
+                    sheetTab: 'PROYECTOS',
+                    authToken: tok,
+                    verifiedAt: Date.now()
+                }));
+            } catch (e) {}
+            await window.downloadHistoryQuoteOriginalPdf(pwd);
+            return;
+        }
+        await window.downloadHistoryQuoteOriginalPdf(pwd);
+    };
+
+    window.downloadHistoryQuoteOriginalPdf = async function (explicitKey) {
+        if (historyPdfDownloadInFlight || !activeInspectedQuote) return;
+        const q = activeInspectedQuote;
+        const btn = document.getElementById('btnDownloadHistoryErpPdf');
+        const prevTxt = btn ? btn.textContent : '';
+        const authCtx = getOwnerAuthContextForPdf();
+
+        historyPdfDownloadInFlight = true;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '⏳ Descargando PDF S Mueblería...';
+        }
+        setHistoryPdfStatus('warn', '⏳ Obteniendo el PDF original directo desde <strong>S Mueblería</strong>...');
+
+        try {
+            const res = await callWebAppPost('inv_download_erp_quote_pdf', {
+                authToken: authCtx.authToken,
+                advisorKey: cleanStr(explicitKey || ''),
+                sheetTab: authCtx.sheetTab,
+                advisorEmail: OWNER_EMAIL,
+                quoteId: cleanStr(q.idErp),
+                folio: (!/^(SIN FOLIO|EN PROCESO|PENDIENTE)$/i.test(cleanStr(q.folioErp))) ? cleanStr(q.folioErp) : '',
+                erpUserId: cleanStr(q.idUsuarioErp),
+                clientName: cleanStr(q.cliente),
+                erpStore: cleanStr(q.tiendaErp)
+            }, 45000);
+
+            if (res && res.authRequired) {
+                setHistoryPdfStatus(
+                    'warn',
+                    '<form onsubmit="verifyOwnerPwdAndDownloadPdf(event)" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">' +
+                        '<span>Confirma tu contraseña personal para autorizar la descarga:</span>' +
+                        '<input id="histInlineOwnerPwd" type="password" required placeholder="Contraseña..." style="padding:0.35rem 0.6rem;border:1px solid #D1D5DB;border-radius:6px;font-size:0.78rem;color:#111827;">' +
+                        '<button type="submit" style="padding:0.35rem 0.75rem;border-radius:6px;background:#252C32;color:#FFFFFF;font-weight:700;font-size:0.75rem;border:none;cursor:pointer;">Autorizar y Descargar</button>' +
+                    '</form>'
+                );
+                return;
+            }
+
+            if (res && res.ok && res.pdfBase64) {
+                const fname = cleanStr(res.fileName) || ('Cotizacion_SMuebleria_' + cleanStr(q.folioErp || q.idErp) + '.pdf');
+                triggerHistoryBase64PdfDownload(res.pdfBase64, fname);
+                setHistoryPdfStatus('ok', '✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(fname) + '</strong>');
+                return;
+            }
+
+            if (res && (res.unavailable || /Acci[óo]n no reconocida/i.test(String(res.error || '')))) {
+                setHistoryPdfStatus(
+                    'warn',
+                    'Para activar la descarga del PDF original de S Mueblería, publica una <strong>Nueva versión</strong> de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.'
+                );
+                return;
+            }
+
+            setHistoryPdfStatus('err', '⚠️ ' + escapeHtml(cleanStr((res && res.error) || 'No fue posible descargar el PDF en este momento.')));
+        } finally {
+            historyPdfDownloadInFlight = false;
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = prevTxt || '⬇ Descargar PDF Original S Mueblería';
+            }
+        }
+    };
+
     function openQuoteDetailModal(q) {
         const modal = document.getElementById('quoteInspectModal');
         const titleEl = document.getElementById('quoteInspectTitle');
         const bodyEl = document.getElementById('quoteInspectBody');
         if (!modal || !bodyEl) return;
+
+        activeInspectedQuote = q;
 
         if (titleEl) {
             titleEl.textContent = 'Cotización ' + q.folioErp + (q.idErp ? (' · ID S Mueblería #' + q.idErp) : '');
@@ -1234,8 +1417,18 @@
         const skuItems = q.resumenSkus
             ? q.resumenSkus.split(',').map(s => s.trim()).filter(Boolean)
             : [];
+        const canDownloadPdf = !!(cleanStr(q.idErp) || (cleanStr(q.folioErp) && !/^(SIN FOLIO|EN PROCESO|PENDIENTE)$/i.test(cleanStr(q.folioErp))));
 
         bodyEl.innerHTML =
+            (canDownloadPdf
+                ? ('<div style="margin-bottom:0.9rem;">' +
+                    '<button id="btnDownloadHistoryErpPdf" type="button" onclick="downloadHistoryQuoteOriginalPdf()" ' +
+                        'style="width:100%;padding:0.65rem 1rem;border-radius:999px;background:#252C32;color:#FFFFFF;font-weight:800;font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;border:none;cursor:pointer;">' +
+                        '⬇ Descargar PDF Original S Mueblería' +
+                    '</button>' +
+                    '<div id="quoteInspectPdfStatus" style="display:none;"></div>' +
+                   '</div>')
+                : '') +
             '<div class="detail-kv-grid">' +
                 '<div class="detail-kv"><div class="detail-kv-label">Folio Oficial S Mueblería</div><div class="detail-kv-val mono">' + escapeHtml(q.folioErp) + '</div></div>' +
                 '<div class="detail-kv"><div class="detail-kv-label">Fecha y Hora Emisión</div><div class="detail-kv-val tabular">' + escapeHtml(q.fechaHora) + '</div></div>' +
