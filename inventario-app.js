@@ -143,7 +143,7 @@
             .trim();
     }
 
-    // Normalización fonética/ortográfica para español (z/s/c, b/v, ll/y) -> "Apienso" == "Apienzo"
+    // Normalización fonética/ortográfica para español (ll/y, c/z/s, b/v, qu/c/k, g/j, h muda)
     function normSearch(str) {
         return String(str || '')
             .normalize('NFD')
@@ -153,40 +153,95 @@
             .replace(/c([ei])/g, 's$1')
             .replace(/z/g, 's')
             .replace(/v/g, 'b')
+            .replace(/qu([ei])/g, 'k$1')
+            .replace(/c(?![ehi])/g, 'k')
+            .replace(/g([ei])/g, 'j$1')
+            .replace(/(^|[^c])h/g, '$1')
             .replace(/([a-z])\1+/g, '$1')
             .replace(/[^a-z0-9]+/g, ' ')
             .trim();
     }
 
-    function isOneEditOrTransposition(a, b) {
-        if (a === b) return true;
-        const la = a.length;
-        const lb = b.length;
-        if (Math.abs(la - lb) > 1) return false;
+    const SEARCH_STOPWORDS = new Set([
+        'de', 'del', 'la', 'el', 'los', 'las', 'para', 'por',
+        'con', 'en', 'y', 'o', 'un', 'una', 'unos', 'unas', 'al', 'a'
+    ]);
 
-        let i = 0;
-        while (i < la && i < lb && a[i] === b[i]) i++;
-        if (i === la && i === lb) return true;
-
-        if (la === lb) {
-            if (a.slice(i + 1) === b.slice(i + 1)) return true;
-            if (i + 1 < la && a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2)) {
-                return true;
-            }
-            return false;
-        }
-        if (la > lb) return a.slice(i + 1) === b.slice(i);
-        return a.slice(i) === b.slice(i + 1);
+    function stemEs(w) {
+        let s = String(w || '');
+        if (s.length >= 5 && s.endsWith('es')) s = s.slice(0, -2);
+        else if (s.length >= 4 && s.endsWith('s')) s = s.slice(0, -1);
+        return s;
     }
 
-    function tokenMatchesGroup(tok, grp) {
-        if (grp._search.indexOf(tok) !== -1 || grp._plain.indexOf(tok) !== -1) return true;
-        if (tok.length >= 5 && !/\d/.test(tok)) {
+    function rootEs(w) {
+        const s = stemEs(w);
+        if (s.length >= 5 && (s.endsWith('a') || s.endsWith('o'))) return s.slice(0, -1);
+        return s;
+    }
+
+    function editDistanceBounded(a, b, maxDist) {
+        const la = a.length;
+        const lb = b.length;
+        if (Math.abs(la - lb) > maxDist) return maxDist + 1;
+        const prev = new Array(lb + 1);
+        const curr = new Array(lb + 1);
+        for (let j = 0; j <= lb; j++) prev[j] = j;
+        for (let i = 1; i <= la; i++) {
+            curr[0] = i;
+            let rowMin = curr[0];
+            for (let j = 1; j <= lb; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+                if (curr[j] < rowMin) rowMin = curr[j];
+            }
+            if (rowMin > maxDist) return maxDist + 1;
+            for (let j = 0; j <= lb; j++) prev[j] = curr[j];
+        }
+        return prev[lb];
+    }
+
+    function scoreTokenInGroup(tok, grp) {
+        if (!tok || !grp) return 0;
+        const st = stemEs(tok);
+        const rt = rootEs(tok);
+        let best = 0;
+
+        if (grp._titleSearch && grp._titleSearch.indexOf(tok) !== -1) {
+            best = Math.max(best, grp._titleSearch.startsWith(tok) ? 40 : 30);
+        }
+        if (grp._search.indexOf(tok) !== -1 || grp._plain.indexOf(tok) !== -1) {
+            best = Math.max(best, 20);
+        }
+        if (st !== tok && (grp._search.indexOf(st) !== -1 || (grp._stems && grp._stems.has(st)))) {
+            best = Math.max(best, (grp._titleSearch && grp._titleSearch.indexOf(st) !== -1) ? 26 : 16);
+        }
+        if (best === 0 && rt.length >= 4 && grp._roots && grp._roots.has(rt)) {
+            best = 14;
+        }
+        if (best === 0 && tok.length >= 4 && grp._compact && grp._compact.indexOf(tok) !== -1) {
+            best = 12;
+        }
+        if (best === 0 && tok.length >= 4 && !/\d/.test(tok) && grp._words) {
+            const maxD = tok.length >= 7 ? 2 : 1;
             for (let i = 0; i < grp._words.length; i++) {
-                if (isOneEditOrTransposition(tok, grp._words[i])) return true;
+                const w = grp._words[i];
+                if (w.length < 3) continue;
+                const d = editDistanceBounded(tok, w, maxD);
+                if (d <= maxD) {
+                    best = Math.max(best, d === 1 ? 10 : 6);
+                    break;
+                }
+                if (st.length >= 4) {
+                    const ds = editDistanceBounded(st, stemEs(w), 1);
+                    if (ds <= 1) {
+                        best = Math.max(best, 8);
+                        break;
+                    }
+                }
             }
         }
-        return false;
+        return best;
     }
 
     function escapeHtml(str) {
@@ -867,7 +922,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // CATEGORÍAS NORMALIZADAS (COLUMNA CATEGORIA; SI ESTÁ VACÍA SE DEDUCE DEL TIPO DE PRODUCTO)
+    // CATEGORÍAS Y SUBCATEGORÍAS NORMALIZADAS (PRIORIZA TIPO DE PRODUCTO SOBRE CATEGORÍA GENÉRICA)
     // ------------------------------------------------------------------------
     const CATEGORY_ORDER = [
         'SALAS & SOFÁS',
@@ -886,39 +941,6 @@
         'COMPLEMENTOS',
         'OTROS'
     ];
-    const CATEGORY_RULES = [
-        [/EXTERIOR|CAMASTRO/, 'EXTERIOR'],
-        [/ESPEJO/, 'ESPEJOS'],
-        [/CUADRO|ARTE OBJETO|DECORATIVO PARED/, 'CUADROS'],
-        [/LAMPARA|CANDIL|ARBOTANTE/, 'LÁMPARAS'],
-        [/COJIN|FUNDA|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|TELA|RELLENO/, 'COJINES & TEXTILES'],
-        [/BUFETERA|CREDENZA|TRINCHADOR|CONSOLA|CAVA/, 'BUFETERAS & CREDENZAS'],
-        [/COMEDOR/, 'COMEDORES'],
-        [/MESA DE CENTRO|MESAS? LATERAL|MESA AUXILIAR|MESAS DE SALA|AUXILIAR/, 'MESAS DE CENTRO & LATERALES'],
-        [/RECAMARA|CAMA|CABECERA|BURO|COMODA|CAJONERA|COLCHON|BOX|LITERA|BEBE|BAUL/, 'RECÁMARAS'],
-        [/ESCRITORIO|ARCHIVERO|OFICINA|LIBRERO/, 'OFICINA'],
-        [/SALA|SOFA|LOVE SEAT|CHAISE|OTTOMAN|FUTTON|FUTON|ESQUINERO|RINCONERA|MODULAR/, 'SALAS & SOFÁS'],
-        [/SILLA|SILLON|TABURETE|BANCO|BANCA/, 'SILLAS & SILLONES'],
-        [/MESA/, 'COMEDORES'],
-        [/FLORERO|ESCULTURA|CHAROLA|CANDELABRO|MACETA|PLANTA|FOLLAJE|ACCESORIO|ACCECORIO|VELA|LIBRO|BOTELLON|PLATO|ENSALADERA|CANASTO|LINTERNA|DECORATIV/, 'ACCESORIOS DECORATIVOS'],
-        [/COMPLEMENTO|MUEBLE DE TV|PERCHERO|CENTRO DE ENTRETENIMIENTO|CENTRO DE ENCETRENIMIENTO/, 'COMPLEMENTOS']
-    ];
-
-    function resolveItemCategory(it) {
-        const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
-        const cat = norm(cleanStr(it.c));
-        const tp = norm(cleanStr(it.tp));
-        // Evaluamos primero categoría, luego tipo de producto y finalmente el nombre completo
-        const sources = [cat, tp, norm(cleanStr(it.n))];
-        for (let s = 0; s < sources.length; s++) {
-            const txt = sources[s];
-            if (!txt) continue;
-            for (let r = 0; r < CATEGORY_RULES.length; r++) {
-                if (CATEGORY_RULES[r][0].test(txt)) return CATEGORY_RULES[r][1];
-            }
-        }
-        return 'OTROS';
-    }
 
     // CATEGORÍAS PRINCIPALES (COMEDORES / SALAS / RECÁMARAS / COMPLEMENTOS) → SUBCATEGORÍAS
     const MAIN_CATEGORY_ORDER = ['COMEDORES', 'SALAS', 'RECÁMARAS', 'COMPLEMENTOS'];
@@ -936,19 +958,93 @@
         'COLCHONES & BOX': 'RECÁMARAS', 'OTROS DE RECÁMARA': 'RECÁMARAS'
     };
 
-    function resolveItemSubcategory(it, baseCat) {
-        const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
-        const txt = norm([cleanStr(it.tp), cleanStr(it.n)].join(' '));
-        if (baseCat === 'COMEDORES') return 'MESAS DE COMEDOR';
-        if (baseCat === 'SILLAS & SILLONES') return /SILLON|BUTACA|MECEDORA|RECLINABLE/.test(txt) ? 'SILLONES' : 'SILLAS';
-        if (baseCat === 'RECÁMARAS') {
-            if (/BURO/.test(txt)) return 'BURÓS';
-            if (/COMODA|CAJONERA|CHIFONIER|TOCADOR/.test(txt)) return 'CÓMODAS & CAJONERAS';
-            if (/COLCHON|\bBOX\b|BOX SPRING/.test(txt)) return 'COLCHONES & BOX';
-            if (/CAMA|CABECERA|LITERA|BASE/.test(txt)) return 'CAMAS & CABECERAS';
-            return 'OTROS DE RECÁMARA';
+    function classifyItemSubcategory(it) {
+        const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+        const cat = norm(cleanStr(it && it.c));
+        const tp = norm(cleanStr(it && it.tp));
+        const nom = norm(cleanStr(it && it.n));
+
+        if (/\bEXTERIOR\b|\bCAMASTRO\b|\bCOLUMPIO\b/.test(cat + ' ' + tp + ' ' + nom)) {
+            return 'EXTERIOR';
         }
-        return baseCat;
+
+        const matchText = (txt, isCatSource) => {
+            if (!txt) return '';
+            if (/\bSOFA\s+CAMA\b/.test(txt)) return 'SALAS & SOFÁS';
+            if (/\b(MESA\s+(?:DE\s+)?CENTRO|MESA\s+CENTRAL|MESA\s+LATERAL|MESAS?\s+LATERAL(?:ES)?|MESA\s+AUXILIAR|MESAS\s+DE\s+SALA)\b/.test(txt)) {
+                return 'MESAS DE CENTRO & LATERALES';
+            }
+            if (/\b(MESA\s+(?:DE\s+)?COMEDOR|ANTECOMEDOR|DESAYUNADOR)\b/.test(txt)) {
+                return 'MESAS DE COMEDOR';
+            }
+            if (/\b(BUFETERA|BUFERETERA|BUFETERO|CREDENZA|TRINCHADOR|APARADOR|CONSOLA|CAVA|CONTRABARRA)\b/.test(txt)) {
+                return 'BUFETERAS & CREDENZAS';
+            }
+            if (/\b(ESCRITORIO|SECRETAIRE|ARCHIVERO|OFICINA|LIBRERO|REPISA|ESTANTE)\b/.test(txt)) {
+                return 'OFICINA';
+            }
+            if (/\b(SILLON(?:\s+OCASIONAL)?|BUTACA|MECEDORA|RECLINABLE)\b/.test(txt)) {
+                return 'SILLONES';
+            }
+            if (/\b(SILLA(?:\s+COMEDOR)?|TABURETE|BANCO(?:\s+BAR)?|BANCA)\b/.test(txt)) {
+                if (/\bRECAMARA/.test(cat) && /\bBANCA\b/.test(txt)) return 'OTROS DE RECÁMARA';
+                return 'SILLAS';
+            }
+            if (/\b(SALA|SOFA|LOVE\s*SEAT|LOVESEAT|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|POUF|PUFF?|FUTTON|FUTON|ESQUINERO|RINCONERA|REMATE)\b/.test(txt)) {
+                return 'SALAS & SOFÁS';
+            }
+            if (/\bBURO\b/.test(txt)) return 'BURÓS';
+            if (/\b(COLCHON|BOX\s+SPRING)\b|\bBOX\b/.test(txt)) return 'COLCHONES & BOX';
+            if (/\b(COMODA|CAJONERA|CHIFONIER|TOCADOR)\b/.test(txt)) return 'CÓMODAS & CAJONERAS';
+            if (/\b(CABECERA|BASE\s+(?:DE\s+)?CAMA|BASE\s+(?:KS|QS|MAT|IND|KING|QUEEN)|PIE\s+DE\s+CAMA|CAMA|LITERA|CUNA)\b/.test(txt)) {
+                return 'CAMAS & CABECERAS';
+            }
+            if (/\b(BAUL|SET\s+DE\s+EXTENSIONES)\b/.test(txt)) return 'OTROS DE RECÁMARA';
+            if (/\bESPEJO\b/.test(txt)) return 'ESPEJOS';
+            if (/\b(CUADRO|ARTE\s+OBJETO|DECORATIVO\s+(?:DE\s+)?PARED|PINTURA|LIENZO|GICLEE)\b/.test(txt)) return 'CUADROS';
+            if (/\b(LAMPARA(?:\s+(?:DE\s+)?(?:MESA|PISO|PIE|COLGANTE))?|CANDIL|ARBOTANTE|LUMINARIA)\b/.test(txt)) return 'LÁMPARAS';
+            if (/\b(COJIN(?:ES)?|FUNDA(?:\s+DECORATIVA)?|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|RELLENO|DRACON|COLCHA|EDREDON|SABANA|CUBRECAMA|TOALLA(?:\s+DE\s+MANO)?)\b/.test(txt)) {
+                return 'COJINES & TEXTILES';
+            }
+            if (isCatSource || txt === tp) {
+                if (/\bTELAS?\b|\bTEL-ARTELL\b|\bPROTECTOR\s+DE\s+TELA\b/.test(txt)) return 'COJINES & TEXTILES';
+            }
+            if (/^T\.\s+|^TELA\s+ARTELL\b/.test(txt)) return 'COJINES & TEXTILES';
+            if (/\bMESA\b/.test(txt)) {
+                if (/\b(SALA|AUXILIAR|CENTRO|LATERAL)\b/.test(cat + ' ' + nom)) return 'MESAS DE CENTRO & LATERALES';
+                return 'MESAS DE COMEDOR';
+            }
+            if (/\b(FLORERO|JARRON|ESCULTURA|CHAROLA|BANDEJA|FRUTERO|ENSALADERA|CANDELABRO|PORTAVELAS?|MACETA|MATERA|PLANTA(?:\s+DECORATIVA)?|FOLLAJE|VELA|LIBRO|BOTELLA|BOTELLON|PLATO(?:\s+HONDO)?|CANAST[OA]|CESTA|LINTERNA|FAROL|CORAL|CONCHA|BOWL|ACCESORIO(?:S)?(?:\s+DECORATIVO)?|ACCECORIO)\b/.test(txt)) {
+                return 'ACCESORIOS DECORATIVOS';
+            }
+            if (/\bCRISTAL\b/.test(txt)) {
+                if (/\bCOMEDOR/.test(cat)) return 'MESAS DE COMEDOR';
+                if (/\b(MESA|SALA|AUXILIAR)\b/.test(cat + ' ' + nom)) return 'MESAS DE CENTRO & LATERALES';
+                return 'ACCESORIOS DECORATIVOS';
+            }
+            if (/\b(MUEBLE\s+(?:DE\s+)?TV|CENTRO\s+DE\s+ENTRETENIMIENTO|CENTRO\s+DE\s+ENCETRENIMIENTO|PERCHERO|MAMPARA|BIOMBO|PAPEL\s+TAPIZ|LAMBRIN|LAMINA\s+DE\s+PVC|TELFOR|TAPICERIA)\b/.test(txt)) {
+                return 'COMPLEMENTOS';
+            }
+            if (isCatSource) {
+                if (/\bCOMEDOR/.test(txt)) return 'MESAS DE COMEDOR';
+                if (/\bSALA/.test(txt)) return 'SALAS & SOFÁS';
+                if (/\bRECAMARA/.test(txt)) return 'OTROS DE RECÁMARA';
+                if (/\bAUXILIAR/.test(txt)) return 'MESAS DE CENTRO & LATERALES';
+                if (/\bCOMPLEMENTO/.test(txt)) return 'COMPLEMENTOS';
+                if (/\bDECORATIV/.test(txt)) return 'ACCESORIOS DECORATIVOS';
+            }
+            return '';
+        };
+
+        return matchText(tp, false) || matchText(nom, false) || matchText(cat, true) || 'OTROS';
+    }
+
+    function resolveItemCategory(it) {
+        return classifyItemSubcategory(it);
+    }
+
+    function resolveItemSubcategory(it, baseCat) {
+        return baseCat || classifyItemSubcategory(it);
     }
 
     function photoUrlForItem(it) {
@@ -1080,16 +1176,17 @@
             it._groupKey = gKey;
             it._groupTitle = title;
 
+            it._cat = resolveItemSubcategory(it, resolveItemCategory(it));
+            it._main = MAIN_OF_SUB[it._cat] || 'COMPLEMENTOS';
+
             const rawText = [
-                it.s, title, it.n, it.vr, it.tp, it.mo, it.c,
+                it.s, title, it.n, it.vr, it.tp, it.mo, it.c, it._cat, it._main,
                 it.tl, it.ct, it.md, it.cm, it.mt, it.m, it.p, it.pr
             ].join(' ');
             it._plain = normalizePlain(rawText);
             it._search = normSearch(rawText);
 
             bySkuMap.set(skuKey, it);
-            it._cat = resolveItemSubcategory(it, resolveItemCategory(it));
-            it._main = MAIN_OF_SUB[it._cat] || 'COMPLEMENTOS';
 
             // Cotizador: solo se muestran piezas con al menos 1 pz en Bodega/Piso
             // o con piezas disponibles en LPPT. El resto queda oculto (sigue en
@@ -1133,7 +1230,12 @@
             grp.lpptStock = grp.items.reduce((acc, x) => acc + getLpptStock(x), 0);
             grp._plain = grp._plainParts.join(' ');
             grp._search = grp._searchParts.join(' ');
-            grp._words = Array.from(new Set(grp._search.split(/\s+/).filter(w => w.length >= 4)));
+            grp._titleSearch = normSearch(grp.displayTitle || grp.title);
+            grp._compact = grp._search.replace(/\s+/g, '');
+            const wordList = Array.from(new Set(grp._search.split(/\s+/).filter(w => w.length >= 2)));
+            grp._words = wordList;
+            grp._stems = new Set(wordList.map(stemEs));
+            grp._roots = new Set(wordList.map(rootEs));
             grp._titleTokens = normSearch(grp.title).split(/\s+/).filter(Boolean);
             grp._modelTokens = grp.mo ? normSearch(grp.mo).split(/\s+/).filter(Boolean) : [];
             delete grp._plainParts;
@@ -1186,7 +1288,7 @@
     let sortByMostStock = false;
 
     // ------------------------------------------------------------------------
-    // FILTRADO AGRUPADO POR MODELO + TOLERANCIA ORTOGRÁFICA + ESCÁNER SKU + CON MÁS STOCK
+    // FILTRADO AGRUPADO POR MODELO + BÚSQUEDA POR COINCIDENCIAS + ESCÁNER SKU + CON MÁS STOCK
     // ------------------------------------------------------------------------
     function applyFilter(query, preserveCount) {
         const rawTrim = String(query || '').trim();
@@ -1195,59 +1297,90 @@
 
         isMainCoverActive = (!rawTrim && activeCategory === 'ALL' && !sortByMostStock);
 
+        const exactHitItem = rawTrim ? bySkuMap.get(rawTrim.toUpperCase()) : null;
+        const isExactSkuHit = !!(exactHitItem && isQuotableItem(exactHitItem));
+        const scoreByKey = new Map();
+
         if (isMainCoverActive) {
             filteredGroups = getMainCoverGroups();
         } else if (!rawTrim) {
             filteredGroups = allGroups;
         } else {
-            const exactSkuItem = bySkuMap.get(rawTrim.toUpperCase());
-            if (exactSkuItem && !isQuotableItem(exactSkuItem)) {
+            if (exactHitItem && !isQuotableItem(exactHitItem)) {
                 filteredGroups = [];
-            } else if (exactSkuItem && groupsByKey.has(exactSkuItem._groupKey)) {
-                filteredGroups = [groupsByKey.get(exactSkuItem._groupKey)];
+            } else if (isExactSkuHit && groupsByKey.has(exactHitItem._groupKey)) {
+                filteredGroups = [groupsByKey.get(exactHitItem._groupKey)];
             } else {
                 const qNorm = normSearch(rawTrim);
-                const qTokens = qNorm.split(/\s+/).filter(Boolean);
+                const rawTokens = qNorm.split(/\s+/).filter(Boolean);
+                const meaningfulTokens = rawTokens.filter(t => t.length >= 2 && !SEARCH_STOPWORDS.has(t));
+                const qTokens = meaningfulTokens.length > 0 ? meaningfulTokens : rawTokens;
+                const compactQ = qNorm.replace(/\s+/g, '');
 
-                let matches = allGroups.filter(grp => {
-                    for (let i = 0; i < qTokens.length; i++) {
-                        if (!tokenMatchesGroup(qTokens[i], grp)) return false;
-                    }
-                    return true;
-                });
-
-                if (matches.length === 0 && qTokens.length >= 2) {
-                    matches = allGroups.filter(grp => {
-                        if (!grp.mo || grp._titleTokens.length === 0) return false;
-                        for (let t = 0; t < grp._titleTokens.length; t++) {
-                            const gTok = grp._titleTokens[t];
-                            const foundInQuery = qTokens.some(qt =>
-                                qt === gTok ||
-                                (qt.length >= 4 && gTok.length >= 4 && isOneEditOrTransposition(qt, gTok))
-                            );
-                            if (!foundInQuery) return false;
+                if (qTokens.length === 0) {
+                    filteredGroups = allGroups;
+                } else {
+                    const candidateList = [];
+                    for (let i = 0; i < allGroups.length; i++) {
+                        const grp = allGroups[i];
+                        let matchedCount = 0;
+                        let totalScore = 0;
+                        for (let t = 0; t < qTokens.length; t++) {
+                            const sc = scoreTokenInGroup(qTokens[t], grp);
+                            if (sc > 0) {
+                                matchedCount++;
+                                totalScore += sc;
+                            }
                         }
-                        return true;
-                    });
-                }
+                        if (compactQ.length >= 4 && grp._compact && grp._compact.indexOf(compactQ) !== -1) {
+                            totalScore += 18;
+                            if (matchedCount === 0) matchedCount = 1;
+                        }
+                        if (matchedCount > 0) {
+                            candidateList.push({ grp: grp, matched: matchedCount, score: totalScore });
+                        }
+                    }
 
-                if (matches.length === 0 && qTokens.length >= 1) {
-                    matches = allGroups.filter(grp => {
-                        if (!grp.mo || grp._modelTokens.length === 0) return false;
-                        const modLongEnough = grp._modelTokens.some(mt => mt.length >= 5);
-                        if (!modLongEnough) return false;
-                        return grp._modelTokens.every(mt =>
-                            qTokens.some(qt => qt === mt || (qt.length >= 5 && isOneEditOrTransposition(qt, mt)))
-                        );
-                    });
-                }
+                    // Prioridad 1: productos donde coinciden todos los términos relevantes de búsqueda
+                    let selected = candidateList.filter(entry => entry.matched === qTokens.length);
 
-                filteredGroups = matches;
+                    // Prioridad 2: si hay varias palabras y ninguna coincide al 100%, mostrar las mejores coincidencias parciales
+                    if (selected.length === 0 && candidateList.length > 0) {
+                        selected = candidateList;
+                    }
+
+                    // Prioridad 3: si tampoco hubo coincidencia en búsqueda de 1 palabra, intentar tolerancia extra (2 ediciones / prefijo)
+                    if (selected.length === 0 && qTokens.length === 1 && qTokens[0].length >= 4 && !/\d/.test(qTokens[0])) {
+                        const tok = qTokens[0];
+                        const maxExtraDist = tok.length >= 5 ? 2 : 1;
+                        const prefix = tok.slice(0, 3);
+                        for (let i = 0; i < allGroups.length; i++) {
+                            const grp = allGroups[i];
+                            let extraScore = 0;
+                            for (let wi = 0; wi < grp._words.length; wi++) {
+                                const w = grp._words[wi];
+                                if (w.length < 3) continue;
+                                const d = editDistanceBounded(tok, w, maxExtraDist);
+                                if (d <= maxExtraDist) {
+                                    extraScore = Math.max(extraScore, d === 1 ? 8 : 5);
+                                } else if (prefix.length >= 3 && w.startsWith(prefix)) {
+                                    extraScore = Math.max(extraScore, 4);
+                                }
+                            }
+                            if (extraScore > 0) {
+                                selected.push({ grp: grp, matched: 1, score: extraScore });
+                            }
+                        }
+                    }
+
+                    selected.forEach(entry => {
+                        scoreByKey.set(entry.grp.key, entry);
+                    });
+                    filteredGroups = selected.map(entry => entry.grp);
+                }
             }
         }
 
-        const exactHitItem = rawTrim ? bySkuMap.get(rawTrim.toUpperCase()) : null;
-        const isExactSkuHit = !!(exactHitItem && isQuotableItem(exactHitItem));
         if (activeCategory !== 'ALL' && !isExactSkuHit) {
             filteredGroups = filteredGroups.filter(grp => grp.mains && grp.mains.has(activeCategory));
             if (activeSubCategory !== 'ALL') {
@@ -1264,6 +1397,15 @@
                     compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
                     String(a.key || '').localeCompare(String(b.key || ''))
                 );
+        } else if (rawTrim && !isExactSkuHit && scoreByKey.size > 0) {
+            filteredGroups = filteredGroups.slice().sort((a, b) => {
+                const sa = scoreByKey.get(a.key) || { matched: 0, score: 0 };
+                const sb = scoreByKey.get(b.key) || { matched: 0, score: 0 };
+                return (sb.matched - sa.matched) ||
+                    (sb.score - sa.score) ||
+                    compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                    String(a.key || '').localeCompare(String(b.key || ''));
+            });
         }
 
         renderCategoryBar();
@@ -1397,7 +1539,17 @@
                     'No hay productos para mostrar en este momento.' +
                     '</div>';
             } else {
-                container.innerHTML = '';
+                const inp = document.getElementById('invSearchInput');
+                const curQ = cleanStr(inp && inp.value);
+                container.innerHTML =
+                    '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold leading-relaxed space-y-2" ' +
+                    'style="grid-column: 1 / -1; border-color:#E8E4DE; color:#252C32; background:#FFFFFF;">' +
+                    '<div>No se encontraron productos que coincidan' +
+                        (curQ ? (' con <strong>“' + escapeHtml(curQ) + '”</strong>') : '') +
+                        (activeCategory !== 'ALL' ? (' en <strong>' + escapeHtml(activeCategory) + '</strong>') : '') +
+                    '.</div>' +
+                    '<div class="text-[11px] opacity-75">Prueba con otras palabras o cambia a <strong>TODOS</strong> para buscar en todo el inventario.</div>' +
+                    '</div>';
             }
             if (moreWrap) moreWrap.classList.add('hidden');
             return;
@@ -4391,7 +4543,7 @@
             localStorage.removeItem(QUOTE_META_STORAGE);
         } catch (e) {}
         persistQuoteDraftsToStorage();
-        updateCartBadge();
+        syncAllCartControlsUI();
         renderCartItems();
         applyQuoteCompletedLockUI();
         renderQuoteDraftsBar();
@@ -5331,14 +5483,15 @@
         }
     };
 
-    window.printQuoteTemplate = function () {
-        const bd = computeQuoteBreakdown();
-        if (!bd.lines.length) return;
-        const payload = collectQuoteSubmissionPayload(false);
+    let lastAcceptedQuoteSnapshot = null;
+
+    function openPrintableQuoteWindow(payload, submittedMeta) {
+        if (!payload || !payload.breakdown || !Array.isArray(payload.breakdown.lines) || !payload.breakdown.lines.length) return;
+        const bd = payload.breakdown;
         const todayStr = formatDateDMY(new Date());
         const logoSrc = window.CREATA_LOGO_B64 || '';
-        const folioTxt = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio) || payload.orderCode || '';
-        const qidTxt = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.quoteId) ? lastSubmittedQuoteMeta.quoteId : '';
+        const folioTxt = (submittedMeta && submittedMeta.folio) || payload.orderCode || '';
+        const qidTxt = (submittedMeta && submittedMeta.quoteId) ? submittedMeta.quoteId : '';
         const docHeading = payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización CREATA Muebles';
 
         const rowsHtml = bd.lines.map((ln, idx) =>
@@ -5400,6 +5553,70 @@
             '</body></html>'
         );
         win.document.close();
+    }
+
+    window.printQuoteTemplate = function () {
+        const bd = computeQuoteBreakdown();
+        if (!bd.lines.length) return;
+        const payload = collectQuoteSubmissionPayload(false);
+        openPrintableQuoteWindow(payload, lastSubmittedQuoteMeta);
+    };
+
+    function openQuoteAcceptedModal(payload, metaObj, opts) {
+        const o = opts || {};
+        const folioTxt = cleanStr((metaObj && (metaObj.folio || metaObj.orderCode)) || (payload && payload.orderCode));
+        const qidTxt = cleanStr(metaObj && metaObj.quoteId);
+        const bd = (payload && payload.breakdown) || computeQuoteBreakdown();
+        const totalQty = (bd && Array.isArray(bd.lines))
+            ? bd.lines.reduce((s, ln) => s + (Number(ln && ln.qty) || 0), 0)
+            : 0;
+        lastAcceptedQuoteSnapshot = {
+            payload: payload,
+            submittedMeta: metaObj ? Object.assign({}, metaObj) : null,
+            isQueued: !!o.isQueued
+        };
+
+        const modalEl = document.getElementById('quoteAcceptedModal');
+        const titleEl = document.getElementById('quoteAcceptedTitle');
+        const sumEl = document.getElementById('quoteAcceptedSummary');
+        if (!modalEl || !sumEl) return;
+
+        if (titleEl) {
+            titleEl.textContent = o.isQueued ? 'Cotización en Cola Automática' : 'Cotización Generada';
+        }
+        sumEl.style.background = o.isQueued ? '#FFFBEB' : '#ECFDF5';
+        sumEl.style.borderColor = o.isQueued ? '#FDE68A' : '#A7F3D0';
+        sumEl.style.color = o.isQueued ? '#92400E' : '#065F46';
+
+        sumEl.innerHTML =
+            '<div class="font-extrabold uppercase">' +
+                (o.isQueued ? '⏳ Cotización guardada en cola hacia S Mueblería' : '✓ Cotización registrada en S Mueblería') +
+            '</div>' +
+            (folioTxt ? ('<div>Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>' + (qidTxt ? (' · ID ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') + '</div>') : '') +
+            '<div>Cliente / Proyecto: <strong>' + escapeHtml((payload && payload.clientName) || 'Por definir') + '</strong></div>' +
+            '<div>Tienda / Bodega: <strong>' + escapeHtml((payload && payload.erpStore) || '') + '</strong> · Piezas: <strong>' + totalQty + '</strong> · Total: <strong>' + escapeHtml(formatPrice(bd && bd.totalWithIva) || '$0.00') + '</strong></div>';
+
+        modalEl.classList.add('open');
+        const acceptBtn = document.getElementById('btnAcceptGeneratedQuote');
+        if (acceptBtn) setTimeout(() => acceptBtn.focus(), 40);
+    }
+
+    window.acceptGeneratedQuoteAndReset = function () {
+        const modalEl = document.getElementById('quoteAcceptedModal');
+        if (modalEl) modalEl.classList.remove('open');
+        purgeCompletedAndActivateBlankDraft();
+        const cartScroll = document.querySelector('#cartModal .overflow-y-auto');
+        if (cartScroll) cartScroll.scrollTop = 0;
+        const nameInp = document.getElementById('quoteClientNameInput');
+        if (nameInp && !nameInp.disabled) setTimeout(() => nameInp.focus(), 40);
+    };
+
+    window.printAcceptedQuoteSnapshot = function () {
+        if (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.payload) {
+            openPrintableQuoteWindow(lastAcceptedQuoteSnapshot.payload, lastAcceptedQuoteSnapshot.submittedMeta);
+        } else {
+            window.printQuoteTemplate();
+        }
     };
 
     function renderQuoteStatusBanner(tone, htmlContent) {
@@ -5571,6 +5788,7 @@
                             '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
                         '</div>'
                     );
+                    openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: false });
                     return;
                 }
 
@@ -5609,6 +5827,7 @@
                             '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
                         '</div>'
                     );
+                    openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: false });
                 } else if (res.queuedForDaemon) {
                     lastSubmittedQuoteMeta = {
                         orderCode: assignedFolio,
@@ -5627,6 +5846,7 @@
                             '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
                         '</div>'
                     );
+                    openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: true });
                 } else {
                     renderQuoteStatusBanner(
                         'warn',
@@ -5675,6 +5895,11 @@
         }
 
         if (ev.key === 'Escape') {
+            const acceptedModalEl = document.getElementById('quoteAcceptedModal');
+            if (acceptedModalEl && acceptedModalEl.classList.contains('open')) {
+                acceptGeneratedQuoteAndReset();
+                return;
+            }
             closeProductDetail();
             closeCartModal();
             return;

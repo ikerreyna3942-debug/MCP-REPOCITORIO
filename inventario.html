@@ -239,18 +239,23 @@
             display: inline-flex;
             align-items: center;
             justify-content: flex-end;
-            gap: 6px;
-            flex-wrap: nowrap;
+            gap: 8px;
+            row-gap: 6px;
+            flex-wrap: wrap;
+            max-width: 100%;
+            position: relative;
+            z-index: 2;
         }
         .inv-track-btn {
+            position: static;
             flex: 0 0 auto;
-            height: 24px;
-            padding: 0 9px;
+            height: 26px;
+            padding: 0 10px;
             border-radius: 9999px;
             border: 1px solid rgba(225, 219, 197, 0.55);
             background: rgba(255, 255, 255, 0.09);
             color: #E1DBC5;
-            font-size: 7px;
+            font-size: 7.5px;
             font-weight: 800;
             letter-spacing: 0.35px;
             text-transform: uppercase;
@@ -270,14 +275,15 @@
         }
         /* BOTÓN COTIZACIÓN COMPACTO EN MÓVIL */
         .inv-quote-btn {
+            position: static;
             flex: 0 0 auto;
-            height: 24px;
+            height: 26px;
             padding: 0 10px;
             border-radius: 9999px;
             border: 1px solid var(--brand-bronze);
             background: var(--brand-bronze);
             color: #FFFFFF;
-            font-size: 7.5px;
+            font-size: 8px;
             font-weight: 800;
             letter-spacing: 0.45px;
             text-transform: uppercase;
@@ -397,12 +403,12 @@
         }
         #invScanBtn:hover { opacity: 0.92; }
         #invScanBtn svg { width: 12px; height: 12px; flex-shrink: 0; }
-        /* MÓVIL Y TABLET VERTICAL (< 920px): CABECERA COMPACTA SIN CAMBIOS */
+        /* MÓVIL Y TABLET VERTICAL (< 920px): CABECERA COMPACTA SIN TRASLAPES */
         @media (max-width: 919px) {
             .inv-header-inner { padding: 8px 12px !important; }
             .inv-top-line {
                 display: grid;
-                grid-template-columns: 1fr auto;
+                grid-template-columns: auto minmax(0, 1fr);
                 grid-template-areas:
                     "logo quote"
                     "search search"
@@ -412,16 +418,43 @@
                 column-gap: 10px;
             }
             .inv-controls-line { display: contents; }
-            .inv-logo-cell { grid-area: logo; justify-self: start; margin: 0; }
-            .inv-logo-cell .logo-img { height: 32px; margin: 0; }
-            .inv-header-actions { grid-area: quote; justify-self: end; gap: 5px; }
-            .inv-track-btn { height: 26px; font-size: 7px; padding: 0 8px; }
+            .inv-logo-cell { grid-area: logo; justify-self: start; margin: 0; flex-shrink: 0; }
+            .inv-logo-cell .logo-img { height: 28px; margin: 0; }
+            .inv-header-actions {
+                grid-area: quote;
+                justify-self: end;
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                flex-wrap: wrap;
+                gap: 6px 8px;
+                min-width: 0;
+            }
+            .inv-track-btn { height: 26px; font-size: 7px; padding: 0 9px; }
             .inv-quote-btn { height: 26px; font-size: 8px; padding: 0 10px; }
             .inv-search-cell { grid-area: search; }
             .inv-cats-cell { grid-area: cats; justify-content: center; flex-wrap: wrap; gap: 5px; }
             .inv-cat-pill { height: 25px; font-size: 8px; padding: 0 10px; }
         }
-        /* ÚNICAMENTE EN PC (>= 920px): ENCABEZADO EQUILIBRADO EN 2 FILAS (LOGO IZQ · BUSCADOR CENTRO · COTIZACIÓN DER + CATEGORÍAS COMPLETAS CENTRADAS) */
+        @media (max-width: 420px) {
+            .inv-top-line {
+                grid-template-columns: 1fr;
+                grid-template-areas:
+                    "logo"
+                    "quote"
+                    "search"
+                    "cats";
+                row-gap: 7px;
+            }
+            .inv-logo-cell { justify-self: center; }
+            .inv-logo-cell .logo-img { height: 30px; }
+            .inv-header-actions {
+                justify-self: stretch;
+                justify-content: center;
+                gap: 8px;
+            }
+        }
+        /* ÚNICAMENTE EN PC (>= 920px): ENCABEZADO EQUILIBRADO EN 2 FILAS (LOGO IZQ · BUSCADOR CENTRO · ACCIONES DER + CATEGORÍAS COMPLETAS CENTRADAS) */
         @media (min-width: 920px) {
             .inv-header-inner {
                 max-width: 80rem !important;
@@ -429,12 +462,12 @@
             }
             .inv-top-line {
                 display: grid;
-                grid-template-columns: minmax(150px, 1fr) minmax(340px, 560px) minmax(210px, 1fr);
+                grid-template-columns: minmax(140px, 1fr) minmax(280px, 500px) minmax(max-content, 1fr);
                 grid-template-areas:
                     "logo search quote"
                     "cats cats cats";
                 align-items: center;
-                column-gap: 18px;
+                column-gap: 16px;
                 row-gap: 11px;
             }
             .inv-controls-line {
@@ -446,14 +479,15 @@
                 margin: 0;
             }
             .inv-logo-cell .logo-img {
-                height: 48px;
+                height: 46px;
                 margin: 0;
             }
             .inv-search-cell {
                 grid-area: search;
                 justify-self: center;
                 width: 100%;
-                max-width: 560px;
+                max-width: 500px;
+                min-width: 0;
                 gap: 8px;
             }
             .inv-search-box {
@@ -491,16 +525,17 @@
             .inv-header-actions {
                 grid-area: quote;
                 justify-self: end;
-                gap: 8px;
+                flex-wrap: nowrap;
+                gap: 10px;
             }
             .inv-track-btn {
-                height: 34px;
+                height: 36px;
                 padding: 0 12px;
                 font-size: 9.5px;
             }
             .inv-quote-btn {
                 height: 42px;
-                padding: 0 18px;
+                padding: 0 16px;
                 font-size: 11px;
                 gap: 8px;
             }
@@ -541,16 +576,17 @@
         }
         @media (min-width: 1280px) {
             .inv-top-line {
-                grid-template-columns: minmax(180px, 1fr) minmax(420px, 620px) minmax(240px, 1fr);
-                column-gap: 24px;
+                grid-template-columns: minmax(170px, 1fr) minmax(380px, 560px) minmax(max-content, 1fr);
+                column-gap: 22px;
             }
-            .inv-logo-cell .logo-img { height: 54px; }
-            .inv-search-cell { max-width: 620px; }
+            .inv-logo-cell .logo-img { height: 52px; }
+            .inv-search-cell { max-width: 560px; }
             .inv-search-box { height: 44px; }
             #invSearchInput { font-size: 14px; }
             #invScanBtn { height: 44px; padding: 0 16px; font-size: 11px; }
             .inv-cat-pill { height: 37px; font-size: 11px; padding: 0 15px; }
-            .inv-track-btn { height: 36px; padding: 0 13px; font-size: 10px; }
+            .inv-header-actions { gap: 12px; }
+            .inv-track-btn { height: 38px; padding: 0 14px; font-size: 10px; }
             .inv-quote-btn { height: 44px; padding: 0 20px; font-size: 11.5px; }
         }
         /* MINIATURA DEL PRODUCTO EN EL LISTADO */
@@ -1137,6 +1173,37 @@
         </div>
     </div>
 
+    <!-- MODAL DE CONFIRMACIÓN AL GENERAR COTIZACIÓN (AL ACEPTAR CREA UNA NUEVA PLANTILLA VACÍA) -->
+    <div id="quoteAcceptedModal" class="modal-backdrop" style="z-index:75;" onclick="if(event.target===this) acceptGeneratedQuoteAndReset()">
+        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
+            <div class="px-5 py-4 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <span class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-black shrink-0" style="background:#10B981; color:#FFFFFF;">✓</span>
+                    <h3 id="quoteAcceptedTitle" class="text-sm font-extrabold uppercase tracking-wider truncate">Cotización Generada</h3>
+                </div>
+                <button type="button" onclick="acceptGeneratedQuoteAndReset()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0" title="Aceptar y continuar">✕</button>
+            </div>
+            <div class="p-5 space-y-3.5 text-xs" style="color:#252C32;">
+                <div id="quoteAcceptedSummary" class="rounded-xl border p-3.5 space-y-1.5" style="border-color:#A7F3D0; background:#ECFDF5; color:#065F46;"></div>
+                <p class="text-[11px] font-semibold leading-relaxed opacity-85">
+                    Al presionar <strong>Aceptar</strong> se creará una nueva plantilla vacía para tu siguiente cotización, evitando que esta cotización se vuelva a generar por error.
+                </p>
+                <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
+                    <button type="button" onclick="printAcceptedQuoteSnapshot()"
+                            class="px-3.5 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider border transition"
+                            style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
+                        Vista / PDF
+                    </button>
+                    <button type="button" id="btnAcceptGeneratedQuote" onclick="acceptGeneratedQuoteAndReset()"
+                            class="px-5 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition"
+                            style="background:#A38251; color:#FFFFFF;">
+                        Aceptar y nueva plantilla
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL DE INGRESO DE USUARIO, SELECCIÓN DE UBICACIÓN Y CAMBIO DE CONTRASEÑA TEMPORAL -->
     <div id="authModal" class="modal-backdrop" style="z-index:85; background:rgba(37, 44, 50, 0.90);">
         <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
@@ -1255,6 +1322,6 @@
     <script src="inventario-data-1.js?v=41"></script>
     <script src="inventario-data-2.js?v=41"></script>
     <script src="inventario-data-3.js?v=41"></script>
-    <script src="inventario-app.js?v=44"></script>
+    <script src="inventario-app.js?v=45"></script>
 </body>
 </html>
