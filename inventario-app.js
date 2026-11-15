@@ -3757,6 +3757,7 @@
             try {
                 const msg = cleanStr(ev && ev.message);
                 if (!msg || /ResizeObserver loop/i.test(msg)) return;
+                if (/^Script error\.?$/i.test(msg) && !cleanStr(ev && ev.filename) && !(ev && ev.lineno) && !(ev && ev.error)) return;
                 const fileStr = cleanStr(ev && ev.filename).split('/').pop() || 'inventario.html';
                 const loc = (ev && ev.lineno) ? (fileStr + ':' + ev.lineno + (ev.colno ? (':' + ev.colno) : '')) : fileStr;
                 reportSystemHistoryEvent({
@@ -7995,7 +7996,10 @@
 
             function cleanup() {
                 clearTimeout(timer);
-                try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
+                window[cbName] = function () {};
+                setTimeout(() => {
+                    try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
+                }, 60000);
                 if (script.parentNode) script.parentNode.removeChild(script);
             }
 

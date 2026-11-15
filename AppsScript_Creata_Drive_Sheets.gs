@@ -4289,9 +4289,11 @@ function handleInvSubmitQuote_(body) {
       previewStatus.isProyecto = isProyQuote;
       previewStatus.serieLabel = verifiedUser.serieLabel;
       previewStatus.sentLiveToErp = false;
-      previewStatus.recentQuotes = verifiedUser.isAdmin
-        ? readRecentQuotesForAdmin_(shQuotes, folioSnapBefore.recentErpQuotes, 40)
-        : readRecentQuotesForAdvisor_(shQuotes, verifiedUser.correo, 12);
+      const allowedPreview = readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, authCheck.allUsers, erpStore);
+      previewStatus.recentQuotes = allowedPreview.quotes;
+      previewStatus.roleScope = allowedPreview.roleScope;
+      previewStatus.activeStore = allowedPreview.activeStore;
+      previewStatus.branchAdvisorEmails = allowedPreview.allowedAdvisorEmails;
       return previewStatus;
     }
 

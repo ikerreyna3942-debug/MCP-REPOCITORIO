@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v55 · SW v14',
+            version: 'v56 · SW v15',
             commit: 'Actual',
+            date: '14/11/2026',
+            module: 'AppsScript_Creata_Drive_Sheets.gs · inventario-app.js · historial-app.js',
+            title: 'Blindaje preventivo en modo Solo Revisión y depuración de respuestas tardías JSONP',
+            summary: 'Unificación de readAllowedGeneratedQuotesForUser_ en el guardado en revisión (!sendToErp) dentro de handleInvSubmitQuote_ y limpieza diferida segura de callbacks JSONP para evitar falsos positivos "Script error." en redes móviles lentas.'
+        },
+        {
+            version: 'v55 · SW v14',
+            commit: '523e230',
             date: '14/11/2026',
             module: 'AppsScript_Creata_Drive_Sheets.gs · inventario.html · inventario-app.js · WebApp v18',
             title: 'Eliminación de Cotizaciones en Vivo global y nueva sección de PDFs Generados por Rol y Bodega Activa + Despliegue en Producción',
@@ -312,7 +320,10 @@
             let settled = false;
 
             const cleanup = () => {
-                try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
+                window[cbName] = function () {};
+                setTimeout(() => {
+                    try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
+                }, 60000);
                 if (scriptEl && scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl);
             };
 
