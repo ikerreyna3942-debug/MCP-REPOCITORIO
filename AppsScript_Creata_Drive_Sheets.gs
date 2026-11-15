@@ -2983,7 +2983,7 @@ function peekNextStoreErpFolio_(erpStore, fallbackPrefix, folioSnap) {
   if (folioSnap && folioSnap.maxByPrefix && folioSnap.maxByPrefix[pfx] > 0) {
     return pfx + String(folioSnap.maxByPrefix[pfx] + 1);
   }
-  return 'Serie ' + pfx + ' (En vivo)';
+  return 'Serie ' + pfx;
 }
 
 function isManagerUserRole_(uOrPuesto) {
@@ -4395,7 +4395,7 @@ function handleInvSubmitQuote_(body) {
 
       const folioFinal = erpResult.folio || estimatedFolio || ('ID-' + erpResult.idCotizacion);
       const refSujeto = idLead ? ('Lead ' + idLead) : ('Cliente ' + idCliente);
-      const statusBannerTxt = '✅ COTIZACIÓN ENVIADA EN VIVO A SMUEBLERIA (' + ahoraStr + ') · FOLIO ' + folioFinal + ' · ' + refSujeto;
+      const statusBannerTxt = '✅ COTIZACIÓN CREADA (' + ahoraStr + ') · FOLIO ' + folioFinal + ' · ' + refSujeto;
 
       sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
       sh.getRange('K6').setValue(statusBannerTxt);
@@ -4428,7 +4428,7 @@ function handleInvSubmitQuote_(body) {
         erpResult.iva,
         extraDiscount,
         erpResult.total,
-        'EN VIVO EN S MUEBLERÍA',
+        'COTIZACIÓN REGISTRADA',
         rawNotes
       ]);
       const appendedRow = shQuotes.getLastRow();
@@ -4522,7 +4522,7 @@ function handleInvSubmitQuote_(body) {
           ivaSheet,
           extraDiscount,
           totSheet,
-          'EN VIVO EN S MUEBLERÍA (VÍA SERVICIO)',
+          'COTIZACIÓN REGISTRADA (VÍA SERVICIO)',
           rawNotes
         ]);
         const appRow = shQuotes.getLastRow();

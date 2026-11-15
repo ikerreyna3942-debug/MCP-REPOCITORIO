@@ -412,9 +412,9 @@
         }
         #invScanBtn:hover { opacity: 0.92; }
         #invScanBtn svg { width: 12px; height: 12px; flex-shrink: 0; }
-        /* MÓVIL Y TABLET VERTICAL (< 920px): CABECERA COMPACTA SIN TRASLAPES */
+        /* MÓVIL Y TABLET VERTICAL (< 920px): CABECERA ULTRA-COMPACTA CON CARRUSEL HORIZONTAL DE FILTROS */
         @media (max-width: 919px) {
-            .inv-header-inner { padding: 8px 12px !important; }
+            .inv-header-inner { padding: 7px 10px !important; }
             .inv-top-line {
                 display: grid;
                 grid-template-columns: auto minmax(0, 1fr);
@@ -423,45 +423,77 @@
                     "search search"
                     "cats cats";
                 align-items: center;
-                row-gap: 7px;
-                column-gap: 10px;
+                row-gap: 6px;
+                column-gap: 8px;
             }
             .inv-controls-line { display: contents; }
             .inv-logo-cell { grid-area: logo; justify-self: start; margin: 0; flex-shrink: 0; }
-            .inv-logo-cell .logo-img { height: 28px; margin: 0; }
+            .inv-logo-cell .logo-img { height: 26px; margin: 0; }
             .inv-header-actions {
                 grid-area: quote;
                 justify-self: end;
                 display: flex;
                 align-items: center;
                 justify-content: flex-end;
-                flex-wrap: wrap;
-                gap: 6px 8px;
+                flex-wrap: nowrap;
+                gap: 6px;
                 min-width: 0;
             }
-            .inv-track-btn { height: 26px; font-size: 7px; padding: 0 9px; }
-            .inv-quote-btn { height: 26px; font-size: 8px; padding: 0 10px; }
-            .inv-search-cell { grid-area: search; }
-            .inv-cats-cell { grid-area: cats; justify-content: center; flex-wrap: wrap; gap: 5px; }
-            .inv-cat-pill { height: 25px; font-size: 8px; padding: 0 10px; }
+            .inv-track-btn { height: 25px; font-size: 7px; letter-spacing: 0.25px; padding: 0 8px; }
+            .inv-quote-btn { height: 25px; font-size: 7.5px; letter-spacing: 0.3px; padding: 0 9px; gap: 4px; }
+            .inv-quote-badge { min-width: 15px; height: 15px; padding: 0 4px; font-size: 8px; }
+            .inv-search-cell { grid-area: search; min-width: 0; }
+            .inv-cats-cell {
+                grid-area: cats;
+                display: flex;
+                align-items: center;
+                justify-content: flex-start;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                overflow-y: hidden;
+                min-width: 0;
+                max-width: 100%;
+                gap: 5px;
+                padding: 1px 2px;
+                touch-action: pan-x;
+                overscroll-behavior-x: contain;
+            }
+            .inv-cats-cell.can-scroll-right:not(.can-scroll-left) {
+                -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+                mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+            }
+            .inv-cats-cell.can-scroll-left:not(.can-scroll-right) {
+                -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 100%);
+                mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 100%);
+            }
+            .inv-cats-cell.can-scroll-left.can-scroll-right {
+                -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+                mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+            }
+            .inv-cat-pill { height: 25px; font-size: 7.8px; padding: 0 10px; }
+            .inv-subcats-cell {
+                justify-content: flex-start;
+                flex-wrap: nowrap;
+                margin-top: 5px;
+                padding-top: 5px;
+                border-top: 1px solid rgba(225, 219, 197, 0.14);
+            }
+            .inv-sub-pill { height: 22px; font-size: 7.2px; padding: 0 8.5px; }
         }
         @media (max-width: 420px) {
             .inv-top-line {
-                grid-template-columns: 1fr;
-                grid-template-areas:
-                    "logo"
-                    "quote"
-                    "search"
-                    "cats";
-                row-gap: 7px;
+                column-gap: 6px;
+                row-gap: 5px;
             }
-            .inv-logo-cell { justify-self: center; }
-            .inv-logo-cell .logo-img { height: 30px; }
-            .inv-header-actions {
-                justify-self: stretch;
-                justify-content: center;
-                gap: 8px;
-            }
+            .inv-logo-cell .logo-img { height: 24px; }
+            .inv-header-actions { gap: 5px; }
+            .inv-track-btn { height: 24px; font-size: 6.7px; letter-spacing: 0.2px; padding: 0 7px; }
+            .inv-quote-btn { height: 24px; font-size: 7.2px; letter-spacing: 0.25px; padding: 0 8px; }
+        }
+        @media (max-width: 355px) {
+            .inv-logo-cell .logo-img { height: 20px; }
+            .inv-track-btn { font-size: 6.2px; padding: 0 6px; }
+            .inv-quote-btn { font-size: 6.8px; padding: 0 7px; }
         }
         /* ÚNICAMENTE EN PC (>= 920px): ENCABEZADO EQUILIBRADO EN 2 FILAS (LOGO IZQ · BUSCADOR CENTRO · ACCIONES DER + CATEGORÍAS COMPLETAS CENTRADAS) */
         @media (min-width: 920px) {
@@ -859,18 +891,13 @@
         </div>
     </div>
 
-    <!-- MODAL DE PLANTILLA DE COTIZACIÓN · VINCULADA EN VIVO A S MUEBLERÍA -->
+    <!-- MODAL DE PLANTILLA DE COTIZACIÓN -->
     <div id="cartModal" class="modal-backdrop" onclick="if(event.target===this) closeCartModal()">
         <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-4 border-b flex items-center justify-between gap-3" style="background:#252C32; color:#FFFFFF;">
                 <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
-                        <h2 id="quoteModalTitle" class="text-sm sm:text-base font-extrabold uppercase tracking-wider">Cotización en Vivo · S Mueblería</h2>
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider"
-                              style="background:rgba(16,185,129,0.2); color:#6EE7B7; border:1px solid rgba(110,231,183,0.35);">
-                            <span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#10B981;"></span>
-                            En Vivo
-                        </span>
+                        <h2 id="quoteModalTitle" class="text-sm sm:text-base font-extrabold uppercase tracking-wider">Plantilla de Cotización</h2>
                     </div>
                     <div id="quoteHeaderAdvisorInfo" class="text-[11px] font-semibold truncate mt-0.5" style="color:#E1DBC5;"></div>
                 </div>
@@ -977,7 +1004,7 @@
                         </button>
                     </div>
 
-                    <!-- BUSCADOR EN VIVO EN LA BASE DE DATOS DE S MUEBLERÍA -->
+                    <!-- BUSCADOR DE CLIENTES REGISTRADOS -->
                     <div class="rounded-xl border p-2.5 space-y-2" style="border-color:#E1DBC5; background:#FAF9F6;">
                         <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
                             <input id="quoteErpClientSearchInput" type="search"
@@ -1146,7 +1173,7 @@
                     </div>
                 </div>
 
-                <!-- ESTADO EN VIVO DE ENVÍO A S MUEBLERÍA -->
+                <!-- ESTADO DE ENVÍO DE LA COTIZACIÓN -->
                 <div id="quoteSystemStatusBox" class="hidden rounded-xl border p-3.5 text-xs space-y-1.5"></div>
 
                 <!-- SECCIÓN DE PDFs DE COTIZACIONES GENERADAS (APARECE AL GENERAR PDF SEGÚN ROL Y BODEGA ACTIVA) -->
@@ -1185,14 +1212,14 @@
                     <button type="button" id="btnSendQuoteErp" onclick="submitQuoteToSystem(true)"
                             class="px-4 py-2.5 rounded-lg text-xs font-extrabold uppercase tracking-wider transition shadow-sm"
                             style="background:#A38251; color:#FFFFFF;">
-                        Enviar Cotización en Vivo a S Mueblería
+                        Crear Cotización
                     </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- MODAL DE CONFIRMACIÓN PREVIA ANTES DE CREAR LA COTIZACIÓN EN S MUEBLERÍA -->
+    <!-- MODAL DE CONFIRMACIÓN PREVIA ANTES DE CREAR LA COTIZACIÓN -->
     <div id="quoteConfirmCreateModal" class="modal-backdrop" style="z-index:74;" onclick="if(event.target===this) closeQuoteConfirmCreateModal()">
         <div class="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-4 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
@@ -1205,7 +1232,7 @@
             <div class="p-5 space-y-3.5 text-xs overflow-y-auto" style="color:#252C32;">
                 <div id="quoteConfirmCreateSummary" class="rounded-xl border p-3.5 space-y-2" style="border-color:#E1DBC5; background:#FAF9F6;"></div>
                 <div class="rounded-xl border px-3.5 py-2.5 text-[11px] font-semibold leading-relaxed" style="border-color:#FDE68A; background:#FFFBEB; color:#92400E;">
-                    ¿Confirmas crear esta cotización en vivo en el sistema <strong>S Mueblería</strong>? Al confirmar se registrará oficialmente con su folio en el ERP.
+                    ¿Confirmas crear esta cotización? Al confirmar se registrará oficialmente con su folio asignado.
                 </div>
                 <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
                     <button type="button" onclick="closeQuoteConfirmCreateModal()"
@@ -1378,6 +1405,6 @@
     <script src="inventario-data-1.js?v=41"></script>
     <script src="inventario-data-2.js?v=41"></script>
     <script src="inventario-data-3.js?v=41"></script>
-    <script src="inventario-app.js?v=56"></script>
+    <script src="inventario-app.js?v=57"></script>
 </body>
 </html>

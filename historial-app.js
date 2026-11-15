@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v56 · SW v15',
+            version: 'v57 · SW v16',
             commit: 'Actual',
+            date: '14/11/2026',
+            module: 'inventario.html · inventario-app.js · inventario-sw.js · AppsScript_Creata_Drive_Sheets.gs',
+            title: 'Cabecera móvil ultra-compacta con carrusel táctil de filtros y limpieza de textos en interfaz',
+            summary: 'Compactación del encabezado móvil (< 920px) a 1 sola fila superior (Logo + Seguimiento + Cotización) y tiras horizontales táctiles para categorías y subcategorías (conservando el 100% de botones y funciones y liberando más del 60% del alto ocupado), además de depuración de leyendas redundantes en modales y botones de cotización.'
+        },
+        {
+            version: 'v56 · SW v15',
+            commit: '9036608',
             date: '14/11/2026',
             module: 'AppsScript_Creata_Drive_Sheets.gs · inventario-app.js · historial-app.js',
             title: 'Blindaje preventivo en modo Solo Revisión y depuración de respuestas tardías JSONP',
@@ -720,7 +728,10 @@
             const ivaNum = parseMoneyMXN(r[19]);
             const descuentoExtraNum = parseMoneyMXN(r[20]);
             const totalNum = parseMoneyMXN(r[21]);
-            const estadoErp = cleanStr(r[22]) || 'EN VIVO EN S MUEBLERÍA';
+            const rawEstadoErp = cleanStr(r[22]);
+            const estadoErp = (!rawEstadoErp || /^EN VIVO EN S\s*MUEBLER[IÍ]A/i.test(rawEstadoErp))
+                ? (/\(V[IÍ]A SERVICIO\)/i.test(rawEstadoErp) ? 'COTIZACIÓN REGISTRADA (VÍA SERVICIO)' : 'COTIZACIÓN REGISTRADA')
+                : rawEstadoErp.replace(/EN VIVO (?:EN|A) S\s*MUEBLER[IÍ]A/gi, 'COTIZACIÓN REGISTRADA');
             const notas = cleanStr(r[23]);
 
             out.push({

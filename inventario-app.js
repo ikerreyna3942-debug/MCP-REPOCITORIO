@@ -1787,9 +1787,74 @@
         renderMoreItems(targetInitial);
     }
 
+    let lastRenderedMainCat = null;
+    let lastRenderedSubCat = null;
+    let catStripListenersBound = false;
+
+    function updateHorizontalStripFade(stripEl) {
+        if (!stripEl || stripEl.style.display === 'none') return;
+        const maxScroll = stripEl.scrollWidth - stripEl.clientWidth;
+        if (maxScroll <= 2) {
+            stripEl.classList.remove('can-scroll-left', 'can-scroll-right');
+            return;
+        }
+        stripEl.classList.toggle('can-scroll-left', stripEl.scrollLeft > 3);
+        stripEl.classList.toggle('can-scroll-right', stripEl.scrollLeft < maxScroll - 3);
+    }
+
+    function syncActivePillInStrip(stripEl, prevScrollLeft, shouldCenterActive, animate) {
+        if (!stripEl || stripEl.style.display === 'none') return;
+        stripEl.scrollLeft = prevScrollLeft || 0;
+        if (shouldCenterActive && stripEl.scrollWidth > stripEl.clientWidth + 2) {
+            const activeBtn = stripEl.querySelector('.active');
+            if (activeBtn) {
+                const targetLeft = Math.max(
+                    0,
+                    Math.min(
+                        stripEl.scrollWidth - stripEl.clientWidth,
+                        activeBtn.offsetLeft - Math.round((stripEl.clientWidth - activeBtn.offsetWidth) / 2)
+                    )
+                );
+                if (animate && typeof stripEl.scrollTo === 'function') {
+                    stripEl.scrollTo({ left: targetLeft, behavior: 'smooth' });
+                } else {
+                    stripEl.scrollLeft = targetLeft;
+                }
+            }
+        }
+        updateHorizontalStripFade(stripEl);
+        if (animate) {
+            setTimeout(() => updateHorizontalStripFade(stripEl), 280);
+        }
+    }
+
+    function bindCategoryStripScrollListeners(bar, subBar) {
+        if (catStripListenersBound) return;
+        catStripListenersBound = true;
+        if (bar) bar.addEventListener('scroll', () => updateHorizontalStripFade(bar), { passive: true });
+        if (subBar) subBar.addEventListener('scroll', () => updateHorizontalStripFade(subBar), { passive: true });
+        window.addEventListener('resize', () => {
+            updateHorizontalStripFade(document.getElementById('invCategoryBar'));
+            updateHorizontalStripFade(document.getElementById('invSubCategoryBar'));
+        }, { passive: true });
+    }
+
     function renderCategoryBar() {
         const bar = document.getElementById('invCategoryBar');
         if (!bar) return;
+        const subBar = document.getElementById('invSubCategoryBar');
+        bindCategoryStripScrollListeners(bar, subBar);
+
+        const prevMainScroll = bar.scrollLeft || 0;
+        const prevSubScroll = subBar ? (subBar.scrollLeft || 0) : 0;
+        const mainCatChanged = activeCategory !== lastRenderedMainCat;
+        const animateMain = mainCatChanged && lastRenderedMainCat !== null;
+        const subCatKey = activeCategory + '::' + activeSubCategory;
+        const subCatChanged = subCatKey !== lastRenderedSubCat;
+        const animateSub = subCatChanged && !mainCatChanged && lastRenderedSubCat !== null;
+        lastRenderedMainCat = activeCategory;
+        lastRenderedSubCat = subCatKey;
+
         const mainCounts = new Map();
         const subCounts = new Map();
         const availCounts = new Map();
@@ -1857,8 +1922,8 @@
         bar.querySelectorAll('.inv-cat-pill[data-cat]').forEach(btn => {
             btn.onclick = function () { setInvCategory(btn.getAttribute('data-cat')); };
         });
+        syncActivePillInStrip(bar, prevMainScroll, mainCatChanged, animateMain);
 
-        const subBar = document.getElementById('invSubCategoryBar');
         if (!subBar) return;
 
         if (SUBCATEGORIES_BY_MAIN[activeCategory]) {
@@ -1877,6 +1942,7 @@
             subBar.querySelectorAll('.inv-sub-pill[data-sub]').forEach(btn => {
                 btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
             });
+            syncActivePillInStrip(subBar, mainCatChanged ? 0 : prevSubScroll, subCatChanged, animateSub);
             return;
         }
 
@@ -1893,6 +1959,7 @@
             subBar.querySelectorAll('.inv-sub-pill[data-sub]').forEach(btn => {
                 btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
             });
+            syncActivePillInStrip(subBar, mainCatChanged ? 0 : prevSubScroll, subCatChanged, animateSub);
             return;
         }
 
@@ -1910,11 +1977,13 @@
             subBar.querySelectorAll('.inv-sub-pill[data-sub]').forEach(btn => {
                 btn.onclick = function () { setInvSubCategory(btn.getAttribute('data-sub')); };
             });
+            syncActivePillInStrip(subBar, mainCatChanged ? 0 : prevSubScroll, subCatChanged, animateSub);
             return;
         }
 
         subBar.innerHTML = '';
         subBar.style.display = 'none';
+        subBar.classList.remove('can-scroll-left', 'can-scroll-right');
     }
 
     window.setInvCategory = function (cat) {
@@ -3318,7 +3387,7 @@
         if (liveMaxFolioNumByPrefix[pfx] && liveMaxFolioNumByPrefix[pfx] > 0) {
             return pfx + String(liveMaxFolioNumByPrefix[pfx] + 1);
         }
-        return 'Serie ' + pfx + ' (En vivo)';
+        return 'Serie ' + pfx;
     }
 
     function isEmailOrRoleAdmin(u) {
@@ -5102,11 +5171,11 @@
 
         if (titleEl) {
             if (isAdmin) {
-                titleEl.textContent = 'Cotización S Mueblería · Modo Administrador (Acceso Total)';
+                titleEl.textContent = 'Cotización · Modo Administrador (Acceso Total)';
             } else {
                 titleEl.textContent = isProy
-                    ? 'Cotización de Proyecto · S Mueblería En Vivo'
-                    : 'Cotización de Tienda / Bodega · S Mueblería En Vivo';
+                    ? 'Cotización de Proyecto'
+                    : 'Cotización de Tienda / Bodega';
             }
         }
 
@@ -5713,7 +5782,7 @@
     };
 
     // ------------------------------------------------------------------------
-    // BUSCADOR Y ALTA DE CLIENTES EN VIVO EN LA BASE DE DATOS S MUEBLERÍA
+    // BUSCADOR Y ALTA DE CLIENTES REGISTRADOS
     // ------------------------------------------------------------------------
     let lastErpClientSearchResults = [];
     let erpClientSearchInFlight = false;
@@ -5838,7 +5907,7 @@
             btn.disabled = true;
             btn.textContent = 'Buscando...';
         }
-        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-semibold bg-white" style="border-color:#E1DBC5; color:#252C32;">Consultando base de datos en vivo de S Mueblería...</div>';
+        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-semibold bg-white" style="border-color:#E1DBC5; color:#252C32;">Consultando base de datos de clientes...</div>';
         resEl.classList.remove('hidden');
 
         try {
@@ -5978,7 +6047,7 @@
             btn.disabled = true;
             btn.textContent = 'Guardando en S Mueblería...';
         }
-        showNewErpClientMsg('Registrando nuevo cliente en vivo en S Mueblería...', 'warn');
+        showNewErpClientMsg('Registrando nuevo cliente...', 'warn');
 
         try {
             const sess = enrichAdvisorLocation(activeAdvisorSession);
@@ -6587,7 +6656,7 @@
 
         sumEl.innerHTML =
             '<div class="font-extrabold uppercase tracking-wider text-[11px]" style="color:#A38251;">' +
-                'Resumen para enviar en vivo a S Mueblería' +
+                'Resumen de la cotización' +
             '</div>' +
             '<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11px]">' +
                 '<div><span class="opacity-75">' + (payload && payload.isProyecto ? 'Proyecto / Cliente:' : 'Cliente / Prospecto:') + '</span> <strong>' + escapeHtml((payload && payload.clientName) || '') + '</strong></div>' +
@@ -6876,7 +6945,7 @@
 
         sumEl.innerHTML =
             '<div class="font-extrabold uppercase">' +
-                (o.isQueued ? '⏳ Cotización guardada en cola hacia S Mueblería' : '✓ Cotización creada en vivo en el sistema S Mueblería') +
+                (o.isQueued ? '⏳ Cotización guardada en cola automática' : '✓ Cotización creada correctamente') +
             '</div>' +
             (folioTxt ? ('<div>Folio S Mueblería: <strong class="text-sm">' + escapeHtml(folioTxt) + '</strong>' + (qidTxt ? (' · ID ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') + '</div>') : '') +
             '<div>Cliente / Proyecto: <strong>' + escapeHtml((payload && payload.clientName) || 'Por definir') + '</strong></div>' +
@@ -6976,7 +7045,7 @@
             return;
         }
 
-        // Solicitar confirmación explícita antes de crear la cotización en vivo en S Mueblería
+        // Solicitar confirmación explícita antes de crear la cotización
         if (sendToErp && !confirmed) {
             openQuoteConfirmCreateModal(payload);
             return;
@@ -6994,7 +7063,7 @@
             'warn',
             '<div class="font-extrabold uppercase">' +
                 (sendToErp
-                    ? ('Enviando ' + (payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización') + ' en vivo a S Mueblería...')
+                    ? ('Enviando ' + (payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización') + '...')
                     : 'Cargando cotización en revisión en Google Sheets...') +
             '</div>' +
             '<div>Tienda / Bodega: <strong>' + escapeHtml(payload.erpStore) + '</strong> · Folio S Mueblería estimado: <strong>' + escapeHtml(payload.orderCode) + '</strong> · Usuario ERP: <strong>' + escapeHtml(payload.erpAdvisorLabel || payload.advisorEmail) + '</strong></div>'
@@ -7010,7 +7079,7 @@
                     '<div>' + escapeHtml(res.error || 'Confirma tu contraseña personal para emitir esta cotización.') + '</div>'
                 );
                 promptSessionReauth(
-                    res.error || 'Confirma tu contraseña personal para emitir tu cotización en vivo en S Mueblería.',
+                    res.error || 'Confirma tu contraseña personal para emitir tu cotización.',
                     !!sendToErp
                 );
                 return;
@@ -7091,14 +7160,14 @@
                             itemsCount: String(Array.isArray(bd.lines) ? bd.lines.length : 0),
                             skusSummary: skusTxt,
                             total: formatPrice(bd && bd.totalWithIva) || '',
-                            status: 'COTIZACION CREADA EN VIVO'
+                            status: 'COTIZACIÓN REGISTRADA'
                         };
                         myRecentQuotesList = [newEntry].concat(Array.isArray(myRecentQuotesList) ? myRecentQuotesList : []);
                     }
                     renderMyRecentQuotes(myRecentQuotesList);
                 };
 
-                // Flujo directo 24/7 en vivo hacia sistema.smuebleria.com
+                // Flujo directo 24/7 hacia sistema.smuebleria.com
                 if (res.sentLiveToErp) {
                     const folioTxt = folioFromRes || assignedFolio || ('ID-' + cleanStr(res.quoteId));
                     const qidTxt = cleanStr(res.quoteId);
@@ -7115,7 +7184,7 @@
                     markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     renderQuoteStatusBanner(
                         'ok',
-                        '<div class="font-extrabold uppercase">✓ Cotización creada en vivo en el sistema S Mueblería</div>' +
+                        '<div class="font-extrabold uppercase">✓ Cotización creada correctamente</div>' +
                         '<div>Folio S Mueblería (' + escapeHtml(payload.erpStore) + '): <strong>' + escapeHtml(folioTxt) + '</strong>' +
                             (qidTxt ? (' · ID Cotización ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') +
                         '</div>' +
@@ -7168,7 +7237,7 @@
                     populateQuoteAdvisorControls();
                     renderQuoteStatusBanner(
                         'ok',
-                        '<div class="font-extrabold uppercase">✓ Cotización registrada en S Mueblería</div>' +
+                        '<div class="font-extrabold uppercase">✓ Cotización registrada correctamente</div>' +
                         '<div>Folio S Mueblería: <strong>' + escapeHtml(folioFallback || assignedFolio) + '</strong>' +
                             (qidFallback ? (' · ID Cotización: <strong>' + escapeHtml(qidFallback) + '</strong>') : '') +
                         '</div>' +
@@ -7199,7 +7268,7 @@
                     markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     renderQuoteStatusBanner(
                         'warn',
-                        '<div class="font-extrabold uppercase">⏳ Cotización guardada en cola automática hacia S Mueblería</div>' +
+                        '<div class="font-extrabold uppercase">⏳ Cotización guardada en cola automática</div>' +
                         '<div>La sesión directa en nube estaba por renovarse, así que la cotización quedó lista en <code>plantilla</code> (<strong>ENVIAR COTIZACIÓN A S MUEBLERÍA</strong>). En cuanto <code>servicio_en_vivo.py</code> esté activo en la PC sincronizadora, se cargará automáticamente con su folio oficial.</div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
                             '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF provisional →</button>' +
@@ -7211,7 +7280,7 @@
                     renderQuoteStatusBanner(
                         'warn',
                         '<div class="font-extrabold uppercase">Plantilla registrada · Falta activar nueva versión de Apps Script para envío directo 24/7</div>' +
-                        '<div>Para que la cotización se inserte directo en vivo en <strong>sistema.smuebleria.com</strong> sin depender de ninguna computadora encendida, pega el código actualizado de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.</div>'
+                        '<div>Para que la cotización se registre directamente sin depender de ninguna computadora encendida, pega el código actualizado de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.</div>'
                     );
                 }
                 return;
@@ -7220,7 +7289,7 @@
             if (res && !res.ok && !res.unavailable && !res.needsRedeploy && res.error) {
                 renderQuoteStatusBanner(
                     'err',
-                    '<div class="font-extrabold uppercase">No se pudo registrar la cotización en S Mueblería</div>' +
+                    '<div class="font-extrabold uppercase">No se pudo registrar la cotización</div>' +
                     '<div>' + escapeHtml(res.error) + '</div>'
                 );
                 return;
@@ -7240,7 +7309,7 @@
             renderQuoteStatusBanner(
                 'warn',
                 '<div class="font-extrabold uppercase">Plantilla generada y copiada al portapapeles</div>' +
-                '<div>Actualiza la versión publicada de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em> para enviar en vivo directo a S Mueblería.</div>' +
+                '<div>Actualiza la versión publicada de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em> para registrar directamente la cotización.</div>' +
                 '<div class="pt-1"><button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / PDF de esta Cotización →</button></div>'
             );
         } catch (quoteErr) {
