@@ -888,7 +888,7 @@
                 fetchSheetRows('HISTORIAL', 'A1:J500'),
                 fetchSheetRows('COTIZACIONES_EN_VIVO', 'A1:X1000'),
                 fetchSheetRows('FOTOS NUEVAS CARGADO', 'A1:J500'),
-                fetchSheetRows('INVENTARIO_EN_VIVO', 'AV1:AV3')
+                fetchSheetRows('INVENTARIO_EN_VIVO', 'AU1:AZ3')
             ]);
 
             if (Array.isArray(histRaw)) {
@@ -900,7 +900,24 @@
             const basePhotos = Array.isArray(photosRaw) ? parsePhotosSheetRows(photosRaw) : [];
             state.photoRows = mergeDrivePhotosFromHistorial(basePhotos, state.historialRows);
             if (Array.isArray(invStatusRaw) && invStatusRaw.length >= 2) {
-                const cellVal = cleanStr((invStatusRaw[1] && invStatusRaw[1][0]) || (invStatusRaw[2] && invStatusRaw[2][0]));
+                const hdrRow = invStatusRaw[0] || [];
+                let tsCol = hdrRow.findIndex(h => /ULTIMA\s+ACTUALIZACION/i.test(cleanStr(h)));
+                let cellVal = '';
+                if (tsCol >= 0) {
+                    cellVal = cleanStr((invStatusRaw[1] && invStatusRaw[1][tsCol]) || (invStatusRaw[2] && invStatusRaw[2][tsCol]));
+                }
+                if (!cellVal) {
+                    for (let rIdx = 1; rIdx <= 2 && !cellVal; rIdx++) {
+                        const rowCand = invStatusRaw[rIdx] || [];
+                        for (let cIdx = 0; cIdx < rowCand.length; cIdx++) {
+                            const v = cleanStr(rowCand[cIdx]);
+                            if (/EN\s+VIVO/i.test(v)) {
+                                cellVal = v;
+                                break;
+                            }
+                        }
+                    }
+                }
                 if (cellVal) state.erpLiveCellText = cellVal;
             }
 

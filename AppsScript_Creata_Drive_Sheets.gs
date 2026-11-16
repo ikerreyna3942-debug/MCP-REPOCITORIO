@@ -5606,6 +5606,157 @@ function resolveSupplierDays_(provRaw, tiemposInf, tiemposBackup) {
 }
 
 /**
+ * Realinea únicamente las fórmulas de inventario en plantilla!I15:L29 al esquema de 50 columnas
+ * de INVENTARIO_EN_VIVO (con Col S = TOTAL INVENTARIO al lado de TOTAL BODEGA), sin tocar jamás K8.
+ */
+function repararFormulasPlantillaInventario_(ss) {
+  const book = ss || getSpreadsheet_();
+  const shPlantilla = book.getSheetByName('plantilla');
+  if (!shPlantilla || shPlantilla.getLastRow() < 29 || shPlantilla.getMaxColumns() < 12) {
+    return { ok: false, skipped: true };
+  }
+
+  function xlInv_(rNum, colLetter, defExpr) {
+    const lk = 'INVENTARIO_EN_VIVO!$A$3:$A';
+    const rt = 'INVENTARIO_EN_VIVO!$' + colLetter + '$3:$' + colLetter;
+    return 'IFERROR(XLOOKUP(B' + rNum + ',' + lk + ',' + rt + '),' +
+      'IFERROR(XLOOKUP(TO_TEXT(B' + rNum + '),' + lk + ',' + rt + '),' +
+      'IFERROR(XLOOKUP(VALUE(B' + rNum + '),' + lk + ',' + rt + '),' + defExpr + ')))';
+  }
+
+  const formulasItoL = [];
+  for (let rNum = 15; rNum <= 29; rNum++) {
+    const fCedis = '=IF(B' + rNum + '="","",' + xlInv_(rNum, 'U', '0') + '&" / "&' + xlInv_(rNum, 'V', '0') + ')';
+    const fTienda = '=IF(B' + rNum + '="","",' +
+      'IF($C$5="CASA CREATA BONAMPAK",' + xlInv_(rNum, 'W', '0') + '&" / "&' + xlInv_(rNum, 'X', '0') + ',' +
+      'IF($C$5="CREATA PUERTO CANCUN",' + xlInv_(rNum, 'Y', '0') + '&" / "&' + xlInv_(rNum, 'Z', '0') + ',' +
+      'IF($C$5="CREATA LIVING COLOSIO",' + xlInv_(rNum, 'AA', '0') + '&" / "&' + xlInv_(rNum, 'AB', '0') + ',' +
+      'IF($C$5="CREATA LIVING PLAYA",' + xlInv_(rNum, 'AC', '0') + '&" / "&' + xlInv_(rNum, 'AD', '0') + ',' +
+      'IF($C$5="OUTLET COLOSIO",' + xlInv_(rNum, 'AE', '0') + '&" / "&' + xlInv_(rNum, 'AF', '0') + ',' +
+      xlInv_(rNum, 'R', '0') + '&" / "&' + xlInv_(rNum, 'T', '0') + '))))))';
+    const fLppt = '=IF(B' + rNum + '="","",' + xlInv_(rNum, 'P', '0') + ')';
+    const fFecha = '=IF(B' + rNum + '="","",' + xlInv_(rNum, 'Q', '"Sin piezas solicitadas"') + ')';
+    formulasItoL.push([fCedis, fTienda, fLppt, fFecha]);
+  }
+
+  shPlantilla.getRange(15, 9, 15, 4).setFormulas(formulasItoL);
+  return { ok: true, rowsAligned: 15 };
+}
+
+function aplicarFormatoEncabezadosDinamicosInv_(shInv) {
+  if (!shInv || shInv.getMaxColumns() < 49) return;
+  shInv.getRange(1, 15, 1, 35)
+    .setFontColor('#FFFFFF')
+    .setFontWeight('bold')
+    .setFontSize(9)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true);
+  shInv.getRange(1, 15, 1, 1).setBackground('#242C31');
+  shInv.getRange(1, 16, 1, 2).setBackground('#A38251');
+  shInv.getRange(1, 18, 1, 3).setBackground('#1B365D');
+  shInv.getRange(1, 21, 1, 29).setBackground('#242C31');
+  shInv.setColumnWidth(17, 185);
+  shInv.setColumnWidth(19, 135);
+  shInv.setColumnWidth(49, 195);
+}
+
+/**
+ * Inserta de forma idempotente y atómica la Columna S "TOTAL INVENTARIO" al lado de
+ * "TOTAL BODEGA" (Col R) en INVENTARIO_EN_VIVO, sumando exclusivamente las 5 bodegas/sucursales
+ * comerciales (CEDIS, CASA CREATA, PUERTO CANCUN, COLOSIO, PLAYA en Bodega + Piso) + LPPT,
+ * con suma global =SUM(S3:S) en S2 y desplazando intacta PRECIO DE LISTA a AX (Col 50).
+ */
+function asegurarColumnaTotalInventario_(ss, shInvOpt) {
+  const book = ss || getSpreadsheet_();
+  const shInv = shInvOpt || book.getSheetByName(CONFIG.TAB_INVENTORY || 'INVENTARIO_EN_VIVO');
+  if (!shInv || shInv.getLastRow() < 2 || shInv.getMaxColumns() < 19) {
+    return { ok: false, skipped: true };
+  }
+
+  const hdrPair = shInv.getRange(1, 18, 1, 2).getDisplayValues()[0] || [];
+  const hdrR = normPlainUpper_(hdrPair[0]);
+  const hdrS = normPlainUpper_(hdrPair[1]);
+
+  if (hdrR === 'TOTAL BODEGA' && hdrS !== 'TOTAL INVENTARIO') {
+    shInv.insertColumnAfter(18);
+    if (shInv.getMaxColumns() < 49) {
+      shInv.insertColumnsAfter(shInv.getMaxColumns(), 49 - shInv.getMaxColumns());
+    }
+    shInv.getRange(1, 19).setValue('TOTAL INVENTARIO');
+    aplicarFormatoEncabezadosDinamicosInv_(shInv);
+
+    const lastRow = shInv.getLastRow();
+    const numRows = Math.max(0, lastRow - 2);
+    if (numRows > 0 && shInv.getMaxColumns() >= 30) {
+      const pToAd = shInv.getRange(3, 16, numRows, 15).getValues();
+      const initTotCol = new Array(numRows);
+      for (let i = 0; i < numRows; i++) {
+        const row = pToAd[i] || [];
+        const lpptN = Number(row[0]) || 0;
+        let sum5 = 0;
+        for (let k = 5; k < 15; k++) {
+          sum5 += Number(row[k]) || 0;
+        }
+        initTotCol[i] = [lpptN + sum5];
+      }
+      shInv.getRange(3, 19, numRows, 1)
+        .setValues(initTotCol)
+        .setNumberFormat('#,##0')
+        .setHorizontalAlignment('center');
+    }
+
+    shInv.getRange(2, 19)
+      .setFormula('=SUM(S3:S)')
+      .setNumberFormat('#,##0')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+
+    repararFormulasPlantillaInventario_(book);
+    try {
+      const c = CacheService.getScriptCache();
+      if (c) {
+        c.remove('inv_precio_lista_col_ready_v1');
+        c.remove('inv_precio_lista_col_ready_v2');
+        c.put('inv_hdr_and_plantilla_v50_ok', '1', 21600);
+      }
+    } catch (ce) {}
+    return { ok: true, migrated: true };
+  }
+
+  if (hdrS === 'TOTAL INVENTARIO') {
+    const curS2Formula = String(shInv.getRange(2, 19).getFormula() || '').trim();
+    if (!curS2Formula) {
+      shInv.getRange(2, 19)
+        .setFormula('=SUM(S3:S)')
+        .setNumberFormat('#,##0')
+        .setFontWeight('bold')
+        .setHorizontalAlignment('center');
+    }
+    try {
+      const c = CacheService.getScriptCache();
+      if (!c || c.get('inv_hdr_and_plantilla_v50_ok') !== '1') {
+        aplicarFormatoEncabezadosDinamicosInv_(shInv);
+        const shPl = book.getSheetByName('plantilla');
+        if (shPl && shPl.getLastRow() >= 15 && shPl.getMaxColumns() >= 12) {
+          const row15Formulas = shPl.getRange(15, 9, 1, 4).getFormulas()[0] || [];
+          const fJ = String(row15Formulas[1] || '');
+          const fK = String(row15Formulas[2] || '');
+          const fL = String(row15Formulas[3] || '');
+          if (fJ.indexOf('#REF!') >= 0 || fJ.indexOf('$AE$3:$AE') < 0 || fK.indexOf('$P$3:$P') < 0 || fL.indexOf('$Q$3:$Q') < 0) {
+            repararFormulasPlantillaInventario_(book);
+          }
+        }
+        if (c) c.put('inv_hdr_and_plantilla_v50_ok', '1', 21600);
+      }
+    } catch (ce) {}
+    return { ok: true, migrated: false };
+  }
+
+  return { ok: true, skipped: true };
+}
+
+/**
  * Sincroniza INVENTARIO_EN_VIVO directo desde S Mueblería WCF + LPPT (estricto solo lectura).
  */
 function sincronizarInventarioEnVivoDesdeERP(opts) {
@@ -5621,52 +5772,72 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     if (!shInv || shInv.getLastRow() < 3) {
       return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no inicializada.' };
     }
+    asegurarColumnaTotalInventario_(ss, shInv);
 
     // 1) Obtener existencias Bodega y Piso en vivo desde S Mueblería ERP.
-    //    Si el ERP no responde (sesión vencida / sin conexión) NO se detiene la sincronización:
-    //    se conserva el último inventario Bodega/Piso conocido y la LPPT se sigue actualizando.
+    //    Si el ERP no responde o trunca el stream XML a mitad de respuesta, se reintenta 1 vez y,
+    //    si persiste incompleto, NO se sobreescribe en 0: se conserva el último inventario válido.
     let erpOk = false;
     let erpError = '';
-    let xmlInv = '';
-    try {
-      xmlInv = callSmuebleriaWcf_(
-        'ObtenerProductosInventariosSucursalesTodos',
-        '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro></Filtro>'
-      );
-    } catch (erpErr) {
-      erpError = String((erpErr && erpErr.message) || erpErr || 'ERP sin respuesta');
-      Logger.log('Aviso ERP S Mueblería (se conserva el último inventario): ' + erpError);
-    }
-
     const invPorSku = {};
     const metaErpSku = {};
-    const prodRe = /<(?:[a-zA-Z0-9_]+:)?ProductoInventarioSucursal>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?ProductoInventarioSucursal>/g;
-    let match;
-    while ((match = prodRe.exec(xmlInv)) !== null) {
-      const blk = match[1];
-      const sku = extractXmlTag_(blk, 'Clave').toUpperCase();
-      if (!sku) continue;
-      const sucNorm = normPlainUpper_(extractXmlTag_(blk, 'Sucursal'));
-      const bod = Math.round(parseFloat(extractXmlTag_(blk, 'Existensia') || '0') || 0);
-      const pis = Math.round(parseFloat(extractXmlTag_(blk, 'Piso') || '0') || 0);
-
-      if (!metaErpSku[sku]) {
-        metaErpSku[sku] = {
-          MODELO: extractXmlTag_(blk, 'Modelo'),
-          NOMBRE: extractXmlTag_(blk, 'Nombre'),
-          CATEGORIA: extractXmlTag_(blk, 'Categoria'),
-          PROVEEDOR: extractXmlTag_(blk, 'Proveedor')
-        };
+    const closingTagRe = /<\/(?:[a-zA-Z0-9_]+:)?ObtenerProductosInventariosSucursalesTodosResponse>/i;
+    for (let erpAttempt = 1; erpAttempt <= 2; erpAttempt++) {
+      let xmlAttempt = '';
+      try {
+        xmlAttempt = callSmuebleriaWcf_(
+          'ObtenerProductosInventariosSucursalesTodos',
+          '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro></Filtro>'
+        );
+      } catch (erpErr) {
+        erpError = String((erpErr && erpErr.message) || erpErr || 'ERP sin respuesta');
+        Logger.log('Aviso ERP S Mueblería (intento ' + erpAttempt + '): ' + erpError);
+        if (erpAttempt < 2) Utilities.sleep(1500);
+        continue;
       }
-      if (!invPorSku[sku]) invPorSku[sku] = {};
-      const prev = invPorSku[sku][sucNorm] || [0, 0];
-      invPorSku[sku][sucNorm] = [prev[0] + bod, prev[1] + pis];
+
+      const hasClosingTag = closingTagRe.test(xmlAttempt);
+      const candInv = {};
+      const candMeta = {};
+      let candTotalUnits = 0;
+      const prodRe = /<(?:[a-zA-Z0-9_]+:)?ProductoInventarioSucursal>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?ProductoInventarioSucursal>/g;
+      let match;
+      while ((match = prodRe.exec(xmlAttempt)) !== null) {
+        const blk = match[1];
+        const sku = extractXmlTag_(blk, 'Clave').toUpperCase();
+        if (!sku) continue;
+        const sucNorm = normPlainUpper_(extractXmlTag_(blk, 'Sucursal'));
+        const bod = Math.round(parseFloat(extractXmlTag_(blk, 'Existensia') || '0') || 0);
+        const pis = Math.round(parseFloat(extractXmlTag_(blk, 'Piso') || '0') || 0);
+        candTotalUnits += Math.max(0, bod) + Math.max(0, pis);
+
+        if (!candMeta[sku]) {
+          candMeta[sku] = {
+            MODELO: extractXmlTag_(blk, 'Modelo'),
+            NOMBRE: extractXmlTag_(blk, 'Nombre'),
+            CATEGORIA: extractXmlTag_(blk, 'Categoria'),
+            PROVEEDOR: extractXmlTag_(blk, 'Proveedor')
+          };
+        }
+        if (!candInv[sku]) candInv[sku] = {};
+        const prev = candInv[sku][sucNorm] || [0, 0];
+        candInv[sku][sucNorm] = [prev[0] + bod, prev[1] + pis];
+      }
+
+      const candSkuCount = Object.keys(candInv).length;
+      if (hasClosingTag && candSkuCount >= 1000 && candTotalUnits >= 1000) {
+        Object.keys(candInv).forEach((k) => { invPorSku[k] = candInv[k]; });
+        Object.keys(candMeta).forEach((k) => { metaErpSku[k] = candMeta[k]; });
+        erpOk = true;
+        erpError = '';
+        break;
+      }
+
+      erpError = 'Respuesta parcial/truncada del ERP (' + candSkuCount + ' SKUs, ' + candTotalUnits + ' pzas' + (hasClosingTag ? '' : ', XML truncado') + ').';
+      Logger.log('Aviso ERP S Mueblería (intento ' + erpAttempt + ', se conserva inventario si persiste): ' + erpError);
+      if (erpAttempt < 2) Utilities.sleep(1500);
     }
-    // Solo se considera inventario válido si el ERP devolvió productos (evita poner todo en 0)
-    erpOk = Object.keys(invPorSku).length > 0;
-    if (!erpOk && !erpError) {
-      erpError = 'El ERP respondió sin productos de inventario.';
-    }
+
 
     // 2) Tiempos de entrega de INF. PRODUC
     const tiemposInf = {};
@@ -5842,31 +6013,33 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       lpptProvBySku: lpptProvBySku
     });
 
-    // 5) Actualizar columnas dinámicas O..AV en INVENTARIO_EN_VIVO respetando A..N y F2 ARRAYFORMULA
+    // 5) Actualizar columnas dinámicas O..AW (35 cols) en INVENTARIO_EN_VIVO respetando A..N, F2 y AX2 ARRAYFORMULA
     const lastRow = shInv.getLastRow();
     const numCatalogRows = lastRow - 2;
     const catRange = shInv.getRange(3, 1, numCatalogRows, Math.min(shInv.getMaxColumns(), 17)).getValues();
-    if (shInv.getMaxColumns() < 48) {
-      shInv.insertColumnsAfter(shInv.getMaxColumns(), 48 - shInv.getMaxColumns());
+    if (shInv.getMaxColumns() < 49) {
+      shInv.insertColumnsAfter(shInv.getMaxColumns(), 49 - shInv.getMaxColumns());
     }
 
     const ahoraStr = formatCancunNow_();
-    const headersOAv = [
+    const headersOAw = [
       'TIEMPO DE ENTREGA (DIAS)',
       'LPPT',
       'FECHA ESTIMADA DE LLEGADA',
       'TOTAL BODEGA',
+      'TOTAL INVENTARIO',
       'TOTAL PISO'
     ];
     ERP_WAREHOUSES_ORDER_.forEach((pair) => {
-      headersOAv.push(pair[1] + ' BODEGA');
-      headersOAv.push(pair[1] + ' PISO');
+      headersOAw.push(pair[1] + ' BODEGA');
+      headersOAw.push(pair[1] + ' PISO');
     });
-    headersOAv.push('ULTIMA ACTUALIZACION EN VIVO');
+    headersOAw.push('ULTIMA ACTUALIZACION EN VIVO');
 
-    // Si el ERP no respondió, conservar exactamente el último inventario Bodega/Piso escrito (R..AU y AV)
-    const prevOAv = !erpOk && numCatalogRows > 0
-      ? shInv.getRange(3, 15, numCatalogRows, 34).getValues()
+    // Si el ERP no respondió, conservar exactamente el último inventario Bodega/Piso escrito (R..AV y AW)
+    // recalculando Col S (TOTAL INVENTARIO = LPPT + 5 bodegas oficiales) con la LPPT vigente.
+    const prevOAw = !erpOk && numCatalogRows > 0
+      ? shInv.getRange(3, 15, numCatalogRows, 35).getValues()
       : null;
     let ultimoInventarioErp = '';
 
@@ -5875,7 +6048,7 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       const r = catRange[i];
       const sku = String(r[0] || '').trim().toUpperCase();
       if (!sku) {
-        const blank = new Array(34).fill('');
+        const blank = new Array(35).fill('');
         outMatrix.push(blank);
         continue;
       }
@@ -5889,17 +6062,24 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
         : (r[16] || 'Sin piezas solicitadas');
 
       if (!erpOk) {
-        const pr = (prevOAv && prevOAv[i]) || new Array(34).fill('');
-        const keepVals = [colDias, cantLppt, fechaEst];
-        for (let c = 3; c < 33; c++) {
+        const pr = (prevOAw && prevOAw[i]) || new Array(35).fill('');
+        const prBod = isFinite(Number(pr[3])) ? Number(pr[3]) : 0;
+        const prPis = isFinite(Number(pr[5])) ? Number(pr[5]) : 0;
+        const whKept = [];
+        for (let c = 6; c < 34; c++) {
           const n = Number(pr[c]);
-          keepVals.push(isFinite(n) ? n : 0);
+          whKept.push(isFinite(n) ? n : 0);
         }
-        const prevTs = pr[33] instanceof Date
-          ? Utilities.formatDate(pr[33], 'America/Cancun', 'dd/MM/yyyy HH:mm:ss')
-          : String(pr[33] || '');
+        let sumCincoBod = 0;
+        for (let k = 0; k < 10; k++) {
+          sumCincoBod += whKept[k] || 0;
+        }
+        const totInvCincoConLppt = (Number(cantLppt) || 0) + sumCincoBod;
+        const prevTs = pr[34] instanceof Date
+          ? Utilities.formatDate(pr[34], 'America/Cancun', 'dd/MM/yyyy HH:mm:ss')
+          : String(pr[34] || '');
         if (prevTs && !ultimoInventarioErp) ultimoInventarioErp = prevTs;
-        keepVals.push(prevTs);
+        const keepVals = [colDias, cantLppt, fechaEst, prBod, totInvCincoConLppt, prPis].concat(whKept, [prevTs]);
         outMatrix.push(keepVals);
         continue;
       }
@@ -5912,28 +6092,46 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
         totPis += sucMap[skSuc][1] || 0;
       });
 
-      const rowVals = [colDias, cantLppt, fechaEst, totBod, totPis];
+      // Suma exclusiva de las 5 bodegas/sucursales comerciales (CEDIS, CASA CREATA, PUERTO CANCUN, COLOSIO, PLAYA) + LPPT
+      let sumCincoBodegas = 0;
+      const whRowVals = [];
       for (let w = 0; w < ERP_WAREHOUSES_ORDER_.length; w++) {
         const sucKey = ERP_WAREHOUSES_ORDER_[w][0];
         const bp = sucMap[sucKey] || [0, 0];
-        rowVals.push(bp[0] || 0);
-        rowVals.push(bp[1] || 0);
+        const bVal = bp[0] || 0;
+        const pVal = bp[1] || 0;
+        whRowVals.push(bVal);
+        whRowVals.push(pVal);
+        if (w < 5) {
+          sumCincoBodegas += bVal + pVal;
+        }
       }
-      rowVals.push(ahoraStr);
+      const totInvCincoConLppt = (Number(cantLppt) || 0) + sumCincoBodegas;
+
+      const rowVals = [colDias, cantLppt, fechaEst, totBod, totInvCincoConLppt, totPis].concat(whRowVals, [ahoraStr]);
       outMatrix.push(rowVals);
     }
 
-    const heartbeatRow = new Array(33).fill('');
+    const heartbeatRow = new Array(34).fill('');
+    heartbeatRow[4] = '=SUM(S3:S)';
     heartbeatRow.push(
       erpOk
         ? 'EN VIVO | ' + ahoraStr
         : 'LPPT EN VIVO | ' + ahoraStr + ' | ERP SIN CONEXIÓN (inventario Bodega/Piso del ' + (ultimoInventarioErp || 'último corte') + ')'
     );
 
-    shInv.getRange(1, 15, 1, 34).setValues([headersOAv]);
-    shInv.getRange(2, 15, 1, 34).setValues([heartbeatRow]);
+    shInv.getRange(1, 15, 1, 35).setValues([headersOAw]);
+    shInv.getRange(2, 15, 1, 35).setValues([heartbeatRow]);
+    shInv.getRange(2, 19)
+      .setFormula('=SUM(S3:S)')
+      .setNumberFormat('#,##0')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
     if (outMatrix.length > 0) {
-      shInv.getRange(3, 15, outMatrix.length, 34).setValues(outMatrix);
+      shInv.getRange(3, 15, outMatrix.length, 35).setValues(outMatrix);
+      shInv.getRange(3, 19, outMatrix.length, 1)
+        .setNumberFormat('#,##0')
+        .setHorizontalAlignment('center');
     }
     asegurarColumnaPrecioListaInventario_(ss, { silentUi: true, force: !!(autoRes && autoRes.added > 0) });
 
@@ -5959,7 +6157,7 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
         sucursal: 'INVENTARIO_EN_VIVO',
         referencia: '+' + autoRes.added + ' SKUs nuevos',
         detalle: 'Sincronización en vivo completada (' + outMatrix.length + ' filas ordenadas A-Z · LPPT +14 días activo).',
-        analisis: 'Fórmulas nativas F2 y AW2 respetadas intactas.'
+        analisis: 'Fórmulas nativas F2 y AX2 respetadas intactas.'
       });
     }
 
@@ -5992,9 +6190,9 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
 }
 
 /**
- * Agrega / actualiza la columna "PRECIO DE LISTA" en INVENTARIO_EN_VIVO (Columna AW = 49,
- * justo después de AV "ULTIMA ACTUALIZACION EN VIVO") vinculada por ARRAYFORMULA + XLOOKUP
- * a la lista oficial de precios de S Mueblería (plantilla!AE2:AH), sin desplazar A..AV (1..48)
+ * Agrega / actualiza la columna "PRECIO DE LISTA" en INVENTARIO_EN_VIVO (Columna AX = 50,
+ * justo después de AW "ULTIMA ACTUALIZACION EN VIVO") vinculada por ARRAYFORMULA + XLOOKUP
+ * a la lista oficial de precios de S Mueblería (plantilla!AE2:AH), sin desplazar A..AW (1..49)
  * ni alterar F2, sincronizador_inventario_vivo.py ni las hojas del Catálogo.
  */
 function agregarColumnaPrecioListaInventario() {
@@ -6004,7 +6202,7 @@ function agregarColumnaPrecioListaInventario() {
 function asegurarColumnaPrecioListaInventario_(ss, opts) {
   const silentUi = !opts || opts.silentUi !== false;
   const force = !!(opts && opts.force);
-  const cacheKey = 'inv_precio_lista_col_ready_v1';
+  const cacheKey = 'inv_precio_lista_col_ready_v2';
 
   if (!force) {
     try {
@@ -6020,17 +6218,18 @@ function asegurarColumnaPrecioListaInventario_(ss, opts) {
   if (!shInv || shInv.getLastRow() < 2) {
     return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no encontrada.' };
   }
+  asegurarColumnaTotalInventario_(book, shInv);
 
-  // Columnas 1..48 (A..AV) están reservadas para atributos curados (A..N, incluyendo F2 ARRAYFORMULA)
-  // y existencias dinámicas (O..AV). Colocamos PRECIO DE LISTA en AW (col 49) o reutilizamos si ya existe en >= 49.
+  // Columnas 1..49 (A..AW) están reservadas para atributos curados (A..N, incluyendo F2 ARRAYFORMULA)
+  // y existencias dinámicas (O..AW). Colocamos PRECIO DE LISTA en AX (col 50) o reutilizamos si ya existe en >= 50.
   const maxColsNow = shInv.getMaxColumns();
-  let targetCol = 49; // AW
-  if (maxColsNow >= 49) {
-    const hdrTail = shInv.getRange(1, 49, 1, maxColsNow - 48).getDisplayValues()[0] || [];
+  let targetCol = 50; // AX
+  if (maxColsNow >= 50) {
+    const hdrTail = shInv.getRange(1, 50, 1, maxColsNow - 49).getDisplayValues()[0] || [];
     for (let k = 0; k < hdrTail.length; k++) {
       const normH = normPlainUpper_(hdrTail[k]);
       if (normH === 'PRECIO DE LISTA' || normH === 'PRECIO LISTA') {
-        targetCol = 49 + k;
+        targetCol = 50 + k;
         break;
       }
     }
@@ -6041,33 +6240,34 @@ function asegurarColumnaPrecioListaInventario_(ss, opts) {
   }
 
   const formulaStr = '=ARRAYFORMULA(IF($A$2:$A="","",IFERROR(XLOOKUP(TRIM($A$2:$A),plantilla!$AE$2:$AE,plantilla!$AH$2:$AH,"",0),"")))';
+  const curHdr = normPlainUpper_(shInv.getRange(1, targetCol).getDisplayValue());
+  const curFormula = String(shInv.getRange(2, targetCol).getFormula() || '').trim();
+  const hasNativeArrayFormula = /^=ARRAYFORMULA/i.test(curFormula);
 
-  if (!force) {
-    const curHdr = normPlainUpper_(shInv.getRange(1, targetCol).getDisplayValue());
-    const curFormula = String(shInv.getRange(2, targetCol).getFormula() || '').trim();
-    if (curHdr === 'PRECIO DE LISTA' && /^=ARRAYFORMULA/i.test(curFormula)) {
-      try {
-        CacheService.getScriptCache().put(cacheKey, '1', 21600);
-      } catch (ce) {}
-      return { ok: true, alreadyReady: true, column: targetCol, columnLetter: 'AW' };
-    }
+  if (!force && curHdr === 'PRECIO DE LISTA' && hasNativeArrayFormula) {
+    try {
+      CacheService.getScriptCache().put(cacheKey, '1', 21600);
+    } catch (ce) {}
+    return { ok: true, alreadyReady: true, column: targetCol, columnLetter: targetCol === 50 ? 'AX' : String(targetCol) };
   }
 
   const maxRows = Math.max(shInv.getMaxRows(), shInv.getLastRow(), 3);
-  if (maxRows >= 2) {
-    shInv.getRange(2, targetCol, maxRows - 1, 1).clearContent();
+  if (!hasNativeArrayFormula) {
+    if (maxRows >= 2) {
+      shInv.getRange(2, targetCol, maxRows - 1, 1).clearContent();
+    }
+    shInv.getRange(1, targetCol)
+      .setValue('PRECIO DE LISTA')
+      .setBackground('#A38251')
+      .setFontColor('#FFFFFF')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle');
+    shInv.setColumnWidth(targetCol, 145);
+    shInv.getRange(2, targetCol).setFormula(formulaStr);
+  } else if (curHdr !== 'PRECIO DE LISTA') {
+    shInv.getRange(1, targetCol).setValue('PRECIO DE LISTA');
   }
-
-  shInv.getRange(1, targetCol)
-    .setValue('PRECIO DE LISTA')
-    .setBackground('#A38251')
-    .setFontColor('#FFFFFF')
-    .setFontWeight('bold')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle');
-
-  shInv.setColumnWidth(targetCol, 145);
-  shInv.getRange(2, targetCol).setFormula(formulaStr);
 
   if (maxRows >= 3) {
     shInv.getRange(3, targetCol, maxRows - 2, 1)
@@ -6084,7 +6284,7 @@ function asegurarColumnaPrecioListaInventario_(ss, opts) {
   if (!silentUi) {
     try {
       SpreadsheetApp.getUi().alert(
-        'Columna "PRECIO DE LISTA" agregada y vinculada en vivo en INVENTARIO_EN_VIVO (Columna AW) sin afectar el resto del documento.'
+        'Columna "PRECIO DE LISTA" agregada y vinculada en vivo en INVENTARIO_EN_VIVO (Columna AX) sin afectar el resto del documento.'
       );
     } catch (e) {}
   }
@@ -6092,7 +6292,7 @@ function asegurarColumnaPrecioListaInventario_(ss, opts) {
   return {
     ok: true,
     column: targetCol,
-    columnLetter: targetCol === 49 ? 'AW' : String(targetCol),
+    columnLetter: targetCol === 50 ? 'AX' : String(targetCol),
     header: 'PRECIO DE LISTA'
   };
 }
@@ -6522,6 +6722,12 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
   const options = opts || {};
   eliminarPestanaTopBuscadosSiExiste_(book);
 
+  const shInv = book.getSheetByName(CONFIG.TAB_INVENTORY || 'INVENTARIO_EN_VIVO');
+  if (!shInv || shInv.getLastRow() < 2) {
+    return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no encontrada.' };
+  }
+  asegurarColumnaTotalInventario_(book, shInv);
+
   if (options.useThrottle && !options.force) {
     try {
       const c = CacheService.getScriptCache();
@@ -6531,12 +6737,8 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     } catch (ce) {}
   }
 
-  const shInv = book.getSheetByName(CONFIG.TAB_INVENTORY || 'INVENTARIO_EN_VIVO');
-  if (!shInv || shInv.getLastRow() < 2) {
-    return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no encontrada.' };
-  }
-  if (shInv.getMaxColumns() < 48) {
-    shInv.insertColumnsAfter(shInv.getMaxColumns(), 48 - shInv.getMaxColumns());
+  if (shInv.getMaxColumns() < 49) {
+    shInv.insertColumnsAfter(shInv.getMaxColumns(), 49 - shInv.getMaxColumns());
   }
 
   // 1) Leer referencias en estricto SOLO LECTURA ('1', plantilla!AE:AH, y pestañas de Catálogo)
@@ -6616,11 +6818,11 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
   const lpptLibre = options.lpptLibre || {};
   const lpptProvBySku = options.lpptProvBySku || {};
 
-  // 2) Leer filas actuales de INVENTARIO_EN_VIVO (A3:N y O3:AV)
+  // 2) Leer filas actuales de INVENTARIO_EN_VIVO (A3:N y O3:AW)
   const lastRow = shInv.getLastRow();
   const oldNumRows = Math.max(0, lastRow - 2);
   const rawAtoN = oldNumRows > 0 ? shInv.getRange(3, 1, oldNumRows, 14).getValues() : [];
-  const rawOtoAv = oldNumRows > 0 ? shInv.getRange(3, 15, oldNumRows, 34).getValues() : [];
+  const rawOtoAv = oldNumRows > 0 ? shInv.getRange(3, 15, oldNumRows, 35).getValues() : [];
 
   const recordsBySku = {};
   const originalSkuOrder = [];
@@ -6628,7 +6830,7 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
 
   for (let i = 0; i < oldNumRows; i++) {
     const r = rawAtoN[i];
-    const oRow = rawOtoAv[i] || new Array(34).fill('');
+    const oRow = rawOtoAv[i] || new Array(35).fill('');
     const skuRaw = cleanInvCell_(r[0]);
     const sku = skuRaw.toUpperCase();
     if (!sku || sku === 'SKU') {
@@ -6641,7 +6843,7 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
         skuRaw: skuRaw,
         sku: sku,
         aToN: r.slice(0, 14),
-        oToAv: oRow.slice(0, 34),
+        oToAv: oRow.slice(0, 35),
         isNew: false
       };
     } else {
@@ -6670,10 +6872,10 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     }
     if (!nomCheck && !cleanInvCell_(candMo) && !hoja1Ref[sk] && !plantillaRef[sk] && !forceHasStock) return;
 
-    const blankOAv = new Array(34).fill('');
+    const blankOAv = new Array(35).fill('');
     blankOAv[1] = 0;
     blankOAv[2] = 'Sin piezas solicitadas';
-    for (let z = 3; z < 33; z++) blankOAv[z] = 0;
+    for (let z = 3; z < 34; z++) blankOAv[z] = 0;
 
     recordsBySku[sk] = {
       skuRaw: cleanInvCell_(candSkuRaw) || sk,
@@ -7017,7 +7219,7 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     }
   }
 
-  // 8) Escribir atómicamente A3:E, G3:N y O3:AV sin tocar jamás F (col 6) ni AW (col 49)
+  // 8) Escribir atómicamente A3:E, G3:N y O3:AW sin tocar jamás F (col 6) ni AX (col 50)
   if (totalRows > 0 && (updatedRows > 0 || reordered || addedCount > 0 || removedBlanks > 0)) {
     if (shInv.getMaxRows() < 2 + totalRows) {
       shInv.insertRowsAfter(shInv.getMaxRows(), (2 + totalRows) - shInv.getMaxRows());
@@ -7035,14 +7237,14 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     shInv.getRange(3, 1, totalRows, 5).setValues(outAE);
     shInv.getRange(3, 7, totalRows, 8).setValues(outGN);
     if (reordered || addedCount > 0 || removedBlanks > 0) {
-      shInv.getRange(3, 15, totalRows, 34).setValues(outOAV);
+      shInv.getRange(3, 15, totalRows, 35).setValues(outOAV);
     }
 
     if (oldNumRows > totalRows) {
       const rem = oldNumRows - totalRows;
       shInv.getRange(3 + totalRows, 1, rem, 5).clearContent();
       shInv.getRange(3 + totalRows, 7, rem, 8).clearContent();
-      shInv.getRange(3 + totalRows, 15, rem, 34).clearContent();
+      shInv.getRange(3 + totalRows, 15, rem, 35).clearContent();
     }
 
     if (!options.skipFlush) {
