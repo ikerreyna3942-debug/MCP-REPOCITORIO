@@ -46,8 +46,10 @@
 
     let allItems = Array.isArray(window.CREATA_INV_DATA) ? window.CREATA_INV_DATA : [];
     const bySkuMap = new Map();
+    const singleBySkuMap = new Map();
     const groupsByKey = new Map();
     const activeFilteredGroupsByKey = new Map();
+    let allSingleGroups = [];
     let allGroups = [];
     let filteredGroups = [];
     let renderedCount = 0;
@@ -932,73 +934,193 @@
         return it;
     }
 
+    const GENERIC_GROUP_MODELS = new Set([
+        'FUNDA', 'FUNDAS', 'COJIN', 'COJINES', 'RELLENO', 'ALMOHADA', 'ALMOHADAS',
+        'BLANCOS', 'SABANA', 'SABANAS', 'CUBRECAMA', 'COLCHA', 'EDREDON', 'DUVET', 'FRAZADA',
+        'SERVILLETA', 'SERVILLETAS', 'INDIVIDUAL', 'MANTEL', 'CAMINO', 'PORTAVASO', 'TOALLA',
+        'HILOS', 'SATIN', 'PERCAL', 'BOHO', 'RAYA', 'RAYAS', 'LISO', 'LISA', 'BORDADO', 'BORDADA',
+        'FOLLAJE', 'ARBOL', 'VARA', 'HOJA', 'FLOR', 'FLORES', 'PLANTA', 'PALMA', 'RAMA',
+        'MACETA', 'MACETAS', 'FLORERO', 'JARRON', 'CILINDRO', 'BOTELLON', 'BOTELLA', 'BOLA',
+        'CORAL', 'FIGURA', 'ESCULTURA', 'BALLENA', 'PEZ', 'CARACOL', 'CONCHA', 'ESFERA',
+        'GICLEE', 'ABSTRACTO', 'CUADRO', 'LIENZO', 'PINTURA', 'ARTE',
+        'PLATO', 'PLATON', 'TAZON', 'BOWL', 'CHAROLA', 'BANDEJA', 'FRUTERO', 'ENSALADERA', 'TORTILLERO', 'BATEA',
+        'PORTAVELA', 'PORTAVELAS', 'CANDELABRO', 'VELA', 'VELAS', 'FAROL', 'LINTERNA',
+        'CAJA', 'RELOJ', 'LIBRO', 'LIBROS', 'PORTARRETRATO', 'CANASTO', 'CANASTOS', 'CANASTA', 'CESTA', 'BOLSA',
+        'PEDESTAL', 'ACCESORIO', 'ACCESORIOS', 'DECORATIVO', 'DECORATIVA', 'NAVIDAD',
+        'JGO', 'JUEGO', 'SET', 'PIEZA', 'PIEZAS', 'ESTANDAR', 'ESPECIAL', 'PROYECTO', 'UNIT', 'WALL',
+        'COLCHON', 'DESC-COLCHON', 'RESORTES', 'BOX', 'SPRING', 'AIR', 'MEMORY', 'FOAM', 'FIRME',
+        'TELA', 'TAPIZ', 'YUTE', 'JUTE', 'ALGODON', 'LINO', 'PIEL', 'VINIL', 'MADERA', 'CRISTAL', 'MARMOL',
+        'METAL', 'CERAMICA', 'VIDRIO', 'RATTAN', 'HENEQUEN', 'TEJIDO', 'TEJIDA',
+        'TECA', 'NOGAL', 'PAROTA', 'ENCINO', 'TZALAM', 'PINO', 'ROBLE',
+        'BLANCO', 'BLANCA', 'NEGRO', 'NEGRA', 'GRIS', 'BEIGE', 'NATURAL', 'CAFE', 'ORO', 'DORADO',
+        'PLATA', 'AZUL', 'VERDE', 'ARENA', 'HUMO', 'CREMA', 'IVORY', 'AMBAR',
+        'RECTANGULAR', 'CUADRADO', 'CUADRADA', 'REDONDO', 'REDONDA', 'OVAL', 'OVALADO', 'OVALADA',
+        'LARGO', 'LARGA', 'ALTO', 'ALTA', 'CHICO', 'CHICA', 'MEDIANO', 'MEDIANA', 'GRANDE',
+        'KING', 'QUEEN', 'MATRIMONIAL',
+        'SALA', 'SOFA', 'SILLON', 'SILLA', 'MESA', 'COMEDOR', 'CAMA', 'CABECERA', 'BASE', 'BURO',
+        'COMODA', 'TOCADOR', 'CREDENZA', 'BUFETERA', 'LIBRERO', 'ESCRITORIO', 'BANCA', 'BANCO',
+        'ESPEJO', 'LAMPARA', 'TAPETE'
+    ]);
+
+    function plainModelToken(s) {
+        return String(s || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function resolveDistinctGroupModel(it) {
+        if (!it) return '';
+        const skuNorm = plainModelToken(it.s);
+        const tpNorm = plainModelToken(stripDimensionsFromProductText(it.tp));
+        const moClean = stripDimensionsFromProductText(it.mo).toUpperCase();
+        const moNorm = plainModelToken(moClean);
+
+        if (
+            moNorm &&
+            moNorm.length >= 2 &&
+            !GENERIC_GROUP_MODELS.has(moNorm) &&
+            moNorm !== tpNorm &&
+            moNorm !== skuNorm &&
+            !/^[\d\s.,xX*×\/-]+$/.test(moNorm)
+        ) {
+            const moWords = moNorm.split(' ').filter(Boolean);
+            const allGeneric = moWords.every(w => GENERIC_GROUP_MODELS.has(w) || /^\d+$/.test(w));
+            if (!allGeneric) return moClean;
+        }
+
+        // Respaldo: extraer nombre real de colección/modelo desde NOMBRE cuando MODELO venía genérico (ej. "COLCHON BERRY KING SIZE" -> "BERRY")
+        const nomClean = plainModelToken(stripDimensionsFromProductText(it.n));
+        const tpWords = new Set(tpNorm.split(' ').filter(Boolean));
+        const tokens = nomClean.match(/[A-Z0-9]+/g) || [];
+        for (let i = 0; i < tokens.length; i++) {
+            const tok = tokens[i];
+            if (tok.length < 3 || /^\d/.test(tok) || /\d$/.test(tok)) continue;
+            if (tok === skuNorm || tpWords.has(tok) || GENERIC_GROUP_MODELS.has(tok)) continue;
+            if (/^(DE|DEL|LA|EL|LOS|LAS|CON|SIN|EN|Y|PARA|POR|SIZE|KS|QS|MAT|IND|PC|PZ|PZAS|MTS|CM|EXPO|ORIGINAL|PRINT|BCO|NGO|GRS|CL|OSC)$/.test(tok)) {
+                continue;
+            }
+            return tok;
+        }
+        return '';
+    }
+
+    function computeCategoryGroupIdentity(it) {
+        const skuKey = String((it && it.s) || '').trim().toUpperCase();
+        const tp = stripDimensionsFromProductText(it && it.tp).toUpperCase();
+        const distinctMo = resolveDistinctGroupModel(it);
+        if (tp && distinctMo) {
+            const tpPad = ' ' + plainModelToken(tp) + ' ';
+            const moPad = ' ' + plainModelToken(distinctMo) + ' ';
+            const title = tpPad.indexOf(moPad) !== -1 ? tp : (tp + ' ' + distinctMo);
+            return {
+                key: normalizePlain(title) || ('sku_' + skuKey.toLowerCase()),
+                title: title,
+                mo: distinctMo
+            };
+        }
+        const fallbackTitle = stripDimensionsFromProductText((it && (it.n || it.s)) || '').toUpperCase();
+        return {
+            key: 'sku_' + skuKey.toLowerCase(),
+            title: fallbackTitle || skuKey,
+            mo: cleanStr(it && it.mo).toUpperCase()
+        };
+    }
+
     function computeGroupTitle(it) {
-        const tp = stripDimensionsFromProductText(it.tp).toUpperCase();
-        const mo = stripDimensionsFromProductText(it.mo).toUpperCase();
-        if (tp && mo) return tp + ' ' + mo;
-        return stripDimensionsFromProductText(it.n || it.s).toUpperCase();
+        return computeCategoryGroupIdentity(it).title;
     }
 
     // ------------------------------------------------------------------------
-    // CATEGORÍAS PRINCIPALES, SUBCATEGORÍAS (A-Z) Y FILTROS DE DISPONIBILIDAD (STOCK / LPPT / LPPT+STOCK)
+    // CATEGORÍAS PRINCIPALES, SUBCATEGORÍAS (ORDEN COMERCIAL PROTAGONISTA) Y FILTROS DE DISPONIBILIDAD
     // ------------------------------------------------------------------------
     const MAIN_CATEGORY_ORDER = [
-        'COMEDORES',
         'SALAS',
+        'COMEDORES',
         'RECÁMARAS',
         'COMPLEMENTOS',
         'ESPEJOS Y ACCESORIOS'
     ];
 
     const SUBCATEGORIES_BY_MAIN = {
-        'COMEDORES': [
-            'BANCOS & BANCAS',
-            'BUFETERAS',
-            'MESAS',
-            'SILLAS'
-        ],
         'SALAS': [
+            'SALAS MODULARES',
+            'SALAS EN L',
+            'SOFAS & LOVESEATS',
+            'SILLONES',
             'FUTONES & SOFÁ CAMAS',
             'MESAS DE CENTRO',
-            'MESAS LATERALES',
-            'SALAS EN L',
-            'SALAS MODULARES',
-            'SILLONES',
-            'SOFAS & LOVESEATS'
+            'MESAS LATERALES'
+        ],
+        'COMEDORES': [
+            'MESAS',
+            'SILLAS',
+            'BANCOS & BANCAS',
+            'BUFETERAS'
         ],
         'RECÁMARAS': [
+            'CAMAS',
+            'CABECERAS',
+            'COLCHONES',
             'BASES',
             'BURÓS',
-            'CABECERAS',
-            'CAMAS',
-            'COLCHONES',
             'COMODAS Y TOCADORES',
             'PIE DE CAMA'
         ],
         'COMPLEMENTOS': [
+            'MUEBLES PARA TV',
             'CREDENZAS',
-            'ESCRITORIOS',
-            'EXTERIOR',
-            'LIBREROS',
             'MUEBLES DE BAR',
-            'MUEBLES PARA TV'
+            'LIBREROS',
+            'ESCRITORIOS',
+            'EXTERIOR'
         ],
         'ESPEJOS Y ACCESORIOS': [
-            'ACCESORIOS DECORATIVOS',
-            'COJINES & TEXTILES',
-            'CUADROS',
             'ESPEJOS',
-            'LÁMPARAS'
+            'CUADROS',
+            'LÁMPARAS',
+            'COJINES & TEXTILES',
+            'ACCESORIOS DECORATIVOS'
         ]
     };
 
     const MAIN_OF_SUB = {};
-    MAIN_CATEGORY_ORDER.forEach(mainCat => {
+    const MAIN_CAT_RANK = {};
+    const SUB_CAT_RANK = {};
+    let __subRankSeq = 0;
+    MAIN_CATEGORY_ORDER.forEach((mainCat, mIdx) => {
+        MAIN_CAT_RANK[mainCat] = mIdx;
         (SUBCATEGORIES_BY_MAIN[mainCat] || []).forEach(subCat => {
             MAIN_OF_SUB[subCat] = mainCat;
+            SUB_CAT_RANK[subCat] = __subRankSeq++;
         });
     });
     MAIN_OF_SUB['OTROS'] = 'ESPEJOS Y ACCESORIOS';
+    SUB_CAT_RANK['OTROS'] = 999;
+
+    function getMainCategoryRank(mainCat) {
+        return Object.prototype.hasOwnProperty.call(MAIN_CAT_RANK, mainCat) ? MAIN_CAT_RANK[mainCat] : 99;
+    }
+
+    function getSubCategoryRank(subCat) {
+        return Object.prototype.hasOwnProperty.call(SUB_CAT_RANK, subCat) ? SUB_CAT_RANK[subCat] : 999;
+    }
+
+    function compareCommercialGroupOrder(a, b) {
+        const pa = (a && a._hasPhoto) ? 1 : 0;
+        const pb = (b && b._hasPhoto) ? 1 : 0;
+        if (pb !== pa) return pb - pa;
+        const ma = (a && typeof a._mainRank === 'number') ? a._mainRank : 99;
+        const mb = (b && typeof b._mainRank === 'number') ? b._mainRank : 99;
+        if (ma !== mb) return ma - mb;
+        const sa = (a && typeof a._subRank === 'number') ? a._subRank : 999;
+        const sb = (b && typeof b._subRank === 'number') ? b._subRank : 999;
+        if (sa !== sb) return sa - sb;
+        return compareAlphaEs(a && (a.displayTitle || a.title), b && (b.displayTitle || b.title)) ||
+            String((a && a.key) || '').localeCompare(String((b && b.key) || ''));
+    }
 
     const AVAILABILITY_FILTERS = [
         { key: 'STOCK', label: 'STOCK' },
@@ -1370,6 +1492,37 @@
         return parts.join(' · ');
     }
 
+    function buildSinglePieceCoverGroup(it, skuKey, fallbackGroupTitle) {
+        const pieceTitle = (
+            stripDimensionsFromProductText(it.n) ||
+            fallbackGroupTitle ||
+            skuKey
+        ).toUpperCase();
+        const wordList = Array.from(new Set((it._search || '').split(/\s+/).filter(w => w.length >= 2)));
+        return {
+            key: 'all_sku_' + skuKey,
+            title: pieceTitle,
+            displayTitle: pieceTitle,
+            tp: cleanStr(it.tp).toUpperCase(),
+            mo: cleanStr(it.mo).toUpperCase(),
+            items: [it],
+            totalStock: getBodegaPisoStock(it),
+            lpptStock: getLpptStock(it),
+            _hasPhoto: it._hasPhoto ? 1 : 0,
+            _mainRank: it._mainRank,
+            _subRank: it._subRank,
+            _plain: it._plain || '',
+            _search: it._search || '',
+            _titleSearch: normSearch(pieceTitle),
+            _compact: (it._search || '').replace(/\s+/g, ''),
+            _words: wordList,
+            _stems: new Set(wordList.map(stemEs)),
+            _roots: new Set(wordList.map(rootEs)),
+            _titleTokens: normSearch(pieceTitle).split(/\s+/).filter(Boolean),
+            _modelTokens: it.mo ? normSearch(it.mo).split(/\s+/).filter(Boolean) : []
+        };
+    }
+
     function indexItemsAndGroups() {
         rebuildLiveAutoVocab(allItems);
         allItems.sort((a, b) =>
@@ -1378,8 +1531,10 @@
         );
 
         bySkuMap.clear();
+        singleBySkuMap.clear();
         groupsByKey.clear();
         activeFilteredGroupsByKey.clear();
+        allSingleGroups = [];
         allGroups = [];
 
         for (let i = 0; i < allItems.length; i++) {
@@ -1389,8 +1544,9 @@
             const skuKey = String(it.s || '').trim().toUpperCase();
             if (!skuKey) continue;
 
-            const title = computeGroupTitle(it);
-            const gKey = normalizePlain(title) || skuKey.toLowerCase();
+            const grpId = computeCategoryGroupIdentity(it);
+            const title = grpId.title;
+            const gKey = grpId.key;
             it._groupKey = gKey;
             it._groupTitle = title;
 
@@ -1398,9 +1554,12 @@
             it._main = MAIN_OF_SUB[it._cat] || 'ESPEJOS Y ACCESORIOS';
             it._avail = getItemAvailabilityKind(it);
             it._lpptBucket = getLpptStock(it) >= 1 ? getItemLpptDaysBucket(it) : '';
+            it._hasPhoto = photoUrlForItem(it) ? 1 : 0;
+            it._mainRank = getMainCategoryRank(it._main);
+            it._subRank = getSubCategoryRank(it._cat);
 
             const rawText = [
-                it.s, title, it.n, it.vr, it.tp, it.mo, it.c, it._cat, it._main,
+                it.s, title, it.n, it.vr, it.tp, it.mo, grpId.mo, it.c, it._cat, it._main,
                 it.tl, it.ct, it.md, it.cm, it.mt, it.m, it.p, it.pr
             ].join(' ');
             it._plain = normalizePlain(rawText);
@@ -1413,13 +1572,19 @@
             // oculto (sigue en bySkuMap para conservar partidas previas).
             if (!it._avail) continue;
 
+            // Vista separada pieza por pieza para TODOS
+            const singleEntry = buildSinglePieceCoverGroup(it, skuKey, title);
+            singleBySkuMap.set(skuKey, singleEntry);
+            allSingleGroups.push(singleEntry);
+
+            // Vista agrupada por Modelo + Variantes para CATEGORÍAS
             let grp = groupsByKey.get(gKey);
             if (!grp) {
                 grp = {
                     key: gKey,
                     title: title,
                     tp: cleanStr(it.tp).toUpperCase(),
-                    mo: cleanStr(it.mo).toUpperCase(),
+                    mo: grpId.mo || cleanStr(it.mo).toUpperCase(),
                     items: [],
                     _plainParts: [],
                     _searchParts: []
@@ -1452,6 +1617,9 @@
             ).toUpperCase();
             grp.totalStock = grp.items.reduce((acc, x) => acc + getBodegaPisoStock(x), 0);
             grp.lpptStock = grp.items.reduce((acc, x) => acc + getLpptStock(x), 0);
+            grp._hasPhoto = firstPhotoItem(grp.items) ? 1 : 0;
+            grp._mainRank = grp.items.reduce((m, x) => Math.min(m, typeof x._mainRank === 'number' ? x._mainRank : 99), 99);
+            grp._subRank = grp.items.reduce((m, x) => Math.min(m, typeof x._subRank === 'number' ? x._subRank : 999), 999);
             grp._plain = grp._plainParts.join(' ');
             grp._search = grp._searchParts.join(' ');
             grp._titleSearch = normSearch(grp.displayTitle || grp.title);
@@ -1466,10 +1634,8 @@
             delete grp._searchParts;
         }
 
-        allGroups.sort((a, b) =>
-            compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
-            String(a.key || '').localeCompare(String(b.key || ''))
-        );
+        allSingleGroups.sort(compareCommercialGroupOrder);
+        allGroups.sort(compareCommercialGroupOrder);
     }
 
     function loadCart() {
@@ -1497,17 +1663,10 @@
     }
 
     // ------------------------------------------------------------------------
-    // PORTADA PRINCIPAL (TODOS): TODOS LOS PRODUCTOS CON >= 1 PZ (PRIMERO CON FOTO A-Z Y DEBAJO SIN FOTO A-Z)
+    // PORTADA PRINCIPAL (TODOS): PIEZAS SEPARADAS EN ORDEN COMERCIAL (CON FOTO ARRIBA Y SIN FOTO AL FINAL)
     // ------------------------------------------------------------------------
     function getMainCoverGroups() {
-        const withPhotos = [];
-        const withoutPhotos = [];
-        for (let i = 0; i < allGroups.length; i++) {
-            const g = allGroups[i];
-            if (firstPhotoItem(g.items)) withPhotos.push(g);
-            else withoutPhotos.push(g);
-        }
-        return withPhotos.concat(withoutPhotos);
+        return allSingleGroups;
     }
 
     let activeCategory = 'ALL';
@@ -1543,7 +1702,10 @@
             items: matchedItems,
             displayTitle: singleTitle,
             totalStock: matchedItems.reduce((acc, x) => acc + getBodegaPisoStock(x), 0),
-            lpptStock: matchedItems.reduce((acc, x) => acc + getLpptStock(x), 0)
+            lpptStock: matchedItems.reduce((acc, x) => acc + getLpptStock(x), 0),
+            _hasPhoto: firstPhotoItem(matchedItems) ? 1 : 0,
+            _mainRank: matchedItems.reduce((m, x) => Math.min(m, typeof x._mainRank === 'number' ? x._mainRank : 99), 99),
+            _subRank: matchedItems.reduce((m, x) => Math.min(m, typeof x._subRank === 'number' ? x._subRank : 999), 999)
         });
     }
 
@@ -1565,7 +1727,10 @@
             mo: cleanStr(it.mo).toUpperCase(),
             items: [it],
             totalStock: ownQty,
-            lpptStock: 0
+            lpptStock: 0,
+            _hasPhoto: it._hasPhoto ? 1 : 0,
+            _mainRank: it._mainRank,
+            _subRank: it._subRank
         };
     }
 
@@ -1596,8 +1761,78 @@
         return baseLabel;
     }
 
+    function searchGroupCollection(sourceGroups, rawTrim, scoreByKey) {
+        const qNorm = normSearch(rawTrim);
+        const rawTokens = qNorm.split(/\s+/).filter(Boolean);
+        const meaningfulTokens = rawTokens.filter(t => t.length >= 2 && !SEARCH_STOPWORDS.has(t));
+        const qTokens = meaningfulTokens.length > 0 ? meaningfulTokens : rawTokens;
+        const compactQ = qNorm.replace(/\s+/g, '');
+
+        if (qTokens.length === 0) {
+            return sourceGroups;
+        }
+
+        const candidateList = [];
+        for (let i = 0; i < sourceGroups.length; i++) {
+            const grp = sourceGroups[i];
+            let matchedCount = 0;
+            let totalScore = 0;
+            for (let t = 0; t < qTokens.length; t++) {
+                const sc = scoreTokenInGroup(qTokens[t], grp);
+                if (sc > 0) {
+                    matchedCount++;
+                    totalScore += sc;
+                }
+            }
+            if (compactQ.length >= 4 && grp._compact && grp._compact.indexOf(compactQ) !== -1) {
+                totalScore += 18;
+                if (matchedCount === 0) matchedCount = 1;
+            }
+            if (matchedCount > 0) {
+                candidateList.push({ grp: grp, matched: matchedCount, score: totalScore });
+            }
+        }
+
+        // Prioridad 1: productos donde coinciden todos los términos relevantes de búsqueda
+        let selected = candidateList.filter(entry => entry.matched === qTokens.length);
+
+        // Prioridad 2: si hay varias palabras y ninguna coincide al 100%, mostrar las mejores coincidencias parciales
+        if (selected.length === 0 && candidateList.length > 0) {
+            selected = candidateList;
+        }
+
+        // Prioridad 3: si tampoco hubo coincidencia en búsqueda de 1 palabra, intentar tolerancia extra (2 ediciones / prefijo)
+        if (selected.length === 0 && qTokens.length === 1 && qTokens[0].length >= 4 && !/\d/.test(qTokens[0])) {
+            const tok = qTokens[0];
+            const maxExtraDist = tok.length >= 5 ? 2 : 1;
+            const prefix = tok.slice(0, 3);
+            for (let i = 0; i < sourceGroups.length; i++) {
+                const grp = sourceGroups[i];
+                let extraScore = 0;
+                for (let wi = 0; wi < grp._words.length; wi++) {
+                    const w = grp._words[wi];
+                    if (w.length < 3) continue;
+                    const d = editDistanceBounded(tok, w, maxExtraDist);
+                    if (d <= maxExtraDist) {
+                        extraScore = Math.max(extraScore, d === 1 ? 8 : 5);
+                    } else if (prefix.length >= 3 && w.startsWith(prefix)) {
+                        extraScore = Math.max(extraScore, 4);
+                    }
+                }
+                if (extraScore > 0) {
+                    selected.push({ grp: grp, matched: 1, score: extraScore });
+                }
+            }
+        }
+
+        selected.forEach(entry => {
+            scoreByKey.set(entry.grp.key, entry);
+        });
+        return selected.map(entry => entry.grp);
+    }
+
     // ------------------------------------------------------------------------
-    // FILTRADO AGRUPADO POR MODELO + BÚSQUEDA POR COINCIDENCIAS + ESCÁNER SKU
+    // FILTRADO: EN TODOS SEPARADO POR PIEZA (ORDEN COMERCIAL) · EN CATEGORÍAS AGRUPADO POR MODELO + VARIANTES
     // (BOTÓN STOCK: PIEZAS CON MAYOR CANTIDAD FÍSICA SIN CONTAR LPPT)
     // ------------------------------------------------------------------------
     function applyFilter(query, preserveCount) {
@@ -1608,88 +1843,33 @@
         isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
         activeFilteredGroupsByKey.clear();
 
-        const exactHitItem = rawTrim ? bySkuMap.get(rawTrim.toUpperCase()) : null;
+        const exactSkuUpper = rawTrim ? rawTrim.toUpperCase() : '';
+        const exactHitItem = exactSkuUpper ? bySkuMap.get(exactSkuUpper) : null;
         const isExactSkuHit = !!(exactHitItem && isQuotableItem(exactHitItem));
         const scoreByKey = new Map();
 
         let baseGroups = [];
-        if (isMainCoverActive) {
-            baseGroups = getMainCoverGroups();
-        } else if (!rawTrim) {
-            baseGroups = allGroups;
-        } else {
-            if (exactHitItem && !isQuotableItem(exactHitItem)) {
+        if (activeCategory === 'ALL') {
+            if (!rawTrim) {
+                baseGroups = getMainCoverGroups();
+            } else if (exactHitItem && !isQuotableItem(exactHitItem)) {
                 baseGroups = [];
+            } else if (isExactSkuHit && singleBySkuMap.has(exactSkuUpper)) {
+                baseGroups = [singleBySkuMap.get(exactSkuUpper)];
+            } else {
+                baseGroups = searchGroupCollection(allSingleGroups, rawTrim, scoreByKey);
+            }
+        } else {
+            if (!rawTrim) {
+                baseGroups = allGroups;
+            } else if (exactHitItem && !isQuotableItem(exactHitItem)) {
+                baseGroups = [];
+            } else if (isExactSkuHit && singleBySkuMap.has(exactSkuUpper)) {
+                baseGroups = [singleBySkuMap.get(exactSkuUpper)];
             } else if (isExactSkuHit && groupsByKey.has(exactHitItem._groupKey)) {
                 baseGroups = [groupsByKey.get(exactHitItem._groupKey)];
             } else {
-                const qNorm = normSearch(rawTrim);
-                const rawTokens = qNorm.split(/\s+/).filter(Boolean);
-                const meaningfulTokens = rawTokens.filter(t => t.length >= 2 && !SEARCH_STOPWORDS.has(t));
-                const qTokens = meaningfulTokens.length > 0 ? meaningfulTokens : rawTokens;
-                const compactQ = qNorm.replace(/\s+/g, '');
-
-                if (qTokens.length === 0) {
-                    baseGroups = allGroups;
-                } else {
-                    const candidateList = [];
-                    for (let i = 0; i < allGroups.length; i++) {
-                        const grp = allGroups[i];
-                        let matchedCount = 0;
-                        let totalScore = 0;
-                        for (let t = 0; t < qTokens.length; t++) {
-                            const sc = scoreTokenInGroup(qTokens[t], grp);
-                            if (sc > 0) {
-                                matchedCount++;
-                                totalScore += sc;
-                            }
-                        }
-                        if (compactQ.length >= 4 && grp._compact && grp._compact.indexOf(compactQ) !== -1) {
-                            totalScore += 18;
-                            if (matchedCount === 0) matchedCount = 1;
-                        }
-                        if (matchedCount > 0) {
-                            candidateList.push({ grp: grp, matched: matchedCount, score: totalScore });
-                        }
-                    }
-
-                    // Prioridad 1: productos donde coinciden todos los términos relevantes de búsqueda
-                    let selected = candidateList.filter(entry => entry.matched === qTokens.length);
-
-                    // Prioridad 2: si hay varias palabras y ninguna coincide al 100%, mostrar las mejores coincidencias parciales
-                    if (selected.length === 0 && candidateList.length > 0) {
-                        selected = candidateList;
-                    }
-
-                    // Prioridad 3: si tampoco hubo coincidencia en búsqueda de 1 palabra, intentar tolerancia extra (2 ediciones / prefijo)
-                    if (selected.length === 0 && qTokens.length === 1 && qTokens[0].length >= 4 && !/\d/.test(qTokens[0])) {
-                        const tok = qTokens[0];
-                        const maxExtraDist = tok.length >= 5 ? 2 : 1;
-                        const prefix = tok.slice(0, 3);
-                        for (let i = 0; i < allGroups.length; i++) {
-                            const grp = allGroups[i];
-                            let extraScore = 0;
-                            for (let wi = 0; wi < grp._words.length; wi++) {
-                                const w = grp._words[wi];
-                                if (w.length < 3) continue;
-                                const d = editDistanceBounded(tok, w, maxExtraDist);
-                                if (d <= maxExtraDist) {
-                                    extraScore = Math.max(extraScore, d === 1 ? 8 : 5);
-                                } else if (prefix.length >= 3 && w.startsWith(prefix)) {
-                                    extraScore = Math.max(extraScore, 4);
-                                }
-                            }
-                            if (extraScore > 0) {
-                                selected.push({ grp: grp, matched: 1, score: extraScore });
-                            }
-                        }
-                    }
-
-                    selected.forEach(entry => {
-                        scoreByKey.set(entry.grp.key, entry);
-                    });
-                    baseGroups = selected.map(entry => entry.grp);
-                }
+                baseGroups = searchGroupCollection(allGroups, rawTrim, scoreByKey);
             }
         }
 
@@ -1715,8 +1895,11 @@
             } else {
                 for (let i = 0; i < baseGroups.length; i++) {
                     const grp = baseGroups[i];
-                    const matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, activeCategory, activeSubCategory));
+                    let matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, activeCategory, activeSubCategory));
                     if (matchedItems.length > 0) {
+                        if (rawTrim) {
+                            matchedItems = filterItemsMatchingSearchIfSubset(matchedItems, rawTrim);
+                        }
                         const viewGrp = buildFilteredGroupView(grp, matchedItems);
                         if (viewGrp) {
                             activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
@@ -1730,7 +1913,7 @@
             filteredGroups = baseGroups.slice();
         }
 
-        // En STOCK: ordenar de mayor a menor cantidad física en Bodega/Piso (sin contar LPPT); en el resto: A-Z automático
+        // En STOCK: mayor a menor cantidad física; en búsquedas: relevancia + orden comercial; en TODOS y CATEGORÍAS: foto arriba + jerarquía comercial + A-Z
         if (activeCategory === 'STOCK' && !isExactSkuHit) {
             if (rawTrim && scoreByKey.size > 0) {
                 filteredGroups.sort((a, b) => {
@@ -1759,22 +1942,10 @@
                 const tierB = sb.score >= 12 ? 2 : 1;
                 return (sb.matched - sa.matched) ||
                     (tierB - tierA) ||
-                    compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
-                    String(a.key || '').localeCompare(String(b.key || ''));
-            });
-        } else if (isMainCoverActive) {
-            filteredGroups.sort((a, b) => {
-                const pa = firstPhotoItem(a.items) ? 1 : 0;
-                const pb = firstPhotoItem(b.items) ? 1 : 0;
-                if (pb !== pa) return pb - pa;
-                return compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
-                    String(a.key || '').localeCompare(String(b.key || ''));
+                    compareCommercialGroupOrder(a, b);
             });
         } else {
-            filteredGroups.sort((a, b) =>
-                compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
-                String(a.key || '').localeCompare(String(b.key || ''))
-            );
+            filteredGroups.sort(compareCommercialGroupOrder);
         }
 
         renderCategoryBar();
@@ -1908,7 +2079,7 @@
             '<button type="button" class="' + cls + (isActive ? ' active' : '') + '" ' + attr + '="' + escapeHtml(val) + '">' + escapeHtml(label) + '</button>';
 
         const pills = [
-            pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allGroups.length + ')', activeCategory === 'ALL')
+            pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allSingleGroups.length + ')', activeCategory === 'ALL')
         ];
         MAIN_CATEGORY_ORDER.forEach(c => {
             const cnt = mainCounts.get(c) || 0;
@@ -2078,6 +2249,7 @@
                     buildThumbHtml(firstPhotoItem(grp.items)) +
                     '<div class="min-w-0 flex-1 pr-2">' +
                         '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
+                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + grp.items.length + ' variantes</div>' +
                     '</div>' +
                     '<svg class="w-4 h-4 shrink-0" style="color:#A38251;" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
                         '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 5l7 7-7 7"></path>' +

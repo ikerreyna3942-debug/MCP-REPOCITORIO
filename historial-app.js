@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v57 · SW v16',
+            version: 'v58 · SW v17',
             commit: 'Actual',
+            date: '16/11/2026',
+            module: 'inventario-app.js · inventario.html · inventario-sw.js',
+            title: 'Acomodo dual: piezas separadas en TODOS con orden comercial y agrupación por modelo real en Categorías',
+            summary: 'En TODOS se muestran todas las piezas cotizables por separado (con su SKU y botón + directo) ordenadas por foto y jerarquía comercial (Salas → Comedores → Recámaras → Complementos → Espejos y Accesorios). En las Categorías se agrupan automáticamente por modelo real con contador de variantes, excluyendo sustantivos genéricos (Funda, Colchón, Follaje, Figura, etc.) para evitar falsos grupos.'
+        },
+        {
+            version: 'v57 · SW v16',
+            commit: '2ed738a',
             date: '14/11/2026',
             module: 'inventario.html · inventario-app.js · inventario-sw.js · AppsScript_Creata_Drive_Sheets.gs',
             title: 'Cabecera móvil ultra-compacta con carrusel táctil de filtros y limpieza de textos en interfaz',
