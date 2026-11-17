@@ -159,6 +159,9 @@
         if (/^(n\/?a|null|undefined|-|\.|sin\s+especificar|no\s+especificado|no\s+aplica|pendiente|por\s+clasificar)$/i.test(s)) {
             return '';
         }
+        if (/^(?:frente|largo|alto|altura|ancho|fondo)\s*[x×*]\s*(?:fondo|ancho|alto|altura|frente|largo)(?:\s*[x×*]\s*(?:alto|altura|fondo|ancho|frente|largo))?$/i.test(s)) {
+            return '';
+        }
         return s;
     }
 
@@ -364,8 +367,9 @@
         s = s
             .replace(/\(\s*\)/g, ' ')
             .replace(/\s+([,.])/g, '$1')
+            .replace(/\b(?:FRENTE|FONDO|ALTO|ALTURA|LARGO|ANCHO)\s*(?:[xX*×yY]\s*(?:FRENTE|FONDO|ALTO|ALTURA|LARGO|ANCHO)\b)+/gi, ' ')
             .replace(/\b(?:CON\s+MEDIDAS?|MEDIDAS?|DIAMETRO|DIÁMETRO|DIAM)\b\.?\s*:?/gi, ' ')
-            .replace(/\s+\b(?:DE|CON\s+MEDIDA)\s*$/i, '')
+            .replace(/\s+\b(?:DE|CON\s+MEDIDA|FRENTE|FONDO|LARGO|ANCHO|ALTO)\s*$/i, '')
             .replace(/\s{2,}/g, ' ')
             .replace(/^[,\s.\-·\/]+|[,\s.\-·\/]+$/g, '')
             .trim();
@@ -624,6 +628,14 @@
     }
 
     const LIVE_TYPE_RULES = [
+        [/\bARBOTANTE\b|^ARB\s+[A-Z]/, 'ARBOTANTE'],
+        [/\bCANDIL\b/, 'CANDIL'],
+        [/\bLAMPARA\s+(?:DE\s+)?(?:PIE|PISO)\b/, 'LAMPARA DE PISO'],
+        [/\bLAMPARA\s+(?:DE\s+)?(?:MESA|BURO)\b/, 'LAMPARA DE MESA'],
+        [/\bLAMPARA\s+(?:DE\s+TECHO\s+)?COLGANTE\b/, 'LAMPARA COLGANTE'],
+        [/\bLAMPARA\b|\bLUMINARIA\b/, 'LAMPARA'],
+        [/\bCAMINO\s+(?:DE\s+)?MESA\b/, 'CAMINO DE MESA'],
+        [/\bMANTEL\b|\bMANTA\s+DE\s+MESA\b/, 'MANTEL'],
         [/\bSILLON\s+OCASIONAL\b/, 'SILLON OCASIONAL'],
         [/\bSOFA\s+CAMA\b/, 'SOFA CAMA'],
         [/^SALA\b|\bSALA\s+MODULAR\b|\bSALA\s+ESQUINERA\b/, 'SALA'],
@@ -668,27 +680,22 @@
         [/\bPAPEL\s+TAPIZ\b|\bDESC-WALL\b|^WALL\b/, 'PAPEL TAPIZ'],
         [/\bARTE\s+OBJETO\b|\bDECORATIVO\s+(?:DE\s+)?PARED\b|\bACCESORIO\s+DE\s+PARED\b/, 'DECORATIVO PARED'],
         [/\bTAPETE\b|\bALFOMBRAS?\b|^T\.\s+[A-Z]/, 'TAPETE'],
-        [/\bARBOTANTE\b|^ARB\s+[A-Z]/, 'ARBOTANTE'],
-        [/\bCANDIL\b/, 'CANDIL'],
-        [/\bLAMPARA\s+(?:DE\s+)?(?:PIE|PISO)\b/, 'LAMPARA DE PISO'],
-        [/\bLAMPARA\s+(?:DE\s+)?MESA\b|\bLAMPARA\s+BURO\b/, 'LAMPARA DE MESA'],
-        [/\bLAMPARA\s+COLGANTE\b|\bCOLGANTE\b/, 'LAMPARA COLGANTE'],
-        [/\bLAMPARA\b|\bLUMINARIA\b/, 'LAMPARA'],
         [/\bCANDELABRO\b|\bPORTAVELAS?\b|\bVELA\b|\bANTORCHA\b/, 'CANDELABRO'],
         [/\bLINTERNA\b|\bFAROL\b/, 'LINTERNA'],
         [/\bMACETA\b|\bMATERA\b/, 'MACETA'],
-        [/\bPLANTA\b|\bARBOL\b|\bPALMA\b|\bFOLLAJE\b|\bVARA\b|\bRAMA\b|\bORQUIDEA\b|\bBONSAI\b/, 'PLANTA DECORATIVA'],
+        [/\bPLANTA\b|\bARBOL\b|\bPALMA\b|\bFOLLAJE\b|\bVARA\b|\bRAMA\b|\bORQUIDEA\b|\bBONSAI\b|\bSUCULENTAS?\b/, 'PLANTA DECORATIVA'],
         [/\bFLORERO\b|\bJARRON\b|\bBOTELLA\b|\bBOTELLON\b|\bTIBOR\b|\bCILINDRO\b|^BASE\b/, 'FLORERO'],
         [/\bCHAROLA\b|\bBANDEJA\b|\bFRUTERO\b|\bENSALADERA\b|\bPLATO\b|\bBOWL\b|\bCENTRO\s+DE\s+MESA\b|\bBATEA\b/, 'CHAROLA'],
         [/\bESCULTURA\b|\bFIGURA\b|\bESFERA\b|\bCORALES?\b|\bCONCHA\b|\bBALLENA\b|\bPECES?\b|\bTORTUGAS?\b|\bPEDESTAL\b/, 'ESCULTURA'],
+        [/\bCOLGANTE\b/, 'LAMPARA COLGANTE'],
         [/\bFUNDA\b/, 'FUNDA DECORATIVA'],
         [/\bRELLENO\b|\bDRACON\b/, 'RELLENO'],
         [/\bALMOHADA\b|\bCOJIN\b/, 'COJIN'],
         [/\bFRAZADA\b|\bMANTA\b|\bDUVET\b|\bEDREDON\b|\bSABANA\b|\bCOLCHA\b|\bCUBRECAMA\b/, 'BLANCOS'],
         [/\bTEL-ARTELL\b|^TELA\s+ARTELL\b|^TELA\b/, 'TELA'],
         [/\bLAMINA\s+DE\s+PVC\b|\bLAMBRIN\b|\bPANEL\b/, 'LAMINA DE PVC'],
-        [/\bMESA\b/, 'MESA'],
         [/\bCRISTAL\b|\bCUBIERTA\b/, 'CRISTAL'],
+        [/\bMESA\b/, 'MESA'],
         [/\bACCESORIO\b|\bCAJA\b|\bALHAJERO\b|\bLIBRO\b|\bCANAST[OA]\b|\bCESTA\b|\bPORTARRETRATO\b|\bRELOJ\b|\bPERCHERO\b/, 'ACCESORIO DECORATIVO']
     ];
 
@@ -814,7 +821,7 @@
         // 3) Completar automáticamente TIPO DE PRODUCTO, MODELO, CATEGORÍA, TELA, MADERA, MATERIALES, VARIANTE y PROVEEDOR
         if (!tp) tp = (prevIt && cleanStr(prevIt.tp)) || deduceProductTypeLive(nom, cat, mo) || 'ACCESORIO DECORATIVO';
         const nomHeadLive = plainUpper(nom).split(/\b(?:INCLUYE|INCL|CON\s+\d|C\/\s*FUNDAS)\b/)[0].trim();
-        if (/^SALA\b/.test(nomHeadLive) && !/COMEDOR|MESA/.test(nomHeadLive)) {
+        if (/^SALA\b/.test(nomHeadLive) && !/^SALA\s+(?:DE\s+)?COMEDOR\b/.test(nomHeadLive)) {
             tp = 'SALA';
         } else if (/^RECAMARA\b/.test(nomHeadLive)) {
             tp = 'RECÁMARA';
@@ -941,42 +948,58 @@
     }
 
     const GENERIC_GROUP_MODELS = new Set([
-        'FUNDA', 'FUNDAS', 'COJIN', 'COJINES', 'RELLENO', 'ALMOHADA', 'ALMOHADAS', 'ALHOMADA',
+        'FUNDA', 'FUNDAS', 'COJIN', 'COJINES', 'RELLENO', 'RELLENOS', 'ALMOHADA', 'ALMOHADAS', 'ALHOMADA',
         'BLANCOS', 'SABANA', 'SABANAS', 'CUBRECAMA', 'COLCHA', 'EDREDON', 'DUVET', 'FRAZADA', 'MANTA', 'MANTAS',
         'SERVILLETA', 'SERVILLETAS', 'INDIVIDUAL', 'INDIVIDUALES', 'MANTEL', 'CAMINO', 'PORTAVASO', 'TOALLA',
         'HILOS', 'SATIN', 'PERCAL', 'MUSELINA', 'WAFFLE', 'TELAR', 'FRANCES', 'STONE', 'WASH', 'RAW', 'EDGE',
         'MICROGEL', 'PLUMA', 'SINT', 'SINTETICO', 'SINTETICA', 'PREMIUM',
         'BOHO', 'RAYA', 'RAYAS', 'FRANJA', 'FRANJAS', 'LINEA', 'LINEAS', 'PUNTOS', 'BLOQUES', 'ESPIGA', 'TEXTURA', 'MANUAL',
         'FLECOS', 'BORLAS', 'POMPON', 'POMPONES', 'LISO', 'LISA', 'BORDADO', 'BORDADA', 'EURO', 'LUMBAR', 'CAL', 'FULL',
+        'VERTICALES', 'BANDA', 'BANDAS', 'BAJO',
         'FOLLAJE', 'ARBOL', 'VARA', 'HOJA', 'HOJAS', 'FLOR', 'FLORES', 'PLANTA', 'PALMA', 'RAMA',
-        'MAPLE', 'EUCALIPTO', 'FICUS', 'OLIVO',
-        'MACETA', 'MACETAS', 'FLORERO', 'JARRON', 'CILINDRO', 'BOTELLON', 'BOTELLA', 'BOLA',
-        'CORAL', 'FIGURA', 'ESCULTURA', 'BALLENA', 'PEZ', 'PECES', 'CARACOL', 'CONCHA', 'ESFERA', 'CANGREJO', 'TIBURON', 'TORTUGA',
-        'GICLEE', 'ABSTRACTO', 'CUADRO', 'LIENZO', 'PINTURA', 'ARTE', 'ATADO', 'DIPTICO', 'TRIPTICO', 'POLIPTICO',
-        'PLATO', 'PLATON', 'TAZON', 'BOWL', 'CHAROLA', 'BANDEJA', 'FRUTERO', 'ENSALADERA', 'TORTILLERO', 'BATEA', 'BOTANERO', 'SERVILLETERO', 'COPA', 'TABLA', 'TABLAS',
-        'PORTAVELA', 'PORTAVELAS', 'CANDELABRO', 'VELA', 'VELAS', 'FAROL', 'LINTERNA', 'ANTORCHA', 'COLGANTE', 'COLGANTES', 'HONGO',
-        'CAJA', 'RELOJ', 'LIBRO', 'LIBROS', 'PORTARRETRATO', 'CANASTO', 'CANASTOS', 'CANASTA', 'CESTA', 'BOLSA', 'BOSA', 'BOTE', 'ALHAJERO',
-        'PEDESTAL', 'ACCESORIO', 'ACCESORIOS', 'DECORATIVO', 'DECORATIVA', 'NAVIDAD', 'PRODUCTO',
+        'MAPLE', 'EUCALIPTO', 'FICUS', 'OLIVO', 'SUCULENTA', 'SUCULENTAS',
+        'MACETA', 'MACETAS', 'MACETERO', 'MACETEROS', 'FLORERO', 'JARRON', 'CILINDRO', 'BOTELLON', 'BOTELLA', 'BOLA',
+        'CORAL', 'FIGURA', 'ESCULTURA', 'BALLENA', 'PEZ', 'PECES', 'CARACOL', 'CONCHA', 'ESFERA', 'CANGREJO', 'TIBURON', 'TORTUGA', 'ESTRELLA', 'ESTRELLAS', 'BARCO', 'BARCOS',
+        'GICLEE', 'ABSTRACTO', 'CUADRO', 'LIENZO', 'PINTURA', 'ARTE', 'ATADO', 'DIPTICO', 'TRIPTICO', 'POLIPTICO', 'HORIZONTAL', 'VERTICAL', 'MAR',
+        'PLATO', 'PLATON', 'TAZON', 'BOWL', 'CHAROLA', 'BANDEJA', 'BANDEJAS', 'FRUTERO', 'ENSALADERA', 'TORTILLERO', 'BATEA', 'BOTANERO', 'SERVILLETERO', 'COPA', 'TABLA', 'TABLAS',
+        'PORTAVELA', 'PORTAVELAS', 'CANDELABRO', 'VELA', 'VELAS', 'FAROL', 'LINTERNA', 'ANTORCHA', 'COLGANTE', 'COLGANTES', 'HONGO', 'PIE', 'CAPELO', 'CAPELOS',
+        'CAJA', 'RELOJ', 'LIBRO', 'LIBROS', 'PORTARRETRATO', 'CANASTO', 'CANASTOS', 'CANASTA', 'CESTA', 'BOLSA', 'BOSA', 'BOTE', 'ALHAJERO', 'CORDON', 'CORDONES',
+        'PEDESTAL', 'ACCESORIO', 'ACCESORIOS', 'ACCECORIO', 'DECORATIVO', 'DECORATIVA', 'NAVIDAD', 'NOCHE', 'PRODUCTO',
         'JGO', 'JUEGO', 'SET', 'PIEZA', 'PIEZAS', 'ESTANDAR', 'ESPECIAL', 'PROYECTO', 'UNIT', 'WALL', 'GABINETE', 'MODULO', 'MODULAR', 'NIDO',
-        'ESQUINA', 'COSTADOS', 'CAPAS', 'CUELLO',
+        'ESQUINA', 'COSTADOS', 'CAPAS', 'CUELLO', 'PATA', 'PATAS', 'PARA', 'PUERTAS', 'CORREDIZAS', 'ENTREPA', 'ENTREPANO', 'VOLADA', 'VOLADAS', 'EXTENDIBLE', 'MOD',
+        'EJECUTIVO', 'SEMI', 'BAR', 'CIRCULAR', 'CONTACTO',
         'COLCHON', 'DESC-COLCHON', 'DESC', 'DTO', 'DESC-DTO', 'CREATA', 'RESORTES', 'BOX', 'SPRING', 'AIR', 'MEMORY', 'FOAM', 'FIRME',
-        'TELA', 'TAPIZ', 'TAPICERIA', 'YUTE', 'JUTE', 'ALGODON', 'LINO', 'PIEL', 'VINIL', 'MADERA', 'CRISTAL', 'MARMOL',
-        'METAL', 'CERAMICA', 'VIDRIO', 'RATTAN', 'HENEQUEN', 'TEJIDO', 'TEJIDA', 'BARRO', 'PIEDRA',
-        'TECA', 'NOGAL', 'PAROTA', 'ENCINO', 'TZALAM', 'PINO', 'ROBLE',
+        'TELA', 'TAPIZ', 'TAPICERIA', 'YUTE', 'JUTE', 'PAJA', 'ALGODON', 'LINO', 'PIEL', 'VINIL', 'MADERA', 'CRISTAL', 'MARMOL', 'PANEL',
+        'METAL', 'CERAMICA', 'VIDRIO', 'RATTAN', 'HENEQUEN', 'CUERDA', 'TEJIDO', 'TEJIDA', 'BARRO', 'PIEDRA', 'TEMPLADO', 'LAMINADO', 'LAMINADA', 'SOLIDA', 'SOLIDO',
+        'TECA', 'TEKA', 'NOGAL', 'PAROTA', 'ENCINO', 'TZALAM', 'PINO', 'ROBLE',
         'BLANCO', 'BLANCA', 'BLANCAS', 'NEGRO', 'NEGRA', 'NEGROS', 'NEGRAS', 'GRIS', 'GRISES',
-        'BEIGE', 'NATURAL', 'CAFE', 'ORO', 'DORADO', 'COBRE', 'BRONCE',
+        'BEIGE', 'NATURAL', 'NAT', 'CAFE', 'CHOCOLATE', 'MARRON', 'ORO', 'DORADO', 'DORADA', 'DORADAS', 'COBRE', 'BRONCE',
         'PLATA', 'AZUL', 'AZULES', 'MARINO', 'MARINA', 'MARINAS', 'AQUA', 'TURQUESA',
-        'VERDE', 'VERDES', 'OLIVA', 'SALVIA', 'ROJO', 'ROJA', 'ROJOS', 'ROJAS', 'VINO', 'TINTO',
-        'AMARILLO', 'AMARILLA', 'MOSTAZA', 'NARANJA', 'ROSA', 'MORADO', 'MORADA', 'VIOLETA', 'TERRACOTA',
+        'VERDE', 'VERDES', 'OLIVA', 'SALVIA', 'ROJO', 'ROJA', 'ROJOS', 'ROJAS', 'VINO', 'TINTO', 'BRICK',
+        'AMARILLO', 'AMARILLA', 'MOSTAZA', 'OCRE', 'NARANJA', 'ROSA', 'MORADO', 'MORADA', 'VIOLETA', 'TERRACOTA',
         'ARENA', 'HUMO', 'CREMA', 'IVORY', 'AMBAR', 'CAMEL', 'TAUPE', 'TOPO', 'MINERAL', 'PERLA', 'HUESO', 'CRUDO', 'CARBON', 'GRAFITO', 'ACERO',
         'CLARO', 'CLARA', 'OSCURO', 'OSCURA', 'OBSCURO', 'OBSCURA',
         'RECTANGULAR', 'CUADRADO', 'CUADRADA', 'REDONDO', 'REDONDA', 'OVAL', 'OVALADO', 'OVALADA',
         'LARGO', 'LARGA', 'ALTO', 'ALTA', 'CHICO', 'CHICA', 'MEDIANO', 'MEDIANA', 'GRANDE',
         'KING', 'QUEEN', 'MATRIMONIAL',
-        'SALA', 'SOFA', 'SILLON', 'SILLA', 'MESA', 'COMEDOR', 'CAMA', 'CABECERA', 'BASE', 'BURO',
+        'SALA', 'SOFA', 'LOVESEAT', 'SILLON', 'SILLA', 'MESA', 'COMEDOR', 'RECAMARA', 'CAMA', 'CABECERA', 'BASE', 'BURO',
         'COMODA', 'TOCADOR', 'CREDENZA', 'BUFETERA', 'LIBRERO', 'ESCRITORIO', 'ARCHIVERO', 'BANCA', 'BANCO',
         'ESPEJO', 'LAMPARA', 'CANDIL', 'TAPETE'
     ]);
+
+    const MODEL_TYPO_ALIASES = {
+        'mikonis': 'mikonos',
+        'sarich': 'saric',
+        'sienna': 'siena',
+        'zenit': 'zenith',
+        'mostera': 'monstera',
+        'licualo': 'licuala',
+        'mangnolia': 'magnolia',
+        'enrredadera': 'enredadera',
+        'pigen': 'pigeon',
+        'seashells': 'seashell',
+        'benzio iii': 'benzio'
+    };
 
     function plainModelToken(s) {
         return String(s || '')
@@ -987,37 +1010,61 @@
             .trim();
     }
 
-    function resolveDistinctGroupModel(it) {
+    function isContextuallyValidModel(tok, domName) {
+        if (tok === 'NIDO' && (domName === 'SALAS_TAPIZ' || domName === 'COMEDORES')) return true;
+        if (tok === 'YUTE' && domName === 'RECAMARAS_MUEBLE') return true;
+        return false;
+    }
+
+    function resolveDistinctGroupModel(it, domInfo) {
         if (!it) return '';
+        const domName = (domInfo && domInfo.domain) || '';
         const skuNorm = plainModelToken(it.s);
         const tpNorm = plainModelToken(stripDimensionsFromProductText(it.tp));
-        const moClean = stripDimensionsFromProductText(it.mo).toUpperCase();
+        let moClean = stripDimensionsFromProductText(it.mo).toUpperCase()
+            .replace(/^OBJETO\s+/i, '')
+            .replace(/-CHAROLA$/i, '')
+            .trim();
         const moNorm = plainModelToken(moClean);
+
+        if (/^(?:LINEA|MODELO|SERIE)\s+\d+[A-Z]?$/.test(moNorm)) {
+            return moClean;
+        }
+        if (isContextuallyValidModel(moNorm, domName)) {
+            return moClean;
+        }
 
         if (
             moNorm &&
             moNorm.length >= 2 &&
             !moNorm.startsWith('DESC-') &&
+            moNorm !== 'MAQ FOR' &&
             !GENERIC_GROUP_MODELS.has(moNorm) &&
             moNorm !== tpNorm &&
             moNorm !== skuNorm &&
             !/^[\d\s.,xX*×\/-]+$/.test(moNorm)
         ) {
             const moWords = moNorm.split(' ').filter(Boolean);
-            const allGeneric = moWords.every(w => GENERIC_GROUP_MODELS.has(w) || /^\d+$/.test(w));
+            const allGeneric = moWords.every(w => (GENERIC_GROUP_MODELS.has(w) && !isContextuallyValidModel(w, domName)) || /^\d+$/.test(w));
             if (!allGeneric) return moClean;
         }
 
         // Respaldo: extraer nombre real de colección/modelo desde NOMBRE cuando MODELO venía genérico (ej. "COLCHON BERRY KING SIZE" -> "BERRY")
         const nomClean = plainModelToken(stripDimensionsFromProductText(it.n));
+        const mModCode = nomClean.match(/\bMOD\.?\s+([A-Z]{1,4}-\d{2,5}[A-Z]?)\b/);
+        if (mModCode) return mModCode[1];
+        const mKnownTwo = nomClean.match(/\b(NUDE\s+BEACH|PALM\s+BEACH|NEW\s+YORK|SANTA\s+MONICA(?:\s+II)?|SANTA\s+FE|SAN\s+MARINO|SAN\s+MIGUEL|SAN\s+THOMAS|EN\s+LA\s+COSTA|GEOMETRIA\s+ARENA|OJO\s+DE\s+GATO|HILO\s+DE\s+ORO|PATA\s+DE\s+GALLO)\b/);
+        if (mKnownTwo) return mKnownTwo[1];
+
         const tpWords = new Set(tpNorm.split(' ').filter(Boolean));
         const tokens = nomClean.match(/[A-Z0-9]+/g) || [];
         for (let i = 0; i < tokens.length; i++) {
             const tok = tokens[i];
+            if (isContextuallyValidModel(tok, domName)) return tok;
             if (tok.length < 3 || /^\d/.test(tok) || /\d$/.test(tok)) continue;
             if (i > 0 && tokens[i - 1] === 'GRIS' && tok === 'OXFORD') continue;
             if (tok === skuNorm || tpWords.has(tok) || GENERIC_GROUP_MODELS.has(tok)) continue;
-            if (/^(DE|DEL|LA|EL|LOS|LAS|CON|SIN|EN|Y|PARA|POR|SIZE|KS|QS|MAT|IND|PC|PZ|PZAS|MTS|CM|EXPO|ORIGINAL|PRINT|BCO|NGO|GRS|CL|OSC)$/.test(tok)) {
+            if (/^(DE|DEL|LA|EL|LOS|LAS|CON|SIN|EN|Y|PARA|POR|SIZE|KS|QS|MAT|IND|PC|PZ|PZAS|MTS|CM|EXPO|ORIGINAL|PRINT|BCO|NGO|GRS|CL|OSC|CARDEADO|BARNIZ|MATTE|ESTRUCTURA|CUBIERTA|IMITACION|RECUBRIMIENTO|POLVO|ALUMBRE|ACABADO|PANTALLA|COLOR|INALAMBRICA|CARGA|MATE|ROCOSA|BRILLANTE|TIPO)$/.test(tok)) {
                 continue;
             }
             return tok;
@@ -1025,10 +1072,39 @@
         return '';
     }
 
+    function canonicalizeGroupModelKey(distinctMo, domInfo) {
+        const domName = (domInfo && domInfo.domain) || '';
+        let k = plainModelToken(distinctMo)
+            .replace(/^DMX-[MN]\b/, 'DMX');
+
+        if (!/^(?:LINEA|MODELO|SERIE)\s+\d/.test(k) && !/^CUADROS/.test(domName)) {
+            k = k.replace(/\s+\d{1,6}$/, '');
+        }
+        if (domName === 'SALAS_TAPIZ') {
+            k = k.replace(/\s+SW$/, '');
+        }
+        const parts = k.split(' ').filter(Boolean);
+        if (
+            parts.length >= 2 &&
+            parts[0].length >= 4 &&
+            !/^(SANTA|SAN|GRAN|CASA|VILLA|LINEA|MODELO|SERIE|BOSQUE|GEOMETRIA|TEXTURA|NUDE|PALM|PATA)$/.test(parts[0]) &&
+            /^(TALL|LOW|HIGH|COBRE|OCRE|CHICO|CHICA|MEDIANO|MEDIANA|GRANDE|GDE|CH|MED)$/.test(parts[parts.length - 1])
+        ) {
+            parts.pop();
+            k = parts.join(' ');
+        }
+        let norm = normalizePlain(k);
+        if (Object.prototype.hasOwnProperty.call(MODEL_TYPO_ALIASES, norm)) {
+            norm = MODEL_TYPO_ALIASES[norm];
+        }
+        return norm;
+    }
+
     function resolveModelDomainInfo(it) {
         const subCat = (it && it._cat) || resolveItemSubcategory(it, resolveItemCategory(it));
         const mainCat = (it && it._main) || MAIN_OF_SUB[subCat] || 'ESPEJOS Y ACCESORIOS';
         const tpTok = plainModelToken(stripDimensionsFromProductText(it && it.tp));
+        const nomTok = plainModelToken(stripDimensionsFromProductText(it && it.n));
         if (mainCat === 'SALAS') {
             if (subCat === 'MESAS DE CENTRO' || subCat === 'MESAS LATERALES') {
                 return { domain: 'MESAS_SALA', familyPrefix: 'MESAS' };
@@ -1039,15 +1115,15 @@
             return { domain: 'COMEDORES', familyPrefix: 'COMEDOR' };
         }
         if (mainCat === 'RECÁMARAS') {
-            if (subCat === 'COLCHONES & BOX') {
+            if (subCat === 'COLCHONES') {
                 return { domain: 'COLCHONES', familyPrefix: 'COLCHÓN' };
             }
             return { domain: 'RECAMARAS_MUEBLE', familyPrefix: 'RECÁMARA' };
         }
         if (mainCat === 'COMPLEMENTOS') {
-            if (subCat === 'BUFETERAS & CREDENZAS') return { domain: 'CREDENZAS', familyPrefix: 'CREDENZA' };
-            if (subCat === 'MUEBLES DE TV') return { domain: 'MUEBLES_TV', familyPrefix: 'MUEBLE DE TV' };
-            if (subCat === 'RECIBIDORES & CONSOLAS') return { domain: 'CONSOLAS', familyPrefix: 'CONSOLA' };
+            if (subCat === 'CREDENZAS') return { domain: 'CREDENZAS', familyPrefix: 'CREDENZA' };
+            if (subCat === 'MUEBLES PARA TV') return { domain: 'MUEBLES_TV', familyPrefix: 'MUEBLE DE TV' };
+            if (subCat === 'MUEBLES DE BAR') return { domain: 'MUEBLES_BAR', familyPrefix: 'BAR' };
             if (subCat === 'EXTERIOR') return { domain: 'EXTERIOR', familyPrefix: 'EXTERIOR' };
             return { domain: 'OFICINA_ESTUDIO', familyPrefix: 'COLECCIÓN' };
         }
@@ -1055,7 +1131,10 @@
             if (tpTok === 'TELA') {
                 return { domain: 'TEX_TELA', familyPrefix: 'TELA' };
             }
-            if (/\b(CAMINO|MANTEL|SERVILLETA|INDIVIDUAL|PORTAVASO)\b/.test(tpTok)) {
+            if (tpTok === 'TAPETE') {
+                return { domain: 'TEX_TAPETE', familyPrefix: 'TAPETE' };
+            }
+            if (/\b(CAMINO|MANTEL|SERVILLETA|SERVILLETAS|INDIVIDUAL|INDIVIDUALES|PORTAVASO|SERVILLETERO)\b/.test(tpTok + ' ' + nomTok)) {
                 return { domain: 'TEX_MESA', familyPrefix: tpTok || 'TEXTIL DE MESA' };
             }
             return { domain: 'TEX_HOGAR', familyPrefix: tpTok || 'TEXTILES' };
@@ -1065,8 +1144,23 @@
             const artKey = provTok && provTok !== 'AJUSTE DE INVENTARIO' ? ('CUADROS_' + provTok) : 'CUADROS';
             return { domain: artKey, familyPrefix: tpTok || 'CUADRO' };
         }
-        if (subCat === 'ESPEJOS' || subCat === 'TAPETES' || subCat === 'LÁMPARAS') {
+        if (subCat === 'ESPEJOS' || subCat === 'LÁMPARAS') {
             return { domain: 'ACC_' + subCat, familyPrefix: tpTok || subCat };
+        }
+        if (/^(FLORERO|JARRON|MACETA|BOTELLA|BOTELLON|TIBOR|CILINDRO)$/.test(tpTok)) {
+            return { domain: 'DEC_VASOS_MACETAS', familyPrefix: tpTok };
+        }
+        if (/^(PLANTA DECORATIVA|PLANTA|FOLLAJE|ARBOL|PALMA)$/.test(tpTok)) {
+            return { domain: 'DEC_BOTANICA', familyPrefix: 'PLANTA DECORATIVA' };
+        }
+        if (/^(CHAROLA|BANDEJA|PLATON|PLATO|PLATO DECORATIVO|PLATO HONDO|PLATO HONDO DECORATIVO|SET PLATO|ENSALADERA|FRUTERO|TAZON|BOWL|BATEA)$/.test(tpTok)) {
+            return { domain: 'DEC_MESA_SERVICIO', familyPrefix: tpTok };
+        }
+        if (/^(CANDELABRO|PORTAVELA|PORTAVELAS|VELA|VELAS|LINTERNA|FAROL)$/.test(tpTok)) {
+            return { domain: 'DEC_VELAS', familyPrefix: tpTok };
+        }
+        if (/^(ESCULTURA|FIGURA|CORAL|CONCHA|ESFERA|PEDESTAL|ACCESORIO|ACCESORIOS|ACCECORIO|ACCESORIO DECORATIVO|LIBRO DECORATIVO|BOLSA|CANASTO|CANASTA|CESTA)$/.test(tpTok)) {
+            return { domain: 'DEC_OBJETOS', familyPrefix: tpTok === 'ACCECORIO' ? 'ACCESORIO DECORATIVO' : (tpTok || 'ACCESORIO DECORATIVO') };
         }
         return { domain: 'DEC_' + (tpTok || 'ACC'), familyPrefix: tpTok || 'ACCESORIO' };
     }
@@ -1074,15 +1168,16 @@
     function computeCategoryGroupIdentity(it) {
         const skuKey = String((it && it.s) || '').trim().toUpperCase();
         const tp = stripDimensionsFromProductText(it && it.tp).toUpperCase();
-        const distinctMo = resolveDistinctGroupModel(it);
+        const domInfo = resolveModelDomainInfo(it);
+        const distinctMo = resolveDistinctGroupModel(it, domInfo);
         if (distinctMo) {
-            const domInfo = resolveModelDomainInfo(it);
+            const canonMoKey = canonicalizeGroupModelKey(distinctMo, domInfo);
             const basePrefix = tp || domInfo.familyPrefix;
             const tpPad = ' ' + plainModelToken(basePrefix) + ' ';
             const moPad = ' ' + plainModelToken(distinctMo) + ' ';
             const title = tpPad.indexOf(moPad) !== -1 ? basePrefix : (basePrefix + ' ' + distinctMo);
             return {
-                key: 'dom_' + normalizePlain(domInfo.domain) + '__mo_' + normalizePlain(distinctMo),
+                key: 'dom_' + normalizePlain(domInfo.domain) + '__mo_' + (canonMoKey || normalizePlain(distinctMo)),
                 title: title,
                 mo: distinctMo,
                 familyPrefix: domInfo.familyPrefix
@@ -1240,10 +1335,17 @@
         if (/\b(LAMPARA|CANDIL|ARBOTANTE|LUMINARIA|PLAFON)\b/.test(prodTxt) || cat === 'ILUMINACION') {
             return 'LÁMPARAS';
         }
+        const isFurniturePiece = /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|SILLON(?:ES)?|BUTACAS?|CHAISE|ESQUINEROS?|FUTTON(?:ES)?|FUTON(?:ES)?|OTTOMAN|OTOMAN|POUF|PUFF?|MESAS?\s+(?:DE\s+)?(?:COMEDOR|CENTRO|CENTRAL|LATERAL|AUXILIAR|BAR|TV)|ANTECOMEDOR(?:ES)?|COMEDOR(?:ES)?|SILLAS?|BANCOS?|BANCAS?|TABURETES?|BUFETERAS?|CREDENZAS?|CONSOLAS?|CAVAS?|LIBREROS?|ESCRITORIOS?|CAMAS?|CABECERAS?|BASES?\s+(?:DE\s+)?CAMA|BUROS?|COMODAS?|TOCADOR(?:ES)?|CAJONERAS?|LITERAS?|CUNAS?|COLCHON(?:ES)?|PIE\s+DE\s+CAMA|CAMASTROS?|COLUMPIOS?)\b/.test(tp) ||
+            /^(?:SALA|SOFA|LOVE\s*SEAT|LOVESEAT|SILLON|MESA\s+(?:DE\s+)?(?:COMEDOR|CENTRO|CENTRAL|LATERAL|AUXILIAR)|COMEDOR|SILLA|BANCO|BANCA|BUFETERA|CREDENZA|CAMA|BASE\s+(?:DE\s+)?CAMA|CABECERA|BURO|COMODA|COLCHON)\b/.test(nom);
+
         if (
-            /\b(COJIN(?:ES)?|FUNDA(?:\s+DECORATIVA|\s+RINONERA)?|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|RELLENO|DRACON|COLCHA|EDREDON|SABANA|CUBRECAMA|TOALLA|CAMINO\s+(?:DE\s+)?MESA|MANTEL|INDIVIDUAL(?:ES)?|PORTAVASO|SERVILLETERO)\b/.test(prodTxt) ||
-            /^(?:T\.\s+|TELA\s+|TEL-ARTELL\b|TEL-?FOR\b|TELART\b)/.test(nom) ||
-            /^(?:TELA(?:\s+ARTELL)?|TEL-?FOR|TELART|TAPICERIA|COMPONENTES\s+TAPICERIA|SINTETICO)$/.test(tp)
+            !isFurniturePiece && (
+                /\b(COJIN(?:ES)?|FUNDA(?:\s+DECORATIVA|\s+RINONERA)?|DUVET|FRAZADA|BLANCOS|ALMOHADA|TAPETE|RELLENO|DRACON|COLCHA|EDREDON|SABANA|CUBRECAMA|TOALLA|CAMINO\s+(?:DE\s+)?MESA|MANTEL|PORTAVASO|SERVILLETERO)\b/.test(prodTxt) ||
+                /^INDIVIDUAL(?:ES)?$/.test(tp) ||
+                /^(?:SET\s+(?:DE\s+)?(?:\d+\s+)?)?INDIVIDUAL(?:ES)?\b/.test(nom) ||
+                /^(?:T\.\s+|TELA\s+|TEL-ARTELL\b|TEL-?FOR\b|TELART\b)/.test(nom) ||
+                /^(?:TELA(?:\s+ARTELL)?|TEL-?FOR|TELART|TAPICERIA|COMPONENTES\s+TAPICERIA|SINTETICO)$/.test(tp)
+            )
         ) {
             return 'COJINES & TEXTILES';
         }
@@ -1257,7 +1359,7 @@
             return 'CUADROS';
         }
         if (
-            /^(?:ACCESORIOS?(?:\s+DECORATIVOS?)?|ACCECORIO|FLORERO|JARRON|ESCULTURA|CHAROLA|BANDEJA|FRUTERO|ENSALADERA|CANDELABRO|PORTAVELAS?|PORTARRETRATO|MACETA|PLANTA(?:\s+DECORATIVA)?|FOLLAJE|VELAS?|LIBRO(?:\s+DECORATIVO)?|BOTELLA|BOTELLON|PLATO(?:\s+HONDO)?(?:\s+DECORATIVO)?|PLATON|SET\s+PLATO|TAZON|BATEA|BOLSA|CANAST[OA]|CESTA|LINTERNA|FAROL|CORAL|CONCHA|BOWL|CORDON\s+DECORATIVO|DECORATIVO\s+NAVIDAD|PERCHERO|MAMPARA|BIOMBO|PAPEL\s+TAPIZ|LAMBRIN(?:\s+DECORATIVO)?|LAMINA\s+DE\s+PVC|PISOS?\s+MODULARES?|ARCHIVERO|PEDESTAL|GARANTIA|MAQFOR|PRODUCTO\s+ESPECIAL|SET\s+DE\s+PUERTAS|SET\s+DE\s+EXTENSIONES|BAUL)$/.test(tp) ||
+            /^(?:ACCESORIOS?(?:\s+DECORATIVOS?)?|ACCECORIO|FLORERO|JARRON|ESCULTURA|CHAROLA|BANDEJA|FRUTERO|ENSALADERA|CANDELABRO|PORTAVELAS?|PORTARRETRATO|MACETA|PLANTA(?:\s+DECORATIVA)?|FOLLAJE|VELAS?|LIBRO(?:\s+DECORATIVO)?|BOTELLA|BOTELLON|PLATO(?:\s+HONDO)?(?:\s+DECORATIVO)?|PLATON|SET\s+PLATO|TAZON|BATEA|BOLSA|CANAST[OA]|CESTA|LINTERNA|FAROL|CORAL|CONCHA|BOWL|CORDON\s+DECORATIVO|DECORATIVO\s+NAVIDAD|PERCHERO|MAMPARA|BIOMBO|PAPEL\s+TAPIZ|LAMBRIN(?:\s+DECORATIVO)?|LAMINA\s+DE\s+PVC|PISOS?\s+MODULARES?|ARCHIVERO|PEDESTAL|GARANTIA|MAQFOR|PRODUCTO\s+ESPECIAL|BAUL)$/.test(tp) ||
             /\b(CENTRO\s+DE\s+MESA|RELOJ\s+DE\s+MESA|ADORNO\s+DE\s+MESA|LIBRO\s+DECORATIVO|PLANTA\s+DECORATIVA)\b/.test(prodTxt) ||
             (tp === 'ESCUADRA' && /\b(PATA|CARPINTERIA)\b/.test(allTxt))
         ) {
@@ -1302,7 +1404,10 @@
         if (/\b(COMODAS?|TOCADOR(?:ES)?|CHIFONIERS?|CAJONERAS?)\b/.test(prodTxt)) {
             return 'COMODAS Y TOCADORES';
         }
-        if (/\b(LIBREROS?|ESTANTERIAS?|ESTANTES?|REPISAS?|VITRINAS?)\b/.test(prodTxt)) {
+        if (
+            /\b(LIBREROS?|ESTANTERIAS?|ESTANTES?|REPISAS?|VITRINAS?|PUERTAS\s+PARA\s+LIBRERO)\b/.test(prodTxt) ||
+            (tp === 'SET DE PUERTAS' && /\b(LIBRERO|TRITON)\b/.test(allTxt))
+        ) {
             return 'LIBREROS';
         }
         if (/\b(CREDENZAS?|CONSOLAS?|RECIBIDOR(?:ES)?)\b/.test(prodTxt)) {
@@ -1317,7 +1422,7 @@
         if (/\b(MESAS?\s+LATERAL(?:ES)?|MESAS?\s+AUXILIAR(?:ES)?|MESAS?\s+DE\s+RINCON|MESAS?\s+NIDO|MESAS?\s+OCASIONAL(?:ES)?)\b/.test(prodTxt)) {
             return 'MESAS LATERALES';
         }
-        if (/\b(MESAS?\s+(?:DE\s+|PARA\s+)?COMEDOR|COMEDOR(?:ES)?|ANTECOMEDOR(?:ES)?|DESAYUNADOR(?:ES)?|CUBIERTAS?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA|CRISTAL)|BASES?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA))\b/.test(prodTxt)) {
+        if (/\b(MESAS?\s+(?:DE\s+|PARA\s+)?COMEDOR|COMEDOR(?:ES)?|ANTECOMEDOR(?:ES)?|DESAYUNADOR(?:ES)?|CUBIERTAS?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA|CRISTAL)|BASES?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA)|EXTENSIONES?\s+DE\s+MESA|SET\s+DE\s+EXTENSIONES)\b/.test(prodTxt)) {
             return 'MESAS';
         }
         if (/\bCRISTAL\b/.test(tp)) {
@@ -1620,6 +1725,7 @@
             const gKey = grpId.key;
             it._groupKey = gKey;
             it._groupTitle = title;
+            it._grpMo = grpId.mo || '';
 
             it._avail = getItemAvailabilityKind(it);
             it._lpptBucket = getLpptStock(it) >= 1 ? getItemLpptDaysBucket(it) : '';
@@ -1675,20 +1781,61 @@
             if (it._lpptBucket) grp.lpptBuckets.add(it._lpptBucket);
         }
 
+        const normPieceTypeForGroupTitle = x => {
+            const rawTp = plainModelToken(stripDimensionsFromProductText(x && x.tp));
+            if (!rawTp) return '';
+            if (rawTp === 'SILLON OCASIONAL') return 'SILLON';
+            if (rawTp === 'MESA CENTRAL' || (rawTp === 'MESA' && x && x._cat === 'MESAS DE CENTRO')) return 'MESA DE CENTRO';
+            if (rawTp === 'MESA AUXILIAR' || (rawTp === 'MESA' && x && x._cat === 'MESAS LATERALES')) return 'MESA LATERAL';
+            if (rawTp === 'SILLA COMEDOR') return 'SILLA';
+            if (rawTp === 'BANCO BAR') return 'BANCO';
+            if (rawTp === 'EXTENSIONES DE CABECERA') return 'CABECERA';
+            if (rawTp === 'PUERTAS PARA LIBRERO' || (rawTp === 'SET DE PUERTAS' && x && x._cat === 'LIBREROS')) return 'LIBRERO';
+            if (/^FUNDA(?:\s+DECORATIVA|\s+RINONERA)?(?:\s+(?:CHICA|MEDIANA|GRANDE))?$/.test(rawTp)) return 'FUNDA DECORATIVA';
+            if (rawTp === 'ACCECORIO' || rawTp === 'ACCESORIO' || rawTp === 'ACCESORIOS') return 'ACCESORIO DECORATIVO';
+            return rawTp;
+        };
+
         for (let i = 0; i < allGroups.length; i++) {
             const grp = allGroups[i];
             grp.items.sort((a, b) =>
                 compareAlphaEs(a.n || a.vr || a.s, b.n || b.vr || b.s) ||
                 String(a.s || '').localeCompare(String(b.s || ''))
             );
-            if (grp.items.length > 1 && grp.familyPrefix && grp.mo) {
-                const distinctTypes = new Set(
-                    grp.items.map(x => plainModelToken(stripDimensionsFromProductText(x.tp))).filter(Boolean)
-                );
-                if (distinctTypes.size > 1) {
-                    const fpPad = ' ' + plainModelToken(grp.familyPrefix) + ' ';
-                    const moPad = ' ' + plainModelToken(grp.mo) + ' ';
-                    grp.title = (fpPad.indexOf(moPad) !== -1 ? grp.familyPrefix : (grp.familyPrefix + ' ' + grp.mo)).toUpperCase();
+            if (grp.items.length > 1 && grp.mo) {
+                let bestMo = grp.mo;
+                for (let j = 0; j < grp.items.length; j++) {
+                    const candMo = grp.items[j]._grpMo;
+                    if (!candMo) continue;
+                    const candPlain = normalizePlain(candMo);
+                    const isTypo = Object.prototype.hasOwnProperty.call(MODEL_TYPO_ALIASES, candPlain) && candPlain !== 'benzio iii';
+                    if (isTypo) continue;
+                    if (/\s+(?:SW|II|III|IV)$/.test(plainModelToken(candMo))) {
+                        bestMo = candMo;
+                        break;
+                    }
+                    if (candMo.length < bestMo.length || Object.prototype.hasOwnProperty.call(MODEL_TYPO_ALIASES, normalizePlain(bestMo))) {
+                        bestMo = candMo;
+                    }
+                }
+                grp.mo = bestMo;
+
+                const rawTypes = new Set(grp.items.map(x => plainModelToken(stripDimensionsFromProductText(x.tp))).filter(Boolean));
+                const distinctTypes = new Set(grp.items.map(normPieceTypeForGroupTitle).filter(Boolean));
+                let chosenPrefix = '';
+                if (distinctTypes.size > 1 && grp.familyPrefix) {
+                    chosenPrefix = grp.familyPrefix;
+                } else if (rawTypes.size === 1) {
+                    chosenPrefix = stripDimensionsFromProductText(grp.items[0].tp).toUpperCase();
+                } else if (distinctTypes.size === 1) {
+                    chosenPrefix = Array.from(distinctTypes)[0];
+                } else {
+                    chosenPrefix = grp.familyPrefix || stripDimensionsFromProductText(grp.items[0].tp).toUpperCase();
+                }
+                if (chosenPrefix) {
+                    const fpPad = ' ' + plainModelToken(chosenPrefix) + ' ';
+                    const moPad = ' ' + plainModelToken(bestMo) + ' ';
+                    grp.title = (fpPad.indexOf(moPad) !== -1 ? chosenPrefix : (chosenPrefix + ' ' + bestMo)).toUpperCase();
                     for (let j = 0; j < grp.items.length; j++) {
                         grp.items[j]._groupTitle = grp.title;
                     }

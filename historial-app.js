@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v60 · SW v19',
+            version: 'v61 · SW v20',
             commit: 'Actual',
+            date: '16/11/2026',
+            module: 'INVENTARIO_EN_VIVO (Google Sheets) · inventario-app.js · inventario-data-1/2/3.js · inventario-sw.js',
+            title: 'Unificación exhaustiva de variantes del mismo modelo en TODOS (IRLANDA SW, THOMPSON SW, BENZIO III y familias completas) y limpieza de variantes residuales',
+            summary: 'Normalización canónica de claves de modelo en TODOS (sufijos giratorios SW en salas/sillones, códigos de catálogo, alias ortográficos de ERP y extensiones/puertas del mismo mueble), protección de subcategorías de mobiliario frente a palabras como INDIVIDUAL o COJÍN, y limpieza en INVENTARIO_EN_VIVO de modelos/tipos inconsistentes y variantes residuales FRENTE × FONDO sin tocar fórmulas bloqueadas (F2, S2, AW2, AX2).'
+        },
+        {
+            version: 'v60 · SW v19',
+            commit: 'a4514ac',
             date: '16/11/2026',
             module: 'INVENTARIO_EN_VIVO (Google Sheets) · inventario-app.js · inventario-data-1/2/3.js · inventario-sw.js',
             title: 'Agrupación integral por modelo real en TODOS y enriquecimiento masivo de fichas en INVENTARIO_EN_VIVO desde catálogos COPIA_TRABAJO',
