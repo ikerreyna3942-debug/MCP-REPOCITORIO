@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v58 · SW v17',
+            version: 'v59 · SW v18',
             commit: 'Actual',
+            date: '16/11/2026',
+            module: 'inventario-app.js · inventario.html · inventario-sw.js',
+            title: 'Agrupación por mismo modelo en TODOS y visualización de todas las piezas separadas en Categorías',
+            summary: 'En TODOS se agrupan los productos que pertenecen al mismo modelo real con su contador de variantes (respetando foto arriba, jerarquía comercial y sin falsos grupos en sustantivos genéricos). Al entrar a cualquier Categoría o Subcategoría se muestran todas las piezas individuales por separado con su SKU y botón + directo.'
+        },
+        {
+            version: 'v58 · SW v17',
+            commit: '540fa3a',
             date: '16/11/2026',
             module: 'inventario-app.js · inventario.html · inventario-sw.js',
             title: 'Acomodo dual: piezas separadas en TODOS con orden comercial y agrupación por modelo real en Categorías',

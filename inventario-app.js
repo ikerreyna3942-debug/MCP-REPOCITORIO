@@ -1572,12 +1572,12 @@
             // oculto (sigue en bySkuMap para conservar partidas previas).
             if (!it._avail) continue;
 
-            // Vista separada pieza por pieza para TODOS
+            // Vista separada pieza por pieza para CATEGORÍAS
             const singleEntry = buildSinglePieceCoverGroup(it, skuKey, title);
             singleBySkuMap.set(skuKey, singleEntry);
             allSingleGroups.push(singleEntry);
 
-            // Vista agrupada por Modelo + Variantes para CATEGORÍAS
+            // Vista agrupada por Modelo + Variantes para TODOS
             let grp = groupsByKey.get(gKey);
             if (!grp) {
                 grp = {
@@ -1663,10 +1663,10 @@
     }
 
     // ------------------------------------------------------------------------
-    // PORTADA PRINCIPAL (TODOS): PIEZAS SEPARADAS EN ORDEN COMERCIAL (CON FOTO ARRIBA Y SIN FOTO AL FINAL)
+    // PORTADA PRINCIPAL (TODOS): AGRUPADO POR MISMO MODELO EN ORDEN COMERCIAL (CON FOTO ARRIBA Y SIN FOTO AL FINAL)
     // ------------------------------------------------------------------------
     function getMainCoverGroups() {
-        return allSingleGroups;
+        return allGroups;
     }
 
     let activeCategory = 'ALL';
@@ -1832,7 +1832,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // FILTRADO: EN TODOS SEPARADO POR PIEZA (ORDEN COMERCIAL) · EN CATEGORÍAS AGRUPADO POR MODELO + VARIANTES
+    // FILTRADO: EN TODOS AGRUPADO POR MISMO MODELO + VARIANTES · EN CATEGORÍAS TODAS LAS PIEZAS SEPARADAS
     // (BOTÓN STOCK: PIEZAS CON MAYOR CANTIDAD FÍSICA SIN CONTAR LPPT)
     // ------------------------------------------------------------------------
     function applyFilter(query, preserveCount) {
@@ -1847,19 +1847,46 @@
         const exactHitItem = exactSkuUpper ? bySkuMap.get(exactSkuUpper) : null;
         const isExactSkuHit = !!(exactHitItem && isQuotableItem(exactHitItem));
         const scoreByKey = new Map();
+        const isMainCatSeparated = !!SUBCATEGORIES_BY_MAIN[activeCategory];
 
-        let baseGroups = [];
         if (activeCategory === 'ALL') {
             if (!rawTrim) {
-                baseGroups = getMainCoverGroups();
+                filteredGroups = getMainCoverGroups().slice();
             } else if (exactHitItem && !isQuotableItem(exactHitItem)) {
-                baseGroups = [];
+                filteredGroups = [];
             } else if (isExactSkuHit && singleBySkuMap.has(exactSkuUpper)) {
-                baseGroups = [singleBySkuMap.get(exactSkuUpper)];
+                filteredGroups = [singleBySkuMap.get(exactSkuUpper)];
             } else {
-                baseGroups = searchGroupCollection(allSingleGroups, rawTrim, scoreByKey);
+                const searchedGroups = searchGroupCollection(allGroups, rawTrim, scoreByKey);
+                const nextFiltered = [];
+                for (let i = 0; i < searchedGroups.length; i++) {
+                    const grp = searchedGroups[i];
+                    const matchedItems = filterItemsMatchingSearchIfSubset(grp.items, rawTrim);
+                    const viewGrp = buildFilteredGroupView(grp, matchedItems);
+                    if (viewGrp) {
+                        activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
+                        nextFiltered.push(viewGrp);
+                    }
+                }
+                filteredGroups = nextFiltered;
+            }
+        } else if (isMainCatSeparated) {
+            if (!rawTrim) {
+                filteredGroups = allSingleGroups.filter(grp =>
+                    itemMatchesActiveFilter(grp.items[0], activeCategory, activeSubCategory)
+                );
+            } else if (exactHitItem && !isQuotableItem(exactHitItem)) {
+                filteredGroups = [];
+            } else if (isExactSkuHit && singleBySkuMap.has(exactSkuUpper)) {
+                filteredGroups = [singleBySkuMap.get(exactSkuUpper)];
+            } else {
+                const catSingles = allSingleGroups.filter(grp =>
+                    itemMatchesActiveFilter(grp.items[0], activeCategory, activeSubCategory)
+                );
+                filteredGroups = searchGroupCollection(catSingles, rawTrim, scoreByKey);
             }
         } else {
+            let baseGroups = [];
             if (!rawTrim) {
                 baseGroups = allGroups;
             } else if (exactHitItem && !isQuotableItem(exactHitItem)) {
@@ -1871,46 +1898,46 @@
             } else {
                 baseGroups = searchGroupCollection(allGroups, rawTrim, scoreByKey);
             }
-        }
 
-        if (activeCategory !== 'ALL' && !isExactSkuHit) {
-            const nextFiltered = [];
-            if (activeCategory === 'STOCK') {
-                // Desglose por pieza individual con existencia física en Bodega/Piso (sin contar LPPT)
-                for (let i = 0; i < baseGroups.length; i++) {
-                    const grp = baseGroups[i];
-                    let matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, 'STOCK', activeSubCategory));
-                    if (matchedItems.length > 0) {
-                        matchedItems = filterItemsMatchingSearchIfSubset(matchedItems, rawTrim);
-                        const parentScore = scoreByKey.get(grp.key);
-                        for (let j = 0; j < matchedItems.length; j++) {
-                            const pieceView = buildSinglePieceStockView(grp, matchedItems[j]);
-                            if (pieceView) {
-                                if (parentScore) scoreByKey.set(pieceView.key, parentScore);
-                                nextFiltered.push(pieceView);
+            if (!isExactSkuHit) {
+                const nextFiltered = [];
+                if (activeCategory === 'STOCK') {
+                    // Desglose por pieza individual con existencia física en Bodega/Piso (sin contar LPPT)
+                    for (let i = 0; i < baseGroups.length; i++) {
+                        const grp = baseGroups[i];
+                        let matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, 'STOCK', activeSubCategory));
+                        if (matchedItems.length > 0) {
+                            matchedItems = filterItemsMatchingSearchIfSubset(matchedItems, rawTrim);
+                            const parentScore = scoreByKey.get(grp.key);
+                            for (let j = 0; j < matchedItems.length; j++) {
+                                const pieceView = buildSinglePieceStockView(grp, matchedItems[j]);
+                                if (pieceView) {
+                                    if (parentScore) scoreByKey.set(pieceView.key, parentScore);
+                                    nextFiltered.push(pieceView);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for (let i = 0; i < baseGroups.length; i++) {
+                        const grp = baseGroups[i];
+                        let matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, activeCategory, activeSubCategory));
+                        if (matchedItems.length > 0) {
+                            if (rawTrim) {
+                                matchedItems = filterItemsMatchingSearchIfSubset(matchedItems, rawTrim);
+                            }
+                            const viewGrp = buildFilteredGroupView(grp, matchedItems);
+                            if (viewGrp) {
+                                activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
+                                nextFiltered.push(viewGrp);
                             }
                         }
                     }
                 }
+                filteredGroups = nextFiltered;
             } else {
-                for (let i = 0; i < baseGroups.length; i++) {
-                    const grp = baseGroups[i];
-                    let matchedItems = grp.items.filter(it => itemMatchesActiveFilter(it, activeCategory, activeSubCategory));
-                    if (matchedItems.length > 0) {
-                        if (rawTrim) {
-                            matchedItems = filterItemsMatchingSearchIfSubset(matchedItems, rawTrim);
-                        }
-                        const viewGrp = buildFilteredGroupView(grp, matchedItems);
-                        if (viewGrp) {
-                            activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
-                            nextFiltered.push(viewGrp);
-                        }
-                    }
-                }
+                filteredGroups = baseGroups.slice();
             }
-            filteredGroups = nextFiltered;
-        } else {
-            filteredGroups = baseGroups.slice();
         }
 
         // En STOCK: mayor a menor cantidad física; en búsquedas: relevancia + orden comercial; en TODOS y CATEGORÍAS: foto arriba + jerarquía comercial + A-Z
@@ -2036,11 +2063,6 @@
 
         for (let i = 0; i < allGroups.length; i++) {
             const g = allGroups[i];
-            if (g.mains) {
-                g.mains.forEach(c => {
-                    if (c) mainCounts.set(c, (mainCounts.get(c) || 0) + 1);
-                });
-            }
             if (g.avails) {
                 g.avails.forEach(a => {
                     if (a && a !== 'STOCK' && a !== 'LPPT') availCounts.set(a, (availCounts.get(a) || 0) + 1);
@@ -2052,6 +2074,12 @@
             if (Array.isArray(g.items)) {
                 for (let j = 0; j < g.items.length; j++) {
                     const it = g.items[j];
+                    if (it._main) {
+                        mainCounts.set(it._main, (mainCounts.get(it._main) || 0) + 1);
+                    }
+                    if (SUBCATEGORIES_BY_MAIN[activeCategory] && it._cat && MAIN_OF_SUB[it._cat] === activeCategory) {
+                        subCounts.set(it._cat, (subCounts.get(it._cat) || 0) + 1);
+                    }
                     if (getBodegaPisoStock(it) >= 1) {
                         stockPieceCount++;
                         if (it._main) {
@@ -2064,12 +2092,6 @@
                 g.lpptBuckets.forEach(b => {
                     if (b) lpptRangeCounts.set(b, (lpptRangeCounts.get(b) || 0) + 1);
                 });
-            } else if (SUBCATEGORIES_BY_MAIN[activeCategory] && g.cats) {
-                g.cats.forEach(c => {
-                    if (MAIN_OF_SUB[c] === activeCategory) {
-                        subCounts.set(c, (subCounts.get(c) || 0) + 1);
-                    }
-                });
             }
         }
         availCounts.set('STOCK', stockPieceCount);
@@ -2079,7 +2101,7 @@
             '<button type="button" class="' + cls + (isActive ? ' active' : '') + '" ' + attr + '="' + escapeHtml(val) + '">' + escapeHtml(label) + '</button>';
 
         const pills = [
-            pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allSingleGroups.length + ')', activeCategory === 'ALL')
+            pill('inv-cat-pill', 'data-cat', 'ALL', 'TODOS (' + allGroups.length + ')', activeCategory === 'ALL')
         ];
         MAIN_CATEGORY_ORDER.forEach(c => {
             const cnt = mainCounts.get(c) || 0;
@@ -2574,7 +2596,7 @@
 
     function resolveActiveGroup(groupKey) {
         if (!groupKey) return null;
-        if (activeCategory !== 'ALL' && activeFilteredGroupsByKey.has(groupKey)) {
+        if (activeFilteredGroupsByKey.has(groupKey)) {
             return activeFilteredGroupsByKey.get(groupKey);
         }
         return groupsByKey.get(groupKey) || null;
