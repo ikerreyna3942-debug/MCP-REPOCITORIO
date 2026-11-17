@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v59 · SW v18',
+            version: 'v60 · SW v19',
             commit: 'Actual',
+            date: '16/11/2026',
+            module: 'INVENTARIO_EN_VIVO (Google Sheets) · inventario-app.js · inventario-data-1/2/3.js · inventario-sw.js',
+            title: 'Agrupación integral por modelo real en TODOS y enriquecimiento masivo de fichas en INVENTARIO_EN_VIVO desde catálogos COPIA_TRABAJO',
+            summary: 'Unificación de piezas y variantes del mismo modelo real por familia de mobiliario en TODOS (conservando CATEGORÍAS 100% separadas pieza por pieza), y completado masivo en Google Sheets INVENTARIO_EN_VIVO de Medidas, Tela, Color de Tela, Madera, Color de Madera, Materiales, Categoría, Proveedor y Tiempo de Entrega cruzando NOMBRE/SKU con los catálogos y fichas técnicas de COPIA_TRABAJO sin tocar fórmulas bloqueadas (F2, S2, AW2, AX2).'
+        },
+        {
+            version: 'v59 · SW v18',
+            commit: 'a948fce',
             date: '16/11/2026',
             module: 'inventario-app.js · inventario.html · inventario-sw.js',
             title: 'Agrupación por mismo modelo en TODOS y visualización de todas las piezas separadas en Categorías',
