@@ -2634,6 +2634,9 @@
     };
 
     function buildCardCartControlHtml(skuKey) {
+        if (typeof isGuestSession === 'function' && isGuestSession()) {
+            return '';
+        }
         const key = String(skuKey || '').trim().toUpperCase();
         const inCartQty = cart[key] ? (Number(cart[key].qty) || 0) : 0;
         if (inCartQty > 0) {
@@ -2654,6 +2657,7 @@
         if (!ctrlWrapEl) return;
         ctrlWrapEl.onclick = function (ev) {
             ev.stopPropagation();
+            if (typeof isGuestSession === 'function' && isGuestSession()) return;
             const actBtn = ev.target && ev.target.closest ? ev.target.closest('[data-cart-act]') : null;
             if (!actBtn) return;
             const act = actBtn.getAttribute('data-cart-act');
@@ -3096,10 +3100,21 @@
     let visualDiscActiveSku = '';
 
     window.updateDetailVisualDiscount = function () {
+        const discBox = document.getElementById('detVisualDiscBox');
         const discInp = document.getElementById('detVisualDiscInput');
         const finalBox = document.getElementById('detVisualFinalBox');
         const finalLbl = document.getElementById('detVisualFinalLabel');
         const finalPriceEl = document.getElementById('detVisualFinalPrice');
+        const guestMode = typeof isGuestSession === 'function' && isGuestSession();
+        if (guestMode) {
+            if (discInp) discInp.value = '';
+            if (discBox) discBox.classList.add('hidden');
+            if (finalBox) finalBox.classList.add('hidden');
+            if (finalPriceEl) finalPriceEl.textContent = '';
+            return;
+        }
+        if (discBox) discBox.classList.remove('hidden');
+        if (finalBox) finalBox.classList.remove('hidden');
         if (!finalPriceEl) return;
 
         const baseNum = currentDetailItem ? parsePriceNum(currentDetailItem.pr) : 0;
@@ -3154,6 +3169,7 @@
         const addBtn = document.getElementById('detAddCartBtn');
         const subBtn = document.getElementById('detSubCartBtn');
         const remAllBtn = document.getElementById('detRemoveAllCartBtn');
+        const guestMode = typeof isGuestSession === 'function' && isGuestSession();
 
         if (crumbEl) {
             if (showGroupBack && currentGroup && currentGroup.items.length > 1) {
@@ -3171,7 +3187,7 @@
         }
 
         const keyUpperForDisc = String(it.s || '').toUpperCase();
-        if (visualDiscActiveSku !== keyUpperForDisc) {
+        if (visualDiscActiveSku !== keyUpperForDisc || guestMode) {
             visualDiscActiveSku = keyUpperForDisc;
             if (discInp) discInp.value = '';
         }
@@ -3181,7 +3197,7 @@
         if (nameEl) {
             nameEl.textContent = baseTitle;
         }
-        // Precio adentro del recuadro de inventario + calculadora visual de descuento al costado
+        // Precio adentro del recuadro de inventario + calculadora visual de descuento al costado (oculta para Invitados Solo Ver)
         if (priceEl && priceWrapEl) {
             if (formattedPrice) {
                 priceEl.textContent = formattedPrice;
@@ -3194,16 +3210,22 @@
         }
 
         const key = String(it.s || '').toUpperCase();
-        const q = cart[key] ? (Number(cart[key].qty) || 0) : 0;
-        if (addBtn) {
-            addBtn.classList.remove('hidden');
-            addBtn.textContent = q > 0 ? ('+ Cotización (' + q + ')') : '+ Cotización';
-        }
-        if (subBtn) {
-            subBtn.classList.toggle('hidden', q <= 0);
-        }
-        if (remAllBtn) {
-            remAllBtn.classList.toggle('hidden', q <= 0);
+        const q = (!guestMode && cart[key]) ? (Number(cart[key].qty) || 0) : 0;
+        if (guestMode) {
+            if (addBtn) addBtn.classList.add('hidden');
+            if (subBtn) subBtn.classList.add('hidden');
+            if (remAllBtn) remAllBtn.classList.add('hidden');
+        } else {
+            if (addBtn) {
+                addBtn.classList.remove('hidden');
+                addBtn.textContent = q > 0 ? ('+ Cotización (' + q + ')') : '+ Cotización';
+            }
+            if (subBtn) {
+                subBtn.classList.toggle('hidden', q <= 0);
+            }
+            if (remAllBtn) {
+                remAllBtn.classList.toggle('hidden', q <= 0);
+            }
         }
 
         // Cuadro de 1 sola foto
@@ -3461,6 +3483,7 @@
 
     function canManageProductPhotos() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
+        if (typeof isGuestSession === 'function' && isGuestSession()) return false;
         return !!getAdvisorRoleInfo().isManager;
     }
 
@@ -3928,8 +3951,217 @@
             isProyecto: false,
             isAdmin: true,
             serieLabel: 'ADMINISTRADOR · TODAS LAS TIENDAS'
+        },
+        {
+            tab: 'INVITADOS',
+            branchKey: 'INVITADOS',
+            label: 'Invitado (Solo Ver)',
+            erpStore: 'SOLO LECTURA',
+            orderPrefix: 'INV',
+            quoteType: 'SOLO_VER',
+            isProyecto: false,
+            isGuest: true,
+            serieLabel: 'SOLO VER · INVITADO (SIN COTIZAR NI DESCUENTOS)'
         }
     ];
+
+    const MAX_GUEST_PLACES_PER_EMAIL = 2;
+    const DEVICE_ID_STORAGE_KEY = 'creata_inv_device_id_v1';
+    const DEVICE_ID_COOKIE_NAME = 'creata_inv_dev_id';
+    const GUEST_DEVICES_LOCAL_STORAGE_KEY = 'creata_inv_guest_devices_v1';
+
+    function getOrCreateClientDeviceId() {
+        let devId = '';
+        try {
+            devId = cleanStr(localStorage.getItem(DEVICE_ID_STORAGE_KEY) || '');
+        } catch (e) {}
+        if (!devId && typeof document !== 'undefined' && document.cookie) {
+            const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + DEVICE_ID_COOKIE_NAME + '=([^;]+)'));
+            if (m && m[1]) {
+                try { devId = cleanStr(decodeURIComponent(m[1])); } catch (e) {}
+            }
+        }
+        if (!devId || devId.length < 6) {
+            const randPart = (typeof crypto !== 'undefined' && crypto.randomUUID)
+                ? crypto.randomUUID().replace(/-/g, '').slice(0, 14)
+                : (Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 8));
+            devId = 'dev_' + Date.now().toString(36) + '_' + randPart;
+        }
+        try {
+            localStorage.setItem(DEVICE_ID_STORAGE_KEY, devId);
+        } catch (e) {}
+        try {
+            if (typeof document !== 'undefined') {
+                document.cookie = DEVICE_ID_COOKIE_NAME + '=' + encodeURIComponent(devId) + '; path=/; max-age=' + (400 * 24 * 60 * 60) + '; SameSite=Lax';
+            }
+        } catch (e) {}
+        return devId;
+    }
+
+    function getClientDeviceLabel() {
+        try {
+            const ua = String((typeof navigator !== 'undefined' && navigator.userAgent) || '');
+            let os = 'Dispositivo';
+            if (/iPhone/i.test(ua)) os = 'iPhone';
+            else if (/iPad/i.test(ua)) os = 'iPad';
+            else if (/Android/i.test(ua)) os = 'Android';
+            else if (/Macintosh|Mac OS X/i.test(ua)) os = 'Mac';
+            else if (/Windows/i.test(ua)) os = 'Windows PC';
+            else if (/Linux/i.test(ua)) os = 'Linux';
+
+            let browser = 'Web';
+            if (/Edg\//i.test(ua)) browser = 'Edge';
+            else if (/OPR\/|Opera/i.test(ua)) browser = 'Opera';
+            else if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) browser = 'Chrome';
+            else if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) browser = 'Safari';
+            else if (/Firefox\//i.test(ua)) browser = 'Firefox';
+
+            return os + ' · ' + browser;
+        } catch (e) {
+            return 'Navegador Web';
+        }
+    }
+
+    function parseGuestDevicesFromTextClient(rawText) {
+        const s = cleanStr(rawText);
+        if (!s) return [];
+        const list = [];
+        const seen = {};
+        const re = /(?:(\d+)\)\s*)?([^\[\]|]*?)\[DEV:([A-Za-z0-9_.-]+)\](?:\s*\(([^)]*)\))?/g;
+        let m;
+        while ((m = re.exec(s)) !== null) {
+            const id = cleanStr(m[3]).slice(0, 64);
+            if (!id || seen[id]) continue;
+            seen[id] = true;
+            list.push({
+                id: id,
+                label: cleanStr(m[2]) || 'Dispositivo',
+                stamp: cleanStr(m[4]) || ''
+            });
+            if (list.length >= MAX_GUEST_PLACES_PER_EMAIL) break;
+        }
+        return list;
+    }
+
+    function loadLocalGuestDeviceRegistry() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(GUEST_DEVICES_LOCAL_STORAGE_KEY) || '{}');
+            return (parsed && typeof parsed === 'object') ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function saveLocalGuestDeviceRegistry(regObj) {
+        try {
+            localStorage.setItem(GUEST_DEVICES_LOCAL_STORAGE_KEY, JSON.stringify(regObj || {}));
+        } catch (e) {}
+    }
+
+    function checkGuestDeviceLimitClient(guestRowUser, deviceId, deviceLabel) {
+        const email = String((guestRowUser && guestRowUser.correo) || '').trim().toLowerCase();
+        const devId = cleanStr(deviceId) || getOrCreateClientDeviceId();
+        const devLbl = cleanStr(deviceLabel) || getClientDeviceLabel();
+        const reg = loadLocalGuestDeviceRegistry();
+
+        const sheetDevices = Array.isArray(guestRowUser && guestRowUser.guestDevices)
+            ? guestRowUser.guestDevices
+            : parseGuestDevicesFromTextClient(guestRowUser && guestRowUser.guestDevicesRaw);
+        const colHTxt = cleanStr(guestRowUser && guestRowUser.guestPlacesText);
+        const sheetExplicitZero = /^0\s*\/\s*\d+$/.test(colHTxt) && sheetDevices.length === 0;
+        if (sheetExplicitZero && reg[email]) {
+            delete reg[email];
+            saveLocalGuestDeviceRegistry(reg);
+        }
+
+        const merged = [];
+        const seen = {};
+        const pushDev = function (d) {
+            if (!d || !d.id || seen[d.id] || merged.length >= MAX_GUEST_PLACES_PER_EMAIL) return;
+            seen[d.id] = true;
+            merged.push({
+                id: String(d.id),
+                label: cleanStr(d.label) || 'Dispositivo',
+                stamp: cleanStr(d.stamp) || ''
+            });
+        };
+
+        sheetDevices.forEach(pushDev);
+        if (Array.isArray(reg[email])) {
+            reg[email].forEach(pushDev);
+        }
+
+        let slotIdx = -1;
+        for (let i = 0; i < merged.length; i++) {
+            if (merged[i].id === devId) {
+                slotIdx = i;
+                break;
+            }
+        }
+
+        // Si en la hoja Col H dice "2/2" sin IDs explícitos y este dispositivo no estaba registrado localmente
+        const colHUsedMatch = colHTxt.match(/^(\d+)\s*\/\s*(\d+)$/);
+        const colHUsedNum = colHUsedMatch ? (parseInt(colHUsedMatch[1], 10) || 0) : 0;
+        if (slotIdx === -1 && (merged.length >= MAX_GUEST_PLACES_PER_EMAIL || (sheetDevices.length === 0 && colHUsedNum >= MAX_GUEST_PLACES_PER_EMAIL))) {
+            const usedLabels = merged.map((d, idx) => 'Lugar ' + (idx + 1) + ': ' + (d.label || 'Dispositivo')).join(' · ');
+            return {
+                ok: false,
+                limitReached: true,
+                activePlaces: MAX_GUEST_PLACES_PER_EMAIL,
+                maxPlaces: MAX_GUEST_PLACES_PER_EMAIL,
+                error: 'Este correo de Invitado (' + email + ') ya alcanzó el límite máximo de ' + MAX_GUEST_PLACES_PER_EMAIL + ' lugares/dispositivos abiertos' +
+                    (usedLabels ? (' (' + usedLabels + ')') : '') + '. Solo se permite abrir en 2 lugares por correo.'
+            };
+        }
+
+        const nowStamp = new Date().toLocaleString('es-MX');
+        if (slotIdx >= 0) {
+            merged[slotIdx].label = devLbl || merged[slotIdx].label;
+            merged[slotIdx].stamp = nowStamp;
+        } else {
+            merged.push({
+                id: devId,
+                label: devLbl,
+                stamp: nowStamp
+            });
+            slotIdx = merged.length - 1;
+        }
+
+        reg[email] = merged;
+        saveLocalGuestDeviceRegistry(reg);
+
+        // Sincronizar con Apps Script en segundo plano para dejar constancia en las Columnas H e I de INVITADOS
+        callInvWebAppPost('inv_guest_heartbeat', {
+            email: email,
+            deviceId: devId,
+            deviceLabel: devLbl
+        }, 9000).catch(() => {});
+
+        return {
+            ok: true,
+            slotNumber: slotIdx + 1,
+            activePlaces: merged.length,
+            maxPlaces: MAX_GUEST_PLACES_PER_EMAIL,
+            devices: merged
+        };
+    }
+
+    function isGuestUserObject(u) {
+        if (!u || typeof u !== 'object') return false;
+        if (u.isAdmin || ADMIN_MASTER_EMAILS[String(u.correo || '').trim().toLowerCase()]) return false;
+        if (u.isGuest || u.soloLectura) return true;
+        const tabUp = String(u.sheetTab || u.branchKey || '').trim().toUpperCase();
+        if (tabUp === 'INVITADOS' || tabUp === 'INVITADO') return true;
+        const qtUp = String(u.quoteType || '').trim().toUpperCase();
+        if (qtUp === 'SOLO_VER' || qtUp === 'SOLO LECTURA') return true;
+        const pNorm = String(u.puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        return /INVITAD|SOLO\s*VER|SOLO\s*LECTURA/.test(pNorm);
+    }
+
+    function isGuestSession(sessOpt) {
+        const s = sessOpt !== undefined ? sessOpt : activeAdvisorSession;
+        return isGuestUserObject(s);
+    }
 
     const DEFAULT_ERP_STORES = [
         'CREATA PUERTO CANCUN',
@@ -4059,6 +4291,7 @@
             const cfg = USER_BRANCH_TABS[i];
             if (cfg.tab.toUpperCase() === up || cfg.branchKey.toUpperCase() === up) return cfg;
             if (up === 'COLOSIO' && cfg.tab === 'COLOCIO') return cfg;
+            if ((up === 'INVITADO' || up === 'SOLO VER') && cfg.tab === 'INVITADOS') return cfg;
         }
         if (storeUp) {
             for (let j = 0; j < USER_BRANCH_TABS.length; j++) {
@@ -4070,9 +4303,10 @@
 
     function isManagerSessionUser(uOrPuesto) {
         if (!uOrPuesto) return false;
-        if (typeof uOrPuesto === 'object' && isEmailOrRoleAdmin(uOrPuesto)) return false;
+        if (typeof uOrPuesto === 'object' && (isEmailOrRoleAdmin(uOrPuesto) || isGuestUserObject(uOrPuesto))) return false;
         const rawPuesto = typeof uOrPuesto === 'object' ? (uOrPuesto.puesto || '') : String(uOrPuesto || '');
         const pNorm = String(rawPuesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        if (/INVITAD|SOLO\s*VER|SOLO\s*LECTURA/.test(pNorm)) return false;
         return /GERENTE|\bSUB/.test(pNorm);
     }
 
@@ -4091,7 +4325,7 @@
                 const cfgTab = String(cfg.tab || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
                 const cfgKey = String(cfg.branchKey || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
                 const cfgLbl = String(cfg.label || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-                if (!cfg.isAdmin && (cfgStore === s || cfgTab === s || cfgKey === s || cfgLbl === s)) {
+                if (!cfg.isAdmin && !cfg.isGuest && (cfgStore === s || cfgTab === s || cfgKey === s || cfgLbl === s)) {
                     return cfgStore;
                 }
             }
@@ -4108,6 +4342,28 @@
     function enrichAdvisorLocation(u) {
         if (!u || typeof u !== 'object') return u;
         const cfg = findBranchConfig(u.sheetTab || u.branchKey, u.erpStore);
+        const guestFlag = !!(cfg && cfg.isGuest) || isGuestUserObject(u);
+        if (guestFlag) {
+            return Object.assign({}, u, {
+                sheetTab: u.sheetTab || 'INVITADOS',
+                isAdmin: false,
+                isManager: false,
+                isGuest: true,
+                soloLectura: true,
+                maxDiscountPct: 0,
+                branchKey: 'INVITADOS',
+                branchLabel: u.branchLabel || 'Invitado (Solo Ver)',
+                erpStore: 'SOLO LECTURA',
+                orderPrefix: 'INV',
+                quoteType: 'SOLO_VER',
+                isProyecto: false,
+                mustChangeKey: false,
+                serieLabel: 'SOLO VER · INVITADO (SIN COTIZAR NI DESCUENTOS)',
+                guestSlotNum: Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(u.guestSlotNum) || 1)),
+                guestActivePlaces: Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(u.guestActivePlaces) || 1)),
+                guestMaxPlaces: MAX_GUEST_PLACES_PER_EMAIL
+            });
+        }
         const adminFlag = isEmailOrRoleAdmin(u) || !!(cfg && cfg.isAdmin);
         const managerFlag = !adminFlag && (!!u.isManager || isManagerSessionUser(u));
         const resolvedStore = cleanStr(u.erpAdvisorBranch && adminFlag ? u.erpAdvisorBranch : '') ||
@@ -4120,6 +4376,8 @@
         const enrichedObj = Object.assign({}, u, {
             isAdmin: adminFlag,
             isManager: managerFlag,
+            isGuest: false,
+            soloLectura: false,
             maxDiscountPct: parsedDisc !== null ? parsedDisc : (u.maxDiscountPct !== undefined ? u.maxDiscountPct : null),
             branchKey: adminFlag ? 'ADMIN' : (u.branchKey || (cfg ? cfg.branchKey : '')),
             branchLabel: u.branchLabel || (cfg ? cfg.label : (u.sheetTab || '')),
@@ -4588,27 +4846,60 @@
         lastErpCatalogSyncMs = Date.now();
     }
 
+    function extractEmailFromGuestRowClient(rowArr) {
+        if (!Array.isArray(rowArr)) return '';
+        const preferredOrder = [4, 2, 1, 0, 3];
+        for (let k = 0; k < preferredOrder.length; k++) {
+            const idx = preferredOrder[k];
+            const cell = cleanStr(rowArr[idx]).toLowerCase();
+            if (cell && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cell)) {
+                return cell;
+            }
+        }
+        return '';
+    }
+
+    function deriveGuestNameFromRowClient(rowArr, email) {
+        const c2 = cleanStr(rowArr && rowArr[2]);
+        if (c2 && c2.indexOf('@') === -1 && !/^NOMBRE$/i.test(c2)) return c2;
+        const c1 = cleanStr(rowArr && rowArr[1]);
+        if (c1 && c1.indexOf('@') === -1 && !/^(INVITADO|SOLO\s*VER|MODALIDAD|SUC)$/i.test(c1)) return c1;
+        const localPart = String(email || '').split('@')[0] || 'INVITADO';
+        return localPart.replace(/[._-]+/g, ' ').toUpperCase();
+    }
+
     async function fetchAllAdvisorRowsLiveGviz() {
         await loadErpCatalogLiveFromSheet();
         const localKeyUpdates = loadUpdatedKeysMap();
         const results = await Promise.all(USER_BRANCH_TABS.map(async (cfg) => {
-            const rows = await fetchSheetCsvRows(cfg.tab);
-            if (!rows || rows.length < 2) return [];
+            let rows = await fetchSheetCsvRows(cfg.tab);
+            if (cfg.isGuest && (!rows || !rows.length)) {
+                rows = await fetchSheetCsvRows('invitados');
+                if (!rows || !rows.length) {
+                    rows = await fetchSheetCsvRows('Invitados');
+                }
+                if (!rows || !rows.length) {
+                    callInvWebAppPost('inv_ensure_invitados', {}, 8000).catch(() => {});
+                }
+            }
+            if (!rows || rows.length < 1) return [];
             let headerIdx = -1;
             for (let h = 0; h < Math.min(rows.length, 4); h++) {
                 const hdrRow = rows[h] || [];
-                if (/^CORREO/i.test(cleanStr(hdrRow[4])) || /^NOMBRE/i.test(cleanStr(hdrRow[2]))) {
+                const joinedHdr = hdrRow.map(c => cleanStr(c).toUpperCase()).join(' ');
+                if (/^CORREO/i.test(cleanStr(hdrRow[4])) || /^NOMBRE/i.test(cleanStr(hdrRow[2])) || (cfg.isGuest && /\bCORREO\b/.test(joinedHdr))) {
                     headerIdx = h;
                     break;
                 }
             }
-            if (headerIdx === -1) return [];
+            if (headerIdx === -1 && !cfg.isGuest) return [];
+            const startIdx = headerIdx >= 0 ? (headerIdx + 1) : 0;
             const tabUsers = [];
-            for (let i = headerIdx + 1; i < rows.length; i++) {
+            for (let i = startIdx; i < rows.length; i++) {
                 const r = rows[i] || [];
-                const nombre = cleanStr(r[2]);
-                const puesto = cleanStr(r[3]);
-                const correo = cleanStr(r[4]).toLowerCase();
+                const correo = cfg.isGuest
+                    ? extractEmailFromGuestRowClient(r)
+                    : cleanStr(r[4]).toLowerCase();
                 if (!correo || correo.indexOf('@') === -1) continue;
                 let tempKey = cleanKeyCellValue(r[5]);
                 let defKey = cleanKeyCellValue(r[6]);
@@ -4624,6 +4915,48 @@
                     defKey = localUpd.newKey;
                     tempKey = '';
                 }
+
+                if (cfg.isGuest) {
+                    const guestNombre = deriveGuestNameFromRowClient(r, correo);
+                    const guestPuesto = cleanStr(r[3]) && cleanStr(r[3]).indexOf('@') === -1
+                        ? cleanStr(r[3])
+                        : 'Invitado (Solo Ver)';
+                    const parsedDevs = parseGuestDevicesFromTextClient(colI);
+                    tabUsers.push({
+                        sheetTab: 'INVITADOS',
+                        rowNum: i + 1,
+                        isAdmin: false,
+                        isManager: false,
+                        isGuest: true,
+                        soloLectura: true,
+                        noPasswordRequired: (!tempKey && !defKey),
+                        maxDiscountPct: 0,
+                        branchKey: 'INVITADOS',
+                        branchLabel: cfg.label,
+                        erpStore: 'SOLO LECTURA',
+                        orderPrefix: 'INV',
+                        quoteType: 'SOLO_VER',
+                        isProyecto: false,
+                        serieLabel: cfg.serieLabel,
+                        nombre: guestNombre,
+                        puesto: guestPuesto,
+                        correo: correo,
+                        tempKey: tempKey,
+                        defKey: defKey,
+                        mustChangeKey: false,
+                        erpAdvisorLabel: '',
+                        erpAdvisorId: '',
+                        erpAdvisorBranch: '',
+                        guestPlacesText: colH,
+                        guestDevicesRaw: colI,
+                        guestDevices: parsedDevs,
+                        guestMaxPlaces: MAX_GUEST_PLACES_PER_EMAIL
+                    });
+                    continue;
+                }
+
+                const nombre = cleanStr(r[2]);
+                const puesto = cleanStr(r[3]);
 
                 // Columna H: Nombre y ID del asesor en S Mueblería; Columna I (al costado): Descuento (%)
                 let explicitAdvisorLabel = '';
@@ -4657,6 +4990,8 @@
                     rowNum: i + 1,
                     isAdmin: isAdminUser,
                     isManager: !isAdminUser && isManagerSessionUser(puesto),
+                    isGuest: false,
+                    soloLectura: false,
                     maxDiscountPct: explicitDiscountPct,
                     branchKey: isAdminUser ? 'ADMIN' : cfg.branchKey,
                     branchLabel: cfg.label,
@@ -4681,12 +5016,12 @@
         const flatUsers = results.flat();
         for (let m = 0; m < flatUsers.length; m++) {
             const mu = flatUsers[m];
-            if (!mu || mu.isAdmin || !mu.isManager) continue;
+            if (!mu || mu.isAdmin || mu.isGuest || !mu.isManager) continue;
             const mgrStoreNorm = normalizeQuoteErpStoreClient(mu.erpStore, mu.sheetTab);
             const allowedEmails = [String(mu.correo || '').trim().toLowerCase()];
             for (let k = 0; k < flatUsers.length; k++) {
                 const cu = flatUsers[k];
-                if (!cu || !cu.correo || cu.isAdmin || cu.isManager) continue;
+                if (!cu || !cu.correo || cu.isAdmin || cu.isGuest || cu.isManager) continue;
                 const cuStoreNorm = normalizeQuoteErpStoreClient(cu.erpStore, cu.sheetTab);
                 const cuEmail = String(cu.correo).trim().toLowerCase();
                 if (cuEmail && cuStoreNorm === mgrStoreNorm && allowedEmails.indexOf(cuEmail) === -1) {
@@ -4760,6 +5095,33 @@
         const branchEl = document.getElementById('sessionBranchBadge');
         const erpEl = document.getElementById('sessionErpBadge');
         const switchBtn = document.getElementById('sessionSwitchBranchBtn');
+        const trackQuoteBtn = document.getElementById('headerTrackQuoteBtn');
+        const cartBtn = document.getElementById('headerCartBtn');
+        const guestBadgeWrap = document.getElementById('headerGuestBadgeWrap');
+        const guestBadgeText = document.getElementById('headerGuestBadgeText');
+
+        const guestMode = isGuestSession();
+        if (trackQuoteBtn) {
+            trackQuoteBtn.classList.toggle('hidden', guestMode);
+            trackQuoteBtn.style.display = guestMode ? 'none' : '';
+        }
+        if (cartBtn) {
+            cartBtn.classList.toggle('hidden', guestMode);
+            cartBtn.style.display = guestMode ? 'none' : '';
+        }
+        if (guestBadgeWrap) {
+            if (guestMode && activeAdvisorSession) {
+                const slotNum = Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(activeAdvisorSession.guestSlotNum) || 1));
+                if (guestBadgeText) {
+                    guestBadgeText.textContent = 'SOLO VER · LUGAR ' + slotNum + '/' + MAX_GUEST_PLACES_PER_EMAIL + ' · ' + (activeAdvisorSession.nombre || activeAdvisorSession.correo || 'INVITADO');
+                }
+                guestBadgeWrap.classList.remove('hidden');
+                guestBadgeWrap.style.display = 'inline-flex';
+            } else {
+                guestBadgeWrap.classList.add('hidden');
+                guestBadgeWrap.style.display = 'none';
+            }
+        }
 
         if (currentDetailItem && typeof refreshDetailManagerPhotoControls === 'function') {
             refreshDetailManagerPhotoControls(currentDetailItem, true);
@@ -4774,7 +5136,9 @@
         if (nameEl) nameEl.textContent = activeAdvisorSession.nombre || activeAdvisorSession.correo;
         if (branchEl) {
             const prefix = getStoreFolioPrefix(activeAdvisorSession.erpStore, activeAdvisorSession.orderPrefix);
-            if (activeAdvisorSession.isAdmin) {
+            if (guestMode) {
+                branchEl.textContent = 'INVITADO · SOLO VER (SIN COTIZAR NI DESCUENTOS)';
+            } else if (activeAdvisorSession.isAdmin) {
                 branchEl.textContent = 'ADMINISTRADOR · TODAS LAS TIENDAS';
             } else if (activeAdvisorSession.isProyecto) {
                 branchEl.textContent = 'PROYECTO · FOLIO ' + prefix;
@@ -4783,7 +5147,11 @@
             }
         }
         if (erpEl) {
-            if (activeAdvisorSession.erpAdvisorId) {
+            if (guestMode) {
+                const slotNum = Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(activeAdvisorSession.guestSlotNum) || 1));
+                erpEl.textContent = 'Lugar ' + slotNum + ' de ' + MAX_GUEST_PLACES_PER_EMAIL + ' autorizado';
+                erpEl.classList.remove('hidden');
+            } else if (activeAdvisorSession.erpAdvisorId) {
                 erpEl.textContent = 'Usuario S Mueblería #' + activeAdvisorSession.erpAdvisorId;
                 erpEl.classList.remove('hidden');
             } else {
@@ -4799,7 +5167,7 @@
     }
 
     function applyAdvisorDefaultsToQuoteForm(forceOverwriteStoreAndUser) {
-        if (!activeAdvisorSession) return;
+        if (!activeAdvisorSession || isGuestSession()) return;
         if (!activeAdvisorSession.isAdmin || forceOverwriteStoreAndUser || !quoteDraftMeta.erpStore) {
             quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || 'CREATA PUERTO CANCUN';
             quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
@@ -4831,7 +5199,11 @@
         }
         modal.classList.remove('open');
         renderAdvisorHeaderBar();
-        refreshMyLiveQuotesInfo();
+        if (isGuestSession()) {
+            verifyActiveGuestSessionLive();
+        } else {
+            refreshMyLiveQuotesInfo();
+        }
     }
 
     function promptSessionReauth(reasonMsg, retrySendFlag) {
@@ -4861,9 +5233,11 @@
                 activeAdvisorSession.sheetTab === loc.sheetTab &&
                 activeAdvisorSession.correo === loc.correo;
             const pfx = getStoreFolioPrefix(loc.erpStore, loc.orderPrefix);
-            const modeTag = loc.isAdmin
-                ? 'ADMIN · VER TODO'
-                : (loc.isProyecto ? ('PROYECTO · FOLIO ' + pfx) : ('FOLIO ' + pfx));
+            const modeTag = loc.isGuest
+                ? 'SOLO VER · MÁX 2 LUGARES'
+                : (loc.isAdmin
+                    ? 'ADMIN · VER TODO'
+                    : (loc.isProyecto ? ('PROYECTO · FOLIO ' + pfx) : ('FOLIO ' + pfx)));
             return '<button type="button" data-branch-idx="' + idx + '" ' +
                 'class="w-full text-left rounded-xl border p-3.5 transition flex items-center justify-between gap-3 hover:shadow-sm" ' +
                 'style="border-color:' + (isCurrent ? '#A38251' : '#E1DBC5') + '; background:' + (isCurrent ? '#FAF9F6' : '#FFFFFF') + ';">' +
@@ -4893,6 +5267,24 @@
         if (modal) modal.classList.add('open');
     }
 
+    function refreshGuestReadOnlyUIState() {
+        updateCartBadge();
+        const inp = document.getElementById('invSearchInput');
+        if (Array.isArray(allItems) && allItems.length > 0) {
+            applyFilter(inp ? inp.value : '', true);
+        }
+        const detailModal = document.getElementById('productDetailModal');
+        if (detailModal && detailModal.classList.contains('open')) {
+            if (currentDetailItem) {
+                const crumbEl = document.getElementById('detGroupCrumb');
+                const crumbVisible = !!(crumbEl && !crumbEl.classList.contains('hidden'));
+                renderDetailModal(currentDetailItem, crumbVisible && !!currentGroup);
+            } else if (currentGroup) {
+                renderGroupVariantsStep(currentGroup);
+            }
+        }
+    }
+
     function finalizeLocationChoice(chosenLoc, allLocs, nextOrderFromLogin) {
         const enrichedChosen = enrichAdvisorLocation(chosenLoc);
         const cleanAll = (allLocs || [enrichedChosen]).map(rawU => {
@@ -4902,7 +5294,9 @@
                 rowNum: u.rowNum,
                 isAdmin: !!u.isAdmin,
                 isManager: !!u.isManager,
-                maxDiscountPct: u.maxDiscountPct !== undefined ? u.maxDiscountPct : null,
+                isGuest: !!u.isGuest,
+                soloLectura: !!u.soloLectura,
+                maxDiscountPct: u.isGuest ? 0 : (u.maxDiscountPct !== undefined ? u.maxDiscountPct : null),
                 branchKey: u.branchKey,
                 branchLabel: u.branchLabel,
                 erpStore: u.erpStore,
@@ -4913,11 +5307,14 @@
                 nombre: u.nombre,
                 puesto: u.puesto,
                 correo: u.correo,
-                mustChangeKey: !!u.mustChangeKey,
+                mustChangeKey: !u.isGuest && !!u.mustChangeKey,
                 erpAdvisorLabel: u.erpAdvisorLabel || '',
                 erpAdvisorId: u.erpAdvisorId || '',
                 erpAdvisorBranch: u.erpAdvisorBranch || '',
-                authToken: u.authToken || ''
+                authToken: u.authToken || '',
+                guestSlotNum: u.guestSlotNum || 1,
+                guestActivePlaces: u.guestActivePlaces || 1,
+                guestMaxPlaces: u.guestMaxPlaces || MAX_GUEST_PLACES_PER_EMAIL
             };
             if (Array.isArray(u.branchAdvisorEmails)) {
                 locObj.branchAdvisorEmails = u.branchAdvisorEmails;
@@ -4930,7 +5327,9 @@
             rowNum: enrichedChosen.rowNum,
             isAdmin: !!enrichedChosen.isAdmin,
             isManager: !!enrichedChosen.isManager,
-            maxDiscountPct: enrichedChosen.maxDiscountPct !== undefined ? enrichedChosen.maxDiscountPct : null,
+            isGuest: !!enrichedChosen.isGuest,
+            soloLectura: !!enrichedChosen.soloLectura,
+            maxDiscountPct: enrichedChosen.isGuest ? 0 : (enrichedChosen.maxDiscountPct !== undefined ? enrichedChosen.maxDiscountPct : null),
             branchKey: enrichedChosen.branchKey,
             branchLabel: enrichedChosen.branchLabel,
             erpStore: enrichedChosen.erpStore,
@@ -4941,11 +5340,14 @@
             nombre: enrichedChosen.nombre,
             puesto: enrichedChosen.puesto,
             correo: enrichedChosen.correo,
-            mustChangeKey: !!enrichedChosen.mustChangeKey,
+            mustChangeKey: !enrichedChosen.isGuest && !!enrichedChosen.mustChangeKey,
             erpAdvisorLabel: enrichedChosen.erpAdvisorLabel || '',
             erpAdvisorId: enrichedChosen.erpAdvisorId || '',
             erpAdvisorBranch: enrichedChosen.erpAdvisorBranch || '',
             authToken: enrichedChosen.authToken || '',
+            guestSlotNum: enrichedChosen.guestSlotNum || 1,
+            guestActivePlaces: enrichedChosen.guestActivePlaces || 1,
+            guestMaxPlaces: enrichedChosen.guestMaxPlaces || MAX_GUEST_PLACES_PER_EMAIL,
             allLocations: cleanAll
         };
         if (Array.isArray(enrichedChosen.branchAdvisorEmails)) {
@@ -4955,18 +5357,27 @@
         lastSubmittedQuoteMeta = null;
         myRecentQuotesList = [];
         newlyGeneratedQuoteHighlightKey = '';
-        const cleanLoginFolio = (nextOrderFromLogin && !/^[A-Z]+-\d+$/i.test(String(nextOrderFromLogin)))
-            ? cleanStr(nextOrderFromLogin)
-            : '';
-        if (cleanLoginFolio && sessionObj.erpStore) {
-            liveNextFolioByStore[String(sessionObj.erpStore).toUpperCase()] = cleanLoginFolio;
+        if (sessionObj.isGuest) {
+            cart = {};
+            closeCartModal();
+            currentNextOrderCode = '';
+        } else {
+            const cleanLoginFolio = (nextOrderFromLogin && !/^[A-Z]+-\d+$/i.test(String(nextOrderFromLogin)))
+                ? cleanStr(nextOrderFromLogin)
+                : '';
+            if (cleanLoginFolio && sessionObj.erpStore) {
+                liveNextFolioByStore[String(sessionObj.erpStore).toUpperCase()] = cleanLoginFolio;
+            }
+            currentNextOrderCode = cleanLoginFolio || getEstimatedStoreFolio(sessionObj.erpStore, sessionObj.orderPrefix);
         }
-        currentNextOrderCode = cleanLoginFolio || getEstimatedStoreFolio(sessionObj.erpStore, sessionObj.orderPrefix);
+
         saveAdvisorSession(sessionObj);
         renderMyRecentQuotes([]);
-        applyAdvisorDefaultsToQuoteForm(true);
+        if (!sessionObj.isGuest) {
+            applyAdvisorDefaultsToQuoteForm(true);
+        }
 
-        if (sessionObj.mustChangeKey) {
+        if (sessionObj.mustChangeKey && !sessionObj.isGuest) {
             showAuthBanner('authNewKeyMsg', '', 'err');
             const nk = document.getElementById('authNewKeyInput');
             const ck = document.getElementById('authConfirmKeyInput');
@@ -4983,16 +5394,19 @@
         const modal = document.getElementById('authModal');
         if (modal) modal.classList.remove('open');
         renderAdvisorHeaderBar();
-        refreshMyLiveQuotesInfo();
+        refreshGuestReadOnlyUIState();
+        if (!sessionObj.isGuest) {
+            refreshMyLiveQuotesInfo();
+        }
 
-        if (pendingPdfDownloadRetryOpts) {
+        if (!sessionObj.isGuest && pendingPdfDownloadRetryOpts) {
             const retryPdfOpts = pendingPdfDownloadRetryOpts;
             pendingPdfDownloadRetryOpts = null;
             window.downloadOriginalErpQuotePdf(retryPdfOpts);
             return;
         }
 
-        if (pendingQuoteRetrySendToErp !== null) {
+        if (!sessionObj.isGuest && pendingQuoteRetrySendToErp !== null) {
             const retrySendFlag = pendingQuoteRetrySendToErp;
             pendingQuoteRetrySendToErp = null;
             submitQuoteToSystem(retrySendFlag, true);
@@ -5006,6 +5420,40 @@
         }
     }
 
+    let lastGuestHeartbeatMs = 0;
+    async function verifyActiveGuestSessionLive(forceNow) {
+        if (!activeAdvisorSession || !isGuestSession(activeAdvisorSession)) return;
+        const now = Date.now();
+        if (!forceNow && (now - lastGuestHeartbeatMs) < 45000) return;
+        lastGuestHeartbeatMs = now;
+
+        const email = String(activeAdvisorSession.correo || '').trim().toLowerCase();
+        const deviceId = getOrCreateClientDeviceId();
+        const deviceLabel = getClientDeviceLabel();
+
+        try {
+            const hbRes = await callInvWebAppPost('inv_guest_heartbeat', {
+                email: email,
+                deviceId: deviceId,
+                deviceLabel: deviceLabel
+            }, 9000);
+
+            if (hbRes && hbRes.ok) {
+                if (hbRes.slotNumber) activeAdvisorSession.guestSlotNum = hbRes.slotNumber;
+                if (hbRes.activePlaces) activeAdvisorSession.guestActivePlaces = hbRes.activePlaces;
+                saveAdvisorSession(activeAdvisorSession);
+                renderAdvisorHeaderBar();
+                return;
+            }
+            if (hbRes && !hbRes.unavailable && !hbRes.needsRedeploy && (hbRes.authRequired || hbRes.limitReached)) {
+                const msg = hbRes.error || 'Tu acceso de Invitado alcanzó el límite de 2 lugares o fue actualizado.';
+                window.logoutAdvisorSession();
+                showAuthBanner('authLoginMsg', msg, 'err');
+                return;
+            }
+        } catch (e) {}
+    }
+
     window.submitAdvisorLogin = async function (ev) {
         if (ev && ev.preventDefault) ev.preventDefault();
         const emailEl = document.getElementById('authEmailInput');
@@ -5014,11 +5462,13 @@
 
         const email = cleanStr(emailEl ? emailEl.value : '').toLowerCase();
         const inputKey = cleanStr(keyEl ? keyEl.value : '');
-        if (!email || !inputKey) {
-            showAuthBanner('authLoginMsg', 'Ingresa tu correo electrónico y tu contraseña.', 'err');
+        if (!email) {
+            showAuthBanner('authLoginMsg', 'Ingresa tu correo electrónico.', 'err');
             return;
         }
 
+        const deviceId = getOrCreateClientDeviceId();
+        const deviceLabel = getClientDeviceLabel();
         const preferredTab = ((pendingQuoteRetrySendToErp !== null || pendingPdfDownloadRetryOpts !== null) && activeAdvisorSession && activeAdvisorSession.correo === email)
             ? (activeAdvisorSession.sheetTab || '')
             : '';
@@ -5030,11 +5480,13 @@
         showAuthBanner('authLoginMsg', '', 'err');
 
         try {
-            // 1) Validación directa y emisión de token firmado vía Apps Script WebApp
+            // 1) Validación directa y emisión de token firmado vía Apps Script WebApp (con control de 2 lugares en INVITADOS)
             const cloudRes = await callInvWebAppPost('inv_login', {
                 email: email,
                 accessKey: inputKey,
-                sheetTab: preferredTab
+                sheetTab: preferredTab,
+                deviceId: deviceId,
+                deviceLabel: deviceLabel
             }, 10000);
 
             if (cloudRes && cloudRes.ok) {
@@ -5087,11 +5539,15 @@
                     return;
                 }
             } else if (cloudRes && !cloudRes.unavailable && !cloudRes.needsRedeploy && cloudRes.error) {
-                showAuthBanner('authLoginMsg', cloudRes.error, 'err');
-                return;
+                // Si el WebApp aún no conoce la pestaña INVITADOS (implementación anterior), permitir verificar por lectura directa GViz antes de mostrar error de correo no registrado
+                const isUnknownGuestInOldWebApp = /no est[aá] registrado/i.test(String(cloudRes.error || '')) || /Ingresa tu contrase/i.test(String(cloudRes.error || ''));
+                if (!isUnknownGuestInOldWebApp || cloudRes.limitReached) {
+                    showAuthBanner('authLoginMsg', cloudRes.error, 'err');
+                    return;
+                }
             }
 
-            // 2) Respaldo de lectura directa en vivo desde las hojas de usuarios y plantilla
+            // 2) Respaldo de lectura directa en vivo desde las hojas de usuarios, INVITADOS y plantilla
             const allUsers = await fetchAllAdvisorRowsLiveGviz();
             if (!allUsers.length) {
                 showAuthBanner('authLoginMsg', 'No fue posible consultar las hojas de usuarios. Verifica tu conexión a internet.', 'err');
@@ -5100,23 +5556,52 @@
 
             const emailMatches = allUsers.filter(u => u.correo === email);
             if (!emailMatches.length) {
-                showAuthBanner('authLoginMsg', 'El correo ingresado no aparece registrado en ninguna hoja de sucursal.', 'err');
+                showAuthBanner('authLoginMsg', 'El correo ingresado no aparece registrado en ninguna hoja de sucursal ni en la hoja INVITADOS.', 'err');
                 return;
             }
 
             const validMatches = emailMatches.filter(u => {
+                if (u.isGuest && u.noPasswordRequired) return true;
+                if (!inputKey) return false;
                 if (u.defKey) return keysMatchNormalized(inputKey, u.defKey);
                 if (u.tempKey) return keysMatchNormalized(inputKey, u.tempKey);
                 return false;
             });
 
             if (!validMatches.length) {
-                showAuthBanner('authLoginMsg', 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.', 'err');
+                if (!inputKey) {
+                    showAuthBanner('authLoginMsg', 'Ingresa tu contraseña (temporal o personal) para acceder con tu cuenta.', 'err');
+                } else {
+                    showAuthBanner('authLoginMsg', 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.', 'err');
+                }
                 return;
             }
 
-            const preparedLocs = validMatches.map(u => {
-                const usedTemp = !u.defKey && !!u.tempKey && keysMatchNormalized(inputKey, u.tempKey);
+            // Validar límite estricto de 2 lugares por correo para cuentas de la hoja INVITADOS
+            const checkedMatches = [];
+            let guestLimitErr = '';
+            for (let mIdx = 0; mIdx < validMatches.length; mIdx++) {
+                const cand = validMatches[mIdx];
+                if (cand.isGuest) {
+                    const devRes = checkGuestDeviceLimitClient(cand, deviceId, deviceLabel);
+                    if (!devRes.ok) {
+                        guestLimitErr = devRes.error;
+                        continue;
+                    }
+                    cand.guestSlotNum = devRes.slotNumber;
+                    cand.guestActivePlaces = devRes.activePlaces;
+                    cand.guestMaxPlaces = devRes.maxPlaces;
+                }
+                checkedMatches.push(cand);
+            }
+
+            if (!checkedMatches.length && guestLimitErr) {
+                showAuthBanner('authLoginMsg', guestLimitErr, 'err');
+                return;
+            }
+
+            const preparedLocs = checkedMatches.map(u => {
+                const usedTemp = !u.isGuest && !u.defKey && !!u.tempKey && keysMatchNormalized(inputKey, u.tempKey);
                 return Object.assign({}, u, { mustChangeKey: usedTemp });
             });
 
@@ -5168,7 +5653,7 @@
         };
         renderBranchChoicesStep(
             activeAdvisorSession.allLocations,
-            'Selecciona la ubicación autorizada de tu correo en la que emitirás tus cotizaciones:'
+            'Selecciona la ubicación autorizada de tu correo en la que operarás:'
         );
     };
 
@@ -5279,6 +5764,7 @@
         newlyGeneratedQuoteHighlightKey = '';
         lastSubmittedQuoteMeta = null;
         renderAdvisorHeaderBar();
+        refreshGuestReadOnlyUIState();
         renderMyRecentQuotes([]);
         const keyInp = document.getElementById('authKeyInput');
         if (keyInp) keyInp.value = '';
@@ -5304,7 +5790,7 @@
     }
 
     function filterAllowedGeneratedQuotesClient(rawList) {
-        if (!activeAdvisorSession || !Array.isArray(rawList) || !rawList.length) return [];
+        if (!activeAdvisorSession || isGuestSession() || !Array.isArray(rawList) || !rawList.length) return [];
         const sess = activeAdvisorSession;
         const isAdmin = !!sess.isAdmin;
         const isManager = !isAdmin && (!!sess.isManager || isManagerSessionUser(sess));
@@ -5548,7 +6034,7 @@
     }
 
     async function refreshMyLiveQuotesInfo() {
-        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) {
             renderMyRecentQuotes([]);
             return;
         }
@@ -5936,6 +6422,15 @@
 
     function getAdvisorRoleInfo() {
         const sess = activeAdvisorSession;
+        if (isGuestSession()) {
+            return {
+                puesto: 'INVITADO (SOLO VER)',
+                isAdmin: false,
+                isManager: false,
+                isGuest: true,
+                maxPct: 0
+            };
+        }
         const puestoRaw = cleanStr(sess && sess.puesto);
         const p = String(puestoRaw || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
         const isAdmin = !!(sess && sess.isAdmin) || /ADMINISTRADOR/.test(p);
@@ -6518,7 +7013,7 @@
     };
 
     window.searchErpClientsLive = async function () {
-        if (erpClientSearchInFlight || isActiveQuoteCompleted()) return;
+        if (isGuestSession() || erpClientSearchInFlight || isActiveQuoteCompleted()) return;
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             openAuthModalForStartup();
             return;
@@ -6642,7 +7137,7 @@
     }
 
     window.submitNewErpClientLive = async function () {
-        if (erpClientCreateInFlight || isActiveQuoteCompleted()) return;
+        if (isGuestSession() || erpClientCreateInFlight || isActiveQuoteCompleted()) return;
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             openAuthModalForStartup();
             return;
@@ -6742,7 +7237,7 @@
     };
 
     window.setCartItemDiscount = function (skuRaw, rawPct) {
-        if (isActiveQuoteCompleted()) return;
+        if (isGuestSession() || isActiveQuoteCompleted()) return;
         const key = String(skuRaw || '').trim().toUpperCase();
         if (!cart[key]) return;
         let pct = Number(rawPct);
@@ -6758,6 +7253,19 @@
     };
 
     function syncSkuCartControls(key) {
+        if (isGuestSession()) {
+            const ctrlWraps = document.querySelectorAll('[data-sku-ctrl="' + CSS.escape(key) + '"]');
+            ctrlWraps.forEach(wrapEl => {
+                if (wrapEl.parentNode) wrapEl.parentNode.removeChild(wrapEl);
+            });
+            const addBtn = document.getElementById('detAddCartBtn');
+            const subBtn = document.getElementById('detSubCartBtn');
+            const remAllBtn = document.getElementById('detRemoveAllCartBtn');
+            if (addBtn) addBtn.classList.add('hidden');
+            if (subBtn) subBtn.classList.add('hidden');
+            if (remAllBtn) remAllBtn.classList.add('hidden');
+            return;
+        }
         const q = (!isActiveQuoteCompleted() && cart[key]) ? (Number(cart[key].qty) || 0) : 0;
 
         // Actualizar controles inline (- qty + / +) en fichas de portada, listado y variantes
@@ -6799,6 +7307,7 @@
     }
 
     window.addToCart = function (skuRaw, delta) {
+        if (isGuestSession()) return;
         const key = String(skuRaw || '').trim().toUpperCase();
         if (!key) return;
         const stepDelta = (typeof delta === 'number' && !isNaN(delta)) ? delta : 1;
@@ -6864,6 +7373,7 @@
     };
 
     window.openCartModal = async function () {
+        if (isGuestSession()) return;
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             openAuthModalForStartup();
             return;
@@ -7387,7 +7897,7 @@
 
     window.downloadOriginalErpQuotePdf = async function (opts) {
         const o = opts || {};
-        if (erpPdfDownloadInFlight) return false;
+        if (isGuestSession() || erpPdfDownloadInFlight) return false;
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             if (!o.autoTriggered) openAuthModalForStartup();
             return false;
@@ -7643,7 +8153,7 @@
     }
 
     window.submitQuoteToSystem = async function (sendToErp, confirmed) {
-        if (quoteSubmitInFlight) return;
+        if (isGuestSession() || quoteSubmitInFlight) return;
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             openAuthModalForStartup();
             return;
@@ -8751,6 +9261,9 @@
         liveSyncInFlight = true;
         try {
             syncPendingKeyUpdatesToCloud().catch(() => {});
+            if (isGuestSession()) {
+                verifyActiveGuestSessionLive().catch(() => {});
+            }
             if (Date.now() - lastErpCatalogSyncMs > 60000) {
                 await loadErpCatalogLiveFromSheet().catch(() => {});
             }

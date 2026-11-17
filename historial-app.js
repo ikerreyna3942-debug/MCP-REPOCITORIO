@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v62 · SW v21',
+            version: 'v63 · SW v22',
             commit: 'Actual',
+            date: '17/11/2026',
+            module: 'AppsScript_Creata_Drive_Sheets.gs · inventario-app.js · inventario.html · inventario-sw.js',
+            title: 'Hoja INVITADOS en Google Sheets: acceso de Solo Ver (sin cotizar ni descuentos) y límite estricto de 2 lugares/dispositivos por correo',
+            summary: 'Generación y aseguramiento automático de la pestaña INVITADOS en el documento maestro de Google Sheets (1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8). Cualquier correo listado en INVITADOS ingresa al sistema en modalidad estricta de Solo Ver: sin botones ni funciones de cotización, sin descuentos (0% y ocultando la calculadora de descuentos), sin carga de fotos y con control en tiempo real de máximo 2 lugares/dispositivos registrados por correo (columnas H e I de INVITADOS + ScriptProperties).'
+        },
+        {
+            version: 'v62 · SW v21',
+            commit: '9ef05aa',
             date: '16/11/2026',
             module: 'inventario-app.js · inventario.html · inventario-sw.js',
             title: 'Acomodo y agrupación canónica por Tipo de Mueble + Modelo (coincidiendo variantes cuadradas, circulares, redondas, rectangulares y ovaladas)',
