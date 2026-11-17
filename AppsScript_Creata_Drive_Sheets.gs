@@ -2529,7 +2529,8 @@ function handleInvGuestHeartbeat_(body) {
     slotNumber: devCheck.slotNumber,
     activeCount: devCheck.activeCount,
     maxPlaces: devCheck.maxPlaces,
-    devices: devCheck.devices
+    devices: devCheck.devices,
+    mustChangeKey: !guestMatch.defKey
   };
 }
 
@@ -2741,7 +2742,7 @@ function readAllBranchUsers_(ss, erpAdvisors) {
           correo: correo,
           tempKey: tempKey,
           defKey: defKey,
-          mustChangeKey: false,
+          mustChangeKey: !defKey,
           erpAdvisorLabel: '',
           erpAdvisorId: '',
           erpAdvisorBranch: '',
@@ -2836,7 +2837,7 @@ function sanitizeUserForClient_(u, includeSignedToken) {
     nombre: u.nombre,
     puesto: u.puesto,
     correo: u.correo,
-    mustChangeKey: !isGuest && !!u.mustChangeKey,
+    mustChangeKey: !!u.mustChangeKey,
     erpAdvisorLabel: isGuest ? '' : (u.erpAdvisorLabel || ''),
     erpAdvisorId: isGuest ? '' : (u.erpAdvisorId || ''),
     erpAdvisorBranch: isGuest ? '' : (u.erpAdvisorBranch || '')
@@ -2954,7 +2955,7 @@ function handleInvLogin_(body) {
 
   // Emitir tokens firmados únicamente para las ubicaciones autorizadas de este correo
   const authorizedLocs = checkedMatches.map((u) => {
-    const usedTemp = !u.isGuest && !u.defKey && !!u.tempKey && keysEqualNormalized_(inputKey, u.tempKey);
+    const usedTemp = !u.defKey && ((!!u.tempKey && keysEqualNormalized_(inputKey, u.tempKey)) || (u.isGuest && u.noPasswordRequired));
     const sanitized = sanitizeUserForClient_(u, true);
     sanitized.mustChangeKey = usedTemp;
     if (sanitized.isManager && !sanitized.isAdmin && !sanitized.isGuest) {
@@ -3050,7 +3051,7 @@ function handleInvUpdateKey_(body) {
       if (rowEmail !== email) continue;
       const tempKey = cleanSheetKeyCell_(vals[i][5]);
       const defKey = cleanSheetKeyCell_(vals[i][6]);
-      if (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey)) {
+      if (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey) || (cfg.isGuest && !tempKey && !defKey)) {
         anyAuthorized = true;
       }
       matchedTargets.push({ sh: sh, rowNum: startRow + i, tabName: sh.getName() });

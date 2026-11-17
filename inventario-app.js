@@ -4357,7 +4357,7 @@
                 orderPrefix: 'INV',
                 quoteType: 'SOLO_VER',
                 isProyecto: false,
-                mustChangeKey: false,
+                mustChangeKey: !!u.mustChangeKey,
                 serieLabel: 'SOLO VER · INVITADO (SIN COTIZAR NI DESCUENTOS)',
                 guestSlotNum: Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(u.guestSlotNum) || 1)),
                 guestActivePlaces: Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(u.guestActivePlaces) || 1)),
@@ -4943,7 +4943,7 @@
                         correo: correo,
                         tempKey: tempKey,
                         defKey: defKey,
-                        mustChangeKey: false,
+                        mustChangeKey: !defKey,
                         erpAdvisorLabel: '',
                         erpAdvisorId: '',
                         erpAdvisorBranch: '',
@@ -5307,7 +5307,7 @@
                 nombre: u.nombre,
                 puesto: u.puesto,
                 correo: u.correo,
-                mustChangeKey: !u.isGuest && !!u.mustChangeKey,
+                mustChangeKey: !!u.mustChangeKey,
                 erpAdvisorLabel: u.erpAdvisorLabel || '',
                 erpAdvisorId: u.erpAdvisorId || '',
                 erpAdvisorBranch: u.erpAdvisorBranch || '',
@@ -5340,7 +5340,7 @@
             nombre: enrichedChosen.nombre,
             puesto: enrichedChosen.puesto,
             correo: enrichedChosen.correo,
-            mustChangeKey: !enrichedChosen.isGuest && !!enrichedChosen.mustChangeKey,
+            mustChangeKey: !!enrichedChosen.mustChangeKey,
             erpAdvisorLabel: enrichedChosen.erpAdvisorLabel || '',
             erpAdvisorId: enrichedChosen.erpAdvisorId || '',
             erpAdvisorBranch: enrichedChosen.erpAdvisorBranch || '',
@@ -5377,7 +5377,7 @@
             applyAdvisorDefaultsToQuoteForm(true);
         }
 
-        if (sessionObj.mustChangeKey && !sessionObj.isGuest) {
+        if (sessionObj.mustChangeKey) {
             showAuthBanner('authNewKeyMsg', '', 'err');
             const nk = document.getElementById('authNewKeyInput');
             const ck = document.getElementById('authConfirmKeyInput');
@@ -5430,6 +5430,8 @@
         const email = String(activeAdvisorSession.correo || '').trim().toLowerCase();
         const deviceId = getOrCreateClientDeviceId();
         const deviceLabel = getClientDeviceLabel();
+        const localKeyUpdates = loadUpdatedKeysMap();
+        const hasPendingLocalNewKey = !!(localKeyUpdates[email] && localKeyUpdates[email].newKey);
 
         try {
             const hbRes = await callInvWebAppPost('inv_guest_heartbeat', {
@@ -5441,17 +5443,34 @@
             if (hbRes && hbRes.ok) {
                 if (hbRes.slotNumber) activeAdvisorSession.guestSlotNum = hbRes.slotNumber;
                 if (hbRes.activePlaces) activeAdvisorSession.guestActivePlaces = hbRes.activePlaces;
+                if (hbRes.mustChangeKey && !hasPendingLocalNewKey) {
+                    activeAdvisorSession.mustChangeKey = true;
+                    saveAdvisorSession(activeAdvisorSession);
+                    openAuthModalForStartup();
+                    return;
+                }
                 saveAdvisorSession(activeAdvisorSession);
                 renderAdvisorHeaderBar();
                 return;
             }
-            if (hbRes && !hbRes.unavailable && !hbRes.needsRedeploy && (hbRes.authRequired || hbRes.limitReached)) {
+            if (hbRes && !hbRes.unavailable && !hbRes.needsRedeploy && (hbRes.authRequired || hbRes.limitReached || hbRes.revoked)) {
                 const msg = hbRes.error || 'Tu acceso de Invitado alcanzó el límite de 2 lugares o fue actualizado.';
                 window.logoutAdvisorSession();
                 showAuthBanner('authLoginMsg', msg, 'err');
                 return;
             }
         } catch (e) {}
+
+        // Respaldo por lectura directa de la hoja INVITADOS (GViz)
+        try {
+            const allUsers = await fetchAllAdvisorRowsLiveGviz();
+            const guestRow = allUsers.find(u => u && u.correo === email && u.isGuest);
+            if (guestRow && guestRow.mustChangeKey && !hasPendingLocalNewKey) {
+                activeAdvisorSession.mustChangeKey = true;
+                saveAdvisorSession(activeAdvisorSession);
+                openAuthModalForStartup();
+            }
+        } catch (eGviz) {}
     }
 
     window.submitAdvisorLogin = async function (ev) {
@@ -5601,7 +5620,7 @@
             }
 
             const preparedLocs = checkedMatches.map(u => {
-                const usedTemp = !u.isGuest && !u.defKey && !!u.tempKey && keysMatchNormalized(inputKey, u.tempKey);
+                const usedTemp = !u.defKey && ((!!u.tempKey && keysMatchNormalized(inputKey, u.tempKey)) || (u.isGuest && u.noPasswordRequired));
                 return Object.assign({}, u, { mustChangeKey: usedTemp });
             });
 
@@ -5735,8 +5754,13 @@
             const modal = document.getElementById('authModal');
             if (modal) modal.classList.remove('open');
             renderAdvisorHeaderBar();
-            populateQuoteAdvisorControls();
-            refreshMyLiveQuotesInfo();
+            refreshGuestReadOnlyUIState();
+            if (!isGuestSession()) {
+                populateQuoteAdvisorControls();
+                refreshMyLiveQuotesInfo();
+            } else {
+                verifyActiveGuestSessionLive(true);
+            }
 
             if (pendingQuoteRetrySendToErp !== null) {
                 const retrySendFlag = pendingQuoteRetrySendToErp;
