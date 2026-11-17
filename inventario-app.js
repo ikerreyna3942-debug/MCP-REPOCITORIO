@@ -960,15 +960,17 @@
         'MAPLE', 'EUCALIPTO', 'FICUS', 'OLIVO', 'SUCULENTA', 'SUCULENTAS',
         'MACETA', 'MACETAS', 'MACETERO', 'MACETEROS', 'FLORERO', 'JARRON', 'CILINDRO', 'BOTELLON', 'BOTELLA', 'BOLA',
         'CORAL', 'FIGURA', 'ESCULTURA', 'BALLENA', 'PEZ', 'PECES', 'CARACOL', 'CONCHA', 'ESFERA', 'CANGREJO', 'TIBURON', 'TORTUGA', 'ESTRELLA', 'ESTRELLAS', 'BARCO', 'BARCOS',
-        'GICLEE', 'ABSTRACTO', 'CUADRO', 'LIENZO', 'PINTURA', 'ARTE', 'ATADO', 'DIPTICO', 'TRIPTICO', 'POLIPTICO', 'HORIZONTAL', 'VERTICAL', 'MAR',
-        'PLATO', 'PLATON', 'TAZON', 'BOWL', 'CHAROLA', 'BANDEJA', 'BANDEJAS', 'FRUTERO', 'ENSALADERA', 'TORTILLERO', 'BATEA', 'BOTANERO', 'SERVILLETERO', 'COPA', 'TABLA', 'TABLAS',
+        'GICLEE', 'ABSTRACTO', 'CUADRO', 'CUADROS', 'LIENZO', 'PINTURA', 'ARTE', 'ATADO', 'DIPTICO', 'TRIPTICO', 'POLIPTICO', 'HORIZONTAL', 'VERTICAL', 'MAR',
+        'PLATO', 'PLATON', 'TAZON', 'BOWL', 'CHAROLA', 'CHAROLAS', 'BANDEJA', 'BANDEJAS', 'FRUTERO', 'ENSALADERA', 'TORTILLERO', 'BATEA', 'BOTANERO', 'SERVILLETERO', 'COPA', 'TABLA', 'TABLAS',
         'PORTAVELA', 'PORTAVELAS', 'CANDELABRO', 'VELA', 'VELAS', 'FAROL', 'LINTERNA', 'ANTORCHA', 'COLGANTE', 'COLGANTES', 'HONGO', 'PIE', 'CAPELO', 'CAPELOS',
         'CAJA', 'RELOJ', 'LIBRO', 'LIBROS', 'PORTARRETRATO', 'CANASTO', 'CANASTOS', 'CANASTA', 'CESTA', 'BOLSA', 'BOSA', 'BOTE', 'ALHAJERO', 'CORDON', 'CORDONES',
         'PEDESTAL', 'ACCESORIO', 'ACCESORIOS', 'ACCECORIO', 'DECORATIVO', 'DECORATIVA', 'NAVIDAD', 'NOCHE', 'PRODUCTO',
-        'JGO', 'JUEGO', 'SET', 'PIEZA', 'PIEZAS', 'ESTANDAR', 'ESPECIAL', 'PROYECTO', 'UNIT', 'WALL', 'GABINETE', 'MODULO', 'MODULAR', 'NIDO',
-        'ESQUINA', 'COSTADOS', 'CAPAS', 'CUELLO', 'PATA', 'PATAS', 'PARA', 'PUERTAS', 'CORREDIZAS', 'ENTREPA', 'ENTREPANO', 'VOLADA', 'VOLADAS', 'EXTENDIBLE', 'MOD',
+        'JGO', 'JUEGO', 'SET', 'PIEZA', 'PIEZAS', 'PC', 'PZ', 'PZAS', 'TAG', 'DBL', 'OROL',
+        'ESTANDAR', 'ESPECIAL', 'PROYECTO', 'UNIT', 'WALL', 'GABINETE', 'MODULO', 'MODULAR', 'NIDO', 'SERVICIO',
+        'ESQUINA', 'ESQUINAS', 'FILO', 'BORDES', 'REDONDEADO', 'REDONDEADOS', 'READONDEADOS', 'CANTOS', 'PULIDO', 'PULIDOS',
+        'COSTADOS', 'CAPAS', 'CUELLO', 'PATA', 'PATAS', 'PARA', 'PUERTAS', 'CORREDIZAS', 'ENTREPA', 'ENTREPANO', 'VOLADA', 'VOLADAS', 'EXTENDIBLE', 'MOD',
         'EJECUTIVO', 'SEMI', 'BAR', 'CIRCULAR', 'CONTACTO',
-        'COLCHON', 'DESC-COLCHON', 'DESC', 'DTO', 'DESC-DTO', 'CREATA', 'RESORTES', 'BOX', 'SPRING', 'AIR', 'MEMORY', 'FOAM', 'FIRME',
+        'COLCHON', 'COLCHONES', 'DESC-COLCHON', 'DESC', 'DTO', 'DESC-DTO', 'CREATA', 'RESORTES', 'BOX', 'SPRING', 'AIR', 'MEMORY', 'FOAM', 'FIRME',
         'TELA', 'TAPIZ', 'TAPICERIA', 'YUTE', 'JUTE', 'PAJA', 'ALGODON', 'LINO', 'PIEL', 'VINIL', 'MADERA', 'CRISTAL', 'MARMOL', 'PANEL',
         'METAL', 'CERAMICA', 'VIDRIO', 'RATTAN', 'HENEQUEN', 'CUERDA', 'TEJIDO', 'TEJIDA', 'BARRO', 'PIEDRA', 'TEMPLADO', 'LAMINADO', 'LAMINADA', 'SOLIDA', 'SOLIDO',
         'TECA', 'TEKA', 'NOGAL', 'PAROTA', 'ENCINO', 'TZALAM', 'PINO', 'ROBLE',
@@ -982,9 +984,12 @@
         'RECTANGULAR', 'CUADRADO', 'CUADRADA', 'REDONDO', 'REDONDA', 'OVAL', 'OVALADO', 'OVALADA',
         'LARGO', 'LARGA', 'ALTO', 'ALTA', 'CHICO', 'CHICA', 'MEDIANO', 'MEDIANA', 'GRANDE',
         'KING', 'QUEEN', 'MATRIMONIAL',
-        'SALA', 'SOFA', 'LOVESEAT', 'SILLON', 'SILLA', 'MESA', 'COMEDOR', 'RECAMARA', 'CAMA', 'CABECERA', 'BASE', 'BURO',
-        'COMODA', 'TOCADOR', 'CREDENZA', 'BUFETERA', 'LIBRERO', 'ESCRITORIO', 'ARCHIVERO', 'BANCA', 'BANCO',
-        'ESPEJO', 'LAMPARA', 'CANDIL', 'TAPETE'
+        'SALA', 'SALAS', 'SOFA', 'SOFAS', 'LOVESEAT', 'LOVESEATS', 'SILLON', 'SILLONES', 'SILLA', 'SILLAS',
+        'MESA', 'MESAS', 'COMEDOR', 'COMEDORES', 'RECAMARA', 'RECAMARAS', 'CAMA', 'CAMAS', 'CABECERA', 'CABECERAS', 'BASE', 'BASES', 'BURO', 'BUROS',
+        'COMODA', 'COMODAS', 'TOCADOR', 'TOCADORES', 'CAJONERA', 'CAJONERAS', 'CREDENZA', 'CREDENZAS', 'BUFETERA', 'BUFETERAS', 'BUFETERO', 'BUFETEROS',
+        'LIBRERO', 'LIBREROS', 'ESCRITORIO', 'ESCRITORIOS', 'ARCHIVERO', 'ARCHIVEROS', 'BANCA', 'BANCAS', 'BANCO', 'BANCOS', 'TABURETE', 'TABURETES',
+        'OTTOMAN', 'OTOMAN', 'POUF', 'PUFF', 'ESQUINERO', 'ESQUINEROS', 'CHAISE', 'LONGUE', 'FUTTON', 'FUTON',
+        'ESPEJO', 'ESPEJOS', 'LAMPARA', 'LAMPARAS', 'CANDIL', 'CANDILES', 'TAPETE', 'TAPETES'
     ]);
 
     const MODEL_TYPO_ALIASES = {
@@ -1013,6 +1018,7 @@
     function isContextuallyValidModel(tok, domName) {
         if (tok === 'NIDO' && (domName === 'SALAS_TAPIZ' || domName === 'COMEDORES')) return true;
         if (tok === 'YUTE' && domName === 'RECAMARAS_MUEBLE') return true;
+        if (tok === 'MARINA' && /^(MESAS_SALA|COMEDORES|SALAS_TAPIZ|RECAMARAS_MUEBLE)$/.test(domName)) return true;
         return false;
     }
 
@@ -1064,7 +1070,7 @@
             if (tok.length < 3 || /^\d/.test(tok) || /\d$/.test(tok)) continue;
             if (i > 0 && tokens[i - 1] === 'GRIS' && tok === 'OXFORD') continue;
             if (tok === skuNorm || tpWords.has(tok) || GENERIC_GROUP_MODELS.has(tok)) continue;
-            if (/^(DE|DEL|LA|EL|LOS|LAS|CON|SIN|EN|Y|PARA|POR|SIZE|KS|QS|MAT|IND|PC|PZ|PZAS|MTS|CM|EXPO|ORIGINAL|PRINT|BCO|NGO|GRS|CL|OSC|CARDEADO|BARNIZ|MATTE|ESTRUCTURA|CUBIERTA|IMITACION|RECUBRIMIENTO|POLVO|ALUMBRE|ACABADO|PANTALLA|COLOR|INALAMBRICA|CARGA|MATE|ROCOSA|BRILLANTE|TIPO)$/.test(tok)) {
+            if (/^(DE|DEL|LA|EL|LOS|LAS|CON|SIN|EN|Y|PARA|POR|SIZE|KS|QS|MAT|IND|PC|PZ|PZAS|MTS|CM|EXPO|ORIGINAL|PRINT|BCO|NGO|GRS|CL|OSC|RED|DBL|OROL|TAG|VIDRIO|OCASIONAL|CARDEADO|BARNIZ|MATTE|ESTRUCTURA|CUBIERTA|IMITACION|RECUBRIMIENTO|POLVO|ALUMBRE|ACABADO|PANTALLA|COLOR|INALAMBRICA|CARGA|MATE|ROCOSA|BRILLANTE|TIPO)$/.test(tok)) {
                 continue;
             }
             return tok;
@@ -1088,7 +1094,7 @@
             parts.length >= 2 &&
             parts[0].length >= 4 &&
             !/^(SANTA|SAN|GRAN|CASA|VILLA|LINEA|MODELO|SERIE|BOSQUE|GEOMETRIA|TEXTURA|NUDE|PALM|PATA)$/.test(parts[0]) &&
-            /^(TALL|LOW|HIGH|COBRE|OCRE|CHICO|CHICA|MEDIANO|MEDIANA|GRANDE|GDE|CH|MED)$/.test(parts[parts.length - 1])
+            /^(TALL|LOW|HIGH|COBRE|OCRE|CHICO|CHICA|MEDIANO|MEDIANA|GRANDE|GDE|CH|MED|CUADRADO|CUADRADA|CIRCULAR|REDONDO|REDONDA|RECTANGULAR|OVALADO|OVALADA)$/.test(parts[parts.length - 1])
         ) {
             parts.pop();
             k = parts.join(' ');
@@ -1100,95 +1106,296 @@
         return norm;
     }
 
-    function resolveModelDomainInfo(it) {
+    // Tipo de mueble canónico e independiente de formas/medidas (cuadrado, circular, redondo, rectangular, ovalado, chico, grande)
+    function resolveCanonicalFurnitureInfo(it) {
         const subCat = (it && it._cat) || resolveItemSubcategory(it, resolveItemCategory(it));
         const mainCat = (it && it._main) || MAIN_OF_SUB[subCat] || 'ESPEJOS Y ACCESORIOS';
         const tpTok = plainModelToken(stripDimensionsFromProductText(it && it.tp));
         const nomTok = plainModelToken(stripDimensionsFromProductText(it && it.n));
+
         if (mainCat === 'SALAS') {
-            if (subCat === 'MESAS DE CENTRO' || subCat === 'MESAS LATERALES') {
-                return { domain: 'MESAS_SALA', familyPrefix: 'MESAS' };
+            if (subCat === 'MESAS DE CENTRO') {
+                return { domain: 'MESAS_SALA', typeKey: 'MESA_CENTRO', typeLabel: 'MESA DE CENTRO', typeRank: 50 };
             }
-            return { domain: 'SALAS_TAPIZ', familyPrefix: 'SALA' };
+            if (subCat === 'MESAS LATERALES') {
+                return { domain: 'MESAS_SALA', typeKey: 'MESA_LATERAL', typeLabel: 'MESA LATERAL', typeRank: 55 };
+            }
+            if (subCat === 'FUTONES & SOFÁ CAMAS') {
+                if (/\b(FUTTON|FUTON)\b/.test(tpTok + ' ' + nomTok)) {
+                    return { domain: 'SALAS_TAPIZ', typeKey: 'FUTON', typeLabel: 'FUTÓN', typeRank: 42 };
+                }
+                return { domain: 'SALAS_TAPIZ', typeKey: 'SOFA_CAMA', typeLabel: 'SOFÁ CAMA', typeRank: 40 };
+            }
+            if (subCat === 'SILLONES' || /^SILLON\b/.test(tpTok)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'SILLON', typeLabel: 'SILLÓN', typeRank: 30 };
+            }
+            if (/^(OTTOMAN|OTOMAN|POUF|PUFF|TABURETE)$/.test(tpTok)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'OTTOMAN', typeLabel: 'OTOMÁN', typeRank: 45 };
+            }
+            if (/^ESQUINERO\b/.test(tpTok)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'ESQUINERO', typeLabel: 'ESQUINERO', typeRank: 12 };
+            }
+            if (/^CHAISE\b/.test(tpTok)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'CHAISE_LONGUE', typeLabel: 'CHAISE LONGUE', typeRank: 14 };
+            }
+            if (/^(REMATE|MODULO)\b/.test(tpTok)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'MODULO_SALA', typeLabel: 'MÓDULO DE SALA', typeRank: 16 };
+            }
+            if (/^(LOVE\s*SEAT|LOVESEAT)\b/.test(tpTok)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'LOVE_SEAT', typeLabel: 'LOVE SEAT', typeRank: 25 };
+            }
+            if (/^SOFA\b/.test(tpTok)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'SOFA', typeLabel: 'SOFÁ', typeRank: 20 };
+            }
+            return { domain: 'SALAS_TAPIZ', typeKey: 'SALA', typeLabel: 'SALA', typeRank: 10 };
         }
+
         if (mainCat === 'COMEDORES') {
-            return { domain: 'COMEDORES', familyPrefix: 'COMEDOR' };
+            if (subCat === 'SILLAS' || /^SILLA\b/.test(tpTok)) {
+                return { domain: 'COMEDORES', typeKey: 'SILLA_COMEDOR', typeLabel: 'SILLA', typeRank: 65 };
+            }
+            if (subCat === 'BANCOS & BANCAS') {
+                if (/^BANCA\b/.test(tpTok)) return { domain: 'COMEDORES', typeKey: 'BANCA', typeLabel: 'BANCA', typeRank: 70 };
+                if (/^TABURETE\b/.test(tpTok)) return { domain: 'COMEDORES', typeKey: 'TABURETE', typeLabel: 'TABURETE', typeRank: 74 };
+                return { domain: 'COMEDORES', typeKey: 'BANCO', typeLabel: 'BANCO', typeRank: 72 };
+            }
+            if (subCat === 'BUFETERAS' || /^BUFET/.test(tpTok)) {
+                return { domain: 'COMEDORES', typeKey: 'BUFETERA', typeLabel: 'BUFETERA', typeRank: 76 };
+            }
+            if (/^CUBIERTA\b/.test(tpTok)) {
+                return { domain: 'COMEDORES', typeKey: 'CUBIERTA_MESA', typeLabel: 'CUBIERTA DE MESA', typeRank: 62 };
+            }
+            const isComedorExplicit = /\bCOMEDOR\b|\b(?:4|6|8|10|12)P\b/.test(tpTok + ' ' + nomTok);
+            return {
+                domain: 'COMEDORES',
+                typeKey: 'MESA_COMEDOR',
+                typeLabel: isComedorExplicit ? 'MESA DE COMEDOR' : 'MESA',
+                typeRank: isComedorExplicit ? 60 : 61
+            };
         }
+
         if (mainCat === 'RECÁMARAS') {
             if (subCat === 'COLCHONES') {
-                return { domain: 'COLCHONES', familyPrefix: 'COLCHÓN' };
+                return { domain: 'COLCHONES', typeKey: 'COLCHON', typeLabel: 'COLCHÓN', typeRank: 86 };
             }
-            return { domain: 'RECAMARAS_MUEBLE', familyPrefix: 'RECÁMARA' };
+            if (subCat === 'CABECERAS') {
+                return { domain: 'RECAMARAS_MUEBLE', typeKey: 'CABECERA', typeLabel: 'CABECERA', typeRank: 82 };
+            }
+            if (subCat === 'BASES') {
+                return { domain: 'RECAMARAS_MUEBLE', typeKey: 'BASE_CAMA', typeLabel: 'BASE DE CAMA', typeRank: 84 };
+            }
+            if (subCat === 'BURÓS') {
+                return { domain: 'RECAMARAS_MUEBLE', typeKey: 'BURO', typeLabel: 'BURÓ', typeRank: 88 };
+            }
+            if (subCat === 'COMODAS Y TOCADORES') {
+                const isCajonera = tpTok === 'CAJONERA';
+                return {
+                    domain: 'RECAMARAS_MUEBLE',
+                    typeKey: 'COMODA',
+                    typeLabel: isCajonera ? 'CAJONERA' : 'CÓMODA',
+                    typeRank: isCajonera ? 91 : 90
+                };
+            }
+            if (subCat === 'PIE DE CAMA') {
+                return { domain: 'RECAMARAS_MUEBLE', typeKey: 'PIE_CAMA', typeLabel: 'PIE DE CAMA', typeRank: 92 };
+            }
+            if (tpTok === 'LITERA') return { domain: 'RECAMARAS_MUEBLE', typeKey: 'LITERA', typeLabel: 'LITERA', typeRank: 80.5 };
+            if (tpTok === 'CUNA') return { domain: 'RECAMARAS_MUEBLE', typeKey: 'CUNA', typeLabel: 'CUNA', typeRank: 81 };
+            return { domain: 'RECAMARAS_MUEBLE', typeKey: 'CAMA', typeLabel: 'CAMA', typeRank: 80 };
         }
+
         if (mainCat === 'COMPLEMENTOS') {
-            if (subCat === 'CREDENZAS') return { domain: 'CREDENZAS', familyPrefix: 'CREDENZA' };
-            if (subCat === 'MUEBLES PARA TV') return { domain: 'MUEBLES_TV', familyPrefix: 'MUEBLE DE TV' };
-            if (subCat === 'MUEBLES DE BAR') return { domain: 'MUEBLES_BAR', familyPrefix: 'BAR' };
-            if (subCat === 'EXTERIOR') return { domain: 'EXTERIOR', familyPrefix: 'EXTERIOR' };
-            return { domain: 'OFICINA_ESTUDIO', familyPrefix: 'COLECCIÓN' };
+            if (subCat === 'MUEBLES PARA TV') return { domain: 'MUEBLES_TV', typeKey: 'MUEBLE_TV', typeLabel: 'MUEBLE DE TV', typeRank: 100 };
+            if (subCat === 'CREDENZAS') return { domain: 'CREDENZAS', typeKey: 'CREDENZA', typeLabel: 'CREDENZA', typeRank: 102 };
+            if (subCat === 'MUEBLES DE BAR') {
+                const isMuebleBar = tpTok === 'BAR';
+                return { domain: 'MUEBLES_BAR', typeKey: 'CAVA', typeLabel: isMuebleBar ? 'MUEBLE DE BAR' : 'CAVA', typeRank: isMuebleBar ? 105 : 104 };
+            }
+            if (subCat === 'LIBREROS') return { domain: 'OFICINA_ESTUDIO', typeKey: 'LIBRERO', typeLabel: 'LIBRERO', typeRank: 106 };
+            if (subCat === 'ESCRITORIOS') return { domain: 'OFICINA_ESTUDIO', typeKey: 'ESCRITORIO', typeLabel: 'ESCRITORIO', typeRank: 108 };
+            if (tpTok === 'CAMASTRO') return { domain: 'EXTERIOR', typeKey: 'CAMASTRO', typeLabel: 'CAMASTRO', typeRank: 110 };
+            if (tpTok === 'COLUMPIO') return { domain: 'EXTERIOR', typeKey: 'COLUMPIO', typeLabel: 'COLUMPIO', typeRank: 111 };
+            return { domain: 'EXTERIOR', typeKey: 'EXT_' + (tpTok || 'MUEBLE'), typeLabel: tpTok || 'MUEBLE EXTERIOR', typeRank: 112 };
         }
-        if (subCat === 'COJINES & TEXTILES') {
-            if (tpTok === 'TELA') {
-                return { domain: 'TEX_TELA', familyPrefix: 'TELA' };
-            }
-            if (tpTok === 'TAPETE') {
-                return { domain: 'TEX_TAPETE', familyPrefix: 'TAPETE' };
-            }
-            if (/\b(CAMINO|MANTEL|SERVILLETA|SERVILLETAS|INDIVIDUAL|INDIVIDUALES|PORTAVASO|SERVILLETERO)\b/.test(tpTok + ' ' + nomTok)) {
-                return { domain: 'TEX_MESA', familyPrefix: tpTok || 'TEXTIL DE MESA' };
-            }
-            return { domain: 'TEX_HOGAR', familyPrefix: tpTok || 'TEXTILES' };
+
+        if (subCat === 'ESPEJOS') {
+            return { domain: 'ACC_ESPEJOS', typeKey: 'ESPEJO', typeLabel: 'ESPEJO', typeRank: 120 };
         }
         if (subCat === 'CUADROS') {
             const provTok = plainModelToken(it && it.p).replace(/\bCUADRO\s+/g, '').trim();
-            const artKey = provTok && provTok !== 'AJUSTE DE INVENTARIO' ? ('CUADROS_' + provTok) : 'CUADROS';
-            return { domain: artKey, familyPrefix: tpTok || 'CUADRO' };
+            const artKey = provTok && provTok !== 'AJUSTE DE INVENTARIO' ? ('CUADRO_' + provTok) : 'CUADRO';
+            const isDecPared = tpTok === 'DECORATIVO PARED';
+            return {
+                domain: 'CUADROS_' + artKey,
+                typeKey: artKey,
+                typeLabel: isDecPared ? 'DECORATIVO DE PARED' : 'CUADRO',
+                typeRank: isDecPared ? 126 : 125
+            };
         }
-        if (subCat === 'ESPEJOS' || subCat === 'LÁMPARAS') {
-            return { domain: 'ACC_' + subCat, familyPrefix: tpTok || subCat };
+        if (subCat === 'LÁMPARAS') {
+            if (tpTok === 'LAMPARA DE MESA') return { domain: 'ACC_LAMPARAS', typeKey: 'LAMPARA_MESA', typeLabel: 'LÁMPARA DE MESA', typeRank: 130 };
+            if (tpTok === 'LAMPARA DE PISO') return { domain: 'ACC_LAMPARAS', typeKey: 'LAMPARA_PISO', typeLabel: 'LÁMPARA DE PISO', typeRank: 131 };
+            if (tpTok === 'CANDIL') return { domain: 'ACC_LAMPARAS', typeKey: 'CANDIL', typeLabel: 'CANDIL', typeRank: 132 };
+            if (tpTok === 'LAMPARA COLGANTE') return { domain: 'ACC_LAMPARAS', typeKey: 'LAMPARA_COLGANTE', typeLabel: 'LÁMPARA COLGANTE', typeRank: 133 };
+            if (tpTok === 'ARBOTANTE') return { domain: 'ACC_LAMPARAS', typeKey: 'ARBOTANTE', typeLabel: 'ARBOTANTE', typeRank: 134 };
+            if (tpTok === 'LINTERNA') return { domain: 'ACC_LAMPARAS', typeKey: 'LINTERNA', typeLabel: 'LINTERNA', typeRank: 135 };
+            return { domain: 'ACC_LAMPARAS', typeKey: 'LAMPARA', typeLabel: 'LÁMPARA', typeRank: 136 };
         }
-        if (/^(FLORERO|JARRON|MACETA|BOTELLA|BOTELLON|TIBOR|CILINDRO)$/.test(tpTok)) {
-            return { domain: 'DEC_VASOS_MACETAS', familyPrefix: tpTok };
+        if (subCat === 'COJINES & TEXTILES') {
+            if (tpTok === 'TAPETE') {
+                return { domain: 'TEX_TAPETE', typeKey: 'TAPETE', typeLabel: 'TAPETE', typeRank: 140 };
+            }
+            if (/^FUNDA\b/.test(tpTok) || /^FUNDA\b/.test(nomTok)) {
+                return { domain: 'TEX_HOGAR', typeKey: 'FUNDA_DECORATIVA', typeLabel: 'FUNDA DECORATIVA', typeRank: 142 };
+            }
+            if (tpTok === 'RELLENO' || /^RELLENO\b/.test(nomTok)) {
+                return { domain: 'TEX_HOGAR', typeKey: 'RELLENO_COJIN', typeLabel: 'RELLENO DE COJÍN', typeRank: 145 };
+            }
+            if (tpTok === 'COJIN') {
+                return { domain: 'TEX_HOGAR', typeKey: 'COJIN', typeLabel: 'COJÍN', typeRank: 144 };
+            }
+            if (/^(TELA|TAPICERIA|COMPONENTES TAPICERIA|SINTETICO)$/.test(tpTok)) {
+                return { domain: 'TEX_TELA', typeKey: 'TELA', typeLabel: 'TELA', typeRank: 152 };
+            }
+            if (/\b(CAMINO|MANTEL|SERVILLETA|SERVILLETAS|INDIVIDUAL|INDIVIDUALES|PORTAVASO|SERVILLETERO)\b/.test(tpTok + ' ' + nomTok)) {
+                let mLbl = tpTok || 'TEXTIL DE MESA';
+                let mRank = 151;
+                if (/\bINDIVIDUAL/.test(tpTok + ' ' + nomTok)) { mLbl = 'INDIVIDUAL DE MESA'; mRank = 148; }
+                else if (/\bSERVILLETA/.test(tpTok + ' ' + nomTok)) { mLbl = 'SERVILLETA'; mRank = 149; }
+                else if (/\bCAMINO\b/.test(tpTok + ' ' + nomTok)) { mLbl = 'CAMINO DE MESA'; mRank = 150; }
+                else if (/\bMANTEL/.test(tpTok + ' ' + nomTok)) { mLbl = 'MANTEL'; mRank = 150.5; }
+                return { domain: 'TEX_MESA', typeKey: 'TEX_MESA_' + mLbl, typeLabel: mLbl, typeRank: mRank };
+            }
+            return { domain: 'TEX_BLANCOS', typeKey: 'BLANCOS_' + (tpTok || 'BLANCOS'), typeLabel: tpTok || 'BLANCOS', typeRank: 146 };
+        }
+
+        if (/^MACETA\b/.test(tpTok)) return { domain: 'DEC_VASOS_MACETAS', typeKey: 'MACETA', typeLabel: 'MACETA', typeRank: 160 };
+        if (/^(FLORERO|JARRON|BOTELLON|BOTELLA|TIBOR|CILINDRO)$/.test(tpTok)) {
+            const isBotellon = tpTok === 'BOTELLON';
+            return { domain: 'DEC_VASOS_MACETAS', typeKey: 'FLORERO', typeLabel: isBotellon ? 'BOTELLÓN' : 'FLORERO', typeRank: isBotellon ? 163 : 162 };
         }
         if (/^(PLANTA DECORATIVA|PLANTA|FOLLAJE|ARBOL|PALMA)$/.test(tpTok)) {
-            return { domain: 'DEC_BOTANICA', familyPrefix: 'PLANTA DECORATIVA' };
+            return { domain: 'DEC_BOTANICA', typeKey: 'PLANTA_DECORATIVA', typeLabel: 'PLANTA DECORATIVA', typeRank: 164 };
         }
-        if (/^(CHAROLA|BANDEJA|PLATON|PLATO|PLATO DECORATIVO|PLATO HONDO|PLATO HONDO DECORATIVO|SET PLATO|ENSALADERA|FRUTERO|TAZON|BOWL|BATEA)$/.test(tpTok)) {
-            return { domain: 'DEC_MESA_SERVICIO', familyPrefix: tpTok };
+        if (/^(CHAROLA|BANDEJA|BATEA)$/.test(tpTok)) {
+            return { domain: 'DEC_MESA_SERVICIO', typeKey: 'CHAROLA', typeLabel: 'CHAROLA', typeRank: 166 };
+        }
+        if (/^(PLATON|PLATO|PLATO DECORATIVO|PLATO HONDO|PLATO HONDO DECORATIVO|SET PLATO|ENSALADERA|FRUTERO|TAZON|BOWL)$/.test(tpTok)) {
+            return { domain: 'DEC_MESA_SERVICIO', typeKey: 'PLATO_DECORATIVO', typeLabel: 'PLATO DECORATIVO', typeRank: 167 };
         }
         if (/^(CANDELABRO|PORTAVELA|PORTAVELAS|VELA|VELAS|LINTERNA|FAROL)$/.test(tpTok)) {
-            return { domain: 'DEC_VELAS', familyPrefix: tpTok };
+            const isVela = /^VELA/.test(tpTok);
+            return { domain: 'DEC_VELAS', typeKey: 'CANDELABRO', typeLabel: isVela ? 'VELA' : 'CANDELABRO', typeRank: isVela ? 169 : 168 };
         }
-        if (/^(ESCULTURA|FIGURA|CORAL|CONCHA|ESFERA|PEDESTAL|ACCESORIO|ACCESORIOS|ACCECORIO|ACCESORIO DECORATIVO|LIBRO DECORATIVO|BOLSA|CANASTO|CANASTA|CESTA)$/.test(tpTok)) {
-            return { domain: 'DEC_OBJETOS', familyPrefix: tpTok === 'ACCECORIO' ? 'ACCESORIO DECORATIVO' : (tpTok || 'ACCESORIO DECORATIVO') };
+        if (/^(ESCULTURA|FIGURA)$/.test(tpTok)) {
+            return { domain: 'DEC_OBJETOS', typeKey: 'ESCULTURA', typeLabel: 'ESCULTURA', typeRank: 170 };
         }
-        return { domain: 'DEC_' + (tpTok || 'ACC'), familyPrefix: tpTok || 'ACCESORIO' };
+        if (tpTok === 'CRISTAL') {
+            return { domain: 'DEC_CRISTAL', typeKey: 'CRISTAL', typeLabel: 'CRISTAL', typeRank: 172 };
+        }
+        if (/^(LAMBRIN|LAMBRIN DECORATIVO|LAMINA DE PVC|PISOS MODULARES|PAPEL TAPIZ|MAMPARA|BAUL|PERCHERO|PEDESTAL|ARCHIVERO|LIBRO DECORATIVO)$/.test(tpTok)) {
+            return { domain: 'DEC_' + tpTok, typeKey: tpTok, typeLabel: tpTok === 'BAUL' ? 'BAÚL' : tpTok, typeRank: 176 };
+        }
+        return { domain: 'DEC_OBJETOS', typeKey: 'ACCESORIO_DECORATIVO', typeLabel: 'ACCESORIO DECORATIVO', typeRank: 185 };
+    }
+
+    const TYPE_SYNONYM_TOKENS_BY_KEY = {
+        'SILLON': ['SILLON', 'SILLONES'],
+        'SOFA': ['SOFA', 'SOFAS'],
+        'LOVE_SEAT': ['LOVE', 'SEAT', 'LOVESEAT', 'LOVESEATS'],
+        'SOFA_CAMA': ['SOFA', 'CAMA'],
+        'FUTON': ['FUTTON', 'FUTON'],
+        'OTTOMAN': ['OTTOMAN', 'OTOMAN', 'POUF', 'PUFF', 'TABURETE'],
+        'MESA_CENTRO': ['MESA', 'MESAS', 'CENTRO', 'CENTRAL'],
+        'MESA_LATERAL': ['MESA', 'MESAS', 'LATERAL', 'LATERALES', 'AUXILIAR'],
+        'MESA_COMEDOR': ['MESA', 'MESAS', 'COMEDOR'],
+        'SILLA_COMEDOR': ['SILLA', 'SILLAS', 'COMEDOR'],
+        'BUFETERA': ['BUFETERA', 'BUFETERO', 'BUFERETERA'],
+        'CABECERA': ['CABECERA'],
+        'COLCHON': ['COLCHON'],
+        'COMODA': ['COMODA', 'CAJONERA'],
+        'BASE_CAMA': ['BASE', 'CAMA'],
+        'MUEBLE_TV': ['MUEBLE', 'TV', 'PTV', 'CENTRO', 'ENTRETENIMIENTO', 'ENCETRENIMIENTO'],
+        'LAMPARA_MESA': ['LAMPARA', 'MESA'],
+        'LAMPARA_PISO': ['LAMPARA', 'PISO'],
+        'LAMPARA_COLGANTE': ['LAMPARA', 'COLGANTE'],
+        'FUNDA_DECORATIVA': ['FUNDA', 'DECORATIVA'],
+        'RELLENO_COJIN': ['RELLENO', 'COJIN'],
+        'PLANTA_DECORATIVA': ['PLANTA', 'DECORATIVA', 'FOLLAJE', 'ARBOL', 'PALMA'],
+        'PLATO_DECORATIVO': ['PLATO', 'PLATON', 'DECORATIVO']
+    };
+
+    // Coloca SIEMPRE al inicio "[TIPO DE MUEBLE] [MODELO]" seguido del resto de atributos de la pieza
+    function formatStructuredSingleTitle(it, furnInfo, distinctMo) {
+        const rawClean = stripDimensionsFromProductText((it && (it.n || it.s)) || '')
+            .replace(/\bME\s+SA\b/gi, 'MESA')
+            .toUpperCase()
+            .trim();
+        if (!distinctMo || !furnInfo || !furnInfo.typeLabel) {
+            return rawClean || String((it && it.s) || '').toUpperCase();
+        }
+        const typeLabel = furnInfo.typeLabel.toUpperCase();
+        const moUpper = distinctMo.toUpperCase();
+        const tpPad = ' ' + plainModelToken(typeLabel) + ' ';
+        const moPad = ' ' + plainModelToken(moUpper) + ' ';
+        const headTitle = tpPad.indexOf(moPad) !== -1 ? typeLabel : (typeLabel + ' ' + moUpper);
+
+        const skipWords = new Set();
+        plainModelToken(headTitle).split(/\s+/).filter(Boolean).forEach(w => {
+            if (w !== 'DE' && w !== 'DEL' && w !== 'LA' && w !== 'EL' && w !== 'PARA') skipWords.add(w);
+        });
+        const extraSyn = TYPE_SYNONYM_TOKENS_BY_KEY[furnInfo.typeKey];
+        if (extraSyn) extraSyn.forEach(w => skipWords.add(w));
+
+        const normTok = w => plainModelToken(w).replace(/[^A-Z0-9]/g, '');
+        const rawTokens = rawClean.split(/\s+/).filter(Boolean);
+        const rest = [];
+        for (let i = 0; i < rawTokens.length; i++) {
+            const nw = normTok(rawTokens[i]);
+            if (!nw) continue;
+            if ((nw === 'DE' || nw === 'DEL' || nw === 'PARA') && i + 1 < rawTokens.length && skipWords.has(normTok(rawTokens[i + 1]))) {
+                continue;
+            }
+            if (skipWords.has(nw)) continue;
+            rest.push(rawTokens[i]);
+        }
+        while (rest.length > 0 && /^(DE|DEL|LA|EL|LOS|LAS|PARA|EN|-|\/|·)$/.test(normTok(rest[0]))) rest.shift();
+        while (rest.length > 0 && /^(DE|DEL|LA|EL|LOS|LAS|PARA|EN|-|\/|·)$/.test(normTok(rest[rest.length - 1]))) rest.pop();
+
+        return rest.length > 0 ? (headTitle + ' · ' + rest.join(' ')) : headTitle;
     }
 
     function computeCategoryGroupIdentity(it) {
         const skuKey = String((it && it.s) || '').trim().toUpperCase();
-        const tp = stripDimensionsFromProductText(it && it.tp).toUpperCase();
-        const domInfo = resolveModelDomainInfo(it);
-        const distinctMo = resolveDistinctGroupModel(it, domInfo);
+        const furnInfo = resolveCanonicalFurnitureInfo(it);
+        const distinctMo = resolveDistinctGroupModel(it, furnInfo);
         if (distinctMo) {
-            const canonMoKey = canonicalizeGroupModelKey(distinctMo, domInfo);
-            const basePrefix = tp || domInfo.familyPrefix;
+            const canonMoKey = canonicalizeGroupModelKey(distinctMo, furnInfo);
+            const basePrefix = furnInfo.typeLabel;
             const tpPad = ' ' + plainModelToken(basePrefix) + ' ';
             const moPad = ' ' + plainModelToken(distinctMo) + ' ';
-            const title = tpPad.indexOf(moPad) !== -1 ? basePrefix : (basePrefix + ' ' + distinctMo);
+            const title = (tpPad.indexOf(moPad) !== -1 ? basePrefix : (basePrefix + ' ' + distinctMo)).toUpperCase();
             return {
-                key: 'dom_' + normalizePlain(domInfo.domain) + '__mo_' + (canonMoKey || normalizePlain(distinctMo)),
+                key: 'type_' + normalizePlain(furnInfo.typeKey) + '__mo_' + (canonMoKey || normalizePlain(distinctMo)),
                 title: title,
+                singleTitle: formatStructuredSingleTitle(it, furnInfo, distinctMo),
                 mo: distinctMo,
-                familyPrefix: domInfo.familyPrefix
+                typeKey: furnInfo.typeKey,
+                typeLabel: furnInfo.typeLabel,
+                typeRank: furnInfo.typeRank
             };
         }
-        const fallbackTitle = stripDimensionsFromProductText((it && (it.n || it.s)) || '').toUpperCase();
+        const fallbackTitle = stripDimensionsFromProductText((it && (it.n || it.s)) || '')
+            .replace(/\bME\s+SA\b/gi, 'MESA')
+            .toUpperCase();
         return {
             key: 'sku_' + skuKey.toLowerCase(),
             title: fallbackTitle || skuKey,
+            singleTitle: fallbackTitle || skuKey,
             mo: cleanStr(it && it.mo).toUpperCase(),
-            familyPrefix: ''
+            typeKey: furnInfo.typeKey,
+            typeLabel: furnInfo.typeLabel,
+            typeRank: furnInfo.typeRank
         };
     }
 
@@ -1278,9 +1485,14 @@
         const ma = (a && typeof a._mainRank === 'number') ? a._mainRank : 99;
         const mb = (b && typeof b._mainRank === 'number') ? b._mainRank : 99;
         if (ma !== mb) return ma - mb;
-        const sa = (a && typeof a._subRank === 'number') ? a._subRank : 999;
-        const sb = (b && typeof b._subRank === 'number') ? b._subRank : 999;
-        if (sa !== sb) return sa - sb;
+        const ta = (a && typeof a._typeRank === 'number') ? a._typeRank : 999;
+        const tb = (b && typeof b._typeRank === 'number') ? b._typeRank : 999;
+        if (ta !== tb) return ta - tb;
+        if (ta === 999 && tb === 999) {
+            const sa = (a && typeof a._subRank === 'number') ? a._subRank : 999;
+            const sb = (b && typeof b._subRank === 'number') ? b._subRank : 999;
+            if (sa !== sb) return sa - sb;
+        }
         return compareAlphaEs(a && (a.displayTitle || a.title), b && (b.displayTitle || b.title)) ||
             String((a && a.key) || '').localeCompare(String((b && b.key) || ''));
     }
@@ -1385,7 +1597,7 @@
         if (/\b(SOFAS?\s*CAMAS?|SOFA-CAMA|FUTON(?:ES)?|FUTTON(?:ES)?|DAYBED)\b/.test(prodTxt)) {
             return 'FUTONES & SOFÁ CAMAS';
         }
-        if (/\bCABECERAS?\b/.test(prodTxt)) {
+        if (/\bCABECERAS?\b/.test(prodTxt) && tp !== 'CAMA') {
             return 'CABECERAS';
         }
         if (
@@ -1416,31 +1628,37 @@
         if (/\b(BUFETERAS?|BUFERETERAS?|BUFETEROS?|TRINCHADOR(?:ES)?|APARADOR(?:ES)?)\b/.test(prodTxt)) {
             return 'BUFETERAS';
         }
-        if (/\b(MESAS?\s+(?:DE\s+)?CENTRO|MESAS?\s+CENTRAL(?:ES)?|SETS?\s+(?:DE\s+)?MESAS?\s+(?:DE\s+)?CENTRO)\b/.test(prodTxt)) {
-            return 'MESAS DE CENTRO';
-        }
-        if (/\b(MESAS?\s+LATERAL(?:ES)?|MESAS?\s+AUXILIAR(?:ES)?|MESAS?\s+DE\s+RINCON|MESAS?\s+NIDO|MESAS?\s+OCASIONAL(?:ES)?)\b/.test(prodTxt)) {
-            return 'MESAS LATERALES';
-        }
-        if (/\b(MESAS?\s+(?:DE\s+|PARA\s+)?COMEDOR|COMEDOR(?:ES)?|ANTECOMEDOR(?:ES)?|DESAYUNADOR(?:ES)?|CUBIERTAS?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA|CRISTAL)|BASES?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA)|EXTENSIONES?\s+DE\s+MESA|SET\s+DE\s+EXTENSIONES)\b/.test(prodTxt)) {
-            return 'MESAS';
-        }
-        if (/\bCRISTAL\b/.test(tp)) {
-            if (/\bCOMEDOR\b/.test(allTxt)) return 'MESAS';
-            if (/\bLATERAL|AUXILIAR\b/.test(allTxt)) return 'MESAS LATERALES';
-            if (/\bCENTRO|SALA|MESA\b/.test(allTxt)) return 'MESAS DE CENTRO';
-            return 'ACCESORIOS DECORATIVOS';
-        }
-        if (/\bMESAS?\b/.test(prodTxt)) {
-            if (/\b(LATERAL|AUXILIAR|RINCON|NIDO)\b/.test(allTxt)) return 'MESAS LATERALES';
-            if (/\b(CENTRO|CENTRAL|SALA)\b/.test(allTxt)) return 'MESAS DE CENTRO';
-            return 'MESAS';
-        }
-        if (/\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(prodTxt)) {
-            return 'SILLONES';
-        }
-        if (/\bSILLAS?\b/.test(prodTxt)) {
+        if (/^SILLAS?\b/.test(tp)) {
             return 'SILLAS';
+        }
+        const isExplicitSala = tp === 'SALA' || (/^SALA\b/.test(nom) && !/^SALA\s+COMEDOR\b/.test(nom));
+        if (!isExplicitSala) {
+            if (/\b(MESAS?\s+(?:DE\s+)?CENTRO|MESAS?\s+CENTRAL(?:ES)?|SETS?\s+(?:DE\s+)?MESAS?\s+(?:DE\s+)?CENTRO)\b/.test(prodTxt)) {
+                return 'MESAS DE CENTRO';
+            }
+            if (/\b(MESAS?\s+LATERAL(?:ES)?|MESAS?\s+AUXILIAR(?:ES)?|MESAS?\s+DE\s+RINCON|MESAS?\s+NIDO|MESAS?\s+OCASIONAL(?:ES)?)\b/.test(prodTxt)) {
+                return 'MESAS LATERALES';
+            }
+            if (/\b(MESAS?\s+(?:DE\s+|PARA\s+)?COMEDOR|COMEDOR(?:ES)?|ANTECOMEDOR(?:ES)?|DESAYUNADOR(?:ES)?|CUBIERTAS?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA|CRISTAL)|BASES?\s+(?:DE\s+|PARA\s+)?(?:COMEDOR|MESA)|EXTENSIONES?\s+DE\s+MESA|SET\s+DE\s+EXTENSIONES)\b/.test(prodTxt)) {
+                return 'MESAS';
+            }
+            if (/\bCRISTAL\b/.test(tp)) {
+                if (/\bCOMEDOR\b/.test(allTxt)) return 'MESAS';
+                if (/\bLATERAL|AUXILIAR\b/.test(allTxt)) return 'MESAS LATERALES';
+                if (/\bCENTRO|SALA|MESA\b/.test(allTxt)) return 'MESAS DE CENTRO';
+                return 'ACCESORIOS DECORATIVOS';
+            }
+            if (/\bMESAS?\b/.test(prodTxt)) {
+                if (/\b(LATERAL|AUXILIAR|RINCON|NIDO)\b/.test(allTxt)) return 'MESAS LATERALES';
+                if (/\b(CENTRO|CENTRAL|SALA)\b/.test(allTxt)) return 'MESAS DE CENTRO';
+                return 'MESAS';
+            }
+            if (/\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(prodTxt)) {
+                return 'SILLONES';
+            }
+            if (/\bSILLAS?\b/.test(prodTxt)) {
+                return 'SILLAS';
+            }
         }
         if (
             /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|MODULOS?|MODULAR(?:ES)?|ESQUINEROS?|ESQUINERAS?|RINCONERAS?|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|POUF|PUFF?|SECCIONAL(?:ES)?|REMATES?)\b/.test(prodTxt)
@@ -1667,6 +1885,7 @@
 
     function buildSinglePieceCoverGroup(it, skuKey, fallbackGroupTitle) {
         const pieceTitle = (
+            it._singleTitle ||
             stripDimensionsFromProductText(it.n) ||
             fallbackGroupTitle ||
             skuKey
@@ -1684,6 +1903,7 @@
             _hasPhoto: it._hasPhoto ? 1 : 0,
             _mainRank: it._mainRank,
             _subRank: it._subRank,
+            _typeRank: it._typeRank,
             _plain: it._plain || '',
             _search: it._search || '',
             _titleSearch: normSearch(pieceTitle),
@@ -1725,7 +1945,11 @@
             const gKey = grpId.key;
             it._groupKey = gKey;
             it._groupTitle = title;
+            it._singleTitle = grpId.singleTitle || title;
             it._grpMo = grpId.mo || '';
+            it._typeKey = grpId.typeKey || '';
+            it._typeLabel = grpId.typeLabel || '';
+            it._typeRank = typeof grpId.typeRank === 'number' ? grpId.typeRank : 999;
 
             it._avail = getItemAvailabilityKind(it);
             it._lpptBucket = getLpptStock(it) >= 1 ? getItemLpptDaysBucket(it) : '';
@@ -1734,7 +1958,7 @@
             it._subRank = getSubCategoryRank(it._cat);
 
             const rawText = [
-                it.s, title, it.n, it.vr, it.tp, it.mo, grpId.mo, it.c, it._cat, it._main,
+                it.s, title, it._singleTitle, it.n, it.vr, it.tp, it._typeLabel, it.mo, grpId.mo, it.c, it._cat, it._main,
                 it.tl, it.ct, it.md, it.cm, it.mt, it.m, it.p, it.pr
             ].join(' ');
             it._plain = normalizePlain(rawText);
@@ -1752,15 +1976,16 @@
             singleBySkuMap.set(skuKey, singleEntry);
             allSingleGroups.push(singleEntry);
 
-            // Vista agrupada por Modelo + Variantes para TODOS
+            // Vista agrupada por Tipo de Mueble + Modelo en TODOS
             let grp = groupsByKey.get(gKey);
             if (!grp) {
                 grp = {
                     key: gKey,
                     title: title,
                     tp: cleanStr(it.tp).toUpperCase(),
+                    typeKey: grpId.typeKey || '',
+                    typeLabel: grpId.typeLabel || '',
                     mo: grpId.mo || cleanStr(it.mo).toUpperCase(),
-                    familyPrefix: grpId.familyPrefix || '',
                     items: [],
                     _plainParts: [],
                     _searchParts: []
@@ -1780,21 +2005,6 @@
             grp.avails.add(it._avail);
             if (it._lpptBucket) grp.lpptBuckets.add(it._lpptBucket);
         }
-
-        const normPieceTypeForGroupTitle = x => {
-            const rawTp = plainModelToken(stripDimensionsFromProductText(x && x.tp));
-            if (!rawTp) return '';
-            if (rawTp === 'SILLON OCASIONAL') return 'SILLON';
-            if (rawTp === 'MESA CENTRAL' || (rawTp === 'MESA' && x && x._cat === 'MESAS DE CENTRO')) return 'MESA DE CENTRO';
-            if (rawTp === 'MESA AUXILIAR' || (rawTp === 'MESA' && x && x._cat === 'MESAS LATERALES')) return 'MESA LATERAL';
-            if (rawTp === 'SILLA COMEDOR') return 'SILLA';
-            if (rawTp === 'BANCO BAR') return 'BANCO';
-            if (rawTp === 'EXTENSIONES DE CABECERA') return 'CABECERA';
-            if (rawTp === 'PUERTAS PARA LIBRERO' || (rawTp === 'SET DE PUERTAS' && x && x._cat === 'LIBREROS')) return 'LIBRERO';
-            if (/^FUNDA(?:\s+DECORATIVA|\s+RINONERA)?(?:\s+(?:CHICA|MEDIANA|GRANDE))?$/.test(rawTp)) return 'FUNDA DECORATIVA';
-            if (rawTp === 'ACCECORIO' || rawTp === 'ACCESORIO' || rawTp === 'ACCESORIOS') return 'ACCESORIO DECORATIVO';
-            return rawTp;
-        };
 
         for (let i = 0; i < allGroups.length; i++) {
             const grp = allGroups[i];
@@ -1820,17 +2030,13 @@
                 }
                 grp.mo = bestMo;
 
-                const rawTypes = new Set(grp.items.map(x => plainModelToken(stripDimensionsFromProductText(x.tp))).filter(Boolean));
-                const distinctTypes = new Set(grp.items.map(normPieceTypeForGroupTitle).filter(Boolean));
-                let chosenPrefix = '';
-                if (distinctTypes.size > 1 && grp.familyPrefix) {
-                    chosenPrefix = grp.familyPrefix;
-                } else if (rawTypes.size === 1) {
-                    chosenPrefix = stripDimensionsFromProductText(grp.items[0].tp).toUpperCase();
-                } else if (distinctTypes.size === 1) {
-                    chosenPrefix = Array.from(distinctTypes)[0];
-                } else {
-                    chosenPrefix = grp.familyPrefix || stripDimensionsFromProductText(grp.items[0].tp).toUpperCase();
+                let chosenPrefix = grp.typeLabel || stripDimensionsFromProductText(grp.items[0].tp).toUpperCase();
+                if (grp.typeKey === 'MESA_COMEDOR') {
+                    const anyExplicitDining = grp.items.some(x => x._typeLabel === 'MESA DE COMEDOR');
+                    chosenPrefix = anyExplicitDining ? 'MESA DE COMEDOR' : 'MESA';
+                } else if (grp.typeKey === 'COMODA') {
+                    const allCajonera = grp.items.every(x => x._typeLabel === 'CAJONERA');
+                    chosenPrefix = allCajonera ? 'CAJONERA' : 'CÓMODA';
                 }
                 if (chosenPrefix) {
                     const fpPad = ' ' + plainModelToken(chosenPrefix) + ' ';
@@ -1843,13 +2049,14 @@
             }
             grp.displayTitle = (grp.items.length > 1
                 ? grp.title
-                : (stripDimensionsFromProductText(grp.items[0].n) || grp.title || grp.items[0].s)
+                : (grp.items[0]._singleTitle || stripDimensionsFromProductText(grp.items[0].n) || grp.title || grp.items[0].s)
             ).toUpperCase();
             grp.totalStock = grp.items.reduce((acc, x) => acc + getBodegaPisoStock(x), 0);
             grp.lpptStock = grp.items.reduce((acc, x) => acc + getLpptStock(x), 0);
             grp._hasPhoto = firstPhotoItem(grp.items) ? 1 : 0;
             grp._mainRank = grp.items.reduce((m, x) => Math.min(m, typeof x._mainRank === 'number' ? x._mainRank : 99), 99);
             grp._subRank = grp.items.reduce((m, x) => Math.min(m, typeof x._subRank === 'number' ? x._subRank : 999), 999);
+            grp._typeRank = grp.items.reduce((m, x) => Math.min(m, typeof x._typeRank === 'number' ? x._typeRank : 999), 999);
             grp._plain = grp._plainParts.join(' ');
             grp._search = grp._searchParts.join(' ');
             grp._titleSearch = normSearch(grp.displayTitle || grp.title);
@@ -1893,7 +2100,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // PORTADA PRINCIPAL (TODOS): AGRUPADO POR MISMO MODELO EN ORDEN COMERCIAL (CON FOTO ARRIBA Y SIN FOTO AL FINAL)
+    // PORTADA PRINCIPAL (TODOS): AGRUPADO POR TIPO DE MUEBLE + MODELO EN ORDEN COMERCIAL (CON FOTO ARRIBA Y SIN FOTO AL FINAL)
     // ------------------------------------------------------------------------
     function getMainCoverGroups() {
         return allGroups;
@@ -1926,7 +2133,7 @@
         if (matchedItems.length === baseGrp.items.length) return baseGrp;
         const singleTitle = (matchedItems.length > 1
             ? baseGrp.title
-            : (stripDimensionsFromProductText(matchedItems[0].n) || baseGrp.title || matchedItems[0].s)
+            : (matchedItems[0]._singleTitle || stripDimensionsFromProductText(matchedItems[0].n) || baseGrp.title || matchedItems[0].s)
         ).toUpperCase();
         return Object.assign({}, baseGrp, {
             items: matchedItems,
@@ -1935,7 +2142,8 @@
             lpptStock: matchedItems.reduce((acc, x) => acc + getLpptStock(x), 0),
             _hasPhoto: firstPhotoItem(matchedItems) ? 1 : 0,
             _mainRank: matchedItems.reduce((m, x) => Math.min(m, typeof x._mainRank === 'number' ? x._mainRank : 99), 99),
-            _subRank: matchedItems.reduce((m, x) => Math.min(m, typeof x._subRank === 'number' ? x._subRank : 999), 999)
+            _subRank: matchedItems.reduce((m, x) => Math.min(m, typeof x._subRank === 'number' ? x._subRank : 999), 999),
+            _typeRank: matchedItems.reduce((m, x) => Math.min(m, typeof x._typeRank === 'number' ? x._typeRank : 999), 999)
         });
     }
 
@@ -1945,6 +2153,7 @@
         if (!it || ownQty < 1) return null;
         const skuKey = String(it.s || '').trim().toUpperCase();
         const pieceTitle = (
+            it._singleTitle ||
             stripDimensionsFromProductText(it.n) ||
             (baseGrp && baseGrp.title) ||
             skuKey
@@ -1960,7 +2169,8 @@
             lpptStock: 0,
             _hasPhoto: it._hasPhoto ? 1 : 0,
             _mainRank: it._mainRank,
-            _subRank: it._subRank
+            _subRank: it._subRank,
+            _typeRank: it._typeRank
         };
     }
 

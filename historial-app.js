@@ -16,8 +16,16 @@
     // Cronología integral de hitos técnicos del proyecto de cotización
     const PROJECT_MILESTONES = [
         {
-            version: 'v61 · SW v20',
+            version: 'v62 · SW v21',
             commit: 'Actual',
+            date: '16/11/2026',
+            module: 'inventario-app.js · inventario.html · inventario-sw.js',
+            title: 'Acomodo y agrupación canónica por Tipo de Mueble + Modelo (coincidiendo variantes cuadradas, circulares, redondas, rectangulares y ovaladas)',
+            summary: 'Estructuración de todas las fichas colocando siempre al inicio [TIPO DE MUEBLE] [MODELO] y agrupando en TODOS estrictamente por Tipo de Mueble + Modelo (de modo que las variantes cuadradas, circulares, redondas, rectangulares, ovaladas, chicas o grandes del mismo mueble y modelo coincidan en una sola tarjeta con sus N variantes, sin mezclar distintos tipos de mueble de una misma colección), manteniendo CATEGORÍAS 100% desglosadas pieza por pieza.'
+        },
+        {
+            version: 'v61 · SW v20',
+            commit: 'f7289bc',
             date: '16/11/2026',
             module: 'INVENTARIO_EN_VIVO (Google Sheets) · inventario-app.js · inventario-data-1/2/3.js · inventario-sw.js',
             title: 'Unificación exhaustiva de variantes del mismo modelo en TODOS (IRLANDA SW, THOMPSON SW, BENZIO III y familias completas) y limpieza de variantes residuales',
