@@ -4138,23 +4138,70 @@
         }
     }
 
-    function parseGuestDevicesFromTextClient(rawText) {
+    function parseGuestMaxDevicesCellClient(rawVal) {
+        const s = cleanStr(rawVal);
+        if (!s) return MAX_GUEST_PLACES_PER_EMAIL;
+        const mSlash = s.match(/^\d+\s*\/\s*(\d+)$/);
+        if (mSlash && mSlash[1]) {
+            const denom = parseInt(mSlash[1], 10);
+            if (denom >= 1 && denom <= 50) return denom;
+        }
+        const mNum = s.match(/(\d+)/);
+        if (mNum && mNum[1]) {
+            const n = parseInt(mNum[1], 10);
+            if (n >= 1 && n <= 50) return n;
+        }
+        return MAX_GUEST_PLACES_PER_EMAIL;
+    }
+
+    function extractGuestDeviceColsFromRowClient(rowArr) {
+        const r = Array.isArray(rowArr) ? rowArr : [];
+        const colH = cleanStr(r[7]);
+        const colI = cleanStr(r[8]);
+        const colJ = cleanStr(r[9]);
+        const isLegacy9Col = !colJ && (/\[(?:ID|DEV):/i.test(colI) || /^Lugar\s*\d+\s*:/i.test(colI) || /^\d+\s*\/\s*\d+$/.test(colH));
+        if (isLegacy9Col) {
+            return {
+                maxPlaces: parseGuestMaxDevicesCellClient(colH),
+                placesText: colH,
+                devicesRaw: colI
+            };
+        }
+        return {
+            maxPlaces: parseGuestMaxDevicesCellClient(colH),
+            placesText: colI,
+            devicesRaw: colJ
+        };
+    }
+
+    function parseGuestDevicesFromTextClient(rawText, maxPlacesOpt) {
         const s = cleanStr(rawText);
         if (!s) return [];
+        const maxCap = Math.max(1, Math.min(50, Number(maxPlacesOpt) || 50));
         const list = [];
         const seen = {};
-        const re = /(?:(\d+)\)\s*)?([^\[\]|]*?)\[DEV:([A-Za-z0-9_.-]+)\](?:\s*\(([^)]*)\))?/g;
-        let m;
-        while ((m = re.exec(s)) !== null) {
-            const id = cleanStr(m[3]).slice(0, 64);
+        const parts = s.split(/\s*\|\s*/);
+        for (let i = 0; i < parts.length; i++) {
+            const seg = cleanStr(parts[i]);
+            if (!seg) continue;
+            const mId = seg.match(/\[(?:ID|DEV):\s*([^\]]+)\]/i);
+            if (!mId || !mId[1]) continue;
+            const id = cleanStr(mId[1]).slice(0, 80);
             if (!id || seen[id]) continue;
             seen[id] = true;
+            const labelPart = cleanStr(
+                seg
+                    .replace(/^(?:Lugar\s*\d+\s*:\s*|\d+\)\s*)/i, '')
+                    .replace(/\[(?:ID|DEV):\s*[^\]]+\]/gi, '')
+                    .replace(/\([^)]*\)\s*$/, '')
+            ) || 'Dispositivo';
+            const mTime = seg.match(/\(([^)]+)\)\s*$/);
             list.push({
                 id: id,
-                label: cleanStr(m[2]) || 'Dispositivo',
-                stamp: cleanStr(m[4]) || ''
+                label: labelPart,
+                stamp: mTime ? cleanStr(mTime[1]) : ''
             });
-            if (list.length >= MAX_GUEST_PLACES_PER_EMAIL) break;
+            if (list.length >= maxCap) break;
         }
         return list;
     }
@@ -4179,12 +4226,13 @@
         const devId = cleanStr(deviceId) || getOrCreateClientDeviceId();
         const devLbl = cleanStr(deviceLabel) || getClientDeviceLabel();
         const reg = loadLocalGuestDeviceRegistry();
+        const maxAllowedPlaces = Math.max(1, Math.min(50, Number(guestRowUser && guestRowUser.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL));
 
         const sheetDevices = Array.isArray(guestRowUser && guestRowUser.guestDevices)
             ? guestRowUser.guestDevices
-            : parseGuestDevicesFromTextClient(guestRowUser && guestRowUser.guestDevicesRaw);
-        const colHTxt = cleanStr(guestRowUser && guestRowUser.guestPlacesText);
-        const sheetExplicitZero = /^0\s*\/\s*\d+$/.test(colHTxt) && sheetDevices.length === 0;
+            : parseGuestDevicesFromTextClient(guestRowUser && guestRowUser.guestDevicesRaw, maxAllowedPlaces);
+        const placesTxt = cleanStr(guestRowUser && guestRowUser.guestPlacesText);
+        const sheetExplicitZero = /^0\s*\/\s*\d+$/.test(placesTxt) && sheetDevices.length === 0;
         if (sheetExplicitZero && reg[email]) {
             delete reg[email];
             saveLocalGuestDeviceRegistry(reg);
@@ -4193,12 +4241,12 @@
         const merged = [];
         const seen = {};
         const pushDev = function (d) {
-            if (!d || !d.id || seen[d.id] || merged.length >= MAX_GUEST_PLACES_PER_EMAIL) return;
+            if (!d || !d.id || seen[d.id] || merged.length >= maxAllowedPlaces) return;
             seen[d.id] = true;
             merged.push({
                 id: String(d.id),
                 label: cleanStr(d.label) || 'Dispositivo',
-                stamp: cleanStr(d.stamp) || ''
+                stamp: cleanStr(d.stamp || d.lastSeen) || ''
             });
         };
 
@@ -4215,18 +4263,19 @@
             }
         }
 
-        // Si en la hoja Col H dice "2/2" sin IDs explícitos y este dispositivo no estaba registrado localmente
-        const colHUsedMatch = colHTxt.match(/^(\d+)\s*\/\s*(\d+)$/);
-        const colHUsedNum = colHUsedMatch ? (parseInt(colHUsedMatch[1], 10) || 0) : 0;
-        if (slotIdx === -1 && (merged.length >= MAX_GUEST_PLACES_PER_EMAIL || (sheetDevices.length === 0 && colHUsedNum >= MAX_GUEST_PLACES_PER_EMAIL))) {
+        // Si en la hoja Lugares Activos dice "N/N" sin IDs explícitos y este dispositivo no estaba registrado localmente
+        const placesUsedMatch = placesTxt.match(/^(\d+)\s*\/\s*(\d+)$/);
+        const placesUsedNum = placesUsedMatch ? (parseInt(placesUsedMatch[1], 10) || 0) : 0;
+        if (slotIdx === -1 && (merged.length >= maxAllowedPlaces || (sheetDevices.length === 0 && placesUsedNum >= maxAllowedPlaces))) {
             const usedLabels = merged.map((d, idx) => 'Lugar ' + (idx + 1) + ': ' + (d.label || 'Dispositivo')).join(' · ');
+            const pluralText = maxAllowedPlaces === 1 ? '1 dispositivo permitido' : (maxAllowedPlaces + ' dispositivos permitidos');
             return {
                 ok: false,
                 limitReached: true,
-                activePlaces: MAX_GUEST_PLACES_PER_EMAIL,
-                maxPlaces: MAX_GUEST_PLACES_PER_EMAIL,
-                error: 'Este correo de Invitado (' + email + ') ya alcanzó el límite máximo de ' + MAX_GUEST_PLACES_PER_EMAIL + ' lugares/dispositivos abiertos' +
-                    (usedLabels ? (' (' + usedLabels + ')') : '') + '. Solo se permite abrir en 2 lugares por correo.'
+                activePlaces: Math.max(merged.length, maxAllowedPlaces),
+                maxPlaces: maxAllowedPlaces,
+                error: 'Este correo de Invitado (' + email + ') ya alcanzó su límite configurado de ' + pluralText +
+                    (usedLabels ? (' (' + usedLabels + ')') : '') + '. Para abrir en otro equipo, aumenta la columna "Dispositivos Permitidos" (Columna H) o borra la celda de dispositivos en la hoja INVITADOS.'
             };
         }
 
@@ -4246,7 +4295,7 @@
         reg[email] = merged;
         saveLocalGuestDeviceRegistry(reg);
 
-        // Sincronizar con Apps Script en segundo plano para dejar constancia en las Columnas H e I de INVITADOS
+        // Sincronizar con Apps Script en segundo plano para dejar constancia en las Columnas H, I y J de INVITADOS
         callInvWebAppPost('inv_guest_heartbeat', {
             email: email,
             deviceId: devId,
@@ -4257,7 +4306,7 @@
             ok: true,
             slotNumber: slotIdx + 1,
             activePlaces: merged.length,
-            maxPlaces: MAX_GUEST_PLACES_PER_EMAIL,
+            maxPlaces: maxAllowedPlaces,
             devices: merged
         };
     }
@@ -4460,6 +4509,7 @@
         const cfg = findBranchConfig(u.sheetTab || u.branchKey, u.erpStore);
         const guestFlag = !!(cfg && cfg.isGuest) || isGuestUserObject(u);
         if (guestFlag) {
+            const customMax = Math.max(1, Math.min(50, Number(u.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL));
             return Object.assign({}, u, {
                 sheetTab: u.sheetTab || 'INVITADOS',
                 isAdmin: false,
@@ -4475,9 +4525,9 @@
                 isProyecto: false,
                 mustChangeKey: !!u.mustChangeKey,
                 serieLabel: 'SOLO VER · INVITADO (SIN COTIZAR NI DESCUENTOS)',
-                guestSlotNum: Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(u.guestSlotNum) || 1)),
-                guestActivePlaces: Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(u.guestActivePlaces) || 1)),
-                guestMaxPlaces: MAX_GUEST_PLACES_PER_EMAIL
+                guestSlotNum: Math.max(1, Math.min(customMax, Number(u.guestSlotNum) || 1)),
+                guestActivePlaces: Math.max(1, Math.min(customMax, Number(u.guestActivePlaces) || 1)),
+                guestMaxPlaces: customMax
             });
         }
         const adminFlag = isEmailOrRoleAdmin(u) || !!(cfg && cfg.isAdmin);
@@ -5058,7 +5108,8 @@
                     const guestPuesto = cleanStr(r[3]) && cleanStr(r[3]).indexOf('@') === -1
                         ? cleanStr(r[3])
                         : 'Invitado (Solo Ver)';
-                    const parsedDevs = parseGuestDevicesFromTextClient(colI);
+                    const guestCols = extractGuestDeviceColsFromRowClient(r);
+                    const parsedDevs = parseGuestDevicesFromTextClient(guestCols.devicesRaw, guestCols.maxPlaces);
                     tabUsers.push({
                         sheetTab: 'INVITADOS',
                         rowNum: i + 1,
@@ -5074,7 +5125,7 @@
                         orderPrefix: 'INV',
                         quoteType: 'SOLO_VER',
                         isProyecto: false,
-                        serieLabel: cfg.serieLabel,
+                        serieLabel: 'Modo Invitado · Solo Ver (Máx. ' + guestCols.maxPlaces + (guestCols.maxPlaces === 1 ? ' Dispositivo)' : ' Dispositivos)'),
                         nombre: guestNombre,
                         puesto: guestPuesto,
                         correo: correo,
@@ -5084,10 +5135,10 @@
                         erpAdvisorLabel: '',
                         erpAdvisorId: '',
                         erpAdvisorBranch: '',
-                        guestPlacesText: colH,
-                        guestDevicesRaw: colI,
+                        guestPlacesText: guestCols.placesText,
+                        guestDevicesRaw: guestCols.devicesRaw,
                         guestDevices: parsedDevs,
-                        guestMaxPlaces: MAX_GUEST_PLACES_PER_EMAIL
+                        guestMaxPlaces: guestCols.maxPlaces
                     });
                     continue;
                 }
@@ -5167,7 +5218,45 @@
             }
             mu.branchAdvisorEmails = allowedEmails;
         }
+        syncMultiStoreLocationsForActiveSession(flatUsers);
         return flatUsers;
+    }
+
+    function syncMultiStoreLocationsForActiveSession(liveUsers) {
+        if (!activeAdvisorSession || isGuestSession(activeAdvisorSession) || !Array.isArray(liveUsers) || !liveUsers.length) return;
+        const sessEmail = String(activeAdvisorSession.correo || '').trim().toLowerCase();
+        if (!sessEmail) return;
+        const matchedLocs = liveUsers.filter(u => u && !u.isGuest && String(u.correo || '').trim().toLowerCase() === sessEmail);
+        if (!matchedLocs.length) return;
+
+        const prevLocs = Array.isArray(activeAdvisorSession.allLocations) ? activeAdvisorSession.allLocations : [];
+        const tokenByTab = {};
+        prevLocs.forEach(l => {
+            if (l && l.sheetTab && l.authToken) {
+                tokenByTab[String(l.sheetTab).trim().toUpperCase()] = l.authToken;
+            }
+        });
+        if (activeAdvisorSession.sheetTab && activeAdvisorSession.authToken) {
+            tokenByTab[String(activeAdvisorSession.sheetTab).trim().toUpperCase()] = activeAdvisorSession.authToken;
+        }
+
+        const nextAll = matchedLocs.map(rawU => {
+            const u = enrichAdvisorLocation(rawU);
+            const tabKey = String(u.sheetTab || '').trim().toUpperCase();
+            return Object.assign({}, u, {
+                mustChangeKey: false,
+                authToken: tokenByTab[tabKey] || activeAdvisorSession.authToken || ''
+            });
+        });
+
+        const prevTabsSig = prevLocs.map(l => String((l && l.sheetTab) || '').toUpperCase()).join('|');
+        const nextTabsSig = nextAll.map(l => String((l && l.sheetTab) || '').toUpperCase()).join('|');
+        if (prevTabsSig !== nextTabsSig || prevLocs.length !== nextAll.length) {
+            activeAdvisorSession.allLocations = nextAll;
+            saveAdvisorSession(activeAdvisorSession);
+            renderAdvisorHeaderBar();
+            populateQuoteAdvisorControls();
+        }
     }
 
     async function syncPendingKeyUpdatesToCloud() {
@@ -5232,6 +5321,8 @@
         const branchEl = document.getElementById('sessionBranchBadge');
         const erpEl = document.getElementById('sessionErpBadge');
         const switchBtn = document.getElementById('sessionSwitchBranchBtn');
+        const headerSwitchStoreBtn = document.getElementById('headerSwitchStoreBtn');
+        const headerSwitchStoreBtnText = document.getElementById('headerSwitchStoreBtnText');
         const trackQuoteBtn = document.getElementById('headerTrackQuoteBtn');
         const cartBtn = document.getElementById('headerCartBtn');
         const guestBadgeWrap = document.getElementById('headerGuestBadgeWrap');
@@ -5248,15 +5339,33 @@
         }
         if (guestBadgeWrap) {
             if (guestMode && activeAdvisorSession) {
-                const slotNum = Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(activeAdvisorSession.guestSlotNum) || 1));
+                const maxCap = Math.max(1, Math.min(50, Number(activeAdvisorSession.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL));
+                const slotNum = Math.max(1, Math.min(maxCap, Number(activeAdvisorSession.guestSlotNum) || 1));
                 if (guestBadgeText) {
-                    guestBadgeText.textContent = 'SOLO VER · LUGAR ' + slotNum + '/' + MAX_GUEST_PLACES_PER_EMAIL + ' · ' + (activeAdvisorSession.nombre || activeAdvisorSession.correo || 'INVITADO');
+                    guestBadgeText.textContent = 'SOLO VER · LUGAR ' + slotNum + '/' + maxCap + ' · ' + (activeAdvisorSession.nombre || activeAdvisorSession.correo || 'INVITADO');
                 }
                 guestBadgeWrap.classList.remove('hidden');
                 guestBadgeWrap.style.display = 'inline-flex';
             } else {
                 guestBadgeWrap.classList.add('hidden');
                 guestBadgeWrap.style.display = 'none';
+            }
+        }
+
+        const multiLocs = (activeAdvisorSession && !guestMode && !activeAdvisorSession.isAdmin && Array.isArray(activeAdvisorSession.allLocations))
+            ? activeAdvisorSession.allLocations.filter(l => l && !l.isGuest)
+            : [];
+        if (headerSwitchStoreBtn) {
+            if (multiLocs.length > 1 && activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
+                const shortStore = cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab) || 'Tienda';
+                if (headerSwitchStoreBtnText) {
+                    headerSwitchStoreBtnText.textContent = '📍 ' + shortStore + ' ▾';
+                }
+                headerSwitchStoreBtn.classList.remove('hidden');
+                headerSwitchStoreBtn.style.display = '';
+            } else {
+                headerSwitchStoreBtn.classList.add('hidden');
+                headerSwitchStoreBtn.style.display = 'none';
             }
         }
 
@@ -5285,8 +5394,9 @@
         }
         if (erpEl) {
             if (guestMode) {
-                const slotNum = Math.max(1, Math.min(MAX_GUEST_PLACES_PER_EMAIL, Number(activeAdvisorSession.guestSlotNum) || 1));
-                erpEl.textContent = 'Lugar ' + slotNum + ' de ' + MAX_GUEST_PLACES_PER_EMAIL + ' autorizado';
+                const maxCap = Math.max(1, Math.min(50, Number(activeAdvisorSession.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL));
+                const slotNum = Math.max(1, Math.min(maxCap, Number(activeAdvisorSession.guestSlotNum) || 1));
+                erpEl.textContent = 'Lugar ' + slotNum + ' de ' + maxCap + ' autorizado';
                 erpEl.classList.remove('hidden');
             } else if (activeAdvisorSession.erpAdvisorId) {
                 erpEl.textContent = 'Usuario S Mueblería #' + activeAdvisorSession.erpAdvisorId;
@@ -5296,7 +5406,6 @@
                 erpEl.classList.add('hidden');
             }
         }
-        const multiLocs = Array.isArray(activeAdvisorSession.allLocations) ? activeAdvisorSession.allLocations : [];
         if (switchBtn) {
             switchBtn.classList.toggle('hidden', multiLocs.length <= 1);
         }
@@ -5370,8 +5479,9 @@
                 activeAdvisorSession.sheetTab === loc.sheetTab &&
                 activeAdvisorSession.correo === loc.correo;
             const pfx = getStoreFolioPrefix(loc.erpStore, loc.orderPrefix);
+            const guestMaxCap = Math.max(1, Math.min(50, Number(loc.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL));
             const modeTag = loc.isGuest
-                ? 'SOLO VER · MÁX 2 LUGARES'
+                ? ('SOLO VER · MÁX ' + guestMaxCap + (guestMaxCap === 1 ? ' LUGAR' : ' LUGARES'))
                 : (loc.isAdmin
                     ? 'ADMIN · VER TODO'
                     : (loc.isProyecto ? ('PROYECTO · FOLIO ' + pfx) : ('FOLIO ' + pfx)));
@@ -5387,7 +5497,7 @@
                         escapeHtml((loc.puesto ? (loc.puesto + ' · ') : '') + (loc.erpStore || '')) +
                     '</div>' +
                 '</div>' +
-                '<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase shrink-0" style="background:#A38251; color:#FFFFFF;">Elegir</span>' +
+                '<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase shrink-0" style="background:#A38251; color:#FFFFFF;">' + (isCurrent ? 'Activa' : 'Elegir') + '</span>' +
             '</button>';
         }).join('');
 
@@ -5570,6 +5680,34 @@
         const localKeyUpdates = loadUpdatedKeysMap();
         const hasPendingLocalNewKey = !!(localKeyUpdates[email] && localKeyUpdates[email].newKey);
 
+        // Verificar primero en vivo la hoja INVITADOS (Columna H: Dispositivos Permitidos)
+        let liveGuestRow = null;
+        try {
+            const allUsers = await fetchAllAdvisorRowsLiveGviz();
+            liveGuestRow = allUsers.find(u => u && u.correo === email && u.isGuest) || null;
+            if (liveGuestRow) {
+                const liveCheck = checkGuestDeviceLimitClient(liveGuestRow, deviceId, deviceLabel);
+                if (!liveCheck.ok && liveCheck.limitReached) {
+                    window.logoutAdvisorSession();
+                    showAuthBanner('authLoginMsg', liveCheck.error, 'err');
+                    return;
+                }
+                if (liveCheck.ok) {
+                    activeAdvisorSession.guestSlotNum = liveCheck.slotNumber;
+                    activeAdvisorSession.guestActivePlaces = liveCheck.activePlaces;
+                    activeAdvisorSession.guestMaxPlaces = liveCheck.maxPlaces;
+                }
+                if (liveGuestRow.mustChangeKey && !hasPendingLocalNewKey) {
+                    activeAdvisorSession.mustChangeKey = true;
+                    saveAdvisorSession(activeAdvisorSession);
+                    openAuthModalForStartup();
+                    return;
+                }
+                saveAdvisorSession(activeAdvisorSession);
+                renderAdvisorHeaderBar();
+            }
+        } catch (eGviz) {}
+
         try {
             const hbRes = await callInvWebAppPost('inv_guest_heartbeat', {
                 email: email,
@@ -5579,7 +5717,12 @@
 
             if (hbRes && hbRes.ok) {
                 if (hbRes.slotNumber) activeAdvisorSession.guestSlotNum = hbRes.slotNumber;
-                if (hbRes.activePlaces) activeAdvisorSession.guestActivePlaces = hbRes.activePlaces;
+                if (hbRes.activePlaces || hbRes.activeCount) activeAdvisorSession.guestActivePlaces = hbRes.activePlaces || hbRes.activeCount;
+                if (liveGuestRow && liveGuestRow.guestMaxPlaces) {
+                    activeAdvisorSession.guestMaxPlaces = liveGuestRow.guestMaxPlaces;
+                } else if (hbRes.maxPlaces) {
+                    activeAdvisorSession.guestMaxPlaces = hbRes.maxPlaces;
+                }
                 if (hbRes.mustChangeKey && !hasPendingLocalNewKey) {
                     activeAdvisorSession.mustChangeKey = true;
                     saveAdvisorSession(activeAdvisorSession);
@@ -5591,23 +5734,16 @@
                 return;
             }
             if (hbRes && !hbRes.unavailable && !hbRes.needsRedeploy && (hbRes.authRequired || hbRes.limitReached || hbRes.revoked)) {
-                const msg = hbRes.error || 'Tu acceso de Invitado alcanzó el límite de 2 lugares o fue actualizado.';
+                // Si la hoja en vivo tiene configurado un límite mayor en Columna H que una versión anterior del WebApp, respetar la Columna H en vivo
+                if (hbRes.limitReached && liveGuestRow && Number(liveGuestRow.guestMaxPlaces) > Number(hbRes.maxPlaces || 2)) {
+                    return;
+                }
+                const msg = hbRes.error || 'Tu acceso de Invitado alcanzó el límite de dispositivos permitidos o fue actualizado.';
                 window.logoutAdvisorSession();
                 showAuthBanner('authLoginMsg', msg, 'err');
                 return;
             }
         } catch (e) {}
-
-        // Respaldo por lectura directa de la hoja INVITADOS (GViz)
-        try {
-            const allUsers = await fetchAllAdvisorRowsLiveGviz();
-            const guestRow = allUsers.find(u => u && u.correo === email && u.isGuest);
-            if (guestRow && guestRow.mustChangeKey && !hasPendingLocalNewKey) {
-                activeAdvisorSession.mustChangeKey = true;
-                saveAdvisorSession(activeAdvisorSession);
-                openAuthModalForStartup();
-            }
-        } catch (eGviz) {}
     }
 
     window.submitAdvisorLogin = async function (ev) {
@@ -5636,14 +5772,23 @@
         showAuthBanner('authLoginMsg', '', 'err');
 
         try {
-            // 1) Validación directa y emisión de token firmado vía Apps Script WebApp (con control de 2 lugares en INVITADOS)
-            const cloudRes = await callInvWebAppPost('inv_login', {
-                email: email,
-                accessKey: inputKey,
-                sheetTab: preferredTab,
-                deviceId: deviceId,
-                deviceLabel: deviceLabel
-            }, 10000);
+            // 1) Validación directa y emisión de token firmado vía Apps Script WebApp + lectura en vivo de hojas para multi-tienda y límite Columna H de INVITADOS
+            const [cloudRes, liveAllUsers] = await Promise.all([
+                callInvWebAppPost('inv_login', {
+                    email: email,
+                    accessKey: inputKey,
+                    sheetTab: preferredTab,
+                    deviceId: deviceId,
+                    deviceLabel: deviceLabel
+                }, 10000),
+                fetchAllAdvisorRowsLiveGviz().catch(() => [])
+            ]);
+
+            const liveEmailMatches = Array.isArray(liveAllUsers)
+                ? liveAllUsers.filter(u => u && u.correo === email)
+                : [];
+            const liveGuestRow = liveEmailMatches.find(u => u.isGuest) || null;
+            const liveStoreRows = liveEmailMatches.filter(u => !u.isGuest);
 
             if (cloudRes && cloudRes.ok) {
                 if (cloudRes.nextFolioByStore) {
@@ -5666,45 +5811,96 @@
                     }));
                 }
 
-                if (cloudRes.chooseBranch && Array.isArray(cloudRes.locations) && cloudRes.locations.length > 1) {
+                // Si es Invitado y la Columna H en vivo tiene un límite personalizado (ej. 1 dispositivo), validarlo en vivo
+                if (liveGuestRow && ((cloudRes.user && cloudRes.user.isGuest) || (Array.isArray(cloudRes.locations) && cloudRes.locations.every(l => l.isGuest)))) {
+                    const liveDevCheck = checkGuestDeviceLimitClient(liveGuestRow, deviceId, deviceLabel);
+                    if (!liveDevCheck.ok) {
+                        showAuthBanner('authLoginMsg', liveDevCheck.error, 'err');
+                        return;
+                    }
+                    if (cloudRes.user) {
+                        cloudRes.user.guestSlotNum = liveDevCheck.slotNumber;
+                        cloudRes.user.guestActivePlaces = liveDevCheck.activePlaces;
+                        cloudRes.user.guestMaxPlaces = liveDevCheck.maxPlaces;
+                    }
+                }
+
+                // Unir todas las tiendas donde esté dado de alta el correo en vivo (incluso si una pestaña nueva tenía clave distinta o vacía)
+                let mergedLocations = Array.isArray(cloudRes.locations)
+                    ? cloudRes.locations.slice()
+                    : (Array.isArray(cloudRes.allLocationsForEmail)
+                        ? cloudRes.allLocationsForEmail.slice()
+                        : (cloudRes.user ? [cloudRes.user] : []));
+
+                if (liveStoreRows.length > 1 && mergedLocations.some(l => l && !l.isGuest)) {
+                    const byTab = {};
+                    let sampleToken = '';
+                    mergedLocations.forEach(l => {
+                        if (!l) return;
+                        const k = String(l.sheetTab || '').trim().toUpperCase().replace(/COLOSIO/g, 'COLOCIO');
+                        byTab[k] = l;
+                        if (l.authToken && !sampleToken) sampleToken = l.authToken;
+                    });
+                    const combined = [];
+                    liveStoreRows.forEach(liveLoc => {
+                        const k = String(liveLoc.sheetTab || '').trim().toUpperCase().replace(/COLOSIO/g, 'COLOCIO');
+                        if (byTab[k]) {
+                            combined.push(Object.assign({}, liveLoc, byTab[k], { mustChangeKey: !!byTab[k].mustChangeKey }));
+                        } else {
+                            combined.push(Object.assign({}, liveLoc, {
+                                mustChangeKey: false,
+                                authToken: sampleToken
+                            }));
+                        }
+                    });
+                    if (combined.length > mergedLocations.length) {
+                        mergedLocations = combined;
+                    }
+                }
+
+                if ((cloudRes.chooseBranch || mergedLocations.length > 1) && mergedLocations.length > 1 && !preferredTab) {
                     pendingAuthContext = {
                         email: email,
                         inputKey: inputKey,
-                        locations: cloudRes.locations,
+                        locations: mergedLocations,
                         switchingFromActive: false
                     };
                     renderBranchChoicesStep(
-                        cloudRes.locations,
-                        'Hola ' + (cloudRes.locations[0].nombre || '') + '. Tu correo está registrado en varias hojas; selecciona en cuál ubicación estarás:'
+                        mergedLocations,
+                        'Hola ' + (mergedLocations[0].nombre || '') + '. Tu correo está registrado en varias tiendas/bodegas; selecciona a qué tienda vas a cotizar:'
                     );
                     return;
                 }
 
-                if (cloudRes.user) {
+                if (cloudRes.user || mergedLocations.length > 0) {
+                    const primaryUser = preferredTab
+                        ? (mergedLocations.find(u => u.sheetTab === preferredTab) || cloudRes.user || mergedLocations[0])
+                        : (cloudRes.user || mergedLocations[0]);
                     pendingAuthContext = {
                         email: email,
                         inputKey: inputKey,
-                        locations: cloudRes.allLocationsForEmail || [cloudRes.user],
+                        locations: mergedLocations.length ? mergedLocations : [primaryUser],
                         switchingFromActive: false
                     };
                     finalizeLocationChoice(
-                        cloudRes.user,
-                        cloudRes.allLocationsForEmail || [cloudRes.user],
+                        primaryUser,
+                        mergedLocations.length ? mergedLocations : [primaryUser],
                         cloudRes.nextOrderCode || ''
                     );
                     return;
                 }
             } else if (cloudRes && !cloudRes.unavailable && !cloudRes.needsRedeploy && cloudRes.error) {
-                // Si el WebApp aún no conoce la pestaña INVITADOS (implementación anterior), permitir verificar por lectura directa GViz antes de mostrar error de correo no registrado
+                // Si el WebApp devolvió limitReached con tope 2 pero en la hoja INVITADOS Columna H tiene un número mayor (ej. 3, 4, 5), continuar con la validación en vivo de la hoja
+                const hasHigherLiveGuestLimit = !!(cloudRes.limitReached && liveGuestRow && Number(liveGuestRow.guestMaxPlaces) > Number(cloudRes.maxPlaces || 2));
                 const isUnknownGuestInOldWebApp = /no est[aá] registrado/i.test(String(cloudRes.error || '')) || /Ingresa tu contrase/i.test(String(cloudRes.error || ''));
-                if (!isUnknownGuestInOldWebApp || cloudRes.limitReached) {
+                if (!hasHigherLiveGuestLimit && (!isUnknownGuestInOldWebApp || cloudRes.limitReached)) {
                     showAuthBanner('authLoginMsg', cloudRes.error, 'err');
                     return;
                 }
             }
 
             // 2) Respaldo de lectura directa en vivo desde las hojas de usuarios, INVITADOS y plantilla
-            const allUsers = await fetchAllAdvisorRowsLiveGviz();
+            const allUsers = liveAllUsers.length ? liveAllUsers : await fetchAllAdvisorRowsLiveGviz();
             if (!allUsers.length) {
                 showAuthBanner('authLoginMsg', 'No fue posible consultar las hojas de usuarios. Verifica tu conexión a internet.', 'err');
                 return;
@@ -5733,11 +5929,18 @@
                 return;
             }
 
-            // Validar límite estricto de 2 lugares por correo para cuentas de la hoja INVITADOS
+            const hasValidNonGuest = validMatches.some(u => !u.isGuest);
+            const candidateMatches = hasValidNonGuest
+                ? emailMatches.filter(u => !u.isGuest)
+                : validMatches;
+            const matchedViaDefKey = validMatches.some(u => !!u.defKey && keysMatchNormalized(inputKey, u.defKey));
+            const hasAnyDefKeyForEmail = candidateMatches.some(u => !!u.defKey);
+
+            // Validar límite configurado en Columna H ("Dispositivos Permitidos") para cuentas de la hoja INVITADOS
             const checkedMatches = [];
             let guestLimitErr = '';
-            for (let mIdx = 0; mIdx < validMatches.length; mIdx++) {
-                const cand = validMatches[mIdx];
+            for (let mIdx = 0; mIdx < candidateMatches.length; mIdx++) {
+                const cand = candidateMatches[mIdx];
                 if (cand.isGuest) {
                     const devRes = checkGuestDeviceLimitClient(cand, deviceId, deviceLabel);
                     if (!devRes.ok) {
@@ -5757,7 +5960,7 @@
             }
 
             const preparedLocs = checkedMatches.map(u => {
-                const usedTemp = !u.defKey && ((!!u.tempKey && keysMatchNormalized(inputKey, u.tempKey)) || (u.isGuest && u.noPasswordRequired));
+                const usedTemp = !matchedViaDefKey && !hasAnyDefKeyForEmail && !u.defKey && ((!!u.tempKey && keysMatchNormalized(inputKey, u.tempKey)) || (u.isGuest && u.noPasswordRequired));
                 return Object.assign({}, u, { mustChangeKey: usedTemp });
             });
 
@@ -5771,7 +5974,7 @@
             if (preparedLocs.length > 1 && !preferredTab) {
                 renderBranchChoicesStep(
                     preparedLocs,
-                    'Hola ' + (preparedLocs[0].nombre || '') + '. Tu correo aparece en varias hojas; selecciona en cuál ubicación estarás:'
+                    'Hola ' + (preparedLocs[0].nombre || '') + '. Tu correo aparece en varias tiendas/bodegas; selecciona a qué tienda vas a cotizar:'
                 );
             } else {
                 const picked = preferredTab
@@ -5809,8 +6012,23 @@
         };
         renderBranchChoicesStep(
             activeAdvisorSession.allLocations,
-            'Selecciona la ubicación autorizada de tu correo en la que operarás:'
+            'Selecciona la tienda o bodega autorizada de tu cuenta a la que vas a cotizar:'
         );
+    };
+
+    window.onMultiStoreUserSelectChange = function (targetSheetTab) {
+        if (!activeAdvisorSession || activeAdvisorSession.isAdmin || isGuestSession()) return;
+        const multiLocs = Array.isArray(activeAdvisorSession.allLocations)
+            ? activeAdvisorSession.allLocations.filter(l => l && !l.isGuest)
+            : [];
+        if (multiLocs.length <= 1) return;
+        const cleanTarget = cleanStr(targetSheetTab).toUpperCase().replace(/COLOSIO/g, 'COLOCIO');
+        const chosen = multiLocs.find(l =>
+            String(l.sheetTab || '').trim().toUpperCase().replace(/COLOSIO/g, 'COLOCIO') === cleanTarget ||
+            String(l.erpStore || '').trim().toUpperCase() === cleanTarget
+        );
+        if (!chosen) return;
+        finalizeLocationChoice(chosen, activeAdvisorSession.allLocations, '');
     };
 
     window.submitNewPersonalKey = async function (ev) {
@@ -6194,10 +6412,17 @@
         return filterAllowedGeneratedQuotesClient(rawItems).slice(0, limit);
     }
 
+    let lastMultiStoreDirectorySyncMs = 0;
+
     async function refreshMyLiveQuotesInfo() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) {
             renderMyRecentQuotes([]);
             return;
+        }
+        const nowMs = Date.now();
+        if (nowMs - lastMultiStoreDirectorySyncMs > 45000) {
+            lastMultiStoreDirectorySyncMs = nowMs;
+            fetchAllAdvisorRowsLiveGviz().catch(() => {});
         }
         const activeTargetStore = (activeAdvisorSession.isAdmin && quoteDraftMeta.erpStore)
             ? quoteDraftMeta.erpStore
@@ -6407,6 +6632,7 @@
         const idBadge = document.getElementById('quoteErpUserIdBadge');
         const storeLbl = document.getElementById('quoteLockedStoreLabel');
         const storeTxt = document.getElementById('quoteLockedStoreText');
+        const multiStoreSel = document.getElementById('quoteMultiStoreSelect');
         const advTxt = document.getElementById('quoteLockedAdvisorText');
         const emailTxt = document.getElementById('quoteLockedEmailText');
         const switchLocBtn = document.getElementById('quoteSwitchLocationBtn');
@@ -6486,8 +6712,33 @@
             idBadge.textContent = effectiveAdvisorId ? ('ID S Mueblería: ' + effectiveAdvisorId) : 'Usuario Vinculado';
         }
 
+        const multiLocs = (sess && !isAdmin && !sess.isGuest && Array.isArray(sess.allLocations))
+            ? sess.allLocations.filter(l => l && !l.isGuest)
+            : [];
+
         if (storeLbl) {
-            storeLbl.textContent = isProy ? 'Área / Modalidad Proyecto' : 'Tienda / Bodega S Mueblería';
+            if (multiLocs.length > 1) {
+                storeLbl.textContent = 'Tienda / Bodega a Cotizar (' + multiLocs.length + ' asignadas)';
+            } else {
+                storeLbl.textContent = isProy ? 'Área / Modalidad Proyecto' : 'Tienda / Bodega S Mueblería';
+            }
+        }
+        if (multiStoreSel) {
+            if (multiLocs.length > 1) {
+                multiStoreSel.innerHTML = multiLocs.map(rawLoc => {
+                    const loc = enrichAdvisorLocation(rawLoc);
+                    const pfx = getStoreFolioPrefix(loc.erpStore, loc.orderPrefix);
+                    const est = getEstimatedStoreFolio(loc.erpStore, pfx);
+                    const labelText = (loc.erpStore || loc.branchLabel || loc.sheetTab) + ' · Folio ' + est;
+                    return '<option value="' + escapeHtml(loc.sheetTab) + '">' + escapeHtml(labelText) + '</option>';
+                }).join('');
+                multiStoreSel.value = sess.sheetTab;
+                multiStoreSel.classList.remove('hidden');
+                if (storeTxt) storeTxt.classList.add('hidden');
+            } else {
+                multiStoreSel.classList.add('hidden');
+                if (storeTxt) storeTxt.classList.remove('hidden');
+            }
         }
         if (storeTxt) {
             storeTxt.textContent = sess ? (effectiveStore || '—') : 'Inicia sesión';
@@ -6510,8 +6761,10 @@
             }
         }
         if (switchLocBtn) {
-            const multiLocs = (sess && Array.isArray(sess.allLocations)) ? sess.allLocations : [];
             switchLocBtn.classList.toggle('hidden', multiLocs.length <= 1);
+            if (multiLocs.length > 1) {
+                switchLocBtn.textContent = 'Cambiar tienda (' + multiLocs.length + ')';
+            }
         }
 
         if (clientNameLbl) {
@@ -9629,5 +9882,66 @@
         if ('serviceWorker' in navigator && window.isSecureContext) {
             navigator.serviceWorker.register('inventario-sw.js', { scope: './inventario' }).catch(function () {});
         }
+        syncPwaInstallButtonState();
     });
+
+    // ------------------------------------------------------------------------
+    // INSTALACIÓN DE APP MÓVIL (PWA iOS / ANDROID / DESKTOP)
+    // ------------------------------------------------------------------------
+    let deferredPwaInstallPrompt = null;
+
+    function isRunningStandalonePwa() {
+        try {
+            if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+            if (window.navigator && window.navigator.standalone === true) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function syncPwaInstallButtonState() {
+        const headerBtn = document.getElementById('headerInstallAppBtn');
+        const nativeModalBtn = document.getElementById('btnTriggerNativeAppInstall');
+        const isStandalone = isRunningStandalonePwa();
+        if (headerBtn) {
+            headerBtn.classList.toggle('hidden', isStandalone);
+            headerBtn.style.display = isStandalone ? 'none' : '';
+        }
+        if (nativeModalBtn) {
+            nativeModalBtn.classList.toggle('hidden', !deferredPwaInstallPrompt);
+        }
+    }
+
+    if (typeof window !== 'undefined') {
+        window.addEventListener('beforeinstallprompt', function (e) {
+            e.preventDefault();
+            deferredPwaInstallPrompt = e;
+            syncPwaInstallButtonState();
+        });
+        window.addEventListener('appinstalled', function () {
+            deferredPwaInstallPrompt = null;
+            syncPwaInstallButtonState();
+            window.closeInstallAppModal();
+        });
+    }
+
+    window.openInstallAppModal = function () {
+        syncPwaInstallButtonState();
+        const modal = document.getElementById('installAppModal');
+        if (modal) modal.classList.add('open');
+    };
+
+    window.closeInstallAppModal = function () {
+        const modal = document.getElementById('installAppModal');
+        if (modal) modal.classList.remove('open');
+    };
+
+    window.triggerNativeAppInstall = async function () {
+        if (!deferredPwaInstallPrompt) return;
+        try {
+            deferredPwaInstallPrompt.prompt();
+            await deferredPwaInstallPrompt.userChoice;
+        } catch (e) {}
+        deferredPwaInstallPrompt = null;
+        syncPwaInstallButtonState();
+    };
 })();

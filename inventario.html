@@ -3,6 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="theme-color" content="#252C32">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CREATA App">
+    <link rel="manifest" href="inventario-manifest.json?v=1">
+    <link rel="icon" type="image/png" sizes="192x192" href="inventario-icon-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="inventario-apple-icon.png">
     <title>CREATA — Búsqueda de productos</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -752,7 +760,7 @@
                     <!-- CATEGORÍAS DEL INVENTARIO -->
                     <div id="invCategoryBar" class="inv-cats-cell"></div>
 
-                    <!-- BOTÓN PEQUEÑO SEGUIMIENTO DE COTIZACIÓN + BOTÓN COTIZACIÓN / INSIGNIA INVITADO SOLO VER -->
+                    <!-- BOTÓN PEQUEÑO SEGUIMIENTO DE COTIZACIÓN + SELECTOR DE TIENDA + APP + BOTÓN COTIZACIÓN / INSIGNIA INVITADO SOLO VER -->
                     <div class="inv-header-actions">
                         <a href="https://creata-muebles-qa8x.onrender.com/"
                            target="_blank"
@@ -762,6 +770,17 @@
                            title="Ir a Seguimiento de cotización">
                             <span>Seguimiento de cotización</span>
                         </a>
+                        <button type="button" onclick="openSwitchBranchSelector()" id="headerSwitchStoreBtn"
+                                class="hidden inv-track-btn"
+                                style="border-color:#A38251; background:rgba(163, 130, 81, 0.22); color:#FAF8F3;"
+                                title="Cambiar tienda o bodega activa para cotizar">
+                            <span id="headerSwitchStoreBtnText">📍 Tienda ▾</span>
+                        </button>
+                        <button type="button" onclick="openInstallAppModal()" id="headerInstallAppBtn"
+                                class="inv-track-btn"
+                                title="Instalar App CREATA en tu teléfono o computadora">
+                            <span>📲 App</span>
+                        </button>
                         <button type="button" onclick="openCartModal()" id="headerCartBtn" class="inv-quote-btn" title="Abrir cotización">
                             <span>Cotización</span>
                             <span id="headerCartCount" class="inv-quote-badge">0</span>
@@ -996,6 +1015,9 @@
                         <div class="rounded-lg border px-3 py-2" style="border-color:#E1DBC5; background:#FFFFFF;">
                             <div id="quoteLockedStoreLabel" class="text-[10px] font-extrabold uppercase opacity-70" style="color:#252C32;">Tienda / Bodega S Mueblería</div>
                             <div id="quoteLockedStoreText" class="text-xs font-extrabold uppercase mt-0.5 truncate" style="color:#252C32;">—</div>
+                            <select id="quoteMultiStoreSelect" onchange="onMultiStoreUserSelectChange(this.value)"
+                                    class="hidden w-full rounded-lg border px-2.5 py-1.5 mt-1 text-xs font-extrabold uppercase outline-none cursor-pointer"
+                                    style="border-color:#A38251; background:#FAF9F6; color:#252C32;"></select>
                         </div>
                         <div class="sm:col-span-2 rounded-lg border px-3 py-2" style="border-color:#E1DBC5; background:#FFFFFF;">
                             <div class="text-[10px] font-extrabold uppercase opacity-70" style="color:#252C32;">Usuario Exclusivo en S Mueblería</div>
@@ -1353,7 +1375,7 @@
                                 style="color:#A38251;">Ver</button>
                     </div>
                     <p class="text-[11px] mt-1.5 leading-snug opacity-75" style="color:#252C32;">
-                        Asesores/Gerentes: usa tu contraseña temporal o personal. Correos en la hoja <strong>INVITADOS</strong> entran en modo <strong>Solo Ver</strong> (máximo 2 dispositivos por correo).
+                        Asesores/Gerentes: usa tu contraseña temporal o personal. Correos en la hoja <strong>INVITADOS</strong> entran en modo <strong>Solo Ver</strong> (según la cantidad en la columna <strong>Dispositivos Permitidos</strong>).
                     </p>
                 </div>
                 <div id="authLoginMsg" class="hidden rounded-xl border px-3.5 py-2.5 text-xs font-bold"></div>
@@ -1369,7 +1391,7 @@
                 <div>
                     <h3 class="text-sm font-extrabold uppercase" style="color:#252C32;">Selecciona tu ubicación</h3>
                     <p id="authBranchSubtitle" class="text-xs mt-1 leading-relaxed opacity-80" style="color:#252C32;">
-                        Tu correo aparece registrado en más de una hoja. Elige en cuál ubicación vas a operar:
+                        Tu correo aparece registrado en más de una hoja. Elige en cuál tienda o bodega vas a cotizar:
                     </p>
                 </div>
                 <div id="authBranchOptionsList" class="space-y-2 max-h-64 overflow-y-auto"></div>
@@ -1415,6 +1437,61 @@
         </div>
     </div>
 
+    <!-- MODAL DE INSTALACIÓN DE APP PARA TELÉFONOS (iOS / ANDROID / PC) -->
+    <div id="installAppModal" class="modal-backdrop" style="z-index:88;" onclick="if(event.target===this) closeInstallAppModal()">
+        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
+            <div class="px-5 py-4 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <img src="inventario-icon-192.png" alt="CREATA App" class="w-8 h-8 rounded-lg border shrink-0" style="border-color:#A38251;">
+                    <div>
+                        <h3 class="text-sm font-extrabold uppercase tracking-wider truncate">App CREATA para Teléfono</h3>
+                        <div class="text-[10px] font-semibold" style="color:#E1DBC5;">Inventario en Vivo + Cotizador S Mueblería</div>
+                    </div>
+                </div>
+                <button type="button" onclick="closeInstallAppModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0">✕</button>
+            </div>
+            <div class="p-5 space-y-3.5 text-xs" style="color:#252C32;">
+                <div class="rounded-xl border p-3.5 space-y-1.5" style="border-color:#A7F3D0; background:#ECFDF5; color:#065F46;">
+                    <div class="font-extrabold uppercase">✓ 100% Conectada en Vivo</div>
+                    <p class="text-[11px] leading-relaxed">
+                        La App instala un ícono directo en la pantalla de tu teléfono, abre a pantalla completa y mantiene todas las vinculaciones en tiempo real con <strong>S Mueblería ERP</strong>, <strong>Google Sheets</strong> y <strong>Google Drive</strong>.
+                    </p>
+                </div>
+
+                <button type="button" id="btnTriggerNativeAppInstall" onclick="triggerNativeAppInstall()"
+                        class="hidden w-full py-3 px-4 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition"
+                        style="background:#A38251; color:#FFFFFF;">
+                    📲 Instalar App Ahora (1 Toque)
+                </button>
+
+                <div class="space-y-2.5">
+                    <div class="rounded-xl border p-3 space-y-1" style="border-color:#E1DBC5; background:#FAF9F6;">
+                        <div class="font-extrabold uppercase" style="color:#A38251;">🤖 En Android (Chrome / Edge / Samsung)</div>
+                        <p class="text-[11px] leading-relaxed">
+                            1. Toca el botón <strong>"📲 Instalar App Ahora"</strong> si aparece arriba, o abre el menú <strong>⋮</strong> (esquina superior derecha del navegador).<br>
+                            2. Selecciona <strong>"Instalar aplicación"</strong> o <strong>"Agregar a la pantalla principal"</strong>.
+                        </p>
+                    </div>
+                    <div class="rounded-xl border p-3 space-y-1" style="border-color:#E1DBC5; background:#FAF9F6;">
+                        <div class="font-extrabold uppercase" style="color:#A38251;">🍎 En iPhone / iPad (Safari)</div>
+                        <p class="text-[11px] leading-relaxed">
+                            1. Toca el botón <strong>Compartir</strong> (el cuadro con flecha hacia arriba <strong>↑</strong> en la barra inferior de Safari).<br>
+                            2. Desliza hacia abajo y toca <strong>"Agregar a inicio"</strong> y luego <strong>"Agregar"</strong>.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex justify-end pt-1">
+                    <button type="button" onclick="closeInstallAppModal()"
+                            class="px-5 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider"
+                            style="background:#252C32; color:#FFFFFF;">
+                        Entendido
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL DE ESCÁNER CON LA CÁMARA DEL TELÉFONO -->
     <div id="scanModal" class="modal-backdrop" style="z-index:90;" onclick="if(event.target===this) closeBarcodeScanner()">
         <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
@@ -1441,6 +1518,6 @@
     <script src="inventario-data-1.js?v=43"></script>
     <script src="inventario-data-2.js?v=43"></script>
     <script src="inventario-data-3.js?v=43"></script>
-    <script src="inventario-app.js?v=66"></script>
+    <script src="inventario-app.js?v=67"></script>
 </body>
 </html>
