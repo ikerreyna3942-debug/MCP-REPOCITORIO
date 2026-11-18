@@ -236,6 +236,16 @@
         if (!tok || !grp) return 0;
         const st = stemEs(tok);
         const rt = rootEs(tok);
+
+        // Frontera estricta entre SILLA (siya) y SILLÓN (siyon): nunca deben cruzarse ni coincidir por aproximación
+        if (st === 'siya' || st === 'siyon') {
+            if (!grp._stems || !grp._stems.has(st)) return 0;
+            if (grp._titleTokens && grp._titleTokens.some(t => stemEs(t) === st)) {
+                return grp._titleTokens[0] && stemEs(grp._titleTokens[0]) === st ? 40 : 32;
+            }
+            return 22;
+        }
+
         let best = 0;
 
         if (grp._titleSearch && grp._titleSearch.indexOf(tok) !== -1) {
@@ -258,13 +268,15 @@
             for (let i = 0; i < grp._words.length; i++) {
                 const w = grp._words[i];
                 if (w.length < 3) continue;
+                const wSt = stemEs(w);
+                if (wSt === 'siya' || wSt === 'siyon') continue;
                 const d = editDistanceBounded(tok, w, maxD);
                 if (d <= maxD) {
                     best = Math.max(best, d === 1 ? 10 : 6);
                     break;
                 }
                 if (st.length >= 4) {
-                    const ds = editDistanceBounded(st, stemEs(w), 1);
+                    const ds = editDistanceBounded(st, wSt, 1);
                     if (ds <= 1) {
                         best = Math.max(best, 8);
                         break;
@@ -820,11 +832,26 @@
 
         // 3) Completar automáticamente TIPO DE PRODUCTO, MODELO, CATEGORÍA, TELA, MADERA, MATERIALES, VARIANTE y PROVEEDOR
         if (!tp) tp = (prevIt && cleanStr(prevIt.tp)) || deduceProductTypeLive(nom, cat, mo) || 'ACCESORIO DECORATIVO';
-        const nomHeadLive = plainUpper(nom).split(/\b(?:INCLUYE|INCL|CON\s+\d|C\/\s*FUNDAS)\b/)[0].trim();
+        const nomHeadLive = plainUpper(nom).split(/\b(?:INCLUYE|INCL|CON\s+\d|CON\s+MESAS?\b|CON\s+SILLAS?\b|C\/\s*FUNDAS)\b/)[0].trim();
         if (/^SALA\b/.test(nomHeadLive) && !/^SALA\s+(?:DE\s+)?COMEDOR\b/.test(nomHeadLive)) {
             tp = 'SALA';
         } else if (/^RECAMARA\b/.test(nomHeadLive)) {
             tp = 'RECÁMARA';
+        } else if (
+            /\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(nomHeadLive) &&
+            !/\bSILLAS?\b/.test(nomHeadLive) &&
+            !/^(?:SALA|SOFA\s+CAMA|FUTTON|FUTON)\b/.test(nomHeadLive)
+        ) {
+            if (!/\bSILLON\b/.test(plainUpper(tp))) {
+                tp = /\bOCASIONAL\b/.test(nomHeadLive) ? 'SILLON OCASIONAL' : 'SILLON';
+            }
+        } else if (
+            /\bSILLAS?\b/.test(nomHeadLive) &&
+            !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHeadLive)
+        ) {
+            if (!/^SILLA\b/.test(plainUpper(tp))) {
+                tp = 'SILLA';
+            }
         }
         let cleanedMo = cleanOrExtractModelLive(mo, nom, tp);
         if (!cleanedMo) {
@@ -1126,7 +1153,7 @@
                 }
                 return { domain: 'SALAS_TAPIZ', typeKey: 'SOFA_CAMA', typeLabel: 'SOFÁ CAMA', typeRank: 40 };
             }
-            if (subCat === 'SILLONES' || /^SILLON\b/.test(tpTok)) {
+            if (subCat === 'SILLONES' || /^SILLON\b/.test(tpTok) || (/\bSILLON(?:ES)?\b/.test(nomTok) && !/\bSILLAS?\b/.test(nomTok) && !/^(?:SALA|SOFA\s+CAMA)\b/.test(nomTok))) {
                 return { domain: 'SALAS_TAPIZ', typeKey: 'SILLON', typeLabel: 'SILLÓN', typeRank: 30 };
             }
             if (/^(OTTOMAN|OTOMAN|POUF|PUFF|TABURETE)$/.test(tpTok)) {
@@ -1151,6 +1178,9 @@
         }
 
         if (mainCat === 'COMEDORES') {
+            if (/\bSILLON(?:ES)?\b/.test(tpTok + ' ' + nomTok) && !/\bSILLAS?\b/.test(nomTok)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'SILLON', typeLabel: 'SILLÓN', typeRank: 30 };
+            }
             if (subCat === 'SILLAS' || /^SILLA\b/.test(tpTok)) {
                 return { domain: 'COMEDORES', typeKey: 'SILLA_COMEDOR', typeLabel: 'SILLA', typeRank: 65 };
             }
@@ -1628,7 +1658,22 @@
         if (/\b(BUFETERAS?|BUFERETERAS?|BUFETEROS?|TRINCHADOR(?:ES)?|APARADOR(?:ES)?)\b/.test(prodTxt)) {
             return 'BUFETERAS';
         }
-        if (/^SILLAS?\b/.test(tp)) {
+        const nomHeadSub = nom.split(/\b(?:INCLUYE|INCL|CON\s+\d|CON\s+MESAS?\b|CON\s+SILLAS?\b|C\/\s*FUNDAS)\b/)[0].trim();
+        if (
+            /\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(nomHeadSub) &&
+            !/\bSILLAS?\b/.test(nomHeadSub) &&
+            !/^(?:SALA|SOFA\s+CAMA|FUTTON|FUTON)\b/.test(nomHeadSub)
+        ) {
+            return 'SILLONES';
+        }
+        if (
+            /\bSILLAS?\b/.test(nomHeadSub) &&
+            !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHeadSub) &&
+            !/^SALA\b/.test(nomHeadSub)
+        ) {
+            return 'SILLAS';
+        }
+        if (/^SILLAS?\b/.test(tp) && !/\bSILLON(?:ES)?\b/.test(nomHeadSub)) {
             return 'SILLAS';
         }
         const isExplicitSala = tp === 'SALA' || (/^SALA\b/.test(nom) && !/^SALA\s+COMEDOR\b/.test(nom));
@@ -1958,7 +2003,7 @@
             it._subRank = getSubCategoryRank(it._cat);
 
             const rawText = [
-                it.s, title, it._singleTitle, it.n, it.vr, it.tp, it._typeLabel, it.mo, grpId.mo, it.c, it._cat, it._main,
+                it.s, title, it._singleTitle, it.n, it.vr, it.tp, it._typeLabel, it.mo, grpId.mo, it._cat, it._main,
                 it.tl, it.ct, it.md, it.cm, it.mt, it.m, it.p, it.pr
             ].join(' ');
             it._plain = normalizePlain(rawText);
@@ -2183,7 +2228,14 @@
         if (!qTokens.length) return matchedItems;
         const directHits = matchedItems.filter(it => {
             const s = it._search || '';
-            return qTokens.every(tok => s.indexOf(tok) !== -1);
+            const words = s.split(/\s+/).filter(Boolean);
+            return qTokens.every(tok => {
+                const st = stemEs(tok);
+                if (st === 'siya' || st === 'siyon') {
+                    return words.some(w => stemEs(w) === st);
+                }
+                return s.indexOf(tok) !== -1;
+            });
         });
         return directHits.length > 0 ? directHits : matchedItems;
     }
@@ -2212,9 +2264,14 @@
             return sourceGroups;
         }
 
+        const reqSilla = qTokens.some(t => stemEs(t) === 'siya');
+        const reqSillon = qTokens.some(t => stemEs(t) === 'siyon');
+
         const candidateList = [];
         for (let i = 0; i < sourceGroups.length; i++) {
             const grp = sourceGroups[i];
+            if (reqSilla && !reqSillon && (!grp._stems || !grp._stems.has('siya'))) continue;
+            if (reqSillon && !reqSilla && (!grp._stems || !grp._stems.has('siyon'))) continue;
             let matchedCount = 0;
             let totalScore = 0;
             for (let t = 0; t < qTokens.length; t++) {
@@ -2242,7 +2299,7 @@
         }
 
         // Prioridad 3: si tampoco hubo coincidencia en búsqueda de 1 palabra, intentar tolerancia extra (2 ediciones / prefijo)
-        if (selected.length === 0 && qTokens.length === 1 && qTokens[0].length >= 4 && !/\d/.test(qTokens[0])) {
+        if (selected.length === 0 && qTokens.length === 1 && qTokens[0].length >= 4 && !/\d/.test(qTokens[0]) && !reqSilla && !reqSillon) {
             const tok = qTokens[0];
             const maxExtraDist = tok.length >= 5 ? 2 : 1;
             const prefix = tok.slice(0, 3);
@@ -2252,6 +2309,8 @@
                 for (let wi = 0; wi < grp._words.length; wi++) {
                     const w = grp._words[wi];
                     if (w.length < 3) continue;
+                    const wSt = stemEs(w);
+                    if (wSt === 'siya' || wSt === 'siyon') continue;
                     const d = editDistanceBounded(tok, w, maxExtraDist);
                     if (d <= maxExtraDist) {
                         extraScore = Math.max(extraScore, d === 1 ? 8 : 5);
@@ -8667,7 +8726,7 @@
     // RESPALDO SIN CONEXIÓN: último inventario en vivo guardado en este dispositivo
     // (Bodega/Piso de CEDIS, CASA CREATA, PTC, COLOSIO, PLAYA + LPPT y fecha estimada)
     // ------------------------------------------------------------------------
-    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v3';
+    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v4';
     const LIVE_OK_TS_KEY = 'creata_inv_live_ok_ts_v1';
     const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe', 'fcomp'];
     const LIVE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -8676,6 +8735,7 @@
     let lastLiveOkMs = 0;
     try {
         localStorage.removeItem('creata_inv_live_cache_v2');
+        localStorage.removeItem('creata_inv_live_cache_v3');
         lastLiveOkMs = Number(localStorage.getItem(LIVE_OK_TS_KEY) || 0) || 0;
     } catch (e) {}
 
@@ -8741,7 +8801,7 @@
                 if (it.fcomp === undefined) it.fcomp = '';
                 const st = r[fieldList.length];
                 it.st = (Array.isArray(st) && st.length === WAREHOUSES.length) ? st.map(v => Math.max(0, Number(v) || 0)) : emptyStocks();
-                if (cleanStr(it.s)) items.push(it);
+                if (cleanStr(it.s)) items.push(normalizeInventoryItemLive(it, null));
             }
             if (items.length === 0) return false;
             allItems = items;

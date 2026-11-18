@@ -7615,6 +7615,27 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     }
 
     if (!tp) tp = deduceProductTypeInv_(nom, cat, mo) || 'ACCESORIO DECORATIVO';
+    const nomHeadInv = normPlainUpper_(nom).split(/\b(?:INCLUYE|INCL|CON\s+\d|CON\s+MESAS?\b|CON\s+SILLAS?\b|C\/\s*FUNDAS)\b/)[0].trim();
+    if (/^SALA\b/.test(nomHeadInv) && !/^SALA\s+(?:DE\s+)?COMEDOR\b/.test(nomHeadInv)) {
+      tp = 'SALA';
+    } else if (/^RECAMARA\b/.test(nomHeadInv)) {
+      tp = 'RECÁMARA';
+    } else if (
+      /\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(nomHeadInv) &&
+      !/\bSILLAS?\b/.test(nomHeadInv) &&
+      !/^(?:SALA|SOFA\s+CAMA|FUTTON|FUTON)\b/.test(nomHeadInv)
+    ) {
+      if (!/\bSILLON\b/.test(normPlainUpper_(tp))) {
+        tp = /\bOCASIONAL\b/.test(nomHeadInv) ? 'SILLON OCASIONAL' : 'SILLON';
+      }
+    } else if (
+      /\bSILLAS?\b/.test(nomHeadInv) &&
+      !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHeadInv)
+    ) {
+      if (!/^SILLA\b/.test(normPlainUpper_(tp))) {
+        tp = 'SILLA';
+      }
+    }
     mo = cleanOrExtractModelInv_(mo, nom, tp);
     if (!mo) {
       const tpWords = {};
@@ -8373,6 +8394,7 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
   const cat = normPlainFotoCat_(categoriaRaw);
   const tp = normPlainFotoCat_(tipoRaw);
   const nom = normPlainFotoCat_(nombreRaw);
+  const nomHead = nom.split(/\b(?:INCLUYE|INCL|CON\s+\d|CON\s+MESAS?\b|CON\s+SILLAS?\b|C\/\s*FUNDAS)\b/)[0].trim();
   const text = (tp + ' ' + nom + ' ' + cat).trim();
   const byKey = (k) => CATEGORIAS_DEST_FOLDERS_.find((f) => f.key === k) || CATEGORIAS_DEST_FOLDERS_[CATEGORIAS_DEST_FOLDERS_.length - 1];
 
@@ -8382,6 +8404,12 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
   }
   if (/MESA\s+DE\s+CENTRO|MESA\s+CENTRAL|\bNIDO\b/.test(text) || cat === 'MESAS DE CENTRO & LATERALES') {
     return byKey('MESA_CENTRO');
+  }
+  if (/\bSILLAS?\b/.test(nomHead) && !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHead) && !/^SALA\b/.test(nomHead)) {
+    return byKey('COMEDORES');
+  }
+  if (/\b(SILLON(?:ES)?|POLTRONA|RECLINABLE|BUTACA)\b/.test(nomHead) && !/\bSILLAS?\b/.test(nomHead) && !/^SALA\b/.test(nomHead)) {
+    return byKey('SILLONES');
   }
   if (/\bSILLON|\bPOLTRONA|\bRECLINABLE|\bTABURETE|\bOTTOMAN|\bPUFF\b/.test(tp + ' ' + nom)) {
     return byKey('SILLONES');

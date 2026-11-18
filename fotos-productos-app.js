@@ -16,7 +16,7 @@
     const MANUAL_LOCK_FLAG = 'creata_private_fotos_manual_lock';
     const DELETED_QUEUE_STORAGE = 'creata_fotos_deleted_queue_v1';
     const SAVED_OVERRIDES_STORAGE = 'creata_fotos_saved_overrides_v1';
-    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v4';
+    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v5';
 
     const SHEET_GIDS = {
         '1': '620514545',
@@ -175,10 +175,23 @@
         }
     };
 
+    function cleanCategoryForPhotoSearch(categoriaRaw, tipoRaw, nombreRaw) {
+        const cat = normPlainCat(categoriaRaw);
+        const tp = normPlainCat(tipoRaw);
+        const nom = normPlainCat(nombreRaw);
+        if (cat.indexOf('SILLAS') !== -1 && cat.indexOf('SILLON') !== -1) {
+            if (/\bSILLON(?:ES)?\b/.test(nom + ' ' + tp) && !/\bSILLAS?\b/.test(nom)) return 'SILLONES';
+            if (/\bSILLAS?\b/.test(nom + ' ' + tp) && !/\bSILLON(?:ES)?\b/.test(nom)) return 'SILLAS COMEDORES';
+            return '';
+        }
+        return categoriaRaw || '';
+    }
+
     function resolveCategoryDestFolderForProduct(categoriaRaw, tipoRaw, nombreRaw) {
         const cat = normPlainCat(categoriaRaw);
         const tp = normPlainCat(tipoRaw);
         const nom = normPlainCat(nombreRaw);
+        const nomHead = nom.split(/\b(?:INCLUYE|INCL|CON\s+\d|CON\s+MESAS?\b|CON\s+SILLAS?\b|C\/\s*FUNDAS)\b/)[0].trim();
         const tpNom = (tp + ' ' + nom).trim();
         const text = (tpNom + ' ' + cat).trim();
 
@@ -188,6 +201,12 @@
         }
         if (/MESA\s+DE\s+CENTRO|MESA\s+CENTRAL|\bNIDO\b/.test(text) || cat === 'MESAS DE CENTRO & LATERALES') {
             return CATEGORIAS_DEST_FOLDERS[3];
+        }
+        if (/\bSILLAS?\b/.test(nomHead) && !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHead) && !/^SALA\b/.test(nomHead)) {
+            return CATEGORIAS_DEST_FOLDERS[5];
+        }
+        if (/\b(SILLON(?:ES)?|POLTRONA|RECLINABLE|BUTACA)\b/.test(nomHead) && !/\bSILLAS?\b/.test(nomHead) && !/^SALA\b/.test(nomHead)) {
+            return CATEGORIAS_DEST_FOLDERS[1];
         }
         if (/\bSILLON|\bPOLTRONA|\bRECLINABLE|\bTABURETE|\bOTTOMAN|\bPUFF\b/.test(tpNom)) {
             return CATEGORIAS_DEST_FOLDERS[1];
@@ -575,6 +594,7 @@
         try {
             localStorage.removeItem('creata_fotos_fast_cache_v2');
             localStorage.removeItem('creata_fotos_fast_cache_v3');
+            localStorage.removeItem('creata_fotos_fast_cache_v4');
             const raw = localStorage.getItem(FAST_CACHE_STORAGE);
             if (!raw) return false;
             const parsed = JSON.parse(raw);
@@ -598,8 +618,12 @@
                 let photoFileId = extractDriveFileId(photoUrl);
                 const savedOv = state.sessionSavedBySku.get(sku);
                 if (savedOv && savedOv.newUrl) {
-                    photoUrl = savedOv.newUrl;
-                    photoFileId = savedOv.fileId || extractDriveFileId(photoUrl);
+                    const savedFid = savedOv.fileId || extractDriveFileId(savedOv.newUrl);
+                    const prevFid = extractDriveFileId(savedOv.previousUrl);
+                    if (!photoFileId || photoFileId === savedFid || photoFileId === prevFid) {
+                        photoUrl = savedOv.newUrl;
+                        photoFileId = savedFid;
+                    }
                 }
                 if (delSkus[sku] || (photoFileId && delFiles[photoFileId])) {
                     photoUrl = '';
@@ -609,7 +633,8 @@
                 const destMeta = DEST_FOLDER_BY_ID.get(destId) || CATEGORIAS_DEST_FOLDERS[9];
                 const searchSkuNorm = normalizeSearchText(sku);
                 const dispNorm = normalizeSearchText(displayName);
-                const searchNameNorm = normalizeSearchText(displayName + ' ' + colBName + ' ' + (r[7] || '') + ' ' + (r[8] || ''));
+                const cleanCat = cleanCategoryForPhotoSearch(r[7] || '', r[8] || '', displayName + ' ' + colBName);
+                const searchNameNorm = normalizeSearchText(displayName + ' ' + colBName + ' ' + cleanCat + ' ' + (r[8] || ''));
                 const item = {
                     sku: sku,
                     colBName: colBName,
@@ -848,26 +873,85 @@
         }
     };
 
-    function findSuggestedSkuForFileName(fileName) {
+    const NON_SKU_GENERIC_WORDS = new Set([
+        'SILLA', 'SILLAS', 'SILLON', 'SILLONES', 'MESA', 'MESAS', 'SALA', 'SALAS', 'SOFA', 'SOFAS',
+        'CAMA', 'CAMAS', 'BURO', 'BUROS', 'COMODA', 'COMODAS', 'ESPEJO', 'ESPEJOS', 'TAPETE', 'TAPETES',
+        'LAMPARA', 'LAMPARAS', 'CUADRO', 'CUADROS', 'BANCO', 'BANCOS', 'BANCA', 'BANCAS', 'BUFETERA',
+        'BUFETERO', 'CREDENZA', 'LIBRERO', 'ESCRITORIO', 'CABECERA', 'COLCHON', 'TABURETE', 'OTTOMAN',
+        'PAROTA', 'TABACO', 'CLARO', 'OSCURO', 'NATURAL', 'NOGAL', 'ENCINO', 'TECA', 'ROBLE', 'TZALAM',
+        'IVORY', 'SOUL', 'LINEN', 'COTTON', 'SAND', 'CREAM', 'BEIGE', 'GRIS', 'BLANCO', 'NEGRO',
+        'FOTO', 'FOTOS', 'IMAGE', 'WHATSAPP', 'COPIA', 'NUEVA', 'NUEVO'
+    ]);
+
+    function extractExplicitSkuFromFileName(fileName) {
         const base = cleanStr(fileName).replace(/\.[a-zA-Z0-9]{2,5}$/, '').trim();
         if (!base || !state.productBySku.size) return '';
         const upperBase = base.toUpperCase();
         if (state.productBySku.has(upperBase)) return upperBase;
 
         const firstPart = cleanStr(upperBase.split(/[\s_\-]+/)[0]);
-        if (firstPart.length >= 3 && state.productBySku.has(firstPart)) return firstPart;
+        if (firstPart.length >= 3 && !NON_SKU_GENERIC_WORDS.has(firstPart) && state.productBySku.has(firstPart)) {
+            return firstPart;
+        }
 
         const tokens = upperBase.split(/[^A-Z0-9]+/);
         for (let i = 0; i < tokens.length; i++) {
             const t = tokens[i];
-            if (t.length >= 4 && state.productBySku.has(t)) return t;
+            if (t.length >= 4 && !NON_SKU_GENERIC_WORDS.has(t) && state.productBySku.has(t)) return t;
         }
+        return '';
+    }
 
-        const normBase = normalizeSearchText(base);
+    function findSuggestedSkuForFileName(fileName) {
+        const base = cleanStr(fileName).replace(/\.[a-zA-Z0-9]{2,5}$/, '').trim();
+        if (!base || !state.productBySku.size) return '';
+
+        const explicitSku = extractExplicitSkuFromFileName(fileName);
+        if (explicitSku) return explicitSku;
+
+        const normBase = normalizeSearchText(base).replace(/[^a-z0-9]+/g, ' ').trim();
         if (normBase.length >= 5 && state.productByNormName.has(normBase)) {
             return state.productByNormName.get(normBase) || '';
         }
-        return '';
+
+        const fileWords = normBase.split(/\s+/).filter((w) => w.length >= 2 && !/^(de|del|la|el|con|en|y|copia|img|foto|whatsapp|image)$/.test(w));
+        if (fileWords.length < 2) return '';
+
+        const fileHasSilla = fileWords.some((w) => w === 'silla' || w === 'sillas');
+        const fileHasSillon = fileWords.some((w) => w === 'sillon' || w === 'sillones');
+
+        let bestSku = '';
+        let bestScore = 0;
+        let tied = false;
+
+        for (let i = 0; i < state.products.length; i++) {
+            const p = state.products[i];
+            const pNorm = normalizeSearchText((p.displayName || '') + ' ' + (p.colBName || '') + ' ' + (p.tipo || '')).replace(/[^a-z0-9]+/g, ' ').trim();
+            if (!pNorm) continue;
+            const pWords = new Set(pNorm.split(/\s+/).filter(Boolean));
+            const pHasSilla = pWords.has('silla') || pWords.has('sillas');
+            const pHasSillon = pWords.has('sillon') || pWords.has('sillones');
+
+            if (fileHasSilla && !fileHasSillon && (!pHasSilla || pHasSillon)) continue;
+            if (fileHasSillon && !fileHasSilla && (!pHasSillon || pHasSilla)) continue;
+
+            let matched = 0;
+            for (let w = 0; w < fileWords.length; w++) {
+                if (pWords.has(fileWords[w])) matched++;
+            }
+            if (matched < Math.max(2, fileWords.length - 1)) continue;
+
+            const score = (matched * 10) - Math.abs(pWords.size - fileWords.length) + (p.inInv ? 2 : 0);
+            if (score > bestScore) {
+                bestScore = score;
+                bestSku = p.sku;
+                tied = false;
+            } else if (score === bestScore && bestSku !== p.sku) {
+                tied = true;
+            }
+        }
+
+        return (!tied && bestScore >= 18) ? bestSku : '';
     }
 
     function enrichInboxFileItem(f) {
@@ -1091,12 +1175,20 @@
                     });
                 });
 
+                let overridesPruned = false;
                 state.sessionSavedBySku.forEach((savedMeta, sku) => {
                     if (delSkus[sku]) return;
                     const item = mergedMap.get(sku);
                     if (item && savedMeta && savedMeta.newUrl) {
                         const savedFid = savedMeta.fileId || extractDriveFileId(savedMeta.newUrl);
                         if (savedFid && delFiles[savedFid]) return;
+                        const prevFid = extractDriveFileId(savedMeta.previousUrl);
+                        if (item.photoFileId && item.photoFileId !== savedFid && item.photoFileId !== prevFid) {
+                            state.sessionSavedBySku.delete(sku);
+                            state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it.sku !== sku);
+                            overridesPruned = true;
+                            return;
+                        }
                         item.photoUrl = savedMeta.newUrl;
                         item.photoFileId = savedFid;
                         item.inSheet1 = true;
@@ -1107,6 +1199,7 @@
                         }
                     }
                 });
+                if (overridesPruned) saveSavedOverridesNow();
 
                 const list = Array.from(mergedMap.values());
                 const byNormName = new Map();
@@ -1117,7 +1210,8 @@
                     if (dispNorm && dispNorm.length >= 5 && !byNormName.has(dispNorm)) {
                         byNormName.set(dispNorm, skuKeySafe(p.sku));
                     }
-                    p.searchNameNorm = normalizeSearchText(p.displayName + ' ' + p.colBName + ' ' + p.categoria + ' ' + p.tipo);
+                    const cleanCat = cleanCategoryForPhotoSearch(p.categoria, p.tipo, p.displayName + ' ' + p.colBName);
+                    p.searchNameNorm = normalizeSearchText(p.displayName + ' ' + p.colBName + ' ' + cleanCat + ' ' + p.tipo);
                     p.searchNorm = (p.searchSkuNorm + ' ' + p.searchNameNorm).trim();
                 }
 
@@ -1187,8 +1281,23 @@
 
             if (tLen > 0) {
                 let ok = true;
+                const paddedWords = ' ' + p.searchNorm.replace(/[^a-z0-9]+/g, ' ') + ' ';
                 for (let t = 0; t < tLen; t++) {
-                    if (p.searchNorm.indexOf(tokens[t]) === -1) { ok = false; break; }
+                    const tok = tokens[t];
+                    if (tok === 'silla' || tok === 'sillas') {
+                        if (paddedWords.indexOf(' silla ') === -1 && paddedWords.indexOf(' sillas ') === -1) {
+                            ok = false;
+                            break;
+                        }
+                    } else if (tok === 'sillon' || tok === 'sillones') {
+                        if (paddedWords.indexOf(' sillon ') === -1 && paddedWords.indexOf(' sillones ') === -1) {
+                            ok = false;
+                            break;
+                        }
+                    } else if (p.searchNorm.indexOf(tok) === -1) {
+                        ok = false;
+                        break;
+                    }
                 }
                 if (!ok) continue;
             }
@@ -1697,9 +1806,26 @@
                 skuOrigin: cleanStr(fObj.skuOrigin)
             } : null;
 
-            if (!state.selectedSku && fObj) {
+            if (fObj) {
                 const sug = fObj._suggestedSku || findSuggestedSkuForFileName(fObj.name) || cleanStr(fObj.skuOrigin);
-                if (sug) window.selectSkuProduct(sug);
+                if (sug) {
+                    const explicitInName = extractExplicitSkuFromFileName(fObj.name);
+                    let typeConflict = false;
+                    if (state.selectedSku && state.selectedSku !== sug) {
+                        const curProd = state.productBySku.get(state.selectedSku);
+                        const curTxt = normPlainCat((curProd && (curProd.displayName + ' ' + curProd.tipo)) || '');
+                        const fTxt = normPlainCat(fObj.name || '');
+                        if (
+                            (/\bSILLAS?\b/.test(curTxt) && /\bSILLON(?:ES)?\b/.test(fTxt)) ||
+                            (/\bSILLON(?:ES)?\b/.test(curTxt) && /\bSILLAS?\b/.test(fTxt))
+                        ) {
+                            typeConflict = true;
+                        }
+                    }
+                    if (!state.selectedSku || explicitInName === sug || typeConflict) {
+                        window.selectSkuProduct(sug);
+                    }
+                }
             }
         }
         hideAssignFeedback();
