@@ -4784,12 +4784,76 @@
         return m ? m[1] : '';
     }
 
-    async function callInvWebAppPost(action, payloadObj, timeoutMs) {
+    const INV_OFFLINE_OUTBOX_KEY = 'creata_inv_offline_outbox_v1';
+    const INV_ERP_CATALOG_CACHE_KEY = 'creata_inv_erp_cat_cache_v1';
+    const INV_LPPT_CACHE_KEY = 'creata_inv_lppt_cache_v1';
+    const INV_OFFLINE_QUEUEABLE_ACTIONS = {
+        inv_log_event: 1,
+        seg_action: 1
+    };
+    let invOfflineOutboxFlushInFlight = false;
+
+    function enqueueInvOfflineOutbox(action, payloadObj) {
+        if (!action || !INV_OFFLINE_QUEUEABLE_ACTIONS[action]) return;
+        try {
+            const raw = localStorage.getItem(INV_OFFLINE_OUTBOX_KEY);
+            const list = raw ? JSON.parse(raw) : [];
+            const arr = Array.isArray(list) ? list : [];
+            arr.push({
+                id: 'out_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+                ts: Date.now(),
+                action: action,
+                payload: Object.assign({}, payloadObj || {})
+            });
+            while (arr.length > 80) arr.shift();
+            localStorage.setItem(INV_OFFLINE_OUTBOX_KEY, JSON.stringify(arr));
+        } catch (e) {}
+    }
+
+    async function flushInvOfflineOutbox() {
+        if (invOfflineOutboxFlushInFlight) return;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        let arr = [];
+        try {
+            const raw = localStorage.getItem(INV_OFFLINE_OUTBOX_KEY);
+            arr = raw ? JSON.parse(raw) : [];
+        } catch (e) { arr = []; }
+        if (!Array.isArray(arr) || arr.length === 0) return;
+
+        invOfflineOutboxFlushInFlight = true;
+        try {
+            const remaining = [];
+            for (let i = 0; i < arr.length; i++) {
+                const entry = arr[i];
+                if (!entry || !entry.action) continue;
+                const res = await callInvWebAppPost(entry.action, entry.payload || {}, 10000, true);
+                if (res && res.unavailable) {
+                    remaining.push(entry);
+                    for (let j = i + 1; j < arr.length; j++) remaining.push(arr[j]);
+                    break;
+                }
+            }
+            try {
+                if (remaining.length > 0) {
+                    localStorage.setItem(INV_OFFLINE_OUTBOX_KEY, JSON.stringify(remaining));
+                } else {
+                    localStorage.removeItem(INV_OFFLINE_OUTBOX_KEY);
+                }
+            } catch (e) {}
+        } finally {
+            invOfflineOutboxFlushInFlight = false;
+        }
+    }
+
+    async function callInvWebAppPost(action, payloadObj, timeoutMs, skipOfflineQueue) {
         const cfgUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
             ? window.CREATA_CLOUD_CONFIG.getApiUrl()
             : '';
         const primaryUrl = cfgUrl || CANONICAL_WEBAPP_URL;
-        if (!primaryUrl) return { ok: false, unavailable: true };
+        if (!primaryUrl) {
+            if (!skipOfflineQueue) enqueueInvOfflineOutbox(action, payloadObj);
+            return { ok: false, unavailable: true };
+        }
 
         const postOnce = async function (targetUrl) {
             const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -4831,6 +4895,9 @@
                 } catch (e) {}
                 return fallbackRes;
             }
+        }
+        if (res && res.unavailable && !skipOfflineQueue) {
+            enqueueInvOfflineOutbox(action, payloadObj);
         }
         return res;
     }
@@ -4951,7 +5018,37 @@
 
     let lastErpCatalogSyncMs = 0;
 
+    function restoreErpCatalogFromLocalCache() {
+        try {
+            const raw = localStorage.getItem(INV_ERP_CATALOG_CACHE_KEY);
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            if (!data || typeof data !== 'object') return false;
+            if (Array.isArray(data.stores) && data.stores.length > 0 && erpStoresCatalog.length <= DEFAULT_ERP_STORES.length) {
+                erpStoresCatalog = data.stores;
+            }
+            if (Array.isArray(data.advisors) && data.advisors.length > 0 && erpAdvisorsCatalog.length === 0) {
+                erpAdvisorsCatalog = data.advisors.map(a => ({
+                    label: a.label || '',
+                    branch: a.branch || '',
+                    id: a.id || '',
+                    tokens: Array.isArray(a.tokens) ? a.tokens : normAdvisorTokens(String(a.label || '').split('|')[0])
+                }));
+            }
+            if (Array.isArray(data.prices) && data.prices.length > 0 && liveErpPricesBySku.size === 0) {
+                liveErpPricesBySku = new Map(data.prices);
+            }
+            if (Array.isArray(data.catalog) && data.catalog.length > 0 && liveErpCatalogBySku.size === 0) {
+                liveErpCatalogBySku = new Map(data.catalog);
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
     async function loadErpCatalogLiveFromSheet() {
+        restoreErpCatalogFromLocalCache();
         const [rows, h1Rows] = await Promise.all([
             fetchSheetCsvRows('plantilla', 'range=AA2:AH5500'),
             fetchSheetCsvRows('1', 'range=A2:D9500').catch(() => null)
@@ -5026,10 +5123,21 @@
             }
         }
 
-        if (stores.length > 0) erpStoresCatalog = stores;
+        if (stores.length > 0 && Array.isArray(rows)) erpStoresCatalog = stores;
         if (advisors.length > 0) erpAdvisorsCatalog = advisors;
         if (nextPrices.size > 0) liveErpPricesBySku = nextPrices;
         if (nextErpCatalog.size > 0) liveErpCatalogBySku = nextErpCatalog;
+        if (advisors.length > 0 || nextPrices.size > 0) {
+            try {
+                localStorage.setItem(INV_ERP_CATALOG_CACHE_KEY, JSON.stringify({
+                    ts: Date.now(),
+                    stores: erpStoresCatalog,
+                    advisors: erpAdvisorsCatalog,
+                    prices: Array.from(liveErpPricesBySku.entries()),
+                    catalog: Array.from(liveErpCatalogBySku.entries())
+                }));
+            } catch (eCache) {}
+        }
         lastErpCatalogSyncMs = Date.now();
     }
 
@@ -6890,7 +6998,8 @@
     // Y BLOQUEO / REINICIO AUTOMÁTICO AL TERMINAR Y CERRAR LA COTIZACIÓN
     // ------------------------------------------------------------------------
     const QUOTE_DRAFTS_KEY = 'creata_inv_quote_drafts_v1';
-    const QUOTE_DRAFT_TTL_MS = 3 * 60 * 60 * 1000; // 3 horas límite para cotizaciones sin guardar
+    const QUOTE_DRAFT_TTL_MS = 3 * 60 * 60 * 1000; // 3 horas ventana visual por sesión activa
+    const QUOTE_ACTIVE_DRAFT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días de respaldo para borradores con productos o cliente ante corte de conexión
     let quoteDrafts = [];
     let activeQuoteDraftId = '';
     let quoteDraftsTimer = null;
@@ -6912,6 +7021,21 @@
         const m = d.meta || {};
         const hasClient = !!(cleanStr(m.clientName) || cleanStr(m.clientPhone) || cleanStr(m.clientEmail) || cleanStr(m.notes) || Number(m.erpClientId) > 0 || Number(m.erpLeadId) > 0);
         return !hasItems && !hasClient;
+    }
+
+    function isQuoteDraftStillValid(d, nowTs) {
+        if (!d || typeof d !== 'object') return false;
+        const now = Number(nowTs) || Date.now();
+        if ((Number(d.expiresAt) || 0) > now) return true;
+        if (!isDraftUntouchedBlank(d)) {
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+            const lastTouch = Number(d.updatedAt) || Number(d.createdAt) || 0;
+            if (lastTouch > 0 && (now - lastTouch) < QUOTE_ACTIVE_DRAFT_RETENTION_MS) {
+                d.expiresAt = now + QUOTE_DRAFT_TTL_MS;
+                return true;
+            }
+        }
+        return false;
     }
 
     function buildFreshDraftObject(initialCart, initialMeta) {
@@ -6967,10 +7091,9 @@
             });
             d.submittedMeta = lastSubmittedQuoteMeta ? Object.assign({}, lastSubmittedQuoteMeta) : null;
             d.updatedAt = Date.now();
-            // Si el borrador estaba completamente en blanco y apenas se empieza a usar, iniciar su ventana de 3 horas desde este momento
-            if (wasBlank && !isDraftUntouchedBlank(d)) {
-                d.createdAt = d.updatedAt;
-                d.expiresAt = d.updatedAt + QUOTE_DRAFT_TTL_MS;
+            if (!isDraftUntouchedBlank(d)) {
+                if (wasBlank) d.createdAt = d.updatedAt;
+                d.expiresAt = Math.max(Number(d.expiresAt) || 0, d.updatedAt + QUOTE_DRAFT_TTL_MS);
             }
         }
         persistQuoteDraftsToStorage();
@@ -7038,7 +7161,7 @@
         quoteDrafts = quoteDrafts.filter(d => {
             if (!d || typeof d !== 'object') return false;
             if (d.completed) return true;
-            return (Number(d.expiresAt) || 0) > now;
+            return isQuoteDraftStillValid(d, now);
         });
         if (quoteDrafts.length === 0) {
             const fresh = buildFreshDraftObject({}, createBlankQuoteMeta());
@@ -7068,9 +7191,9 @@
 
         const now = Date.now();
         if (loaded && Array.isArray(loaded.drafts) && loaded.drafts.length > 0) {
-            // Al abrir / recargar la pestaña del navegador, las cotizaciones ya terminadas quedan descartadas automáticamente
+            // Al abrir / recargar la pestaña del navegador, conservar todos los borradores no completados (protegiendo los que tienen productos o cliente)
             quoteDrafts = loaded.drafts
-                .filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now)
+                .filter(d => d && !d.completed && isQuoteDraftStillValid(d, now))
                 .map(d => {
                     d.meta = Object.assign(createBlankQuoteMeta(), d.meta || {}, {
                         clientMode: FIXED_QUOTE_CLIENT_MODE,
@@ -7089,7 +7212,9 @@
         }
 
         if (quoteDrafts.length === 0) {
-            const fresh = buildFreshDraftObject({}, createBlankQuoteMeta());
+            const legacyCart = loadCart();
+            const legacyMeta = loadQuoteDraftMeta();
+            const fresh = buildFreshDraftObject(legacyCart, legacyMeta);
             quoteDrafts = [fresh];
             activeQuoteDraftId = fresh.id;
         }
@@ -7106,7 +7231,7 @@
         const hadCompleted = quoteDrafts.some(d => d && d.completed);
         if (!hadCompleted) return;
         const now = Date.now();
-        quoteDrafts = quoteDrafts.filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now);
+        quoteDrafts = quoteDrafts.filter(d => d && !d.completed && isQuoteDraftStillValid(d, now));
         if (!quoteDrafts.some(d => isDraftUntouchedBlank(d))) {
             const fresh = buildFreshDraftObject({}, createBlankQuoteMeta());
             quoteDrafts.push(fresh);
@@ -7128,7 +7253,7 @@
         const prevAdminAdvId = (activeAdvisorSession && activeAdvisorSession.isAdmin) ? cleanStr(quoteDraftMeta.erpAdvisorId) : '';
         const prevAdminAdvLbl = (activeAdvisorSession && activeAdvisorSession.isAdmin) ? cleanStr(quoteDraftMeta.erpAdvisorLabel) : '';
         const now = Date.now();
-        quoteDrafts = quoteDrafts.filter(d => d && !d.completed && (Number(d.expiresAt) || 0) > now);
+        quoteDrafts = quoteDrafts.filter(d => d && !d.completed && isQuoteDraftStillValid(d, now));
         let nextBlank = quoteDrafts.find(d => isDraftUntouchedBlank(d));
         if (!nextBlank) {
             const blankMeta = createBlankQuoteMeta();
@@ -8283,7 +8408,10 @@
         stEl.classList.remove('hidden');
     }
 
-    function triggerBase64PdfBrowserDownload(base64Str, fileName) {
+    const ACCEPTED_QUOTE_MODAL_STORAGE_KEY = 'creata_inv_accepted_quote_modal_v1';
+    let erpPdfDownloadPromise = null;
+
+    function base64ToPdfBlob(base64Str) {
         const cleanB64 = String(base64Str || '').replace(/\s+/g, '');
         const binaryStr = window.atob(cleanB64);
         const len = binaryStr.length;
@@ -8291,7 +8419,11 @@
         for (let i = 0; i < len; i++) {
             bytes[i] = binaryStr.charCodeAt(i);
         }
-        const blob = new Blob([bytes], { type: 'application/pdf' });
+        return new Blob([bytes], { type: 'application/pdf' });
+    }
+
+    function triggerBase64PdfBrowserDownload(base64Str, fileName) {
+        const blob = base64ToPdfBlob(base64Str);
         const blobUrl = URL.createObjectURL(blob);
         const safeName = cleanStr(fileName) || 'Cotizacion_SMuebleria.pdf';
         const link = document.createElement('a');
@@ -8307,11 +8439,40 @@
         setTimeout(() => {
             try { URL.revokeObjectURL(blobUrl); } catch (e) {}
         }, 60000);
+        return blob;
+    }
+
+    function persistAcceptedQuoteModalCheckpoint() {
+        try {
+            if (!lastAcceptedQuoteSnapshot || !lastAcceptedQuoteSnapshot.payload) {
+                localStorage.removeItem(ACCEPTED_QUOTE_MODAL_STORAGE_KEY);
+                return;
+            }
+            const copy = {
+                ts: Date.now(),
+                payload: lastAcceptedQuoteSnapshot.payload,
+                submittedMeta: lastAcceptedQuoteSnapshot.submittedMeta || null,
+                isQueued: !!lastAcceptedQuoteSnapshot.isQueued,
+                pdfFileName: cleanStr(lastAcceptedQuoteSnapshot.pdfFileName),
+                pdfDriveUrl: cleanStr(lastAcceptedQuoteSnapshot.pdfDriveUrl),
+                pdfDownloadUrl: cleanStr(lastAcceptedQuoteSnapshot.pdfDownloadUrl)
+            };
+            localStorage.setItem(ACCEPTED_QUOTE_MODAL_STORAGE_KEY, JSON.stringify(copy));
+        } catch (e) {}
+    }
+
+    function clearAcceptedQuoteModalCheckpoint() {
+        try {
+            localStorage.removeItem(ACCEPTED_QUOTE_MODAL_STORAGE_KEY);
+        } catch (e) {}
     }
 
     window.downloadOriginalErpQuotePdf = async function (opts) {
         const o = opts || {};
-        if (isGuestSession() || erpPdfDownloadInFlight) return false;
+        if (isGuestSession()) return false;
+        if (erpPdfDownloadInFlight && erpPdfDownloadPromise) {
+            return erpPdfDownloadPromise;
+        }
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             if (!o.autoTriggered) openAuthModalForStartup();
             return false;
@@ -8351,108 +8512,136 @@
         }
 
         let downloadedOk = false;
-        try {
-            const res = await callInvWebAppPost('inv_download_erp_quote_pdf', {
-                authToken: activeAdvisorSession.authToken || '',
-                sheetTab: activeAdvisorSession.sheetTab || '',
-                advisorEmail: activeAdvisorSession.correo || '',
-                quoteId: qidClean,
-                folio: folio,
-                erpUserId: uid,
-                clientName: cli,
-                erpStore: store
-            }, 45000);
+        const runPromise = (async function () {
+            try {
+                const res = await callInvWebAppPost('inv_download_erp_quote_pdf', {
+                    authToken: activeAdvisorSession.authToken || '',
+                    sheetTab: activeAdvisorSession.sheetTab || '',
+                    advisorEmail: activeAdvisorSession.correo || '',
+                    quoteId: qidClean,
+                    folio: folio,
+                    erpUserId: uid,
+                    clientName: cli,
+                    erpStore: store
+                }, 45000);
 
-            if (res && res.authRequired) {
-                if (o.autoTriggered) {
-                    if (modalOpen) {
-                        setAcceptedModalPdfStatus(
-                            'warn',
-                            '<div>Presiona <strong>⬇ Descargar PDF Original S Mueblería</strong> para confirmar tu contraseña y bajar el archivo.</div>'
+                if (res && res.authRequired) {
+                    if (o.autoTriggered) {
+                        if (modalOpen) {
+                            setAcceptedModalPdfStatus(
+                                'warn',
+                                '<div>Presiona <strong>⬇ Descargar PDF Original S Mueblería</strong> para confirmar tu contraseña y bajar el archivo.</div>'
+                            );
+                        }
+                    } else {
+                        pendingPdfDownloadRetryOpts = {
+                            quoteId: qidClean,
+                            folio: folio,
+                            erpUserId: uid,
+                            clientName: cli,
+                            erpStore: store,
+                            autoTriggered: false,
+                            triggerBtn: o.triggerBtn || null
+                        };
+                        promptSessionReauth(
+                            res.error || 'Confirma tu contraseña personal para descargar el PDF original de S Mueblería.',
+                            null
                         );
                     }
+                    return false;
+                }
+
+                if (res && res.ok && res.pdfBase64) {
+                    const rawName = cleanStr(res.fileName) || ('Cotizacion_SMuebleria_' + (folio || ('ID_' + qidClean)) + '.pdf');
+                    const finalFile = /\.pdf$/i.test(rawName) ? rawName : (rawName + '.pdf');
+                    const pdfBlob = o.skipBrowserDownload
+                        ? base64ToPdfBlob(res.pdfBase64)
+                        : triggerBase64PdfBrowserDownload(res.pdfBase64, finalFile);
+                    if (lastAcceptedQuoteSnapshot) {
+                        lastAcceptedQuoteSnapshot.pdfBase64 = res.pdfBase64;
+                        lastAcceptedQuoteSnapshot.pdfFileName = finalFile;
+                        lastAcceptedQuoteSnapshot.pdfBlob = pdfBlob;
+                        if (cleanStr(res.pdfDriveUrl)) {
+                            lastAcceptedQuoteSnapshot.pdfDriveUrl = cleanStr(res.pdfDriveUrl);
+                        }
+                        if (cleanStr(res.pdfDownloadUrl)) {
+                            lastAcceptedQuoteSnapshot.pdfDownloadUrl = cleanStr(res.pdfDownloadUrl);
+                        }
+                        persistAcceptedQuoteModalCheckpoint();
+                    }
+                    downloadedOk = true;
+                    if (modalOpen) {
+                        setAcceptedModalPdfStatus(
+                            'ok',
+                            '✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(finalFile) + '</strong>'
+                        );
+                    } else if (!o.triggerBtn) {
+                        renderQuoteStatusBanner(
+                            'ok',
+                            '<div>✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(finalFile) + '</strong></div>'
+                        );
+                    }
+                    if (activeBtn) {
+                        activeBtn.innerHTML = '✓ PDF S Mueblería Descargado';
+                        setTimeout(() => {
+                            if (activeBtn) activeBtn.innerHTML = prevBtnHtml;
+                        }, 2600);
+                    }
+                    return true;
+                }
+
+                if (res && (res.needsRedeploy || res.unavailable)) {
+                    const redeployHtml =
+                        '<div>Para activar la descarga automática del PDF original de S Mueblería, publica una <strong>Nueva versión</strong> de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.</div>';
+                    if (modalOpen) {
+                        setAcceptedModalPdfStatus('warn', redeployHtml);
+                    } else {
+                        renderQuoteStatusBanner('warn', redeployHtml);
+                    }
+                    return false;
+                }
+
+                const errMsg = cleanStr((res && res.error) || 'S Mueblería no entregó el PDF en este intento.');
+                if (modalOpen) {
+                    setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(errMsg));
                 } else {
-                    pendingPdfDownloadRetryOpts = {
-                        quoteId: qidClean,
-                        folio: folio,
-                        erpUserId: uid,
-                        clientName: cli,
-                        erpStore: store,
-                        autoTriggered: false,
-                        triggerBtn: o.triggerBtn || null
-                    };
-                    promptSessionReauth(
-                        res.error || 'Confirma tu contraseña personal para descargar el PDF original de S Mueblería.',
-                        null
-                    );
+                    renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(errMsg) + '</div>');
                 }
                 return false;
-            }
-
-            if (res && res.ok && res.pdfBase64) {
-                const finalFile = cleanStr(res.fileName) || ('Cotizacion_SMuebleria_' + (folio || ('ID_' + qidClean)) + '.pdf');
-                triggerBase64PdfBrowserDownload(res.pdfBase64, finalFile);
-                downloadedOk = true;
+            } catch (dlErr) {
+                const msg = cleanStr((dlErr && dlErr.message) || dlErr || 'Error de conexión al descargar el PDF.');
                 if (modalOpen) {
-                    setAcceptedModalPdfStatus(
-                        'ok',
-                        '✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(finalFile) + '</strong>'
-                    );
-                } else if (!o.triggerBtn) {
-                    renderQuoteStatusBanner(
-                        'ok',
-                        '<div>✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(finalFile) + '</strong></div>'
-                    );
+                    setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(msg));
+                } else {
+                    renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(msg) + '</div>');
                 }
+                return false;
+            } finally {
+                erpPdfDownloadInFlight = false;
+                erpPdfDownloadPromise = null;
                 if (activeBtn) {
-                    activeBtn.innerHTML = '✓ PDF S Mueblería Descargado';
-                    setTimeout(() => {
-                        if (activeBtn) activeBtn.innerHTML = prevBtnHtml;
-                    }, 2600);
+                    activeBtn.disabled = false;
+                    if (!downloadedOk) activeBtn.innerHTML = prevBtnHtml;
                 }
-                return true;
-            }
-
-            if (res && (res.needsRedeploy || res.unavailable)) {
-                const redeployHtml =
-                    '<div>Para activar la descarga automática del PDF original de S Mueblería, publica una <strong>Nueva versión</strong> de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.</div>';
-                if (modalOpen) {
-                    setAcceptedModalPdfStatus('warn', redeployHtml);
-                } else {
-                    renderQuoteStatusBanner('warn', redeployHtml);
+                if (modalPdfBtn && modalPdfBtn !== activeBtn) {
+                    modalPdfBtn.disabled = false;
                 }
-                return false;
             }
-
-            const errMsg = cleanStr((res && res.error) || 'S Mueblería no entregó el PDF en este intento.');
-            if (modalOpen) {
-                setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(errMsg));
-            } else {
-                renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(errMsg) + '</div>');
-            }
-            return false;
-        } catch (dlErr) {
-            const msg = cleanStr((dlErr && dlErr.message) || dlErr || 'Error de conexión al descargar el PDF.');
-            if (modalOpen) {
-                setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(msg));
-            } else {
-                renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(msg) + '</div>');
-            }
-            return false;
-        } finally {
-            erpPdfDownloadInFlight = false;
-            if (activeBtn) {
-                activeBtn.disabled = false;
-                if (!downloadedOk) activeBtn.innerHTML = prevBtnHtml;
-            }
-            if (modalPdfBtn && modalPdfBtn !== activeBtn) {
-                modalPdfBtn.disabled = false;
-            }
-        }
+        })();
+        erpPdfDownloadPromise = runPromise;
+        return runPromise;
     };
 
     window.downloadAcceptedQuoteOriginalPdf = function (btnEl) {
         const snap = lastAcceptedQuoteSnapshot;
+        if (snap && snap.pdfBase64 && snap.pdfFileName) {
+            triggerBase64PdfBrowserDownload(snap.pdfBase64, snap.pdfFileName);
+            setAcceptedModalPdfStatus(
+                'ok',
+                '✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(snap.pdfFileName) + '</strong>'
+            );
+            return Promise.resolve(true);
+        }
         const meta = (snap && snap.submittedMeta) || lastSubmittedQuoteMeta || {};
         const pay = (snap && snap.payload) || {};
         return window.downloadOriginalErpQuotePdf({
@@ -8466,6 +8655,345 @@
         });
     };
 
+    function encodeQuoteDocToken(obj) {
+        try {
+            const jsonStr = JSON.stringify(obj);
+            const utf8Bytes = encodeURIComponent(jsonStr).replace(/%([0-9A-F]{2})/g, function (_, p1) {
+                return String.fromCharCode(parseInt(p1, 16));
+            });
+            return window.btoa(utf8Bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function decodeQuoteDocToken(token) {
+        try {
+            const clean = String(token || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+            if (!clean) return null;
+            const pad = clean.length % 4;
+            const padded = pad ? (clean + '===='.slice(pad)) : clean;
+            const bin = window.atob(padded);
+            const pctStr = Array.prototype.map.call(bin, function (ch) {
+                return '%' + ('00' + ch.charCodeAt(0).toString(16)).slice(-2);
+            }).join('');
+            return JSON.parse(decodeURIComponent(pctStr));
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function buildShareableQuoteDocumentUrl(payload, submittedMeta, pdfDriveUrl) {
+        const bd = (payload && payload.breakdown) || computeQuoteBreakdown();
+        const folioTxt = cleanStr((submittedMeta && (submittedMeta.folio || submittedMeta.orderCode)) || (payload && payload.orderCode));
+        const qidTxt = cleanStr(submittedMeta && submittedMeta.quoteId);
+        const lines = Array.isArray(bd && bd.lines) ? bd.lines : [];
+        const docObj = {
+            v: 1,
+            f: folioTxt,
+            q: qidTxt,
+            d: formatDateDMY(new Date()),
+            p: !!(payload && payload.isProyecto),
+            s: cleanStr(payload && payload.erpStore),
+            a: cleanStr(payload && (payload.erpAdvisorLabel || payload.advisorName)),
+            ae: cleanStr(payload && payload.advisorEmail),
+            c: cleanStr(payload && payload.clientName),
+            ph: cleanStr(payload && payload.clientPhone),
+            em: cleanStr(payload && payload.clientEmail),
+            dl: cleanStr(payload && payload.deliveryDate),
+            nt: cleanStr(payload && payload.notes),
+            ex: Math.round((Number(bd && bd.extraDiscount) || 0) * 100) / 100,
+            sub: Math.round((Number(bd && bd.subtotalNoIva) || 0) * 100) / 100,
+            iva: Math.round((Number(bd && bd.ivaAmount) || 0) * 100) / 100,
+            tot: Math.round((Number(bd && bd.totalWithIva) || 0) * 100) / 100,
+            u: cleanStr(pdfDriveUrl),
+            i: lines.map(ln => [
+                cleanStr(ln.sku),
+                cleanStr(ln.name),
+                Math.max(1, Number(ln.qty) || 1),
+                Math.round((Number(ln.unitList) || 0) * 100) / 100,
+                Number(ln.discountPct) || 0,
+                Math.round((Number(ln.lineSubtotal) || 0) * 100) / 100,
+                cleanStr(ln.measures)
+            ])
+        };
+        const token = encodeQuoteDocToken(docObj);
+        let baseUrl = 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/inventario.html';
+        try {
+            if (window.location && /^https?:$/i.test(window.location.protocol)) {
+                baseUrl = window.location.origin + window.location.pathname;
+            }
+        } catch (e) {}
+        return token ? (baseUrl + '?cotizacion=' + token) : baseUrl;
+    }
+
+    function checkAndRenderSharedQuoteDocumentMode() {
+        try {
+            if (typeof URLSearchParams === 'undefined' || !window.location) return false;
+            const params = new URLSearchParams(window.location.search || '');
+            const token = params.get('cotizacion');
+            if (!token) return false;
+            const doc = decodeQuoteDocToken(token);
+            if (!doc || typeof doc !== 'object') return false;
+
+            const docHeading = doc.p ? 'Cotización de Proyecto' : 'Cotización CREATA Muebles';
+            const folioTxt = cleanStr(doc.f) || 'En proceso';
+            const qidTxt = cleanStr(doc.q);
+            const logoSrc = window.CREATA_LOGO_B64 || '';
+            const items = Array.isArray(doc.i) ? doc.i : [];
+
+            const rowsHtml = items.map((arr, idx) => {
+                const sku = cleanStr(arr && arr[0]);
+                const name = cleanStr(arr && arr[1]) || sku || 'PRODUCTO COTIZADO';
+                const qty = Math.max(1, Number(arr && arr[2]) || 1);
+                const unitList = Number(arr && arr[3]) || 0;
+                const discPct = Number(arr && arr[4]) || 0;
+                const lineSubtotal = Number(arr && arr[5]) || 0;
+                const measures = cleanStr(arr && arr[6]);
+                const liveIt = sku ? bySkuMap.get(sku.toUpperCase()) : null;
+                const photoUrl = liveIt ? photoUrlForItem(liveIt) : '';
+                return '<tr>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (idx + 1) + '</td>' +
+                    '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;">' +
+                        (photoUrl ? ('<img src="' + escapeHtml(photoUrl) + '" style="width:60px;height:60px;object-fit:contain;border:1px solid #E8E4DE;border-radius:8px;background:#FFF;">') : '<span style="font-size:10px;color:#9CA3AF;">' + escapeHtml(sku) + '</span>') +
+                    '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;font-weight:700;">' +
+                        escapeHtml(name) +
+                        (sku ? ('<div style="font-size:10px;color:#A38251;margin-top:2px;">SKU: ' + escapeHtml(sku) + '</div>') : '') +
+                        (measures ? ('<div style="font-size:10px;color:#6B7280;margin-top:2px;font-weight:500;">Medidas: ' + escapeHtml(measures) + '</div>') : '') +
+                    '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:center;font-weight:800;">' + qty + '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:right;">' + escapeHtml(formatPrice(unitList) || '$0.00') + '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (discPct > 0 ? (discPct + '%') : '0%') + '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:right;font-weight:800;">' + escapeHtml(formatPrice(lineSubtotal) || '$0.00') + '</td>' +
+                '</tr>';
+            }).join('');
+
+            document.title = docHeading + ' — ' + folioTxt + ' — ' + cleanStr(doc.c || 'CREATA Muebles');
+            document.body.innerHTML =
+                '<div style="max-width:920px;margin:24px auto;padding:0 16px;font-family:Raleway,sans-serif;color:#252C32;font-size:12px;">' +
+                    '<div class="no-print" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;background:#FFFFFF;border:1px solid #E1DBC5;padding:12px 16px;border-radius:14px;box-shadow:0 4px 14px rgba(0,0,0,0.05);">' +
+                        '<div style="font-weight:800;font-size:13px;color:#252C32;">📄 Documento Oficial de Cotización · CREATA Muebles</div>' +
+                        '<div style="display:flex;flex-wrap:wrap;gap:8px;">' +
+                            (doc.u ? ('<a href="' + escapeHtml(doc.u) + '" target="_blank" rel="noopener" style="background:#252C32;color:#FFF;text-decoration:none;padding:9px 16px;border-radius:999px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">⬇ PDF Original S Mueblería</a>') : '') +
+                            '<button type="button" onclick="window.print()" style="background:#A38251;color:#FFF;border:none;padding:9px 18px;border-radius:999px;font-weight:800;font-size:11px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;">🖨️ Imprimir / Guardar PDF</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="background:#FFFFFF;border:1px solid #E1DBC5;border-radius:16px;padding:22px;box-shadow:0 8px 24px rgba(0,0,0,0.06);">' +
+                        '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:#252C32;color:#FFF;padding:16px 20px;border-radius:12px;">' +
+                            '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:46px;object-fit:contain;">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+                            '<div style="text-align:right;">' +
+                                '<div style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">' + escapeHtml(docHeading) + '</div>' +
+                                '<div style="color:#E1DBC5;font-size:12px;margin-top:3px;">Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>' +
+                                    (qidTxt ? (' (ID ERP ' + escapeHtml(qidTxt) + ')') : '') +
+                                '</div>' +
+                                '<div style="color:#E1DBC5;font-size:11px;margin-top:2px;">Fecha: ' + escapeHtml(cleanStr(doc.d)) + (doc.s ? (' · ' + escapeHtml(doc.s)) : '') + '</div>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;border:1px solid #E1DBC5;border-radius:12px;padding:14px 16px;margin-top:14px;background:#FAF9F6;">' +
+                            '<div><strong>' + (doc.p ? 'Proyecto / Cliente:' : 'Cliente:') + '</strong> ' + escapeHtml(cleanStr(doc.c) || 'Por definir') + '</div>' +
+                            '<div><strong>Sucursal:</strong> ' + escapeHtml(cleanStr(doc.s) || 'CREATA Muebles') + '</div>' +
+                            (doc.ph ? ('<div><strong>Teléfono:</strong> ' + escapeHtml(doc.ph) + '</div>') : '') +
+                            (doc.dl ? ('<div><strong>Entrega Tentativa:</strong> ' + escapeHtml(doc.dl) + '</div>') : '') +
+                            (doc.em ? ('<div><strong>Correo Cliente:</strong> ' + escapeHtml(doc.em) + '</div>') : '') +
+                            (doc.a ? ('<div><strong>Asesor:</strong> ' + escapeHtml(doc.a) + '</div>') : '') +
+                            (doc.nt ? ('<div style="grid-column:1 / -1;"><strong>Notas:</strong> ' + escapeHtml(doc.nt) + '</div>') : '') +
+                        '</div>' +
+                        '<div style="overflow-x:auto;margin-top:16px;">' +
+                            '<table style="width:100%;border-collapse:collapse;">' +
+                                '<thead><tr style="background:#252C32;color:#FFF;text-transform:uppercase;font-size:11px;letter-spacing:0.04em;">' +
+                                    '<th style="padding:10px 8px;">#</th>' +
+                                    '<th style="padding:10px 8px;">Imagen</th>' +
+                                    '<th style="padding:10px 8px;text-align:left;">Descripción</th>' +
+                                    '<th style="padding:10px 8px;">Cant.</th>' +
+                                    '<th style="padding:10px 8px;text-align:right;">Precio Lista</th>' +
+                                    '<th style="padding:10px 8px;">% Desc.</th>' +
+                                    '<th style="padding:10px 8px;text-align:right;">Importe</th>' +
+                                '</tr></thead>' +
+                                '<tbody>' + rowsHtml + '</tbody>' +
+                            '</table>' +
+                        '</div>' +
+                        '<div style="margin-left:auto;max-width:320px;margin-top:18px;border:1px solid #E1DBC5;border-radius:12px;padding:14px 16px;background:#FAF9F6;">' +
+                            (Number(doc.ex) > 0 ? ('<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Descuento Extra:</span><strong style="color:#065F46;">-' + escapeHtml(formatPrice(doc.ex)) + '</strong></div>') : '') +
+                            '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Subtotal (sin IVA):</span><strong>' + escapeHtml(formatPrice(doc.sub) || '$0.00') + '</strong></div>' +
+                            '<div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>IVA (16%):</span><strong>' + escapeHtml(formatPrice(doc.iva) || '$0.00') + '</strong></div>' +
+                            '<div style="display:flex;justify-content:space-between;border-top:1px solid #E1DBC5;padding-top:8px;font-size:15px;font-weight:800;color:#A38251;"><span>TOTAL COTIZACIÓN:</span><span>' + escapeHtml(formatPrice(doc.tot) || '$0.00') + '</span></div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<style>@media print{.no-print{display:none!important;} body{background:#FFF!important;}}</style>';
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function extractClientPhone10Digits(rawPhone) {
+        const digits = String(rawPhone || '').replace(/\D+/g, '');
+        if (!digits) return '';
+        if (digits.length === 10) return digits;
+        if (digits.length === 12 && digits.startsWith('52')) return digits.slice(2);
+        if (digits.length === 13 && digits.startsWith('521')) return digits.slice(3);
+        if (digits.length > 10) return digits.slice(-10);
+        return '';
+    }
+
+    window.sendAcceptedQuoteToClientWhatsApp = async function (btnEl) {
+        let snap = lastAcceptedQuoteSnapshot;
+        if (!snap || !snap.payload) {
+            const fallbackPayload = collectQuoteSubmissionPayload(false);
+            snap = {
+                payload: fallbackPayload,
+                submittedMeta: lastSubmittedQuoteMeta ? Object.assign({}, lastSubmittedQuoteMeta) : null,
+                isQueued: false
+            };
+            lastAcceptedQuoteSnapshot = snap;
+        }
+
+        const payload = snap.payload || collectQuoteSubmissionPayload(false);
+        const metaObj = snap.submittedMeta || lastSubmittedQuoteMeta || {};
+        const folioTxt = cleanStr((metaObj && (metaObj.folio || metaObj.orderCode)) || (payload && payload.orderCode)) || 'En proceso';
+        const qidTxt = cleanStr(metaObj && metaObj.quoteId);
+
+        let phone10 = extractClientPhone10Digits(payload.clientPhone || quoteDraftMeta.clientPhone);
+        if (!phone10) {
+            const prompted = window.prompt(
+                'Ingresa el número de WhatsApp del cliente (10 dígitos) para enviarle la cotización ' + folioTxt + ':',
+                cleanStr(payload.clientPhone || quoteDraftMeta.clientPhone)
+            );
+            if (prompted === null) return;
+            phone10 = extractClientPhone10Digits(prompted);
+            if (!phone10) {
+                setAcceptedModalPdfStatus('warn', '⚠️ Ingresa un número de WhatsApp válido de 10 dígitos para enviar la cotización al cliente.');
+                return;
+            }
+            payload.clientPhone = phone10;
+            quoteDraftMeta.clientPhone = phone10;
+            const phoneInp = document.getElementById('quoteClientPhoneInput');
+            if (phoneInp) phoneInp.value = phone10;
+            try {
+                localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
+            } catch (e) {}
+            if (typeof syncActiveQuoteDraftStorage === 'function') {
+                syncActiveQuoteDraftStorage();
+            }
+            try {
+                const segPhones = JSON.parse(localStorage.getItem('creata_seg_phones_v1') || '{}');
+                if (folioTxt) segPhones[folioTxt] = phone10;
+                localStorage.setItem('creata_seg_phones_v1', JSON.stringify(segPhones));
+            } catch (ePh) {}
+            try {
+                const bridgeKey = 'creata_live_app_quotes_bridge_v1';
+                const prevList = JSON.parse(localStorage.getItem(bridgeKey) || '[]');
+                if (Array.isArray(prevList)) {
+                    prevList.forEach(item => {
+                        if (item && cleanStr(item.folio).toUpperCase() === folioTxt.toUpperCase()) {
+                            item.clientPhone = phone10;
+                        }
+                    });
+                    localStorage.setItem(bridgeKey, JSON.stringify(prevList));
+                }
+            } catch (eBr) {}
+            persistAcceptedQuoteModalCheckpoint();
+        }
+
+        const activeBtn = btnEl || document.getElementById('btnSendAcceptedQuoteWhatsApp');
+        const prevBtnHtml = activeBtn ? activeBtn.innerHTML : '';
+
+        if (erpPdfDownloadInFlight && erpPdfDownloadPromise) {
+            if (activeBtn) {
+                activeBtn.disabled = true;
+                activeBtn.innerHTML = '⏳ Preparando PDF...';
+            }
+            setAcceptedModalPdfStatus('warn', '⏳ Terminando de preparar el documento PDF de la cotización para colocarlo en WhatsApp...');
+            await Promise.race([
+                erpPdfDownloadPromise.catch(() => false),
+                new Promise(r => setTimeout(r, 6000))
+            ]);
+            if (activeBtn) {
+                activeBtn.disabled = false;
+                activeBtn.innerHTML = prevBtnHtml;
+            }
+        } else if (!snap.pdfBase64 && !snap.isQueued && (qidTxt || folioTxt) && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+            window.downloadOriginalErpQuotePdf({
+                quoteId: qidTxt,
+                folio: folioTxt,
+                erpUserId: metaObj.erpUserId || payload.erpAdvisorId || '',
+                clientName: payload.clientName || '',
+                erpStore: payload.erpStore || '',
+                autoTriggered: true
+            });
+        }
+
+        const docUrl = buildShareableQuoteDocumentUrl(payload, metaObj, snap.pdfDriveUrl || '');
+        const cliName = cleanStr(payload.clientName) || 'Cliente';
+        const advName = cleanStr((payload.erpAdvisorLabel || payload.advisorName || '')).split('|')[0].trim() || 'Asesor CREATA';
+        const storeName = cleanStr(payload.erpStore) || 'CREATA Muebles';
+        const bd = payload.breakdown || computeQuoteBreakdown();
+        const lines = Array.isArray(bd && bd.lines) ? bd.lines : [];
+        const itemsBlock = lines.map(ln => {
+            const discTxt = (Number(ln.discountPct) || 0) > 0 ? (' (-' + ln.discountPct + '%)') : '';
+            return '• *' + (Number(ln.qty) || 1) + 'x* ' + cleanStr(ln.name || ln.sku) + discTxt + ' — *' + (formatPrice(ln.lineSubtotal) || '$0.00') + '*';
+        }).join('\n');
+        const totalFmt = formatPrice(bd && bd.totalWithIva) || '$0.00';
+
+        const msgParts = [
+            'Hola *' + cliName + '*, un gusto saludarte.',
+            'Te comparto tu cotización oficial de *CREATA Muebles*:',
+            '',
+            '📋 *Folio S Mueblería:* ' + folioTxt,
+            '🏬 *Sucursal:* ' + storeName,
+            '👤 *Asesor:* ' + advName,
+            payload.deliveryDate ? ('🚚 *Entrega tentativa:* ' + payload.deliveryDate) : '',
+            '',
+            '🛋️ *Partidas cotizadas:*',
+            itemsBlock,
+            (bd && bd.extraDiscount > 0) ? ('🏷️ *Descuento adicional:* -' + formatPrice(bd.extraDiscount)) : '',
+            '💰 *Total Cotización (IVA incluido):* ' + totalFmt,
+            '',
+            '📄 *Documento de Cotización (Abrir / Descargar PDF):*',
+            docUrl
+        ].filter(Boolean);
+
+        if (snap.pdfDriveUrl) {
+            msgParts.push('');
+            msgParts.push('📥 *PDF Original S Mueblería:*');
+            msgParts.push(snap.pdfDriveUrl);
+        }
+        msgParts.push('');
+        msgParts.push('Quedo pendiente de cualquier duda o comentario para apoyarte.');
+
+        const msgText = msgParts.join('\n');
+        const waUrl = 'https://wa.me/52' + phone10 + '?text=' + encodeURIComponent(msgText);
+        window.open(waUrl, '_blank', 'noopener');
+
+        setAcceptedModalPdfStatus(
+            'ok',
+            '✓ WhatsApp abierto para <strong>' + escapeHtml(cliName) + '</strong> (<strong>' + escapeHtml(phone10) + '</strong>) con el documento de la cotización colocado.'
+        );
+
+        try {
+            const contactedMap = JSON.parse(localStorage.getItem('creata_seg_contacted_v1') || '{}');
+            if (folioTxt) contactedMap[folioTxt] = true;
+            localStorage.setItem('creata_seg_contacted_v1', JSON.stringify(contactedMap));
+        } catch (eContact) {}
+
+        callInvWebAppPost('seg_action', {
+            subAction: 'SEG_WHATSAPP',
+            folio: folioTxt,
+            usuario: advName,
+            sucursal: storeName,
+            payload: {
+                folio: folioTxt,
+                cliente: cliName,
+                telefono: phone10,
+                asesor: advName,
+                sucursal: storeName,
+                origen: 'COTIZADOR_MODAL_ENVIAR'
+            }
+        }, 10000).catch(() => {});
+    };
+
     function openQuoteAcceptedModal(payload, metaObj, opts) {
         const o = opts || {};
         const folioTxt = cleanStr((metaObj && (metaObj.folio || metaObj.orderCode)) || (payload && payload.orderCode));
@@ -8477,8 +9005,13 @@
         lastAcceptedQuoteSnapshot = {
             payload: payload,
             submittedMeta: metaObj ? Object.assign({}, metaObj) : null,
-            isQueued: !!o.isQueued
+            isQueued: !!o.isQueued,
+            pdfBase64: (o.pdfBase64 || (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.pdfBase64)) || '',
+            pdfFileName: (o.pdfFileName || (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.pdfFileName)) || '',
+            pdfDriveUrl: (o.pdfDriveUrl || (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.pdfDriveUrl)) || '',
+            pdfDownloadUrl: (o.pdfDownloadUrl || (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.pdfDownloadUrl)) || ''
         };
+        persistAcceptedQuoteModalCheckpoint();
 
         const modalEl = document.getElementById('quoteAcceptedModal');
         const titleEl = document.getElementById('quoteAcceptedTitle');
@@ -8506,7 +9039,9 @@
                 (o.isQueued ? '⏳ Cotización guardada en cola automática' : '✓ Cotización creada correctamente') +
             '</div>' +
             (folioTxt ? ('<div>Folio S Mueblería: <strong class="text-sm">' + escapeHtml(folioTxt) + '</strong>' + (qidTxt ? (' · ID ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') + '</div>') : '') +
-            '<div>Cliente / Proyecto: <strong>' + escapeHtml((payload && payload.clientName) || 'Por definir') + '</strong></div>' +
+            '<div>Cliente / Proyecto: <strong>' + escapeHtml((payload && payload.clientName) || 'Por definir') + '</strong>' +
+                (payload && payload.clientPhone ? (' · Tel: <strong>' + escapeHtml(payload.clientPhone) + '</strong>') : '') +
+            '</div>' +
             '<div>Asesor S Mueblería: <strong>' + escapeHtml((payload && (payload.erpAdvisorLabel || payload.advisorName)) || '') + '</strong></div>' +
             '<div>Tienda / Bodega: <strong>' + escapeHtml((payload && payload.erpStore) || '') + '</strong> · Piezas: <strong>' + totalQty + '</strong> · Total: <strong>' + escapeHtml(formatPrice(bd && bd.totalWithIva) || '$0.00') + '</strong></div>';
 
@@ -8518,6 +9053,7 @@
     window.acceptGeneratedQuoteAndReset = function () {
         const modalEl = document.getElementById('quoteAcceptedModal');
         if (modalEl) modalEl.classList.remove('open');
+        clearAcceptedQuoteModalCheckpoint();
         purgeCompletedAndActivateBlankDraft();
         const cartScroll = document.querySelector('#cartModal .overflow-y-auto');
         if (cartScroll) cartScroll.scrollTop = 0;
@@ -8799,6 +9335,7 @@
                         '<div>Emitida con usuario S Mueblería: <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong></div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
                             '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#065F46;">⬇ Descargar PDF Original S Mueblería →</button>' +
+                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#059669;">📲 Enviar a WhatsApp del Cliente →</button>' +
                             '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / Impresión CREATA →</button>' +
                             '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
                         '</div>'
@@ -8851,6 +9388,7 @@
                         '</div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
                             '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#065F46;">⬇ Descargar PDF Original S Mueblería →</button>' +
+                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#059669;">📲 Enviar a WhatsApp del Cliente →</button>' +
                             '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / Impresión CREATA →</button>' +
                             '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
                         '</div>'
@@ -8879,6 +9417,7 @@
                         '<div class="font-extrabold uppercase">⏳ Cotización guardada en cola automática</div>' +
                         '<div>La sesión directa en nube estaba por renovarse, así que la cotización quedó lista en <code>plantilla</code> (<strong>ENVIAR COTIZACIÓN A S MUEBLERÍA</strong>). En cuanto <code>servicio_en_vivo.py</code> esté activo en la PC sincronizadora, se cargará automáticamente con su folio oficial.</div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
+                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#059669;">📲 Enviar a WhatsApp del Cliente →</button>' +
                             '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF provisional →</button>' +
                             '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
                         '</div>'
@@ -9201,7 +9740,39 @@
         return rows;
     }
 
+    function restoreLpptOrdersFromLocalCache() {
+        try {
+            if (liveLpptBySku.size > 0) return true;
+            const raw = localStorage.getItem(INV_LPPT_CACHE_KEY);
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            if (!data || !Array.isArray(data.entries)) return false;
+            const restored = new Map();
+            for (let i = 0; i < data.entries.length; i++) {
+                const pair = data.entries[i];
+                if (!Array.isArray(pair) || !pair[0] || !Array.isArray(pair[1])) continue;
+                const list = pair[1].map(item => ({
+                    fc: item.fcMs ? new Date(item.fcMs) : parseSheetDate(item.fcStr || ''),
+                    fcStr: item.fcStr || '',
+                    oc: item.oc || '',
+                    fcomp: item.fcompMs ? new Date(item.fcompMs) : null,
+                    fcompOrig: item.fcompOrigMs ? new Date(item.fcompOrigMs) : null,
+                    free: Number(item.free) || 0,
+                    nom: item.nom || '',
+                    prov: item.prov || ''
+                }));
+                if (list.length > 0) restored.set(pair[0], list);
+            }
+            if (restored.size > 0) {
+                liveLpptBySku = restored;
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
     async function fetchLiveLpptOrders() {
+        restoreLpptOrdersFromLocalCache();
         if (!LPPT_SHEET_ID) return;
         try {
             const url = 'https://docs.google.com/spreadsheets/d/' + LPPT_SHEET_ID +
@@ -9291,6 +9862,22 @@
             }
             if (nextMap.size > 0) {
                 liveLpptBySku = nextMap;
+                try {
+                    const serializable = [];
+                    nextMap.forEach((arr, k) => {
+                        serializable.push([k, arr.map(e => ({
+                            fcMs: (e.fc && !isNaN(e.fc.getTime())) ? e.fc.getTime() : 0,
+                            fcStr: e.fcStr || '',
+                            oc: e.oc || '',
+                            fcompMs: (e.fcomp && !isNaN(e.fcomp.getTime())) ? e.fcomp.getTime() : 0,
+                            fcompOrigMs: (e.fcompOrig && !isNaN(e.fcompOrig.getTime())) ? e.fcompOrig.getTime() : 0,
+                            free: e.free || 0,
+                            nom: e.nom || '',
+                            prov: e.prov || ''
+                        }))]);
+                    });
+                    localStorage.setItem(INV_LPPT_CACHE_KEY, JSON.stringify({ ts: Date.now(), entries: serializable }));
+                } catch (eCacheLppt) {}
             }
             if (observedAnyFolio && activeAdvisorSession) {
                 populateQuoteAdvisorControls();
@@ -9726,6 +10313,7 @@
         liveSyncInFlight = true;
         try {
             syncPendingKeyUpdatesToCloud().catch(() => {});
+            flushInvOfflineOutbox().catch(() => {});
             if (isGuestSession()) {
                 verifyActiveGuestSessionLive().catch(() => {});
             }
@@ -9807,7 +10395,208 @@
         }
     }
 
+    // ------------------------------------------------------------------------
+    // GUARDADO AUTOMÁTICO "DÓNDE ME QUEDÉ" (CATEGORÍA, BUSCADOR, SCROLL,
+    // FICHA DE PRODUCTO, CARRITO ABIERTO Y FORMULARIO DE ALTA DE CLIENTE)
+    // ------------------------------------------------------------------------
+    const INV_WORKSPACE_CHECKPOINT_KEY = 'creata_inv_workspace_checkpoint_v1';
+    const NEW_ERP_CLIENT_FIELD_IDS = [
+        'newCliNombre', 'newCliPaterno', 'newCliMaterno', 'newCliTelefono',
+        'newCliCorreo', 'newCliEmpresa', 'newCliRfc', 'newCliCalle',
+        'newCliColonia', 'newCliCp', 'newCliCiudad', 'newCliEstado'
+    ];
+    let invWorkspaceRestoring = false;
+    let invWorkspaceSaveTimer = null;
+
+    function saveInvWorkspaceCheckpointNow() {
+        if (invWorkspaceRestoring) return;
+        try {
+            const searchInp = document.getElementById('invSearchInput');
+            const prodModal = document.getElementById('productDetailModal');
+            const cartModal = document.getElementById('cartModal');
+            const cartScrollEl = document.querySelector('#cartModal .overflow-y-auto');
+            const newCliPanel = document.getElementById('quoteNewErpClientPanel');
+            const erpSearchInp = document.getElementById('quoteErpClientSearchInput');
+            const crumbEl = document.getElementById('detGroupCrumb');
+
+            const newCliFields = {};
+            let hasAnyNewCliVal = false;
+            for (let i = 0; i < NEW_ERP_CLIENT_FIELD_IDS.length; i++) {
+                const fid = NEW_ERP_CLIENT_FIELD_IDS[i];
+                const el = document.getElementById(fid);
+                if (el && el.value) {
+                    newCliFields[fid] = el.value;
+                    hasAnyNewCliVal = true;
+                }
+            }
+
+            const prodOpen = !!(prodModal && prodModal.classList.contains('open'));
+            const cartOpen = !!(cartModal && cartModal.classList.contains('open'));
+            const newCliOpen = !!(newCliPanel && !newCliPanel.classList.contains('hidden'));
+
+            const cp = {
+                ts: Date.now(),
+                category: activeCategory || 'ALL',
+                subCategory: activeSubCategory || 'ALL',
+                searchQuery: searchInp ? String(searchInp.value || '') : '',
+                scrollY: Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0)),
+                detailOpen: prodOpen,
+                detailSku: (prodOpen && currentDetailItem && currentDetailItem.s) ? String(currentDetailItem.s) : '',
+                detailFromGroup: !!(prodOpen && crumbEl && !crumbEl.classList.contains('hidden')),
+                groupKey: (prodOpen && !currentDetailItem && currentGroup && currentGroup.key) ? String(currentGroup.key) : '',
+                cartOpen: cartOpen,
+                cartScrollTop: (cartOpen && cartScrollEl) ? Math.max(0, Math.round(cartScrollEl.scrollTop || 0)) : 0,
+                erpClientSearchQuery: erpSearchInp ? String(erpSearchInp.value || '') : '',
+                newCliOpen: newCliOpen,
+                newCliFields: hasAnyNewCliVal ? newCliFields : null
+            };
+            localStorage.setItem(INV_WORKSPACE_CHECKPOINT_KEY, JSON.stringify(cp));
+        } catch (e) {}
+    }
+
+    function scheduleSaveInvWorkspaceCheckpoint() {
+        if (invWorkspaceRestoring) return;
+        if (invWorkspaceSaveTimer) clearTimeout(invWorkspaceSaveTimer);
+        invWorkspaceSaveTimer = setTimeout(function () {
+            invWorkspaceSaveTimer = null;
+            saveInvWorkspaceCheckpointNow();
+        }, 180);
+    }
+
+    function restoreInvWorkspaceCheckpoint() {
+        try {
+            const raw = localStorage.getItem(INV_WORKSPACE_CHECKPOINT_KEY);
+            if (!raw) return;
+            const cp = JSON.parse(raw);
+            if (!cp || typeof cp !== 'object') return;
+            if (cp.ts && (Date.now() - Number(cp.ts)) > (7 * 24 * 60 * 60 * 1000)) return;
+
+            invWorkspaceRestoring = true;
+            try {
+                if (cp.category && typeof cp.category === 'string') {
+                    activeCategory = cp.category;
+                }
+                if (cp.subCategory && typeof cp.subCategory === 'string') {
+                    activeSubCategory = cp.subCategory;
+                }
+                const searchInp = document.getElementById('invSearchInput');
+                const qStr = typeof cp.searchQuery === 'string' ? cp.searchQuery : '';
+                if (searchInp && qStr) {
+                    searchInp.value = qStr;
+                }
+                applyFilter(qStr);
+
+                if (cp.newCliFields && typeof cp.newCliFields === 'object') {
+                    Object.keys(cp.newCliFields).forEach(fid => {
+                        const el = document.getElementById(fid);
+                        if (el) el.value = cp.newCliFields[fid];
+                    });
+                }
+                const erpSearchInp = document.getElementById('quoteErpClientSearchInput');
+                if (erpSearchInp && cp.erpClientSearchQuery) {
+                    erpSearchInp.value = cp.erpClientSearchQuery;
+                }
+
+                const authReady = !!(activeAdvisorSession && !activeAdvisorSession.mustChangeKey);
+                if (authReady) {
+                    if (cp.detailOpen) {
+                        if (cp.detailSku) {
+                            openProductDetail(cp.detailSku, !!cp.detailFromGroup, true);
+                        } else if (cp.groupKey) {
+                            openGroupModal(cp.groupKey);
+                        }
+                    }
+                    if (cp.cartOpen && !isGuestSession()) {
+                        window.openCartModal();
+                        if (cp.newCliOpen) {
+                            window.toggleNewErpClientForm(true);
+                        }
+                        if (cp.cartScrollTop > 0) {
+                            setTimeout(() => {
+                                const cartScrollEl = document.querySelector('#cartModal .overflow-y-auto');
+                                if (cartScrollEl) cartScrollEl.scrollTop = cp.cartScrollTop;
+                            }, 60);
+                        }
+                    }
+                    // Si el modal de cotización recién creada estaba abierto antes de perder conexión/recargar, restaurarlo
+                    try {
+                        const accRaw = localStorage.getItem(ACCEPTED_QUOTE_MODAL_STORAGE_KEY);
+                        if (accRaw) {
+                            const accObj = JSON.parse(accRaw);
+                            if (accObj && accObj.payload && (!accObj.ts || (Date.now() - Number(accObj.ts)) < (24 * 60 * 60 * 1000))) {
+                                openQuoteAcceptedModal(accObj.payload, accObj.submittedMeta, {
+                                    isQueued: !!accObj.isQueued,
+                                    pdfFileName: accObj.pdfFileName || '',
+                                    pdfDriveUrl: accObj.pdfDriveUrl || '',
+                                    pdfDownloadUrl: accObj.pdfDownloadUrl || ''
+                                });
+                            }
+                        }
+                    } catch (eAcc) {}
+                }
+
+                if (cp.scrollY > 0) {
+                    setTimeout(() => {
+                        window.scrollTo({ top: cp.scrollY, behavior: 'auto' });
+                    }, 80);
+                }
+            } finally {
+                invWorkspaceRestoring = false;
+            }
+        } catch (e) {
+            invWorkspaceRestoring = false;
+        }
+    }
+
+    function bindInvPersistenceListeners() {
+        const quoteFieldIds = [
+            'quoteClientNameInput', 'quoteClientPhoneInput', 'quoteClientEmailInput',
+            'quoteDeliveryDateInput', 'quoteNotesInput', 'quoteExtraDiscountInput'
+        ];
+        quoteFieldIds.forEach(fid => {
+            const el = document.getElementById(fid);
+            if (!el) return;
+            el.addEventListener('input', function () {
+                if (typeof window.saveQuoteDraftMeta === 'function') window.saveQuoteDraftMeta();
+                if (fid === 'quoteExtraDiscountInput') renderQuoteTotalsOnly();
+            });
+            el.addEventListener('change', function () {
+                if (typeof window.saveQuoteDraftMeta === 'function') window.saveQuoteDraftMeta();
+            });
+        });
+
+        NEW_ERP_CLIENT_FIELD_IDS.concat(['quoteErpClientSearchInput']).forEach(fid => {
+            const el = document.getElementById(fid);
+            if (!el) return;
+            el.addEventListener('input', scheduleSaveInvWorkspaceCheckpoint);
+            el.addEventListener('change', scheduleSaveInvWorkspaceCheckpoint);
+        });
+
+        window.addEventListener('scroll', scheduleSaveInvWorkspaceCheckpoint, { passive: true });
+        const cartScrollEl = document.querySelector('#cartModal .overflow-y-auto');
+        if (cartScrollEl) {
+            cartScrollEl.addEventListener('scroll', scheduleSaveInvWorkspaceCheckpoint, { passive: true });
+        }
+        document.addEventListener('click', function () {
+            scheduleSaveInvWorkspaceCheckpoint();
+        }, true);
+    }
+
     document.addEventListener('DOMContentLoaded', async function () {
+        await unpackInitialInventoryIfNeeded();
+        // Usar el último inventario en vivo guardado en este dispositivo (sirve si no hay conexión);
+        // en cuanto responde Google Sheets se reemplaza por el inventario en vivo.
+        await restoreLiveInventoryCacheIfAny();
+        restoreLpptOrdersFromLocalCache();
+        restoreErpCatalogFromLocalCache();
+        indexItemsAndGroups();
+        lastLiveSignature = computeItemsSignature(allItems);
+
+        // Si el enlace fue abierto por un cliente con ?cotizacion=..., mostrar el Documento Oficial de Cotización sin pedir login
+        if (checkAndRenderSharedQuoteDocumentMode()) {
+            return;
+        }
+
         initQuoteDraftsSystem();
         openAuthModalForStartup();
         loadErpCatalogLiveFromSheet().then(() => {
@@ -9882,23 +10671,21 @@
             }
         });
 
-        await unpackInitialInventoryIfNeeded();
-        // Usar el último inventario en vivo guardado en este dispositivo (sirve si no hay conexión);
-        // en cuanto responde Google Sheets se reemplaza por el inventario en vivo.
-        await restoreLiveInventoryCacheIfAny();
-        indexItemsAndGroups();
-        lastLiveSignature = computeItemsSignature(allItems);
         updateCartBadge();
         const inp = document.getElementById('invSearchInput');
         if (inp) {
             inp.addEventListener('input', function () {
                 applyFilter(this.value);
+                scheduleSaveInvWorkspaceCheckpoint();
             });
             if (activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
                 inp.focus();
             }
         }
         applyFilter('');
+        bindInvPersistenceListeners();
+        restoreInvWorkspaceCheckpoint();
+
         const loadMoreSentinel = document.getElementById('invLoadMoreWrap');
         if (loadMoreSentinel && typeof IntersectionObserver !== 'undefined') {
             const moreObs = new IntersectionObserver(function (entries) {
@@ -9915,14 +10702,38 @@
             }
         }, 12000);
         window.addEventListener('focus', refreshLiveSheetNow);
-        window.addEventListener('online', refreshLiveSheetNow);
+        window.addEventListener('online', function () {
+            flushInvOfflineOutbox().catch(() => {});
+            refreshLiveSheetNow();
+        });
         window.addEventListener('offline', function () {
+            if (typeof window.saveQuoteDraftMeta === 'function' && !isActiveQuoteCompleted()) {
+                window.saveQuoteDraftMeta();
+            }
+            saveInvWorkspaceCheckpointNow();
             setLiveConnectionStatus(false);
         });
-        window.addEventListener('pagehide', purgeCompletedQuoteDraftsOnExit);
-        window.addEventListener('beforeunload', purgeCompletedQuoteDraftsOnExit);
+        window.addEventListener('pagehide', function () {
+            if (typeof window.saveQuoteDraftMeta === 'function' && !isActiveQuoteCompleted()) {
+                window.saveQuoteDraftMeta();
+            }
+            saveInvWorkspaceCheckpointNow();
+            purgeCompletedQuoteDraftsOnExit();
+        });
+        window.addEventListener('beforeunload', function () {
+            if (typeof window.saveQuoteDraftMeta === 'function' && !isActiveQuoteCompleted()) {
+                window.saveQuoteDraftMeta();
+            }
+            saveInvWorkspaceCheckpointNow();
+            purgeCompletedQuoteDraftsOnExit();
+        });
         document.addEventListener('visibilitychange', function () {
-            if (document.visibilityState === 'visible') {
+            if (document.visibilityState === 'hidden') {
+                if (typeof window.saveQuoteDraftMeta === 'function' && !isActiveQuoteCompleted()) {
+                    window.saveQuoteDraftMeta();
+                }
+                saveInvWorkspaceCheckpointNow();
+            } else if (document.visibilityState === 'visible') {
                 pruneExpiredQuoteDrafts(true);
                 refreshLiveSheetNow();
             }

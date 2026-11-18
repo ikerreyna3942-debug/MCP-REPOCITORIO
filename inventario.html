@@ -1310,7 +1310,7 @@
 
     <!-- MODAL DE CONFIRMACIÓN AL GENERAR COTIZACIÓN (AL CONFIRMAR CREA UNA NUEVA PLANTILLA VACÍA) -->
     <div id="quoteAcceptedModal" class="modal-backdrop" style="z-index:75;">
-        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
+        <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-4 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
                 <div class="flex items-center gap-2.5 min-w-0">
                     <span class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-black shrink-0" style="background:#10B981; color:#FFFFFF;">✓</span>
@@ -1329,14 +1329,21 @@
                 <p class="text-[11px] font-semibold leading-relaxed opacity-85">
                     Al presionar <strong>Confirmar y nueva plantilla</strong> se abrirá una plantilla vacía para tu siguiente cotización, evitando que esta cotización se vuelva a generar por error.
                 </p>
-                <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
+                <div class="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 pt-1">
                     <button type="button" onclick="printAcceptedQuoteSnapshot()"
-                            class="px-3.5 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider border transition"
+                            class="px-3.5 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider border transition whitespace-nowrap"
                             style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
                         Vista CREATA
                     </button>
+                    <button type="button" id="btnSendAcceptedQuoteWhatsApp" onclick="sendAcceptedQuoteToClientWhatsApp(this)"
+                            class="px-4 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
+                            style="background:#10B981; color:#FFFFFF;"
+                            title="Enviar cotización al WhatsApp del cliente con el documento adjunto">
+                        <span>📲</span>
+                        <span>Enviar</span>
+                    </button>
                     <button type="button" id="btnAcceptGeneratedQuote" onclick="acceptGeneratedQuoteAndReset()"
-                            class="px-5 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition"
+                            class="px-4 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition whitespace-nowrap"
                             style="background:#A38251; color:#FFFFFF;">
                         ✓ Confirmar y nueva plantilla
                     </button>
@@ -1511,6 +1518,6 @@
     <script src="inventario-data-1.js?v=43"></script>
     <script src="inventario-data-2.js?v=43"></script>
     <script src="inventario-data-3.js?v=43"></script>
-    <script src="inventario-app.js?v=68"></script>
+    <script src="inventario-app.js?v=69"></script>
 </body>
 </html>

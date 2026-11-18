@@ -17,6 +17,13 @@
     const DELETED_QUEUE_STORAGE = 'creata_fotos_deleted_queue_v1';
     const SAVED_OVERRIDES_STORAGE = 'creata_fotos_saved_overrides_v1';
     const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v5';
+    const FOTOS_UI_CHECKPOINT_STORAGE = 'creata_fotos_ui_checkpoint_v1';
+    const FOTOS_OFFLINE_OUTBOX_STORAGE = 'creata_fotos_offline_outbox_v1';
+    const FOTOS_OFFLINE_IDB_NAME = 'creata_fotos_offline_idb_v1';
+    const FOTOS_OFFLINE_IDB_STORE = 'pending_photos';
+
+    let _fotosUiCheckpointRestoredOnce = false;
+    let _fotosFlushingOutbox = false;
 
     const SHEET_GIDS = {
         '1': '620514545',
@@ -736,11 +743,16 @@
         if (shell) shell.classList.remove('hidden');
 
         if (state.products.length > 0) {
-            applySkuFiltersAndRender();
-            renderInboxGallery();
-            renderSelectedProductStage();
+            if (!_fotosUiCheckpointRestoredOnce) {
+                restoreFotosUiCheckpointOnce();
+            } else {
+                applySkuFiltersAndRender();
+                renderInboxGallery();
+                renderSelectedProductStage();
+            }
         }
         renderSessionHistoryLog();
+        hydrateOfflinePendingPhotos();
 
         window.refreshAllPhotoWorkspace(false);
     }
@@ -968,7 +980,10 @@
         const delFileMap = q.fileIds || {};
         const seen = new Set();
         const out = [];
-        const baseArr = Array.isArray(rawFiles) ? rawFiles : [];
+        const localPending = Array.isArray(state.inboxFiles)
+            ? state.inboxFiles.filter((it) => it && String(it.id || '').indexOf('local_inb_') === 0)
+            : [];
+        const baseArr = localPending.concat(Array.isArray(rawFiles) ? rawFiles : []);
 
         for (let i = 0; i < baseArr.length; i++) {
             const f = baseArr[i];
@@ -1228,9 +1243,13 @@
                 scheduleSaveFastCache();
 
                 if (state.unlocked) {
-                    applySkuFiltersAndRender();
-                    renderInboxGallery();
-                    if (state.selectedSku) renderSelectedProductStage();
+                    if (!_fotosUiCheckpointRestoredOnce) {
+                        restoreFotosUiCheckpointOnce();
+                    } else {
+                        applySkuFiltersAndRender();
+                        renderInboxGallery();
+                        if (state.selectedSku) renderSelectedProductStage();
+                    }
                 }
             } finally {
                 state.sheetsLoading = false;
@@ -1252,6 +1271,7 @@
         if (clr) clr.classList.add('hidden');
         state.skuSearchQuery = '';
         applySkuFiltersAndRender();
+        saveFotosUiCheckpointNow();
         if (inp) inp.focus();
     };
 
@@ -1261,6 +1281,7 @@
             b.classList.toggle('active', b.getAttribute('data-filter') === state.skuFilterMode);
         });
         applySkuFiltersAndRender();
+        saveFotosUiCheckpointNow();
     };
 
     function applySkuFiltersAndRender() {
@@ -1407,6 +1428,7 @@
         updateSkuListSelectionInDom(prevSku, sku);
         renderSelectedProductStage();
         updateAssignButtonState();
+        saveFotosUiCheckpointNow();
     };
 
     function getActiveSelectedPhotoObject() {
@@ -1598,6 +1620,7 @@
         if (tabInbox) tabInbox.classList.toggle('active', state.galleryMode === 'INBOX');
         if (tabLoaded) tabLoaded.classList.toggle('active', state.galleryMode === 'LOADED');
         renderInboxGallery();
+        saveFotosUiCheckpointNow();
     };
 
     window.refreshInboxOnly = async function (manualRefresh) {
@@ -1832,6 +1855,7 @@
         updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
+        saveFotosUiCheckpointNow();
     };
 
     window.takeLoadedPhotoForAssign = function (skuRaw, fileIdRaw, ev) {
@@ -1872,6 +1896,7 @@
         updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
+        saveFotosUiCheckpointNow();
     };
 
     window.takeCurrentProductPhoto = function () {
@@ -1913,7 +1938,15 @@
         renderInboxGallery();
         renderSelectedProductStage();
         updateAssignButtonState();
+        saveFotosUiCheckpointNow();
         showAssignFeedback('🗑 Foto borrada de SUBIR COTIZACION.', true);
+
+        if (fid.indexOf('local_inb_') === 0) {
+            removeOutboxEntriesForLocalFileId(fid);
+            deleteOfflinePhotoBlobIdb(fid);
+            unmarkSkuDeletedInQueue('', fid);
+            return;
+        }
 
         const res = await callWebAppPost('fotos_delete', Object.assign({
             driveFileId: fid,
@@ -1968,6 +2001,7 @@
         renderSelectedProductStage();
         renderSessionHistoryLog();
         updateAssignButtonState();
+        saveFotosUiCheckpointNow();
         showAssignFeedback('🗑 Foto borrada' + (sku ? (' de ' + escapeHtml(sku)) : '') + '.', true);
 
         const res = await callWebAppPost('fotos_delete', Object.assign({
@@ -2025,6 +2059,7 @@
         updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
+        saveFotosUiCheckpointNow();
     };
 
     window.clearSelectedInboxPhoto = function () {
@@ -2033,6 +2068,7 @@
         updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
+        saveFotosUiCheckpointNow();
     };
 
     async function readFileAsOptimizedDataUrl(file) {
@@ -2108,6 +2144,7 @@
         let lastUploadedId = '';
         let lastLocalPreview = '';
         let uploadedCount = 0;
+        let queuedOfflineCount = 0;
 
         try {
             const CONCURRENCY = 3;
@@ -2118,11 +2155,14 @@
                     const idx = cursor++;
                     const f = files[idx];
                     const dataUrl = await readFileAsOptimizedDataUrl(f);
-                    const res = await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
-                        fileName: f.name,
-                        dataUrl: dataUrl,
-                        skipListReturn: true
-                    }, buildOwnerAuthPayload()), 30000);
+                    const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+                    const res = isOfflineNow
+                        ? { ok: false, unavailable: true }
+                        : await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
+                            fileName: f.name,
+                            dataUrl: dataUrl,
+                            skipListReturn: true
+                        }, buildOwnerAuthPayload()), 30000);
 
                     if (res && res.ok && res.file && res.file.id) {
                         uploadedCount++;
@@ -2132,6 +2172,38 @@
                         state.rawInboxFromDrive.unshift(newFile);
                         state.inboxFiles.unshift(newFile);
                         lastUploadedId = newFile.id;
+                        lastLocalPreview = dataUrl;
+                    } else if (!res || !res.authRequired) {
+                        // Respaldo local en IndexedDB + Cola Offline para no perder la foto si cae el internet
+                        queuedOfflineCount++;
+                        const localId = 'local_inb_' + Date.now() + '_' + idx + '_' + Math.floor(Math.random() * 9000 + 1000);
+                        await putOfflinePhotoBlobIdb({
+                            id: localId,
+                            fileName: f.name,
+                            dataUrl: dataUrl,
+                            sizeBytes: f.size || 0,
+                            createdAt: Date.now()
+                        });
+                        enqueueFotosOfflineOutbox({
+                            id: 'op_up_' + localId,
+                            type: 'upload_inbox',
+                            localFileId: localId,
+                            fileName: f.name,
+                            sizeBytes: f.size || 0,
+                            queuedAt: Date.now()
+                        });
+                        const localFile = enrichInboxFileItem({
+                            id: localId,
+                            name: f.name,
+                            sizeBytes: f.size || 0,
+                            updatedAt: new Date().toISOString(),
+                            viewUrl: dataUrl,
+                            localDataUrl: dataUrl,
+                            isOfflinePending: true
+                        });
+                        state.rawInboxFromDrive.unshift(localFile);
+                        state.inboxFiles.unshift(localFile);
+                        lastUploadedId = localFile.id;
                         lastLocalPreview = dataUrl;
                     }
                 }
@@ -2159,7 +2231,14 @@
                 window.setGalleryMode('INBOX');
                 renderSelectedProductStage();
                 scheduleSaveFastCache();
-                showAssignFeedback('✅ Subidas a SUBIR COTIZACION (' + uploadedCount + ').', true);
+                saveFotosUiCheckpointNow();
+                if (queuedOfflineCount > 0 && uploadedCount === 0) {
+                    showAssignFeedback('⚡ Guardada(s) localmente (' + queuedOfflineCount + '). Se subirán a Drive automáticamente al recuperar conexión.', true);
+                } else if (queuedOfflineCount > 0) {
+                    showAssignFeedback('✅ Subidas: ' + uploadedCount + ' · En cola sin conexión: ' + queuedOfflineCount + '.', true);
+                } else {
+                    showAssignFeedback('✅ Subidas a SUBIR COTIZACION (' + uploadedCount + ').', true);
+                }
             } else {
                 showAssignFeedback('❌ No se pudieron subir las fotos.', false);
             }
@@ -2183,7 +2262,10 @@
             name: prod.destFolderName || 'FOTOS INTERIOR'
         };
 
-        const optimisticUrl = selPhoto.viewUrl || ('https://drive.google.com/file/d/' + selPhoto.id + '/view?usp=sharing');
+        const isLocalPendingPhoto = String(selPhoto.id || '').indexOf('local_inb_') === 0;
+        const optimisticUrl = isLocalPendingPhoto
+            ? (selPhoto.localDataUrl || selPhoto.viewUrl || '')
+            : (selPhoto.viewUrl || ('https://drive.google.com/file/d/' + selPhoto.id + '/view?usp=sharing'));
         const prevUrlBeforeSave = prod.photoUrl || '';
         const prevFidBeforeSave = prod.photoFileId || '';
 
@@ -2230,11 +2312,33 @@
         renderSelectedProductStage();
         renderSessionHistoryLog();
         updateAssignButtonState();
+        saveFotosUiCheckpointNow();
 
         showAssignFeedback(
             '⚡ <strong>' + escapeHtml(prod.sku) + '</strong> → <strong>' + escapeHtml(targetDestMeta.name) + '</strong>',
             true
         );
+
+        const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+        if (isLocalPendingPhoto || isOfflineNow) {
+            enqueueFotosOfflineOutbox({
+                id: 'op_as_' + Date.now() + '_' + prod.sku,
+                type: 'assign_photo',
+                sku: prod.sku,
+                productName: prod.displayName,
+                categoria: prod.categoria,
+                tipo: prod.tipo,
+                driveFileId: selPhoto.id,
+                fromLoaded: !!selPhoto.fromLoaded,
+                targetFolderId: targetFolderId,
+                queuedAt: Date.now()
+            });
+            showAssignFeedback(
+                '⚡ Guardado en cola local para <strong>' + escapeHtml(prod.sku) + '</strong> (se sincronizará automáticamente al recuperar conexión).',
+                true
+            );
+            return;
+        }
 
         state.assignInFlight++;
         try {
@@ -2252,6 +2356,25 @@
             if (!res || !res.ok) {
                 if (res && res.authRequired) {
                     window.lockFotosPortal();
+                    return;
+                }
+                if (res && res.unavailable) {
+                    enqueueFotosOfflineOutbox({
+                        id: 'op_as_' + Date.now() + '_' + prod.sku,
+                        type: 'assign_photo',
+                        sku: prod.sku,
+                        productName: prod.displayName,
+                        categoria: prod.categoria,
+                        tipo: prod.tipo,
+                        driveFileId: selPhoto.id,
+                        fromLoaded: !!selPhoto.fromLoaded,
+                        targetFolderId: targetFolderId,
+                        queuedAt: Date.now()
+                    });
+                    showAssignFeedback(
+                        '⚡ Sin conexión: asignación de <strong>' + escapeHtml(prod.sku) + '</strong> guardada localmente para sincronizar al reconectar.',
+                        true
+                    );
                     return;
                 }
                 prod.photoUrl = prevUrlBeforeSave;
@@ -2414,6 +2537,7 @@
         const origTxt = btnRef ? btnRef.textContent : '↻ Fotos';
         if (btnRef) { btnRef.disabled = true; btnRef.textContent = '↻...'; }
         try {
+            await flushFotosOfflineOutbox();
             await Promise.all([
                 loadSheetsCatalog(),
                 window.refreshInboxOnly(false)
@@ -2448,6 +2572,449 @@
         if (box) box.classList.add('hidden');
         if (img) img.src = '';
     };
+
+    // =========================================================================
+    // PERSISTENCIA ("DÓNDE ME QUEDÉ") + INDEXEDDB + COLA OFFLINE DE FOTOS
+    // =========================================================================
+    function openFotosOfflineIdb() {
+        return new Promise((resolve) => {
+            if (typeof indexedDB === 'undefined') { resolve(null); return; }
+            try {
+                const req = indexedDB.open(FOTOS_OFFLINE_IDB_NAME, 1);
+                req.onupgradeneeded = function (ev) {
+                    const db = ev.target.result;
+                    if (!db.objectStoreNames.contains(FOTOS_OFFLINE_IDB_STORE)) {
+                        db.createObjectStore(FOTOS_OFFLINE_IDB_STORE, { keyPath: 'id' });
+                    }
+                };
+                req.onsuccess = function (ev) { resolve(ev.target.result); };
+                req.onerror = function () { resolve(null); };
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    async function putOfflinePhotoBlobIdb(record) {
+        const db = await openFotosOfflineIdb();
+        if (!db || !record || !record.id) return false;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(FOTOS_OFFLINE_IDB_STORE, 'readwrite');
+                tx.objectStore(FOTOS_OFFLINE_IDB_STORE).put(record);
+                tx.oncomplete = () => { db.close(); resolve(true); };
+                tx.onerror = () => { db.close(); resolve(false); };
+            } catch (e) {
+                try { db.close(); } catch (e2) {}
+                resolve(false);
+            }
+        });
+    }
+
+    async function getOfflinePhotoBlobIdb(id) {
+        const db = await openFotosOfflineIdb();
+        if (!db || !id) return null;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(FOTOS_OFFLINE_IDB_STORE, 'readonly');
+                const req = tx.objectStore(FOTOS_OFFLINE_IDB_STORE).get(id);
+                req.onsuccess = () => { db.close(); resolve(req.result || null); };
+                req.onerror = () => { db.close(); resolve(null); };
+            } catch (e) {
+                try { db.close(); } catch (e2) {}
+                resolve(null);
+            }
+        });
+    }
+
+    async function deleteOfflinePhotoBlobIdb(id) {
+        const db = await openFotosOfflineIdb();
+        if (!db || !id) return false;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(FOTOS_OFFLINE_IDB_STORE, 'readwrite');
+                tx.objectStore(FOTOS_OFFLINE_IDB_STORE).delete(id);
+                tx.oncomplete = () => { db.close(); resolve(true); };
+                tx.onerror = () => { db.close(); resolve(false); };
+            } catch (e) {
+                try { db.close(); } catch (e2) {}
+                resolve(false);
+            }
+        });
+    }
+
+    async function getAllOfflinePhotoBlobsIdb() {
+        const db = await openFotosOfflineIdb();
+        if (!db) return [];
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(FOTOS_OFFLINE_IDB_STORE, 'readonly');
+                const req = tx.objectStore(FOTOS_OFFLINE_IDB_STORE).getAll();
+                req.onsuccess = () => { db.close(); resolve(Array.isArray(req.result) ? req.result : []); };
+                req.onerror = () => { db.close(); resolve([]); };
+            } catch (e) {
+                try { db.close(); } catch (e2) {}
+                resolve([]);
+            }
+        });
+    }
+
+    function readFotosOfflineOutbox() {
+        try {
+            const raw = localStorage.getItem(FOTOS_OFFLINE_OUTBOX_STORAGE);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function writeFotosOfflineOutbox(arr) {
+        try {
+            localStorage.setItem(FOTOS_OFFLINE_OUTBOX_STORAGE, JSON.stringify((arr || []).slice(-120)));
+        } catch (e) {}
+    }
+
+    function enqueueFotosOfflineOutbox(entry) {
+        const q = readFotosOfflineOutbox();
+        q.push(entry);
+        writeFotosOfflineOutbox(q);
+    }
+
+    function removeOutboxEntriesForLocalFileId(localId) {
+        const q = readFotosOfflineOutbox().filter((it) => {
+            if (!it) return false;
+            if (it.localFileId === localId || it.driveFileId === localId) return false;
+            return true;
+        });
+        writeFotosOfflineOutbox(q);
+    }
+
+    async function hydrateOfflinePendingPhotos() {
+        try {
+            const blobs = await getAllOfflinePhotoBlobsIdb();
+            if (!blobs.length) return;
+            const blobById = new Map(blobs.map((b) => [b.id, b]));
+            let changed = false;
+
+            const queue = readFotosOfflineOutbox();
+            const assignedLocalIds = new Set(
+                queue.filter((it) => it && it.type === 'assign_photo').map((it) => it.driveFileId)
+            );
+
+            for (let i = 0; i < blobs.length; i++) {
+                const b = blobs[i];
+                if (!b || !b.id || !b.dataUrl) continue;
+                if (!assignedLocalIds.has(b.id) && !state.inboxFiles.some((f) => f.id === b.id)) {
+                    const localItem = enrichInboxFileItem({
+                        id: b.id,
+                        name: b.fileName || 'Foto pendiente',
+                        sizeBytes: b.sizeBytes || 0,
+                        updatedAt: new Date(b.createdAt || Date.now()).toISOString(),
+                        viewUrl: b.dataUrl,
+                        localDataUrl: b.dataUrl,
+                        isOfflinePending: true
+                    });
+                    state.rawInboxFromDrive.unshift(localItem);
+                    state.inboxFiles.unshift(localItem);
+                    changed = true;
+                }
+            }
+
+            state.inboxFiles.forEach((f) => {
+                if (f && String(f.id || '').indexOf('local_inb_') === 0 && !f.localDataUrl && blobById.has(f.id)) {
+                    const b = blobById.get(f.id);
+                    f.localDataUrl = b.dataUrl;
+                    f.viewUrl = b.dataUrl;
+                    changed = true;
+                }
+            });
+
+            state.sessionSavedLogs.forEach((log) => {
+                if (log && String(log.fileId || '').indexOf('local_inb_') === 0 && !log.localDataUrl && blobById.has(log.fileId)) {
+                    const b = blobById.get(log.fileId);
+                    log.localDataUrl = b.dataUrl;
+                    log.newUrl = b.dataUrl;
+                    const prod = state.productBySku.get(log.sku);
+                    if (prod && prod.photoFileId === log.fileId) {
+                        prod.photoUrl = b.dataUrl;
+                    }
+                    changed = true;
+                }
+            });
+
+            if (state.selectedPhotoItem && String(state.selectedPhotoItem.id || '').indexOf('local_inb_') === 0 && !state.selectedPhotoItem.localDataUrl) {
+                const b = blobById.get(state.selectedPhotoItem.id);
+                if (b && b.dataUrl) {
+                    state.selectedPhotoItem.localDataUrl = b.dataUrl;
+                    state.selectedPhotoItem.viewUrl = b.dataUrl;
+                    changed = true;
+                }
+            }
+
+            if (changed && state.unlocked) {
+                invalidateLoadedPhotosCache();
+                applySkuFiltersAndRender();
+                renderInboxGallery();
+                renderSelectedProductStage();
+                renderSessionHistoryLog();
+            }
+        } catch (e) {}
+    }
+
+    async function flushFotosOfflineOutbox() {
+        if (_fotosFlushingOutbox || !state.unlocked) return;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        const queue = readFotosOfflineOutbox();
+        if (!queue.length) return;
+
+        _fotosFlushingOutbox = true;
+        try {
+            const localToRealId = {};
+            const remaining = [];
+            let syncedAny = false;
+
+            for (let i = 0; i < queue.length; i++) {
+                const entry = queue[i];
+                if (!entry) continue;
+
+                if (entry.type === 'upload_inbox') {
+                    const blobRec = await getOfflinePhotoBlobIdb(entry.localFileId);
+                    if (!blobRec || !blobRec.dataUrl) {
+                        continue;
+                    }
+                    const res = await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
+                        fileName: entry.fileName || blobRec.fileName || 'foto.jpg',
+                        dataUrl: blobRec.dataUrl,
+                        skipListReturn: true
+                    }, buildOwnerAuthPayload()), 30000);
+
+                    if (res && res.ok && res.file && res.file.id) {
+                        const realId = res.file.id;
+                        localToRealId[entry.localFileId] = realId;
+                        syncedAny = true;
+
+                        const hasPendingAssign = queue.slice(i + 1).some((nx) => nx && nx.type === 'assign_photo' && nx.driveFileId === entry.localFileId);
+                        if (!hasPendingAssign) {
+                            await deleteOfflinePhotoBlobIdb(entry.localFileId);
+                        }
+
+                        state.rawInboxFromDrive = state.rawInboxFromDrive.map((f) => {
+                            if (f && f.id === entry.localFileId) {
+                                return enrichInboxFileItem(Object.assign({}, res.file, { localDataUrl: blobRec.dataUrl }));
+                            }
+                            return f;
+                        });
+                        state.inboxFiles = state.inboxFiles.map((f) => {
+                            if (f && f.id === entry.localFileId) {
+                                return enrichInboxFileItem(Object.assign({}, res.file, { localDataUrl: blobRec.dataUrl }));
+                            }
+                            return f;
+                        });
+                        if (state.selectedInboxFileId === entry.localFileId) {
+                            state.selectedInboxFileId = realId;
+                        }
+                        if (state.selectedPhotoItem && state.selectedPhotoItem.id === entry.localFileId) {
+                            state.selectedPhotoItem.id = realId;
+                            state.selectedPhotoItem.viewUrl = res.file.viewUrl || ('https://drive.google.com/file/d/' + realId + '/view?usp=sharing');
+                        }
+                    } else {
+                        remaining.push(...queue.slice(i));
+                        break;
+                    }
+                } else if (entry.type === 'assign_photo') {
+                    const resolvedFid = localToRealId[entry.driveFileId] || entry.driveFileId;
+                    if (String(resolvedFid || '').indexOf('local_inb_') === 0) {
+                        remaining.push(entry);
+                        continue;
+                    }
+                    const res = await callWebAppPost('fotos_subir_assign', Object.assign({
+                        sku: entry.sku,
+                        productName: entry.productName,
+                        categoria: entry.categoria,
+                        tipo: entry.tipo,
+                        driveFileId: resolvedFid,
+                        fromLoaded: !!entry.fromLoaded,
+                        targetFolderId: entry.targetFolderId,
+                        skipListReturn: true
+                    }, buildOwnerAuthPayload()), 30000);
+
+                    if (res && res.ok) {
+                        syncedAny = true;
+                        if (String(entry.driveFileId || '').indexOf('local_inb_') === 0) {
+                            await deleteOfflinePhotoBlobIdb(entry.driveFileId);
+                        }
+                        const prod = state.productBySku.get(entry.sku);
+                        const saved = state.sessionSavedBySku.get(entry.sku);
+                        if (prod) {
+                            if (res.newUrl) prod.photoUrl = res.newUrl;
+                            if (res.fileId) prod.photoFileId = res.fileId;
+                            if (res.rowNumber) prod.rowNumber = res.rowNumber;
+                        }
+                        if (saved) {
+                            if (res.newUrl) saved.newUrl = res.newUrl;
+                            if (res.fileId) saved.fileId = res.fileId;
+                            if (res.rowNumber) saved.rowNumber = res.rowNumber;
+                        }
+                    } else if (res && res.unavailable) {
+                        entry.driveFileId = resolvedFid;
+                        remaining.push(...queue.slice(i));
+                        break;
+                    }
+                }
+            }
+
+            writeFotosOfflineOutbox(remaining);
+            if (syncedAny) {
+                saveSavedOverridesNow();
+                invalidateLoadedPhotosCache();
+                scheduleSaveFastCache();
+                applySkuFiltersAndRender();
+                renderInboxGallery();
+                renderSelectedProductStage();
+                renderSessionHistoryLog();
+                showAssignFeedback('✅ Fotos pendientes sincronizadas con Google Drive y Sheets.', true);
+            }
+        } catch (e) {
+            // Keep remaining queue
+        } finally {
+            _fotosFlushingOutbox = false;
+        }
+    }
+
+    function saveFotosUiCheckpointNow() {
+        if (!_fotosUiCheckpointRestoredOnce) return;
+        try {
+            const skuListEl = document.getElementById('skuResultsList');
+            const galEl = document.getElementById('inboxGalleryContainer');
+            const destSel = document.getElementById('destFolderSelect');
+            const selPhoto = state.selectedPhotoItem ? {
+                id: state.selectedPhotoItem.id || '',
+                name: state.selectedPhotoItem.name || '',
+                viewUrl: (state.selectedPhotoItem.viewUrl && !String(state.selectedPhotoItem.viewUrl).startsWith('data:'))
+                    ? state.selectedPhotoItem.viewUrl
+                    : '',
+                fromLoaded: !!state.selectedPhotoItem.fromLoaded,
+                skuOrigin: state.selectedPhotoItem.skuOrigin || ''
+            } : null;
+
+            const cp = {
+                savedAt: Date.now(),
+                skuSearchQuery: state.skuSearchQuery || '',
+                skuFilterMode: state.skuFilterMode || 'ALL',
+                selectedSku: state.selectedSku || '',
+                destFolderId: destSel ? (destSel.value || '') : '',
+                galleryMode: state.galleryMode || 'INBOX',
+                inboxSearchQuery: state.inboxSearchQuery || '',
+                selectedInboxFileId: state.selectedInboxFileId || '',
+                selectedPhotoItem: selPhoto,
+                skuListScrollTop: skuListEl ? Math.round(skuListEl.scrollTop || 0) : 0,
+                galleryScrollTop: galEl ? Math.round(galEl.scrollTop || 0) : 0,
+                windowScrollY: Math.round(window.scrollY || 0)
+            };
+            localStorage.setItem(FOTOS_UI_CHECKPOINT_STORAGE, JSON.stringify(cp));
+        } catch (e) {}
+    }
+
+    function restoreFotosUiCheckpointOnce() {
+        _fotosUiCheckpointRestoredOnce = true;
+        try {
+            const raw = localStorage.getItem(FOTOS_UI_CHECKPOINT_STORAGE);
+            if (!raw) {
+                applySkuFiltersAndRender();
+                renderInboxGallery();
+                renderSelectedProductStage();
+                return;
+            }
+            const cp = JSON.parse(raw);
+            if (!cp || typeof cp !== 'object') {
+                applySkuFiltersAndRender();
+                renderInboxGallery();
+                renderSelectedProductStage();
+                return;
+            }
+
+            if (typeof cp.skuSearchQuery === 'string') {
+                state.skuSearchQuery = cp.skuSearchQuery;
+                const skuInp = document.getElementById('skuSearchInput');
+                const clrBtn = document.getElementById('skuSearchClearBtn');
+                if (skuInp) skuInp.value = cp.skuSearchQuery;
+                if (clrBtn) clrBtn.classList.toggle('hidden', !cp.skuSearchQuery.trim());
+            }
+
+            if (cp.skuFilterMode) {
+                state.skuFilterMode = cp.skuFilterMode;
+                document.querySelectorAll('.filter-pill[data-filter]').forEach((b) => {
+                    b.classList.toggle('active', b.getAttribute('data-filter') === state.skuFilterMode);
+                });
+            }
+
+            if (typeof cp.inboxSearchQuery === 'string') {
+                state.inboxSearchQuery = cp.inboxSearchQuery;
+                const inboxInp = document.getElementById('inboxSearchInput');
+                if (inboxInp) inboxInp.value = cp.inboxSearchQuery;
+            }
+
+            if (cp.galleryMode === 'LOADED' || cp.galleryMode === 'INBOX') {
+                state.galleryMode = cp.galleryMode;
+                const tabInbox = document.getElementById('tabGalleryInbox');
+                const tabLoaded = document.getElementById('tabGalleryLoaded');
+                if (tabInbox) tabInbox.classList.toggle('active', state.galleryMode === 'INBOX');
+                if (tabLoaded) tabLoaded.classList.toggle('active', state.galleryMode === 'LOADED');
+            }
+
+            if (cp.selectedInboxFileId) {
+                state.selectedInboxFileId = cp.selectedInboxFileId;
+            }
+            if (cp.selectedPhotoItem && cp.selectedPhotoItem.id) {
+                const matchInb = state.inboxFiles.find((f) => f.id === cp.selectedPhotoItem.id);
+                state.selectedPhotoItem = {
+                    id: cp.selectedPhotoItem.id,
+                    name: cp.selectedPhotoItem.name || (matchInb ? matchInb.name : ''),
+                    viewUrl: cp.selectedPhotoItem.viewUrl || (matchInb ? matchInb.viewUrl : ''),
+                    thumbDataUrl: matchInb ? (matchInb.thumbDataUrl || '') : '',
+                    localDataUrl: matchInb ? (matchInb.localDataUrl || '') : '',
+                    fromLoaded: !!cp.selectedPhotoItem.fromLoaded,
+                    skuOrigin: cp.selectedPhotoItem.skuOrigin || ''
+                };
+            }
+
+            applySkuFiltersAndRender();
+            renderInboxGallery();
+
+            if (cp.selectedSku && state.productBySku.has(cp.selectedSku)) {
+                window.selectSkuProduct(cp.selectedSku);
+            } else {
+                renderSelectedProductStage();
+                updateAssignButtonState();
+            }
+
+            if (cp.destFolderId && DEST_FOLDER_BY_ID.has(cp.destFolderId)) {
+                const destSel = document.getElementById('destFolderSelect');
+                if (destSel) destSel.value = cp.destFolderId;
+            }
+
+            setTimeout(() => {
+                try {
+                    const skuListEl = document.getElementById('skuResultsList');
+                    if (skuListEl && typeof cp.skuListScrollTop === 'number' && cp.skuListScrollTop > 0) {
+                        skuListEl.scrollTop = cp.skuListScrollTop;
+                    }
+                    const galEl = document.getElementById('inboxGalleryContainer');
+                    if (galEl && typeof cp.galleryScrollTop === 'number' && cp.galleryScrollTop > 0) {
+                        galEl.scrollTop = cp.galleryScrollTop;
+                    }
+                    if (typeof cp.windowScrollY === 'number' && cp.windowScrollY > 0) {
+                        window.scrollTo({ top: cp.windowScrollY, behavior: 'auto' });
+                    }
+                } catch (e) {}
+            }, 60);
+        } catch (e) {
+            applySkuFiltersAndRender();
+            renderInboxGallery();
+            renderSelectedProductStage();
+        }
+    }
 
     function initFotosApp() {
         try {
@@ -2485,6 +3052,7 @@
                 skuRaf = requestAnimationFrame(() => {
                     state.skuSearchQuery = val;
                     applySkuFiltersAndRender();
+                    saveFotosUiCheckpointNow();
                 });
             });
             skuInp.addEventListener('keydown', (ev) => {
@@ -2492,6 +3060,7 @@
                     ev.preventDefault();
                     state.skuSearchQuery = skuInp.value || '';
                     applySkuFiltersAndRender();
+                    saveFotosUiCheckpointNow();
                     if (state.filteredProducts.length > 0) {
                         window.selectSkuProduct(state.filteredProducts[0].sku);
                     }
@@ -2508,9 +3077,46 @@
                 inboxRaf = requestAnimationFrame(() => {
                     state.inboxSearchQuery = val;
                     renderInboxGallery();
+                    saveFotosUiCheckpointNow();
                 });
             });
         }
+
+        const destSel = document.getElementById('destFolderSelect');
+        if (destSel) {
+            destSel.addEventListener('change', () => saveFotosUiCheckpointNow());
+        }
+
+        const skuListEl = document.getElementById('skuResultsList');
+        let skuScrollTimer = null;
+        if (skuListEl) {
+            skuListEl.addEventListener('scroll', () => {
+                if (skuScrollTimer) clearTimeout(skuScrollTimer);
+                skuScrollTimer = setTimeout(() => saveFotosUiCheckpointNow(), 250);
+            }, { passive: true });
+        }
+
+        const galEl = document.getElementById('inboxGalleryContainer');
+        let galScrollTimer = null;
+        if (galEl) {
+            galEl.addEventListener('scroll', () => {
+                if (galScrollTimer) clearTimeout(galScrollTimer);
+                galScrollTimer = setTimeout(() => saveFotosUiCheckpointNow(), 250);
+            }, { passive: true });
+        }
+
+        window.addEventListener('pagehide', () => saveFotosUiCheckpointNow());
+        window.addEventListener('beforeunload', () => saveFotosUiCheckpointNow());
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') saveFotosUiCheckpointNow();
+        });
+
+        window.addEventListener('online', () => {
+            if (state.unlocked) {
+                showAssignFeedback('🌐 Conexión restablecida. Sincronizando fotos pendientes...', true);
+                flushFotosOfflineOutbox();
+            }
+        });
 
         document.addEventListener('keydown', (ev) => {
             if (ev.key === 'Escape') window.closePhotoLightbox();

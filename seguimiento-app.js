@@ -20,6 +20,13 @@ const SEG_CLOSURES_CACHE_KEY = 'creata_seg_closures_v1';
 const SEG_PHONES_CACHE_KEY = 'creata_seg_phones_v1';
 const SEG_CONTACTED_CACHE_KEY = 'creata_seg_contacted_v1';
 const SEG_AUDIT_CACHE_KEY = 'creata_seg_audit_v1';
+const SEG_DIRECTORY_CACHE_KEY = 'creata_seg_dir_cache_v1';
+const SEG_LIVE_SNAPSHOT_KEY = 'creata_seg_live_snapshot_v1';
+const SEG_OFFLINE_OUTBOX_KEY = 'creata_seg_offline_outbox_v1';
+const SEG_UI_CHECKPOINT_KEY = 'creata_seg_ui_checkpoint_v1';
+
+let _segUiCheckpointRestoredOnce = false;
+let _segFlushingOutbox = false;
 
 const SUCURSAL_RULES = {
   'PLAYA': {
@@ -370,6 +377,26 @@ async function fetchUnifiedAdvisorsDirectory() {
         is_master: isMaster,
         tokens: normalizeText(nombre).split(' ').filter(t => t.length > 2)
       });
+    }
+  }
+
+  if (records.length > 0) {
+    writeJsonStorage(SEG_DIRECTORY_CACHE_KEY, records);
+  } else {
+    const cachedDirRecords = readJsonStorage(SEG_DIRECTORY_CACHE_KEY, []);
+    if (Array.isArray(cachedDirRecords) && cachedDirRecords.length > 0) {
+      for (const cr of cachedDirRecords) {
+        if (!cr || !cr.correo) continue;
+        const em = normalizeEmail(cr.correo);
+        let pwdDef = cleanStr(cr.password_definitiva);
+        if (updatedSegKeys[em]) pwdDef = cleanStr(updatedSegKeys[em]);
+        else if (updatedInvKeys[em]) pwdDef = cleanStr(updatedInvKeys[em]);
+        records.push({
+          ...cr,
+          correo: em,
+          password_definitiva: pwdDef
+        });
+      }
     }
   }
 
@@ -958,21 +985,43 @@ async function fetchLiveState(isBackground = false) {
     hideLoginScreen();
     renderUserHeaderAndRoleControls();
 
+    const hasLiveQuoteSheets = Boolean(
+      (cotCreataRows && cotCreataRows.length > 1) ||
+      (cotVivoRows && cotVivoRows.length > 1)
+    );
+    const cachedSnapshot = !hasLiveQuoteSheets ? readJsonStorage(SEG_LIVE_SNAPSHOT_KEY, null) : null;
+
     // Parse config
-    for (let i = 1; i < (cfgRows || []).length; i++) {
-      const r = cfgRows[i];
-      if (r && r[0] && r[1] !== undefined) {
-        APP_STATE.config[cleanStr(r[0])] = cleanStr(r[1]);
+    if (cfgRows && cfgRows.length > 1) {
+      for (let i = 1; i < cfgRows.length; i++) {
+        const r = cfgRows[i];
+        if (r && r[0] && r[1] !== undefined) {
+          APP_STATE.config[cleanStr(r[0])] = cleanStr(r[1]);
+        }
       }
+    } else if (cachedSnapshot && cachedSnapshot.config) {
+      Object.assign(APP_STATE.config, cachedSnapshot.config);
     }
 
     // Parse live inventory stock
     if (invRows && invRows.length > 2) {
       parseInventoryRows(invRows);
+    } else if (cachedSnapshot && cachedSnapshot.inventoryBySku && Object.keys(APP_STATE.inventoryBySku).length === 0) {
+      APP_STATE.inventoryBySku = cachedSnapshot.inventoryBySku;
+      const byName = {};
+      for (const skuKey of Object.keys(APP_STATE.inventoryBySku)) {
+        const p = APP_STATE.inventoryBySku[skuKey];
+        if (p && p.nombre) byName[normalizeText(p.nombre)] = p;
+      }
+      APP_STATE.inventoryByName = byName;
     }
 
     // Parse closures from CIERRES_COTIZACIONES + local cache + HISTORIAL events
-    const closuresMap = Object.assign({}, readJsonStorage(SEG_CLOSURES_CACHE_KEY, {}));
+    const closuresMap = Object.assign(
+      {},
+      (cachedSnapshot && cachedSnapshot.closures) || {},
+      readJsonStorage(SEG_CLOSURES_CACHE_KEY, {})
+    );
     for (let i = 1; i < (cierresRows || []).length; i++) {
       const r = cierresRows[i];
       if (!r || !r[1]) continue;
@@ -1134,6 +1183,14 @@ async function fetchLiveState(isBackground = false) {
       }
     }
 
+    if (!hasLiveQuoteSheets && cachedSnapshot && Array.isArray(cachedSnapshot.auditLogs)) {
+      for (const ca of cachedSnapshot.auditLogs) {
+        if (ca && !String(ca.id || '').startsWith('local_')) {
+          auditLogs.push(ca);
+        }
+      }
+    }
+
     // Merge local audit logs
     const localAudits = readJsonStorage(SEG_AUDIT_CACHE_KEY, []);
     for (const la of localAudits) {
@@ -1144,6 +1201,21 @@ async function fetchLiveState(isBackground = false) {
 
     // Build unified partidas map by ID_Partida
     const byPartida = new Map();
+
+    // 0. If offline / no live sheets returned, restore from cached snapshot first
+    if (!hasLiveQuoteSheets && cachedSnapshot && Array.isArray(cachedSnapshot.rawPartidas)) {
+      for (const cp of cachedSnapshot.rawPartidas) {
+        if (!cp || !cp.ID_Partida || !cp.Folio_ERP) continue;
+        const fol = cleanStr(cp.Folio_ERP).toUpperCase();
+        const itemObj = {
+          ...cp,
+          WhatsApp_Cliente: phoneByFolio[fol] || cleanPhone(cp.WhatsApp_Cliente),
+          Fecha_Ultimo_Aviso: contactedByFolio[fol] || cleanStr(cp.Fecha_Ultimo_Aviso)
+        };
+        evaluateItemUrgency(itemObj);
+        byPartida.set(cp.ID_Partida, itemObj);
+      }
+    }
 
     // 1. From COTIZACIONES_CREATA (1_XBm...)
     for (let i = 1; i < (cotCreataRows || []).length; i++) {
@@ -1314,11 +1386,33 @@ async function fetchLiveState(isBackground = false) {
     APP_STATE.quotes = filteredForUser;
     APP_STATE.auditLogs = auditLogs;
 
+    if (hasLiveQuoteSheets && allPartidas.length > 0) {
+      writeJsonStorage(SEG_LIVE_SNAPSHOT_KEY, {
+        savedAt: Date.now(),
+        rawPartidas: allPartidas,
+        closures: closuresMap,
+        auditLogs: auditLogs.slice(-300),
+        config: APP_STATE.config,
+        inventoryBySku: APP_STATE.inventoryBySku
+      });
+      flushSegOfflineOutbox();
+    }
+
     const sl = document.getElementById('lastSyncLabel');
-    if (sl) sl.innerText = `ERP: ${APP_STATE.last_erp_sync || 'En vivo'}`;
+    if (sl) {
+      if (!hasLiveQuoteSheets && cachedSnapshot) {
+        sl.innerText = '⚡ Modo sin conexión (Respaldo local)';
+      } else {
+        sl.innerText = `ERP: ${APP_STATE.last_erp_sync || 'En vivo'}`;
+      }
+    }
 
     populateAdvisorFilter();
-    renderQuotes();
+    if (!_segUiCheckpointRestoredOnce) {
+      restoreSegUiCheckpointOnce();
+    } else {
+      renderQuotes();
+    }
   } catch (err) {
     console.error('Error sincronizando Seguimiento en vivo:', err);
   }
@@ -1538,16 +1632,19 @@ function populateAdvisorFilter() {
 function onSucursalFilterChange() {
   populateAdvisorFilter();
   renderQuotes();
+  saveSegUiCheckpointNow();
 }
 
 function onFilterChange() {
   renderQuotes();
+  saveSegUiCheckpointNow();
 }
 
 function clearSearch() {
   const inp = document.getElementById('filterSearch');
   if (inp) inp.value = '';
   renderQuotes();
+  saveSegUiCheckpointNow();
 }
 
 function renderBadge(q) {
@@ -1884,11 +1981,13 @@ function openPreviewModal(folio) {
   }
   setModalRecipient('CLIENTE');
   document.getElementById('previewModal').classList.remove('hidden');
+  saveSegUiCheckpointNow();
 }
 
 function closePreviewModal() {
   document.getElementById('previewModal').classList.add('hidden');
   ACTIVE_MODAL_QUOTE = null;
+  saveSegUiCheckpointNow();
 }
 
 function renderModalItemsCheckboxes() {
@@ -1928,6 +2027,7 @@ function toggleItemSelection(idPartida, isChecked) {
   else SELECTED_ITEMS_SET.delete(idPartida);
   renderModalItemsCheckboxes();
   rebuildModalMessage();
+  saveSegUiCheckpointNow();
 }
 
 function toggleSelectAllItems(selectAll) {
@@ -1937,6 +2037,7 @@ function toggleSelectAllItems(selectAll) {
   else SELECTED_ITEMS_SET.clear();
   renderModalItemsCheckboxes();
   rebuildModalMessage();
+  saveSegUiCheckpointNow();
 }
 
 function setModalRecipient(recipient) {
@@ -1962,6 +2063,7 @@ function setModalRecipient(recipient) {
     if (btnActionEmail) btnActionEmail.innerHTML = '<span>✉️</span> <span>Enviar Alerta por Correo</span>';
     buildAdvisorAlertMessage();
   }
+  saveSegUiCheckpointNow();
 }
 
 function selectModalTemplate(tplKey) {
@@ -1982,6 +2084,7 @@ function selectModalTemplate(tplKey) {
     }
   });
   rebuildModalMessage();
+  saveSegUiCheckpointNow();
 }
 
 function buildAdvisorAlertMessage() {
@@ -2011,12 +2114,14 @@ function rebuildModalMessage() {
   if (!ACTIVE_MODAL_QUOTE) return;
   if (ACTIVE_RECIPIENT === 'ASESOR') {
     buildAdvisorAlertMessage();
+    saveSegUiCheckpointNow();
     return;
   }
   const q = ACTIVE_MODAL_QUOTE;
   const selectedItems = (q.items || []).filter(it => SELECTED_ITEMS_SET.has(it.ID_Partida));
   if (selectedItems.length === 0) {
     document.getElementById('previewMessageText').value = '(Selecciona al menos una pieza de la lista superior para generar el mensaje).';
+    saveSegUiCheckpointNow();
     return;
   }
 
@@ -2059,6 +2164,7 @@ function rebuildModalMessage() {
       `¡Quedo a tus órdenes para lo que necesites!`;
   }
   document.getElementById('previewMessageText').value = rendered;
+  saveSegUiCheckpointNow();
 }
 
 async function sendModalWhatsApp() {
@@ -2205,11 +2311,13 @@ function openModalCerrar(folio) {
   document.getElementById('closeModalComentarios').value = '';
   selectCloseStatus('GANADA');
   document.getElementById('modalCerrarCotizacion').classList.remove('hidden');
+  saveSegUiCheckpointNow();
 }
 
 function closeModalCerrar() {
   document.getElementById('modalCerrarCotizacion').classList.add('hidden');
   ACTIVE_CLOSE_FOLIO = null;
+  saveSegUiCheckpointNow();
 }
 
 function selectCloseStatus(status) {
@@ -2236,6 +2344,7 @@ function selectCloseStatus(status) {
     if (btnC) btnC.className = 'p-2.5 rounded-xl border border-amber-500 bg-amber-50 text-amber-800 text-xs font-bold text-center transition cursor-pointer';
     if (selectMotivo) selectMotivo.value = 'Cambio de Proyecto / No Requiere Mobiliario';
   }
+  saveSegUiCheckpointNow();
 }
 
 async function submitCloseQuote() {
@@ -2346,12 +2455,20 @@ async function submitForceChangePassword() {
     user.debe_cambiar_password = false;
     writeJsonStorage(SEG_SESSION_KEY, user);
 
-    await callWebAppPost({
+    const updateKeyPayload = {
       action: 'inv_update_key',
       email: em,
       newKey: newPwd,
       sheetTab: user.sheet_tab || user.sucursal
-    });
+    };
+    const keyRes = await callWebAppPost(updateKeyPayload);
+    if (!keyRes || !keyRes.ok) {
+      enqueueSegOfflineOutbox({
+        type: 'update_key',
+        payload: updateKeyPayload,
+        queuedAt: Date.now()
+      });
+    }
 
     document.getElementById('modalForceChangePassword')?.classList.add('hidden');
     showToast('Contraseña actualizada exitosamente', '🔒');
@@ -2363,7 +2480,79 @@ async function submitForceChangePassword() {
   }
 }
 
+function enqueueSegOfflineOutbox(item) {
+  try {
+    const queue = readJsonStorage(SEG_OFFLINE_OUTBOX_KEY, []);
+    const arr = Array.isArray(queue) ? queue : [];
+    arr.push(item);
+    writeJsonStorage(SEG_OFFLINE_OUTBOX_KEY, arr.slice(-250));
+  } catch (e) {}
+}
+
+async function flushSegOfflineOutbox() {
+  if (_segFlushingOutbox) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  const queue = readJsonStorage(SEG_OFFLINE_OUTBOX_KEY, []);
+  if (!Array.isArray(queue) || queue.length === 0) return;
+
+  _segFlushingOutbox = true;
+  try {
+    const remaining = [];
+    for (let i = 0; i < queue.length; i++) {
+      const entry = queue[i];
+      if (!entry) continue;
+      if (entry.type === 'update_key' && entry.payload) {
+        const r = await callWebAppPost(entry.payload, 8000);
+        if (!r || !r.ok) {
+          remaining.push(...queue.slice(i));
+          break;
+        }
+      } else if (entry.type === 'seg_event') {
+        const r1 = await callWebAppPost({
+          action: 'seg_action',
+          subAction: entry.eventCode,
+          folio: entry.refFolio,
+          payload: entry.payload
+        }, 8000);
+        if (r1 && r1.ok) continue;
+
+        const r2 = await callWebAppPost({
+          action: 'inv_log_event',
+          classification: 'MOVIMIENTO',
+          module: 'SEGUIMIENTO_COTIZACIONES',
+          event: entry.eventCode,
+          status: '✅ OK',
+          user: (entry.payload && entry.payload.usuario) || (APP_STATE.user && APP_STATE.user.nombre) || 'Usuario',
+          branch: (entry.payload && entry.payload.sucursal) || (APP_STATE.user && APP_STATE.user.sucursal) || 'TODAS',
+          ref: entry.refFolio || 'SEGUIMIENTO',
+          detail: JSON.stringify(entry.payload || {})
+        }, 8000);
+        if (!r2 || !r2.ok) {
+          remaining.push(...queue.slice(i));
+          break;
+        }
+      }
+    }
+    writeJsonStorage(SEG_OFFLINE_OUTBOX_KEY, remaining);
+  } catch (e) {
+    // Keep remaining items in queue
+  } finally {
+    _segFlushingOutbox = false;
+  }
+}
+
 async function persistSeguimientoEvent(eventCode, refFolio, payload) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    enqueueSegOfflineOutbox({
+      type: 'seg_event',
+      eventCode,
+      refFolio,
+      payload,
+      queuedAt: Date.now()
+    });
+    return;
+  }
+
   // 1) Try native seg_action on Apps Script Web App
   const res = await callWebAppPost({
     action: 'seg_action',
@@ -2374,7 +2563,7 @@ async function persistSeguimientoEvent(eventCode, refFolio, payload) {
   if (res && res.ok) return;
 
   // 2) Fallback to already-deployed inv_log_event on Apps Script Web App (persists in Google Sheets HISTORIAL!)
-  await callWebAppPost({
+  const resFallback = await callWebAppPost({
     action: 'inv_log_event',
     classification: 'MOVIMIENTO',
     module: 'SEGUIMIENTO_COTIZACIONES',
@@ -2385,6 +2574,15 @@ async function persistSeguimientoEvent(eventCode, refFolio, payload) {
     ref: refFolio || 'SEGUIMIENTO',
     detail: JSON.stringify(payload)
   });
+  if (!resFallback || !resFallback.ok) {
+    enqueueSegOfflineOutbox({
+      type: 'seg_event',
+      eventCode,
+      refFolio,
+      payload,
+      queuedAt: Date.now()
+    });
+  }
 }
 
 function recordSegAuditEvent(tipo, accion, detalle, usuario, email, sucursal, status = 'EXITOSO') {
@@ -2447,12 +2645,14 @@ async function openKevinAuditModal() {
   const modal = document.getElementById('modalKevinAudit');
   if (!modal) return;
   modal.classList.remove('hidden');
+  saveSegUiCheckpointNow();
   await fetchLiveState(true);
   loadKevinAuditData();
 }
 
 function closeKevinAuditModal() {
   document.getElementById('modalKevinAudit')?.classList.add('hidden');
+  saveSegUiCheckpointNow();
 }
 
 function loadKevinAuditData() {
@@ -2500,6 +2700,7 @@ function setAuditTab(tabKey) {
     }
   });
   filterAuditView();
+  saveSegUiCheckpointNow();
 }
 
 function filterAuditView() {
@@ -2507,6 +2708,7 @@ function filterAuditView() {
   if (AUDIT_STATE.activeTab === 'LOGINS') renderAuditLogins(searchTerm);
   else if (AUDIT_STATE.activeTab === 'MOVIMIENTOS') renderAuditMovimientos(searchTerm);
   else renderAuditCotizaciones(searchTerm);
+  saveSegUiCheckpointNow();
 }
 
 function renderAuditLogins(searchTerm) {
@@ -2718,9 +2920,186 @@ function showToast(msg, icon = '📋') {
 }
 
 // ==============================================================================
+// CHECKPOINT DE ESTADO UI ("DÓNDE ME QUEDÉ") Y RECUPERACIÓN AUTOMÁTICA
+// ==============================================================================
+function saveSegUiCheckpointNow() {
+  if (!_segUiCheckpointRestoredOnce) return;
+  try {
+    const previewOpen = Boolean(
+      ACTIVE_MODAL_QUOTE &&
+      !document.getElementById('previewModal')?.classList.contains('hidden')
+    );
+    const closeOpen = Boolean(
+      ACTIVE_CLOSE_FOLIO &&
+      !document.getElementById('modalCerrarCotizacion')?.classList.contains('hidden')
+    );
+    const kevinAuditOpen = Boolean(
+      !document.getElementById('modalKevinAudit')?.classList.contains('hidden')
+    );
+
+    const cp = {
+      savedAt: Date.now(),
+      userEmail: APP_STATE.user ? normalizeEmail(APP_STATE.user.correo) : '',
+      filterSucursal: document.getElementById('filterSucursal')?.value || 'TODAS',
+      filterAsesor: document.getElementById('filterAsesor')?.value || 'TODOS',
+      filterUrgencia: document.getElementById('filterUrgencia')?.value || 'TODOS',
+      filterSearch: document.getElementById('filterSearch')?.value || '',
+      scrollY: Math.round(window.scrollY || 0),
+      previewModal: previewOpen ? {
+        folio: ACTIVE_MODAL_QUOTE.Folio_ERP,
+        recipient: ACTIVE_RECIPIENT || 'CLIENTE',
+        tplKey: ACTIVE_MODAL_TPL_KEY || 'EMOCIONAL',
+        selectedItems: Array.from(SELECTED_ITEMS_SET),
+        messageText: document.getElementById('previewMessageText')?.value || ''
+      } : null,
+      closeModal: closeOpen ? {
+        folio: ACTIVE_CLOSE_FOLIO,
+        status: ACTIVE_CLOSE_STATUS || 'GANADA',
+        motivo: document.getElementById('closeModalMotivo')?.value || '',
+        comentarios: document.getElementById('closeModalComentarios')?.value || ''
+      } : null,
+      kevinAudit: kevinAuditOpen ? {
+        activeTab: AUDIT_STATE.activeTab || 'LOGINS',
+        search: document.getElementById('auditSearchInput')?.value || ''
+      } : null
+    };
+    writeJsonStorage(SEG_UI_CHECKPOINT_KEY, cp);
+  } catch (e) {}
+}
+
+function restoreSegUiCheckpointOnce() {
+  _segUiCheckpointRestoredOnce = true;
+  try {
+    const cp = readJsonStorage(SEG_UI_CHECKPOINT_KEY, null);
+    if (!cp || typeof cp !== 'object') {
+      renderQuotes();
+      return;
+    }
+    const currentEmail = APP_STATE.user ? normalizeEmail(APP_STATE.user.correo) : '';
+    if (cp.userEmail && currentEmail && cp.userEmail !== currentEmail) {
+      renderQuotes();
+      return;
+    }
+
+    const selSuc = document.getElementById('filterSucursal');
+    if (selSuc && cp.filterSucursal && Array.from(selSuc.options).some(o => o.value === cp.filterSucursal)) {
+      selSuc.value = cp.filterSucursal;
+      populateAdvisorFilter();
+    }
+
+    const selAdv = document.getElementById('filterAsesor');
+    if (selAdv && cp.filterAsesor && Array.from(selAdv.options).some(o => o.value === cp.filterAsesor)) {
+      selAdv.value = cp.filterAsesor;
+    }
+
+    const selUrg = document.getElementById('filterUrgencia');
+    if (selUrg && cp.filterUrgencia && Array.from(selUrg.options).some(o => o.value === cp.filterUrgencia)) {
+      selUrg.value = cp.filterUrgencia;
+    }
+
+    const inpSearch = document.getElementById('filterSearch');
+    if (inpSearch && typeof cp.filterSearch === 'string') {
+      inpSearch.value = cp.filterSearch;
+    }
+
+    renderQuotes();
+
+    if (cp.previewModal && cp.previewModal.folio) {
+      const targetQuote = (APP_STATE.quotes || []).find(q => q.Folio_ERP === cp.previewModal.folio);
+      if (targetQuote) {
+        openPreviewModal(cp.previewModal.folio);
+        if (Array.isArray(cp.previewModal.selectedItems)) {
+          SELECTED_ITEMS_SET.clear();
+          cp.previewModal.selectedItems.forEach(idP => SELECTED_ITEMS_SET.add(idP));
+          renderModalItemsCheckboxes();
+        }
+        if (cp.previewModal.recipient === 'ASESOR') {
+          setModalRecipient('ASESOR');
+        } else if (cp.previewModal.tplKey) {
+          selectModalTemplate(cp.previewModal.tplKey);
+        }
+        if (typeof cp.previewModal.messageText === 'string' && cp.previewModal.messageText.trim()) {
+          const area = document.getElementById('previewMessageText');
+          if (area) area.value = cp.previewModal.messageText;
+        }
+      }
+    }
+
+    if (cp.closeModal && cp.closeModal.folio) {
+      const targetQuote = (APP_STATE.quotes || []).find(q => q.Folio_ERP === cp.closeModal.folio);
+      if (targetQuote && !targetQuote.Cerrada) {
+        openModalCerrar(cp.closeModal.folio);
+        if (cp.closeModal.status) selectCloseStatus(cp.closeModal.status);
+        const selMotivo = document.getElementById('closeModalMotivo');
+        if (selMotivo && cp.closeModal.motivo) selMotivo.value = cp.closeModal.motivo;
+        const txtCom = document.getElementById('closeModalComentarios');
+        if (txtCom && typeof cp.closeModal.comentarios === 'string') {
+          txtCom.value = cp.closeModal.comentarios;
+        }
+      }
+    }
+
+    if (cp.kevinAudit && isKevinReyna(APP_STATE.user)) {
+      const modal = document.getElementById('modalKevinAudit');
+      if (modal) {
+        modal.classList.remove('hidden');
+        const auditInp = document.getElementById('auditSearchInput');
+        if (auditInp && typeof cp.kevinAudit.search === 'string') {
+          auditInp.value = cp.kevinAudit.search;
+        }
+        loadKevinAuditData();
+        if (cp.kevinAudit.activeTab) setAuditTab(cp.kevinAudit.activeTab);
+      }
+    }
+
+    if (typeof cp.scrollY === 'number' && cp.scrollY > 0) {
+      setTimeout(() => {
+        try { window.scrollTo({ top: cp.scrollY, behavior: 'auto' }); } catch (e) {}
+      }, 60);
+    }
+  } catch (e) {
+    renderQuotes();
+  }
+}
+
+function bindSegPersistenceListeners() {
+  const previewArea = document.getElementById('previewMessageText');
+  if (previewArea) {
+    previewArea.addEventListener('input', () => saveSegUiCheckpointNow());
+  }
+  const closeMotivo = document.getElementById('closeModalMotivo');
+  if (closeMotivo) {
+    closeMotivo.addEventListener('change', () => saveSegUiCheckpointNow());
+  }
+  const closeComentarios = document.getElementById('closeModalComentarios');
+  if (closeComentarios) {
+    closeComentarios.addEventListener('input', () => saveSegUiCheckpointNow());
+  }
+  let scrollTimer = null;
+  window.addEventListener('scroll', () => {
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => saveSegUiCheckpointNow(), 250);
+  }, { passive: true });
+
+  window.addEventListener('pagehide', () => saveSegUiCheckpointNow());
+  window.addEventListener('beforeunload', () => saveSegUiCheckpointNow());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveSegUiCheckpointNow();
+  });
+
+  window.addEventListener('online', () => {
+    showToast('Conexión restablecida. Sincronizando cambios pendientes...', '🌐');
+    flushSegOfflineOutbox();
+    fetchLiveState(true);
+  });
+}
+
+// ==============================================================================
 // INICIALIZACIÓN AUTOMÁTICA
 // ==============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
+  bindSegPersistenceListeners();
   await fetchLiveState();
+  flushSegOfflineOutbox();
   setInterval(() => fetchLiveState(true), 30000);
 });

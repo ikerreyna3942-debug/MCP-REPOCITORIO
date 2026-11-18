@@ -5762,6 +5762,21 @@ function handleInvDownloadErpQuotePdf_(body) {
           const pdfBase64 = Utilities.base64Encode(dlRes.pdfBytes);
           const refLabel = (resolved.folio ? ('Folio ' + resolved.folio + ' · ') : '') + 'ID ERP ' + resolved.quoteIdNum;
 
+          let pdfDriveUrl = '';
+          let pdfDownloadUrl = '';
+          try {
+            const pdfBlob = Utilities.newBlob(dlRes.pdfBytes, 'application/pdf', fileName);
+            const driveFile = DriveApp.createFile(pdfBlob);
+            try {
+              driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+            } catch (eShare) {}
+            const dId = driveFile.getId();
+            if (dId) {
+              pdfDriveUrl = 'https://drive.google.com/file/d/' + dId + '/view?usp=sharing';
+              pdfDownloadUrl = 'https://drive.google.com/uc?export=download&id=' + dId;
+            }
+          } catch (eDrivePdf) {}
+
           registrarEventoHistorial_(ss, {
             clasificacion: 'MOVIMIENTO',
             modulo: 'AppsScript · VisorReportes S Mueblería',
@@ -5779,6 +5794,8 @@ function handleInvDownloadErpQuotePdf_(body) {
             pdfBase64: pdfBase64,
             mimeType: 'application/pdf',
             fileName: fileName,
+            pdfDriveUrl: pdfDriveUrl,
+            pdfDownloadUrl: pdfDownloadUrl,
             quoteId: String(resolved.quoteIdNum),
             folio: resolved.folio || ('ID-' + resolved.quoteIdNum),
             reportName: repName,
