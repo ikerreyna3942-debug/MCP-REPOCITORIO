@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="description" content="Panel de Control Central de Proyectos CREATA Muebles: cotización, seguimiento, catálogo, precios web, mapa 3D, prompts, Odoo, historial y fotografías.">
+    <title>Panel de Control de Proyectos | CREATA Muebles</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./panel-styles.css?v=1">
+</head>
+<body>
+
+    <!-- ==================================================================
+         CANDADO DE ACCESO EXCLUSIVO (kevin.reyna@grupoanipa.com)
+         ================================================================== -->
+    <section id="hubGateBackdrop" class="gate-backdrop" aria-label="Verificación de titularidad">
+        <div class="gate-card">
+            <div class="gate-head">
+                <div class="gate-brand">
+                    <img data-creata-logo alt="CREATA Muebles" class="gate-logo">
+                    <span class="gate-owner-label">Acceso Titular</span>
+                </div>
+                <h2>Panel Central de Proyectos</h2>
+                <p>Tus 9 sistemas oficiales reunidos en un solo lugar para identificar y abrir al instante la herramienta exacta que necesitas.</p>
+            </div>
+
+            <form id="hubLoginForm" class="gate-form" onsubmit="submitHubOwnerLogin(event)">
+                <div id="hubGateAlert" class="gate-alert hidden" role="alert"></div>
+
+                <div class="form-field">
+                    <label for="hubOwnerEmail" class="form-label">Correo Autorizado</label>
+                    <div class="input-wrap">
+                        <input
+                            id="hubOwnerEmail"
+                            type="email"
+                            class="text-input"
+                            value="kevin.reyna@grupoanipa.com"
+                            readonly
+                            autocomplete="username"
+                        >
+                    </div>
+                </div>
+
+                <div class="form-field">
+                    <label for="hubOwnerPassword" class="form-label">Contraseña Personal</label>
+                    <div class="input-wrap">
+                        <input
+                            id="hubOwnerPassword"
+                            type="password"
+                            class="text-input"
+                            placeholder="Ingresa tu contraseña personal"
+                            autocomplete="current-password"
+                            required
+                        >
+                        <button
+                            id="btnToggleHubPwd"
+                            type="button"
+                            class="pwd-toggle"
+                            onclick="toggleHubPwdVisibility()"
+                        >Mostrar</button>
+                    </div>
+                </div>
+
+                <button id="btnHubLoginSubmit" type="submit" class="btn-gold">
+                    Entrar al Panel de Control
+                </button>
+
+                <p class="gate-foot-note">
+                    Restringido exclusivamente a <strong>kevin.reyna@grupoanipa.com</strong>.
+                </p>
+            </form>
+        </div>
+    </section>
+
+    <!-- ==================================================================
+         PANEL DE CONTROL PRINCIPAL
+         ================================================================== -->
+    <div id="hubMainShell" class="hidden">
+
+        <header class="top-bar">
+            <div class="top-bar-inner">
+                <div class="brand-left">
+                    <img data-creata-logo alt="CREATA Muebles" class="brand-logo">
+                    <span class="brand-sep" aria-hidden="true"></span>
+                    <div class="brand-titles">
+                        <h1>Panel de Control · Ecosistema CREATA Muebles</h1>
+                        <div class="brand-sub">9 proyectos conectados · Acceso directo por tarea · Teclas rápidas 1–9</div>
+                    </div>
+                </div>
+
+                <div class="top-actions">
+                    <button type="button" id="btnWakeRenderAll" class="top-btn is-gold" onclick="wakeAndCheckAllProjects()">
+                        ↻ Despertar y Verificar Servidores
+                    </button>
+                    <button type="button" class="top-btn" onclick="lockHubPortal()">
+                        Bloquear Panel
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="hub-container">
+
+            <!-- SELECTOR DE TAREA: ¿QUÉ NECESITO ABRIR AHORA? -->
+            <section class="decision-bar" aria-label="Buscador de herramientas por tarea">
+                <div class="decision-top-row">
+                    <div class="decision-heading">
+                        <h2>¿Qué necesitas hacer ahora?</h2>
+                        <p>Elige una acción rápida abajo o busca qué quieres resolver para saber qué proyecto abrir.</p>
+                    </div>
+
+                    <div class="search-wrap">
+                        <svg class="search-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <circle cx="11" cy="11" r="7"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input
+                            type="search"
+                            id="hubSearchInput"
+                            class="hub-search-input"
+                            placeholder="Ej. cotizar, subir foto, cambiar precio, odoo, 3d, pdf..."
+                            autocomplete="off"
+                        >
+                        <button type="button" id="hubSearchClearBtn" class="search-clear hidden" onclick="clearHubSearch()">✕</button>
+                    </div>
+                </div>
+
+                <div class="intent-chips-row">
+                    <span class="intent-label">Ir directo a:</span>
+                    <button type="button" class="intent-chip" onclick="focusProjectById('cotizador')">Hacer cotización / ver stock</button>
+                    <button type="button" class="intent-chip" onclick="focusProjectById('seguimiento')">Seguimiento de clientes</button>
+                    <button type="button" class="intent-chip" onclick="focusProjectById('fotos')">Subir y acomodar fotos (Hoja 1)</button>
+                    <button type="button" class="intent-chip" onclick="focusProjectById('precios')">Cambiar precios web</button>
+                    <button type="button" class="intent-chip" onclick="focusProjectById('casa3d')">Acomodo 3D Casa CREATA</button>
+                    <button type="button" class="intent-chip" onclick="focusProjectById('odoo')">Dar de alta en Odoo</button>
+                    <button type="button" class="intent-chip" onclick="focusProjectById('prompts')">Crear prompts IA</button>
+                    <button type="button" class="intent-chip" onclick="focusProjectById('historial')">Auditar historial y PDFs</button>
+                </div>
+
+                <div class="controls-bottom-row">
+                    <div class="group-tabs" role="tablist">
+                        <button type="button" class="group-tab active" data-group="ALL" onclick="setHubGroupFilter('ALL')">Todos (9)</button>
+                        <button type="button" class="group-tab" data-group="VENTAS" onclick="setHubGroupFilter('VENTAS')">Ventas y Cotización (3)</button>
+                        <button type="button" class="group-tab" data-group="CATALOGO" onclick="setHubGroupFilter('CATALOGO')">Catálogo, Fotos y 3D (3)</button>
+                        <button type="button" class="group-tab" data-group="ADMIN" onclick="setHubGroupFilter('ADMIN')">Precios, Odoo e IA (3)</button>
+                        <button type="button" class="group-tab" data-group="PINNED" onclick="setHubGroupFilter('PINNED')">★ Fijados</button>
+                    </div>
+
+                    <div id="hubLiveSummary" class="status-summary">
+                        Verificando estado de servidores...
+                    </div>
+                </div>
+            </section>
+
+            <!-- TARJETAS DE LOS 9 PROYECTOS -->
+            <section id="projectsGridContainer" class="projects-grid" aria-label="Listado de proyectos CREATA"></section>
+
+            <!-- ACCESOS RÁPIDOS A DOCUMENTOS MAESTROS -->
+            <section class="resources-strip" aria-label="Documentos base en Google Sheets y Drive">
+                <div class="resources-title">Bases conectadas (Google Sheets y Drive)</div>
+                <div class="resources-links">
+                    <a class="res-link" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=690403633#gid=690403633" target="_blank" rel="noopener">
+                        Google Sheets · Inventario en Vivo ↗
+                    </a>
+                    <a class="res-link" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">
+                        Google Sheets · Hoja "1" (Fotos SKU) ↗
+                    </a>
+                    <a class="res-link" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener">
+                        Drive · Bandeja SUBIR ↗
+                    </a>
+                    <a class="res-link" href="https://drive.google.com/drive/folders/1KZh-AzOejRbz9TdHYF52yaiuejPtT-sN" target="_blank" rel="noopener">
+                        Drive · Categorías de Muebles ↗
+                    </a>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="./creata-logo.js?v=32"></script>
+    <script src="./creata-cloud.js?v=32"></script>
+    <script src="./panel-app.js?v=1"></script>
+</body>
+</html>
