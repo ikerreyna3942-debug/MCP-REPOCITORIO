@@ -15,7 +15,7 @@
     const PENDING_KEYS_STORAGE = 'creata_inv_updated_keys_v1';
     const MANUAL_LOCK_FLAG = 'creata_private_fotos_manual_lock';
     const DELETED_QUEUE_STORAGE = 'creata_fotos_deleted_queue_v1';
-    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v2';
+    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v3';
 
     const CATEGORIAS_DEST_FOLDERS = [
         { key: 'SALAS',        id: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', name: 'FOTOS SALAS' },
@@ -145,22 +145,26 @@
         if (!imgEl) return;
         const fid = imgEl.getAttribute('data-drive-id') || '';
         const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
-        if (fid && step === 0) {
+        if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid) && step === 0) {
             imgEl.setAttribute('data-fb-step', '1');
             imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w1000';
             return;
         }
-        if (fid && step === 1) {
+        if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid) && step === 1) {
             imgEl.setAttribute('data-fb-step', '2');
             imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid);
             return;
         }
         imgEl.onerror = null;
+        imgEl.style.display = 'none';
         const parent = imgEl.parentElement;
-        if (parent && parent.classList.contains('sku-mini-thumb')) {
-            parent.innerHTML = '<span>FOTO</span>';
-        } else if (parent) {
-            parent.innerHTML = '<div class="photo-empty-placeholder">Abrir link arriba ↗</div>';
+        if (parent && !parent.querySelector('.img-fallback-dash')) {
+            const dash = document.createElement('span');
+            dash.className = 'img-fallback-dash';
+            dash.style.color = 'var(--ink-muted)';
+            dash.style.fontSize = '12px';
+            dash.textContent = '—';
+            parent.appendChild(dash);
         }
     };
 
@@ -484,6 +488,7 @@
 
     function hydrateFromFastCache() {
         try {
+            localStorage.removeItem('creata_fotos_fast_cache_v2');
             const raw = localStorage.getItem(FAST_CACHE_STORAGE);
             if (!raw) return false;
             const parsed = JSON.parse(raw);
@@ -787,12 +792,6 @@
     function filterAndMergeInboxFiles(rawFiles) {
         const q = readDeletedQueue();
         const delFileMap = q.fileIds || {};
-        const usedIdsInSheet1 = new Set();
-        for (let i = 0; i < state.products.length; i++) {
-            const fid1 = state.products[i].photoFileId;
-            if (fid1) usedIdsInSheet1.add(fid1);
-        }
-
         const seen = new Set();
         const out = [];
         const baseArr = Array.isArray(rawFiles) ? rawFiles : [];
@@ -801,18 +800,9 @@
             const f = baseArr[i];
             if (!f || !f.id) continue;
             const fid = cleanStr(f.id);
-            if (!fid || delFileMap[fid] || seen.has(fid)) continue;
+            if (!fid || !/^[a-zA-Z0-9_-]{15,}$/.test(fid) || delFileMap[fid] || seen.has(fid)) continue;
             seen.add(fid);
             out.push(enrichInboxFileItem(Object.assign({}, f, { id: fid })));
-        }
-
-        for (let j = 0; j < state.fotosNuevasSheetItems.length; j++) {
-            const nf = state.fotosNuevasSheetItems[j];
-            if (!nf || !nf.id) continue;
-            const fid = cleanStr(nf.id);
-            if (!fid || delFileMap[fid] || seen.has(fid) || usedIdsInSheet1.has(fid)) continue;
-            seen.add(fid);
-            out.push(enrichInboxFileItem(Object.assign({}, nf, { id: fid })));
         }
 
         return out;
@@ -832,7 +822,7 @@
             if (!log || !log.sku) continue;
             const sku = cleanStr(log.sku).toUpperCase();
             const fid = cleanStr(log.fileId || extractDriveFileId(log.newUrl));
-            if (!fid || delFileMap[fid] || delSkuMap[sku]) continue;
+            if (!fid || !/^[a-zA-Z0-9_-]{15,}$/.test(fid) || delFileMap[fid] || delSkuMap[sku]) continue;
             const key = sku + '::' + fid;
             if (seenKey.has(key)) continue;
             seenKey.add(key);
@@ -857,7 +847,7 @@
             if (!p || !p.photoUrl) continue;
             const sku = p.sku;
             const fid = p.photoFileId || extractDriveFileId(p.photoUrl);
-            if (!fid || delFileMap[fid] || delSkuMap[sku]) continue;
+            if (!fid || !/^[a-zA-Z0-9_-]{15,}$/.test(fid) || delFileMap[fid] || delSkuMap[sku]) continue;
             const key = sku + '::' + fid;
             if (seenKey.has(key)) continue;
             seenKey.add(key);
@@ -877,30 +867,6 @@
             });
         }
 
-        for (let k = 0; k < state.fotosNuevasSheetItems.length; k++) {
-            const fn = state.fotosNuevasSheetItems[k];
-            if (!fn || !fn.id) continue;
-            const fid = cleanStr(fn.id);
-            const sku = cleanStr(fn.skuOrigin || '').toUpperCase();
-            if (delFileMap[fid] || (sku && delSkuMap[sku])) continue;
-            const key = (sku || 'FN') + '::' + fid;
-            if (seenKey.has(key)) continue;
-            seenKey.add(key);
-            const name = fn.name || sku || fid;
-            items.push({
-                id: fid,
-                sku: sku,
-                name: name,
-                viewUrl: fn.viewUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
-                localDataUrl: '',
-                destFolderName: 'FOTOS NUEVAS CARGADO',
-                shortFolder: 'NUEVAS CARGADO',
-                rowNumber: null,
-                fromLoaded: true,
-                _searchNorm: normalizeSearchText(sku + ' ' + name + ' fotos nuevas cargado')
-            });
-        }
-
         state.cachedLoadedList = items;
         return items;
     }
@@ -915,10 +881,9 @@
 
         state.sheetsPromise = (async () => {
             try {
-                const [rows1, rowsInv, rowsFn] = await Promise.all([
+                const [rows1, rowsInv] = await Promise.all([
                     fetchSheetRows('1', 'A1:D9500'),
-                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:G5500'),
-                    fetchSheetRows('FOTOS NUEVAS CARGADO', 'A1:G400')
+                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:G5500')
                 ]);
 
                 if ((!rows1 || !rows1.length) && (!rowsInv || !rowsInv.length) && state.products.length > 0) {
@@ -928,30 +893,7 @@
                 const delQueue = readDeletedQueue();
                 const delSkus = delQueue.skus || {};
                 const delFiles = delQueue.fileIds || {};
-
-                const fnItems = [];
-                if (Array.isArray(rowsFn)) {
-                    for (let f = 1; f < rowsFn.length; f++) {
-                        const rf = rowsFn[f] || [];
-                        const skuFn = cleanStr(rf[2]).toUpperCase();
-                        const nameFn = cleanStr(rf[3]);
-                        const linkFn = cleanPhotoUrl(rf[4]);
-                        const fidFn = cleanStr(rf[5]) || extractDriveFileId(linkFn);
-                        if (!fidFn || delFiles[fidFn]) continue;
-                        fnItems.push({
-                            id: fidFn,
-                            name: [skuFn, nameFn].filter(Boolean).join(' - ') || ('Foto ' + fidFn.slice(0, 6)),
-                            skuOrigin: skuFn,
-                            mimeType: 'image/jpeg',
-                            sizeBytes: 0,
-                            updatedAt: cleanStr(rf[0]),
-                            viewUrl: linkFn || ('https://drive.google.com/file/d/' + fidFn + '/view?usp=sharing'),
-                            thumbUrl: 'https://lh3.googleusercontent.com/d/' + fidFn + '=w800',
-                            thumbDataUrl: ''
-                        });
-                    }
-                }
-                state.fotosNuevasSheetItems = fnItems;
+                state.fotosNuevasSheetItems = [];
 
                 const invMap = new Map();
                 if (Array.isArray(rowsInv)) {
