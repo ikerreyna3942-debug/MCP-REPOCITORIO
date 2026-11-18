@@ -8400,7 +8400,7 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
 function listSubirInboxFilesInternal_() {
   const inbox = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
   const it = inbox.getFiles();
-  const files = [];
+  const rawItems = [];
   while (it.hasNext()) {
     const f = it.next();
     if (f.isTrashed()) continue;
@@ -8408,19 +8408,52 @@ function listSubirInboxFilesInternal_() {
     const name = String(f.getName() || '').trim();
     const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(name);
     if (!isImg) continue;
-    const fid = f.getId();
     const updated = f.getLastUpdated();
-    files.push({
-      id: fid,
+    rawItems.push({
+      fileObj: f,
+      id: f.getId(),
       name: name,
       mimeType: mime || 'image/jpeg',
       sizeBytes: Number(f.getSize() || 0) || 0,
-      updatedAt: updated ? updated.toISOString() : '',
-      viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
-      thumbUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=w800'
+      updatedAt: updated ? updated.toISOString() : ''
     });
   }
-  files.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+  rawItems.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+
+  const files = [];
+  for (let i = 0; i < rawItems.length; i++) {
+    const item = rawItems[i];
+    const f = item.fileObj;
+    let thumbDataUrl = '';
+    if (i < 35) {
+      try {
+        if (f.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) {
+          f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        }
+      } catch (eSh) {}
+      try {
+        const tb = f.getThumbnail();
+        if (tb) {
+          const ct = String(tb.getContentType() || 'image/png');
+          thumbDataUrl = 'data:' + ct + ';base64,' + Utilities.base64Encode(tb.getBytes());
+        } else if (item.sizeBytes > 0 && item.sizeBytes <= 2200000) {
+          const bl = f.getBlob();
+          const ct2 = String(bl.getContentType() || item.mimeType || 'image/png');
+          thumbDataUrl = 'data:' + ct2 + ';base64,' + Utilities.base64Encode(bl.getBytes());
+        }
+      } catch (eTb) {}
+    }
+    files.push({
+      id: item.id,
+      name: item.name,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+      updatedAt: item.updatedAt,
+      viewUrl: 'https://drive.google.com/file/d/' + item.id + '/view?usp=sharing',
+      thumbUrl: 'https://lh3.googleusercontent.com/d/' + item.id + '=w800',
+      thumbDataUrl: thumbDataUrl
+    });
+  }
   return files;
 }
 

@@ -1,22 +1,15 @@
 (function () {
     'use strict';
 
-    // =========================================================================
-    // CONFIGURACIÓN EXCLUSIVA — TITULAR: kevin.reyna@grupoanipa.com
-    // Documento Maestro: CONTROL DE PRODUCTOS PRESENTACIÓN
-    // Hoja "1" (gid=620514545): Col A = SKU · Col B = NOMBRE · Col D = LINK FOTO APP
-    // Bandeja Drive "SUBIR": 11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p
-    // Destino Categorías: 1KZh-AzOejRbz9TdHYF52yaiuejPtT-sN (CATEGORIAS MUEBLES Y ACCESORIOS)
-    // =========================================================================
     const OWNER_EMAIL = 'kevin.reyna@grupoanipa.com';
     const OWNER_DISPLAY_NAME = 'Kevin Reyna';
     const SHEET_ID = '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8';
     const SUBIR_FOLDER_ID = '11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p';
-    const CATEGORIAS_ROOT_FOLDER_ID = '1KZh-AzOejRbz9TdHYF52yaiuejPtT-sN';
     const CANONICAL_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwWdasvfk3W5FJVZvbEylibYXFxGAr0W4zVb3dq-ws0BqStyiSYQ8oZWLqOPagQBrxv/exec';
 
     const FOTOS_SESSION_KEY = 'creata_private_kevin_fotos_v1';
     const FOTOS_SECRET_SESSION_KEY = 'creata_private_kevin_fotos_sec_v1';
+    const PANEL_SESSION_KEY = 'creata_private_kevin_panel_v1';
     const HIST_SESSION_KEY = 'creata_private_kevin_hist_v1';
     const INV_SESSION_KEY = 'creata_inv_advisor_session_v1';
     const PENDING_KEYS_STORAGE = 'creata_inv_updated_keys_v1';
@@ -57,12 +50,8 @@
         sessionSavedBySku: new Map()
     };
 
-    // =========================================================================
-    // UTILIDADES GENERALES Y NORMALIZACIÓN
-    // =========================================================================
     function cleanStr(val) {
-        if (val === null || val === undefined) return '';
-        return String(val).trim();
+        return val === null || val === undefined ? '' : String(val).trim();
     }
 
     function normalizeEmailInput(raw) {
@@ -98,10 +87,8 @@
 
     function cleanPhotoUrl(val) {
         const s = cleanStr(val);
-        if (!s) return '';
-        if (/^#(N\/A|REF!|VALUE!|ERROR!|NAME\?)/i.test(s)) return '';
-        if (/^https?:\/\//i.test(s)) return s;
-        return '';
+        if (!s || /^#(N\/A|REF!|VALUE!|ERROR!|NAME\?)/i.test(s)) return '';
+        return /^https?:\/\//i.test(s) ? s : '';
     }
 
     function extractDriveFileId(url) {
@@ -129,32 +116,16 @@
     function formatFileSize(bytes) {
         const n = Number(bytes || 0);
         if (!n || n <= 0) return '';
-        if (n < 1024) return n + ' B';
-        if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+        if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + ' KB';
         return (n / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
     function cleanKeyCellValue(val) {
         if (val === null || val === undefined) return '';
-        if (typeof val === 'number') {
-            return Number.isInteger(val) ? String(val) : String(Math.trunc(val));
-        }
-        let s = String(val).trim();
-        if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
-        return s;
+        if (typeof val === 'number') return String(Math.trunc(val));
+        return String(val).trim().replace(/\.0+$/, '');
     }
 
-    function keysMatchNormalized(a, b) {
-        const s1 = String(a || '').trim();
-        const s2 = String(b || '').trim();
-        if (!s1 || !s2) return false;
-        if (s1 === s2) return true;
-        const c1 = s1.replace(/\s+/g, '');
-        const c2 = s2.replace(/\s+/g, '');
-        return !!c1 && c1 === c2;
-    }
-
-    // Fallback escalonado de miniaturas Drive por si Google aplica redirección
     window.handlePhotoImgError = function (imgEl) {
         if (!imgEl) return;
         const fid = imgEl.getAttribute('data-drive-id') || '';
@@ -174,14 +145,10 @@
         if (parent && parent.classList.contains('sku-mini-thumb')) {
             parent.innerHTML = '<span>FOTO</span>';
         } else if (parent) {
-            parent.innerHTML = '<div class="photo-empty-placeholder">Vista previa protegida por el navegador · Usa "Abrir link" arriba para verla en Drive.</div>';
+            parent.innerHTML = '<div class="photo-empty-placeholder">Abrir link arriba ↗</div>';
         }
     };
 
-    // =========================================================================
-    // RESOLUCIÓN AUTOMÁTICA DE CARPETA DE CATEGORÍA EN DRIVE
-    // (Idéntica a resolveCategoryDestFolderForProduct_ en AppsScript)
-    // =========================================================================
     function resolveCategoryDestFolderForProduct(categoriaRaw, tipoRaw, nombreRaw) {
         const cat = normPlainCat(categoriaRaw);
         const tp = normPlainCat(tipoRaw);
@@ -242,9 +209,6 @@
         )).join('');
     }
 
-    // =========================================================================
-    // LECTURA EN VIVO DE GOOGLE SHEETS (CSV + RESPALDO JSONP) Y APPS SCRIPT POST
-    // =========================================================================
     function parseCsvText(text) {
         const rows = [];
         let row = [];
@@ -255,57 +219,32 @@
             const ch = text[i];
             if (inQuotes) {
                 if (ch === '"') {
-                    if (i + 1 < len && text[i + 1] === '"') {
-                        cur += '"';
-                        i++;
-                    } else {
-                        inQuotes = false;
-                    }
-                } else {
-                    cur += ch;
-                }
-            } else if (ch === '"') {
-                inQuotes = true;
-            } else if (ch === ',') {
-                row.push(cur);
-                cur = '';
-            } else if (ch === '\r') {
+                    if (i + 1 < len && text[i + 1] === '"') { cur += '"'; i++; }
+                    else inQuotes = false;
+                } else cur += ch;
+            } else if (ch === '"') inQuotes = true;
+            else if (ch === ',') { row.push(cur); cur = ''; }
+            else if (ch === '\r') {
                 if (i + 1 < len && text[i + 1] === '\n') i++;
-                row.push(cur);
-                rows.push(row);
-                row = [];
-                cur = '';
+                row.push(cur); rows.push(row); row = []; cur = '';
             } else if (ch === '\n') {
-                row.push(cur);
-                rows.push(row);
-                row = [];
-                cur = '';
-            } else {
-                cur += ch;
-            }
+                row.push(cur); rows.push(row); row = []; cur = '';
+            } else cur += ch;
         }
-        if (cur.length > 0 || row.length > 0) {
-            row.push(cur);
-            rows.push(row);
-        }
+        if (cur.length > 0 || row.length > 0) { row.push(cur); rows.push(row); }
         return rows;
     }
 
     function fetchSheetViaJsonp(sheetName, rangeStr) {
         return new Promise((resolve) => {
-            if (typeof document === 'undefined' || !document.head) {
-                resolve(null);
-                return;
-            }
+            if (typeof document === 'undefined' || !document.head) { resolve(null); return; }
             const cbName = '__creataFotosGviz_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
             let scriptEl = null;
             let settled = false;
 
             const cleanup = () => {
                 window[cbName] = function () {};
-                setTimeout(() => {
-                    try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
-                }, 60000);
+                setTimeout(() => { try { delete window[cbName]; } catch (e) { window[cbName] = undefined; } }, 60000);
                 if (scriptEl && scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl);
             };
 
@@ -322,10 +261,7 @@
                 clearTimeout(timer);
                 cleanup();
                 try {
-                    if (!resp || !resp.table || !Array.isArray(resp.table.rows)) {
-                        resolve(null);
-                        return;
-                    }
+                    if (!resp || !resp.table || !Array.isArray(resp.table.rows)) { resolve(null); return; }
                     const colsCount = Array.isArray(resp.table.cols) ? resp.table.cols.length : 0;
                     const out = [];
                     if (Array.isArray(resp.table.cols)) {
@@ -338,15 +274,10 @@
                         const arr = new Array(len);
                         for (let i = 0; i < len; i++) {
                             const cell = cells[i];
-                            if (!cell) {
-                                arr[i] = '';
-                            } else if (cell.f !== undefined && cell.f !== null && String(cell.f) !== '') {
-                                arr[i] = String(cell.f);
-                            } else if (cell.v !== undefined && cell.v !== null) {
-                                arr[i] = String(cell.v);
-                            } else {
-                                arr[i] = '';
-                            }
+                            if (!cell) arr[i] = '';
+                            else if (cell.f !== undefined && cell.f !== null && String(cell.f) !== '') arr[i] = String(cell.f);
+                            else if (cell.v !== undefined && cell.v !== null) arr[i] = String(cell.v);
+                            else arr[i] = '';
                         }
                         out.push(arr);
                     });
@@ -406,8 +337,7 @@
                 signal: controller ? controller.signal : undefined
             });
             if (!resp.ok) return { ok: false, unavailable: true };
-            const json = await resp.json();
-            return json || { ok: false, unavailable: true };
+            return (await resp.json()) || { ok: false, unavailable: true };
         } catch (err) {
             return { ok: false, unavailable: true };
         } finally {
@@ -424,9 +354,6 @@
         };
     }
 
-    // =========================================================================
-    // CANDADO DE ACCESO EXCLUSIVO (SOLO kevin.reyna@grupoanipa.com)
-    // =========================================================================
     function setGateMessage(msg, tone) {
         const box = document.getElementById('privateGateMsg');
         if (!box) return;
@@ -453,7 +380,7 @@
             }
         } catch (e) {}
 
-        const candidateKeys = [FOTOS_SESSION_KEY, HIST_SESSION_KEY, INV_SESSION_KEY];
+        const candidateKeys = [FOTOS_SESSION_KEY, PANEL_SESSION_KEY, HIST_SESSION_KEY, INV_SESSION_KEY];
         let sawOwnerWithoutCreds = false;
 
         for (let i = 0; i < candidateKeys.length; i++) {
@@ -472,11 +399,7 @@
                 if (email === OWNER_EMAIL && !parsed.mustChangeKey) {
                     const tok = cleanStr(parsed.authToken);
                     if (tok || cachedSecret) {
-                        return {
-                            valid: true,
-                            authToken: tok,
-                            accessKey: cachedSecret
-                        };
+                        return { valid: true, authToken: tok, accessKey: cachedSecret };
                     }
                     sawOwnerWithoutCreds = true;
                 }
@@ -497,7 +420,7 @@
         if (gate) gate.classList.add('hidden');
         if (shell) shell.classList.remove('hidden');
 
-        refreshAllPhotoWorkspace(false);
+        window.refreshAllPhotoWorkspace(false);
     }
 
     window.lockFotosPortal = function () {
@@ -516,7 +439,7 @@
         const shell = document.getElementById('privateAppShell');
         const pwdInp = document.getElementById('ownerPasswordInput');
         if (pwdInp) pwdInp.value = '';
-        setGateMessage('Sesión bloqueada. Ingresa tu contraseña personal para volver a abrir el gestor de fotografías.', 'warn');
+        setGateMessage('', '');
         if (shell) shell.classList.add('hidden');
         if (gate) gate.classList.remove('hidden');
         if (pwdInp) setTimeout(() => pwdInp.focus(), 60);
@@ -528,7 +451,7 @@
         if (!inp) return;
         const hiddenNow = inp.type === 'password';
         inp.type = hiddenNow ? 'text' : 'password';
-        if (btn) btn.textContent = hiddenNow ? 'Ocultar' : 'Mostrar';
+        if (btn) btn.textContent = hiddenNow ? 'Ocultar' : 'Ver';
     };
 
     window.submitOwnerFotosLogin = async function (ev) {
@@ -541,17 +464,17 @@
         const typedKey = cleanStr(pwdInp ? pwdInp.value : '');
 
         if (typedEmail !== OWNER_EMAIL) {
-            setGateMessage('Acceso exclusivo denegado: únicamente está autorizado ' + OWNER_EMAIL + '.', 'error');
+            setGateMessage('Solo autorizado para ' + OWNER_EMAIL, 'error');
             return;
         }
         if (!typedKey) {
-            setGateMessage('Ingresa tu contraseña personal para abrir el gestor de fotografías.', 'error');
+            setGateMessage('Ingresa tu contraseña.', 'error');
             return;
         }
 
         if (submitBtn) {
             submitBtn.disabled = true;
-            submitBtn.textContent = 'Verificando acceso exclusivo...';
+            submitBtn.textContent = 'Entrando...';
         }
         setGateMessage('', '');
 
@@ -571,32 +494,26 @@
             } else {
                 const rows = await fetchSheetRows('PROYECTOS', 'A1:I40');
                 if (!rows || rows.length < 2) {
-                    setGateMessage('No se pudo conectar con Google Sheets para verificar tu acceso. Revisa tu conexión.', 'error');
+                    setGateMessage('Sin conexión con Google Sheets.', 'error');
                     return;
                 }
                 let localKeyMap = {};
-                try {
-                    localKeyMap = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}') || {};
-                } catch (e) {}
+                try { localKeyMap = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}') || {}; } catch (e) {}
 
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i] || [];
-                    const em = normalizeEmailInput(r[4]);
-                    if (em !== OWNER_EMAIL) continue;
+                    if (normalizeEmailInput(r[4]) !== OWNER_EMAIL) continue;
                     let tempKey = cleanKeyCellValue(r[5]);
                     let defKey = cleanKeyCellValue(r[6]);
                     const localUpd = localKeyMap[OWNER_EMAIL];
-                    if (!defKey && localUpd && localUpd.newKey) {
-                        defKey = localUpd.newKey;
-                        tempKey = '';
-                    }
-                    if ((defKey && keysMatchNormalized(typedKey, defKey)) || (!defKey && tempKey && keysMatchNormalized(typedKey, tempKey))) {
+                    if (!defKey && localUpd && localUpd.newKey) { defKey = localUpd.newKey; tempKey = ''; }
+                    if ((defKey && typedKey === defKey) || (!defKey && tempKey && typedKey === tempKey)) {
                         verified = true;
                         break;
                     }
                 }
                 if (!verified) {
-                    setGateMessage('Contraseña incorrecta. Usa tu contraseña personal del sistema.', 'error');
+                    setGateMessage('Contraseña incorrecta.', 'error');
                     return;
                 }
             }
@@ -607,14 +524,17 @@
                 );
                 state.authToken = issuedToken;
                 state.accessKey = typedKey;
+                const payload = JSON.stringify({
+                    correo: OWNER_EMAIL,
+                    nombre: OWNER_DISPLAY_NAME,
+                    sheetTab: 'PROYECTOS',
+                    authToken: issuedToken,
+                    verifiedAt: Date.now()
+                });
                 try {
-                    localStorage.setItem(FOTOS_SESSION_KEY, JSON.stringify({
-                        correo: OWNER_EMAIL,
-                        nombre: OWNER_DISPLAY_NAME,
-                        sheetTab: 'PROYECTOS',
-                        authToken: issuedToken,
-                        verifiedAt: Date.now()
-                    }));
+                    localStorage.setItem(FOTOS_SESSION_KEY, payload);
+                    localStorage.setItem(PANEL_SESSION_KEY, payload);
+                    localStorage.setItem(HIST_SESSION_KEY, payload);
                     if (typeof sessionStorage !== 'undefined') {
                         sessionStorage.setItem(FOTOS_SECRET_SESSION_KEY, typedKey);
                     }
@@ -625,24 +545,16 @@
         } finally {
             if (submitBtn) {
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Entrar al Gestor de Fotos';
+                submitBtn.textContent = 'Entrar';
             }
         }
     };
-
-    // =========================================================================
-    // CARGA Y CRUCE DE HOJA "1" (A=SKU, B=NOMBRE, D=LINK FOTO) + INVENTARIO_EN_VIVO
-    // =========================================================================
-    function updateSyncStatusText(text) {
-        const el = document.getElementById('liveSyncStatusText');
-        if (el) el.textContent = text;
-    }
 
     async function loadSheetsCatalog() {
         state.sheetsLoading = true;
         const listEl = document.getElementById('skuResultsList');
         if (listEl && !state.products.length) {
-            listEl.innerHTML = '<div class="photo-empty-placeholder">Leyendo Hoja "1" (Columnas A, B y D) e INVENTARIO_EN_VIVO en tiempo real...</div>';
+            listEl.innerHTML = '<div class="photo-empty-placeholder">Cargando...</div>';
         }
 
         const [rows1, rowsInv] = await Promise.all([
@@ -662,8 +574,6 @@
                         tipo: cleanStr(r[1]),
                         modelo: cleanStr(r[2]),
                         nombreInv: cleanStr(r[3]),
-                        variante: cleanStr(r[4]),
-                        fotoInv: cleanPhotoUrl(r[5]),
                         categoria: cleanStr(r[6])
                     });
                 }
@@ -671,11 +581,8 @@
         }
 
         const mergedMap = new Map();
-        let sheet1Count = 0;
-
         if (Array.isArray(rows1)) {
             for (let i = 1; i < rows1.length; i++) {
-                // Fila 1 (i=0) es encabezado; Fila 2 (i=1) contiene ARRAYFORMULA/MAP maestras (SKU vacío)
                 const r = rows1[i] || [];
                 const sku = cleanStr(r[0]).toUpperCase();
                 if (!sku || sku === 'SKU') continue;
@@ -686,7 +593,6 @@
                 const inv = invMap.get(sku) || null;
 
                 if (!mergedMap.has(sku)) {
-                    sheet1Count++;
                     const displayName = colBName || (inv ? inv.nombreInv : '') || '';
                     const dest = resolveCategoryDestFolderForProduct(
                         inv ? inv.categoria : '',
@@ -696,23 +602,19 @@
                     mergedMap.set(sku, {
                         sku: sku,
                         colBName: colBName,
-                        displayName: displayName || '(Sin nombre en Inventario Vivo)',
+                        displayName: displayName || '—',
                         photoUrl: colDUrl,
                         rowNumber: rowNum,
-                        extraRows: [],
                         inSheet1: true,
                         inInv: !!inv,
                         categoria: inv ? inv.categoria : '',
                         tipo: inv ? inv.tipo : '',
-                        modelo: inv ? inv.modelo : '',
-                        destFolderKey: dest.key,
                         destFolderId: dest.id,
                         destFolderName: dest.name,
                         searchNorm: ''
                     });
                 } else {
                     const existing = mergedMap.get(sku);
-                    existing.extraRows.push(rowNum);
                     if (!existing.colBName && colBName) {
                         existing.colBName = colBName;
                         existing.displayName = colBName;
@@ -724,11 +626,8 @@
             }
         }
 
-        // Agregar SKUs activos de INVENTARIO_EN_VIVO que aún no estén dados de alta en la Hoja "1"
-        let invOnlyCount = 0;
         invMap.forEach((inv, sku) => {
             if (mergedMap.has(sku)) return;
-            invOnlyCount++;
             const displayName = inv.nombreInv || [inv.tipo, inv.modelo].filter(Boolean).join(' ') || sku;
             const dest = resolveCategoryDestFolderForProduct(inv.categoria, inv.tipo, displayName);
             mergedMap.set(sku, {
@@ -737,27 +636,23 @@
                 displayName: displayName,
                 photoUrl: '',
                 rowNumber: null,
-                extraRows: [],
                 inSheet1: false,
                 inInv: true,
                 categoria: inv.categoria,
                 tipo: inv.tipo,
-                modelo: inv.modelo,
-                destFolderKey: dest.key,
                 destFolderId: dest.id,
                 destFolderName: dest.name,
                 searchNorm: ''
             });
         });
 
-        // Conservar cambios recién guardados en esta sesión frente a caché temporal de gviz
         state.sessionSavedBySku.forEach((savedMeta, sku) => {
             const item = mergedMap.get(sku);
             if (item && savedMeta && savedMeta.newUrl) {
                 item.photoUrl = savedMeta.newUrl;
                 item.inSheet1 = true;
                 if (savedMeta.rowNumber) item.rowNumber = savedMeta.rowNumber;
-                if (savedMeta.productName && (!item.colBName || item.displayName.startsWith('(Sin nombre'))) {
+                if (savedMeta.productName && (!item.colBName || item.displayName === '—')) {
                     item.colBName = savedMeta.productName;
                     item.displayName = savedMeta.productName;
                 }
@@ -772,7 +667,6 @@
             p.searchNorm = (p.searchSkuNorm + ' ' + p.searchNameNorm).trim();
         }
 
-        // Ordenar priorizando productos activos en INVENTARIO_EN_VIVO y luego orden alfabético por Nombre / SKU
         list.sort((a, b) => {
             if (a.inInv !== b.inInv) return a.inInv ? -1 : 1;
             return a.displayName.localeCompare(b.displayName, 'es') || a.sku.localeCompare(b.sku, 'es');
@@ -782,50 +676,10 @@
         state.productBySku = mergedMap;
         state.sheetsLoading = false;
 
-        updateKpiCards(sheet1Count, invOnlyCount);
         applySkuFiltersAndRender();
-        if (state.selectedSku) {
-            renderSelectedProductStage();
-        }
+        if (state.selectedSku) renderSelectedProductStage();
     }
 
-    function updateKpiCards(sheet1CountOpt, invOnlyCountOpt) {
-        const total = state.products.length;
-        let withPhoto = 0;
-        let inSheet1Total = 0;
-        for (let i = 0; i < total; i++) {
-            if (state.products[i].photoUrl) withPhoto++;
-            if (state.products[i].inSheet1) inSheet1Total++;
-        }
-        const withoutPhoto = Math.max(0, total - withPhoto);
-        const s1 = typeof sheet1CountOpt === 'number' ? sheet1CountOpt : inSheet1Total;
-        const invExtra = typeof invOnlyCountOpt === 'number' ? invOnlyCountOpt : Math.max(0, total - inSheet1Total);
-
-        const elTotal = document.getElementById('kpiTotalSkus');
-        const elTotalSub = document.getElementById('kpiTotalSkusSub');
-        const elWith = document.getElementById('kpiWithPhoto');
-        const elWithout = document.getElementById('kpiWithoutPhoto');
-        const elInbox = document.getElementById('kpiInboxCount');
-        const elInboxSub = document.getElementById('kpiInboxSub');
-
-        if (elTotal) elTotal.textContent = total.toLocaleString('es-MX');
-        if (elTotalSub) {
-            elTotalSub.textContent = s1.toLocaleString('es-MX') + ' en Hoja "1"' +
-                (invExtra > 0 ? (' + ' + invExtra.toLocaleString('es-MX') + ' nuevos en Inventario') : '');
-        }
-        if (elWith) elWith.textContent = withPhoto.toLocaleString('es-MX');
-        if (elWithout) elWithout.textContent = withoutPhoto.toLocaleString('es-MX');
-        if (elInbox) elInbox.textContent = state.inboxFiles.length.toLocaleString('es-MX');
-        if (elInboxSub) {
-            elInboxSub.textContent = state.webappNeedsDeploy
-                ? 'Pendiente publicar versión en Apps Script'
-                : (state.inboxFiles.length === 1 ? '1 imagen lista para acomodar' : (state.inboxFiles.length + ' imágenes listas en SUBIR'));
-        }
-    }
-
-    // =========================================================================
-    // BUSCADOR Y FILTROS DE HOJA "1" (COL A = SKU · COL B = NOMBRE)
-    // =========================================================================
     window.clearSkuSearch = function () {
         const inp = document.getElementById('skuSearchInput');
         const clr = document.getElementById('skuSearchClearBtn');
@@ -838,8 +692,7 @@
 
     window.setSkuFilterMode = function (mode) {
         state.skuFilterMode = mode || 'ALL';
-        const btns = document.querySelectorAll('.filter-pill[data-filter]');
-        btns.forEach((b) => {
+        document.querySelectorAll('.filter-pill[data-filter]').forEach((b) => {
             b.classList.toggle('active', b.getAttribute('data-filter') === state.skuFilterMode);
         });
         applySkuFiltersAndRender();
@@ -860,17 +713,13 @@
             if (tokens.length > 0) {
                 let ok = true;
                 for (let t = 0; t < tokens.length; t++) {
-                    if (p.searchNorm.indexOf(tokens[t]) === -1) {
-                        ok = false;
-                        break;
-                    }
+                    if (p.searchNorm.indexOf(tokens[t]) === -1) { ok = false; break; }
                 }
                 if (!ok) continue;
             }
             matches.push(p);
         }
 
-        // Si hay texto buscado, priorizar coincidencia exacta de SKU, luego prefijo de SKU, luego prefijo de Nombre
         if (q) {
             matches.sort((a, b) => {
                 const aExact = a.searchSkuNorm === q ? 0 : (a.searchSkuNorm.indexOf(q) === 0 ? 1 : (a.searchNameNorm.indexOf(q) === 0 ? 2 : 3));
@@ -888,28 +737,14 @@
     function renderSkuResultsList() {
         const listEl = document.getElementById('skuResultsList');
         const badgeEl = document.getElementById('skuListCountBadge');
-        const hintEl = document.getElementById('skuResultsHint');
         if (!listEl) return;
 
         const totalMatches = state.filteredProducts.length;
-        if (badgeEl) {
-            badgeEl.textContent = totalMatches.toLocaleString('es-MX') + (totalMatches === 1 ? ' resultado' : ' resultados');
-        }
+        if (badgeEl) badgeEl.textContent = totalMatches.toLocaleString('es-MX');
 
-        const MAX_RENDER = 120;
-        const slice = state.filteredProducts.slice(0, MAX_RENDER);
-        if (hintEl) {
-            if (!totalMatches) {
-                hintEl.textContent = 'Sin coincidencias para el filtro actual';
-            } else if (totalMatches > MAX_RENDER) {
-                hintEl.textContent = 'Mostrando primeros ' + MAX_RENDER + ' de ' + totalMatches.toLocaleString('es-MX') + ' — escribe SKU o Nombre para acotar';
-            } else {
-                hintEl.textContent = 'Haz clic en un producto para ver su foto actual y asignarle una nueva';
-            }
-        }
-
+        const slice = state.filteredProducts.slice(0, 120);
         if (!slice.length) {
-            listEl.innerHTML = '<div class="photo-empty-placeholder">No se encontraron productos con ese SKU o Nombre.</div>';
+            listEl.innerHTML = '<div class="photo-empty-placeholder">Sin resultados</div>';
             return;
         }
 
@@ -917,36 +752,28 @@
             const isSel = p.sku === state.selectedSku;
             const fid = extractDriveFileId(p.photoUrl);
             const thumb = p.photoUrl ? buildPhotoThumbUrl(p.photoUrl, 160) : '';
-            const rowTag = p.inSheet1
-                ? ('Hoja "1" · Fila ' + p.rowNumber)
-                : 'Nuevo para Hoja "1" (en Inventario)';
-            const catTag = p.destFolderName.replace(/^FOTOS\s+(DE\s+)?/i, '');
 
             return (
                 '<button type="button" class="sku-item' + (isSel ? ' selected' : '') + '" onclick="selectSkuProduct(\'' + escapeHtml(p.sku.replace(/'/g, "\\'")) + '\')">' +
                     '<div class="sku-mini-thumb">' +
                         (thumb
-                            ? ('<img src="' + escapeHtml(thumb) + '" alt="' + escapeHtml(p.sku) + '" loading="lazy" data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)">')
-                            : '<span>SIN</span>') +
+                            ? ('<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)">')
+                            : '<span>—</span>') +
                     '</div>' +
                     '<div class="sku-item-info">' +
                         '<div class="sku-code-row">' +
                             '<span class="sku-code">' + escapeHtml(p.sku) + '</span>' +
                             '<span class="sku-status-badge ' + (p.photoUrl ? 'has-photo' : 'no-photo') + '">' +
-                                (p.photoUrl ? 'Con foto' : 'Sin foto') +
+                                (p.photoUrl ? 'Foto' : 'Sin foto') +
                             '</span>' +
                         '</div>' +
                         '<div class="sku-name">' + escapeHtml(p.displayName) + '</div>' +
-                        '<div class="sku-submeta">' + escapeHtml(rowTag + ' · Destino: ' + catTag) + '</div>' +
                     '</div>' +
                 '</button>'
             );
         }).join('');
     }
 
-    // =========================================================================
-    // SELECCIÓN DE PRODUCTO Y DOBLE COMPARADOR VISUAL (ACTUAL vs SUBIR / CARGADA)
-    // =========================================================================
     window.selectSkuProduct = function (skuRaw) {
         const sku = cleanStr(skuRaw).toUpperCase();
         const prod = state.productBySku.get(sku);
@@ -955,11 +782,8 @@
         state.selectedSku = sku;
         hideAssignFeedback();
 
-        // Seleccionar automáticamente su carpeta de categoría sugerida en el desplegable
         const destSel = document.getElementById('destFolderSelect');
-        if (destSel && prod.destFolderId) {
-            destSel.value = prod.destFolderId;
-        }
+        if (destSel && prod.destFolderId) destSel.value = prod.destFolderId;
 
         renderSkuResultsList();
         renderSelectedProductStage();
@@ -975,53 +799,35 @@
 
         const curOpenLink = document.getElementById('curPhotoOpenLink');
         const curCanvas = document.getElementById('curPhotoCanvas');
-        const curUrlText = document.getElementById('curPhotoUrlText');
 
         if (!prod) {
-            if (rowBadge) rowBadge.textContent = 'Sin producto seleccionado';
+            if (rowBadge) rowBadge.textContent = '—';
             if (colASku) colASku.textContent = '—';
-            if (colBName) colBName.textContent = 'Selecciona un producto a la izquierda';
+            if (colBName) colBName.textContent = '—';
             if (catLabel) catLabel.textContent = '—';
             if (curOpenLink) curOpenLink.classList.add('hidden');
-            if (curCanvas) {
-                curCanvas.innerHTML = '<div class="photo-empty-placeholder">Selecciona un SKU para visualizar la foto actual registrada en la Columna D de la Hoja "1".</div>';
-            }
-            if (curUrlText) curUrlText.textContent = 'Columna D: sin seleccionar';
+            if (curCanvas) curCanvas.innerHTML = '<div class="photo-empty-placeholder">Elige un SKU</div>';
             renderNewPhotoStage();
             return;
         }
 
         if (rowBadge) {
-            rowBadge.textContent = prod.inSheet1
-                ? ('Hoja "1" · Fila ' + prod.rowNumber + (prod.extraRows.length ? (' (+' + prod.extraRows.length + ' duplicada)') : ''))
-                : 'Se agregará al final de Hoja "1" (sin tocar Fila 2)';
+            rowBadge.textContent = prod.inSheet1 ? ('Fila ' + prod.rowNumber) : 'Nuevo';
         }
         if (colASku) colASku.textContent = prod.sku;
-        if (colBName) {
-            colBName.textContent = prod.colBName
-                ? prod.colBName
-                : (prod.inInv ? (prod.displayName + ' (se calcula automático con B2)') : prod.displayName);
-        }
-        if (catLabel) {
-            const catParts = [prod.categoria || prod.tipo || 'Catálogo General', '→ ' + prod.destFolderName];
-            catLabel.textContent = catParts.join(' ');
-        }
+        if (colBName) colBName.textContent = prod.colBName || prod.displayName;
+        if (catLabel) catLabel.textContent = prod.destFolderName.replace(/^FOTOS\s+(DE\s+)?/i, '');
 
-        // Verificar si este SKU acaba de ser actualizado en esta sesión para poder comparar foto previa vs foto ya cargada
         const savedSession = state.sessionSavedBySku.get(prod.sku) || null;
         const curStageTitle = curCanvas && curCanvas.parentElement
             ? curCanvas.parentElement.querySelector('.photo-stage-title')
             : null;
 
-        // Si el usuario NO tiene otra foto de SUBIR preseleccionada y este SKU ya fue guardado en esta sesión
-        // mostramos a la izquierda la foto que tenía antes (o la actual si estaba vacío) y a la derecha la foto que ya cargó
         const showBeforeVsLoaded = savedSession && !state.selectedInboxFileId;
         const leftUrl = showBeforeVsLoaded ? (savedSession.previousUrl || '') : prod.photoUrl;
 
         if (curStageTitle) {
-            curStageTitle.textContent = showBeforeVsLoaded
-                ? (savedSession.previousUrl ? 'Foto que estaba antes (Columna D previa)' : 'Estado anterior en Columna D (estaba sin foto)')
-                : 'Foto que ya está (Columna D actual)';
+            curStageTitle.textContent = showBeforeVsLoaded ? 'Foto anterior (Col D)' : 'Foto actual (Col D)';
         }
 
         if (leftUrl) {
@@ -1033,27 +839,15 @@
             }
             if (curCanvas) {
                 curCanvas.innerHTML =
-                    '<img src="' + escapeHtml(previewSrc) + '" alt="Foto actual ' + escapeHtml(prod.sku) + '" ' +
+                    '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(prod.sku) + '" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(fid) + '" ' +
                     'onclick="openPhotoLightbox(\'' + escapeHtml(previewSrc.replace(/'/g, "\\'")) + '\')" ' +
                     'onerror="handlePhotoImgError(this)">';
             }
-            if (curUrlText) {
-                curUrlText.textContent = leftUrl;
-                curUrlText.title = leftUrl;
-            }
         } else {
             if (curOpenLink) curOpenLink.classList.add('hidden');
             if (curCanvas) {
-                curCanvas.innerHTML = showBeforeVsLoaded
-                    ? '<div class="photo-empty-placeholder">Antes de tu carga, este SKU (' + escapeHtml(prod.sku) + ') <strong>no tenía foto</strong> en la Columna D. A la derecha ves la foto que ya cargaste.</div>'
-                    : '<div class="photo-empty-placeholder">Este producto (<strong>' + escapeHtml(prod.sku) + '</strong>) actualmente <strong>NO tiene foto</strong> en la Columna D de la Hoja "1".</div>';
-            }
-            if (curUrlText) {
-                curUrlText.textContent = showBeforeVsLoaded
-                    ? 'Columna D previa: vacía'
-                    : 'Columna D: vacía (sin URL asignada)';
-                curUrlText.title = '';
+                curCanvas.innerHTML = '<div class="photo-empty-placeholder">Sin foto en Columna D</div>';
             }
         }
 
@@ -1065,6 +859,7 @@
         const stageTitle = document.getElementById('newPhotoStageTitle');
         const clearBtn = document.getElementById('clearSelectedInboxBtn');
         const canvas = document.getElementById('newPhotoCanvas');
+        const footWrap = document.getElementById('newPhotoFootWrap');
         const footText = document.getElementById('newPhotoFileText');
         if (!canvas || !stageCard) return;
 
@@ -1079,50 +874,41 @@
 
         if (inboxFile) {
             stageCard.classList.add('is-new-selected');
-            if (stageTitle) stageTitle.textContent = 'Foto seleccionada de SUBIR (lista para cargar)';
+            if (stageTitle) stageTitle.textContent = 'Foto nueva (SUBIR)';
             if (clearBtn) clearBtn.classList.remove('hidden');
-            const previewUrl = inboxFile.localDataUrl || buildPhotoThumbUrl(inboxFile.id, 900);
+            const previewUrl = inboxFile.localDataUrl || inboxFile.thumbDataUrl || buildPhotoThumbUrl(inboxFile.id, 900);
             canvas.innerHTML =
-                '<img src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(inboxFile.name) + '" ' +
+                '<img src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(inboxFile.name) + '" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(inboxFile.id) + '" ' +
                 'onclick="openPhotoLightbox(\'' + escapeHtml(previewUrl.replace(/'/g, "\\'")) + '\')" ' +
                 'onerror="handlePhotoImgError(this)">';
-            if (footText) {
-                const sz = formatFileSize(inboxFile.sizeBytes);
-                footText.textContent = 'SUBIR: ' + inboxFile.name + (sz ? (' (' + sz + ')') : '');
-                footText.title = inboxFile.name;
-            }
+            if (footWrap) footWrap.classList.remove('hidden');
+            if (footText) footText.textContent = inboxFile.name;
             return;
         }
 
         if (savedSession) {
             stageCard.classList.add('is-just-saved');
-            if (stageTitle) stageTitle.textContent = '✅ Foto que ya cargó (activa en Hoja "1" · Fila ' + savedSession.rowNumber + ')';
+            if (stageTitle) stageTitle.textContent = '✅ Foto cargada (Fila ' + savedSession.rowNumber + ')';
             if (clearBtn) clearBtn.classList.add('hidden');
             const savedPreview = savedSession.localDataUrl || buildPhotoThumbUrl(savedSession.fileId || savedSession.newUrl, 900);
             const fid = savedSession.fileId || extractDriveFileId(savedSession.newUrl);
             canvas.innerHTML =
-                '<img src="' + escapeHtml(savedPreview) + '" alt="Foto cargada ' + escapeHtml(savedSession.sku) + '" ' +
+                '<img src="' + escapeHtml(savedPreview) + '" alt="' + escapeHtml(savedSession.sku) + '" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(fid) + '" ' +
                 'onclick="openPhotoLightbox(\'' + escapeHtml(savedPreview.replace(/'/g, "\\'")) + '\')" ' +
                 'onerror="handlePhotoImgError(this)">';
+            if (footWrap) footWrap.classList.remove('hidden');
             if (footText) {
-                footText.innerHTML =
-                    'Movida a <strong>' + escapeHtml(savedSession.destFolderName) + '</strong> · ' +
-                    '<a href="' + escapeHtml(savedSession.newUrl) + '" target="_blank" rel="noopener" style="color:#065F46;font-weight:800;">Abrir en Drive ↗</a>';
-                footText.title = savedSession.newUrl;
+                footText.innerHTML = escapeHtml(savedSession.destFolderName) + ' · <a href="' + escapeHtml(savedSession.newUrl) + '" target="_blank" rel="noopener" style="color:#065F46;font-weight:800;">Abrir ↗</a>';
             }
             return;
         }
 
-        if (stageTitle) stageTitle.textContent = 'Foto seleccionada de SUBIR (por cargar)';
+        if (stageTitle) stageTitle.textContent = 'Foto nueva (SUBIR)';
         if (clearBtn) clearBtn.classList.add('hidden');
-        canvas.innerHTML =
-            '<div class="photo-empty-placeholder">Elige abajo una imagen de la bandeja <strong>SUBIR</strong> (o sube una desde tu PC) para previsualizarla aquí antes de guardarla en Columna D.</div>';
-        if (footText) {
-            footText.textContent = 'Ninguna foto de SUBIR seleccionada';
-            footText.title = '';
-        }
+        if (footWrap) footWrap.classList.add('hidden');
+        canvas.innerHTML = '<div class="photo-empty-placeholder">Elige una foto de SUBIR</div>';
     }
 
     function updateAssignButtonState() {
@@ -1131,11 +917,7 @@
         const canAssign = !!(state.selectedSku && state.selectedInboxFileId && !state.assignInFlight && !state.uploadInFlight);
         btn.disabled = !canAssign;
         if (!state.assignInFlight) {
-            if (state.selectedSku && state.selectedInboxFileId) {
-                btn.textContent = 'Guardar en Columna D (' + state.selectedSku + ') y Mover a Categoría';
-            } else {
-                btn.textContent = 'Guardar en Columna D y Mover a su Categoría';
-            }
+            btn.textContent = state.selectedSku ? ('Guardar en ' + state.selectedSku + ' y Mover') : 'Guardar y Mover';
         }
     }
 
@@ -1153,25 +935,26 @@
         box.className = 'assign-feedback-banner hidden';
     }
 
-    // =========================================================================
-    // BANDEJA GOOGLE DRIVE "SUBIR" (LECTURA, CARGA DESDE PC Y ASIGNACIÓN)
-    // =========================================================================
     function findSuggestedSkuForFileName(fileName) {
         const base = cleanStr(fileName).replace(/\.[a-zA-Z0-9]{2,5}$/, '').trim();
         if (!base || !state.productBySku.size) return '';
         const upperBase = base.toUpperCase();
-
         if (state.productBySku.has(upperBase)) return upperBase;
 
-        // Probar primer bloque antes de guion o espacio (ej. "GAFGL7824 - Accesorio.jpg" o "2019 foto.png")
         const firstPart = cleanStr(upperBase.split(/[\s_\-]+/)[0]);
-        if (firstPart.length >= 3 && state.productBySku.has(firstPart)) {
-            return firstPart;
-        }
+        if (firstPart.length >= 3 && state.productBySku.has(firstPart)) return firstPart;
 
         const tokens = upperBase.split(/[^A-Z0-9]+/).filter((t) => t.length >= 4);
         for (let i = 0; i < tokens.length; i++) {
             if (state.productBySku.has(tokens[i])) return tokens[i];
+        }
+
+        const normBase = normalizeSearchText(base);
+        if (normBase.length >= 5) {
+            for (let i = 0; i < state.products.length; i++) {
+                const pName = normalizeSearchText(state.products[i].displayName);
+                if (pName && pName === normBase) return state.products[i].sku;
+            }
         }
         return '';
     }
@@ -1181,7 +964,7 @@
         state.inboxLoading = true;
         const container = document.getElementById('inboxGalleryContainer');
         if (container && !state.inboxFiles.length) {
-            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">Consultando carpeta Drive "SUBIR"...</div>';
+            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">Cargando SUBIR...</div>';
         }
 
         const res = await callWebAppPost('fotos_subir_list', buildOwnerAuthPayload(), 20000);
@@ -1196,7 +979,6 @@
             if (state.selectedInboxFileId && !state.inboxFiles.some((f) => f.id === state.selectedInboxFileId)) {
                 state.selectedInboxFileId = '';
             }
-            updateKpiCards();
             renderInboxGallery();
             renderSelectedProductStage();
             updateAssignButtonState();
@@ -1205,7 +987,7 @@
 
         if (res && res.authRequired) {
             window.lockFotosPortal();
-            setGateMessage(res.error || 'Vuelve a ingresar tu contraseña personal para autorizar Drive.', 'warn');
+            setGateMessage('Ingresa tu contraseña para conectar Drive.', 'warn');
             return;
         }
 
@@ -1213,22 +995,17 @@
         if (/Acci[óo]n no reconocida/i.test(errMsg)) {
             state.webappNeedsDeploy = true;
             if (banner) banner.classList.remove('hidden');
-            updateKpiCards();
             if (container) {
                 container.innerHTML =
                     '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' +
-                        'Para leer y mover archivos automáticamente de la carpeta <strong>SUBIR</strong>, haz clic arriba en ' +
-                        '<strong>"📋 Copiar código Apps Script actualizado"</strong> y publica una <em>Nueva versión</em> en Google Sheets (toma 20 segundos).' +
+                        'Haz clic arriba en <strong>"📋 Copiar código"</strong> y publícalo como <em>Nueva versión</em> en Apps Script para mostrar las fotos de SUBIR.' +
                     '</div>';
             }
             return;
         }
 
         if (container) {
-            container.innerHTML =
-                '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' +
-                    escapeHtml(errMsg || 'No se pudo consultar la carpeta SUBIR en este momento. Haz clic en "↻ Refrescar SUBIR".') +
-                '</div>';
+            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' + escapeHtml(errMsg || 'Reintenta con ↻') + '</div>';
         }
     };
 
@@ -1242,44 +1019,37 @@
             ? state.inboxFiles.filter((f) => normalizeSearchText(f.name).indexOf(q) !== -1)
             : state.inboxFiles;
 
-        if (badge) {
-            badge.textContent = visible.length + (visible.length === 1 ? ' archivo en SUBIR' : ' archivos en SUBIR');
-        }
+        if (badge) badge.textContent = String(visible.length);
 
         if (!state.inboxFiles.length) {
-            container.innerHTML =
-                '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' +
-                    'La carpeta <strong>SUBIR</strong> está limpia en este momento (0 fotos pendientes).<br>' +
-                    'Arrastra fotos a <a href="https://drive.google.com/drive/folders/' + SUBIR_FOLDER_ID + '" target="_blank" rel="noopener" style="color:#A38251;font-weight:800;">Drive SUBIR ↗</a> ' +
-                    'o usa el botón <strong>"+ Subir foto desde mi PC a SUBIR"</strong>.' +
-                '</div>';
+            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">Carpeta SUBIR vacía</div>';
             return;
         }
 
         if (!visible.length) {
-            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">Ningún archivo en SUBIR coincide con "' + escapeHtml(state.inboxSearchQuery) + '".</div>';
+            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">Sin coincidencias</div>';
             return;
         }
 
         container.innerHTML = visible.map((f) => {
             const isSel = f.id === state.selectedInboxFileId;
-            const thumb = f.localDataUrl || buildPhotoThumbUrl(f.id, 400);
+            const thumb = f.localDataUrl || f.thumbDataUrl || buildPhotoThumbUrl(f.id, 400);
             const sz = formatFileSize(f.sizeBytes);
             const suggestedSku = findSuggestedSkuForFileName(f.name);
 
             return (
                 '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" onclick="selectInboxPhoto(\'' + escapeHtml(f.id) + '\')">' +
                     '<div class="inbox-thumb-box">' +
-                        '<img src="' + escapeHtml(thumb) + '" alt="' + escapeHtml(f.name) + '" loading="lazy" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
+                        '<img src="' + escapeHtml(thumb) + '" alt="' + escapeHtml(f.name) + '" loading="lazy" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
                     '</div>' +
                     '<div class="inbox-card-meta">' +
                         '<div class="inbox-file-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</div>' +
                         '<div class="inbox-file-sub">' +
-                            '<span>' + escapeHtml(sz || 'Imagen') + '</span>' +
-                            '<span style="font-weight:800; color:' + (isSel ? '#A38251' : '#727B84') + ';">' + (isSel ? '✓ Elegida' : 'Elegir') + '</span>' +
+                            '<span>' + escapeHtml(sz) + '</span>' +
+                            '<span style="font-weight:800;color:' + (isSel ? '#A38251' : '#727B84') + ';">' + (isSel ? '✓' : 'Elegir') + '</span>' +
                         '</div>' +
                         (suggestedSku
-                            ? ('<button type="button" class="suggest-sku-btn" onclick="applySuggestedSkuFromInbox(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(suggestedSku.replace(/'/g, "\\'")) + '\', event)">⚡ Vincular SKU ' + escapeHtml(suggestedSku) + '</button>')
+                            ? ('<button type="button" class="suggest-sku-btn" onclick="applySuggestedSkuFromInbox(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(suggestedSku.replace(/'/g, "\\'")) + '\', event)">SKU ' + escapeHtml(suggestedSku) + '</button>')
                             : '') +
                     '</div>' +
                 '</div>'
@@ -1293,14 +1063,11 @@
         state.selectedInboxFileId = state.selectedInboxFileId === id ? '' : id;
         hideAssignFeedback();
 
-        // Si el archivo tiene el SKU en el nombre y aún no había SKU seleccionado, autoseleccionarlo
         if (state.selectedInboxFileId && !state.selectedSku) {
             const fObj = state.inboxFiles.find((f) => f.id === state.selectedInboxFileId);
             if (fObj) {
                 const sug = findSuggestedSkuForFileName(fObj.name);
-                if (sug) {
-                    window.selectSkuProduct(sug);
-                }
+                if (sug) window.selectSkuProduct(sug);
             }
         }
 
@@ -1325,16 +1092,12 @@
         updateAssignButtonState();
     };
 
-    // =========================================================================
-    // SUBIR IMAGEN DESDE LA PC DIRECTAMENTE A LA CARPETA "SUBIR" DE DRIVE
-    // =========================================================================
     function readFileAsOptimizedDataUrl(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onerror = () => reject(new Error('No se pudo leer el archivo local.'));
+            reader.onerror = () => reject(new Error('Error al leer archivo.'));
             reader.onload = () => {
                 const rawDataUrl = String(reader.result || '');
-                // Si pesa menos de 3.2 MB se envía intacta; si es muy pesada se optimiza máx 2200px para rapidez en Apps Script
                 if (file.size <= 3200000 || typeof Image === 'undefined') {
                     resolve(rawDataUrl);
                     return;
@@ -1354,8 +1117,7 @@
                         const canvas = document.createElement('canvas');
                         canvas.width = w;
                         canvas.height = h;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, w, h);
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
                         resolve(canvas.toDataURL('image/jpeg', 0.9));
                     } catch (errC) {
                         resolve(rawDataUrl);
@@ -1373,7 +1135,6 @@
 
         state.uploadInFlight = true;
         updateAssignButtonState();
-        updateSyncStatusText('Subiendo ' + files.length + ' imagen(es) a carpeta Drive SUBIR...');
 
         let lastUploadedId = '';
         let lastLocalPreview = '';
@@ -1388,7 +1149,7 @@
                 }, buildOwnerAuthPayload()), 35000);
 
                 if (!res || !res.ok) {
-                    const errTxt = cleanStr(res && res.error) || 'No se pudo subir la foto a SUBIR.';
+                    const errTxt = cleanStr(res && res.error) || 'Error al subir.';
                     if (/Acci[óo]n no reconocida/i.test(errTxt)) {
                         state.webappNeedsDeploy = true;
                         const banner = document.getElementById('webappUpdateBanner');
@@ -1398,11 +1159,9 @@
                     break;
                 }
 
-                if (Array.isArray(res.files)) {
-                    state.inboxFiles = res.files;
-                } else if (res.file) {
-                    state.inboxFiles.unshift(res.file);
-                }
+                if (Array.isArray(res.files)) state.inboxFiles = res.files;
+                else if (res.file) state.inboxFiles.unshift(res.file);
+
                 if (res.file && res.file.id) {
                     lastUploadedId = res.file.id;
                     lastLocalPreview = dataUrl;
@@ -1415,24 +1174,19 @@
                 state.selectedInboxFileId = lastUploadedId;
                 const matchItem = state.inboxFiles.find((it) => it.id === lastUploadedId);
                 if (matchItem && lastLocalPreview) matchItem.localDataUrl = lastLocalPreview;
-                updateKpiCards();
                 renderInboxGallery();
                 renderSelectedProductStage();
-                showAssignFeedback('✅ Imagen cargada en la carpeta <strong>SUBIR</strong> y preseleccionada para guardar.', true);
+                showAssignFeedback('✅ Subida a SUBIR.', true);
             }
         } catch (errUp) {
-            showAssignFeedback('❌ Error al preparar imagen: ' + escapeHtml(errUp && errUp.message ? errUp.message : String(errUp)), false);
+            showAssignFeedback('❌ ' + escapeHtml(errUp && errUp.message ? errUp.message : String(errUp)), false);
         } finally {
             state.uploadInFlight = false;
             if (inputEl) inputEl.value = '';
             updateAssignButtonState();
-            updateSyncStatusText('Sincronizado con Hoja "1" y carpeta SUBIR');
         }
     };
 
-    // =========================================================================
-    // GUARDAR URL EN COLUMNA D DE HOJA "1" + MOVER DE "SUBIR" A SU CATEGORÍA
-    // =========================================================================
     window.assignSelectedPhotoToProduct = async function () {
         if (state.assignInFlight) return;
         const prod = state.selectedSku ? state.productBySku.get(state.selectedSku) : null;
@@ -1440,14 +1194,7 @@
             ? state.inboxFiles.find((f) => f.id === state.selectedInboxFileId)
             : null;
 
-        if (!prod) {
-            showAssignFeedback('Selecciona primero un producto (SKU o Nombre) en la lista izquierda.', false);
-            return;
-        }
-        if (!inboxFile) {
-            showAssignFeedback('Selecciona primero una fotografía de la carpeta SUBIR.', false);
-            return;
-        }
+        if (!prod || !inboxFile) return;
 
         const destSelect = document.getElementById('destFolderSelect');
         const targetFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId);
@@ -1456,7 +1203,7 @@
         state.assignInFlight = true;
         if (btn) {
             btn.disabled = true;
-            btn.textContent = 'Moviendo de SUBIR y guardando en Hoja "1"...';
+            btn.textContent = 'Guardando...';
         }
         hideAssignFeedback();
 
@@ -1473,10 +1220,9 @@
             if (!res || !res.ok) {
                 if (res && res.authRequired) {
                     window.lockFotosPortal();
-                    setGateMessage(res.error || 'Confirma tu contraseña personal para guardar cambios.', 'warn');
                     return;
                 }
-                const errMsg = cleanStr(res && res.error) || 'No se pudo completar el movimiento en Drive / Google Sheets.';
+                const errMsg = cleanStr(res && res.error) || 'Error al guardar.';
                 if (/Acci[óo]n no reconocida/i.test(errMsg)) {
                     state.webappNeedsDeploy = true;
                     const banner = document.getElementById('webappUpdateBanner');
@@ -1501,21 +1247,18 @@
                 sku: prod.sku,
                 productName: prod.displayName,
                 rowNumber: res.rowNumber,
-                wasAppended: !!res.wasAppended,
                 previousUrl: prevUrlBeforeSave,
                 newUrl: res.newUrl,
                 fileId: res.fileId || inboxFile.id,
                 fileName: res.fileName || inboxFile.name,
                 destFolderName: res.destFolderName || prod.destFolderName,
                 destFolderUrl: res.destFolderUrl || ('https://drive.google.com/drive/folders/' + targetFolderId),
-                localDataUrl: inboxFile.localDataUrl || '',
-                timestamp: res.timestamp || new Date().toLocaleTimeString('es-MX')
+                localDataUrl: inboxFile.localDataUrl || inboxFile.thumbDataUrl || ''
             };
 
             state.sessionSavedBySku.set(prod.sku, logEntry);
             state.sessionSavedLogs.unshift(logEntry);
 
-            // Actualizar bandeja SUBIR (la foto ya fue removida de SUBIR y colocada en su carpeta de categoría)
             if (Array.isArray(res.remainingFiles)) {
                 state.inboxFiles = res.remainingFiles;
             } else {
@@ -1523,16 +1266,13 @@
             }
             state.selectedInboxFileId = '';
 
-            updateKpiCards();
             applySkuFiltersAndRender();
             renderInboxGallery();
             renderSelectedProductStage();
             renderSessionHistoryLog();
 
             showAssignFeedback(
-                '✅ <strong>' + escapeHtml(prod.sku) + '</strong> guardado en <strong>Hoja "1" · Fila ' + escapeHtml(res.rowNumber) + ' (Columna D)</strong>. ' +
-                'La imagen salió de <code>SUBIR</code> y quedó en <a href="' + escapeHtml(logEntry.destFolderUrl) + '" target="_blank" rel="noopener" style="color:#065F46;text-decoration:underline;">' +
-                escapeHtml(logEntry.destFolderName) + ' ↗</a> como <code>' + escapeHtml(logEntry.fileName) + '</code>.',
+                '✅ Guardada en Fila ' + escapeHtml(res.rowNumber) + ' y movida a <strong>' + escapeHtml(logEntry.destFolderName) + '</strong>.',
                 true
             );
         } finally {
@@ -1552,71 +1292,47 @@
             return;
         }
         panel.classList.remove('hidden');
-        if (badge) {
-            badge.textContent = state.sessionSavedLogs.length + (state.sessionSavedLogs.length === 1 ? ' guardada' : ' guardadas');
-        }
+        if (badge) badge.textContent = String(state.sessionSavedLogs.length);
 
         listEl.innerHTML = state.sessionSavedLogs.map((item) => (
             '<div class="session-log-row">' +
-                '<div>' +
-                    '<strong>' + escapeHtml(item.sku) + '</strong> · ' + escapeHtml(item.productName) +
-                    '<div style="font-size:11px;color:#065F46;margin-top:2px;">' +
-                        'Hoja "1" Fila ' + escapeHtml(item.rowNumber) + ' (Col D) · Movida de SUBIR → <strong>' + escapeHtml(item.destFolderName) + '</strong>' +
-                    '</div>' +
-                '</div>' +
-                '<div style="display:flex;gap:8px;align-items:center;">' +
-                    '<button type="button" class="hdr-btn" style="height:26px;background:#252C32;color:#FFF;" onclick="selectSkuProduct(\'' + escapeHtml(item.sku.replace(/'/g, "\\'")) + '\')">Ver comparador</button>' +
-                    '<a href="' + escapeHtml(item.newUrl) + '" target="_blank" rel="noopener" class="hdr-btn is-accent" style="height:26px;">Abrir foto ↗</a>' +
+                '<span><strong>' + escapeHtml(item.sku) + '</strong> → ' + escapeHtml(item.destFolderName) + ' (Fila ' + escapeHtml(item.rowNumber) + ')</span>' +
+                '<div style="display:flex;gap:6px;">' +
+                    '<button type="button" class="hdr-btn" style="height:24px;background:#252C32;color:#FFF;" onclick="selectSkuProduct(\'' + escapeHtml(item.sku.replace(/'/g, "\\'")) + '\')">Ver</button>' +
+                    '<a href="' + escapeHtml(item.newUrl) + '" target="_blank" rel="noopener" class="hdr-btn is-accent" style="height:24px;">Drive ↗</a>' +
                 '</div>' +
             '</div>'
         )).join('');
     }
 
-    // =========================================================================
-    // COPIADO A 1 CLIC DEL ARCHIVO AppsScript_Creata_Drive_Sheets.gs
-    // =========================================================================
     window.copyUpdatedAppsScriptCode = async function () {
         const btn = document.getElementById('btnCopyAppsScriptCode');
         const origText = btn ? btn.textContent : '';
         if (btn) {
             btn.disabled = true;
-            btn.textContent = 'Descargando código .gs...';
+            btn.textContent = 'Copiando...';
         }
         try {
             const resp = await fetch('./AppsScript_Creata_Drive_Sheets.gs?_t=' + Date.now(), { cache: 'no-store' });
-            if (!resp.ok) throw new Error('No se pudo leer AppsScript_Creata_Drive_Sheets.gs');
+            if (!resp.ok) throw new Error('Error al descargar .gs');
             const code = await resp.text();
             await navigator.clipboard.writeText(code);
-            if (btn) btn.textContent = '✅ ¡Código copiado! Pégalo en Apps Script → Nueva versión';
+            if (btn) btn.textContent = '✅ ¡Copiado! Pégalo en Apps Script';
             setTimeout(() => {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.textContent = origText;
-                }
-            }, 5000);
+                if (btn) { btn.disabled = false; btn.textContent = origText; }
+            }, 4500);
         } catch (err) {
-            if (btn) {
-                btn.disabled = false;
-                btn.textContent = origText;
-            }
-            alert('No se pudo copiar automáticamente: ' + (err && err.message ? err.message : String(err)));
+            if (btn) { btn.disabled = false; btn.textContent = origText; }
+            alert('Error al copiar: ' + (err && err.message ? err.message : String(err)));
         }
     };
 
-    // =========================================================================
-    // REFRESCO GENERAL Y LIGHTBOX DE IMAGEN AMPLIADA
-    // =========================================================================
-    window.refreshAllPhotoWorkspace = async function (silent) {
+    window.refreshAllPhotoWorkspace = async function () {
         if (!state.unlocked) return;
-        if (!silent) {
-            updateSyncStatusText('Sincronizando Hoja "1" (A, B, D) y bandeja Drive SUBIR...');
-        }
         await Promise.all([
             loadSheetsCatalog(),
             window.refreshInboxOnly()
         ]);
-        const nowStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        updateSyncStatusText('En vivo · Hoja "1" + SUBIR actualizados (' + nowStr + ')');
     };
 
     window.openPhotoLightbox = function (url) {
@@ -1636,11 +1352,7 @@
         if (img) img.src = '';
     };
 
-    // =========================================================================
-    // ARRANQUE INICIAL
-    // =========================================================================
     function initFotosApp() {
-        // Inyectar logotipo corporativo CREATA
         if (window.CREATA_LOGO_B64) {
             document.querySelectorAll('[data-creata-logo]').forEach((img) => {
                 img.src = window.CREATA_LOGO_B64;
@@ -1649,7 +1361,6 @@
 
         populateDestFolderSelect();
 
-        // Buscador de SKU / Nombre en Hoja "1"
         const skuInp = document.getElementById('skuSearchInput');
         const clrBtn = document.getElementById('skuSearchClearBtn');
         let searchTimer = null;
@@ -1675,7 +1386,6 @@
             });
         }
 
-        // Filtro rápido dentro de la carpeta SUBIR
         const inboxInp = document.getElementById('inboxSearchInput');
         if (inboxInp) {
             inboxInp.addEventListener('input', () => {
@@ -1684,14 +1394,10 @@
             });
         }
 
-        // Cerrar visor ampliado con Escape
         document.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Escape') {
-                window.closePhotoLightbox();
-            }
+            if (ev.key === 'Escape') window.closePhotoLightbox();
         });
 
-        // Verificar si Kevin ya cuenta con sesión autorizada
         const sess = checkExistingFotosOwnerSession();
         if (sess.valid) {
             state.authToken = sess.authToken || '';
@@ -1699,15 +1405,9 @@
             unlockFotosPortal();
         } else {
             if (sess.otherEmail) {
-                setGateMessage(
-                    'Se detectó otra sesión activa (' + sess.otherEmail + '). Este enlace es estrictamente exclusivo para ' + OWNER_EMAIL + '.',
-                    'error'
-                );
+                setGateMessage('Solo autorizado para ' + OWNER_EMAIL, 'error');
             } else if (sess.needsReauth) {
-                setGateMessage(
-                    'Ingresa tu contraseña personal para autorizar el movimiento de archivos en Google Drive SUBIR y Hoja "1".',
-                    'warn'
-                );
+                setGateMessage('Ingresa tu contraseña.', 'warn');
             }
             const pwdInp = document.getElementById('ownerPasswordInput');
             if (pwdInp) setTimeout(() => pwdInp.focus(), 80);

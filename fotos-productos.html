@@ -4,174 +4,104 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow, noarchive">
-    <title>Gestor de Fotografías · Hoja 1 y Drive SUBIR | CREATA Muebles</title>
+    <title>Fotos · Hoja 1 | CREATA</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=1">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=2">
 </head>
 <body>
 
-    <!-- ==================================================================
-         CANDADO DE ACCESO EXCLUSIVO (ÚNICAMENTE kevin.reyna@grupoanipa.com)
-         ================================================================== -->
-    <section id="privateGateBackdrop" class="private-gate-backdrop" aria-label="Verificación de acceso exclusivo">
+    <!-- CANDADO EXCLUSIVO -->
+    <section id="privateGateBackdrop" class="private-gate-backdrop">
         <div class="private-gate-card">
             <div class="private-gate-top">
-                <div class="gate-brand-row">
-                    <img data-creata-logo alt="CREATA Muebles" class="gate-logo">
-                    <span class="gate-private-tag">Solo Titular</span>
+                <div class="gate-brand-row" style="margin-bottom:0;">
+                    <img data-creata-logo alt="CREATA" class="gate-logo">
+                    <span class="gate-private-tag">Subida de Fotos</span>
                 </div>
-                <h2 class="gate-title">Gestor de Fotos · Hoja "1"</h2>
-                <p class="gate-subtitle">Busca por SKU o Nombre en la Hoja "1", compara la foto actual con la nueva de Drive <strong>SUBIR</strong>, muévela a su categoría y guarda el link en Columna D.</p>
             </div>
 
             <form id="ownerLoginForm" class="private-gate-body" onsubmit="submitOwnerFotosLogin(event)">
                 <div id="privateGateMsg" class="gate-feedback hidden" role="alert"></div>
 
-                <div class="field-group">
-                    <label for="ownerEmailInput" class="field-label">Cuenta Exclusiva Autorizada</label>
-                    <div class="field-input-wrap">
-                        <input
-                            id="ownerEmailInput"
-                            type="email"
-                            class="field-input"
-                            value="kevin.reyna@grupoanipa.com"
-                            readonly
-                            autocomplete="username"
-                        >
-                    </div>
+                <div class="field-input-wrap">
+                    <input
+                        id="ownerEmailInput"
+                        type="email"
+                        class="field-input"
+                        value="kevin.reyna@grupoanipa.com"
+                        readonly
+                        autocomplete="username"
+                    >
                 </div>
 
-                <div class="field-group">
-                    <label for="ownerPasswordInput" class="field-label">Contraseña Personal</label>
-                    <div class="field-input-wrap">
-                        <input
-                            id="ownerPasswordInput"
-                            type="password"
-                            class="field-input"
-                            placeholder="Ingresa tu contraseña personal"
-                            autocomplete="current-password"
-                            required
-                        >
-                        <button
-                            id="btnToggleOwnerPwd"
-                            type="button"
-                            class="field-toggle-btn"
-                            onclick="toggleOwnerFotosPwd()"
-                        >Mostrar</button>
-                    </div>
+                <div class="field-input-wrap">
+                    <input
+                        id="ownerPasswordInput"
+                        type="password"
+                        class="field-input"
+                        placeholder="Contraseña"
+                        autocomplete="current-password"
+                        required
+                    >
+                    <button id="btnToggleOwnerPwd" type="button" class="field-toggle-btn" onclick="toggleOwnerFotosPwd()">Ver</button>
                 </div>
 
-                <button id="btnOwnerLoginSubmit" type="submit" class="btn-primary-gold">
-                    Entrar al Gestor de Fotos
-                </button>
-
-                <p class="gate-note">
-                    Acceso restringido exclusivamente a <strong>kevin.reyna@grupoanipa.com</strong>.
-                </p>
+                <button id="btnOwnerLoginSubmit" type="submit" class="btn-primary-gold">Entrar</button>
             </form>
         </div>
     </section>
 
-    <!-- ==================================================================
-         INTERFAZ PRINCIPAL (VISIBLE ÚNICAMENTE TRAS VALIDAR A KEVIN REYNA)
-         ================================================================== -->
+    <!-- INTERFAZ PRINCIPAL COMPACTA -->
     <div id="privateAppShell" class="hidden">
 
         <header class="exec-header">
             <div class="exec-header-inner">
                 <div class="brand-cluster">
-                    <img data-creata-logo alt="CREATA Muebles" class="header-logo">
+                    <img data-creata-logo alt="CREATA" class="header-logo">
                     <span class="header-divider" aria-hidden="true"></span>
                     <div class="header-titles">
-                        <h1>Gestor de Fotos · Hoja "1" y Carpeta SUBIR</h1>
-                        <div class="header-meta-row">
-                            <span class="owner-chip">Exclusivo · Kevin Reyna</span>
-                            <span>
-                                <span class="sync-dot"></span>
-                                <span id="liveSyncStatusText">Sincronizando Hoja "1" y carpeta SUBIR...</span>
-                            </span>
-                        </div>
+                        <h1>Fotos · Hoja "1"</h1>
                     </div>
                 </div>
 
                 <div class="header-actions">
-                    <a class="hdr-btn" href="./panel.html">
-                        Panel Central
-                    </a>
-                    <button type="button" class="hdr-btn is-accent" onclick="refreshAllPhotoWorkspace(false)">
-                        ↻ Actualizar todo
-                    </button>
-                    <a class="hdr-btn" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">
-                        Hoja "1"
-                    </a>
-                    <a class="hdr-btn" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener">
-                        Carpeta SUBIR
-                    </a>
-                    <a class="hdr-btn" href="https://drive.google.com/drive/folders/1KZh-AzOejRbz9TdHYF52yaiuejPtT-sN" target="_blank" rel="noopener">
-                        Categorías Drive
-                    </a>
-                    <a class="hdr-btn" href="./inventario.html" target="_blank" rel="noopener">
-                        Ir al Cotizador
-                    </a>
-                    <button type="button" class="hdr-btn" onclick="lockFotosPortal()">
-                        Bloquear
-                    </button>
+                    <a class="hdr-btn" href="./panel.html">Panel</a>
+                    <button type="button" class="hdr-btn is-accent" onclick="refreshAllPhotoWorkspace(false)">↻ Actualizar</button>
+                    <a class="hdr-btn" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
+                    <a class="hdr-btn" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener">SUBIR</a>
+                    <a class="hdr-btn" href="./inventario.html" target="_blank" rel="noopener">Cotizador</a>
+                    <button type="button" class="hdr-btn" onclick="lockFotosPortal()">Salir</button>
                 </div>
             </div>
         </header>
 
         <main class="workspace-shell">
 
-            <!-- AVISO AUTOMÁTICO SI FALTA PUBLICAR NUEVA VERSIÓN DEL APPS SCRIPT -->
+            <!-- AVISO BREVE SI FALTA PUBLICAR NUEVA VERSIÓN EN APPS SCRIPT -->
             <div id="webappUpdateBanner" class="webapp-setup-banner hidden">
                 <div class="webapp-setup-text">
-                    <strong>Actualización única requerida en Apps Script para mover archivos de Drive:</strong>
-                    el buscador de la Hoja "1" ya está activo en vivo, pero para que el botón mueva fotos fuera de <code>SUBIR</code> y escriba en Columna D debes pegar la versión nueva en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar (✏️) → Nueva versión → Implementar</em>.
+                    <strong>Activa SUBIR en Google Sheets:</strong> pega este código en <em>Extensiones → Apps Script → Implementar → Editar (✏️) → Nueva versión</em>.
                 </div>
                 <div class="webapp-setup-actions">
-                    <button type="button" id="btnCopyAppsScriptCode" class="btn-primary-gold" style="height:36px; padding:0 14px; font-size:11.5px;" onclick="copyUpdatedAppsScriptCode()">
-                        📋 Copiar código Apps Script actualizado
+                    <button type="button" id="btnCopyAppsScriptCode" class="btn-primary-gold" style="height:34px; padding:0 13px; font-size:11.5px;" onclick="copyUpdatedAppsScriptCode()">
+                        📋 Copiar código
                     </button>
                     <button type="button" class="hdr-btn" style="background:#252C32; color:#FFF;" onclick="refreshInboxOnly()">
-                        Ya actualicé · Conectar SUBIR
+                        Conectar SUBIR
                     </button>
                 </div>
             </div>
 
-            <!-- INDICADORES EN VIVO -->
-            <section class="kpi-strip">
-                <article class="kpi-card">
-                    <div class="kpi-label">Productos en Hoja "1" + Inventario</div>
-                    <div id="kpiTotalSkus" class="kpi-value">0</div>
-                    <div id="kpiTotalSkusSub" class="kpi-sub">Cargando catálogo...</div>
-                </article>
-                <article class="kpi-card">
-                    <div class="kpi-label">Con Foto en Columna D</div>
-                    <div id="kpiWithPhoto" class="kpi-value">0</div>
-                    <div class="kpi-sub">Vinculados en vivo con Fila 2</div>
-                </article>
-                <article class="kpi-card">
-                    <div class="kpi-label">Pendientes sin Foto (Col D vacía)</div>
-                    <div id="kpiWithoutPhoto" class="kpi-value">0</div>
-                    <div class="kpi-sub">Listos para asignar imagen</div>
-                </article>
-                <article class="kpi-card">
-                    <div class="kpi-label">Fotos en Bandeja Drive "SUBIR"</div>
-                    <div id="kpiInboxCount" class="kpi-value">0</div>
-                    <div id="kpiInboxSub" class="kpi-sub">Carpeta 11_rR-qhgM...</div>
-                </article>
-            </section>
-
-            <!-- MESA DE TRABAJO EN 2 COLUMNAS -->
+            <!-- 2 COLUMNAS -->
             <section class="workbench-grid">
 
-                <!-- COLUMNA IZQUIERDA: BUSCADOR DE SKU Y NOMBRE (HOJA "1") -->
+                <!-- IZQUIERDA: BUSCADOR -->
                 <div class="panel-card">
                     <div class="panel-header">
-                        <h2>1. Buscar SKU o Nombre (Hoja "1")</h2>
-                        <span id="skuListCountBadge" class="panel-badge">0 resultados</span>
+                        <h2>Buscar Producto</h2>
+                        <span id="skuListCountBadge" class="panel-badge">0</span>
                     </div>
                     <div class="panel-body">
                         <div class="search-box-wrap">
@@ -183,89 +113,78 @@
                                 type="search"
                                 id="skuSearchInput"
                                 class="search-input"
-                                placeholder="Escribe SKU (Col A) o Nombre (Col B)..."
+                                placeholder="SKU o Nombre..."
                                 autocomplete="off"
                             >
                             <button type="button" id="skuSearchClearBtn" class="search-clear-btn hidden" onclick="clearSkuSearch()">✕</button>
                         </div>
 
-                        <div class="filter-pills-row">
+                        <div class="filter-pills-row" style="margin-bottom:10px;">
                             <button type="button" class="filter-pill active" data-filter="ALL" onclick="setSkuFilterMode('ALL')">Todos</button>
-                            <button type="button" class="filter-pill" data-filter="NO_PHOTO" onclick="setSkuFilterMode('NO_PHOTO')">Sin Foto (Col D)</button>
-                            <button type="button" class="filter-pill" data-filter="HAS_PHOTO" onclick="setSkuFilterMode('HAS_PHOTO')">Con Foto</button>
-                            <button type="button" class="filter-pill" data-filter="IN_INV" onclick="setSkuFilterMode('IN_INV')">En Inventario Vivo</button>
-                        </div>
-
-                        <div class="sku-results-meta">
-                            <span id="skuResultsHint">Selecciona un producto para ver su foto actual</span>
+                            <button type="button" class="filter-pill" data-filter="NO_PHOTO" onclick="setSkuFilterMode('NO_PHOTO')">Sin foto</button>
+                            <button type="button" class="filter-pill" data-filter="HAS_PHOTO" onclick="setSkuFilterMode('HAS_PHOTO')">Con foto</button>
+                            <button type="button" class="filter-pill" data-filter="IN_INV" onclick="setSkuFilterMode('IN_INV')">Inventario</button>
                         </div>
 
                         <div id="skuResultsList" class="sku-list"></div>
                     </div>
                 </div>
 
-                <!-- COLUMNA DERECHA: COMPARADOR VISUAL + BANDEJA SUBIR -->
+                <!-- DERECHA: FOTOS + SUBIR -->
                 <div class="right-column-stack">
 
-                    <!-- PANEL COMPARADOR: FOTO QUE YA ESTÁ vs FOTO A CARGAR / YA CARGADA -->
                     <div class="panel-card">
                         <div class="panel-header">
-                            <h2>2. Visualizador y Asignación en Columna D (Hoja "1")</h2>
-                            <span id="selectedRowBadge" class="panel-badge">Sin producto seleccionado</span>
+                            <h2>Fotos del Producto</h2>
+                            <span id="selectedRowBadge" class="panel-badge">—</span>
                         </div>
                         <div class="panel-body">
 
-                            <!-- COLUMNAS EXACTAS DE LA HOJA "1" -->
                             <div class="selected-sheet-summary">
                                 <div class="sheet-col-box">
-                                    <div class="sheet-col-tag">Columna A · SKU</div>
+                                    <div class="sheet-col-tag">SKU (Col A)</div>
                                     <div id="selColASku" class="sheet-col-val mono">—</div>
                                 </div>
                                 <div class="sheet-col-box">
-                                    <div class="sheet-col-tag">Columna B · NOMBRE (Fórmula Fila 2)</div>
-                                    <div id="selColBName" class="sheet-col-val">Selecciona un producto a la izquierda</div>
+                                    <div class="sheet-col-tag">Nombre (Col B)</div>
+                                    <div id="selColBName" class="sheet-col-val">—</div>
                                 </div>
                                 <div class="sheet-col-box">
-                                    <div class="sheet-col-tag">Categoría / Ubicación Proyecto</div>
+                                    <div class="sheet-col-tag">Categoría</div>
                                     <div id="selCategoryLabel" class="sheet-col-val">—</div>
                                 </div>
                             </div>
 
-                            <!-- DOBLE VISUALIZADOR DE FOTOS -->
                             <div class="dual-preview-grid">
-                                <!-- FOTO ACTUAL EN HOJA 1 (COLUMNA D) -->
+                                <!-- FOTO ACTUAL -->
                                 <div class="photo-stage-card">
                                     <div class="photo-stage-head">
-                                        <span class="photo-stage-title">Foto que ya está (Columna D actual)</span>
-                                        <a id="curPhotoOpenLink" href="#" target="_blank" rel="noopener" class="hdr-btn hidden" style="height:24px; font-size:9.5px; background:#252C32; color:#FFF;">Abrir link</a>
+                                        <span class="photo-stage-title">Foto actual (Col D)</span>
+                                        <a id="curPhotoOpenLink" href="#" target="_blank" rel="noopener" class="hdr-btn hidden" style="height:24px; font-size:9.5px; background:#252C32; color:#FFF;">Abrir</a>
                                     </div>
                                     <div id="curPhotoCanvas" class="photo-stage-canvas">
-                                        <div class="photo-empty-placeholder">Selecciona un SKU para visualizar la foto actual registrada en la Columna D de la Hoja "1".</div>
-                                    </div>
-                                    <div class="photo-stage-foot">
-                                        <span id="curPhotoUrlText" class="photo-stage-url">Columna D: sin seleccionar</span>
+                                        <div class="photo-empty-placeholder">Elige un SKU</div>
                                     </div>
                                 </div>
 
-                                <!-- FOTO NUEVA DE SUBIR / YA CARGADA -->
+                                <!-- FOTO NUEVA / CARGADA -->
                                 <div id="newPhotoStageCard" class="photo-stage-card">
                                     <div class="photo-stage-head">
-                                        <span id="newPhotoStageTitle" class="photo-stage-title">Foto seleccionada de SUBIR (por cargar)</span>
-                                        <button type="button" id="clearSelectedInboxBtn" class="hdr-btn hidden" style="height:24px; font-size:9.5px; background:#252C32; color:#FFF;" onclick="clearSelectedInboxPhoto()">Quitar selección</button>
+                                        <span id="newPhotoStageTitle" class="photo-stage-title">Foto nueva (SUBIR)</span>
+                                        <button type="button" id="clearSelectedInboxBtn" class="hdr-btn hidden" style="height:24px; font-size:9.5px; background:#252C32; color:#FFF;" onclick="clearSelectedInboxPhoto()">Quitar</button>
                                     </div>
                                     <div id="newPhotoCanvas" class="photo-stage-canvas">
-                                        <div class="photo-empty-placeholder">Elige abajo una imagen de la bandeja <strong>SUBIR</strong> para previsualizarla aquí antes de guardarla.</div>
+                                        <div class="photo-empty-placeholder">Elige una foto de SUBIR</div>
                                     </div>
-                                    <div class="photo-stage-foot">
-                                        <span id="newPhotoFileText" class="photo-stage-url">Ninguna foto de SUBIR seleccionada</span>
+                                    <div id="newPhotoFootWrap" class="photo-stage-foot hidden">
+                                        <span id="newPhotoFileText" class="photo-stage-url"></span>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- CONTROLES DE CARPETA DESTINO Y GUARDADO -->
                             <div class="assign-controls-bar">
                                 <div class="dest-folder-picker">
-                                    <label for="destFolderSelect" class="field-label" style="margin:0;">Mover de SUBIR a carpeta del proyecto:</label>
+                                    <label for="destFolderSelect" class="field-label" style="margin:0;">Destino:</label>
                                     <select id="destFolderSelect" class="dest-select"></select>
                                 </div>
 
@@ -277,7 +196,7 @@
                                     onclick="assignSelectedPhotoToProduct()"
                                     disabled
                                 >
-                                    Guardar en Columna D y Mover a su Categoría
+                                    Guardar y Mover
                                 </button>
                             </div>
 
@@ -285,15 +204,15 @@
                         </div>
                     </div>
 
-                    <!-- BANDEJA DRIVE "SUBIR" -->
+                    <!-- CARPETA SUBIR -->
                     <div class="panel-card">
                         <div class="panel-header">
-                            <h2>3. Fotos Disponibles en Carpeta Drive "SUBIR"</h2>
-                            <span id="inboxHeaderBadge" class="panel-badge">0 archivos</span>
+                            <h2>Carpeta SUBIR</h2>
+                            <span id="inboxHeaderBadge" class="panel-badge">0</span>
                         </div>
                         <div class="panel-body">
                             <div class="inbox-toolbar">
-                                <div class="search-box-wrap" style="flex:1 1 240px; max-width:360px;">
+                                <div class="search-box-wrap" style="flex:1 1 200px; max-width:300px;">
                                     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                                         <circle cx="11" cy="11" r="7"></circle>
                                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -303,19 +222,17 @@
                                         id="inboxSearchInput"
                                         class="search-input"
                                         style="height:34px; font-size:12px;"
-                                        placeholder="Filtrar archivos dentro de SUBIR..."
+                                        placeholder="Filtrar..."
                                         autocomplete="off"
                                     >
                                 </div>
 
-                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <div style="display:flex; align-items:center; gap:8px;">
                                     <label class="hdr-btn is-accent" style="cursor:pointer;">
-                                        + Subir foto desde mi PC a SUBIR
+                                        + Subir foto
                                         <input type="file" id="pcUploadToSubirInput" accept="image/*" multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
                                     </label>
-                                    <button type="button" class="hdr-btn" style="background:#252C32; color:#FFF;" onclick="refreshInboxOnly()">
-                                        ↻ Refrescar SUBIR
-                                    </button>
+                                    <button type="button" class="hdr-btn" style="background:#252C32; color:#FFF;" onclick="refreshInboxOnly()">↻</button>
                                 </div>
                             </div>
 
@@ -323,11 +240,11 @@
                         </div>
                     </div>
 
-                    <!-- HISTORIAL DE FOTOS ACOMODADAS EN ESTA SESIÓN -->
+                    <!-- HISTORIAL BREVE DE SESIÓN -->
                     <div id="sessionHistoryPanel" class="panel-card hidden">
                         <div class="panel-header">
-                            <h2>Fotos ya cargadas y acomodadas en esta sesión</h2>
-                            <span id="sessionSavedCountBadge" class="panel-badge">0 guardadas</span>
+                            <h2>Guardadas hoy</h2>
+                            <span id="sessionSavedCountBadge" class="panel-badge">0</span>
                         </div>
                         <div class="panel-body">
                             <div id="sessionSavedList" class="session-log-list"></div>
@@ -339,13 +256,12 @@
         </main>
     </div>
 
-    <!-- VISOR DE IMAGEN AMPLIADA -->
     <div id="photoLightbox" class="lightbox-backdrop hidden" onclick="closePhotoLightbox()">
-        <img id="photoLightboxImg" src="" alt="Vista ampliada">
+        <img id="photoLightboxImg" src="" alt="Vista" referrerpolicy="no-referrer">
     </div>
 
     <script src="./creata-logo.js?v=32"></script>
     <script src="./creata-cloud.js?v=32"></script>
-    <script src="./fotos-productos-app.js?v=1"></script>
+    <script src="./fotos-productos-app.js?v=2"></script>
 </body>
 </html>
