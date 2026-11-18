@@ -639,7 +639,9 @@ body {
     color: var(--ink-primary);
     cursor: pointer;
     text-align: left;
-    transition: all 0.14s ease;
+    transition: border-color 0.1s ease, background-color 0.1s ease;
+    content-visibility: auto;
+    contain-intrinsic-size: 62px;
 }
 
 .sku-item:hover {
@@ -945,7 +947,9 @@ body {
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    transition: all 0.15s ease;
+    transition: border-color 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
+    content-visibility: auto;
+    contain-intrinsic-size: 215px;
 }
 
 .inbox-photo-card:hover {

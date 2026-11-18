@@ -7,8 +7,11 @@
     <title>Fotos · Hoja 1 | CREATA</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://docs.google.com" crossorigin>
+    <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
+    <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=5">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=6">
 </head>
 <body>
 
@@ -72,25 +75,12 @@
                     <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
                     <button type="button" class="hdr-btn" onclick="refreshAllPhotoWorkspace(false)">↻ Fotos</button>
                     <a class="hdr-btn" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
-                    <a id="hdrSubirFolderLink" class="hdr-btn" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener">SUBIR COTIZACION</a>
-                    <button type="button" id="btnHeaderCopyScript" class="hdr-btn" onclick="copyUpdatedAppsScriptCode()">📋 Script</button>
                     <button type="button" class="hdr-btn" onclick="lockFotosPortal()">Salir</button>
                 </div>
             </div>
         </header>
 
         <main class="workspace-shell">
-
-            <div id="webappUpdateBanner" class="webapp-setup-banner hidden">
-                <div class="webapp-setup-actions">
-                    <button type="button" id="btnCopyAppsScriptCode" class="btn-primary-gold" style="height:32px; padding:0 13px; font-size:11.5px;" onclick="copyUpdatedAppsScriptCode()">
-                        📋 Copiar Script
-                    </button>
-                    <button type="button" class="hdr-btn" style="background:#252C32; color:#FFF;" onclick="refreshInboxOnly()">
-                        ↻ Conectar
-                    </button>
-                </div>
-            </div>
 
             <!-- 2 COLUMNAS -->
             <section class="workbench-grid">
@@ -282,6 +272,6 @@
 
     <script src="./creata-logo.js?v=32"></script>
     <script src="./creata-cloud.js?v=32"></script>
-    <script src="./fotos-productos-app.js?v=5"></script>
+    <script src="./fotos-productos-app.js?v=6"></script>
 </body>
 </html>

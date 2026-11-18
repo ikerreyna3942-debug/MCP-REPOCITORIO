@@ -15,6 +15,7 @@
     const PENDING_KEYS_STORAGE = 'creata_inv_updated_keys_v1';
     const MANUAL_LOCK_FLAG = 'creata_private_fotos_manual_lock';
     const DELETED_QUEUE_STORAGE = 'creata_fotos_deleted_queue_v1';
+    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v2';
 
     const CATEGORIAS_DEST_FOLDERS = [
         { key: 'SALAS',        id: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', name: 'FOTOS SALAS' },
@@ -29,30 +30,36 @@
         { key: 'INTERIOR',     id: '1mo5gn59M0m-psn0f6o9B1OtUHeCpz3S9', name: 'FOTOS INTERIOR' }
     ];
 
+    const DEST_FOLDER_BY_ID = new Map(CATEGORIAS_DEST_FOLDERS.map((f) => [f.id, f]));
+
     const state = {
         unlocked: false,
         authToken: '',
         accessKey: '',
         products: [],
         productBySku: new Map(),
+        productByNormName: new Map(),
         filteredProducts: [],
         skuFilterMode: 'ALL',
         skuSearchQuery: '',
         selectedSku: '',
         galleryMode: 'INBOX',
+        rawInboxFromDrive: [],
         inboxFiles: [],
         fotosNuevasSheetItems: [],
+        cachedLoadedList: null,
         inboxSearchQuery: '',
         selectedInboxFileId: '',
         selectedPhotoItem: null,
         inboxLoading: false,
         sheetsLoading: false,
-        assignInFlight: false,
+        sheetsPromise: null,
+        assignInFlight: 0,
         uploadInFlight: false,
-        deleteInFlight: false,
-        webappNeedsDeploy: false,
+        syncSkusInFlight: false,
         sessionSavedLogs: [],
-        sessionSavedBySku: new Map()
+        sessionSavedBySku: new Map(),
+        deletedQueue: null
     };
 
     function cleanStr(val) {
@@ -73,7 +80,8 @@
     }
 
     function normalizeSearchText(str) {
-        return String(str || '')
+        if (!str) return '';
+        return String(str)
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
             .toLowerCase()
@@ -82,7 +90,8 @@
     }
 
     function normPlainCat(str) {
-        return String(str || '')
+        if (!str) return '';
+        return String(str)
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
             .toUpperCase()
@@ -92,13 +101,14 @@
 
     function cleanPhotoUrl(val) {
         const s = cleanStr(val);
-        if (!s || /^#(N\/A|REF!|VALUE!|ERROR!|NAME\?)/i.test(s)) return '';
+        if (!s || s.charCodeAt(0) === 35) return '';
         return /^https?:\/\//i.test(s) ? s : '';
     }
 
     function extractDriveFileId(url) {
         const s = cleanStr(url);
         if (!s) return '';
+        if (/^[a-zA-Z0-9_-]{18,}$/.test(s)) return s;
         const m1 = s.match(/\/d\/([a-zA-Z0-9_-]{15,})/);
         if (m1 && m1[1]) return m1[1];
         const m2 = s.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
@@ -110,8 +120,8 @@
         const w = widthPx || 800;
         const raw = cleanStr(urlOrFileId);
         if (!raw) return '';
-        if (/^data:image\//i.test(raw)) return raw;
-        const fid = /^[a-zA-Z0-9_-]{18,}$/.test(raw) ? raw : extractDriveFileId(raw);
+        if (raw.startsWith('data:image/') || raw.startsWith('blob:')) return raw;
+        const fid = extractDriveFileId(raw);
         if (fid) {
             return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + w;
         }
@@ -158,52 +168,52 @@
         const cat = normPlainCat(categoriaRaw);
         const tp = normPlainCat(tipoRaw);
         const nom = normPlainCat(nombreRaw);
-        const text = (tp + ' ' + nom + ' ' + cat).trim();
-        const byKey = (k) => CATEGORIAS_DEST_FOLDERS.find((f) => f.key === k) || CATEGORIAS_DEST_FOLDERS[CATEGORIAS_DEST_FOLDERS.length - 1];
+        const tpNom = (tp + ' ' + nom).trim();
+        const text = (tpNom + ' ' + cat).trim();
 
-        if (/\bFUTON|\bFUTTON|SOFA\s*CAMA/.test(text)) return byKey('SOFA_CAMA');
+        if (/\bFUTON|\bFUTTON|SOFA\s*CAMA/.test(text)) return CATEGORIAS_DEST_FOLDERS[2];
         if (/MESA\s+LATERAL|MESA\s+AUXILIAR/.test(text) || (cat.indexOf('MESAS DE CENTRO') !== -1 && /\bLATERAL|\bAUXILIAR/.test(text))) {
-            return byKey('MESA_LATERAL');
+            return CATEGORIAS_DEST_FOLDERS[4];
         }
         if (/MESA\s+DE\s+CENTRO|MESA\s+CENTRAL|\bNIDO\b/.test(text) || cat === 'MESAS DE CENTRO & LATERALES') {
-            return byKey('MESA_CENTRO');
+            return CATEGORIAS_DEST_FOLDERS[3];
         }
-        if (/\bSILLON|\bPOLTRONA|\bRECLINABLE|\bTABURETE|\bOTTOMAN|\bPUFF\b/.test(tp + ' ' + nom)) {
-            return byKey('SILLONES');
+        if (/\bSILLON|\bPOLTRONA|\bRECLINABLE|\bTABURETE|\bOTTOMAN|\bPUFF\b/.test(tpNom)) {
+            return CATEGORIAS_DEST_FOLDERS[1];
         }
-        if (cat === 'SALAS & SOFAS' || /\bSALA\b|\bMODULAR\b|LOVE\s*SEAT|\bCHAISE\b|\bESQUINERO\b|\bSOFA\b/.test(tp + ' ' + nom)) {
-            return byKey('SALAS');
+        if (cat === 'SALAS & SOFAS' || /\bSALA\b|\bMODULAR\b|LOVE\s*SEAT|\bCHAISE\b|\bESQUINERO\b|\bSOFA\b/.test(tpNom)) {
+            return CATEGORIAS_DEST_FOLDERS[0];
         }
         if (
             cat === 'OFICINA' ||
             cat === 'EXTERIOR & TERRAZA' ||
-            /\bOFICINA|\bOPERATIV[AO]|\bEJECUTIV[AO]|\bSECRETARIAL|\bESCRITORIO|\bCAMASTRO/.test(tp + ' ' + nom)
+            /\bOFICINA|\bOPERATIV[AO]|\bEJECUTIV[AO]|\bSECRETARIAL|\bESCRITORIO|\bCAMASTRO/.test(tpNom)
         ) {
-            return byKey('AUXILIARES');
+            return CATEGORIAS_DEST_FOLDERS[7];
         }
-        if (cat === 'COMEDORES' || /\bCOMEDOR|MESA\s+DE\s+COMEDOR|\bSILLA\b|\bBANCO\b|\bBANCA\b/.test(tp + ' ' + nom)) {
-            return byKey('COMEDORES');
+        if (cat === 'COMEDORES' || /\bCOMEDOR|MESA\s+DE\s+COMEDOR|\bSILLA\b|\bBANCO\b|\bBANCA\b/.test(tpNom)) {
+            return CATEGORIAS_DEST_FOLDERS[5];
         }
-        if (cat === 'RECAMARAS' || /\bCAMA\b|\bCABECERA|\bCOLCHON|\bBURO\b|\bCOMODA\b|\bCAJONERA|\bTOCADOR|PIE\s+DE\s+CAMA/.test(tp + ' ' + nom)) {
-            return byKey('RECAMARAS');
+        if (cat === 'RECAMARAS' || /\bCAMA\b|\bCABECERA|\bCOLCHON|\bBURO\b|\bCOMODA\b|\bCAJONERA|\bTOCADOR|PIE\s+DE\s+CAMA/.test(tpNom)) {
+            return CATEGORIAS_DEST_FOLDERS[6];
         }
         if (
             cat === 'ACCESORIOS DECORATIVOS' ||
             cat === 'COJINES & TEXTILES' ||
             cat === 'ESPEJOS & ARTE' ||
             cat === 'ILUMINACION' ||
-            /\bESPEJO|\bCUADRO|\bLAMPARA|\bCOJIN|\bFUNDA|\bPLANTA|\bFOLLAJE|\bFLORERO|\bJARRON|\bCHAROLA|\bTAPETE|\bVELA\b|\bFIGURA|\bACCESORIO/.test(tp + ' ' + nom)
+            /\bESPEJO|\bCUADRO|\bLAMPARA|\bCOJIN|\bFUNDA|\bPLANTA|\bFOLLAJE|\bFLORERO|\bJARRON|\bCHAROLA|\bTAPETE|\bVELA\b|\bFIGURA|\bACCESORIO/.test(tpNom)
         ) {
-            return byKey('ACCESORIOS');
+            return CATEGORIAS_DEST_FOLDERS[8];
         }
         if (
             cat === 'BUFETERAS & CREDENZAS' ||
             cat === 'COMPLEMENTOS' ||
-            /\bCREDENZA|\bBUFETERA|\bLIBRERO|MUEBLE\s+PARA\s+TV|MESA\s+DE\s+TV|\bBAR\b|\bCONSOLA|\bAUXILIAR/.test(tp + ' ' + nom)
+            /\bCREDENZA|\bBUFETERA|\bLIBRERO|MUEBLE\s+PARA\s+TV|MESA\s+DE\s+TV|\bBAR\b|\bCONSOLA|\bAUXILIAR/.test(tpNom)
         ) {
-            return byKey('AUXILIARES');
+            return CATEGORIAS_DEST_FOLDERS[7];
         }
-        return byKey('INTERIOR');
+        return CATEGORIAS_DEST_FOLDERS[9];
     }
 
     function populateDestFolderSelect() {
@@ -249,7 +259,7 @@
 
             const cleanup = () => {
                 window[cbName] = function () {};
-                setTimeout(() => { try { delete window[cbName]; } catch (e) { window[cbName] = undefined; } }, 60000);
+                setTimeout(() => { try { delete window[cbName]; } catch (e) { window[cbName] = undefined; } }, 30000);
                 if (scriptEl && scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl);
             };
 
@@ -258,7 +268,7 @@
                 settled = true;
                 cleanup();
                 resolve(null);
-            }, 14000);
+            }, 11000);
 
             window[cbName] = function (resp) {
                 if (settled) return;
@@ -273,7 +283,9 @@
                         const hdrLabels = resp.table.cols.map((c) => cleanStr(c && c.label));
                         if (hdrLabels.some(Boolean)) out.push(hdrLabels);
                     }
-                    resp.table.rows.forEach((rObj) => {
+                    const rows = resp.table.rows;
+                    for (let r = 0; r < rows.length; r++) {
+                        const rObj = rows[r];
                         const cells = (rObj && Array.isArray(rObj.c)) ? rObj.c : [];
                         const len = Math.max(colsCount, cells.length);
                         const arr = new Array(len);
@@ -285,7 +297,7 @@
                             else arr[i] = '';
                         }
                         out.push(arr);
-                    });
+                    }
                     resolve(out);
                 } catch (err) {
                     resolve(null);
@@ -318,7 +330,7 @@
             const resp = await fetch(csvUrl, { cache: 'no-store' });
             if (resp && resp.ok) {
                 const txt = await resp.text();
-                if (txt && !txt.trim().startsWith('<!DOCTYPE') && !txt.trim().startsWith('<html')) {
+                if (txt && !txt.trimStart().startsWith('<!DOCTYPE') && !txt.trimStart().startsWith('<html')) {
                     const parsed = parseCsvText(txt);
                     if (Array.isArray(parsed) && parsed.length > 0) return parsed;
                 }
@@ -333,7 +345,7 @@
             : '';
         const targetUrl = cfgUrl || CANONICAL_WEBAPP_URL;
         const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 25000) : null;
+        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 22000) : null;
         try {
             const resp = await fetch(targetUrl, {
                 method: 'POST',
@@ -357,6 +369,186 @@
             accessKey: state.accessKey || '',
             sheetTab: 'PROYECTOS'
         };
+    }
+
+    function readDeletedQueue() {
+        if (state.deletedQueue) return state.deletedQueue;
+        try {
+            const raw = localStorage.getItem(DELETED_QUEUE_STORAGE);
+            if (!raw) {
+                state.deletedQueue = { fileIds: {}, skus: {} };
+                return state.deletedQueue;
+            }
+            const parsed = JSON.parse(raw);
+            state.deletedQueue = {
+                fileIds: (parsed && typeof parsed.fileIds === 'object' && parsed.fileIds) ? parsed.fileIds : {},
+                skus: (parsed && typeof parsed.skus === 'object' && parsed.skus) ? parsed.skus : {}
+            };
+            return state.deletedQueue;
+        } catch (e) {
+            state.deletedQueue = { fileIds: {}, skus: {} };
+            return state.deletedQueue;
+        }
+    }
+
+    function writeDeletedQueue(qObj) {
+        state.deletedQueue = {
+            fileIds: (qObj && qObj.fileIds) || {},
+            skus: (qObj && qObj.skus) || {}
+        };
+        try {
+            localStorage.setItem(DELETED_QUEUE_STORAGE, JSON.stringify(state.deletedQueue));
+        } catch (e) {}
+    }
+
+    function markDeletedInQueue(fileIdRaw, skuRaw) {
+        const fid = cleanStr(fileIdRaw);
+        const sku = cleanStr(skuRaw).toUpperCase();
+        const q = readDeletedQueue();
+        if (fid) q.fileIds[fid] = Date.now();
+        if (sku) q.skus[sku] = fid || '1';
+        writeDeletedQueue(q);
+        invalidateLoadedPhotosCache();
+    }
+
+    function unmarkSkuDeletedInQueue(skuRaw, fileIdRaw) {
+        const sku = cleanStr(skuRaw).toUpperCase();
+        const fid = cleanStr(fileIdRaw);
+        const q = readDeletedQueue();
+        let changed = false;
+        if (sku && q.skus[sku]) {
+            delete q.skus[sku];
+            changed = true;
+        }
+        if (fid && q.fileIds[fid]) {
+            delete q.fileIds[fid];
+            changed = true;
+        }
+        if (changed) {
+            writeDeletedQueue(q);
+            invalidateLoadedPhotosCache();
+        }
+    }
+
+    function invalidateLoadedPhotosCache() {
+        state.cachedLoadedList = null;
+    }
+
+    let saveCacheTimer = null;
+    function scheduleSaveFastCache() {
+        if (saveCacheTimer) clearTimeout(saveCacheTimer);
+        saveCacheTimer = setTimeout(saveFastCacheNow, 250);
+    }
+
+    function saveFastCacheNow() {
+        try {
+            const compactProducts = new Array(state.products.length);
+            for (let i = 0; i < state.products.length; i++) {
+                const p = state.products[i];
+                compactProducts[i] = [
+                    p.sku,
+                    p.colBName,
+                    p.displayName,
+                    p.photoUrl,
+                    p.rowNumber || 0,
+                    p.inSheet1 ? 1 : 0,
+                    p.inInv ? 1 : 0,
+                    p.categoria,
+                    p.tipo,
+                    p.destFolderId
+                ];
+            }
+            const compactInbox = state.rawInboxFromDrive.slice(0, 220).map((f) => ({
+                id: f.id,
+                name: f.name,
+                skuOrigin: f.skuOrigin || '',
+                sizeBytes: f.sizeBytes || 0,
+                updatedAt: f.updatedAt || '',
+                viewUrl: f.viewUrl || ''
+            }));
+            const compactFn = state.fotosNuevasSheetItems.slice(0, 220).map((f) => ({
+                id: f.id,
+                name: f.name,
+                skuOrigin: f.skuOrigin || '',
+                updatedAt: f.updatedAt || '',
+                viewUrl: f.viewUrl || ''
+            }));
+            localStorage.setItem(FAST_CACHE_STORAGE, JSON.stringify({
+                ts: Date.now(),
+                p: compactProducts,
+                inb: compactInbox,
+                fn: compactFn
+            }));
+        } catch (e) {}
+    }
+
+    function hydrateFromFastCache() {
+        try {
+            const raw = localStorage.getItem(FAST_CACHE_STORAGE);
+            if (!raw) return false;
+            const parsed = JSON.parse(raw);
+            if (!parsed || !Array.isArray(parsed.p) || !parsed.p.length) return false;
+
+            const delQueue = readDeletedQueue();
+            const delSkus = delQueue.skus || {};
+            const delFiles = delQueue.fileIds || {};
+
+            const list = [];
+            const bySku = new Map();
+            const byNormName = new Map();
+
+            for (let i = 0; i < parsed.p.length; i++) {
+                const r = parsed.p[i];
+                if (!Array.isArray(r) || !r[0]) continue;
+                const sku = String(r[0]);
+                const colBName = String(r[1] || '');
+                const displayName = String(r[2] || '—');
+                let photoUrl = String(r[3] || '');
+                let photoFileId = extractDriveFileId(photoUrl);
+                if (delSkus[sku] || (photoFileId && delFiles[photoFileId])) {
+                    photoUrl = '';
+                    photoFileId = '';
+                }
+                const destId = String(r[9] || '');
+                const destMeta = DEST_FOLDER_BY_ID.get(destId) || CATEGORIAS_DEST_FOLDERS[9];
+                const searchSkuNorm = normalizeSearchText(sku);
+                const dispNorm = normalizeSearchText(displayName);
+                const searchNameNorm = normalizeSearchText(displayName + ' ' + colBName + ' ' + (r[7] || '') + ' ' + (r[8] || ''));
+                const item = {
+                    sku: sku,
+                    colBName: colBName,
+                    displayName: displayName,
+                    photoUrl: photoUrl,
+                    photoFileId: photoFileId,
+                    rowNumber: r[4] || null,
+                    inSheet1: !!r[5],
+                    inInv: !!r[6],
+                    categoria: String(r[7] || ''),
+                    tipo: String(r[8] || ''),
+                    destFolderId: destMeta.id,
+                    destFolderName: destMeta.name,
+                    searchSkuNorm: searchSkuNorm,
+                    searchNameNorm: searchNameNorm,
+                    searchNorm: (searchSkuNorm + ' ' + searchNameNorm).trim()
+                };
+                list.push(item);
+                bySku.set(sku, item);
+                if (dispNorm && dispNorm.length >= 5 && !byNormName.has(dispNorm)) {
+                    byNormName.set(dispNorm, sku);
+                }
+            }
+
+            state.products = list;
+            state.productBySku = bySku;
+            state.productByNormName = byNormName;
+            state.fotosNuevasSheetItems = Array.isArray(parsed.fn) ? parsed.fn : [];
+            state.rawInboxFromDrive = Array.isArray(parsed.inb) ? parsed.inb : [];
+            state.inboxFiles = filterAndMergeInboxFiles(state.rawInboxFromDrive);
+            invalidateLoadedPhotosCache();
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     function setGateMessage(msg, tone) {
@@ -425,6 +617,12 @@
         if (gate) gate.classList.add('hidden');
         if (shell) shell.classList.remove('hidden');
 
+        if (state.products.length > 0) {
+            applySkuFiltersAndRender();
+            renderInboxGallery();
+            renderSelectedProductStage();
+        }
+
         window.refreshAllPhotoWorkspace(false);
     }
 
@@ -488,7 +686,7 @@
                 email: OWNER_EMAIL,
                 accessKey: typedKey,
                 sheetTab: 'PROYECTOS'
-            }, 9500);
+            }, 8500);
 
             let verified = false;
             if (cloudRes && cloudRes.ok) {
@@ -555,52 +753,35 @@
         }
     };
 
-    function readDeletedQueue() {
-        try {
-            const raw = localStorage.getItem(DELETED_QUEUE_STORAGE);
-            if (!raw) return { fileIds: {}, skus: {} };
-            const parsed = JSON.parse(raw);
-            return {
-                fileIds: (parsed && typeof parsed.fileIds === 'object' && parsed.fileIds) ? parsed.fileIds : {},
-                skus: (parsed && typeof parsed.skus === 'object' && parsed.skus) ? parsed.skus : {}
-            };
-        } catch (e) {
-            return { fileIds: {}, skus: {} };
+    function findSuggestedSkuForFileName(fileName) {
+        const base = cleanStr(fileName).replace(/\.[a-zA-Z0-9]{2,5}$/, '').trim();
+        if (!base || !state.productBySku.size) return '';
+        const upperBase = base.toUpperCase();
+        if (state.productBySku.has(upperBase)) return upperBase;
+
+        const firstPart = cleanStr(upperBase.split(/[\s_\-]+/)[0]);
+        if (firstPart.length >= 3 && state.productBySku.has(firstPart)) return firstPart;
+
+        const tokens = upperBase.split(/[^A-Z0-9]+/);
+        for (let i = 0; i < tokens.length; i++) {
+            const t = tokens[i];
+            if (t.length >= 4 && state.productBySku.has(t)) return t;
         }
+
+        const normBase = normalizeSearchText(base);
+        if (normBase.length >= 5 && state.productByNormName.has(normBase)) {
+            return state.productByNormName.get(normBase) || '';
+        }
+        return '';
     }
 
-    function writeDeletedQueue(qObj) {
-        try {
-            localStorage.setItem(DELETED_QUEUE_STORAGE, JSON.stringify({
-                fileIds: (qObj && qObj.fileIds) || {},
-                skus: (qObj && qObj.skus) || {}
-            }));
-        } catch (e) {}
-    }
-
-    function markDeletedInQueue(fileIdRaw, skuRaw) {
-        const fid = cleanStr(fileIdRaw);
-        const sku = cleanStr(skuRaw).toUpperCase();
-        const q = readDeletedQueue();
-        if (fid) q.fileIds[fid] = Date.now();
-        if (sku) q.skus[sku] = fid || '1';
-        writeDeletedQueue(q);
-    }
-
-    function unmarkSkuDeletedInQueue(skuRaw, fileIdRaw) {
-        const sku = cleanStr(skuRaw).toUpperCase();
-        const fid = cleanStr(fileIdRaw);
-        const q = readDeletedQueue();
-        let changed = false;
-        if (sku && q.skus[sku]) {
-            delete q.skus[sku];
-            changed = true;
-        }
-        if (fid && q.fileIds[fid]) {
-            delete q.fileIds[fid];
-            changed = true;
-        }
-        if (changed) writeDeletedQueue(q);
+    function enrichInboxFileItem(f) {
+        const name = cleanStr(f.name);
+        const skuOrigin = cleanStr(f.skuOrigin);
+        f._searchNorm = normalizeSearchText(name + ' ' + skuOrigin);
+        f._suggestedSku = findSuggestedSkuForFileName(name) || skuOrigin;
+        f._sizeText = formatFileSize(f.sizeBytes);
+        return f;
     }
 
     function filterAndMergeInboxFiles(rawFiles) {
@@ -608,7 +789,7 @@
         const delFileMap = q.fileIds || {};
         const usedIdsInSheet1 = new Set();
         for (let i = 0; i < state.products.length; i++) {
-            const fid1 = extractDriveFileId(state.products[i].photoUrl);
+            const fid1 = state.products[i].photoFileId;
             if (fid1) usedIdsInSheet1.add(fid1);
         }
 
@@ -622,7 +803,7 @@
             const fid = cleanStr(f.id);
             if (!fid || delFileMap[fid] || seen.has(fid)) continue;
             seen.add(fid);
-            out.push(f);
+            out.push(enrichInboxFileItem(Object.assign({}, f, { id: fid })));
         }
 
         for (let j = 0; j < state.fotosNuevasSheetItems.length; j++) {
@@ -631,13 +812,15 @@
             const fid = cleanStr(nf.id);
             if (!fid || delFileMap[fid] || seen.has(fid) || usedIdsInSheet1.has(fid)) continue;
             seen.add(fid);
-            out.push(nf);
+            out.push(enrichInboxFileItem(Object.assign({}, nf, { id: fid })));
         }
 
         return out;
     }
 
-    function buildLoadedPhotosList() {
+    function getLoadedPhotosList() {
+        if (state.cachedLoadedList) return state.cachedLoadedList;
+
         const q = readDeletedQueue();
         const delFileMap = q.fileIds || {};
         const delSkuMap = q.skus || {};
@@ -653,36 +836,44 @@
             const key = sku + '::' + fid;
             if (seenKey.has(key)) continue;
             seenKey.add(key);
+            const name = log.productName || sku;
+            const destName = log.destFolderName || '';
             items.push({
                 id: fid,
                 sku: sku,
-                name: log.productName || sku,
+                name: name,
                 viewUrl: log.newUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
                 localDataUrl: log.localDataUrl || '',
-                destFolderName: log.destFolderName || '',
+                destFolderName: destName,
+                shortFolder: destName.replace(/^FOTOS\s+(DE\s+)?/i, ''),
                 rowNumber: log.rowNumber || null,
-                fromLoaded: true
+                fromLoaded: true,
+                _searchNorm: normalizeSearchText(sku + ' ' + name + ' ' + destName)
             });
         }
 
         for (let i = 0; i < state.products.length; i++) {
             const p = state.products[i];
             if (!p || !p.photoUrl) continue;
-            const sku = cleanStr(p.sku).toUpperCase();
-            const fid = extractDriveFileId(p.photoUrl);
+            const sku = p.sku;
+            const fid = p.photoFileId || extractDriveFileId(p.photoUrl);
             if (!fid || delFileMap[fid] || delSkuMap[sku]) continue;
             const key = sku + '::' + fid;
             if (seenKey.has(key)) continue;
             seenKey.add(key);
+            const name = p.displayName || p.colBName || sku;
+            const destName = p.destFolderName || '';
             items.push({
                 id: fid,
                 sku: sku,
-                name: p.displayName || p.colBName || sku,
+                name: name,
                 viewUrl: p.photoUrl,
                 localDataUrl: '',
-                destFolderName: p.destFolderName || '',
+                destFolderName: destName,
+                shortFolder: destName.replace(/^FOTOS\s+(DE\s+)?/i, ''),
                 rowNumber: p.rowNumber || null,
-                fromLoaded: true
+                fromLoaded: true,
+                _searchNorm: (p.searchSkuNorm || '') + ' ' + (p.searchNameNorm || '') + ' ' + normalizeSearchText(destName)
             });
         }
 
@@ -695,185 +886,221 @@
             const key = (sku || 'FN') + '::' + fid;
             if (seenKey.has(key)) continue;
             seenKey.add(key);
+            const name = fn.name || sku || fid;
             items.push({
                 id: fid,
                 sku: sku,
-                name: fn.name || sku || fid,
+                name: name,
                 viewUrl: fn.viewUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
                 localDataUrl: '',
                 destFolderName: 'FOTOS NUEVAS CARGADO',
+                shortFolder: 'NUEVAS CARGADO',
                 rowNumber: null,
-                fromLoaded: true
+                fromLoaded: true,
+                _searchNorm: normalizeSearchText(sku + ' ' + name + ' fotos nuevas cargado')
             });
         }
 
+        state.cachedLoadedList = items;
         return items;
     }
 
     async function loadSheetsCatalog() {
+        if (state.sheetsPromise) return state.sheetsPromise;
         state.sheetsLoading = true;
         const listEl = document.getElementById('skuResultsList');
         if (listEl && !state.products.length) {
             listEl.innerHTML = '<div class="photo-empty-placeholder">Cargando...</div>';
         }
 
-        const [rows1, rowsInv, rowsFn] = await Promise.all([
-            fetchSheetRows('1', 'A1:D9500'),
-            fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:G5500'),
-            fetchSheetRows('FOTOS NUEVAS CARGADO', 'A1:G400')
-        ]);
+        state.sheetsPromise = (async () => {
+            try {
+                const [rows1, rowsInv, rowsFn] = await Promise.all([
+                    fetchSheetRows('1', 'A1:D9500'),
+                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:G5500'),
+                    fetchSheetRows('FOTOS NUEVAS CARGADO', 'A1:G400')
+                ]);
 
-        const delQueue = readDeletedQueue();
-        const delSkus = delQueue.skus || {};
-        const delFiles = delQueue.fileIds || {};
-
-        const fnItems = [];
-        if (Array.isArray(rowsFn)) {
-            for (let f = 1; f < rowsFn.length; f++) {
-                const rf = rowsFn[f] || [];
-                const skuFn = cleanStr(rf[2]).toUpperCase();
-                const nameFn = cleanStr(rf[3]);
-                const linkFn = cleanPhotoUrl(rf[4]);
-                const fidFn = cleanStr(rf[5]) || extractDriveFileId(linkFn);
-                if (!fidFn || delFiles[fidFn]) continue;
-                fnItems.push({
-                    id: fidFn,
-                    name: [skuFn, nameFn].filter(Boolean).join(' - ') || ('Foto ' + fidFn.slice(0, 6)),
-                    skuOrigin: skuFn,
-                    mimeType: 'image/jpeg',
-                    sizeBytes: 0,
-                    updatedAt: cleanStr(rf[0]),
-                    viewUrl: linkFn || ('https://drive.google.com/file/d/' + fidFn + '/view?usp=sharing'),
-                    thumbUrl: 'https://lh3.googleusercontent.com/d/' + fidFn + '=w800',
-                    thumbDataUrl: ''
-                });
-            }
-        }
-        state.fotosNuevasSheetItems = fnItems;
-
-        const invMap = new Map();
-        if (Array.isArray(rowsInv)) {
-            for (let i = 1; i < rowsInv.length; i++) {
-                const r = rowsInv[i] || [];
-                const sku = cleanStr(r[0]).toUpperCase();
-                if (!sku || sku === 'SKU') continue;
-                if (!invMap.has(sku)) {
-                    invMap.set(sku, {
-                        sku: sku,
-                        tipo: cleanStr(r[1]),
-                        modelo: cleanStr(r[2]),
-                        nombreInv: cleanStr(r[3]),
-                        categoria: cleanStr(r[6])
-                    });
+                if ((!rows1 || !rows1.length) && (!rowsInv || !rowsInv.length) && state.products.length > 0) {
+                    return;
                 }
-            }
-        }
 
-        const mergedMap = new Map();
-        if (Array.isArray(rows1)) {
-            for (let i = 1; i < rows1.length; i++) {
-                const r = rows1[i] || [];
-                const sku = cleanStr(r[0]).toUpperCase();
-                if (!sku || sku === 'SKU') continue;
+                const delQueue = readDeletedQueue();
+                const delSkus = delQueue.skus || {};
+                const delFiles = delQueue.fileIds || {};
 
-                const rowNum = i + 1;
-                const colBName = cleanStr(r[1]);
-                let colDUrl = cleanPhotoUrl(r[3]);
-                const colDFid = extractDriveFileId(colDUrl);
-                if (delSkus[sku] || (colDFid && delFiles[colDFid])) {
-                    colDUrl = '';
+                const fnItems = [];
+                if (Array.isArray(rowsFn)) {
+                    for (let f = 1; f < rowsFn.length; f++) {
+                        const rf = rowsFn[f] || [];
+                        const skuFn = cleanStr(rf[2]).toUpperCase();
+                        const nameFn = cleanStr(rf[3]);
+                        const linkFn = cleanPhotoUrl(rf[4]);
+                        const fidFn = cleanStr(rf[5]) || extractDriveFileId(linkFn);
+                        if (!fidFn || delFiles[fidFn]) continue;
+                        fnItems.push({
+                            id: fidFn,
+                            name: [skuFn, nameFn].filter(Boolean).join(' - ') || ('Foto ' + fidFn.slice(0, 6)),
+                            skuOrigin: skuFn,
+                            mimeType: 'image/jpeg',
+                            sizeBytes: 0,
+                            updatedAt: cleanStr(rf[0]),
+                            viewUrl: linkFn || ('https://drive.google.com/file/d/' + fidFn + '/view?usp=sharing'),
+                            thumbUrl: 'https://lh3.googleusercontent.com/d/' + fidFn + '=w800',
+                            thumbDataUrl: ''
+                        });
+                    }
                 }
-                const inv = invMap.get(sku) || null;
+                state.fotosNuevasSheetItems = fnItems;
 
-                if (!mergedMap.has(sku)) {
-                    const displayName = colBName || (inv ? inv.nombreInv : '') || '';
-                    const dest = resolveCategoryDestFolderForProduct(
-                        inv ? inv.categoria : '',
-                        inv ? inv.tipo : '',
-                        displayName
-                    );
+                const invMap = new Map();
+                if (Array.isArray(rowsInv)) {
+                    for (let i = 1; i < rowsInv.length; i++) {
+                        const r = rowsInv[i] || [];
+                        const sku = cleanStr(r[0]).toUpperCase();
+                        if (!sku || sku === 'SKU') continue;
+                        if (!invMap.has(sku)) {
+                            invMap.set(sku, {
+                                sku: sku,
+                                tipo: cleanStr(r[1]),
+                                modelo: cleanStr(r[2]),
+                                nombreInv: cleanStr(r[3]),
+                                categoria: cleanStr(r[6])
+                            });
+                        }
+                    }
+                }
+
+                const mergedMap = new Map();
+                if (Array.isArray(rows1)) {
+                    for (let i = 1; i < rows1.length; i++) {
+                        const r = rows1[i] || [];
+                        const sku = cleanStr(r[0]).toUpperCase();
+                        if (!sku || sku === 'SKU') continue;
+
+                        const rowNum = i + 1;
+                        const colBName = cleanStr(r[1]);
+                        let colDUrl = cleanPhotoUrl(r[3]);
+                        let colDFid = extractDriveFileId(colDUrl);
+                        if (delSkus[sku] || (colDFid && delFiles[colDFid])) {
+                            colDUrl = '';
+                            colDFid = '';
+                        }
+                        const inv = invMap.get(sku) || null;
+
+                        if (!mergedMap.has(sku)) {
+                            const displayName = colBName || (inv ? inv.nombreInv : '') || '';
+                            const dest = resolveCategoryDestFolderForProduct(
+                                inv ? inv.categoria : '',
+                                inv ? inv.tipo : '',
+                                displayName
+                            );
+                            mergedMap.set(sku, {
+                                sku: sku,
+                                colBName: colBName,
+                                displayName: displayName || '—',
+                                photoUrl: colDUrl,
+                                photoFileId: colDFid,
+                                rowNumber: rowNum,
+                                inSheet1: true,
+                                inInv: !!inv,
+                                categoria: inv ? inv.categoria : '',
+                                tipo: inv ? inv.tipo : '',
+                                destFolderId: dest.id,
+                                destFolderName: dest.name,
+                                searchSkuNorm: '',
+                                searchNameNorm: '',
+                                searchNorm: ''
+                            });
+                        } else {
+                            const existing = mergedMap.get(sku);
+                            if (!existing.colBName && colBName) {
+                                existing.colBName = colBName;
+                                existing.displayName = colBName;
+                            }
+                            if (!existing.photoUrl && colDUrl) {
+                                existing.photoUrl = colDUrl;
+                                existing.photoFileId = colDFid;
+                            }
+                        }
+                    }
+                }
+
+                invMap.forEach((inv, sku) => {
+                    if (mergedMap.has(sku)) return;
+                    const displayName = inv.nombreInv || [inv.tipo, inv.modelo].filter(Boolean).join(' ') || sku;
+                    const dest = resolveCategoryDestFolderForProduct(inv.categoria, inv.tipo, displayName);
                     mergedMap.set(sku, {
                         sku: sku,
-                        colBName: colBName,
-                        displayName: displayName || '—',
-                        photoUrl: colDUrl,
-                        rowNumber: rowNum,
-                        inSheet1: true,
-                        inInv: !!inv,
-                        categoria: inv ? inv.categoria : '',
-                        tipo: inv ? inv.tipo : '',
+                        colBName: '',
+                        displayName: displayName,
+                        photoUrl: '',
+                        photoFileId: '',
+                        rowNumber: null,
+                        inSheet1: false,
+                        inInv: true,
+                        categoria: inv.categoria,
+                        tipo: inv.tipo,
                         destFolderId: dest.id,
                         destFolderName: dest.name,
+                        searchSkuNorm: '',
+                        searchNameNorm: '',
                         searchNorm: ''
                     });
-                } else {
-                    const existing = mergedMap.get(sku);
-                    if (!existing.colBName && colBName) {
-                        existing.colBName = colBName;
-                        existing.displayName = colBName;
+                });
+
+                state.sessionSavedBySku.forEach((savedMeta, sku) => {
+                    if (delSkus[sku]) return;
+                    const item = mergedMap.get(sku);
+                    if (item && savedMeta && savedMeta.newUrl) {
+                        item.photoUrl = savedMeta.newUrl;
+                        item.photoFileId = savedMeta.fileId || extractDriveFileId(savedMeta.newUrl);
+                        item.inSheet1 = true;
+                        if (savedMeta.rowNumber) item.rowNumber = savedMeta.rowNumber;
+                        if (savedMeta.productName && (!item.colBName || item.displayName === '—')) {
+                            item.colBName = savedMeta.productName;
+                            item.displayName = savedMeta.productName;
+                        }
                     }
-                    if (!existing.photoUrl && colDUrl) {
-                        existing.photoUrl = colDUrl;
+                });
+
+                const list = Array.from(mergedMap.values());
+                const byNormName = new Map();
+                for (let i = 0; i < list.length; i++) {
+                    const p = list[i];
+                    p.searchSkuNorm = normalizeSearchText(p.sku);
+                    const dispNorm = normalizeSearchText(p.displayName);
+                    if (dispNorm && dispNorm.length >= 5 && !byNormName.has(dispNorm)) {
+                        byNormName.set(dispNorm, p.sku);
                     }
+                    p.searchNameNorm = normalizeSearchText(p.displayName + ' ' + p.colBName + ' ' + p.categoria + ' ' + p.tipo);
+                    p.searchNorm = (p.searchSkuNorm + ' ' + p.searchNameNorm).trim();
                 }
-            }
-        }
 
-        invMap.forEach((inv, sku) => {
-            if (mergedMap.has(sku)) return;
-            const displayName = inv.nombreInv || [inv.tipo, inv.modelo].filter(Boolean).join(' ') || sku;
-            const dest = resolveCategoryDestFolderForProduct(inv.categoria, inv.tipo, displayName);
-            mergedMap.set(sku, {
-                sku: sku,
-                colBName: '',
-                displayName: displayName,
-                photoUrl: '',
-                rowNumber: null,
-                inSheet1: false,
-                inInv: true,
-                categoria: inv.categoria,
-                tipo: inv.tipo,
-                destFolderId: dest.id,
-                destFolderName: dest.name,
-                searchNorm: ''
-            });
-        });
+                list.sort((a, b) => {
+                    if (a.inInv !== b.inInv) return a.inInv ? -1 : 1;
+                    return a.displayName.localeCompare(b.displayName, 'es') || a.sku.localeCompare(b.sku, 'es');
+                });
 
-        state.sessionSavedBySku.forEach((savedMeta, sku) => {
-            if (delSkus[sku]) return;
-            const item = mergedMap.get(sku);
-            if (item && savedMeta && savedMeta.newUrl) {
-                item.photoUrl = savedMeta.newUrl;
-                item.inSheet1 = true;
-                if (savedMeta.rowNumber) item.rowNumber = savedMeta.rowNumber;
-                if (savedMeta.productName && (!item.colBName || item.displayName === '—')) {
-                    item.colBName = savedMeta.productName;
-                    item.displayName = savedMeta.productName;
+                state.products = list;
+                state.productBySku = mergedMap;
+                state.productByNormName = byNormName;
+                state.inboxFiles = filterAndMergeInboxFiles(state.rawInboxFromDrive.length ? state.rawInboxFromDrive : state.inboxFiles);
+                invalidateLoadedPhotosCache();
+                scheduleSaveFastCache();
+
+                if (state.unlocked) {
+                    applySkuFiltersAndRender();
+                    renderInboxGallery();
+                    if (state.selectedSku) renderSelectedProductStage();
                 }
+            } finally {
+                state.sheetsLoading = false;
+                state.sheetsPromise = null;
             }
-        });
+        })();
 
-        const list = Array.from(mergedMap.values());
-        for (let i = 0; i < list.length; i++) {
-            const p = list[i];
-            p.searchSkuNorm = normalizeSearchText(p.sku);
-            p.searchNameNorm = normalizeSearchText(p.displayName + ' ' + p.colBName + ' ' + p.categoria + ' ' + p.tipo);
-            p.searchNorm = (p.searchSkuNorm + ' ' + p.searchNameNorm).trim();
-        }
-
-        list.sort((a, b) => {
-            if (a.inInv !== b.inInv) return a.inInv ? -1 : 1;
-            return a.displayName.localeCompare(b.displayName, 'es') || a.sku.localeCompare(b.sku, 'es');
-        });
-
-        state.products = list;
-        state.productBySku = mergedMap;
-        state.inboxFiles = filterAndMergeInboxFiles(state.inboxFiles);
-        state.sheetsLoading = false;
-
-        applySkuFiltersAndRender();
-        renderInboxGallery();
-        if (state.selectedSku) renderSelectedProductStage();
+        return state.sheetsPromise;
     }
 
     window.clearSkuSearch = function () {
@@ -900,15 +1127,19 @@
         const mode = state.skuFilterMode;
 
         const matches = [];
-        for (let i = 0; i < state.products.length; i++) {
-            const p = state.products[i];
+        const products = state.products;
+        const len = products.length;
+        const tLen = tokens.length;
+
+        for (let i = 0; i < len; i++) {
+            const p = products[i];
             if (mode === 'NO_PHOTO' && p.photoUrl) continue;
             if (mode === 'HAS_PHOTO' && !p.photoUrl) continue;
             if (mode === 'IN_INV' && !p.inInv) continue;
 
-            if (tokens.length > 0) {
+            if (tLen > 0) {
                 let ok = true;
-                for (let t = 0; t < tokens.length; t++) {
+                for (let t = 0; t < tLen; t++) {
                     if (p.searchNorm.indexOf(tokens[t]) === -1) { ok = false; break; }
                 }
                 if (!ok) continue;
@@ -955,18 +1186,21 @@
             return;
         }
 
-        listEl.innerHTML = slice.map((p) => {
-            const isSel = p.sku === state.selectedSku;
-            const fid = extractDriveFileId(p.photoUrl);
-            const thumb = p.photoUrl ? buildPhotoThumbUrl(p.photoUrl, 160) : '';
+        const selSku = state.selectedSku;
+        const htmlParts = new Array(slice.length);
+        for (let i = 0; i < slice.length; i++) {
+            const p = slice[i];
+            const isSel = p.sku === selSku;
+            const fid = p.photoFileId || '';
+            const thumb = p.photoUrl ? buildPhotoThumbUrl(fid || p.photoUrl, 160) : '';
             const safeSku = escapeHtml(p.sku.replace(/'/g, "\\'"));
-            const safeFid = escapeHtml((fid || '').replace(/'/g, "\\'"));
+            const safeFid = escapeHtml(fid.replace(/'/g, "\\'"));
 
-            return (
-                '<div class="sku-item' + (isSel ? ' selected' : '') + '" onclick="selectSkuProduct(\'' + safeSku + '\')">' +
+            htmlParts[i] =
+                '<div class="sku-item' + (isSel ? ' selected' : '') + '" data-sku="' + escapeHtml(p.sku) + '" onclick="selectSkuProduct(\'' + safeSku + '\')">' +
                     '<div class="sku-mini-thumb">' +
                         (thumb
-                            ? ('<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)">')
+                            ? ('<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)">')
                             : '<span>—</span>') +
                     '</div>' +
                     '<div class="sku-item-info">' +
@@ -984,9 +1218,21 @@
                         '</div>' +
                         '<div class="sku-name">' + escapeHtml(p.displayName) + '</div>' +
                     '</div>' +
-                '</div>'
-            );
-        }).join('');
+                '</div>';
+        }
+        listEl.innerHTML = htmlParts.join('');
+    }
+
+    function updateSkuListSelectionInDom(prevSku, nextSku) {
+        const listEl = document.getElementById('skuResultsList');
+        if (!listEl) return;
+        const items = listEl.querySelectorAll('.sku-item');
+        for (let i = 0; i < items.length; i++) {
+            const el = items[i];
+            const sk = el.getAttribute('data-sku');
+            if (sk === prevSku && sk !== nextSku) el.classList.remove('selected');
+            else if (sk === nextSku) el.classList.add('selected');
+        }
     }
 
     window.selectSkuProduct = function (skuRaw) {
@@ -994,13 +1240,14 @@
         const prod = state.productBySku.get(sku);
         if (!prod) return;
 
+        const prevSku = state.selectedSku;
         state.selectedSku = sku;
         hideAssignFeedback();
 
         const destSel = document.getElementById('destFolderSelect');
         if (destSel && prod.destFolderId) destSel.value = prod.destFolderId;
 
-        renderSkuResultsList();
+        updateSkuListSelectionInDom(prevSku, sku);
         renderSelectedProductStage();
         updateAssignButtonState();
     };
@@ -1052,7 +1299,7 @@
         }
 
         if (rowBadge) {
-            rowBadge.textContent = prod.inSheet1 ? ('Fila ' + prod.rowNumber) : 'Nuevo';
+            rowBadge.textContent = prod.inSheet1 ? (prod.rowNumber ? ('Fila ' + prod.rowNumber) : 'Hoja 1') : 'Nuevo';
         }
         if (colASku) colASku.textContent = prod.sku;
         if (colBName) colBName.textContent = prod.colBName || prod.displayName;
@@ -1073,7 +1320,9 @@
 
         if (leftUrl) {
             const fid = extractDriveFileId(leftUrl);
-            const previewSrc = buildPhotoThumbUrl(leftUrl, 900);
+            const previewSrc = (!showBeforeVsLoaded && savedSession && savedSession.localDataUrl)
+                ? savedSession.localDataUrl
+                : buildPhotoThumbUrl(fid || leftUrl, 900);
             if (curOpenLink) {
                 curOpenLink.href = leftUrl;
                 curOpenLink.classList.remove('hidden');
@@ -1082,7 +1331,7 @@
             if (curDeleteBtn) curDeleteBtn.classList.remove('hidden');
             if (curCanvas) {
                 curCanvas.innerHTML =
-                    '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(prod.sku) + '" referrerpolicy="no-referrer" ' +
+                    '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(prod.sku) + '" decoding="async" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(fid) + '" ' +
                     'onclick="openPhotoLightbox(\'' + escapeHtml(previewSrc.replace(/'/g, "\\'")) + '\')" ' +
                     'onerror="handlePhotoImgError(this)">';
@@ -1127,7 +1376,7 @@
             if (delBtn) delBtn.classList.remove('hidden');
             const previewUrl = selPhoto.localDataUrl || selPhoto.thumbDataUrl || buildPhotoThumbUrl(selPhoto.id, 900);
             canvas.innerHTML =
-                '<img src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(selPhoto.name) + '" referrerpolicy="no-referrer" ' +
+                '<img src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(selPhoto.name) + '" decoding="async" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(selPhoto.id) + '" ' +
                 'onclick="openPhotoLightbox(\'' + escapeHtml(previewUrl.replace(/'/g, "\\'")) + '\')" ' +
                 'onerror="handlePhotoImgError(this)">';
@@ -1138,13 +1387,13 @@
 
         if (savedSession) {
             stageCard.classList.add('is-just-saved');
-            if (stageTitle) stageTitle.textContent = '✅ Fila ' + savedSession.rowNumber;
+            if (stageTitle) stageTitle.textContent = savedSession.rowNumber ? ('✅ Fila ' + savedSession.rowNumber) : '✅ Guardada';
             if (clearBtn) clearBtn.classList.add('hidden');
             if (delBtn) delBtn.classList.remove('hidden');
             const savedPreview = savedSession.localDataUrl || buildPhotoThumbUrl(savedSession.fileId || savedSession.newUrl, 900);
             const fid = savedSession.fileId || extractDriveFileId(savedSession.newUrl);
             canvas.innerHTML =
-                '<img src="' + escapeHtml(savedPreview) + '" alt="' + escapeHtml(savedSession.sku) + '" referrerpolicy="no-referrer" ' +
+                '<img src="' + escapeHtml(savedPreview) + '" alt="' + escapeHtml(savedSession.sku) + '" decoding="async" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(fid) + '" ' +
                 'onclick="openPhotoLightbox(\'' + escapeHtml(savedPreview.replace(/'/g, "\\'")) + '\')" ' +
                 'onerror="handlePhotoImgError(this)">';
@@ -1166,11 +1415,9 @@
         const btn = document.getElementById('btnAssignPhotoNow');
         if (!btn) return;
         const selPhoto = getActiveSelectedPhotoObject();
-        const canAssign = !!(state.selectedSku && selPhoto && !state.assignInFlight && !state.uploadInFlight);
+        const canAssign = !!(state.selectedSku && selPhoto);
         btn.disabled = !canAssign;
-        if (!state.assignInFlight) {
-            btn.textContent = state.selectedSku ? ('Guardar en ' + state.selectedSku) : 'Guardar';
-        }
+        btn.textContent = state.selectedSku ? ('Guardar en ' + state.selectedSku) : 'Guardar';
     }
 
     function showAssignFeedback(msgHtml, isOk) {
@@ -1185,30 +1432,6 @@
         if (!box) return;
         box.innerHTML = '';
         box.className = 'assign-feedback-banner hidden';
-    }
-
-    function findSuggestedSkuForFileName(fileName) {
-        const base = cleanStr(fileName).replace(/\.[a-zA-Z0-9]{2,5}$/, '').trim();
-        if (!base || !state.productBySku.size) return '';
-        const upperBase = base.toUpperCase();
-        if (state.productBySku.has(upperBase)) return upperBase;
-
-        const firstPart = cleanStr(upperBase.split(/[\s_\-]+/)[0]);
-        if (firstPart.length >= 3 && state.productBySku.has(firstPart)) return firstPart;
-
-        const tokens = upperBase.split(/[^A-Z0-9]+/).filter((t) => t.length >= 4);
-        for (let i = 0; i < tokens.length; i++) {
-            if (state.productBySku.has(tokens[i])) return tokens[i];
-        }
-
-        const normBase = normalizeSearchText(base);
-        if (normBase.length >= 5) {
-            for (let i = 0; i < state.products.length; i++) {
-                const pName = normalizeSearchText(state.products[i].displayName);
-                if (pName && pName === normBase) return state.products[i].sku;
-            }
-        }
-        return '';
     }
 
     window.setGalleryMode = function (mode) {
@@ -1236,27 +1459,21 @@
             pendingDeletes: (pendingFileIds.length || pendingSkus.length)
                 ? { fileIds: pendingFileIds, skus: pendingSkus }
                 : undefined
-        }, buildOwnerAuthPayload()), 22000);
+        }, buildOwnerAuthPayload()), 18000);
         state.inboxLoading = false;
 
-        const banner = document.getElementById('webappUpdateBanner');
-
         if (res && res.ok && Array.isArray(res.files)) {
-            state.webappNeedsDeploy = false;
-            if (banner) banner.classList.add('hidden');
-            if (res.inboxFolderUrl) {
-                const hdrLink = document.getElementById('hdrSubirFolderLink');
-                if (hdrLink) hdrLink.href = res.inboxFolderUrl;
+            if (pendingFileIds.length || pendingSkus.length) {
+                writeDeletedQueue({ fileIds: {}, skus: {} });
             }
+            state.rawInboxFromDrive = res.files;
             state.inboxFiles = filterAndMergeInboxFiles(res.files);
+            scheduleSaveFastCache();
             if (state.selectedInboxFileId && (!state.selectedPhotoItem || !state.selectedPhotoItem.fromLoaded)) {
                 if (!state.inboxFiles.some((f) => f.id === state.selectedInboxFileId)) {
                     state.selectedInboxFileId = '';
                     state.selectedPhotoItem = null;
                 }
-            }
-            if (Number(res.hoja1SkusAdded || 0) > 0 && !state.sheetsLoading) {
-                loadSheetsCatalog();
             }
             renderInboxGallery();
             renderSelectedProductStage();
@@ -1272,14 +1489,12 @@
 
         const errMsg = cleanStr(res && res.error);
         if (/Acci[óo]n no reconocida/i.test(errMsg)) {
-            state.webappNeedsDeploy = true;
-            if (banner) banner.classList.remove('hidden');
-            state.inboxFiles = filterAndMergeInboxFiles(state.inboxFiles);
+            state.inboxFiles = filterAndMergeInboxFiles(state.rawInboxFromDrive);
             renderInboxGallery();
             return;
         }
 
-        if (container && state.galleryMode === 'INBOX') {
+        if (container && state.galleryMode === 'INBOX' && !state.inboxFiles.length) {
             container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' + escapeHtml(errMsg || '↻') + '</div>';
         }
     };
@@ -1290,15 +1505,15 @@
         const loadedBadge = document.getElementById('loadedHeaderBadge');
         if (!container) return;
 
-        const loadedAll = buildLoadedPhotosList();
+        const loadedAll = getLoadedPhotosList();
         const q = normalizeSearchText(state.inboxSearchQuery);
 
         const visibleInbox = q
-            ? state.inboxFiles.filter((f) => normalizeSearchText(f.name + ' ' + (f.skuOrigin || '')).indexOf(q) !== -1)
+            ? state.inboxFiles.filter((f) => (f._searchNorm || '').indexOf(q) !== -1)
             : state.inboxFiles;
 
         const visibleLoaded = q
-            ? loadedAll.filter((it) => normalizeSearchText(it.sku + ' ' + it.name + ' ' + it.destFolderName).indexOf(q) !== -1)
+            ? loadedAll.filter((it) => (it._searchNorm || '').indexOf(q) !== -1)
             : loadedAll;
 
         if (inboxBadge) inboxBadge.textContent = String(visibleInbox.length);
@@ -1313,28 +1528,31 @@
                 container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">—</div>';
                 return;
             }
-            container.innerHTML = sliceLoaded.map((item) => {
+            const parts = new Array(sliceLoaded.length);
+            for (let i = 0; i < sliceLoaded.length; i++) {
+                const item = sliceLoaded[i];
                 const isSel = activeId === item.id && activePhoto && activePhoto.fromLoaded && activePhoto.skuOrigin === item.sku;
-                const thumb = item.localDataUrl || buildPhotoThumbUrl(item.id || item.viewUrl, 400);
+                const thumb = item.localDataUrl || buildPhotoThumbUrl(item.id || item.viewUrl, 360);
                 const safeSku = escapeHtml((item.sku || '').replace(/'/g, "\\'"));
                 const safeId = escapeHtml((item.id || '').replace(/'/g, "\\'"));
+                const cardKey = 'L::' + (item.sku || '') + '::' + item.id;
 
-                return (
-                    '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" onclick="takeLoadedPhotoForAssign(\'' + safeSku + '\', \'' + safeId + '\')">' +
+                parts[i] =
+                    '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" onclick="takeLoadedPhotoForAssign(\'' + safeSku + '\', \'' + safeId + '\')">' +
                         '<div class="inbox-thumb-box">' +
                             '<button type="button" class="card-del-btn" title="Borrar" onclick="deleteLoadedPhotoBySku(\'' + safeSku + '\', \'' + safeId + '\', event)">🗑</button>' +
-                            '<img src="' + escapeHtml(thumb) + '" alt="' + escapeHtml(item.name) + '" loading="lazy" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
+                            '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
                         '</div>' +
                         '<div class="inbox-card-meta">' +
                             '<div class="inbox-file-name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.sku ? (item.sku + ' · ' + item.name) : item.name) + '</div>' +
                             '<div class="inbox-file-sub">' +
-                                '<span>' + escapeHtml((item.destFolderName || '').replace(/^FOTOS\s+(DE\s+)?/i, '')) + '</span>' +
-                                '<span style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
+                                '<span>' + escapeHtml(item.shortFolder || '') + '</span>' +
+                                '<span data-take-lbl="1" style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
                             '</div>' +
                         '</div>' +
-                    '</div>'
-                );
-            }).join('');
+                    '</div>';
+            }
+            container.innerHTML = parts.join('');
             return;
         }
 
@@ -1348,32 +1566,57 @@
             return;
         }
 
-        container.innerHTML = visibleInbox.map((f) => {
+        const sliceInbox = visibleInbox.slice(0, 160);
+        const parts = new Array(sliceInbox.length);
+        for (let i = 0; i < sliceInbox.length; i++) {
+            const f = sliceInbox[i];
             const isSel = f.id === activeId && (!activePhoto || !activePhoto.fromLoaded);
-            const thumb = f.localDataUrl || f.thumbDataUrl || buildPhotoThumbUrl(f.id, 400);
-            const sz = formatFileSize(f.sizeBytes);
-            const suggestedSku = findSuggestedSkuForFileName(f.name) || cleanStr(f.skuOrigin);
+            const thumb = f.localDataUrl || f.thumbDataUrl || buildPhotoThumbUrl(f.id, 360);
+            const sz = f._sizeText || '';
+            const suggestedSku = f._suggestedSku || '';
             const safeFid = escapeHtml((f.id || '').replace(/'/g, "\\'"));
+            const cardKey = 'I::' + f.id;
 
-            return (
-                '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" onclick="selectInboxPhoto(\'' + safeFid + '\')">' +
+            parts[i] =
+                '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" onclick="selectInboxPhoto(\'' + safeFid + '\')">' +
                     '<div class="inbox-thumb-box">' +
                         '<button type="button" class="card-del-btn" title="Borrar" onclick="deleteInboxPhotoById(\'' + safeFid + '\', event)">🗑</button>' +
-                        '<img src="' + escapeHtml(thumb) + '" alt="' + escapeHtml(f.name) + '" loading="lazy" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
+                        '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
                     '</div>' +
                     '<div class="inbox-card-meta">' +
                         '<div class="inbox-file-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</div>' +
                         '<div class="inbox-file-sub">' +
                             '<span>' + escapeHtml(sz) + '</span>' +
-                            '<span style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
+                            '<span data-take-lbl="1" style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
                         '</div>' +
                         (suggestedSku
                             ? ('<button type="button" class="suggest-sku-btn" onclick="applySuggestedSkuFromInbox(\'' + safeFid + '\', \'' + escapeHtml(suggestedSku.replace(/'/g, "\\'")) + '\', event)">SKU ' + escapeHtml(suggestedSku) + '</button>')
                             : '') +
                     '</div>' +
-                '</div>'
-            );
-        }).join('');
+                '</div>';
+        }
+        container.innerHTML = parts.join('');
+    }
+
+    function updateGallerySelectionInDom() {
+        const container = document.getElementById('inboxGalleryContainer');
+        if (!container) return;
+        const activePhoto = getActiveSelectedPhotoObject();
+        const targetKey = activePhoto
+            ? (activePhoto.fromLoaded ? ('L::' + (activePhoto.skuOrigin || '') + '::' + activePhoto.id) : ('I::' + activePhoto.id))
+            : '';
+
+        const cards = container.querySelectorAll('.inbox-photo-card');
+        for (let i = 0; i < cards.length; i++) {
+            const card = cards[i];
+            const isSel = targetKey && card.getAttribute('data-card-key') === targetKey;
+            card.classList.toggle('selected', !!isSel);
+            const lbl = card.querySelector('[data-take-lbl]');
+            if (lbl) {
+                lbl.textContent = isSel ? '✓' : 'Tomar';
+                lbl.style.color = isSel ? '#CCA66B' : '#D0D9E4';
+            }
+        }
     }
 
     window.selectInboxPhoto = function (fileId) {
@@ -1397,12 +1640,12 @@
             } : null;
 
             if (!state.selectedSku && fObj) {
-                const sug = findSuggestedSkuForFileName(fObj.name) || cleanStr(fObj.skuOrigin);
+                const sug = fObj._suggestedSku || findSuggestedSkuForFileName(fObj.name) || cleanStr(fObj.skuOrigin);
                 if (sug) window.selectSkuProduct(sug);
             }
         }
         hideAssignFeedback();
-        renderInboxGallery();
+        updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
     };
@@ -1442,7 +1685,7 @@
         }
 
         hideAssignFeedback();
-        renderInboxGallery();
+        updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
     };
@@ -1452,7 +1695,7 @@
         const prod = state.productBySku.get(state.selectedSku);
         const saved = state.sessionSavedBySku.get(state.selectedSku);
         const url = (prod && prod.photoUrl) || (saved && saved.newUrl) || '';
-        const fid = extractDriveFileId(url) || (saved && saved.fileId) || '';
+        const fid = (prod && prod.photoFileId) || extractDriveFileId(url) || (saved && saved.fileId) || '';
         if (!fid) return;
         window.takeLoadedPhotoForAssign(state.selectedSku, fid);
     };
@@ -1462,7 +1705,7 @@
         const sku = cleanStr(skuRaw).toUpperCase();
         const prod = state.productBySku.get(sku);
         if (!prod || !prod.photoUrl) return;
-        const fid = extractDriveFileId(prod.photoUrl);
+        const fid = prod.photoFileId || extractDriveFileId(prod.photoUrl);
         if (!fid) return;
         window.takeLoadedPhotoForAssign(sku, fid);
     };
@@ -1473,8 +1716,10 @@
         if (!fid) return;
 
         markDeletedInQueue(fid, '');
+        state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== fid);
         state.inboxFiles = state.inboxFiles.filter((f) => f.id !== fid);
         state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== fid);
+        scheduleSaveFastCache();
 
         if (state.selectedInboxFileId === fid || (state.selectedPhotoItem && state.selectedPhotoItem.id === fid)) {
             state.selectedInboxFileId = '';
@@ -1488,15 +1733,12 @@
 
         const res = await callWebAppPost('fotos_delete', Object.assign({
             driveFileId: fid,
-            source: 'INBOX'
-        }, buildOwnerAuthPayload()), 25000);
+            source: 'INBOX',
+            skipListReturn: true
+        }, buildOwnerAuthPayload()), 22000);
 
         if (res && res.ok) {
             unmarkSkuDeletedInQueue('', fid);
-            if (Array.isArray(res.remainingFiles)) {
-                state.inboxFiles = filterAndMergeInboxFiles(res.remainingFiles);
-                renderInboxGallery();
-            }
         }
     };
 
@@ -1506,7 +1748,7 @@
         const prod = sku ? state.productBySku.get(sku) : null;
         const saved = sku ? state.sessionSavedBySku.get(sku) : null;
         const fid = cleanStr(fileIdRaw) ||
-            (prod ? extractDriveFileId(prod.photoUrl) : '') ||
+            (prod ? (prod.photoFileId || extractDriveFileId(prod.photoUrl)) : '') ||
             (saved ? (saved.fileId || extractDriveFileId(saved.newUrl)) : '');
 
         if (!sku && !fid) return;
@@ -1515,12 +1757,14 @@
 
         if (prod) {
             prod.photoUrl = '';
+            prod.photoFileId = '';
         }
         if (sku) {
             state.sessionSavedBySku.delete(sku);
             state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it.sku !== sku);
         }
         if (fid) {
+            state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== fid);
             state.inboxFiles = state.inboxFiles.filter((f) => f.id !== fid);
             state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== fid);
         }
@@ -1532,6 +1776,8 @@
             state.selectedPhotoItem = null;
         }
 
+        invalidateLoadedPhotosCache();
+        scheduleSaveFastCache();
         applySkuFiltersAndRender();
         renderInboxGallery();
         renderSelectedProductStage();
@@ -1542,8 +1788,9 @@
         const res = await callWebAppPost('fotos_delete', Object.assign({
             sku: sku,
             driveFileId: fid,
-            source: 'LOADED'
-        }, buildOwnerAuthPayload()), 25000);
+            source: 'LOADED',
+            skipListReturn: true
+        }, buildOwnerAuthPayload()), 22000);
 
         if (res && res.ok) {
             unmarkSkuDeletedInQueue(sku, fid);
@@ -1553,7 +1800,7 @@
     window.deleteCurrentProductPhoto = function () {
         if (!state.selectedSku) return;
         const prod = state.productBySku.get(state.selectedSku);
-        const fid = prod ? extractDriveFileId(prod.photoUrl) : '';
+        const fid = prod ? (prod.photoFileId || extractDriveFileId(prod.photoUrl)) : '';
         window.deleteLoadedPhotoBySku(state.selectedSku, fid);
     };
 
@@ -1590,7 +1837,7 @@
             skuOrigin: cleanStr(fObj.skuOrigin)
         } : null;
         window.selectSkuProduct(sku);
-        renderInboxGallery();
+        updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
     };
@@ -1598,18 +1845,38 @@
     window.clearSelectedInboxPhoto = function () {
         state.selectedInboxFileId = '';
         state.selectedPhotoItem = null;
-        renderInboxGallery();
+        updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
     };
 
-    function readFileAsOptimizedDataUrl(file) {
+    async function readFileAsOptimizedDataUrl(file) {
+        if (typeof createImageBitmap === 'function' && file.size > 650000) {
+            try {
+                const bmp = await createImageBitmap(file);
+                const maxDim = 1600;
+                let w = bmp.width;
+                let h = bmp.height;
+                if (w > maxDim || h > maxDim) {
+                    const scale = Math.min(maxDim / w, maxDim / h);
+                    w = Math.round(w * scale);
+                    h = Math.round(h * scale);
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+                if (bmp.close) bmp.close();
+                return canvas.toDataURL('image/jpeg', 0.84);
+            } catch (eBmp) {}
+        }
+
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onerror = () => reject(new Error('Error al leer archivo.'));
             reader.onload = () => {
                 const rawDataUrl = String(reader.result || '');
-                if (file.size <= 3200000 || typeof Image === 'undefined') {
+                if (file.size <= 900000 || typeof Image === 'undefined') {
                     resolve(rawDataUrl);
                     return;
                 }
@@ -1617,7 +1884,7 @@
                 img.onerror = () => resolve(rawDataUrl);
                 img.onload = () => {
                     try {
-                        const maxDim = 2200;
+                        const maxDim = 1600;
                         let w = img.naturalWidth || img.width;
                         let h = img.naturalHeight || img.height;
                         if (w > maxDim || h > maxDim) {
@@ -1629,7 +1896,7 @@
                         canvas.width = w;
                         canvas.height = h;
                         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                        resolve(canvas.toDataURL('image/jpeg', 0.9));
+                        resolve(canvas.toDataURL('image/jpeg', 0.84));
                     } catch (errC) {
                         resolve(rawDataUrl);
                     }
@@ -1648,47 +1915,51 @@
             return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '');
         });
         if (!files.length || state.uploadInFlight) return;
+        if (inputEl) inputEl.value = '';
 
         state.uploadInFlight = true;
-        updateAssignButtonState();
+        showAssignFeedback('⚡ Subiendo ' + files.length + ' foto(s)...', true);
 
         let lastUploadedId = '';
         let lastLocalPreview = '';
+        let uploadedCount = 0;
 
         try {
-            for (let i = 0; i < files.length; i++) {
-                const f = files[i];
-                const dataUrl = await readFileAsOptimizedDataUrl(f);
-                const res = await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
-                    fileName: f.name,
-                    dataUrl: dataUrl
-                }, buildOwnerAuthPayload()), 35000);
+            const CONCURRENCY = 3;
+            let cursor = 0;
 
-                if (!res || !res.ok) {
-                    const errTxt = cleanStr(res && res.error) || 'Error al subir.';
-                    if (/Acci[óo]n no reconocida/i.test(errTxt)) {
-                        state.webappNeedsDeploy = true;
-                        const banner = document.getElementById('webappUpdateBanner');
-                        if (banner) banner.classList.remove('hidden');
+            const worker = async () => {
+                while (cursor < files.length) {
+                    const idx = cursor++;
+                    const f = files[idx];
+                    const dataUrl = await readFileAsOptimizedDataUrl(f);
+                    const res = await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
+                        fileName: f.name,
+                        dataUrl: dataUrl,
+                        skipListReturn: true
+                    }, buildOwnerAuthPayload()), 30000);
+
+                    if (res && res.ok && res.file && res.file.id) {
+                        uploadedCount++;
+                        const newFile = enrichInboxFileItem(Object.assign({}, res.file, {
+                            localDataUrl: dataUrl
+                        }));
+                        state.rawInboxFromDrive.unshift(newFile);
+                        state.inboxFiles.unshift(newFile);
+                        lastUploadedId = newFile.id;
+                        lastLocalPreview = dataUrl;
                     }
-                    showAssignFeedback('❌ ' + escapeHtml(errTxt), false);
-                    break;
                 }
+            };
 
-                if (Array.isArray(res.files)) state.inboxFiles = filterAndMergeInboxFiles(res.files);
-                else if (res.file) state.inboxFiles.unshift(res.file);
-
-                if (res.file && res.file.id) {
-                    lastUploadedId = res.file.id;
-                    lastLocalPreview = dataUrl;
-                    const matchItem = state.inboxFiles.find((it) => it.id === lastUploadedId);
-                    if (matchItem) matchItem.localDataUrl = dataUrl;
-                }
+            const workers = [];
+            for (let w = 0; w < Math.min(CONCURRENCY, files.length); w++) {
+                workers.push(worker());
             }
+            await Promise.all(workers);
 
             if (lastUploadedId) {
                 const matchItem = state.inboxFiles.find((it) => it.id === lastUploadedId);
-                if (matchItem && lastLocalPreview) matchItem.localDataUrl = lastLocalPreview;
                 state.selectedInboxFileId = lastUploadedId;
                 state.selectedPhotoItem = matchItem ? {
                     id: matchItem.id,
@@ -1702,35 +1973,83 @@
                 state.galleryMode = 'INBOX';
                 window.setGalleryMode('INBOX');
                 renderSelectedProductStage();
-                showAssignFeedback('✅ Subida a SUBIR COTIZACION (' + files.length + ').', true);
+                scheduleSaveFastCache();
+                showAssignFeedback('✅ Subidas a SUBIR COTIZACION (' + uploadedCount + ').', true);
+            } else {
+                showAssignFeedback('❌ No se pudieron subir las fotos.', false);
             }
         } catch (errUp) {
             showAssignFeedback('❌ ' + escapeHtml(errUp && errUp.message ? errUp.message : String(errUp)), false);
         } finally {
             state.uploadInFlight = false;
-            if (inputEl) inputEl.value = '';
             updateAssignButtonState();
         }
     };
 
     window.assignSelectedPhotoToProduct = async function () {
-        if (state.assignInFlight) return;
         const prod = state.selectedSku ? state.productBySku.get(state.selectedSku) : null;
         const selPhoto = getActiveSelectedPhotoObject();
-
         if (!prod || !selPhoto) return;
 
         const destSelect = document.getElementById('destFolderSelect');
-        const targetFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId);
-        const btn = document.getElementById('btnAssignPhotoNow');
+        const targetFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId) || prod.destFolderId;
+        const targetDestMeta = DEST_FOLDER_BY_ID.get(targetFolderId) || {
+            id: targetFolderId,
+            name: prod.destFolderName || 'FOTOS INTERIOR'
+        };
 
-        state.assignInFlight = true;
-        if (btn) {
-            btn.disabled = true;
-            btn.textContent = 'Guardando...';
+        const optimisticUrl = selPhoto.viewUrl || ('https://drive.google.com/file/d/' + selPhoto.id + '/view?usp=sharing');
+        const prevUrlBeforeSave = prod.photoUrl || '';
+        const prevFidBeforeSave = prod.photoFileId || '';
+
+        unmarkSkuDeletedInQueue(prod.sku, selPhoto.id);
+
+        // ACTUALIZACIÓN OPTIMISTA INSTANTÁNEA (0ms de espera en UI)
+        prod.photoUrl = optimisticUrl;
+        prod.photoFileId = selPhoto.id;
+        prod.inSheet1 = true;
+        prod.destFolderId = targetDestMeta.id;
+        prod.destFolderName = targetDestMeta.name;
+
+        const logEntry = {
+            sku: prod.sku,
+            productName: prod.displayName,
+            rowNumber: prod.rowNumber || '...',
+            previousUrl: prevUrlBeforeSave,
+            newUrl: optimisticUrl,
+            fileId: selPhoto.id,
+            fileName: selPhoto.name,
+            destFolderName: targetDestMeta.name,
+            destFolderUrl: 'https://drive.google.com/drive/folders/' + targetDestMeta.id,
+            localDataUrl: selPhoto.localDataUrl || selPhoto.thumbDataUrl || ''
+        };
+
+        state.sessionSavedBySku.set(prod.sku, logEntry);
+        state.sessionSavedLogs = [logEntry].concat(state.sessionSavedLogs.filter((it) => it.sku !== prod.sku));
+
+        if (!selPhoto.fromLoaded) {
+            state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== selPhoto.id);
+            state.inboxFiles = state.inboxFiles.filter((f) => f.id !== selPhoto.id);
+            state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== selPhoto.id);
         }
-        hideAssignFeedback();
 
+        state.selectedInboxFileId = '';
+        state.selectedPhotoItem = null;
+
+        invalidateLoadedPhotosCache();
+        scheduleSaveFastCache();
+        applySkuFiltersAndRender();
+        renderInboxGallery();
+        renderSelectedProductStage();
+        renderSessionHistoryLog();
+        updateAssignButtonState();
+
+        showAssignFeedback(
+            '⚡ <strong>' + escapeHtml(prod.sku) + '</strong> → <strong>' + escapeHtml(targetDestMeta.name) + '</strong>',
+            true
+        );
+
+        state.assignInFlight++;
         try {
             const res = await callWebAppPost('fotos_subir_assign', Object.assign({
                 sku: prod.sku,
@@ -1739,76 +2058,58 @@
                 tipo: prod.tipo,
                 driveFileId: selPhoto.id,
                 fromLoaded: !!selPhoto.fromLoaded,
-                targetFolderId: targetFolderId
-            }, buildOwnerAuthPayload()), 35000);
+                targetFolderId: targetFolderId,
+                skipListReturn: true
+            }, buildOwnerAuthPayload()), 30000);
 
             if (!res || !res.ok) {
                 if (res && res.authRequired) {
                     window.lockFotosPortal();
                     return;
                 }
-                const errMsg = cleanStr(res && res.error) || 'Error al guardar.';
-                if (/Acci[óo]n no reconocida/i.test(errMsg)) {
-                    state.webappNeedsDeploy = true;
-                    const banner = document.getElementById('webappUpdateBanner');
-                    if (banner) banner.classList.remove('hidden');
-                }
-                showAssignFeedback('❌ ' + escapeHtml(errMsg), false);
+                prod.photoUrl = prevUrlBeforeSave;
+                prod.photoFileId = prevFidBeforeSave;
+                state.sessionSavedBySku.delete(prod.sku);
+                state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it !== logEntry);
+                invalidateLoadedPhotosCache();
+                applySkuFiltersAndRender();
+                renderInboxGallery();
+                renderSelectedProductStage();
+                renderSessionHistoryLog();
+                showAssignFeedback('❌ ' + escapeHtml(cleanStr(res && res.error) || 'Error al guardar.'), false);
                 return;
             }
 
-            unmarkSkuDeletedInQueue(prod.sku, res.fileId || selPhoto.id);
-
-            const prevUrlBeforeSave = cleanStr(res.previousUrl) || prod.photoUrl || '';
-            prod.photoUrl = res.newUrl;
-            prod.inSheet1 = true;
-            if (res.rowNumber) prod.rowNumber = res.rowNumber;
-            if (res.productName) {
+            if (res.newUrl) {
+                prod.photoUrl = res.newUrl;
+                logEntry.newUrl = res.newUrl;
+            }
+            if (res.fileId) {
+                prod.photoFileId = res.fileId;
+                logEntry.fileId = res.fileId;
+            }
+            if (res.rowNumber) {
+                prod.rowNumber = res.rowNumber;
+                logEntry.rowNumber = res.rowNumber;
+            }
+            if (res.productName && (!prod.colBName || prod.displayName === '—')) {
                 prod.colBName = res.productName;
                 prod.displayName = res.productName;
+                logEntry.productName = res.productName;
             }
-            if (res.destFolderId) prod.destFolderId = res.destFolderId;
-            if (res.destFolderName) prod.destFolderName = res.destFolderName;
 
-            const logEntry = {
-                sku: prod.sku,
-                productName: prod.displayName,
-                rowNumber: res.rowNumber,
-                previousUrl: prevUrlBeforeSave,
-                newUrl: res.newUrl,
-                fileId: res.fileId || selPhoto.id,
-                fileName: res.fileName || selPhoto.name,
-                destFolderName: res.destFolderName || prod.destFolderName,
-                destFolderUrl: res.destFolderUrl || ('https://drive.google.com/drive/folders/' + targetFolderId),
-                localDataUrl: selPhoto.localDataUrl || selPhoto.thumbDataUrl || ''
-            };
-
-            state.sessionSavedBySku.set(prod.sku, logEntry);
-            state.sessionSavedLogs.unshift(logEntry);
-
-            if (!selPhoto.fromLoaded) {
-                if (Array.isArray(res.remainingFiles)) {
-                    state.inboxFiles = filterAndMergeInboxFiles(res.remainingFiles);
-                } else {
-                    state.inboxFiles = state.inboxFiles.filter((f) => f.id !== selPhoto.id);
-                }
-                state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== selPhoto.id);
+            invalidateLoadedPhotosCache();
+            scheduleSaveFastCache();
+            if (state.selectedSku === prod.sku) {
+                renderSelectedProductStage();
             }
-            state.selectedInboxFileId = '';
-            state.selectedPhotoItem = null;
-
-            applySkuFiltersAndRender();
-            renderInboxGallery();
-            renderSelectedProductStage();
             renderSessionHistoryLog();
-
             showAssignFeedback(
-                '✅ Fila ' + escapeHtml(res.rowNumber) + ' → <strong>' + escapeHtml(logEntry.destFolderName) + '</strong>.',
+                '✅ Fila ' + escapeHtml(logEntry.rowNumber) + ' → <strong>' + escapeHtml(logEntry.destFolderName) + '</strong>.',
                 true
             );
         } finally {
-            state.assignInFlight = false;
-            updateAssignButtonState();
+            state.assignInFlight = Math.max(0, state.assignInFlight - 1);
         }
     };
 
@@ -1847,11 +2148,13 @@
         if (!sku) return;
         if (!state.productBySku.has(sku)) {
             const dest = resolveCategoryDestFolderForProduct('', '', sku);
+            const norm = normalizeSearchText(sku);
             const item = {
                 sku: sku,
                 colBName: '',
                 displayName: sku,
                 photoUrl: '',
+                photoFileId: '',
                 rowNumber: null,
                 inSheet1: false,
                 inInv: false,
@@ -1859,9 +2162,9 @@
                 tipo: '',
                 destFolderId: dest.id,
                 destFolderName: dest.name,
-                searchSkuNorm: normalizeSearchText(sku),
-                searchNameNorm: normalizeSearchText(sku),
-                searchNorm: normalizeSearchText(sku)
+                searchSkuNorm: norm,
+                searchNameNorm: norm,
+                searchNorm: norm
             };
             state.products.unshift(item);
             state.productBySku.set(sku, item);
@@ -1877,20 +2180,20 @@
         const btnHdr = document.getElementById('btnHeaderSyncSkus');
         const btnCard = document.getElementById('btnSyncSkusCard');
         const origHdr = btnHdr ? btnHdr.textContent : '↻ SKUs';
-        const origCard = btnCard ? btnCard.textContent : '↻ Actualizar SKUs';
+        const origCard = btnCard ? btnCard.textContent : '↻ SKUs';
 
-        if (btnHdr) { btnHdr.disabled = true; btnHdr.textContent = 'Sincronizando...'; }
-        if (btnCard) { btnCard.disabled = true; btnCard.textContent = 'Sincronizando...'; }
+        if (btnHdr) { btnHdr.disabled = true; btnHdr.textContent = '↻...'; }
+        if (btnCard) { btnCard.disabled = true; btnCard.textContent = '↻...'; }
         hideAssignFeedback();
 
         try {
             const qSku = cleanStr(querySkuOpt || '').toUpperCase();
             let res = await callWebAppPost('fotos_sync_skus', Object.assign({
                 querySku: qSku
-            }, buildOwnerAuthPayload()), 45000);
+            }, buildOwnerAuthPayload()), 40000);
 
             if (res && !res.ok && /Acci[óo]n no reconocida/i.test(cleanStr(res.error))) {
-                res = await callWebAppPost('inv_erp_sync_now', buildOwnerAuthPayload(), 45000);
+                res = await callWebAppPost('inv_erp_sync_now', buildOwnerAuthPayload(), 40000);
             }
 
             await loadSheetsCatalog();
@@ -1903,9 +2206,9 @@
             const addedInv = Number((res && (res.invAdded || res.newSkusAdded)) || 0);
             const total1 = state.products.length;
             if (added1 > 0 || addedInv > 0) {
-                showAssignFeedback('✅ SKUs actualizados (+' + Math.max(added1, addedInv) + ' nuevos · ' + total1.toLocaleString('es-MX') + ' en total).', true);
+                showAssignFeedback('✅ SKUs actualizados (+' + Math.max(added1, addedInv) + ' nuevos · ' + total1.toLocaleString('es-MX') + ').', true);
             } else {
-                showAssignFeedback('✅ SKUs al día (' + total1.toLocaleString('es-MX') + ' productos).', true);
+                showAssignFeedback('✅ SKUs al día (' + total1.toLocaleString('es-MX') + ').', true);
             }
         } catch (errSync) {
             showAssignFeedback('❌ ' + escapeHtml(errSync && errSync.message ? errSync.message : String(errSync)), false);
@@ -1913,31 +2216,6 @@
             state.syncSkusInFlight = false;
             if (btnHdr) { btnHdr.disabled = false; btnHdr.textContent = origHdr; }
             if (btnCard) { btnCard.disabled = false; btnCard.textContent = origCard; }
-        }
-    };
-
-    window.copyUpdatedAppsScriptCode = async function () {
-        const btn = document.getElementById('btnCopyAppsScriptCode');
-        const btnHdr = document.getElementById('btnHeaderCopyScript');
-        const origText = btn ? btn.textContent : '';
-        const origHdr = btnHdr ? btnHdr.textContent : '📋 Script';
-        if (btn) { btn.disabled = true; btn.textContent = 'Copiando...'; }
-        if (btnHdr) { btnHdr.disabled = true; btnHdr.textContent = 'Copiando...'; }
-        try {
-            const resp = await fetch('./AppsScript_Creata_Drive_Sheets.gs?_t=' + Date.now(), { cache: 'no-store' });
-            if (!resp.ok) throw new Error('Error al descargar .gs');
-            const code = await resp.text();
-            await navigator.clipboard.writeText(code);
-            if (btn) btn.textContent = '✅ ¡Copiado! Pégalo en Apps Script';
-            if (btnHdr) btnHdr.textContent = '✅ Copiado';
-            setTimeout(() => {
-                if (btn) { btn.disabled = false; btn.textContent = origText; }
-                if (btnHdr) { btnHdr.disabled = false; btnHdr.textContent = origHdr; }
-            }, 4500);
-        } catch (err) {
-            if (btn) { btn.disabled = false; btn.textContent = origText; }
-            if (btnHdr) { btnHdr.disabled = false; btnHdr.textContent = origHdr; }
-            alert('Error al copiar: ' + (err && err.message ? err.message : String(err)));
         }
     };
 
@@ -1974,19 +2252,21 @@
         }
 
         populateDestFolderSelect();
+        hydrateFromFastCache();
+        loadSheetsCatalog();
 
         const skuInp = document.getElementById('skuSearchInput');
         const clrBtn = document.getElementById('skuSearchClearBtn');
-        let searchTimer = null;
+        let skuRaf = 0;
         if (skuInp) {
             skuInp.addEventListener('input', () => {
                 const val = skuInp.value || '';
                 if (clrBtn) clrBtn.classList.toggle('hidden', !val.trim());
-                if (searchTimer) clearTimeout(searchTimer);
-                searchTimer = setTimeout(() => {
+                if (skuRaf) cancelAnimationFrame(skuRaf);
+                skuRaf = requestAnimationFrame(() => {
                     state.skuSearchQuery = val;
                     applySkuFiltersAndRender();
-                }, 80);
+                });
             });
             skuInp.addEventListener('keydown', (ev) => {
                 if (ev.key === 'Enter') {
@@ -2001,10 +2281,15 @@
         }
 
         const inboxInp = document.getElementById('inboxSearchInput');
+        let inboxRaf = 0;
         if (inboxInp) {
             inboxInp.addEventListener('input', () => {
-                state.inboxSearchQuery = inboxInp.value || '';
-                renderInboxGallery();
+                const val = inboxInp.value || '';
+                if (inboxRaf) cancelAnimationFrame(inboxRaf);
+                inboxRaf = requestAnimationFrame(() => {
+                    state.inboxSearchQuery = val;
+                    renderInboxGallery();
+                });
             });
         }
 

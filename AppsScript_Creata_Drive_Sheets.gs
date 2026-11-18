@@ -8508,7 +8508,8 @@ function resolveSubirInboxFolders_() {
   };
 }
 
-function listSubirInboxFilesInternal_() {
+function listSubirInboxFilesInternal_(opts) {
+  const includeThumbs = !!(opts && opts.includeThumbs);
   const resolved = resolveSubirInboxFolders_();
   const inboxFolders = resolved.folders || [];
   const seenFileIds = {};
@@ -8565,21 +8566,12 @@ function listSubirInboxFilesInternal_() {
     const item = rawItems[i];
     const f = item.fileObj;
     let thumbDataUrl = '';
-    if (i < 60) {
-      try {
-        if (f.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) {
-          f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        }
-      } catch (eSh) {}
+    if (includeThumbs && i < 16) {
       try {
         const tb = f.getThumbnail();
         if (tb) {
           const ct = String(tb.getContentType() || 'image/png');
           thumbDataUrl = 'data:' + ct + ';base64,' + Utilities.base64Encode(tb.getBytes());
-        } else if (item.sizeBytes > 0 && item.sizeBytes <= 6500000) {
-          const bl = f.getBlob();
-          const ct2 = String(bl.getContentType() || item.mimeType || 'image/jpeg');
-          thumbDataUrl = 'data:' + ct2 + ';base64,' + Utilities.base64Encode(bl.getBytes());
         }
       } catch (eTb) {}
     }
@@ -8673,13 +8665,15 @@ function handleFotosSubirList_(body) {
   }
 
   let skuSync = { added: 0, totalHoja1: 0 };
-  try {
-    skuSync = sincronizarSkusHoja1DesdeInventario_(ss, false) || skuSync;
-  } catch (eSync1) {}
+  if (body && body.syncSkus) {
+    try {
+      skuSync = sincronizarSkusHoja1DesdeInventario_(ss, false) || skuSync;
+    } catch (eSync1) {}
+  }
 
   const resolved = resolveSubirInboxFolders_();
   const primaryId = (resolved.primaryFolder && resolved.primaryFolder.getId()) || SUBIR_INBOX_FOLDER_ID_;
-  const files = listSubirInboxFilesInternal_();
+  const files = listSubirInboxFilesInternal_({ includeThumbs: !!(body && body.includeThumbs) });
   return {
     ok: true,
     inboxFolderId: primaryId,
@@ -8794,9 +8788,7 @@ function handleFotosSubirUploadInbox_(body) {
     const inbox = resolved.primaryFolder || DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
     const created = inbox.createFile(blob);
     try {
-      if (created.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) {
-        created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      }
+      created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (eSh) {}
     const fid = created.getId();
     return {
@@ -8810,7 +8802,7 @@ function handleFotosSubirUploadInbox_(body) {
         viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
         thumbUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=w800'
       },
-      files: listSubirInboxFilesInternal_()
+      files: (body && body.skipListReturn) ? undefined : listSubirInboxFilesInternal_()
     };
   } finally {
     try { lock.releaseLock(); } catch (e) {}
@@ -8839,34 +8831,41 @@ function handleFotosSubirAssign_(body) {
       return { ok: false, error: 'No se encontró la hoja "1" en el documento maestro.' };
     }
 
-    // Buscar metadatos del producto en INVENTARIO_EN_VIVO para determinar categoría y nombre si aplica
-    let invMeta = { nombre: '', tipo: '', categoria: '' };
-    try {
-      const shInv = ss.getSheetByName('INVENTARIO_EN_VIVO');
-      if (shInv && shInv.getLastRow() >= 3) {
-        const invVals = shInv.getRange(3, 1, shInv.getLastRow() - 2, 7).getValues();
-        for (let i = 0; i < invVals.length; i++) {
-          const sk = cleanInvCell_(invVals[i][0]).toUpperCase();
-          if (sk === skuUpper) {
-            invMeta = {
-              tipo: cleanInvCell_(invVals[i][1]),
-              nombre: cleanInvCell_(invVals[i][3]),
-              categoria: cleanInvCell_(invVals[i][6])
-            };
-            break;
-          }
-        }
-      }
-    } catch (eInvMeta) {}
-
-    // Resolver carpeta destino de categoría dentro de CATEGORIAS MUEBLES Y ACCESORIOS
     const reqFolderId = String((body && body.targetFolderId) || '').trim();
     let destMeta = CATEGORIAS_DEST_FOLDERS_.find((f) => f.id === reqFolderId) || null;
+    const providedName = String((body && body.productName) || '').trim();
+
+    let invMeta = {
+      nombre: providedName,
+      tipo: String((body && body.tipo) || '').trim(),
+      categoria: String((body && body.categoria) || '').trim()
+    };
+
+    if (!destMeta || !invMeta.nombre) {
+      try {
+        const shInv = ss.getSheetByName('INVENTARIO_EN_VIVO');
+        if (shInv && shInv.getLastRow() >= 3) {
+          const invVals = shInv.getRange(3, 1, shInv.getLastRow() - 2, 7).getValues();
+          for (let i = 0; i < invVals.length; i++) {
+            const sk = cleanInvCell_(invVals[i][0]).toUpperCase();
+            if (sk === skuUpper) {
+              invMeta = {
+                tipo: cleanInvCell_(invVals[i][1]) || invMeta.tipo,
+                nombre: cleanInvCell_(invVals[i][3]) || invMeta.nombre,
+                categoria: cleanInvCell_(invVals[i][6]) || invMeta.categoria
+              };
+              break;
+            }
+          }
+        }
+      } catch (eInvMeta) {}
+    }
+
     if (!destMeta) {
       destMeta = resolveCategoryDestFolderForProduct_(
-        invMeta.categoria || (body && body.categoria) || '',
-        invMeta.tipo || (body && body.tipo) || '',
-        invMeta.nombre || (body && body.productName) || ''
+        invMeta.categoria,
+        invMeta.tipo,
+        invMeta.nombre
       );
     }
     const destFolder = DriveApp.getFolderById(destMeta.id);
@@ -8896,7 +8895,7 @@ function handleFotosSubirAssign_(body) {
       }
     }
 
-    const effectiveName = sheetProductName || invMeta.nombre || String((body && body.productName) || '').trim() || skuUpper;
+    const effectiveName = sheetProductName || invMeta.nombre || providedName || skuUpper;
 
     const srcFile = DriveApp.getFileById(driveFileId);
     const origName = String(srcFile.getName() || '').trim();
@@ -8943,9 +8942,7 @@ function handleFotosSubirAssign_(body) {
     }
 
     try {
-      if (file.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) {
-        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      }
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (eShare) {}
 
     try {
@@ -8982,10 +8979,12 @@ function handleFotosSubirAssign_(body) {
 
     SpreadsheetApp.flush();
     let formulaResolvedName = effectiveName;
-    try {
-      const bVal = String(sh1.getRange(primaryRowNumber, 2).getDisplayValue() || '').trim();
-      if (bVal) formulaResolvedName = bVal;
-    } catch (eReadB) {}
+    if (wasAppended) {
+      try {
+        const bVal = String(sh1.getRange(primaryRowNumber, 2).getDisplayValue() || '').trim();
+        if (bVal) formulaResolvedName = bVal;
+      } catch (eReadB) {}
+    }
 
     try {
       registrarEventoHistorial_(ss, {
@@ -9019,7 +9018,7 @@ function handleFotosSubirAssign_(body) {
       destFolderId: destMeta.id,
       destFolderName: destMeta.name,
       destFolderUrl: 'https://drive.google.com/drive/folders/' + destMeta.id,
-      remainingFiles: listSubirInboxFilesInternal_(),
+      remainingFiles: (body && body.skipListReturn) ? undefined : listSubirInboxFilesInternal_(),
       timestamp: formatCancunNow_()
     };
   } catch (errAssign) {
