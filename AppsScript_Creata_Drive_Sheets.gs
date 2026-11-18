@@ -987,6 +987,9 @@ function doPost(e) {
     if (action === 'fotos_subir_assign') {
       return jsonResponse_(handleFotosSubirAssign_(body));
     }
+    if (action === 'fotos_delete' || action === 'fotos_subir_delete') {
+      return jsonResponse_(handleFotosDelete_(body));
+    }
     if (action === 'fotos_sync_skus') {
       return jsonResponse_(handleFotosSyncSkus_(body));
     }
@@ -8418,27 +8421,143 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
   return byKey('INTERIOR');
 }
 
-function listSubirInboxFilesInternal_() {
-  const inbox = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
-  const it = inbox.getFiles();
-  const rawItems = [];
-  while (it.hasNext()) {
-    const f = it.next();
-    if (f.isTrashed()) continue;
-    const mime = String(f.getMimeType() || '').toLowerCase();
-    const name = String(f.getName() || '').trim();
-    const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(name);
-    if (!isImg) continue;
-    const updated = f.getLastUpdated();
-    rawItems.push({
-      fileObj: f,
-      id: f.getId(),
-      name: name,
-      mimeType: mime || 'image/jpeg',
-      sizeBytes: Number(f.getSize() || 0) || 0,
-      updatedAt: updated ? updated.toISOString() : ''
-    });
+function resolveSubirInboxFolders_() {
+  const folders = [];
+  const folderIdsMap = {};
+  let primaryFolder = null;
+
+  function addFolderSafe(folderObj) {
+    if (!folderObj) return;
+    try {
+      const fid = String(folderObj.getId() || '').trim();
+      if (!fid || folderIdsMap[fid]) return;
+      folderIdsMap[fid] = true;
+      folders.push(folderObj);
+      if (!primaryFolder) primaryFolder = folderObj;
+    } catch (eAddF) {}
   }
+
+  try {
+    const baseSubir = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
+    addFolderSafe(baseSubir);
+    try {
+      const pIt = baseSubir.getParents();
+      while (pIt.hasNext()) {
+        const parentF = pIt.next();
+        const sibIt = parentF.getFolders();
+        while (sibIt.hasNext()) {
+          const sib = sibIt.next();
+          if (sib.isTrashed()) continue;
+          const sName = normPlainFotoCat_(sib.getName());
+          if (sName === 'SUBIR COTIZACION' || sName === 'SUBIR') {
+            addFolderSafe(sib);
+            if (sName === 'SUBIR COTIZACION') primaryFolder = sib;
+          }
+        }
+      }
+    } catch (eParents) {}
+  } catch (eBase) {}
+
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const cachedCotId = String((props && props.getProperty('SUBIR_COTIZACION_FOLDER_ID_V1')) || '').trim();
+    let foundCached = false;
+    if (cachedCotId) {
+      try {
+        const cf = DriveApp.getFolderById(cachedCotId);
+        if (cf && !cf.isTrashed()) {
+          addFolderSafe(cf);
+          primaryFolder = cf;
+          foundCached = true;
+        }
+      } catch (eCacheMiss) {}
+    }
+    if (!foundCached) {
+      const searchNames = ['SUBIR COTIZACION', 'SUBIR COTIZACIÓN'];
+      for (let s = 0; s < searchNames.length; s++) {
+        const fIt = DriveApp.getFoldersByName(searchNames[s]);
+        while (fIt.hasNext()) {
+          const cand = fIt.next();
+          if (cand.isTrashed()) continue;
+          addFolderSafe(cand);
+          primaryFolder = cand;
+          try {
+            if (props) props.setProperty('SUBIR_COTIZACION_FOLDER_ID_V1', cand.getId());
+          } catch (eSaveProp) {}
+          break;
+        }
+      }
+    }
+  } catch (eSearchCot) {}
+
+  const rootCount = folders.length;
+  for (let i = 0; i < rootCount; i++) {
+    try {
+      const subIt = folders[i].getFolders();
+      while (subIt.hasNext()) {
+        const sub = subIt.next();
+        if (!sub.isTrashed()) addFolderSafe(sub);
+      }
+    } catch (eSub) {}
+  }
+
+  return {
+    primaryFolder: primaryFolder,
+    folders: folders,
+    folderIdsMap: folderIdsMap
+  };
+}
+
+function listSubirInboxFilesInternal_() {
+  const resolved = resolveSubirInboxFolders_();
+  const inboxFolders = resolved.folders || [];
+  const seenFileIds = {};
+  const rawItems = [];
+
+  for (let fIdx = 0; fIdx < inboxFolders.length; fIdx++) {
+    const folder = inboxFolders[fIdx];
+    let it = null;
+    try {
+      it = folder.getFiles();
+    } catch (eIt) {
+      continue;
+    }
+    while (it && it.hasNext()) {
+      let f = it.next();
+      try {
+        if (!f || f.isTrashed()) continue;
+        let mime = String(f.getMimeType() || '').toLowerCase();
+        if (mime === 'application/vnd.google-apps.shortcut') {
+          try {
+            const targetId = f.getTargetId && f.getTargetId();
+            if (targetId) {
+              const targetFile = DriveApp.getFileById(targetId);
+              if (targetFile && !targetFile.isTrashed()) {
+                f = targetFile;
+                mime = String(f.getMimeType() || '').toLowerCase();
+              }
+            }
+          } catch (eSc) {}
+        }
+        const fid = String(f.getId() || '').trim();
+        if (!fid || seenFileIds[fid]) continue;
+        const name = String(f.getName() || '').trim();
+        const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif|tiff?)$/i.test(name);
+        if (!isImg) continue;
+        seenFileIds[fid] = true;
+        const updated = f.getLastUpdated();
+        rawItems.push({
+          fileObj: f,
+          id: fid,
+          name: name,
+          mimeType: mime.indexOf('image/') === 0 ? mime : 'image/jpeg',
+          sizeBytes: Number(f.getSize() || 0) || 0,
+          updatedAt: updated ? updated.toISOString() : ''
+        });
+      } catch (eItem) {}
+    }
+  }
+
   rawItems.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
 
   const files = [];
@@ -8446,7 +8565,7 @@ function listSubirInboxFilesInternal_() {
     const item = rawItems[i];
     const f = item.fileObj;
     let thumbDataUrl = '';
-    if (i < 35) {
+    if (i < 60) {
       try {
         if (f.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) {
           f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -8457,9 +8576,9 @@ function listSubirInboxFilesInternal_() {
         if (tb) {
           const ct = String(tb.getContentType() || 'image/png');
           thumbDataUrl = 'data:' + ct + ';base64,' + Utilities.base64Encode(tb.getBytes());
-        } else if (item.sizeBytes > 0 && item.sizeBytes <= 2200000) {
+        } else if (item.sizeBytes > 0 && item.sizeBytes <= 6500000) {
           const bl = f.getBlob();
-          const ct2 = String(bl.getContentType() || item.mimeType || 'image/png');
+          const ct2 = String(bl.getContentType() || item.mimeType || 'image/jpeg');
           thumbDataUrl = 'data:' + ct2 + ';base64,' + Utilities.base64Encode(bl.getBytes());
         }
       } catch (eTb) {}
@@ -8539,16 +8658,32 @@ function handleFotosSubirList_(body) {
   const auth = verifyExclusiveKevinOwner_(ss, body);
   if (!auth.ok) return auth;
 
+  if (body && body.pendingDeletes && typeof body.pendingDeletes === 'object') {
+    try {
+      const pd = body.pendingDeletes;
+      const pSkus = Array.isArray(pd.skus) ? pd.skus : [];
+      const pFiles = Array.isArray(pd.fileIds) ? pd.fileIds : [];
+      for (let i = 0; i < pSkus.length; i++) {
+        if (pSkus[i]) handleFotosDelete_(Object.assign({}, body, { sku: pSkus[i], skipListReturn: true }));
+      }
+      for (let j = 0; j < pFiles.length; j++) {
+        if (pFiles[j]) handleFotosDelete_(Object.assign({}, body, { driveFileId: pFiles[j], source: 'INBOX', skipListReturn: true }));
+      }
+    } catch (ePend) {}
+  }
+
   let skuSync = { added: 0, totalHoja1: 0 };
   try {
     skuSync = sincronizarSkusHoja1DesdeInventario_(ss, false) || skuSync;
   } catch (eSync1) {}
 
+  const resolved = resolveSubirInboxFolders_();
+  const primaryId = (resolved.primaryFolder && resolved.primaryFolder.getId()) || SUBIR_INBOX_FOLDER_ID_;
   const files = listSubirInboxFilesInternal_();
   return {
     ok: true,
-    inboxFolderId: SUBIR_INBOX_FOLDER_ID_,
-    inboxFolderUrl: 'https://drive.google.com/drive/folders/' + SUBIR_INBOX_FOLDER_ID_,
+    inboxFolderId: primaryId,
+    inboxFolderUrl: 'https://drive.google.com/drive/folders/' + primaryId,
     destRootFolderId: CATEGORIAS_DEST_ROOT_FOLDER_ID_,
     destRootFolderUrl: 'https://drive.google.com/drive/folders/' + CATEGORIAS_DEST_ROOT_FOLDER_ID_,
     destFolders: CATEGORIAS_DEST_FOLDERS_,
@@ -8655,7 +8790,8 @@ function handleFotosSubirUploadInbox_(body) {
     const bytes = Utilities.base64Decode(base64Body);
     const blob = Utilities.newBlob(bytes, mime, finalName);
 
-    const inbox = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
+    const resolved = resolveSubirInboxFolders_();
+    const inbox = resolved.primaryFolder || DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
     const created = inbox.createFile(blob);
     try {
       if (created.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) {
@@ -8695,7 +8831,7 @@ function handleFotosSubirAssign_(body) {
       return { ok: false, error: 'Selecciona primero el SKU del producto.' };
     }
     if (!driveFileId) {
-      return { ok: false, error: 'Selecciona primero una fotografía de la carpeta SUBIR.' };
+      return { ok: false, error: 'Selecciona primero una fotografía.' };
     }
 
     const sh1 = ss.getSheetByName('1');
@@ -8742,27 +8878,30 @@ function handleFotosSubirAssign_(body) {
     let lastSkuRowInColA = 2; // Nunca escribir en fila 1 ni fila 2 (fórmulas maestras)
     let sheetProductName = '';
     let previousUrl = '';
+    let isUsedByOtherSku = false;
 
     for (let i = 2; i < vals1.length; i++) {
       const rowNum = i + 1;
       const cellSku = String(vals1[i][0] || '').trim().toUpperCase();
+      const cellUrl = String(vals1[i][3] || '').trim();
       if (cellSku) {
         lastSkuRowInColA = rowNum;
         if (cellSku === skuUpper) {
           matchedRows.push(rowNum);
           if (!sheetProductName && vals1[i][1]) sheetProductName = String(vals1[i][1]).trim();
-          if (!previousUrl && vals1[i][3]) previousUrl = String(vals1[i][3]).trim();
+          if (!previousUrl && cellUrl) previousUrl = cellUrl;
+        } else if (cellUrl && cellUrl.indexOf(driveFileId) !== -1) {
+          isUsedByOtherSku = true;
         }
       }
     }
 
     const effectiveName = sheetProductName || invMeta.nombre || String((body && body.productName) || '').trim() || skuUpper;
 
-    // Tomar el archivo desde Drive (SUBIR), renombrarlo limpiamente y moverlo fuera de SUBIR hacia su carpeta de categoría
-    const file = DriveApp.getFileById(driveFileId);
-    const origName = String(file.getName() || '').trim();
+    const srcFile = DriveApp.getFileById(driveFileId);
+    const origName = String(srcFile.getName() || '').trim();
     const extMatch = origName.match(/(\.[a-zA-Z0-9]{2,5})$/);
-    const mimeLower = String(file.getMimeType() || '').toLowerCase();
+    const mimeLower = String(srcFile.getMimeType() || '').toLowerCase();
     const fallbackExt = mimeLower.indexOf('png') !== -1 ? '.png' : (mimeLower.indexOf('webp') !== -1 ? '.webp' : '.jpg');
     const ext = extMatch ? extMatch[1].toLowerCase() : fallbackExt;
 
@@ -8776,18 +8915,32 @@ function handleFotosSubirAssign_(body) {
       ? (cleanSkuPart + ' - ' + cleanNamePart + ext)
       : (cleanSkuPart + ext);
 
-    file.setName(newFileName);
-    file.moveTo(destFolder); // Saca la foto de SUBIR y la coloca en su carpeta de categoría correspondiente
+    let file = srcFile;
+    const reuseFromLoaded = isUsedByOtherSku || !!(body && body.fromLoaded);
 
-    try {
-      const parentsIt = file.getParents();
-      while (parentsIt.hasNext()) {
-        const pf = parentsIt.next();
-        if (pf.getId() === SUBIR_INBOX_FOLDER_ID_ && pf.getId() !== destFolder.getId()) {
-          pf.removeFile(file);
-        }
+    if (reuseFromLoaded) {
+      // Si se toma una foto que ya está cargada en otro SKU, crear copia limpia en la carpeta destino para no afectar al otro SKU
+      try {
+        file = srcFile.makeCopy(newFileName, destFolder);
+      } catch (eCopyLoaded) {
+        file = srcFile;
       }
-    } catch (eCleanParents) {}
+    } else {
+      file.setName(newFileName);
+      file.moveTo(destFolder); // Saca la foto de SUBIR COTIZACION y la coloca en su carpeta de categoría
+      try {
+        const resolvedInbox = resolveSubirInboxFolders_();
+        const inboxMap = resolvedInbox.folderIdsMap || {};
+        inboxMap[SUBIR_INBOX_FOLDER_ID_] = true;
+        const parentsIt = file.getParents();
+        while (parentsIt.hasNext()) {
+          const pf = parentsIt.next();
+          if (inboxMap[pf.getId()] && pf.getId() !== destFolder.getId()) {
+            pf.removeFile(file);
+          }
+        }
+      } catch (eCleanParents) {}
+    }
 
     try {
       if (file.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) {
@@ -8838,12 +8991,14 @@ function handleFotosSubirAssign_(body) {
       registrarEventoHistorial_(ss, {
         clasificacion: 'MOVIMIENTO',
         modulo: 'AppsScript · Gestor Fotos Hoja "1"',
-        evento: wasAppended ? 'NUEVO SKU + FOTO ASIGNADA DESDE SUBIR' : 'FOTO ACTUALIZADA EN HOJA "1" DESDE SUBIR',
+        evento: reuseFromLoaded
+          ? 'FOTO TOMADA DE CARGADAS Y ASIGNADA EN HOJA "1"'
+          : (wasAppended ? 'NUEVO SKU + FOTO ASIGNADA DESDE SUBIR' : 'FOTO ACTUALIZADA EN HOJA "1" DESDE SUBIR'),
         estado: '✅ OK',
         usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
         sucursal: 'ADMINISTRACIÓN GENERAL',
         referencia: skuUpper + ' · Fila ' + primaryRowNumber,
-        detalle: 'Movida de SUBIR a "' + destMeta.name + '" como "' + newFileName + '" · Guardada en Hoja "1"!D' + primaryRowNumber + ': ' + driveViewUrl,
+        detalle: (reuseFromLoaded ? 'Tomada de fotos cargadas hacia "' : 'Movida de SUBIR COTIZACION a "') + destMeta.name + '" como "' + newFileName + '" · Guardada en Hoja "1"!D' + primaryRowNumber + ': ' + driveViewUrl,
         analisis: previousUrl ? ('Reemplazó link anterior: ' + previousUrl) : 'Producto previamente sin foto en Columna D.'
       });
     } catch (eHist) {}
@@ -8854,6 +9009,7 @@ function handleFotosSubirAssign_(body) {
       productName: formulaResolvedName,
       rowNumber: primaryRowNumber,
       wasAppended: wasAppended,
+      reusedLoaded: reuseFromLoaded,
       previousUrl: previousUrl,
       newUrl: driveViewUrl,
       thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w900',
@@ -8883,6 +9039,128 @@ function handleFotosSubirAssign_(body) {
     return {
       ok: false,
       error: (errAssign && errAssign.message) ? errAssign.message : String(errAssign)
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function handleFotosDelete_(body) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const ss = getSpreadsheet_();
+    const auth = verifyExclusiveKevinOwner_(ss, body);
+    if (!auth.ok) return auth;
+
+    const skuUpper = String((body && body.sku) || '').trim().toUpperCase();
+    let driveFileId = String((body && body.driveFileId) || '').trim();
+    const source = String((body && body.source) || '').trim().toUpperCase();
+    const keepDriveFile = !!(body && body.keepDriveFile);
+    const forceTrash = !!(body && body.forceTrash);
+
+    if (!skuUpper && !driveFileId) {
+      return { ok: false, error: 'Falta indicar SKU o ID de archivo a borrar.' };
+    }
+
+    const sh1 = ss.getSheetByName('1');
+    const clearedRows = [];
+    let previousUrl = '';
+    let usedByOtherSku = false;
+
+    if (sh1 && sh1.getLastRow() >= 3) {
+      const maxScanRows = Math.max(sh1.getLastRow(), 3);
+      const vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
+
+      // Primera pasada: limpiar Columna D del SKU indicado (jamás tocar filas 1 y 2)
+      if (skuUpper) {
+        for (let i = 2; i < vals1.length; i++) {
+          const rowNum = i + 1;
+          const cellSku = String(vals1[i][0] || '').trim().toUpperCase();
+          const cellUrl = String(vals1[i][3] || '').trim();
+          if (cellSku === skuUpper) {
+            if (cellUrl) {
+              if (!previousUrl) previousUrl = cellUrl;
+              if (!driveFileId) {
+                const mId = cellUrl.match(/\/d\/([a-zA-Z0-9_-]{15,})/) || cellUrl.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+                if (mId && mId[1]) driveFileId = mId[1];
+              }
+              sh1.getRange(rowNum, 4).clearContent();
+              clearedRows.push(rowNum);
+              vals1[i][3] = '';
+            }
+          }
+        }
+      }
+
+      // Segunda pasada: verificar si otro SKU en Hoja "1" sigue usando ese driveFileId
+      if (driveFileId) {
+        for (let j = 2; j < vals1.length; j++) {
+          const otherSku = String(vals1[j][0] || '').trim().toUpperCase();
+          const otherUrl = String(vals1[j][3] || '').trim();
+          if (otherUrl && otherUrl.indexOf(driveFileId) !== -1 && (!skuUpper || otherSku !== skuUpper)) {
+            usedByOtherSku = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (clearedRows.length > 0) {
+      SpreadsheetApp.flush();
+    }
+
+    let driveTrashed = false;
+    let deletedFileName = '';
+    if (driveFileId && !keepDriveFile && (source === 'INBOX' || forceTrash || !usedByOtherSku)) {
+      try {
+        const f = DriveApp.getFileById(driveFileId);
+        deletedFileName = String(f.getName() || '');
+        try {
+          f.setTrashed(true);
+          driveTrashed = true;
+        } catch (eTrash) {
+          // Si el archivo pertenece a otro propietario en carpeta compartida, quitarlo de las carpetas padre
+          const pIt = f.getParents();
+          while (pIt.hasNext()) {
+            try {
+              pIt.next().removeFile(f);
+              driveTrashed = true;
+            } catch (eRemP) {}
+          }
+        }
+      } catch (eGetFile) {}
+    }
+
+    try {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'AppsScript · Gestor Fotos Hoja "1"',
+        evento: skuUpper ? 'FOTO BORRADA DE HOJA "1" (COLUMNA D)' : 'FOTO BORRADA DE SUBIR COTIZACION',
+        estado: '✅ OK',
+        usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
+        sucursal: 'ADMINISTRACIÓN GENERAL',
+        referencia: skuUpper ? (skuUpper + (clearedRows.length ? (' · Fila ' + clearedRows.join(',')) : '')) : (deletedFileName || driveFileId),
+        detalle: (skuUpper ? ('Limpiada Columna D en Hoja "1" para SKU ' + skuUpper + (previousUrl ? (' (' + previousUrl + ')') : '')) : ('Eliminado archivo Drive ' + (deletedFileName || driveFileId))) + (driveTrashed ? ' · Archivo enviado a papelera Drive.' : ''),
+        analisis: 'Fórmulas maestras B2:F2 intactas.'
+      });
+    } catch (eHistDel) {}
+
+    return {
+      ok: true,
+      clearedSku: skuUpper,
+      clearedRows: clearedRows,
+      deletedFileId: driveFileId,
+      deletedFileName: deletedFileName,
+      driveTrashed: driveTrashed,
+      usedByOtherSku: usedByOtherSku,
+      remainingFiles: (body && body.skipListReturn) ? [] : listSubirInboxFilesInternal_(),
+      timestamp: formatCancunNow_()
+    };
+  } catch (errDel) {
+    return {
+      ok: false,
+      error: (errDel && errDel.message) ? errDel.message : String(errDel)
     };
   } finally {
     try { lock.releaseLock(); } catch (e) {}

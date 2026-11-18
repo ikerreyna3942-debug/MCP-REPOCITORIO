@@ -944,12 +944,129 @@ body {
     justify-content: center;
     padding: 6px;
     overflow: hidden;
+    position: relative;
 }
 
 .inbox-thumb-box img {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+}
+
+.stage-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.hdr-btn.is-danger {
+    background: var(--status-err-bg);
+    color: var(--status-err-ink);
+    border: 1px solid var(--status-err-border);
+}
+
+.hdr-btn.is-danger:hover {
+    background: #FEE2E2;
+}
+
+.gallery-mode-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.gallery-tab-btn {
+    height: 30px;
+    padding: 0 11px;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: #FFFFFF;
+    color: var(--ink-secondary);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+}
+
+.gallery-tab-btn.active {
+    background: var(--brand-charcoal);
+    border-color: var(--brand-charcoal);
+    color: #FFFFFF;
+}
+
+.gallery-tab-btn.active .panel-badge {
+    background: var(--brand-gold);
+    color: #FFFFFF;
+    border-color: var(--brand-gold);
+}
+
+.card-del-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    z-index: 3;
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    border: 1px solid var(--status-err-border);
+    background: rgba(254, 242, 242, 0.94);
+    color: var(--status-err-ink);
+    font-size: 11px;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.card-del-btn:hover {
+    background: #DC2626;
+    color: #FFFFFF;
+    border-color: #DC2626;
+}
+
+.sku-quick-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.sku-quick-btn {
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 5px;
+    border: 1px solid var(--border-strong);
+    background: #FFFFFF;
+    color: var(--ink-primary);
+    font-family: inherit;
+    font-size: 9.5px;
+    font-weight: 800;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sku-quick-btn.is-take {
+    background: rgba(163, 130, 81, 0.14);
+    border-color: var(--brand-sand);
+    color: var(--brand-gold-hover);
+}
+
+.sku-quick-btn.is-del {
+    background: var(--status-err-bg);
+    border-color: var(--status-err-border);
+    color: var(--status-err-ink);
 }
 
 .inbox-card-meta {
