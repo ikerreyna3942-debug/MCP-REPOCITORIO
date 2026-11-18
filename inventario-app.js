@@ -2466,11 +2466,68 @@
         }
     }
 
+    function attachDesktopStripScroll(stripEl) {
+        if (!stripEl) return;
+        stripEl.addEventListener('scroll', () => updateHorizontalStripFade(stripEl), { passive: true });
+        stripEl.addEventListener('wheel', (ev) => {
+            const maxScroll = stripEl.scrollWidth - stripEl.clientWidth;
+            if (maxScroll <= 2) return;
+            if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX) && ev.deltaY !== 0) {
+                const prev = stripEl.scrollLeft;
+                const next = Math.max(0, Math.min(maxScroll, prev + ev.deltaY));
+                if (Math.abs(next - prev) >= 1) {
+                    ev.preventDefault();
+                    stripEl.scrollLeft = next;
+                    updateHorizontalStripFade(stripEl);
+                }
+            }
+        }, { passive: false });
+
+        let isDown = false;
+        let startX = 0;
+        let startScroll = 0;
+        let dragged = false;
+        stripEl.addEventListener('mousedown', (ev) => {
+            if (ev.button !== 0 || stripEl.scrollWidth <= stripEl.clientWidth + 2) return;
+            isDown = true;
+            dragged = false;
+            startX = ev.clientX;
+            startScroll = stripEl.scrollLeft;
+        });
+        window.addEventListener('mousemove', (ev) => {
+            if (!isDown) return;
+            const dx = ev.clientX - startX;
+            if (Math.abs(dx) > 5) {
+                dragged = true;
+                stripEl.classList.add('is-dragging');
+            }
+            if (dragged) {
+                stripEl.scrollLeft = startScroll - dx;
+                updateHorizontalStripFade(stripEl);
+            }
+        });
+        window.addEventListener('mouseup', () => {
+            if (!isDown) return;
+            isDown = false;
+            stripEl.classList.remove('is-dragging');
+            if (dragged) {
+                setTimeout(() => { dragged = false; }, 0);
+            }
+        });
+        stripEl.addEventListener('click', (ev) => {
+            if (dragged) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                dragged = false;
+            }
+        }, true);
+    }
+
     function bindCategoryStripScrollListeners(bar, subBar) {
         if (catStripListenersBound) return;
         catStripListenersBound = true;
-        if (bar) bar.addEventListener('scroll', () => updateHorizontalStripFade(bar), { passive: true });
-        if (subBar) subBar.addEventListener('scroll', () => updateHorizontalStripFade(subBar), { passive: true });
+        attachDesktopStripScroll(bar);
+        attachDesktopStripScroll(subBar);
         window.addEventListener('resize', () => {
             updateHorizontalStripFade(document.getElementById('invCategoryBar'));
             updateHorizontalStripFade(document.getElementById('invSubCategoryBar'));
