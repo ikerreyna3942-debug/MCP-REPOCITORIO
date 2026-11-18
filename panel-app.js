@@ -26,6 +26,17 @@
         { num: '9', title: 'Subida de Fotos (Hoja 1)',  url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos.html' }
     ];
 
+    const SHEETS = [
+        { title: 'Control de Productos',     ref: '#1 · #3 · #8 · #9', url: 'https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit' },
+        { title: 'LPPT Proveedores',         ref: '#1',                url: 'https://docs.google.com/spreadsheets/d/1t78KDg_DMbGfauNWRrjUc3ULh-SzrxO9XwOHPrtJtWE/edit' },
+        { title: 'Cotizaciones BD',          ref: '#2',                url: 'https://docs.google.com/spreadsheets/d/1_XBmM6WPJ2kI89RvzPO7JchHu_xL1zSnssUfUHRQ-cg/edit' },
+        { title: 'Configuración de Web',     ref: '#4',                url: 'https://docs.google.com/spreadsheets/d/1Ib2n4rv71TLfRdGp4zMu-Bv1yw6HvzbiwAZ5eTYccfg/edit' },
+        { title: 'Ventas e Inventario',      ref: '#5',                url: 'https://docs.google.com/spreadsheets/d/18FMqtvQkSjhmrVzeuuR1ZDfU8IeDCF41D6myHMsNxRM/edit' },
+        { title: 'Base de Datos Generales',  ref: '#6 · #7',           url: 'https://docs.google.com/spreadsheets/d/1ZCLZppO5AH06Wp2gVuxMoaeX3oJwVHgTjRZ7hlqb6eg/edit' }
+    ];
+
+    const SHEET_ICON_SVG = '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="2" y1="6.5" x2="14" y2="6.5"/><line x1="2" y1="10.5" x2="14" y2="10.5"/><line x1="6.5" y1="2" x2="6.5" y2="14"/></svg>';
+
     let unlocked = false;
 
     function cleanStr(v) {
@@ -143,16 +154,33 @@
 
     function renderButtons() {
         const grid = document.getElementById('projectsGridContainer');
-        if (!grid) return;
-        grid.innerHTML = PROJECTS.map((p) => (
-            '<a class="proj-btn" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener">' +
-                '<span class="proj-btn-left">' +
-                    '<span class="proj-num">' + escapeHtml(p.num) + '</span>' +
-                    '<span class="proj-name">' + escapeHtml(p.title) + '</span>' +
-                '</span>' +
-                '<span class="proj-arrow">↗</span>' +
-            '</a>'
-        )).join('');
+        if (grid) {
+            grid.innerHTML = PROJECTS.map((p) => (
+                '<a class="proj-btn" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener">' +
+                    '<span class="proj-btn-left">' +
+                        '<span class="proj-num">' + escapeHtml(p.num) + '</span>' +
+                        '<span class="proj-name">' + escapeHtml(p.title) + '</span>' +
+                    '</span>' +
+                    '<span class="proj-arrow">↗</span>' +
+                '</a>'
+            )).join('');
+        }
+
+        const sheetsGrid = document.getElementById('sheetsGridContainer');
+        if (sheetsGrid) {
+            sheetsGrid.innerHTML = SHEETS.map((s) => (
+                '<a class="proj-btn sheet-btn" href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener">' +
+                    '<span class="proj-btn-left">' +
+                        '<span class="sheet-badge">' + SHEET_ICON_SVG + '</span>' +
+                        '<span class="proj-meta">' +
+                            '<span class="proj-name">' + escapeHtml(s.title) + '</span>' +
+                            '<span class="sheet-ref">' + escapeHtml(s.ref) + '</span>' +
+                        '</span>' +
+                    '</span>' +
+                    '<span class="proj-arrow sheet-arrow">↗</span>' +
+                '</a>'
+            )).join('');
+        }
     }
 
     function wakeRenderServersSilently() {

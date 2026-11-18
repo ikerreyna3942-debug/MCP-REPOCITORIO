@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./panel-styles.css?v=2">
+    <link rel="stylesheet" href="./panel-styles.css?v=3">
 </head>
 <body>
 
@@ -56,19 +56,23 @@
             <div class="top-bar-inner">
                 <div class="brand-left">
                     <img data-creata-logo alt="CREATA" class="brand-logo">
-                    <h1>Proyectos CREATA</h1>
+                    <h1>Panel CREATA</h1>
                 </div>
                 <button type="button" class="top-btn" onclick="lockHubPortal()">Salir</button>
             </div>
         </header>
 
         <main class="hub-container">
+            <h2 class="section-label">Proyectos</h2>
             <nav id="projectsGridContainer" class="projects-grid" aria-label="Proyectos"></nav>
+
+            <h2 class="section-label section-label-sheets">Google Sheets</h2>
+            <nav id="sheetsGridContainer" class="projects-grid sheets-grid" aria-label="Google Sheets"></nav>
         </main>
     </div>
 
     <script src="./creata-logo.js?v=32"></script>
     <script src="./creata-cloud.js?v=32"></script>
-    <script src="./panel-app.js?v=2"></script>
+    <script src="./panel-app.js?v=3"></script>
 </body>
 </html>
