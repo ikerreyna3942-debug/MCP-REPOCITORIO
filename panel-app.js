@@ -16,7 +16,7 @@
 
     const PROJECTS = [
         { num: '1', title: 'Creación de Cotización',    url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/inventario.html' },
-        { num: '2', title: 'Seguimiento de Cotización', url: 'https://creata-muebles-qa8x.onrender.com/', render: true },
+        { num: '2', title: 'Seguimiento de Cotización', url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/seguimiento.html' },
         { num: '3', title: 'Catálogo',                  url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/index.html' },
         { num: '4', title: 'Cambios de Precio Web',     url: 'https://creata-control-precios.onrender.com/', render: true },
         { num: '5', title: 'Mapa 3D · Casa CREATA',     url: 'https://ikerreyna3942-debug.github.io/Casa-creata/' },

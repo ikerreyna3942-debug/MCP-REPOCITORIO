@@ -920,9 +920,17 @@ function doPost(e) {
     const action = body.action || '';
     parsedAction = action;
 
-    // Acciones públicas exclusivas de inventario.html (autenticación de asesores y cotización en vivo S Mueblería)
+    // Acciones públicas exclusivas de inventario.html y seguimiento.html (autenticación de asesores, cotización en vivo S Mueblería y seguimiento)
     if (action === 'inv_log_event') {
       return jsonResponse_(handleInvLogEvent_(body));
+    }
+    if (action === 'seg_action') {
+      return jsonResponse_(handleSegAction_(body));
+    }
+    if (action === 'seg_sync_now') {
+      const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
+      ensureLiveErpSyncTrigger_();
+      return jsonResponse_(Object.assign({ ok: true }, syncRes));
     }
     if (action === 'inv_login') {
       return jsonResponse_(handleInvLogin_(body));
@@ -3156,6 +3164,7 @@ function handleInvUpdateKey_(body) {
   }
 
   SpreadsheetApp.flush();
+  sincronizarPasswordEnHojaSeguimiento_(email, newKey);
   const primaryTab = activeTab && tokensByTab[activeTab] ? activeTab : matchedTargets[0].tabName;
 
   registrarEventoHistorial_(ss, {
@@ -5015,6 +5024,18 @@ function handleInvSubmitQuote_(body) {
       const appendedRow = shQuotes.getLastRow();
       shQuotes.getRange(appendedRow, 19, 1, 4).setNumberFormat('$#,##0.00');
 
+      registrarCotizacionAppEnSeguimiento_(ss, {
+        folio: folioFinal,
+        fechaStr: Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd'),
+        sheetTab: verifiedUser.sheetTab,
+        erpStore: erpStore,
+        advisorName: verifiedUser.nombre,
+        advisorEmail: verifiedUser.correo,
+        clientName: displayClientForErp,
+        clientPhone: clientPhone,
+        partidas: partidasErp
+      });
+
       registrarEventoHistorial_(ss, {
         clasificacion: 'MOVIMIENTO',
         modulo: 'AppsScript WCF · InsertarCotizacion',
@@ -5108,6 +5129,17 @@ function handleInvSubmitQuote_(body) {
         ]);
         const appRow = shQuotes.getLastRow();
         shQuotes.getRange(appRow, 19, 1, 4).setNumberFormat('$#,##0.00');
+        registrarCotizacionAppEnSeguimiento_(ss, {
+          folio: folioResolved,
+          fechaStr: Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd'),
+          sheetTab: verifiedUser.sheetTab,
+          erpStore: erpStore,
+          advisorName: verifiedUser.nombre,
+          advisorEmail: verifiedUser.correo,
+          clientName: displayClientForErp,
+          clientPhone: clientPhone,
+          partidas: partidasErp
+        });
         registrarEventoHistorial_(ss, {
           clasificacion: 'MOVIMIENTO',
           modulo: 'AppsScript + servicio_en_vivo.py',
@@ -9414,3 +9446,278 @@ function handleInvLogEvent_(body) {
   });
   return { ok: ok, sheetName: TAB_HISTORIAL_ };
 }
+
+// ============================================================================
+// PUENTE EN VIVO CON SEGUIMIENTO DE COTIZACIONES (COTIZACIONES BASE DE DATOS)
+// ============================================================================
+const SPREADSHEET_SEGUIMIENTO_ID_ = '1_XBmM6WPJ2kI89RvzPO7JchHu_xL1zSnssUfUHRQ-cg';
+
+function getSpreadsheetSeguimiento_() {
+  try {
+    return SpreadsheetApp.openById(SPREADSHEET_SEGUIMIENTO_ID_);
+  } catch (e) {
+    return null;
+  }
+}
+
+function mapErpStoreToSeguimientoBranch_(rawStoreOrTab, folio) {
+  const s = String(rawStoreOrTab || '').trim().toUpperCase();
+  const f = String(folio || '').trim().toUpperCase();
+  if (s.indexOf('PROYECTO') >= 0 || f.indexOf('PROY-') === 0) return 'PROYECTOS';
+  if (s.indexOf('CASA CREATA') >= 0 || f.indexOf('CC-') === 0) return 'CASA CREATA';
+  if (s.indexOf('PLAYA') >= 0 || f.indexOf('PC-') === 0) return 'PLAYA';
+  if (s.indexOf('COLOSIO') >= 0 || s.indexOf('COLOCIO') >= 0 || f.indexOf('CO-') === 0 || f.indexOf('OC-') === 0) return 'COLOSIO';
+  if (s.indexOf('PTC') >= 0 || s.indexOf('PUERTO') >= 0 || f.indexOf('CA-') === 0) return 'PTC';
+  return 'PTC';
+}
+
+function sincronizarPasswordEnHojaSeguimiento_(email, newKey) {
+  try {
+    const em = String(email || '').trim().toLowerCase();
+    const nk = String(newKey || '').trim();
+    if (!em || !nk) return;
+    const ssSeg = getSpreadsheetSeguimiento_();
+    if (!ssSeg) return;
+    const tabs = ['PLAYA', 'COLOCIO', 'COLOSIO', 'PTC', 'CASA CREATA', 'PROYECTOS', 'INVITADOS'];
+    for (let t = 0; t < tabs.length; t++) {
+      const sh = ssSeg.getSheetByName(tabs[t]);
+      if (!sh || sh.getLastRow() < 2) continue;
+      const vals = sh.getRange(1, 1, sh.getLastRow(), Math.max(7, sh.getLastColumn())).getValues();
+      for (let r = 0; r < vals.length; r++) {
+        const rowEm = String(vals[r][4] || '').trim().toLowerCase();
+        if (rowEm === em) {
+          sh.getRange(r + 1, 6).clearContent();
+          sh.getRange(r + 1, 7).setNumberFormat('@').setValue(nk);
+        }
+      }
+    }
+  } catch (eSegPwd) {}
+}
+
+function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
+  try {
+    if (!info || !info.folio || !Array.isArray(info.partidas) || !info.partidas.length) return;
+    const ssSeg = getSpreadsheetSeguimiento_();
+    if (!ssSeg) return;
+    const shCot = ssSeg.getSheetByName('COTIZACIONES_CREATA');
+    if (!shCot) return;
+
+    const folio = String(info.folio || '').trim().toUpperCase();
+    const sucSeg = mapErpStoreToSeguimientoBranch_(info.erpStore || info.sheetTab, folio);
+    const fechaStr = String(info.fechaStr || Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd'));
+    const advisorName = String(info.advisorName || '').trim();
+    const advisorEmail = String(info.advisorEmail || '').trim().toLowerCase();
+    const clientName = String(info.clientName || 'Prospecto CREATA').trim();
+    const clientPhone = String(info.clientPhone || '').replace(/\D+/g, '');
+
+    // Mapa rápido de existencias en INVENTARIO_EN_VIVO
+    const invMap = {};
+    try {
+      const shInv = (ssInv || getSpreadsheet_()).getSheetByName(CONFIG.TAB_INVENTORY);
+      if (shInv && shInv.getLastRow() >= 4) {
+        const invRows = shInv.getRange(4, 1, shInv.getLastRow() - 3, 21).getValues();
+        for (let i = 0; i < invRows.length; i++) {
+          const r = invRows[i];
+          const skuKey = String(r[1] || '').trim().toUpperCase();
+          if (!skuKey) continue;
+          invMap[skuKey] = {
+            modelo: String(r[3] || '').trim(),
+            cedis_bodega: Number(r[6]) || 0,
+            cedis_piso: Number(r[7]) || 0,
+            casa_bodega: Number(r[8]) || 0,
+            casa_piso: Number(r[9]) || 0,
+            colosio_bodega: (Number(r[10]) || 0) + (Number(r[12]) || 0),
+            colosio_piso: (Number(r[11]) || 0) + (Number(r[13]) || 0),
+            playa_bodega: Number(r[14]) || 0,
+            playa_piso: Number(r[15]) || 0,
+            ptc_bodega: Number(r[16]) || 0,
+            ptc_piso: Number(r[17]) || 0
+          };
+        }
+      }
+    } catch (eInv) {}
+
+    // Verificar partidas existentes para no duplicar ID_Partida
+    const existingRowByPartida = {};
+    const lastR = shCot.getLastRow();
+    if (lastR >= 2) {
+      const colA = shCot.getRange(2, 1, lastR - 1, 1).getValues();
+      for (let i = 0; i < colA.length; i++) {
+        const idP = String(colA[i][0] || '').trim().toUpperCase();
+        if (idP) existingRowByPartida[idP] = i + 2;
+      }
+    }
+
+    for (let p = 0; p < info.partidas.length; p++) {
+      const pt = info.partidas[p] || {};
+      const sku = String(pt.Clave || pt.sku || '').trim().toUpperCase();
+      if (!sku) continue;
+      const idPartida = folio + '_' + sku;
+      const cant = Math.max(1, Number(pt.Cantidad || pt.qty || 1) || 1);
+      const precio = Number(pt.PrecioUnitario || pt.PrecioOriginal || pt.price || 0) || 0;
+      const nombreProd = String(pt.Nombre || pt.name || sku).trim();
+      const st = invMap[sku] || null;
+
+      let cb = 0, cp = 0, tb = 0, tp = 0, tot = 0;
+      if (st) {
+        cb = st.cedis_bodega;
+        cp = st.cedis_piso;
+        if (sucSeg === 'PLAYA') { tb = st.playa_bodega; tp = st.playa_piso; tot = cb + cp + tb + tp; }
+        else if (sucSeg === 'COLOSIO') { tb = st.colosio_bodega; tp = st.colosio_piso; tot = cb + cp + tb + tp; }
+        else if (sucSeg === 'PTC') { tb = st.ptc_bodega; tp = st.ptc_piso; tot = cb + cp + tb + tp; }
+        else if (sucSeg === 'CASA CREATA') { tb = st.casa_bodega; tp = st.casa_piso; tot = cb + cp + tb + tp; }
+        else {
+          tb = st.casa_bodega + st.colosio_bodega + st.playa_bodega + st.ptc_bodega;
+          tp = st.casa_piso + st.colosio_piso + st.playa_piso + st.ptc_piso;
+          tot = cb + cp + tb + tp;
+        }
+      }
+
+      let sem = '🟢 En Stock', prio = '4_NORMAL', acc = 'EN STOCK';
+      if (tot <= 0 || tot < cant) {
+        sem = '🔴 Agotado'; prio = '1_AGOTADO'; acc = 'SUGERIR CAMBIO';
+      } else if (tot === 1 || tot === cant) {
+        sem = '🔥 Última Pieza'; prio = '2_ULTIMA_PIEZA'; acc = 'URGENCIA DE CIERRE';
+      } else if (tot <= 3) {
+        sem = '🟠 Stock Bajo'; prio = '3_BAJA_DE_STOCK'; acc = 'AVISAR BAJA';
+      }
+
+      const rowValues = [
+        idPartida,
+        folio,
+        fechaStr,
+        sucSeg,
+        advisorName,
+        advisorEmail,
+        '',
+        clientName,
+        clientPhone,
+        sku,
+        nombreProd,
+        (st && st.modelo) || String(pt.model || ''),
+        precio.toFixed(2),
+        String(cant),
+        String(Math.max(tot, cant)),
+        String(cb),
+        String(cp),
+        String(tb),
+        String(tp),
+        String(tot),
+        '0',
+        prio,
+        sem,
+        acc,
+        'Cotizado',
+        ''
+      ];
+
+      const targetRow = existingRowByPartida[idPartida.toUpperCase()];
+      if (targetRow) {
+        shCot.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
+      } else {
+        shCot.appendRow(rowValues);
+      }
+    }
+  } catch (eRegSeg) {
+    Logger.log('Aviso registrarCotizacionAppEnSeguimiento_: ' + eRegSeg);
+  }
+}
+
+function handleSegAction_(body) {
+  const b = body || {};
+  const sub = String(b.subAction || '').trim().toUpperCase();
+  const folio = String(b.folio || '').trim().toUpperCase();
+  const payload = b.payload || {};
+  const ssInv = getSpreadsheet_();
+  const ssSeg = getSpreadsheetSeguimiento_();
+  const ahoraStr = Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd HH:mm:ss');
+
+  // Siempre respaldar también en HISTORIAL de 1xew para sincronización cruzada inmediata
+  registrarEventoHistorial_(ssInv, {
+    clasificacion: 'MOVIMIENTO',
+    modulo: 'SEGUIMIENTO_COTIZACIONES',
+    evento: sub || 'SEG_ACTION',
+    estado: '✅ OK',
+    usuario: String(payload.usuario || payload.asesor || payload.advisorName || 'Usuario Seguimiento'),
+    sucursal: String(payload.sucursal || payload.erpStore || 'TODAS'),
+    referencia: folio || 'SEGUIMIENTO',
+    detalle: JSON.stringify(payload),
+    analisis: 'Evento sincronizado en vivo desde Seguimiento de Cotizaciones.'
+  });
+
+  if (!ssSeg) return { ok: true, fallbackOnly: true };
+
+  try {
+    if (sub === 'SEG_NUEVA_COTIZACION_APP' && payload && Array.isArray(payload.items)) {
+      registrarCotizacionAppEnSeguimiento_(ssInv, {
+        folio: payload.folio || folio,
+        fechaStr: payload.fecha || ahoraStr.slice(0, 10),
+        sheetTab: payload.sheetTab,
+        erpStore: payload.erpStore,
+        advisorName: payload.advisorName,
+        advisorEmail: payload.advisorEmail,
+        clientName: payload.clientName,
+        clientPhone: payload.clientPhone,
+        partidas: payload.items
+      });
+    } else if (sub === 'SEG_CIERRE' && folio) {
+      let shCierres = ssSeg.getSheetByName('CIERRES_COTIZACIONES');
+      if (shCierres) {
+        shCierres.appendRow([
+          payload.fecha_hora || ahoraStr.slice(0, 16),
+          folio,
+          payload.sucursal || '',
+          payload.asesor || '',
+          payload.correo_asesor || '',
+          payload.cliente || '',
+          payload.whatsapp_cliente || '',
+          payload.estatus || 'CERRADA',
+          payload.motivo || '',
+          payload.comentarios || ''
+        ]);
+      }
+    } else if (sub === 'SEG_TELEFONO' && folio) {
+      const shCot = ssSeg.getSheetByName('COTIZACIONES_CREATA');
+      const cleanTel = String(payload.whatsapp_cliente || '').replace(/\D+/g, '');
+      if (shCot && shCot.getLastRow() >= 2 && cleanTel) {
+        const rows = shCot.getRange(2, 2, shCot.getLastRow() - 1, 1).getValues();
+        for (let i = 0; i < rows.length; i++) {
+          if (String(rows[i][0] || '').trim().toUpperCase() === folio) {
+            shCot.getRange(i + 2, 9).setNumberFormat('@').setValue(cleanTel);
+          }
+        }
+      }
+    } else if (sub === 'SEG_WHATSAPP' && folio) {
+      const shCot = ssSeg.getSheetByName('COTIZACIONES_CREATA');
+      const fAviso = String(payload.fecha_aviso || ahoraStr.slice(0, 16));
+      if (shCot && shCot.getLastRow() >= 2) {
+        const rows = shCot.getRange(2, 2, shCot.getLastRow() - 1, 1).getValues();
+        for (let i = 0; i < rows.length; i++) {
+          if (String(rows[i][0] || '').trim().toUpperCase() === folio) {
+            shCot.getRange(i + 2, 26).setValue(fAviso);
+          }
+        }
+      }
+    }
+
+    const shHist = ssSeg.getSheetByName('HISTORIAL_MOVIMIENTOS');
+    if (shHist) {
+      shHist.appendRow([
+        ahoraStr,
+        sub.replace(/^SEG_/, ''),
+        payload.usuario || payload.asesor || '',
+        payload.email || payload.correo_asesor || '',
+        payload.sucursal || '',
+        payload.accion || (sub + ' ' + folio),
+        payload.detalle || JSON.stringify(payload),
+        'Web-App',
+        payload.status || 'EXITOSO'
+      ]);
+    }
+  } catch (eSegAct) {
+    Logger.log('Aviso handleSegAction_: ' + eSegAct);
+  }
+
+  return { ok: true };
+}
+

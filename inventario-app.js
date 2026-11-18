@@ -8723,6 +8723,56 @@
                         myRecentQuotesList = [newEntry].concat(Array.isArray(myRecentQuotesList) ? myRecentQuotesList : []);
                     }
                     renderMyRecentQuotes(myRecentQuotesList);
+
+                    // Sincronizar automáticamente la cotización recién creada hacia Seguimiento de Cotizaciones para todos los usuarios y tiendas
+                    try {
+                        const segFolio = folClean || qidClean;
+                        if (segFolio) {
+                            const segBridgeQuote = {
+                                folio: segFolio,
+                                quoteId: qidClean,
+                                fecha: new Date().toISOString().slice(0, 10),
+                                sheetTab: cleanStr((activeAdvisorSession && activeAdvisorSession.sheetTab) || payload.sheetTab),
+                                erpStore: cleanStr(payload.erpStore),
+                                advisorEmail: String((activeAdvisorSession && activeAdvisorSession.correo) || payload.advisorEmail || '').trim().toLowerCase(),
+                                advisorName: cleanStr((activeAdvisorSession && activeAdvisorSession.nombre) || payload.advisorName),
+                                clientName: cleanStr(payload.clientName),
+                                clientPhone: cleanStr(payload.clientPhone),
+                                items: Array.isArray(bd.lines) ? bd.lines.map(ln => ({
+                                    sku: cleanStr(ln.sku).toUpperCase(),
+                                    name: cleanStr(ln.name),
+                                    model: cleanStr(ln.model || ''),
+                                    qty: Math.max(1, Number(ln.qty) || 1),
+                                    price: Number(ln.unitDiscounted || ln.unitList || 0) || 0
+                                })) : []
+                            };
+                            try {
+                                const bridgeKey = 'creata_live_app_quotes_bridge_v1';
+                                const prevList = JSON.parse(localStorage.getItem(bridgeKey) || '[]');
+                                const cleanList = Array.isArray(prevList)
+                                    ? prevList.filter(x => x && cleanStr(x.folio).toUpperCase() !== segFolio.toUpperCase())
+                                    : [];
+                                cleanList.unshift(segBridgeQuote);
+                                localStorage.setItem(bridgeKey, JSON.stringify(cleanList.slice(0, 120)));
+                            } catch (eLs) {}
+                            callInvWebAppPost('inv_log_event', {
+                                classification: 'MOVIMIENTO',
+                                module: 'SEGUIMIENTO_COTIZACIONES',
+                                event: 'SEG_NUEVA_COTIZACION_APP',
+                                status: '✅ OK',
+                                user: segBridgeQuote.advisorName || segBridgeQuote.advisorEmail || 'Asesor App',
+                                branch: segBridgeQuote.erpStore || segBridgeQuote.sheetTab || 'SUCURSAL',
+                                ref: segFolio,
+                                detail: JSON.stringify(segBridgeQuote),
+                                analysis: 'Cotización creada en App/Cotizador y agregada automáticamente a Seguimiento de Cotizaciones.'
+                            }, 12000).catch(() => {});
+                            callInvWebAppPost('seg_action', {
+                                subAction: 'SEG_NUEVA_COTIZACION_APP',
+                                folio: segFolio,
+                                payload: segBridgeQuote
+                            }, 12000).catch(() => {});
+                        }
+                    } catch (eSeg) {}
                 };
 
                 // Flujo directo 24/7 hacia sistema.smuebleria.com

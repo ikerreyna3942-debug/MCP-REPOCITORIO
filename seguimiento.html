@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="CREATA Seguimiento" />
+  <link rel="icon" type="image/png" sizes="192x192" href="inventario-icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="inventario-apple-icon.png" />
+  <title>CREATA muebles - Seguimiento de Cotizaciones</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    .font-brand { font-family: 'Playfair Display', serif; }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased">
+
+  <!-- TOAST DE NOTIFICACIÓN -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-sm font-semibold pointer-events-none">
+    <span id="toastIcon">📋</span>
+    <span id="toastMsg">Mensaje copiado al portapapeles</span>
+  </div>
+
+  <!-- ============================================================================== -->
+  <!-- PANTALLA DE INICIO DE SESIÓN (IDÉNTICA A LOGIN.HTML DE SEGUIMIENTO) -->
+  <!-- ============================================================================== -->
+  <section id="loginBackdrop" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100 overflow-y-auto">
+    <div class="w-full max-w-md my-auto">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-600 to-amber-400 text-slate-950 font-bold text-2xl shadow-xl shadow-amber-500/10 mb-3 font-brand ring-4 ring-amber-500/20">
+          C
+        </div>
+        <h1 class="text-3xl font-extrabold tracking-tight text-white font-brand">CREATA</h1>
+        <p class="text-xs text-amber-400/90 font-semibold mt-1 uppercase tracking-widest">Seguimiento de Cotizaciones en Vivo</p>
+      </div>
+
+      <div class="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-7 sm:p-9 shadow-2xl shadow-black/60 relative overflow-hidden">
+        <div class="absolute -top-24 -right-24 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div class="mb-6 flex items-center justify-between">
+          <h2 class="text-xl font-bold text-white">Iniciar Sesión</h2>
+          <a href="./inventario.html" class="text-xs font-bold text-amber-400 hover:text-amber-300 transition">← Ir al Cotizador</a>
+        </div>
+
+        <div id="loginErrorBox" class="hidden mb-5 bg-red-500/10 border border-red-500/30 rounded-2xl p-3.5 text-xs text-red-300 flex items-start gap-2.5">
+          <span class="text-base leading-none">⚠️</span>
+          <div id="loginErrorText" class="font-medium">Credenciales incorrectas.</div>
+        </div>
+
+        <form id="segLoginForm" onsubmit="submitSegLogin(event)" class="space-y-4">
+          <div>
+            <label for="identificador" class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+              Correo Electrónico
+            </label>
+            <div class="relative">
+              <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">✉️</span>
+              <input
+                type="text"
+                name="identificador"
+                id="identificador"
+                required
+                placeholder="tu@correo.com"
+                class="w-full bg-slate-950/70 border border-slate-700/80 rounded-2xl pl-10 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition"
+                autocomplete="username"
+              >
+            </div>
+          </div>
+
+          <div>
+            <label for="password" class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+              Contraseña
+            </label>
+            <div class="relative">
+              <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">🔒</span>
+              <input
+                type="password"
+                name="password"
+                id="password"
+                required
+                placeholder="••••••••"
+                class="w-full bg-slate-950/70 border border-slate-700/80 rounded-2xl pl-10 pr-10 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition"
+                autocomplete="current-password"
+              >
+              <button
+                type="button"
+                onclick="toggleLoginPassword()"
+                class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200 transition"
+                title="Mostrar/Ocultar"
+              >👁️</button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            id="btnLoginSubmit"
+            class="w-full mt-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:from-amber-600 active:to-amber-700 text-slate-950 font-extrabold text-sm py-3.5 px-4 rounded-2xl shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30 transition duration-150 flex items-center justify-center gap-2 group cursor-pointer"
+          >
+            <span id="btnLoginSubmitText">Ingresar al Sistema</span>
+            <span class="group-hover:translate-x-1 transition duration-150">→</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="text-center mt-6 text-xs text-slate-500">
+        CREATA muebles © 2026 • Sistema de Inteligencia de Cotizaciones &amp; Stock
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================================== -->
+  <!-- INTERFAZ PRINCIPAL DE SEGUIMIENTO DE COTIZACIONES -->
+  <!-- ============================================================================== -->
+  <div id="appShell" class="min-h-screen flex flex-col">
+
+    <!-- BARRA SUPERIOR CON USUARIO AUTENTICADO Y ROL -->
+    <header class="bg-slate-900 text-white shadow-md sticky top-0 z-30 border-b border-slate-800">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+        
+        <!-- LOGO Y PERFIL DE TIENDA -->
+        <div class="flex items-center gap-3 sm:gap-4">
+          <a href="./seguimiento.html" class="flex items-center gap-2 hover:opacity-95 transition">
+            <span class="font-brand font-black text-xl sm:text-2xl tracking-tight text-white">CREATA</span>
+            <span class="text-[11px] sm:text-xs font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-lg border border-amber-500/30">Muebles</span>
+          </a>
+
+          <!-- BADGE DEL USUARIO LOGUEADO -->
+          <div class="flex items-center gap-2 bg-slate-800/90 text-slate-200 text-xs px-3 py-1.5 rounded-xl border border-slate-700/80">
+            <span class="text-amber-400">👤</span>
+            <div>
+              <span id="hdrUserName" class="font-bold text-white">Cargando...</span>
+              <span id="hdrUserRoleStore" class="text-slate-400 text-[11px] hidden sm:inline"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACCIONES SUPERIORES -->
+        <div class="flex flex-wrap items-center gap-2 sm:gap-2.5">
+          <!-- BOTÓN IR AL COTIZADOR / APP -->
+          <a href="./inventario.html" class="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs" title="Volver al Cotizador e Inventario en Vivo">
+            <span>🧾</span>
+            <span>Cotizador</span>
+          </a>
+
+          <!-- BOTÓN PANEL AUDITORÍA DIRECCIÓN (EXCLUSIVO KEVIN REYNA) -->
+          <button id="btnKevinAuditHeader" onclick="openKevinAuditModal()" class="hidden bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold px-3 sm:px-4 py-1.5 rounded-xl text-xs transition shadow-md shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer ring-2 ring-amber-400/40">
+            <span>🛡️</span>
+            <span>Historial y Movimientos</span>
+          </button>
+
+          <!-- BOTÓN MANUAL DE USO -->
+          <a href="./seguimiento-manual.html" target="_blank" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs" title="Abrir Manual Interactivo para Asesores y Gerentes">
+            <span>📖</span>
+            <span class="hidden sm:inline">Manual de Uso</span>
+          </a>
+
+          <!-- BOTÓN CERRAR SESIÓN -->
+          <button type="button" onclick="logoutSeg()" class="bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer">
+            <span>🚪</span>
+            <span class="hidden sm:inline">Cerrar Sesión</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- BANNER DE CONTEXTO DE TIENDA O ASESOR -->
+    <div class="bg-slate-800 text-slate-300 border-b border-slate-700/80 px-4 py-2.5 text-xs">
+      <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+        <div id="roleContextBanner" class="flex items-center gap-2">
+          <span class="text-emerald-400 font-bold">● CONECTANDO EN VIVO:</span>
+          <span class="text-slate-200">Sincronizando cotizaciones e inventario con S Mueblería ERP...</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="lastSyncLabel" class="text-slate-400 font-medium">ERP: En vivo</span>
+          <button onclick="triggerManualSync()" id="btnSyncManual" class="inline-flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 active:bg-slate-800 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer" title="Refrescar existencias y cotizaciones con el ERP">
+            <span id="syncIcon">🔄</span>
+            <span id="syncText">Actualizar ERP</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 py-5 space-y-4 flex-1">
+
+      <!-- BARRA DE FILTROS Y CONTROLES -->
+      <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-slate-200 space-y-3">
+        <div id="filtersGridContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <!-- SUCURSAL / TIENDA -->
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1.5">📍 Sucursal / Tienda</label>
+            <select id="filterSucursal" onchange="onSucursalFilterChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+              <option value="TODAS">Todas las Sucursales</option>
+              <option value="PLAYA">Playa del Carmen</option>
+              <option value="COLOSIO">Colosio</option>
+              <option value="PUERTO CANCUN">Puerto Cancún (PTC)</option>
+              <option value="CASA CREATA">Casa Creata</option>
+              <option value="PROYECTOS">Proyectos</option>
+            </select>
+            <div id="fixedSucursalBadge" class="hidden w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-extrabold text-slate-800 items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+              <span id="fixedSucursalLabel" class="truncate">--</span>
+            </div>
+          </div>
+
+          <!-- ASESOR -->
+          <div id="filterAsesorWrap">
+            <label class="block text-xs font-bold text-slate-600 mb-1.5">👤 Asesor</label>
+            <select id="filterAsesor" onchange="onFilterChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+              <option value="TODOS">Todos los Asesores</option>
+            </select>
+          </div>
+
+          <!-- ESTADO / URGENCIA -->
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1.5">🚨 Nivel de Alerta / Stock</label>
+            <select id="filterUrgencia" onchange="onFilterChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+              <option value="TODOS">Todos los Estados</option>
+              <option value="CRITICO">🔥 Crítico (Stock bajo / agotándose)</option>
+              <option value="SOLO_PISO">🏛️ Solo en Piso de Exhibición</option>
+              <option value="BAJADA">📉 Bajó Stock</option>
+              <option value="SEGUIMIENTO_DIAS">📅 Seguimiento (3+ días)</option>
+              <option value="ESTABLE">🟢 Disponible / Estable</option>
+            </select>
+          </div>
+
+          <!-- BUSCADOR -->
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1.5">🔍 Buscar Folio, Cliente o Mueble</label>
+            <div class="relative">
+              <input type="text" id="filterSearch" oninput="onFilterChange()" placeholder="Ej. Mariana, PTC32001, Sofá..." class="w-full bg-slate-50 border border-slate-300 rounded-xl pl-3.5 pr-8 py-2.5 text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+              <button onclick="clearSearch()" class="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RESUMEN DE COTIZACIONES -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100 text-xs text-slate-500 font-medium">
+          <div id="statsSummary">Cargando cotizaciones completas...</div>
+          <div class="flex flex-wrap items-center gap-3">
+            <div id="closuresMetricsSummary"></div>
+            <div class="text-[11px] text-slate-400">
+              💡 Incluye en tiempo real todas las cotizaciones de S Mueblería y las creadas en la App / Cotizador.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VISTA MÓVIL (TARJETAS VERTICALES) -->
+      <section id="mobileCards" class="block lg:hidden space-y-3">
+        <div class="bg-white rounded-2xl p-8 text-center text-slate-400 text-sm border border-slate-200">
+          Cargando cotizaciones en vivo desde SMueblería...
+        </div>
+      </section>
+
+      <!-- VISTA ESCRITORIO / TABLET (TABLA DE COTIZACIONES AGRUPADAS) -->
+      <section class="hidden lg:block bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-100/90 text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                <th class="py-3 px-3 sm:px-4 w-28 sm:w-32">Folio / Fecha</th>
+                <th class="py-3 px-3 sm:px-4 w-36 sm:w-44">Asesor / Tienda</th>
+                <th class="py-3 px-3 sm:px-4 w-40 sm:w-52">Cliente</th>
+                <th class="py-3 px-3 sm:px-4 min-w-[220px]">Muebles Cotizados (Piezas)</th>
+                <th class="py-3 px-2 sm:px-3 w-32 sm:w-36 text-center">Estado Global</th>
+                <th class="py-3 px-2 sm:px-3 w-36 text-center">Aviso WhatsApp</th>
+                <th class="py-3 px-3 sm:px-4 w-36 sm:w-44 text-center">Acción</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody" class="divide-y divide-slate-200 text-sm">
+              <tr>
+                <td colspan="7" class="py-16 text-center text-slate-400 text-base">
+                  Cargando cotizaciones completas en vivo...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============================================================================== -->
+  <!-- MODAL DE SEGUIMIENTO PERSUASIVO AL CLIENTE -->
+  <!-- ============================================================================== -->
+  <div id="previewModal" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+    <div class="bg-white rounded-3xl max-w-2xl sm:max-w-3xl w-full p-4 sm:p-6 shadow-2xl border border-slate-200 my-auto max-h-[92vh] overflow-y-auto custom-scrollbar space-y-4">
+      
+      <!-- ENCABEZADO MODAL -->
+      <div class="flex items-start justify-between gap-3 pb-3 border-b border-slate-200">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-xl">💬</span>
+            <h3 class="font-extrabold text-base sm:text-lg text-slate-900">Seguimiento Persuasivo de Cotización</h3>
+            <span id="previewUrgencyBadge"></span>
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">Selecciona las piezas que deseas incluir y envía el mensaje de seguimiento al cliente a 1 clic.</p>
+        </div>
+        <button onclick="closePreviewModal()" class="text-slate-400 hover:text-slate-600 text-2xl font-bold leading-none p-1 cursor-pointer">&times;</button>
+      </div>
+
+      <!-- PESTAÑAS DE DESTINATARIO (CLIENTE VS ASESOR) PARA GERENTES Y DIRECCIÓN -->
+      <div id="modalRecipientTabs" class="hidden border-b border-slate-200 flex items-center gap-4 text-xs font-bold mb-1">
+        <button type="button" onclick="setModalRecipient('CLIENTE')" id="btnRecipientCliente" class="py-2 px-1 border-b-2 border-amber-500 text-amber-700 flex items-center gap-1.5 cursor-pointer">
+          <span>👤</span> <span>Mensaje al Cliente</span>
+        </button>
+        <button type="button" onclick="setModalRecipient('ASESOR')" id="btnRecipientAsesor" class="py-2 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 cursor-pointer">
+          <span>👔</span> <span>Alerta de Supervisión al Asesor</span>
+        </button>
+      </div>
+
+      <!-- FICHA DEL CLIENTE Y ASESOR -->
+      <div class="bg-slate-50 rounded-2xl p-3.5 sm:p-4 border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div class="p-3 rounded-xl bg-white border border-slate-200 shadow-2xs">
+          <div class="text-slate-400 font-bold uppercase text-[10px] tracking-wider mb-0.5">Cliente Destinatario 👤</div>
+          <div id="previewCliente" class="font-extrabold text-slate-900 text-sm sm:text-base">--</div>
+          <div id="previewPhoneWrap" class="mt-1 text-slate-600 flex items-center gap-1.5 text-xs">
+            <span id="previewPhoneVal" class="font-mono font-bold text-slate-800">--</span>
+            <button onclick="editModalClientPhone()" class="text-amber-700 hover:underline font-bold text-[11px] ml-1 cursor-pointer">✏️ Editar celular</button>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-xl bg-white border border-slate-200 shadow-2xs">
+          <div class="text-slate-400 font-bold uppercase text-[10px] tracking-wider mb-0.5">Asesor Asignado &amp; Tienda 🛎️</div>
+          <div id="previewAsesor" class="font-extrabold text-slate-900 text-sm">--</div>
+          <div id="previewAsesorContact" class="text-slate-600 text-[11px] mt-0.5">--</div>
+          <div id="previewSucursal" class="text-slate-400 text-[11px]">--</div>
+        </div>
+      </div>
+
+      <!-- SELECTOR DE PIEZAS A INCLUIR -->
+      <div class="border border-slate-200 rounded-2xl p-3.5 bg-slate-50/70 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+            <span>📦</span>
+            <span>Piezas a incluir en el mensaje:</span>
+          </label>
+          <label class="flex items-center gap-1.5 text-xs font-semibold text-amber-700 cursor-pointer hover:underline">
+            <input type="checkbox" id="chkSelectAllItems" onchange="toggleSelectAllItems(this.checked)" checked class="rounded text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer">
+            <span>Seleccionar todas</span>
+          </label>
+        </div>
+        <div id="modalItemsList" class="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1"></div>
+      </div>
+
+      <!-- SELECTOR DE TONO DEL MENSAJE -->
+      <div id="modalToneSelectorWrap">
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-xs font-bold text-slate-700">Tono del mensaje persuasivo:</label>
+          <span class="text-[11px] text-amber-700 font-semibold">✨ Mensajes cálidos, sin tecnicismos de almacén</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <button type="button" onclick="selectModalTemplate('EMOCIONAL')" id="btnTplEmocional" class="tpl-btn px-3 py-2.5 rounded-xl border text-xs font-bold text-left transition shadow-2xs bg-amber-500 text-slate-950 border-amber-600 ring-2 ring-amber-500/20">
+            💖 1. Ilusión &amp; Disponibilidad
+          </button>
+          <button type="button" onclick="selectModalTemplate('SOLO_PISO')" id="btnTplPiso" class="tpl-btn px-3 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold text-left transition shadow-2xs">
+            ⭐ 2. Última en Tienda
+          </button>
+          <button type="button" onclick="selectModalTemplate('SEGUIMIENTO')" id="btnTplSeguimiento" class="tpl-btn px-3 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold text-left transition shadow-2xs">
+            🤝 3. Seguimiento Cálido
+          </button>
+        </div>
+      </div>
+
+      <!-- TEXTAREA EDITABLE -->
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <label class="block text-xs font-bold text-slate-800">Mensaje generado (puedes editarlo libremente antes de enviar):</label>
+          <button type="button" onclick="rebuildModalMessage()" class="text-[11px] font-semibold text-amber-700 hover:underline cursor-pointer">Restaurar texto</button>
+        </div>
+        <textarea id="previewMessageText" rows="6" class="w-full bg-slate-50 border border-slate-300 rounded-2xl p-3.5 text-xs sm:text-sm text-slate-900 font-sans leading-relaxed focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
+      </div>
+
+      <!-- REGISTRO DE ÚLTIMO CONTACTO -->
+      <div id="previewLastContacted" class="text-xs text-slate-500 bg-amber-50/70 border border-amber-200 rounded-xl px-3 py-2 flex items-center justify-between">
+        <span>🕒 Sin registro de aviso previo</span>
+      </div>
+
+      <!-- BOTONES DE ACCIÓN DE ENVÍO -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
+        <button type="button" onclick="copyModalMessage()" class="px-4 py-3 sm:py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer">
+          <span>📋</span> Copiar Texto
+        </button>
+        <button type="button" onclick="sendModalEmail()" id="btnActionEmail" class="px-4 py-3 sm:py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer">
+          <span>✉️</span> <span>Enviar Correo al Cliente</span>
+        </button>
+        <button type="button" onclick="sendModalWhatsApp()" id="btnActionWhatsApp" class="px-5 py-3.5 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition shadow-md cursor-pointer">
+          <span>📲</span> <span>Enviar WhatsApp al Cliente</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================================== -->
+  <!-- MODAL EXCLUSIVO DE AUDITORÍA E HISTORIAL PARA KEVIN REYNA (DIRECCIÓN GENERAL) -->
+  <!-- ============================================================================== -->
+  <div id="modalKevinAudit" class="hidden fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-5 overflow-y-auto">
+    <div class="bg-white rounded-3xl max-w-6xl w-full p-4 sm:p-7 shadow-2xl border border-slate-200 my-auto max-h-[94vh] flex flex-col space-y-4">
+      
+      <div class="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-slate-200">
+        <div>
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl">🛡️</span>
+            <div>
+              <h3 class="font-extrabold text-lg sm:text-xl text-slate-900 tracking-tight">Panel Maestro de Auditoría e Historial de Movimientos</h3>
+              <p class="text-xs text-amber-700 font-bold">Exclusivo para Dirección General (kevin.reyna@grupoanipa.com)</p>
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="exportKevinAuditReport()" id="btnExportAudit" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xs transition cursor-pointer">
+            <span>📥</span>
+            <span>Descargar CSV de Auditoría</span>
+          </button>
+          <button onclick="closeKevinAuditModal()" class="text-slate-400 hover:text-slate-700 text-2xl font-bold leading-none p-1 cursor-pointer">&times;</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+          <div class="text-slate-500 font-semibold text-[11px]">Inicios Exitosos 🟢</div>
+          <div id="auditMetricLoginsOk" class="text-xl font-black text-emerald-700 mt-0.5">0</div>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+          <div class="text-slate-500 font-semibold text-[11px]">Intentos Fallidos 🔴</div>
+          <div id="auditMetricLoginsFail" class="text-xl font-black text-red-600 mt-0.5">0</div>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+          <div class="text-slate-500 font-semibold text-[11px]">WhatsApps Enviados 📲</div>
+          <div id="auditMetricWhatsApps" class="text-xl font-black text-amber-600 mt-0.5">0</div>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+          <div class="text-slate-500 font-semibold text-[11px]">Ventas Cerradas 🏆</div>
+          <div id="auditMetricCierres" class="text-xl font-black text-blue-600 mt-0.5">0</div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-2">
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="setAuditTab('LOGINS')" id="tabAuditLogins" class="audit-tab-btn py-1.5 px-3 rounded-xl bg-amber-500 text-slate-950 font-extrabold text-xs shadow-2xs cursor-pointer">
+            🔐 Inicios de Sesión
+          </button>
+          <button type="button" onclick="setAuditTab('MOVIMIENTOS')" id="tabAuditMovimientos" class="audit-tab-btn py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer">
+            📋 Registro de Movimientos
+          </button>
+          <button type="button" onclick="setAuditTab('HISTORIAL_COTIZACIONES')" id="tabAuditCotizaciones" class="audit-tab-btn py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer">
+            📂 Historial de Cotizaciones
+          </button>
+        </div>
+
+        <div class="w-full sm:w-72">
+          <input
+            type="text"
+            id="auditSearchInput"
+            oninput="filterAuditView()"
+            placeholder="🔍 Buscar usuario, folio, IP..."
+            class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          >
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto custom-scrollbar min-h-[300px] border border-slate-200 rounded-2xl bg-white">
+        <div id="auditTableContainer" class="p-2 sm:p-3">
+          <div class="py-12 text-center text-slate-400 text-sm">Cargando registros de auditoría en vivo...</div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+        <span>● Registros sincronizados en tiempo real con Google Sheets</span>
+        <button onclick="closeKevinAuditModal()" class="px-4 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 font-bold text-slate-800 cursor-pointer">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================================== -->
+  <!-- MODAL OBLIGATORIO DE ACTUALIZACIÓN DE CONTRASEÑA EN PRIMER INGRESO -->
+  <!-- ============================================================================== -->
+  <div id="modalForceChangePassword" class="hidden fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 space-y-4">
+      <div class="text-center space-y-1.5">
+        <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 text-2xl font-bold mb-1 shadow-inner">
+          🔒
+        </div>
+        <h3 class="text-xl font-extrabold text-slate-900">Actualización Obligatoria</h3>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          Por seguridad de tu cuenta, ingresa una nueva contraseña personal para acceder al portal de cotizaciones.
+        </p>
+      </div>
+      
+      <div id="pwdChangeError" class="hidden bg-red-50 text-red-700 border border-red-200 text-xs rounded-xl p-3 font-medium"></div>
+      
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Nueva Contraseña (mínimo 5 caracteres)</label>
+          <input type="password" id="inputNewPassword" placeholder="••••••••" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Confirmar Contraseña</label>
+          <input type="password" id="inputConfirmPassword" placeholder="••••••••" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none">
+        </div>
+      </div>
+      
+      <button type="button" onclick="submitForceChangePassword()" id="btnSubmitChangePwd" class="w-full bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 font-extrabold text-sm py-3.5 rounded-xl transition shadow-md cursor-pointer flex items-center justify-center gap-2">
+        <span>Guardar y Entrar al Sistema</span>
+        <span>→</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ============================================================================== -->
+  <!-- MODAL DE CIERRE DE COTIZACIÓN (GANADA / PERDIDA / CANCELADA) -->
+  <!-- ============================================================================== -->
+  <div id="modalCerrarCotizacion" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 my-auto space-y-4">
+      <div class="flex items-start justify-between pb-3 border-b border-slate-200">
+        <div>
+          <h3 class="font-extrabold text-base text-slate-900 flex items-center gap-1.5">
+            <span>🔒</span> 
+            <span>Cerrar Cotización • </span>
+            <span id="closeModalFolio" class="font-mono text-amber-700"></span>
+          </h3>
+          <p class="text-xs text-slate-500 mt-0.5" id="closeModalCliente">Cliente: --</p>
+        </div>
+        <button onclick="closeModalCerrar()" class="text-slate-400 hover:text-slate-600 text-2xl font-bold leading-none p-1 cursor-pointer">&times;</button>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-700 mb-1.5">Resultado de la Negociación:</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button type="button" onclick="selectCloseStatus('GANADA')" id="btnCloseStatusGanada" class="p-2.5 rounded-xl border border-emerald-500 bg-emerald-50 text-emerald-800 text-xs font-bold text-center transition cursor-pointer">
+            ✅ Ganada
+          </button>
+          <button type="button" onclick="selectCloseStatus('PERDIDA')" id="btnCloseStatusPerdida" class="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold text-center transition cursor-pointer">
+            ❌ Perdida
+          </button>
+          <button type="button" onclick="selectCloseStatus('CANCELADA')" id="btnCloseStatusCancelada" class="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold text-center transition cursor-pointer">
+            ⚠️ Cancelada
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-700 mb-1.5">Motivo del Cierre:</label>
+        <select id="closeModalMotivo" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-amber-500">
+          <option value="Venta Concretada Exitosamente">Venta Concretada Exitosamente</option>
+          <option value="Falta de Inventario / Producto Agotado">Falta de Inventario / Producto Agotado</option>
+          <option value="Precio / Fuera de Presupuesto">Precio / Fuera de Presupuesto</option>
+          <option value="Tiempos de Entrega">Tiempos de Entrega</option>
+          <option value="Compró con la Competencia">Compró con la Competencia</option>
+          <option value="El Cliente no Volvió a Responder">El Cliente no Volvió a Responder</option>
+          <option value="Cambio de Proyecto / No Requiere Mobiliario">Cambio de Proyecto / No Requiere Mobiliario</option>
+          <option value="Otro">Otro Motivo</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-700 mb-1.5">Observaciones y Retroalimentación del Asesor:</label>
+        <textarea id="closeModalComentarios" rows="3" placeholder="Ej. El cliente compró comedor; seccional no disponible en el acabado solicitado..." class="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-800 focus:ring-2 focus:ring-amber-500 placeholder-slate-400"></textarea>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2">
+        <button type="button" onclick="closeModalCerrar()" class="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition cursor-pointer">
+          Cancelar
+        </button>
+        <button type="button" onclick="submitCloseQuote()" id="btnSubmitClose" class="w-2/3 bg-slate-900 hover:bg-slate-800 active:bg-black text-white font-extrabold text-xs py-2.5 rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5">
+          <span>Confirmar Cierre</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="creata-cloud.js?v=32"></script>
+  <script src="seguimiento-app.js?v=1"></script>
+</body>
+</html>

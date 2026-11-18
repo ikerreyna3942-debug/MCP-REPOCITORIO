@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manual de Uso: Asesores y Gerentes | CREATA Muebles</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PptxGenJS para exportar a PowerPoint (.pptx) -->
+  <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+      overflow-x: hidden;
+    }
+    .slide-canvas {
+      background-color: #ffffff;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+    }
+    .editing-active [contenteditable="true"] {
+      outline: 2px dashed #0284c7;
+      outline-offset: 3px;
+      border-radius: 4px;
+      cursor: text;
+    }
+    .editing-active [contenteditable="true"]:focus {
+      outline: 2px solid #0284c7;
+      background-color: rgba(240, 249, 255, 0.6);
+    }
+    @media print {
+      @page {
+        size: 16in 9in;
+        margin: 0;
+      }
+      body {
+        background-color: #ffffff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      #print-container {
+        display: block !important;
+      }
+      .print-slide {
+        width: 16in;
+        height: 9in;
+        page-break-after: always;
+        background-color: #ffffff !important;
+        padding: 40px;
+        box-sizing: border-box;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between bg-slate-100 text-slate-900">
+
+  <!-- BARRA SUPERIOR DE HERRAMIENTAS (SIMPLIFICADA) -->
+  <header class="no-print w-full bg-slate-900 text-white border-b border-slate-800 px-5 py-3 flex flex-wrap items-center justify-between gap-3 z-50 shadow-sm">
+    <div class="flex items-center gap-3">
+      <div class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-100 font-bold tracking-wider text-xs">
+        CREATA MUEBLES
+      </div>
+      <span class="text-slate-400 text-xs font-medium hidden sm:inline">
+        Capacitación Práctica: <span class="text-slate-200 font-semibold">Asesores de Ventas y Gerentes de Tienda</span>
+      </span>
+    </div>
+
+    <!-- Controles de Navegación + Edición + Exportación -->
+    <div class="flex items-center gap-2 flex-wrap text-xs">
+      <select id="slideSelector" onchange="goToSlide(parseInt(this.value))" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-2 max-w-[260px] focus:outline-none focus:border-slate-500">
+      </select>
+
+      <button onclick="prevSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition" title="Diapositiva Anterior">
+        ◀
+      </button>
+      <span id="slideCounter" class="text-xs font-semibold text-slate-300 px-2 min-w-[50px] text-center">1 / 15</span>
+      <button onclick="nextSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition" title="Diapositiva Siguiente">
+        ▶
+      </button>
+
+      <div class="h-5 w-[1px] bg-slate-800 mx-1"></div>
+
+      <!-- BOTONES PARA EDITAR Y BORRAR EN VIVO -->
+      <button onclick="toggleEditMode()" id="btnEdit" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition">
+        ✏️ <span>Editar: OFF</span>
+      </button>
+      <button onclick="deleteCurrentSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-rose-950/40 hover:text-rose-300 border border-slate-700 text-slate-400 text-xs font-medium flex items-center gap-1.5 transition" title="Borrar Diapositiva">
+        🗑️ <span>Borrar</span>
+      </button>
+
+      <div class="h-5 w-[1px] bg-slate-800 mx-1"></div>
+
+      <button onclick="exportToPPTX()" id="btnPptx" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition">
+        📊 <span>Exportar PPTX</span>
+      </button>
+      <button onclick="printDeck()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition">
+        📄 <span>Guardar PDF</span>
+      </button>
+      <button onclick="toggleFullScreen()" class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white text-xs transition" title="Pantalla Completa">
+        ⛶
+      </button>
+    </div>
+  </header>
+
+  <!-- LIENZO PRINCIPAL DE LA DIAPOSITIVA (FONDO BLANCO MINIMALISTA) -->
+  <main class="no-print flex-1 flex items-center justify-center p-4 md:p-8 bg-slate-100">
+    <div id="slideViewport" class="w-full max-w-[1340px] min-h-[730px] rounded-2xl slide-canvas p-6 md:p-10 flex flex-col justify-between relative overflow-hidden bg-white">
+      <!-- Renderizado dinámico -->
+    </div>
+  </main>
+
+  <!-- PIE DE PÁGINA -->
+  <footer class="no-print w-full bg-white text-slate-500 border-t border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between text-xs">
+    <div>
+      💡 <b>Modo Práctico:</b> Guía de operación diaria para <b>Asesores Interioristas</b> y <b>Gerentes de Tienda</b> • CREATA Muebles
+    </div>
+    <div>Navega con flechas <kbd class="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-slate-700 font-mono">←</kbd> <kbd class="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-slate-700 font-mono">→</kbd></div>
+  </footer>
+
+  <!-- CONTENEDOR DE IMPRESIÓN PDF -->
+  <div id="print-container" class="hidden"></div>
+
+  <script>
+    let isEditMode = false;
+    let currentSlideIndex = 0;
+
+    // =========================================================================
+    // DIAPOSITIVAS ENFOCADAS 100% EN CÓMO SE USA PARA ASESORES Y GERENTES
+    // =========================================================================
+    const slides = [
+      // 1. PORTADA
+      {
+        type: "cover",
+        id: "01. BIENVENIDA",
+        module: "MANUAL PRÁCTICO DE USO DIARIO EN SUCURSAL",
+        title: "GUÍA PARA ASESORES Y GERENTES",
+        subtitle: "Cómo usar el Sistema de Seguimiento de Cotizaciones e Inventario en Vivo para cerrar más ventas",
+        author: "Dirigido a: Asesores Interioristas / Ventas y Gerentes de Tienda • CREATA Muebles",
+        pitch: "“Esta herramienta trabaja para ti: revisa cada 2 minutos el inventario real de SMueblería, te avisa con semáforos cuando un mueble que cotizaste está por agotarse o solo queda en exhibición, y te redacta un mensaje cálido de WhatsApp listo para enviar a tu cliente en un solo clic.”"
+      },
+
+      // 2. ¿CÓMO TE AYUDA A VENDER MÁS?
+      {
+        type: "strategy",
+        id: "02. OBJETIVO PRÁCTICO",
+        module: "¿Para qué te sirve esta herramienta en tu día a día?",
+        title: "Menos Tiempo Buscando Inventario, Más Ventas Cerradas",
+        badge: "BENEFICIO EN TIENDA",
+        leftTitle: "👤 Si eres Asesor Interiorista / Ventas",
+        leftItems: [
+          "Ya no tienes que adivinar si el mueble que cotizaste hace 3 días sigue disponible o ya se vendió en otra tienda.",
+          "El sistema te avisa con colores qué cotizaciones están en peligro de quedarse sin stock hoy mismo.",
+          "En lugar de escribir mensajes largos desde cero, envías un WhatsApp cálido y personalizado en 1 solo clic.",
+          "Logras que el cliente aparte su mueble antes de que se agote, asegurando tu venta y tu comisión."
+        ],
+        rightTitle: "👔 Si eres Gerente de Tienda",
+        rightItems: [
+          "Visualizas en una sola pantalla todas las cotizaciones activas de todos los asesores de tu sucursal.",
+          "Identificas en segundos qué folios tienen inventario crítico o llevan más de 3 días sin seguimiento.",
+          "Puedes filtrar por asesor para revisar su cartera junto con él durante las guardias.",
+          "Envías alertas de supervisión por WhatsApp a tus vendedores en 1 clic para que contacten al cliente de inmediato."
+        ],
+        footerNote: "El sistema se actualiza solo cada 2 minutos con SMueblería ERP sin que tengas que recargar la página."
+      },
+
+      // 3. ¿QUÉ VE EL ASESOR VS QUÉ VE EL GERENTE?
+      {
+        type: "strategy",
+        id: "03. TU VISTA EN EL SISTEMA",
+        module: "Privacidad de Cartera y Supervisión por Sucursal",
+        title: "¿Qué ve un Asesor y qué ve un Gerente al entrar?",
+        badge: "PERMISOS POR ROL",
+        leftTitle: "🔒 Vista del Asesor (Tu Cartera Protegida)",
+        leftItems: [
+          "Al iniciar sesión, ves únicamente tus propias cotizaciones asignadas dentro de tu sucursal.",
+          "Ningún otro asesor puede ver tus clientes ni interferir en tus negociaciones.",
+          "El filtro de Sucursal aparece fijo en tu tienda para que vayas directo a tus folios pendientes.",
+          "Todo seguimiento que envíes queda registrado con fecha y hora a tu nombre."
+        ],
+        rightTitle: "🏢 Vista del Gerente de Tienda (Control de Sucursal)",
+        rightItems: [
+          "Al iniciar sesión, ves todas las cotizaciones de tu tienda (Playa, Colosio, Puerto Cancún, Casa Creata o Proyectos).",
+          "Tienes habilitado el filtro '👤 Asesor' para ver los folios de un vendedor en particular o de toda la tienda.",
+          "Dentro del botón de seguimiento, tienes una pestaña especial para mandar '👔 Alerta al Asesor'.",
+          "Puedes apoyar en el cierre de cotizaciones cuando un asesor descansa o está atendiendo en piso."
+        ],
+        footerNote: "En la barra superior siempre verás tu nombre, tu puesto y la sucursal activa con la que estás trabajando."
+      },
+
+      // 4. SEMÁFOROS Y REGLA DE INVENTARIO DE TU TIENDA
+      {
+        type: "strategy",
+        id: "04. SEMÁFOROS DE STOCK",
+        module: "¿Cómo calcula el sistema las piezas disponibles y qué significan los colores?",
+        title: "Existencias de tu Tienda y Semáforos de Urgencia",
+        badge: "INVENTARIO INTELIGENTE",
+        leftTitle: "📦 ¿Qué inventario suma según tu Sucursal?",
+        leftItems: [
+          "Playa del Carmen: Suma existencias de CEDIS + Tienda CREATA LIVING PLAYA (bodega y piso).",
+          "Colosio: Suma existencias de CEDIS + Tienda CREATA LIVING COLOSIO.",
+          "Puerto Cancún (PTC): Suma existencias de CEDIS + Tienda CREATA PUERTO CANCUN.",
+          "Casa Creata (Bonampak) y Proyectos: Toman únicamente las existencias disponibles en CEDIS."
+        ],
+        rightTitle: "🚦 ¿Qué debes hacer según el Semáforo de tu Cotización?",
+        rightItems: [
+          "🔴 CRÍTICO: Faltan piezas para completar lo pedido, quedan menos de 5 en total o el stock cayó más de 30%. ¡Contacta al cliente HOY mismo!",
+          "🏛️ SOLO EN PISO DE EXHIBICIÓN: En CEDIS ya hay 0 piezas y solo queda la pieza muestra en tienda. ¡Usa el argumento de 'Última pieza entrega inmediata'!",
+          "📉 BAJÓ STOCK: Otras tiendas están vendiendo este mueble; avisa a tu cliente antes de que se termine.",
+          "📅 SEGUIMIENTO (3+ DÍAS) y 🟢 DISPONIBLE / ESTABLE: Da seguimiento consultivo para cerrar el proyecto."
+        ],
+        footerNote: "Si una cotización tiene varios muebles, el semáforo de la fila siempre te mostrará el estado del mueble más urgente."
+      },
+
+      // 5. PASO 1: INGRESO Y CAMBIO DE CONTRASEÑA TEMPORAL
+      {
+        id: "PASO 1 • ACCESO AL SISTEMA",
+        module: "Pantalla de Inicio de Sesión (/login) y Primer Ingreso",
+        title: "Cómo entrar al sistema y activar tu Contraseña Personal",
+        category: "Uso para Asesores y Gerentes",
+        location: "Pantalla Principal de Acceso",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/ViVxtjRjt4",
+        fileName: "Botón 👁️ y Botón Ingresar al Sistema →",
+        replicaHtml: `
+          <div class="space-y-2.5 w-72">
+            <div class="bg-[#090d16] border border-slate-700 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-inner">
+              <span class="text-slate-300 tracking-widest text-sm">••••••••</span>
+              <span class="text-base bg-slate-800 p-1 rounded border border-slate-600">👁️</span>
+            </div>
+            <div class="py-3 px-5 rounded-xl bg-[#d97706] text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg">
+              <span>Ingresar al Sistema</span> <span>→</span>
+            </div>
+          </div>
+        `,
+        visualDesc: "Campo de Correo/Celular, campo de Contraseña con el botón del ojo (👁️) para ver lo que escribes y botón naranja 'Ingresar al Sistema →'.",
+        purpose: "Entrar rápido desde tu celular o computadora en tienda y, si es tu primera vez, cambiar tu clave temporal por una contraseña privada que solo tú conozcas.",
+        impact: "Nadie más puede entrar a tu cuenta ni ver tus cotizaciones.",
+        steps: [
+          "Escribe tu correo de CREATA (ej. juliocruz@creatamuebles.com) o tu número celular de 10 dígitos.",
+          "Escribe tu contraseña (toca el icono 👁️ para verificar que no te equivocaste en el teclado del celular) y pulsa 'Ingresar al Sistema →'.",
+          "¡IMPORTANTE EN TU 1er INGRESO!: Si entraste con clave temporal, aparecerá una ventana obligatoria para que escribas tu Nueva Contraseña personal (mínimo 5 caracteres) y pulses 'Guardar y Entrar al Sistema →'."
+        ],
+        goldenRule: "Una vez que guardes tu nueva contraseña personal en tu primer ingreso, esa será tu clave definitiva para entrar todos los días."
+      },
+
+      // 6. PASO 2: BARRA DE FILTROS Y PÍLDORAS RÁPIDAS
+      {
+        id: "PASO 2 • FILTROS Y BÚSQUEDA",
+        module: "Barra Superior de Filtros y Píldoras de Estado Rápido",
+        title: "Cómo encontrar tus cotizaciones urgentes en 2 segundos",
+        category: "Organización Diaria de Cartera",
+        location: "Parte superior del tablero principal",
+        role: "Asesores (filtran su cartera) y Gerentes (filtran toda su tienda)",
+        imgUrl: "https://brewpage.app/public/knJt3Z9tYH",
+        fileName: "06-btn-filtros-dashboard.png",
+        replicaHtml: `
+          <div class="bg-white text-slate-800 p-2.5 rounded-xl grid grid-cols-2 gap-1.5 w-full text-[11px] shadow">
+            <div class="border border-slate-200 rounded p-1.5"><b>📍 Sucursal:</b> Tu Tienda Asignada</div>
+            <div class="border border-slate-200 rounded p-1.5"><b>👤 Asesor:</b> (Para Gerentes)</div>
+            <div class="border border-slate-200 rounded p-1.5"><b>🚨 Alerta/Stock:</b> Crítico, Solo Piso...</div>
+            <div class="border border-slate-200 rounded p-1.5"><b>🔍 Buscar:</b> Mariana, PTC32001, Sofá... ✕</div>
+          </div>
+        `,
+        visualDesc: "Barra con 4 controles (Sucursal, Asesor, Nivel de Alerta/Stock y Buscador libre) más los botones rápidos 'Activas | Crítico | Solo Piso | Cerradas | Todas'.",
+        purpose: "Evitar que pierdas tiempo buscando entre decenas de hojas: filtra con un toque qué clientes debes contactar primero hoy.",
+        impact: "Te permite atender primero las cotizaciones donde el inventario está por agotarse.",
+        steps: [
+          "Usa las Píldoras Rápidas o el selector '🚨 Nivel de Alerta / Stock' para ver primero todo lo que está en 'Crítico' o 'Solo Piso'.",
+          "Si eres Gerente de Tienda, usa el selector '👤 Asesor' para revisar las cotizaciones de cada uno de tus vendedores.",
+          "Si un cliente te llama o llega a tienda, escribe su nombre, número de folio o nombre del mueble en '🔍 Buscar' para localizarlo al instante."
+        ],
+        goldenRule: "Empieza tu guardia tocando el filtro 'Crítico' y 'Solo Piso': ahí están las ventas más rápidas de cerrar del día."
+      },
+
+      // 7. PASO 3: LECTURA DE LA TABLA Y REGISTRO DE CELULAR
+      {
+        id: "PASO 3 • TABLA DE COTIZACIONES",
+        module: "Listado Principal de Cotizaciones Agrupadas por Folio",
+        title: "Cómo revisar tus muebles cotizados y guardar el celular del cliente",
+        category: "Revisión de Existencias y Datos del Cliente",
+        location: "Cuerpo central de la pantalla",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/rRXhMREt3J",
+        fileName: "Fila de Cotización + Botón ✏️ Celular",
+        replicaHtml: `
+          <div class="bg-white text-slate-800 p-3 rounded-xl border border-slate-300 w-full text-[11px] space-y-1.5 shadow">
+            <div class="flex justify-between border-b pb-1">
+              <span><b>Folio:</b> PTC32024 (hace 3 días)</span>
+              <span class="text-amber-700 font-bold">📱 9981388139 ✏️</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span><b>Muebles:</b> 2 producto(s) ▾</span>
+              <span class="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">🔴 CRÍTICO / SOLO PISO</span>
+            </div>
+            <div class="text-[10px] text-slate-500">Último Aviso WhatsApp: Ver fecha para no saturar al cliente</div>
+          </div>
+        `,
+        visualDesc: "Cada fila agrupa un Folio completo con: Fecha, Asesor, Cliente (con botón '+ Celular / ✏️'), lista desplegable de Muebles Cotizados, Estado Global y fecha del último Aviso WhatsApp.",
+        purpose: "Darte de un vistazo toda la situación de la cotización antes de escribirle al cliente.",
+        impact: "Permite agregar el teléfono del cliente si no se capturó en el ERP y evitar mandarle mensaje dos veces el mismo día.",
+        steps: [
+          "Si ves que a tu cliente le falta teléfono o cambió de número, haz clic en '+ Celular' o en el lápiz '✏️', escríbelo y quedará guardado.",
+          "Haz clic en 'Muebles Cotizados' para desplegar las piezas del folio y ver cuántas unidades hay hoy (Disponible, Ajustado, Insuficiente o Agotado).",
+          "Revisa la columna 'Aviso WhatsApp' para confirmar cuándo fue la última vez que se le envió seguimiento."
+        ],
+        goldenRule: "Si la cotización en SMueblería no tenía celular, agrégalo aquí mismo con el botón '+ Celular / ✏️' para poder mandarle WhatsApp en 1 clic."
+      },
+
+      // 8. PASO 4: BOTÓN ENVIAR SEGUIMIENTO
+      {
+        id: "PASO 4 • INICIAR CONTACTO",
+        module: "Columna ACCIÓN de la Tabla de Cotizaciones",
+        title: "Botón '💬 Enviar Seguimiento'",
+        category: "Apertura del Cerrador de Ventas",
+        location: "Lado derecho de cada cotización",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/rRXhMREt3J",
+        fileName: "07-btn-fila-whatsapp.png",
+        replicaHtml: `
+          <div class="px-5 py-2.5 rounded-xl bg-[#d97706] text-slate-950 font-extrabold text-sm flex items-center gap-2 shadow-lg">
+            <span>💬</span> <span>Enviar Seguimiento</span>
+          </div>
+        `,
+        visualDesc: "Botón naranja/ámbar con icono de mensaje ubicado a la derecha de cada fila de cotización.",
+        purpose: "Abrir la ventana inteligente que arma por ti el mensaje para el cliente con los nombres exactos de los muebles que cotizó y las piezas disponibles hoy.",
+        impact: "Te ahorra escribir claves largas de muebles o revisar existencias pieza por pieza.",
+        steps: [
+          "Ubica la cotización a la que quieres dar seguimiento en tu tabla.",
+          "Haz clic en el botón naranja '💬 Enviar Seguimiento'.",
+          "Se abrirá automáticamente la ventana de 'Seguimiento Persuasivo de Cotización' con toda la información cargada."
+        ],
+        goldenRule: "Usa siempre este botón para contactar a tus prospectos: en menos de 10 segundos tendrás tu mensaje listo y personalizado."
+      },
+
+      // 9. PASO 5: PESTAÑAS CLIENTE VS ALERTA AL ASESOR
+      {
+        id: "PASO 5 • ELEGIR DESTINATARIO",
+        module: "Ventana de Seguimiento Persuasivo (Parte Superior)",
+        title: "Pestañas: '👤 Mensaje al Cliente' vs. '👔 Alerta de Supervisión al Asesor'",
+        category: "Contacto a Cliente (Asesor) y Supervisión (Gerente)",
+        location: "Arriba dentro de la ventana de seguimiento",
+        role: "Asesores (Pestaña 1) y Gerentes de Tienda (Pestañas 1 y 2)",
+        imgUrl: "https://brewpage.app/public/LJOGyYM2Mz",
+        fileName: "09-btn-modal-wa-destinatarios.png",
+        replicaHtml: `
+          <div class="bg-white px-4 pt-2 rounded-xl flex items-center gap-5 border border-slate-200 text-xs font-bold shadow">
+            <div class="text-amber-600 border-b-2 border-amber-500 pb-2">👤 Mensaje al Cliente</div>
+            <div class="text-slate-500 pb-2">👔 Alerta de Supervisión al Asesor</div>
+          </div>
+        `,
+        visualDesc: "Dos pestañas superiores dentro de la ventana emergente. Por defecto siempre abre en '👤 Mensaje al Cliente'.",
+        purpose: "Separar claramente cuando le escribimos al comprador final y cuando el Gerente de Tienda necesita mandarle un aviso interno a su vendedor.",
+        impact: "Facilita la comunicación entre el Gerente y su equipo sin tener que tomar capturas de pantalla.",
+        steps: [
+          "Si eres ASESOR: Deja seleccionada la primera pestaña ('👤 Mensaje al Cliente') para escribirle directamente a tu comprador.",
+          "Si eres GERENTE DE TIENDA: Si ves una cotización crítica sin atender, toca la segunda pestaña ('👔 Alerta de Supervisión al Asesor').",
+          "En modo supervisión, el sistema pondrá el teléfono de tu asesor y redactará un aviso pidiéndole contactar a ese cliente hoy mismo."
+        ],
+        goldenRule: "Gerente: usa 'Alerta de Supervisión al Asesor' para activar a tu equipo en segundos cuando detectes piezas por agotarse."
+      },
+
+      // 10. PASO 6: CASILLAS DE PIEZAS Y LOS 3 TONOS PERSUASIVOS
+      {
+        id: "PASO 6 • PIEZAS Y TONO DEL MENSAJE",
+        module: "Ventana de Seguimiento Persuasivo (Centro)",
+        title: "Cómo elegir qué muebles incluir [✓] y cuál de los 3 Tonos usar",
+        category: "Personalización Comercial sin Tecnicismos",
+        location: "Centro de la ventana de seguimiento",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/UXPdUtGjEU",
+        fileName: "10-btn-modal-wa-tonos.png",
+        replicaHtml: `
+          <div class="space-y-2 w-full">
+            <div class="bg-amber-50 border border-amber-300 text-slate-800 p-2 rounded text-[11px] flex justify-between">
+              <span>☑️ PORTOFINO BAUL MAT LISO ROSA...</span><b class="text-red-600">1 pzas hoy</b>
+            </div>
+            <div class="flex flex-wrap gap-1.5 justify-center">
+              <span class="px-2.5 py-1.5 rounded-lg bg-[#d97706] text-white font-bold text-[11px]">💖 1. Ilusión & Disponibilidad</span>
+              <span class="px-2.5 py-1.5 rounded-lg bg-white text-slate-700 border text-[11px] font-semibold">⭐ 2. Última en Tienda</span>
+              <span class="px-2.5 py-1.5 rounded-lg bg-white text-slate-700 border text-[11px] font-semibold">🤝 3. Seguimiento Cálido</span>
+            </div>
+          </div>
+        `,
+        visualDesc: "Lista de piezas con casillas [✓] ('Seleccionar todas') y 3 botones de tono bajo la leyenda '✨ Mensajes cálidos, sin tecnicismos de almacén'.",
+        purpose: "Permitirte elegir de qué muebles quieres hablarle al cliente y cambiar el estilo del mensaje con un solo clic según la urgencia del stock.",
+        impact: "El cliente recibe un mensaje cálido de diseño de interiores (nunca frases frías como 'no hay en CEDIS').",
+        steps: [
+          "1. Marca o desmarca las piezas [✓]: Si cotizaste 5 muebles pero solo 1 está por agotarse, desmarca los otros 4 para enfocar el mensaje en esa pieza.",
+          "2. Elige el botón de Tono ideal: Usa '💖 1. Ilusión & Disponibilidad' para emocionar con entrega inmediata; usa '⭐ 2. Última en Tienda' cuando solo quede la pieza de exhibición; o usa '🤝 3. Seguimiento Cálido' para consultar avances de su obra o espacio.",
+          "Al cambiar de botón o marcar piezas, verás cómo el texto de abajo se reescribe solo al instante."
+        ],
+        goldenRule: "Cuando veas que solo queda '1 pza hoy' o 'Solo Piso', selecciona el botón '⭐ 2. Última en Tienda' para crear urgencia real de compra."
+      },
+
+      // 11. PASO 7: EDITAR TEXTO, RESTAURAR Y COPIAR
+      {
+        id: "PASO 7 • AJUSTE DEL MENSAJE",
+        module: "Ventana de Seguimiento Persuasivo (Cuadro de Texto)",
+        title: "Cómo editar el mensaje, 'Restaurar texto' o '📋 Copiar Texto'",
+        category: "Toque Personal del Asesor",
+        location: "Cuadro de texto y barra inferior del modal",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/aPjkxq7oL1",
+        fileName: "13-btn-action-copiar.png & 14-btn-action-restaurar.png",
+        replicaHtml: `
+          <div class="flex items-center gap-4">
+            <span class="text-[#d97706] font-bold text-xs underline bg-white px-3 py-2 rounded-lg border">Restaurar texto</span>
+            <div class="px-4 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold text-xs flex items-center gap-1.5 shadow">
+              <span>📋</span> <span>Copiar Texto</span>
+            </div>
+          </div>
+        `,
+        visualDesc: "Cuadro de texto libre con el enlace naranja 'Restaurar texto' arriba a la derecha y el botón blanco '📋 Copiar Texto' abajo a la izquierda.",
+        purpose: "Darte libertad total para escribir algún detalle que platicaste en tienda con el cliente (medidas, telas, fecha de entrega) antes de enviarlo.",
+        impact: "Tu mensaje suena 100% escrito por ti, pero con la rapidez y exactitud del sistema.",
+        steps: [
+          "Haz clic dentro del cuadro de texto si deseas agregar una nota personal para tu cliente.",
+          "Si borraste algo por error al estar editando, simplemente toca 'Restaurar texto' y el mensaje original volverá a aparecer intacto.",
+          "Si atiendes a ese cliente por Instagram o SMS, presiona '📋 Copiar Texto' para pegarlo en cualquier otra aplicación."
+        ],
+        goldenRule: "Agregar un pequeño detalle que platicaste con el cliente en showroom multiplica las probabilidades de que te responda."
+      },
+
+      // 12. PASO 8: ENVIAR WHATSAPP O CORREO
+      {
+        id: "PASO 8 • ENVIAR A 1 CLIC",
+        module: "Ventana de Seguimiento Persuasivo (Botones de Disparo)",
+        title: "Botones '📲 Enviar WhatsApp al Cliente' y '✉️ Enviar Correo'",
+        category: "Contacto Directo sin Agendar Número",
+        location: "Esquina inferior derecha de la ventana de seguimiento",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/MxlPzSefEy",
+        fileName: "11-btn-action-whatsapp.png & 12-btn-action-email.png",
+        replicaHtml: `
+          <div class="flex flex-wrap gap-2 justify-center">
+            <div class="px-4 py-2.5 rounded-xl bg-[#2563eb] text-white font-bold text-xs flex items-center gap-1.5 shadow">
+              <span>✉️</span> <span>Enviar Correo al Cliente</span>
+            </div>
+            <div class="px-4 py-2.5 rounded-xl bg-[#10b981] text-white font-extrabold text-xs flex items-center gap-1.5 shadow">
+              <span>📲</span> <span>Enviar WhatsApp al Cliente</span>
+            </div>
+          </div>
+        `,
+        visualDesc: "Botón azul para enviar por Correo Electrónico y botón verde para enviar directo por WhatsApp.",
+        purpose: "Abrir directamente el chat de WhatsApp de tu cliente (sin tener que guardar su número en la agenda de tu celular) con todo el mensaje ya escrito.",
+        impact: "Ahorra tiempo y registra automáticamente en el sistema que ya le diste seguimiento a esa cotización hoy.",
+        steps: [
+          "Presiona el botón verde '📲 Enviar WhatsApp al Cliente' (o el botón azul '✉️ Enviar Correo al Cliente' si prefiere email).",
+          "Se abrirá tu WhatsApp con la conversación del cliente y el texto ya cargado; únicamente presiona el botón de enviar dentro de WhatsApp.",
+          "El sistema actualizará automáticamente la fecha y hora en la columna 'Aviso WhatsApp' de tu tabla."
+        ],
+        goldenRule: "Manda siempre tus WhatsApps desde este botón verde para que tu Gerente y el sistema registren que ya atendiste a tu cliente."
+      },
+
+      // 13. PASO 9: BOTÓN CERRAR COTIZACIÓN
+      {
+        id: "PASO 9 • CONCLUIR FOLIO",
+        module: "Columna ACCIÓN de la Tabla de Cotizaciones",
+        title: "Botón '🔒 Cerrar Cotización'",
+        category: "Limpieza de Cartera Activa",
+        location: "Debajo de 'Enviar Seguimiento' en cada fila",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/oIWJdyNPvZ",
+        fileName: "08-btn-fila-cerrar.png",
+        replicaHtml: `
+          <div class="px-5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold text-sm flex items-center gap-2 shadow">
+            <span>🔒</span> <span>Cerrar Cotización</span>
+          </div>
+        `,
+        visualDesc: "Botón blanco con icono de candado dorado ubicado debajo del botón naranja en cada cotización.",
+        purpose: "Retirar de tu lista de pendientes activos las cotizaciones que ya se vendieron, las que el cliente decidió no comprar o las que se cancelaron/recotizaron.",
+        impact: "Mantiene tu tablero limpio para que solo veas las negociaciones que siguen vivas.",
+        steps: [
+          "Cuando un cliente ya pagó su pedido o te confirmó que no comprará, ubica su folio en la tabla.",
+          "Haz clic en el botón '🔒 Cerrar Cotización'.",
+          "Se abrirá una ventana rápida para que indiques cuál fue el resultado final."
+        ],
+        goldenRule: "En cuanto cierres una venta en caja, márcala como cerrada en el sistema para mantener tus números al día."
+      },
+
+      // 14. PASO 10: GANADA, PERDIDA, CANCELADA Y CONFIRMAR CIERRE
+      {
+        id: "PASO 10 • REGISTRAR RESULTADO",
+        module: "Ventana de Cierre de Cotización",
+        title: "Cómo clasificar: '✅ Ganada', '❌ Perdida' o '⚠️ Cancelada'",
+        category: "Registro de Ventas y Motivos",
+        location: "Ventana emergente al cerrar una cotización",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/nd1H4o3t1H",
+        fileName: "15-btn-estado-ganada.png + Perdida + Cancelada + Confirmar Cierre",
+        replicaHtml: `
+          <div class="space-y-2 w-full max-w-xs text-[11px]">
+            <div class="grid grid-cols-3 gap-1.5">
+              <div class="p-1.5 rounded bg-emerald-50 border border-emerald-500 text-emerald-800 font-bold text-center">✅ Ganada</div>
+              <div class="p-1.5 rounded bg-white border text-slate-700 font-bold text-center">❌ Perdida</div>
+              <div class="p-1.5 rounded bg-white border text-slate-700 font-bold text-center">⚠️ Cancelada</div>
+            </div>
+            <div class="bg-white border rounded p-1.5 text-slate-600"><b>Motivo:</b> Venta Concretada / Falta Inventario / Precio...</div>
+            <div class="w-full py-2 rounded bg-[#0f172a] text-white font-bold text-center">Confirmar Cierre</div>
+          </div>
+        `,
+        visualDesc: "Tres botones de estado (✅ Ganada, ❌ Perdida, ⚠️ Cancelada), lista desplegable de 'Motivo del Cierre', cuadro de 'Comentarios' y botón oscuro 'Confirmar Cierre'.",
+        purpose: "Registrar correctamente tus ventas logradas y conocer por qué motivo se pierden o cancelan otros folios.",
+        impact: "Si después necesitas consultar ese folio, siempre podrás verlo tocando la píldora 'Cerradas' en tu tablero.",
+        steps: [
+          "1. Elige el resultado: Toca '✅ Ganada' si se concretó la venta, '❌ Perdida' si el cliente no compró, o '⚠️ Cancelada' si fue un folio duplicado o cambio de cotización.",
+          "2. Selecciona el 'Motivo del Cierre' en la lista desplegable (Venta Concretada, Falta de Inventario, Precio, Cambio de Proyecto, etc.) y agrega un comentario breve si lo deseas.",
+          "3. Presiona el botón oscuro 'Confirmar Cierre' para guardar."
+        ],
+        goldenRule: "Usa '⚠️ Cancelada' cuando rehagas una cotización en un folio nuevo, y '❌ Perdida' únicamente cuando el cliente desistió de la compra."
+      },
+
+      // 15. PASO 11: CERRAR SESIÓN EN TIENDA
+      {
+        id: "PASO 11 • SALIDA SEGURA",
+        module: "Barra Superior Derecha del Sistema",
+        title: "Botón '🚪 Cerrar Sesión'",
+        category: "Seguridad en Equipos Compartidos de Tienda",
+        location: "Esquina superior derecha de la pantalla",
+        role: "Asesores de Ventas y Gerentes de Tienda",
+        imgUrl: "https://brewpage.app/public/WDNMS44TEd",
+        fileName: "05-btn-cerrar-sesion.png",
+        replicaHtml: `
+          <div class="px-5 py-2.5 rounded-full bg-[#2a1621] border border-rose-500/40 text-rose-300 font-bold text-sm flex items-center gap-2">
+            <span>🚪</span> <span>Cerrar Sesión</span>
+          </div>
+        `,
+        visualDesc: "Botón oscuro con texto rosado e icono de puerta ubicado en la esquina superior derecha.",
+        purpose: "Cerrar tu cuenta cuando termines de usar una computadora o iPad compartida en el mostrador de la sucursal.",
+        impact: "Evita que otro compañero vea tu cartera o envíe mensajes desde tu sesión por equivocación.",
+        steps: [
+          "En tu propio teléfono celular puedes mantener tu sesión iniciada para entrar rápido.",
+          "Si abriste tu cuenta en la computadora del mostrador de tienda, presiona siempre '🚪 Cerrar Sesión' al terminar.",
+          "El sistema cerrará tu vista y regresará a la pantalla de acceso para el siguiente compañero."
+        ],
+        goldenRule: "En la computadora compartida de piso de venta, nunca cierres solo la ventana: toca siempre 'Cerrar Sesión' para cuidar tu cartera."
+      }
+    ];
+
+    // =========================================================================
+    // RENDERIZADO DE DIAPOSITIVAS (DISEÑO SIMPLIFICADO Y MINIMALISTA)
+    // =========================================================================
+    function renderSlideMarkup(slide, idx, total) {
+      const editAttr = isEditMode ? 'contenteditable="true"' : '';
+
+      // 1. PORTADA
+      if (slide.type === "cover") {
+        return `
+          <div class="h-full flex flex-col justify-between py-3 px-2">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-4">
+              <div class="flex items-center gap-3">
+                <span class="px-3 py-1 rounded bg-slate-900 text-white font-bold tracking-wider text-xs">CREATA MUEBLES</span>
+                <span class="text-slate-500 text-xs font-semibold tracking-wider uppercase">Grupo Anipa Interiorismo</span>
+              </div>
+              <span class="text-xs font-medium text-slate-500">MANUAL DE USO: ASESORES Y GERENTES</span>
+            </div>
+
+            <div class="my-auto py-10 text-center max-w-4xl mx-auto space-y-6">
+              <div ${editAttr} class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold tracking-wider uppercase">
+                ${slide.module}
+              </div>
+              <h1 ${editAttr} class="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 leading-tight">
+                ${slide.title}
+              </h1>
+              <p ${editAttr} class="text-lg md:text-xl text-slate-600 font-normal max-w-2xl mx-auto leading-relaxed">
+                ${slide.subtitle}
+              </p>
+
+              <div class="mt-6 p-6 rounded-2xl bg-slate-50 border border-slate-200 border-l-4 border-l-slate-900 text-left max-w-3xl mx-auto shadow-sm">
+                <div class="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span>🎯</span> <span>Objetivo Práctico:</span>
+                </div>
+                <p ${editAttr} class="text-sm md:text-base leading-relaxed text-slate-700 italic">
+                  ${slide.pitch}
+                </p>
+              </div>
+
+              <div class="pt-2">
+                <span ${editAttr} class="inline-block px-4 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium text-slate-600 shadow-sm">
+                  👥 ${slide.author}
+                </span>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between border-t border-slate-200 pt-3 text-xs font-medium text-slate-400">
+              <span>GUÍA OPERATIVA PASO A PASO EN TIENDA</span>
+              <span>Diapositiva ${idx + 1} de ${total}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // 2. DIAPOSITIVAS EXPLICATIVAS (BENEFICIOS, VISTAS Y SEMÁFOROS)
+      if (slide.type === "strategy") {
+        return `
+          <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-1 rounded bg-slate-900 text-white text-xs font-bold uppercase tracking-wider">
+                  ${slide.id}
+                </span>
+                <span ${editAttr} class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  ${slide.module}
+                </span>
+              </div>
+              <h2 ${editAttr} class="text-2xl md:text-3xl font-extrabold text-slate-900 mt-1.5">
+                ${slide.title}
+              </h2>
+            </div>
+            <span ${editAttr} class="px-3 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold uppercase tracking-wider">
+              ${slide.badge}
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 my-auto py-6">
+            <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
+              <div class="space-y-3">
+                <h3 ${editAttr} class="text-base font-bold text-slate-900 border-b border-slate-100 pb-2.5">
+                  ${slide.leftTitle}
+                </h3>
+                <ul class="space-y-3 text-sm text-slate-600">
+                  ${slide.leftItems.map(item => `
+                    <li class="flex items-start gap-2.5">
+                      <span class="w-1.5 h-1.5 rounded-full bg-slate-400 mt-2 shrink-0"></span>
+                      <span ${editAttr} class="leading-relaxed font-normal">${item}</span>
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+            </div>
+
+            <div class="bg-slate-50/80 rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
+              <div class="space-y-3">
+                <h3 ${editAttr} class="text-base font-bold text-slate-900 border-b border-slate-200/80 pb-2.5">
+                  ${slide.rightTitle}
+                </h3>
+                <ul class="space-y-3 text-sm text-slate-700">
+                  ${slide.rightItems.map(item => `
+                    <li class="flex items-start gap-2.5">
+                      <span class="w-1.5 h-1.5 rounded-full bg-slate-900 mt-2 shrink-0"></span>
+                      <span ${editAttr} class="leading-relaxed font-normal">${item}</span>
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-xl p-3.5 bg-slate-50 border border-slate-200 flex items-center justify-between gap-4 text-xs">
+            <div ${editAttr} class="font-medium text-slate-700 flex items-center gap-2">
+              <span class="text-amber-600">💡</span> <span>${slide.footerNote}</span>
+            </div>
+            <div class="text-slate-400 shrink-0 font-medium">Diapositiva ${idx + 1} de ${total}</div>
+          </div>
+        `;
+      }
+
+      // 3. DIAPOSITIVAS PASO A PASO DE BOTONES
+      return `
+        <!-- CABECERA -->
+        <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-3.5">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-1 rounded bg-slate-900 text-white text-xs font-bold uppercase tracking-wider">
+                ${slide.id}
+              </span>
+              <span ${editAttr} class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                ${slide.module}
+              </span>
+            </div>
+            <h2 ${editAttr} class="text-2xl md:text-3xl font-extrabold text-slate-900 mt-1">
+              ${slide.title}
+            </h2>
+          </div>
+
+          <div class="text-right">
+            <span ${editAttr} class="inline-block px-3 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold">
+              📍 Ubicación: ${slide.location}
+            </span>
+            <div ${editAttr} class="text-[11px] font-medium text-slate-500 mt-1">${slide.category}</div>
+          </div>
+        </div>
+
+        <!-- CUERPO DE 2 COLUMNAS -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 my-auto py-4 items-stretch">
+          
+          <!-- COLUMNA IZQUIERDA: IMAGEN / MOCKUP DEL BOTÓN -->
+          <div class="lg:col-span-5 bg-slate-50 rounded-2xl p-5 border border-slate-200 flex flex-col justify-between space-y-4 shadow-sm">
+            <div>
+              <div class="flex items-center justify-between text-xs text-slate-500 mb-2.5">
+                <span class="font-bold text-slate-700 uppercase tracking-wider text-[11px]">📸 Vista en Pantalla</span>
+                <span class="font-mono text-[10px] text-slate-400">${slide.fileName}</span>
+              </div>
+
+              <div class="min-h-[160px] rounded-xl bg-white border border-slate-200 p-4 flex flex-col items-center justify-center gap-3 shadow-sm">
+                <img 
+                  src="${slide.imgUrl}" 
+                  alt="${slide.title}" 
+                  class="max-h-24 object-contain rounded"
+                  onerror="this.style.display='none'"
+                />
+                <div class="w-full flex flex-col items-center justify-center">
+                  <span class="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-medium">Elemento Visual:</span>
+                  ${slide.replicaHtml}
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-2 text-xs">
+              <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <b class="text-slate-800 block mb-1 uppercase text-[10px] tracking-wider">👁️ Cómo identificarlo:</b>
+                <p ${editAttr} class="text-slate-600 leading-relaxed text-xs">${slide.visualDesc}</p>
+              </div>
+              <div class="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-2 shadow-sm">
+                <span class="text-slate-500 font-medium shrink-0">👥 ¿Quién lo usa?:</span>
+                <span ${editAttr} class="text-slate-800 font-bold text-right">${slide.role}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- COLUMNA DERECHA: INSTRUCCIONES PASO A PASO -->
+          <div class="lg:col-span-7 flex flex-col justify-between space-y-3.5">
+            
+            <!-- Bloque 1: ¿Para qué sirve? -->
+            <div class="bg-white rounded-2xl p-4 space-y-1.5 border border-slate-200 shadow-sm">
+              <div class="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                🎯 1. ¿Para qué te sirve?
+              </div>
+              <p ${editAttr} class="text-sm text-slate-700 leading-relaxed font-normal">
+                ${slide.purpose}
+              </p>
+              <div ${editAttr} class="pt-1 text-xs text-slate-500 font-medium">
+                ⚡ <span class="font-bold text-slate-700">Beneficio:</span> ${slide.impact}
+              </div>
+            </div>
+
+            <!-- Bloque 2: Cómo se usa paso a paso -->
+            <div class="bg-white rounded-2xl p-4 space-y-2 border border-slate-200 shadow-sm">
+              <div class="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                👆 2. ¿Cómo se usa paso a paso?
+              </div>
+              <ol class="space-y-1.5 text-xs md:text-sm text-slate-700">
+                ${slide.steps.map((s, i) => `
+                  <li class="flex items-start gap-2.5">
+                    <span class="w-5 h-5 rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">${i + 1}</span>
+                    <span ${editAttr} class="leading-relaxed">${s}</span>
+                  </li>
+                `).join('')}
+              </ol>
+            </div>
+
+            <!-- Bloque 3: Tip Práctico -->
+            <div class="rounded-2xl p-4 bg-amber-50/60 border border-amber-200/80 flex items-start gap-3 shadow-sm">
+              <span class="text-lg">💡</span>
+              <div>
+                <div class="text-[11px] font-bold text-amber-900 uppercase tracking-wider">
+                  Tip de Oro para Asesores y Gerentes
+                </div>
+                <p ${editAttr} class="text-xs md:text-sm text-amber-950 font-normal italic mt-0.5">
+                  "${slide.goldenRule}"
+                </p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- PIE DE DIAPOSITIVA -->
+        <div class="flex items-center justify-between border-t border-slate-200 pt-2.5 text-xs font-medium text-slate-400">
+          <div>MANUAL OPERATIVO PARA ASESORES Y GERENTES • CREATA MUEBLES</div>
+          <div>Diapositiva ${idx + 1} de ${total}</div>
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // NAVEGACIÓN, EDICIÓN Y EXPORTACIÓN
+    // =========================================================================
+    function populateSelector() {
+      const selector = document.getElementById('slideSelector');
+      selector.innerHTML = slides.map((s, i) => `<option value="${i}">${i + 1}. ${s.id} - ${s.title}</option>`).join('');
+    }
+
+    function updateView() {
+      if (currentSlideIndex >= slides.length) currentSlideIndex = slides.length - 1;
+      if (currentSlideIndex < 0) currentSlideIndex = 0;
+
+      const viewport = document.getElementById('slideViewport');
+      viewport.innerHTML = renderSlideMarkup(slides[currentSlideIndex], currentSlideIndex, slides.length);
+      document.getElementById('slideCounter').textContent = `${currentSlideIndex + 1} / ${slides.length}`;
+      populateSelector();
+      document.getElementById('slideSelector').value = currentSlideIndex;
+    }
+
+    function toggleEditMode() {
+      isEditMode = !isEditMode;
+      const btn = document.getElementById('btnEdit');
+      const viewport = document.getElementById('slideViewport');
+      if (isEditMode) {
+        btn.innerHTML = "✏️ <span>Edición: ON (clic en textos)</span>";
+        btn.className = "px-3 py-2 rounded-lg bg-slate-100 text-slate-900 border border-white text-xs font-semibold flex items-center gap-1.5 transition";
+        viewport.classList.add('editing-active');
+      } else {
+        btn.innerHTML = "✏️ <span>Editar: OFF</span>";
+        btn.className = "px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition";
+        viewport.classList.remove('editing-active');
+      }
+      updateView();
+    }
+
+    function deleteCurrentSlide() {
+      if (slides.length <= 1) {
+        alert("Debes conservar al menos 1 diapositiva.");
+        return;
+      }
+      const current = slides[currentSlideIndex];
+      if (confirm(`¿Seguro que deseas borrar la diapositiva "${current.id} - ${current.title}"?`)) {
+        slides.splice(currentSlideIndex, 1);
+        if (currentSlideIndex >= slides.length) currentSlideIndex = slides.length - 1;
+        updateView();
+      }
+    }
+
+    function nextSlide() {
+      if (isEditMode) return;
+      currentSlideIndex = (currentSlideIndex + 1) % slides.length;
+      updateView();
+    }
+
+    function prevSlide() {
+      if (isEditMode) return;
+      currentSlideIndex = (currentSlideIndex - 1 + slides.length) % slides.length;
+      updateView();
+    }
+
+    function goToSlide(index) {
+      currentSlideIndex = index;
+      updateView();
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    function printDeck() {
+      const printContainer = document.getElementById('print-container');
+      printContainer.innerHTML = slides.map((s, i) => `
+        <div class="print-slide flex flex-col justify-between">
+          ${renderSlideMarkup(s, i, slides.length)}
+        </div>
+      `).join('');
+      window.print();
+    }
+
+    function exportToPPTX() {
+      const btn = document.getElementById('btnPptx');
+      btn.textContent = "⏳ Generando PowerPoint...";
+      btn.disabled = true;
+
+      try {
+        const pptx = new PptxGenJS();
+        pptx.layout = 'LAYOUT_16x9';
+        pptx.author = 'CREATA Muebles';
+        pptx.company = 'Grupo Anipa Interiorismo';
+        pptx.title = 'Manual de Uso para Asesores y Gerentes - CREATA Muebles';
+
+        slides.forEach((s, idx) => {
+          const slide = pptx.addSlide();
+          slide.background = { color: 'FFFFFF' };
+
+          if (s.type === "cover") {
+            slide.addShape(pptx.ShapeType.rect, { x: 0.6, y: 0.7, w: 12.1, h: 6.0, fill: { color: '0F172A' }, line: { color: '334155', width: 1 } });
+            slide.addText(s.module, { x: 1.0, y: 1.2, w: 11.3, h: 0.4, fontSize: 12, bold: true, color: '94A3B8', align: 'center' });
+            slide.addText(s.title, { x: 1.0, y: 1.8, w: 11.3, h: 1.0, fontSize: 32, bold: true, color: 'FFFFFF', align: 'center' });
+            slide.addText(s.subtitle, { x: 1.0, y: 2.8, w: 11.3, h: 0.7, fontSize: 15, color: 'CBD5E1', align: 'center' });
+            slide.addText(s.pitch, { x: 1.2, y: 3.7, w: 10.9, h: 1.8, fontSize: 12, italic: true, color: 'F1F5F9', align: 'center' });
+            slide.addText(s.author, { x: 1.0, y: 5.8, w: 11.3, h: 0.4, fontSize: 11, bold: true, color: '94A3B8', align: 'center' });
+            return;
+          }
+
+          if (s.type === "strategy") {
+            slide.addText(`${s.id}  |  ${s.module}`, { x: 0.5, y: 0.35, w: 12.3, h: 0.3, fontSize: 10, bold: true, color: '64748B' });
+            slide.addText(s.title, { x: 0.5, y: 0.65, w: 12.3, h: 0.5, fontSize: 20, bold: true, color: '0F172A' });
+
+            slide.addShape(pptx.ShapeType.rect, { x: 0.5, y: 1.35, w: 5.9, h: 4.7, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+            slide.addText(s.leftTitle, { x: 0.7, y: 1.5, w: 5.5, h: 0.4, fontSize: 13, bold: true, color: '0F172A' });
+            slide.addText(s.leftItems.map(i => `• ${i}`).join('\n\n'), { x: 0.7, y: 2.0, w: 5.5, h: 3.8, fontSize: 11, color: '475569' });
+
+            slide.addShape(pptx.ShapeType.rect, { x: 6.7, y: 1.35, w: 6.1, h: 4.7, fill: { color: 'F8FAFC' }, line: { color: 'E2E8F0', width: 1 } });
+            slide.addText(s.rightTitle, { x: 6.9, y: 1.5, w: 5.7, h: 0.4, fontSize: 13, bold: true, color: '0F172A' });
+            slide.addText(s.rightItems.map(i => `• ${i}`).join('\n\n'), { x: 6.9, y: 2.0, w: 5.7, h: 3.8, fontSize: 11, color: '334155' });
+
+            slide.addShape(pptx.ShapeType.rect, { x: 0.5, y: 6.25, w: 12.3, h: 0.6, fill: { color: 'F1F5F9' }, line: { color: 'E2E8F0', width: 1 } });
+            slide.addText(`💡 ${s.footerNote}`, { x: 0.7, y: 6.32, w: 11.9, h: 0.45, fontSize: 10, color: '475569' });
+            return;
+          }
+
+          slide.addText(`${s.id}  •  ${s.module}`, { x: 0.5, y: 0.35, w: 9.0, h: 0.3, fontSize: 10, bold: true, color: '64748B' });
+          slide.addText(s.title, { x: 0.5, y: 0.65, w: 9.0, h: 0.5, fontSize: 18, bold: true, color: '0F172A' });
+
+          slide.addShape(pptx.ShapeType.rect, { x: 0.5, y: 1.3, w: 4.5, h: 5.5, fill: { color: 'F8FAFC' }, line: { color: 'E2E8F0', width: 1 } });
+          slide.addText("ASÍ SE VE EN TU PANTALLA", { x: 0.7, y: 1.45, w: 4.1, h: 0.3, fontSize: 10, bold: true, color: '0F172A' });
+          slide.addText(`Ubicación: ${s.location}\nElemento: ${s.fileName}`, { x: 0.7, y: 1.85, w: 4.1, h: 0.6, fontSize: 9, color: '64748B' });
+          slide.addText(`Cómo identificarlo:\n${s.visualDesc}`, { x: 0.7, y: 2.6, w: 4.1, h: 2.3, fontSize: 10, color: '334155' });
+          slide.addText(`¿Quién lo usa?:\n${s.role}`, { x: 0.7, y: 5.2, w: 4.1, h: 1.2, fontSize: 9.5, bold: true, color: '0F172A' });
+
+          slide.addShape(pptx.ShapeType.rect, { x: 5.2, y: 1.3, w: 7.6, h: 1.75, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+          slide.addText("1. ¿PARA QUÉ TE SIRVE?", { x: 5.4, y: 1.4, w: 7.2, h: 0.3, fontSize: 10, bold: true, color: '0F172A' });
+          slide.addText(`${s.purpose}\nBeneficio: ${s.impact}`, { x: 5.4, y: 1.72, w: 7.2, h: 1.2, fontSize: 10, color: '475569' });
+
+          slide.addShape(pptx.ShapeType.rect, { x: 5.2, y: 3.2, w: 7.6, h: 2.2, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', width: 1 } });
+          slide.addText("2. ¿CÓMO SE USA PASO A PASO?", { x: 5.4, y: 3.3, w: 7.2, h: 0.3, fontSize: 10, bold: true, color: '0F172A' });
+          slide.addText(s.steps.map((st, i) => `${i + 1}. ${st}`).join('\n'), { x: 5.4, y: 3.65, w: 7.2, h: 1.6, fontSize: 10, color: '475569' });
+
+          slide.addShape(pptx.ShapeType.rect, { x: 5.2, y: 5.55, w: 7.6, h: 1.25, fill: { color: 'FEF3C7' }, line: { color: 'FDE68A', width: 1 } });
+          slide.addText("💡 TIP DE ORO", { x: 5.4, y: 5.65, w: 7.2, h: 0.3, fontSize: 9.5, bold: true, color: '92400E' });
+          slide.addText(`"${s.goldenRule}"`, { x: 5.4, y: 5.95, w: 7.2, h: 0.75, fontSize: 10, italic: true, color: '78350F' });
+        });
+
+        pptx.writeFile({ fileName: 'Manual_Asesores_y_Gerentes_CREATA.pptx' }).then(() => {
+          btn.textContent = "✅ ¡PowerPoint Descargado!";
+          setTimeout(() => {
+            btn.textContent = "📊 Descargar PowerPoint (.PPTX)";
+            btn.disabled = false;
+          }, 3000);
+        });
+      } catch (err) {
+        alert("Error al generar PPTX: " + err.message);
+        btn.textContent = "📊 Descargar PowerPoint (.PPTX)";
+        btn.disabled = false;
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      updateView();
+      window.addEventListener('keydown', (e) => {
+        if (isEditMode) return;
+        if (e.key === 'ArrowRight' || e.key === ' ') {
+          e.preventDefault();
+          nextSlide();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          prevSlide();
+        }
+      });
+    });
+  </script>
+</body>
+</html>
