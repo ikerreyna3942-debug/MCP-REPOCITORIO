@@ -291,6 +291,7 @@
                     nombre: OWNER_DISPLAY_NAME,
                     sheetTab: 'PROYECTOS',
                     authToken: tok,
+                    accessKey: typedKey,
                     verifiedAt: Date.now()
                 });
                 try {

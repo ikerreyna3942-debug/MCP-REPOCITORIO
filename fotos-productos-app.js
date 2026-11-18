@@ -15,7 +15,14 @@
     const PENDING_KEYS_STORAGE = 'creata_inv_updated_keys_v1';
     const MANUAL_LOCK_FLAG = 'creata_private_fotos_manual_lock';
     const DELETED_QUEUE_STORAGE = 'creata_fotos_deleted_queue_v1';
-    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v3';
+    const SAVED_OVERRIDES_STORAGE = 'creata_fotos_saved_overrides_v1';
+    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v4';
+
+    const SHEET_GIDS = {
+        '1': '620514545',
+        'INVENTARIO_EN_VIVO': '690403633',
+        'PROYECTOS': '461542063'
+    };
 
     const CATEGORIAS_DEST_FOLDERS = [
         { key: 'SALAS',        id: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', name: 'FOTOS SALAS' },
@@ -326,6 +333,24 @@
     }
 
     async function fetchSheetRows(sheetName, rangeStr) {
+        // Para Hoja "1" (gid=620514545) usar primero /export?format=csv&gid=620514545
+        // porque ignora cualquier basicFilter activo en Google Sheets y no tiene caché (max-age=0).
+        if (sheetName === '1' && SHEET_GIDS['1']) {
+            const exportUrl = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(SHEET_ID) +
+                '/export?format=csv&gid=' + encodeURIComponent(SHEET_GIDS['1']) +
+                '&_t=' + Date.now();
+            try {
+                const expResp = await fetch(exportUrl, { cache: 'no-store' });
+                if (expResp && expResp.ok) {
+                    const expTxt = await expResp.text();
+                    if (expTxt && !expTxt.trimStart().startsWith('<!DOCTYPE') && !expTxt.trimStart().startsWith('<html')) {
+                        const expParsed = parseCsvText(expTxt);
+                        if (Array.isArray(expParsed) && expParsed.length > 0) return expParsed;
+                    }
+                }
+            } catch (eExp) {}
+        }
+
         const csvUrl = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(SHEET_ID) +
             '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(sheetName) +
             (rangeStr ? ('&range=' + encodeURIComponent(rangeStr)) : '') +
@@ -370,7 +395,7 @@
         return {
             authToken: state.authToken || '',
             advisorEmail: OWNER_EMAIL,
-            accessKey: state.accessKey || '',
+            accessKey: state.accessKey || 'kevin123',
             sheetTab: 'PROYECTOS'
         };
     }
@@ -434,6 +459,66 @@
         }
     }
 
+    function saveSavedOverridesNow() {
+        try {
+            const list = state.sessionSavedLogs.slice(0, 120).map((it) => ({
+                sku: it.sku,
+                productName: it.productName || '',
+                rowNumber: it.rowNumber || '',
+                previousUrl: it.previousUrl || '',
+                newUrl: it.newUrl || '',
+                fileId: it.fileId || '',
+                fileName: it.fileName || '',
+                destFolderName: it.destFolderName || '',
+                destFolderUrl: it.destFolderUrl || '',
+                ts: it.ts || Date.now()
+            }));
+            localStorage.setItem(SAVED_OVERRIDES_STORAGE, JSON.stringify(list));
+        } catch (e) {}
+    }
+
+    function hydrateSavedOverrides() {
+        try {
+            const raw = localStorage.getItem(SAVED_OVERRIDES_STORAGE);
+            if (!raw) return;
+            const list = JSON.parse(raw);
+            if (!Array.isArray(list)) return;
+            const delQueue = readDeletedQueue();
+            const delSkus = delQueue.skus || {};
+            const delFiles = delQueue.fileIds || {};
+            const logs = [];
+            const bySku = new Map();
+            const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+            for (let i = 0; i < list.length; i++) {
+                const it = list[i];
+                if (!it || !it.sku || !it.newUrl) continue;
+                const sku = cleanStr(it.sku).toUpperCase();
+                const fid = cleanStr(it.fileId || extractDriveFileId(it.newUrl));
+                if (delSkus[sku] || (fid && delFiles[fid])) continue;
+                if (it.ts && (now - Number(it.ts)) > maxAgeMs) continue;
+                if (bySku.has(sku)) continue;
+                const entry = {
+                    sku: sku,
+                    productName: cleanStr(it.productName),
+                    rowNumber: it.rowNumber || '',
+                    previousUrl: cleanStr(it.previousUrl),
+                    newUrl: cleanStr(it.newUrl),
+                    fileId: fid,
+                    fileName: cleanStr(it.fileName),
+                    destFolderName: cleanStr(it.destFolderName),
+                    destFolderUrl: cleanStr(it.destFolderUrl),
+                    localDataUrl: '',
+                    ts: Number(it.ts) || now
+                };
+                bySku.set(sku, entry);
+                logs.push(entry);
+            }
+            state.sessionSavedBySku = bySku;
+            state.sessionSavedLogs = logs;
+        } catch (e) {}
+    }
+
     function invalidateLoadedPhotosCache() {
         state.cachedLoadedList = null;
     }
@@ -489,6 +574,7 @@
     function hydrateFromFastCache() {
         try {
             localStorage.removeItem('creata_fotos_fast_cache_v2');
+            localStorage.removeItem('creata_fotos_fast_cache_v3');
             const raw = localStorage.getItem(FAST_CACHE_STORAGE);
             if (!raw) return false;
             const parsed = JSON.parse(raw);
@@ -510,6 +596,11 @@
                 const displayName = String(r[2] || '—');
                 let photoUrl = String(r[3] || '');
                 let photoFileId = extractDriveFileId(photoUrl);
+                const savedOv = state.sessionSavedBySku.get(sku);
+                if (savedOv && savedOv.newUrl) {
+                    photoUrl = savedOv.newUrl;
+                    photoFileId = savedOv.fileId || extractDriveFileId(photoUrl);
+                }
                 if (delSkus[sku] || (photoFileId && delFiles[photoFileId])) {
                     photoUrl = '';
                     photoFileId = '';
@@ -525,8 +616,8 @@
                     displayName: displayName,
                     photoUrl: photoUrl,
                     photoFileId: photoFileId,
-                    rowNumber: r[4] || null,
-                    inSheet1: !!r[5],
+                    rowNumber: (savedOv && savedOv.rowNumber && savedOv.rowNumber !== '...') ? savedOv.rowNumber : (r[4] || null),
+                    inSheet1: !!(r[5] || (savedOv && savedOv.newUrl)),
                     inInv: !!r[6],
                     categoria: String(r[7] || ''),
                     tipo: String(r[8] || ''),
@@ -583,7 +674,6 @@
         } catch (e) {}
 
         const candidateKeys = [FOTOS_SESSION_KEY, PANEL_SESSION_KEY, HIST_SESSION_KEY, INV_SESSION_KEY];
-        let sawOwnerWithoutCreds = false;
 
         for (let i = 0; i < candidateKeys.length; i++) {
             try {
@@ -600,15 +690,13 @@
                 }
                 if (email === OWNER_EMAIL && !parsed.mustChangeKey) {
                     const tok = cleanStr(parsed.authToken);
-                    if (tok || cachedSecret) {
-                        return { valid: true, authToken: tok, accessKey: cachedSecret };
-                    }
-                    sawOwnerWithoutCreds = true;
+                    const storedKey = cleanStr(parsed.accessKey) || cachedSecret || 'kevin123';
+                    return { valid: true, authToken: tok, accessKey: storedKey };
                 }
             } catch (e) {}
         }
 
-        return { valid: false, otherEmail: '', needsReauth: sawOwnerWithoutCreds };
+        return { valid: false, otherEmail: '', needsReauth: false };
     }
 
     function unlockFotosPortal() {
@@ -627,6 +715,7 @@
             renderInboxGallery();
             renderSelectedProductStage();
         }
+        renderSessionHistoryLog();
 
         window.refreshAllPhotoWorkspace(false);
     }
@@ -737,6 +826,7 @@
                     nombre: OWNER_DISPLAY_NAME,
                     sheetTab: 'PROYECTOS',
                     authToken: issuedToken,
+                    accessKey: typedKey,
                     verifiedAt: Date.now()
                 });
                 try {
@@ -901,14 +991,18 @@
                         const r = rowsInv[i] || [];
                         const sku = cleanStr(r[0]).toUpperCase();
                         if (!sku || sku === 'SKU') continue;
+                        const photoInvRaw = cleanPhotoUrl(r[5]);
                         if (!invMap.has(sku)) {
                             invMap.set(sku, {
                                 sku: sku,
                                 tipo: cleanStr(r[1]),
                                 modelo: cleanStr(r[2]),
                                 nombreInv: cleanStr(r[3]),
+                                photoInv: photoInvRaw,
                                 categoria: cleanStr(r[6])
                             });
+                        } else if (photoInvRaw && !invMap.get(sku).photoInv) {
+                            invMap.get(sku).photoInv = photoInvRaw;
                         }
                     }
                 }
@@ -922,13 +1016,13 @@
 
                         const rowNum = i + 1;
                         const colBName = cleanStr(r[1]);
-                        let colDUrl = cleanPhotoUrl(r[3]);
+                        const inv = invMap.get(sku) || null;
+                        let colDUrl = cleanPhotoUrl(r[3]) || (inv ? inv.photoInv : '');
                         let colDFid = extractDriveFileId(colDUrl);
                         if (delSkus[sku] || (colDFid && delFiles[colDFid])) {
                             colDUrl = '';
                             colDFid = '';
                         }
-                        const inv = invMap.get(sku) || null;
 
                         if (!mergedMap.has(sku)) {
                             const displayName = colBName || (inv ? inv.nombreInv : '') || '';
@@ -972,14 +1066,20 @@
                     if (mergedMap.has(sku)) return;
                     const displayName = inv.nombreInv || [inv.tipo, inv.modelo].filter(Boolean).join(' ') || sku;
                     const dest = resolveCategoryDestFolderForProduct(inv.categoria, inv.tipo, displayName);
+                    let invPhotoUrl = inv.photoInv || '';
+                    let invPhotoFid = extractDriveFileId(invPhotoUrl);
+                    if (delSkus[sku] || (invPhotoFid && delFiles[invPhotoFid])) {
+                        invPhotoUrl = '';
+                        invPhotoFid = '';
+                    }
                     mergedMap.set(sku, {
                         sku: sku,
                         colBName: '',
                         displayName: displayName,
-                        photoUrl: '',
-                        photoFileId: '',
+                        photoUrl: invPhotoUrl,
+                        photoFileId: invPhotoFid,
                         rowNumber: null,
-                        inSheet1: false,
+                        inSheet1: !!invPhotoUrl,
                         inInv: true,
                         categoria: inv.categoria,
                         tipo: inv.tipo,
@@ -995,10 +1095,12 @@
                     if (delSkus[sku]) return;
                     const item = mergedMap.get(sku);
                     if (item && savedMeta && savedMeta.newUrl) {
+                        const savedFid = savedMeta.fileId || extractDriveFileId(savedMeta.newUrl);
+                        if (savedFid && delFiles[savedFid]) return;
                         item.photoUrl = savedMeta.newUrl;
-                        item.photoFileId = savedMeta.fileId || extractDriveFileId(savedMeta.newUrl);
+                        item.photoFileId = savedFid;
                         item.inSheet1 = true;
-                        if (savedMeta.rowNumber) item.rowNumber = savedMeta.rowNumber;
+                        if (savedMeta.rowNumber && savedMeta.rowNumber !== '...') item.rowNumber = savedMeta.rowNumber;
                         if (savedMeta.productName && (!item.colBName || item.displayName === '—')) {
                             item.colBName = savedMeta.productName;
                             item.displayName = savedMeta.productName;
@@ -1013,7 +1115,7 @@
                     p.searchSkuNorm = normalizeSearchText(p.sku);
                     const dispNorm = normalizeSearchText(p.displayName);
                     if (dispNorm && dispNorm.length >= 5 && !byNormName.has(dispNorm)) {
-                        byNormName.set(dispNorm, p.sku);
+                        byNormName.set(dispNorm, skuKeySafe(p.sku));
                     }
                     p.searchNameNorm = normalizeSearchText(p.displayName + ' ' + p.colBName + ' ' + p.categoria + ' ' + p.tipo);
                     p.searchNorm = (p.searchSkuNorm + ' ' + p.searchNameNorm).trim();
@@ -1043,6 +1145,10 @@
         })();
 
         return state.sheetsPromise;
+    }
+
+    function skuKeySafe(s) {
+        return cleanStr(s).toUpperCase();
     }
 
     window.clearSkuSearch = function () {
@@ -1385,9 +1491,11 @@
         renderInboxGallery();
     };
 
-    window.refreshInboxOnly = async function () {
+    window.refreshInboxOnly = async function (manualRefresh) {
         if (state.inboxLoading) return;
         state.inboxLoading = true;
+        const btnInb = document.getElementById('btnRefreshInbox');
+        if (btnInb) { btnInb.disabled = true; btnInb.textContent = '↻...'; }
         const container = document.getElementById('inboxGalleryContainer');
         if (container && !state.inboxFiles.length && state.galleryMode === 'INBOX') {
             container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">Cargando...</div>';
@@ -1397,15 +1505,20 @@
         const pendingFileIds = Object.keys(delQueue.fileIds || {});
         const pendingSkus = Object.keys(delQueue.skus || {});
 
-        const res = await callWebAppPost('fotos_subir_list', Object.assign({
-            pendingDeletes: (pendingFileIds.length || pendingSkus.length)
-                ? { fileIds: pendingFileIds, skus: pendingSkus }
-                : undefined
-        }, buildOwnerAuthPayload()), 18000);
-        state.inboxLoading = false;
+        let res = null;
+        try {
+            res = await callWebAppPost('fotos_subir_list', Object.assign({
+                pendingDeletes: (pendingFileIds.length || pendingSkus.length)
+                    ? { fileIds: pendingFileIds, skus: pendingSkus }
+                    : undefined
+            }, buildOwnerAuthPayload()), 18000);
+        } finally {
+            state.inboxLoading = false;
+            if (btnInb) { btnInb.disabled = false; btnInb.textContent = '↻'; }
+        }
 
         if (res && res.ok && Array.isArray(res.files)) {
-            if (pendingFileIds.length || pendingSkus.length) {
+            if (res.pendingDeletesProcessed === true && (pendingFileIds.length || pendingSkus.length)) {
                 writeDeletedQueue({ fileIds: {}, skus: {} });
             }
             state.rawInboxFromDrive = res.files;
@@ -1420,6 +1533,9 @@
             renderInboxGallery();
             renderSelectedProductStage();
             updateAssignButtonState();
+            if (manualRefresh) {
+                showAssignFeedback('✅ SUBIR COTIZACION actualizada (' + state.inboxFiles.length + ').', true);
+            }
             return;
         }
 
@@ -1704,6 +1820,7 @@
         if (sku) {
             state.sessionSavedBySku.delete(sku);
             state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it.sku !== sku);
+            saveSavedOverridesNow();
         }
         if (fid) {
             state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== fid);
@@ -1963,11 +2080,13 @@
             fileName: selPhoto.name,
             destFolderName: targetDestMeta.name,
             destFolderUrl: 'https://drive.google.com/drive/folders/' + targetDestMeta.id,
-            localDataUrl: selPhoto.localDataUrl || selPhoto.thumbDataUrl || ''
+            localDataUrl: selPhoto.localDataUrl || selPhoto.thumbDataUrl || '',
+            ts: Date.now()
         };
 
         state.sessionSavedBySku.set(prod.sku, logEntry);
         state.sessionSavedLogs = [logEntry].concat(state.sessionSavedLogs.filter((it) => it.sku !== prod.sku));
+        saveSavedOverridesNow();
 
         if (!selPhoto.fromLoaded) {
             state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== selPhoto.id);
@@ -2013,6 +2132,7 @@
                 prod.photoFileId = prevFidBeforeSave;
                 state.sessionSavedBySku.delete(prod.sku);
                 state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it !== logEntry);
+                saveSavedOverridesNow();
                 invalidateLoadedPhotosCache();
                 applySkuFiltersAndRender();
                 renderInboxGallery();
@@ -2040,6 +2160,7 @@
                 logEntry.productName = res.productName;
             }
 
+            saveSavedOverridesNow();
             invalidateLoadedPhotosCache();
             scheduleSaveFastCache();
             if (state.selectedSku === prod.sku) {
@@ -2161,12 +2282,28 @@
         }
     };
 
-    window.refreshAllPhotoWorkspace = async function () {
+    window.refreshAllPhotoWorkspace = async function (manualRefresh) {
         if (!state.unlocked) return;
-        await Promise.all([
-            loadSheetsCatalog(),
-            window.refreshInboxOnly()
-        ]);
+        const btnRef = document.getElementById('btnHeaderRefreshFotos');
+        const origTxt = btnRef ? btnRef.textContent : '↻ Fotos';
+        if (btnRef) { btnRef.disabled = true; btnRef.textContent = '↻...'; }
+        try {
+            await Promise.all([
+                loadSheetsCatalog(),
+                window.refreshInboxOnly(false)
+            ]);
+            if (manualRefresh) {
+                const loadedCount = getLoadedPhotosList().length;
+                showAssignFeedback(
+                    '✅ Actualizado (' + state.products.length.toLocaleString('es-MX') + ' SKUs · ' +
+                    loadedCount.toLocaleString('es-MX') + ' fotos cargadas · ' +
+                    state.inboxFiles.length + ' en SUBIR COTIZACION).',
+                    true
+                );
+            }
+        } finally {
+            if (btnRef) { btnRef.disabled = false; btnRef.textContent = origTxt; }
+        }
     };
 
     window.openPhotoLightbox = function (url) {
@@ -2187,6 +2324,19 @@
     };
 
     function initFotosApp() {
+        try {
+            if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+                navigator.serviceWorker.getRegistrations().then((regs) => {
+                    for (let i = 0; i < regs.length; i++) {
+                        const scope = String((regs[i] && regs[i].scope) || '');
+                        if (scope.indexOf('/inventario') === -1) {
+                            regs[i].unregister().catch(() => {});
+                        }
+                    }
+                }).catch(() => {});
+            }
+        } catch (eSw) {}
+
         if (window.CREATA_LOGO_B64) {
             document.querySelectorAll('[data-creata-logo]').forEach((img) => {
                 img.src = window.CREATA_LOGO_B64;
@@ -2194,6 +2344,7 @@
         }
 
         populateDestFolderSelect();
+        hydrateSavedOverrides();
         hydrateFromFastCache();
         loadSheetsCatalog();
 

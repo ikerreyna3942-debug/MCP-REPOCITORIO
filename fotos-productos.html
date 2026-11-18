@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Fotos · Hoja 1 | CREATA</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,7 +14,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=6">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=9">
 </head>
 <body>
 
@@ -73,7 +76,7 @@
                     <a class="hdr-btn" href="./panel.html">Panel</a>
                     <a class="hdr-btn" href="https://creata-muebles-qa8x.onrender.com/" target="_blank" rel="noopener">Cotización ↗</a>
                     <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
-                    <button type="button" class="hdr-btn" onclick="refreshAllPhotoWorkspace(false)">↻ Fotos</button>
+                    <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn" onclick="refreshAllPhotoWorkspace(true)">↻ Fotos</button>
                     <a class="hdr-btn" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
                     <button type="button" class="hdr-btn" onclick="lockFotosPortal()">Salir</button>
                 </div>
@@ -242,7 +245,7 @@
                                         📁 Carpeta
                                         <input type="file" id="pcUploadFolderToSubirInput" accept="image/*" webkitdirectory directory multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
                                     </label>
-                                    <button type="button" class="hdr-btn" style="background:#252C32; color:#FFF;" onclick="refreshInboxOnly()">↻</button>
+                                    <button type="button" id="btnRefreshInbox" class="hdr-btn" style="background:#252C32; color:#FFF;" onclick="refreshInboxOnly(true)">↻</button>
                                 </div>
                             </div>
 
@@ -272,6 +275,6 @@
 
     <script src="./creata-logo.js?v=32"></script>
     <script src="./creata-cloud.js?v=32"></script>
-    <script src="./fotos-productos-app.js?v=7"></script>
+    <script src="./fotos-productos-app.js?v=9"></script>
 </body>
 </html>

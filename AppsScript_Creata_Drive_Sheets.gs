@@ -8650,6 +8650,7 @@ function handleFotosSubirList_(body) {
   const auth = verifyExclusiveKevinOwner_(ss, body);
   if (!auth.ok) return auth;
 
+  let pendingDeletesProcessed = false;
   if (body && body.pendingDeletes && typeof body.pendingDeletes === 'object') {
     try {
       const pd = body.pendingDeletes;
@@ -8661,6 +8662,7 @@ function handleFotosSubirList_(body) {
       for (let j = 0; j < pFiles.length; j++) {
         if (pFiles[j]) handleFotosDelete_(Object.assign({}, body, { driveFileId: pFiles[j], source: 'INBOX', skipListReturn: true }));
       }
+      pendingDeletesProcessed = true;
     } catch (ePend) {}
   }
 
@@ -8676,6 +8678,7 @@ function handleFotosSubirList_(body) {
   const files = listSubirInboxFilesInternal_({ includeThumbs: !!(body && body.includeThumbs) });
   return {
     ok: true,
+    pendingDeletesProcessed: pendingDeletesProcessed,
     inboxFolderId: primaryId,
     inboxFolderUrl: 'https://drive.google.com/drive/folders/' + primaryId,
     destRootFolderId: CATEGORIAS_DEST_ROOT_FOLDER_ID_,

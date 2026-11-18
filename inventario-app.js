@@ -1719,7 +1719,7 @@
         const fallback = fid ? ('https://drive.google.com/thumbnail?id=' + fid + '&sz=w400') : '';
         return '<div class="inv-thumb"><img loading="lazy" decoding="async" alt="" src="' + escapeHtml(small) + '" ' +
             'data-fb="' + escapeHtml(fallback) + '" ' +
-            'onerror="if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=\'\';}else{this.parentNode.innerHTML=window.__INV_THUMB_PH||\'\';}"></div>';
+            'onerror="if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=\'\';}else if(this.parentNode){this.parentNode.innerHTML=window.__INV_THUMB_PH||\'\';}"></div>';
     }
     window.__INV_THUMB_PH = THUMB_PLACEHOLDER_SVG;
 
@@ -4810,6 +4810,22 @@
 
     async function fetchSheetCsvRows(sheetName, extraParams) {
         if (!META.sheetId) return null;
+        if (String(sheetName) === '1') {
+            try {
+                const exportUrl = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(META.sheetId) +
+                    '/export?format=csv&gid=620514545&_t=' + Date.now();
+                const expResp = await fetch(exportUrl, { cache: 'no-store' });
+                if (expResp.ok) {
+                    const expTxt = await expResp.text();
+                    if (expTxt && !expTxt.trim().startsWith('<!DOCTYPE') && !expTxt.trim().startsWith('<html')) {
+                        const allRows = parseCsvText(expTxt);
+                        if (Array.isArray(allRows) && allRows.length > 1) {
+                            return allRows.slice(1);
+                        }
+                    }
+                }
+            } catch (eExp) {}
+        }
         const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(META.sheetId) +
             '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(sheetName) +
             (extraParams ? ('&' + extraParams) : '') + '&_t=' + Date.now();
@@ -4829,7 +4845,7 @@
     async function loadErpCatalogLiveFromSheet() {
         const [rows, h1Rows] = await Promise.all([
             fetchSheetCsvRows('plantilla', 'range=AA2:AH5500'),
-            fetchSheetCsvRows('1', 'range=A2:B5500').catch(() => null)
+            fetchSheetCsvRows('1', 'range=A2:D9500').catch(() => null)
         ]);
         const stores = DEFAULT_ERP_STORES.slice();
         const advisors = [];
@@ -4881,16 +4897,21 @@
                 if (!hSku || hSku === 'SKU') continue;
                 const hNom = cleanStr(hr[1]);
                 if (hNom && /^DESC[-\s]|DESCONTINUAD/i.test(hNom)) continue;
+                const hMo = cleanStr(hr[2]);
+                const hFotoRaw = cleanStr(hr[3]);
+                const hFoto = (/^https?:\/\//i.test(hFotoRaw) || extractDriveFileId(hFotoRaw)) ? hFotoRaw : '';
                 const prevEntry = nextErpCatalog.get(hSku);
                 if (prevEntry) {
                     if (!prevEntry.n && hNom) prevEntry.n = hNom;
+                    if (!prevEntry.mo && hMo && !/^(MODELO|ID_PRODUCTO_ERP)$/i.test(hMo)) prevEntry.mo = hMo;
+                    if (!prevEntry.f && hFoto) prevEntry.f = hFoto;
                 } else if (hNom) {
                     nextErpCatalog.set(hSku, {
                         sku: hSkuRaw,
-                        mo: '',
+                        mo: (hMo && !/^(MODELO|ID_PRODUCTO_ERP)$/i.test(hMo)) ? hMo : '',
                         n: hNom,
                         pr: nextPrices.get(hSku) || '',
-                        f: ''
+                        f: hFoto
                     });
                 }
             }
