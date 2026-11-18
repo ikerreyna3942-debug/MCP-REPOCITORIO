@@ -987,6 +987,9 @@ function doPost(e) {
     if (action === 'fotos_subir_assign') {
       return jsonResponse_(handleFotosSubirAssign_(body));
     }
+    if (action === 'fotos_sync_skus') {
+      return jsonResponse_(handleFotosSyncSkus_(body));
+    }
     if (action === 'inv_setup_accounts') {
       const adminPinCfg = getProp_('ADMIN_PIN');
       const hasValidPin = !!(adminPinCfg && String(body.pin || '') === adminPinCfg);
@@ -6363,6 +6366,7 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     let lpptOk = false;
     const lpptLibre = {};
     const lpptProvBySku = {};
+    const lpptNomBySku = {};
     const fechaLlegadaMap = {};
     try {
       const lpptSs = SpreadsheetApp.openById(cfg.lpptSpreadsheetId);
@@ -6397,6 +6401,8 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
           const ru = rawRows[i];
           const sku = String(rf[9] || '').trim().toUpperCase();
           if (!sku) continue;
+          const nomLppt = String(rf[8] || '').trim();
+          if (nomLppt && !lpptNomBySku[sku]) lpptNomBySku[sku] = nomLppt;
           const cantTotal = Math.round(parseFloat(String(ru[6] !== '' ? ru[6] : rf[6]).replace(/,/g, '')) || 0);
           if (cantTotal <= 0) continue;
 
@@ -6508,7 +6514,8 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       metaErpSku: metaErpSku,
       invPorSku: invPorSku,
       lpptLibre: lpptLibre,
-      lpptProvBySku: lpptProvBySku
+      lpptProvBySku: lpptProvBySku,
+      lpptNomBySku: lpptNomBySku
     });
 
     // 5) Actualizar columnas dinámicas O..AW (35 cols) en INVENTARIO_EN_VIVO respetando A..N, F2 y AX2 ARRAYFORMULA
@@ -6632,6 +6639,10 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
         .setHorizontalAlignment('center');
     }
     asegurarColumnaPrecioListaInventario_(ss, { silentUi: true, force: !!(autoRes && autoRes.added > 0) });
+    let hoja1SyncRes = { added: 0 };
+    try {
+      hoja1SyncRes = sincronizarSkusHoja1DesdeInventario_(ss) || { added: 0 };
+    } catch (eSync1) {}
 
     if (!erpOk) {
       registrarEventoHistorial_(ss, {
@@ -6645,17 +6656,17 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
         detalle: erpError || 'Sin respuesta WCF S Mueblería; se preservó inventario Bodega/Piso del último corte.',
         analisis: analizarCausaFalloCodigo_(erpError, 'AppsScript · sincronizarInventarioEnVivoDesdeERP', 'sync_erp')
       });
-    } else if (autoRes && autoRes.added > 0) {
+    } else if ((autoRes && autoRes.added > 0) || (hoja1SyncRes && hoja1SyncRes.added > 0)) {
       registrarEventoHistorial_(ss, {
         clasificacion: 'MOVIMIENTO',
         modulo: 'AppsScript · sincronizarInventarioEnVivoDesdeERP',
-        evento: 'ALTA AUTOMÁTICA DE NUEVOS SKUS EN INVENTARIO',
+        evento: 'ALTA AUTOMÁTICA DE NUEVOS SKUS EN INVENTARIO Y HOJA "1"',
         estado: '✅ OK',
         usuario: 'Sincronizador Automático',
-        sucursal: 'INVENTARIO_EN_VIVO',
-        referencia: '+' + autoRes.added + ' SKUs nuevos',
+        sucursal: 'INVENTARIO_EN_VIVO / HOJA "1"',
+        referencia: '+' + ((autoRes && autoRes.added) || 0) + ' inv · +' + ((hoja1SyncRes && hoja1SyncRes.added) || 0) + ' Hoja "1"',
         detalle: 'Sincronización en vivo completada (' + outMatrix.length + ' filas ordenadas A-Z · LPPT +14 días activo).',
-        analisis: 'Fórmulas nativas F2 y AX2 respetadas intactas.'
+        analisis: 'Fórmulas nativas F2, AX2 y Hoja "1"!B2:F2 respetadas intactas.'
       });
     }
 
@@ -6678,6 +6689,7 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       keptLastInventoryFrom: erpOk ? undefined : (ultimoInventarioErp || ''),
       rowsUpdated: outMatrix.length,
       newSkusAdded: (autoRes && autoRes.added) || 0,
+      hoja1SkusAdded: (hoja1SyncRes && hoja1SyncRes.added) || 0,
       rowsAutocompleted: (autoRes && autoRes.updated) || 0,
       lpptSynced: lpptOk,
       timestamp: ahoraStr
@@ -7315,6 +7327,7 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
   const invPorSku = options.invPorSku || {};
   const lpptLibre = options.lpptLibre || {};
   const lpptProvBySku = options.lpptProvBySku || {};
+  const lpptNomBySku = options.lpptNomBySku || {};
 
   // 2) Leer filas actuales de INVENTARIO_EN_VIVO (A3:N y O3:AW)
   const lastRow = shInv.getLastRow();
@@ -7425,15 +7438,23 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
       const m = metaErpSku[sk] || {};
       const p = plantillaRef[sk] || {};
       const h = hoja1Ref[sk] || {};
-      tryRegisterNewCandidateSku(sk, m.NOMBRE || h.nom || p.nom || sk, m.MODELO || '', m.CATEGORIA || '', lpptProvBySku[sk] || m.PROVEEDOR || '', true);
+      tryRegisterNewCandidateSku(sk, m.NOMBRE || lpptNomBySku[sk] || h.nom || p.nom || sk, m.MODELO || '', m.CATEGORIA || '', lpptProvBySku[sk] || m.PROVEEDOR || '', true);
     }
   });
 
-  // 4) Si hay SKUs nuevos que aún no están en plantilla!AE:AH, consultar hasta 10 por ciclo en S Mueblería WCF
-  //    para que la columna AW (PRECIO DE LISTA por ARRAYFORMULA) se llene automáticamente.
+  // 4) Si hay SKUs que aún no están en plantilla!AE:AH, consultar hasta 15 por ciclo en S Mueblería WCF
+  //    para que el nombre real y la columna AX (PRECIO DE LISTA por ARRAYFORMULA) se llenen automáticamente.
   if (shPlantilla) {
-    const missingInPlantilla = Object.keys(recordsBySku).filter((sk) => !plantillaRef[sk] && recordsBySku[sk].isNew);
-    const toFetchWcf = missingInPlantilla.slice(0, 10);
+    const missingInPlantilla = Object.keys(recordsBySku)
+      .filter((sk) => !plantillaRef[sk])
+      .sort((a, b) => {
+        const ra = recordsBySku[a];
+        const rb = recordsBySku[b];
+        const pa = (ra.isNew ? 0 : 1) + ((!cleanInvCell_(ra.aToN[3]) || cleanInvCell_(ra.aToN[3]).toUpperCase() === a) ? 0 : 2);
+        const pb = (rb.isNew ? 0 : 1) + ((!cleanInvCell_(rb.aToN[3]) || cleanInvCell_(rb.aToN[3]).toUpperCase() === b) ? 0 : 2);
+        return pa - pb;
+      });
+    const toFetchWcf = missingInPlantilla.slice(0, 15);
     const rowsToAppendPlantilla = [];
     for (let f = 0; f < toFetchWcf.length; f++) {
       const sk = toFetchWcf[f];
@@ -7556,7 +7577,7 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     if (!nom || nom.toUpperCase() === sku || /^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(nom)) {
       const badParsed = stripDimensionsAndExtractInv_(nom);
       if (!med && badParsed.med) med = badParsed.med;
-      const candNames = [hRef.nom, pRef.nom, eRef.NOMBRE, mRef.nom, mo];
+      const candNames = [hRef.nom, pRef.nom, eRef.NOMBRE, lpptNomBySku[sku], mRef.nom, mo];
       for (let c = 0; c < candNames.length; c++) {
         const cn = cleanInvCell_(candNames[c]);
         if (cn && cn.toUpperCase() !== sku && !/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(cn)) {
@@ -8457,10 +8478,71 @@ function listSubirInboxFilesInternal_() {
   return files;
 }
 
+function sincronizarSkusHoja1DesdeInventario_(ss, flushNow) {
+  const book = ss || getSpreadsheet_();
+  const sh1 = book.getSheetByName('1');
+  const shInv = book.getSheetByName(CONFIG.TAB_INVENTORY || 'INVENTARIO_EN_VIVO');
+  if (!sh1 || !shInv || shInv.getLastRow() < 3) {
+    return { ok: false, added: 0, totalHoja1: 0 };
+  }
+
+  const maxRows1 = Math.max(3, sh1.getLastRow());
+  const vals1 = sh1.getRange(1, 1, maxRows1, 1).getDisplayValues();
+  const existingSet = {};
+  let lastSkuRowInColA = 2; // Jamás tocar Fila 1 (encabezados) ni Fila 2 (ARRAYFORMULA B2, C2, E2, F2)
+  let totalExisting = 0;
+
+  for (let i = 2; i < vals1.length; i++) {
+    const sk = String((vals1[i] && vals1[i][0]) || '').trim().toUpperCase();
+    if (sk && sk !== 'SKU') {
+      lastSkuRowInColA = i + 1;
+      if (!existingSet[sk]) {
+        existingSet[sk] = true;
+        totalExisting++;
+      }
+    }
+  }
+
+  const invRows = shInv.getRange(3, 1, shInv.getLastRow() - 2, 1).getDisplayValues();
+  const toAppend = [];
+  for (let j = 0; j < invRows.length; j++) {
+    const raw = String((invRows[j] && invRows[j][0]) || '').trim();
+    const sk = raw.toUpperCase();
+    if (!sk || sk === 'SKU') continue;
+    if (!existingSet[sk]) {
+      existingSet[sk] = true;
+      toAppend.push([sk]);
+    }
+  }
+
+  if (toAppend.length > 0) {
+    const startRow = Math.max(3, lastSkuRowInColA + 1);
+    const endRow = startRow + toAppend.length - 1;
+    if (sh1.getMaxRows() < endRow) {
+      sh1.insertRowsAfter(sh1.getMaxRows(), endRow - sh1.getMaxRows());
+    }
+    const writeRng = sh1.getRange(startRow, 1, toAppend.length, 1);
+    writeRng.setNumberFormat('@');
+    writeRng.setValues(toAppend);
+    if (flushNow) SpreadsheetApp.flush();
+  }
+
+  return {
+    ok: true,
+    added: toAppend.length,
+    totalHoja1: totalExisting + toAppend.length
+  };
+}
+
 function handleFotosSubirList_(body) {
   const ss = getSpreadsheet_();
   const auth = verifyExclusiveKevinOwner_(ss, body);
   if (!auth.ok) return auth;
+
+  let skuSync = { added: 0, totalHoja1: 0 };
+  try {
+    skuSync = sincronizarSkusHoja1DesdeInventario_(ss, false) || skuSync;
+  } catch (eSync1) {}
 
   const files = listSubirInboxFilesInternal_();
   return {
@@ -8470,7 +8552,85 @@ function handleFotosSubirList_(body) {
     destRootFolderId: CATEGORIAS_DEST_ROOT_FOLDER_ID_,
     destRootFolderUrl: 'https://drive.google.com/drive/folders/' + CATEGORIAS_DEST_ROOT_FOLDER_ID_,
     destFolders: CATEGORIAS_DEST_FOLDERS_,
+    hoja1SkusAdded: skuSync.added || 0,
+    hoja1TotalSkus: skuSync.totalHoja1 || 0,
     files: files
+  };
+}
+
+function handleFotosSyncSkus_(body) {
+  const ss = getSpreadsheet_();
+  const auth = verifyExclusiveKevinOwner_(ss, body);
+  if (!auth.ok) return auth;
+
+  // Si se proporcionó un SKU puntual recién dado de alta en S Mueblería ERP (aún con 0 stock), consultarlo directo por WCF
+  const querySku = String((body && body.querySku) || '').trim().toUpperCase();
+  let directErpFound = null;
+  if (querySku && querySku.length >= 3) {
+    try {
+      const wcfProd = buscarProductoPorClaveWcf_(querySku);
+      if (wcfProd && wcfProd.IdProducto && String(wcfProd.Clave || '').trim().toUpperCase() === querySku) {
+        directErpFound = wcfProd;
+        const shPl = ss.getSheetByName('plantilla');
+        if (shPl && shPl.getLastColumn() >= 34) {
+          const aeVals = shPl.getRange(2, 31, Math.max(1, shPl.getLastRow() - 1), 1).getDisplayValues();
+          let existsInPl = false;
+          let lastAe = 1;
+          for (let i = 0; i < aeVals.length; i++) {
+            const cSk = String(aeVals[i][0] || '').trim().toUpperCase();
+            if (cSk) {
+              lastAe = i + 2;
+              if (cSk === querySku) { existsInPl = true; break; }
+            }
+          }
+          if (!existsInPl) {
+            const nextAe = lastAe + 1;
+            if (shPl.getMaxRows() < nextAe) shPl.insertRowsAfter(shPl.getMaxRows(), nextAe - shPl.getMaxRows());
+            shPl.getRange(nextAe, 31, 1, 1).setNumberFormat('@');
+            shPl.getRange(nextAe, 31, 1, 4).setValues([[
+              querySku,
+              String(wcfProd.IdProducto).trim(),
+              cleanInvCell_(wcfProd.Nombre) || querySku,
+              Number(wcfProd.Precio || 0) || ''
+            ]]);
+          }
+        }
+      }
+    } catch (eDirectWcf) {}
+  }
+
+  let erpSyncRes = { ok: false, newSkusAdded: 0, hoja1SkusAdded: 0 };
+  try {
+    erpSyncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true }) || erpSyncRes;
+  } catch (eErp) {}
+
+  const hoja1Res = sincronizarSkusHoja1DesdeInventario_(ss, true);
+  const totalAddedHoja1 = ((erpSyncRes && erpSyncRes.hoja1SkusAdded) || 0) + ((hoja1Res && hoja1Res.added) || 0);
+
+  if (totalAddedHoja1 > 0 || (erpSyncRes && erpSyncRes.newSkusAdded > 0)) {
+    try {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'AppsScript · Gestor Fotos Hoja "1"',
+        evento: 'SINCRONIZACIÓN DE SKUS EN HOJA "1"',
+        estado: '✅ OK',
+        usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
+        sucursal: 'ADMINISTRACIÓN GENERAL',
+        referencia: '+' + totalAddedHoja1 + ' en Hoja "1"',
+        detalle: 'SKUs sincronizados desde S Mueblería ERP / INVENTARIO_EN_VIVO hacia Hoja "1" (total: ' + (hoja1Res.totalHoja1 || 0) + ').',
+        analisis: 'Fórmulas maestras B2:F2 y F2 intactas.'
+      });
+    } catch (eHist) {}
+  }
+
+  return {
+    ok: true,
+    erpSynced: !!(erpSyncRes && erpSyncRes.ok),
+    invAdded: (erpSyncRes && erpSyncRes.newSkusAdded) || 0,
+    hoja1Added: totalAddedHoja1,
+    totalHoja1: (hoja1Res && hoja1Res.totalHoja1) || 0,
+    directErpSku: directErpFound ? String(directErpFound.Clave || '').toUpperCase() : '',
+    timestamp: formatCancunNow_()
   };
 }
 

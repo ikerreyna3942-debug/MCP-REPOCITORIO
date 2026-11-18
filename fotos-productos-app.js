@@ -744,7 +744,18 @@
 
         const slice = state.filteredProducts.slice(0, 120);
         if (!slice.length) {
-            listEl.innerHTML = '<div class="photo-empty-placeholder">Sin resultados</div>';
+            const rawTyped = cleanStr(state.skuSearchQuery).toUpperCase().replace(/\s+/g, '');
+            const looksLikeSku = /^[A-Z0-9_-]{3,28}$/.test(rawTyped);
+            listEl.innerHTML =
+                '<div class="photo-empty-placeholder" style="display:flex;flex-direction:column;gap:8px;padding:18px 12px;">' +
+                    '<span>Sin resultados</span>' +
+                    (rawTyped.length >= 3
+                        ? ('<button type="button" class="hdr-btn is-accent" style="height:30px;padding:0 12px;" onclick="syncSkusNow(\'' + escapeHtml(rawTyped.replace(/'/g, "\\'")) + '\')">↻ Buscar "' + escapeHtml(rawTyped) + '" en ERP</button>')
+                        : '') +
+                    (looksLikeSku
+                        ? ('<button type="button" class="hdr-btn" style="height:28px;padding:0 12px;background:#252C32;color:#FFF;" onclick="useNewManualSku(\'' + escapeHtml(rawTyped.replace(/'/g, "\\'")) + '\')">+ Usar SKU "' + escapeHtml(rawTyped) + '"</button>')
+                        : '') +
+                '</div>';
             return;
         }
 
@@ -978,6 +989,9 @@
             state.inboxFiles = res.files;
             if (state.selectedInboxFileId && !state.inboxFiles.some((f) => f.id === state.selectedInboxFileId)) {
                 state.selectedInboxFileId = '';
+            }
+            if (Number(res.hoja1SkusAdded || 0) > 0 && !state.sheetsLoading) {
+                loadSheetsCatalog();
             }
             renderInboxGallery();
             renderSelectedProductStage();
@@ -1305,24 +1319,101 @@
         )).join('');
     }
 
+    window.useNewManualSku = function (skuRaw) {
+        const sku = cleanStr(skuRaw).toUpperCase().replace(/\s+/g, '');
+        if (!sku) return;
+        if (!state.productBySku.has(sku)) {
+            const dest = resolveCategoryDestFolderForProduct('', '', sku);
+            const item = {
+                sku: sku,
+                colBName: '',
+                displayName: sku,
+                photoUrl: '',
+                rowNumber: null,
+                inSheet1: false,
+                inInv: false,
+                categoria: '',
+                tipo: '',
+                destFolderId: dest.id,
+                destFolderName: dest.name,
+                searchSkuNorm: normalizeSearchText(sku),
+                searchNameNorm: normalizeSearchText(sku),
+                searchNorm: normalizeSearchText(sku)
+            };
+            state.products.unshift(item);
+            state.productBySku.set(sku, item);
+        }
+        applySkuFiltersAndRender();
+        window.selectSkuProduct(sku);
+    };
+
+    window.syncSkusNow = async function (querySkuOpt) {
+        if (state.syncSkusInFlight) return;
+        state.syncSkusInFlight = true;
+
+        const btnHdr = document.getElementById('btnHeaderSyncSkus');
+        const btnCard = document.getElementById('btnSyncSkusCard');
+        const origHdr = btnHdr ? btnHdr.textContent : '↻ SKUs';
+        const origCard = btnCard ? btnCard.textContent : '↻ Actualizar SKUs';
+
+        if (btnHdr) { btnHdr.disabled = true; btnHdr.textContent = 'Sincronizando...'; }
+        if (btnCard) { btnCard.disabled = true; btnCard.textContent = 'Sincronizando...'; }
+        hideAssignFeedback();
+
+        try {
+            const qSku = cleanStr(querySkuOpt || '').toUpperCase();
+            let res = await callWebAppPost('fotos_sync_skus', Object.assign({
+                querySku: qSku
+            }, buildOwnerAuthPayload()), 45000);
+
+            if (res && !res.ok && /Acci[óo]n no reconocida/i.test(cleanStr(res.error))) {
+                res = await callWebAppPost('inv_erp_sync_now', buildOwnerAuthPayload(), 45000);
+            }
+
+            await loadSheetsCatalog();
+
+            if (qSku && state.productBySku.has(qSku)) {
+                window.selectSkuProduct(qSku);
+            }
+
+            const added1 = Number((res && (res.hoja1Added || res.hoja1SkusAdded)) || 0);
+            const addedInv = Number((res && (res.invAdded || res.newSkusAdded)) || 0);
+            const total1 = state.products.length;
+            if (added1 > 0 || addedInv > 0) {
+                showAssignFeedback('✅ SKUs actualizados (+' + Math.max(added1, addedInv) + ' nuevos · ' + total1.toLocaleString('es-MX') + ' en total).', true);
+            } else {
+                showAssignFeedback('✅ SKUs al día (' + total1.toLocaleString('es-MX') + ' productos).', true);
+            }
+        } catch (errSync) {
+            showAssignFeedback('❌ ' + escapeHtml(errSync && errSync.message ? errSync.message : String(errSync)), false);
+        } finally {
+            state.syncSkusInFlight = false;
+            if (btnHdr) { btnHdr.disabled = false; btnHdr.textContent = origHdr; }
+            if (btnCard) { btnCard.disabled = false; btnCard.textContent = origCard; }
+        }
+    };
+
     window.copyUpdatedAppsScriptCode = async function () {
         const btn = document.getElementById('btnCopyAppsScriptCode');
+        const btnHdr = document.getElementById('btnHeaderCopyScript');
         const origText = btn ? btn.textContent : '';
-        if (btn) {
-            btn.disabled = true;
-            btn.textContent = 'Copiando...';
-        }
+        const origHdr = btnHdr ? btnHdr.textContent : '📋 Script';
+        if (btn) { btn.disabled = true; btn.textContent = 'Copiando...'; }
+        if (btnHdr) { btnHdr.disabled = true; btnHdr.textContent = 'Copiando...'; }
         try {
             const resp = await fetch('./AppsScript_Creata_Drive_Sheets.gs?_t=' + Date.now(), { cache: 'no-store' });
             if (!resp.ok) throw new Error('Error al descargar .gs');
             const code = await resp.text();
             await navigator.clipboard.writeText(code);
             if (btn) btn.textContent = '✅ ¡Copiado! Pégalo en Apps Script';
+            if (btnHdr) btnHdr.textContent = '✅ Copiado';
             setTimeout(() => {
                 if (btn) { btn.disabled = false; btn.textContent = origText; }
+                if (btnHdr) { btnHdr.disabled = false; btnHdr.textContent = origHdr; }
             }, 4500);
         } catch (err) {
             if (btn) { btn.disabled = false; btn.textContent = origText; }
+            if (btnHdr) { btnHdr.disabled = false; btnHdr.textContent = origHdr; }
             alert('Error al copiar: ' + (err && err.message ? err.message : String(err)));
         }
     };

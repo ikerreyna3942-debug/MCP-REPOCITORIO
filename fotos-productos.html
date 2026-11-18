@@ -68,10 +68,11 @@
 
                 <div class="header-actions">
                     <a class="hdr-btn" href="./panel.html">Panel</a>
-                    <button type="button" class="hdr-btn is-accent" onclick="refreshAllPhotoWorkspace(false)">↻ Actualizar</button>
+                    <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
+                    <button type="button" class="hdr-btn" onclick="refreshAllPhotoWorkspace(false)">↻ Fotos</button>
                     <a class="hdr-btn" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
                     <a class="hdr-btn" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener">SUBIR</a>
-                    <a class="hdr-btn" href="./inventario.html" target="_blank" rel="noopener">Cotizador</a>
+                    <button type="button" id="btnHeaderCopyScript" class="hdr-btn" onclick="copyUpdatedAppsScriptCode()">📋 Script</button>
                     <button type="button" class="hdr-btn" onclick="lockFotosPortal()">Salir</button>
                 </div>
             </div>
@@ -101,7 +102,10 @@
                 <div class="panel-card">
                     <div class="panel-header">
                         <h2>Buscar Producto</h2>
-                        <span id="skuListCountBadge" class="panel-badge">0</span>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <button type="button" id="btnSyncSkusCard" class="hdr-btn is-accent" style="height:24px;padding:0 9px;font-size:10.5px;" onclick="syncSkusNow()">↻ Actualizar SKUs</button>
+                            <span id="skuListCountBadge" class="panel-badge">0</span>
+                        </div>
                     </div>
                     <div class="panel-body">
                         <div class="search-box-wrap">
@@ -262,6 +266,6 @@
 
     <script src="./creata-logo.js?v=32"></script>
     <script src="./creata-cloud.js?v=32"></script>
-    <script src="./fotos-productos-app.js?v=2"></script>
+    <script src="./fotos-productos-app.js?v=3"></script>
 </body>
 </html>
