@@ -1150,7 +1150,7 @@
                 'onerror="handlePhotoImgError(this)">';
             if (footWrap) footWrap.classList.remove('hidden');
             if (footText) {
-                footText.innerHTML = escapeHtml(savedSession.destFolderName) + ' · <a href="' + escapeHtml(savedSession.newUrl) + '" target="_blank" rel="noopener" style="color:#065F46;font-weight:800;">↗</a>';
+                footText.innerHTML = escapeHtml(savedSession.destFolderName) + ' · <a href="' + escapeHtml(savedSession.newUrl) + '" target="_blank" rel="noopener" style="color:#6EE7B7;font-weight:800;">↗</a>';
             }
             return;
         }
@@ -1329,7 +1329,7 @@
                             '<div class="inbox-file-name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.sku ? (item.sku + ' · ' + item.name) : item.name) + '</div>' +
                             '<div class="inbox-file-sub">' +
                                 '<span>' + escapeHtml((item.destFolderName || '').replace(/^FOTOS\s+(DE\s+)?/i, '')) + '</span>' +
-                                '<span style="font-weight:800;color:' + (isSel ? '#A38251' : '#727B84') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
+                                '<span style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
                             '</div>' +
                         '</div>' +
                     '</div>'
@@ -1365,7 +1365,7 @@
                         '<div class="inbox-file-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</div>' +
                         '<div class="inbox-file-sub">' +
                             '<span>' + escapeHtml(sz) + '</span>' +
-                            '<span style="font-weight:800;color:' + (isSel ? '#A38251' : '#727B84') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
+                            '<span style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
                         '</div>' +
                         (suggestedSku
                             ? ('<button type="button" class="suggest-sku-btn" onclick="applySuggestedSkuFromInbox(\'' + safeFid + '\', \'' + escapeHtml(suggestedSku.replace(/'/g, "\\'")) + '\', event)">SKU ' + escapeHtml(suggestedSku) + '</button>')
