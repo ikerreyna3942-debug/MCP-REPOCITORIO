@@ -57,7 +57,8 @@
     presenceUsers: [],
     presenceOnlineCount: 0,
     presenceOfflineCount: 0,
-    presenceServerTimeMs: 0
+    presenceServerTimeMs: 0,
+    presenceError: ''
   };
 
   // ============================================================================
@@ -962,18 +963,68 @@
     return list;
   }
 
+  function tryRecoverSessionAuthToken() {
+    if (!state.session) return '';
+    if (cleanStr(state.session.authToken)) return cleanStr(state.session.authToken);
+    const targetEmail = normalizeEmail(state.session.correo);
+    if (!targetEmail) return '';
+    const candidateKeys = [
+      INV_SESSION_KEY,
+      'creata_private_kevin_panel_v1',
+      'creata_private_kevin_fotos_v1',
+      'creata_private_kevin_hist_v1'
+    ];
+    for (let i = 0; i < candidateKeys.length; i++) {
+      const obj = readJsonStorage(candidateKeys[i], null);
+      if (obj && normalizeEmail(obj.correo) === targetEmail && cleanStr(obj.authToken)) {
+        state.session.authToken = cleanStr(obj.authToken);
+        return state.session.authToken;
+      }
+    }
+    return '';
+  }
+
   async function fetchPresenceList() {
-    if (!state.session || !state.session.authToken) return null;
+    if (!state.session) return { ok: false, reason: 'no_token' };
+    let token = tryRecoverSessionAuthToken();
+    if (!token && cleanStr(state.session.accessKey) && cleanStr(state.session.correo)) {
+      try {
+        const loginRes = await callWebAppPost('inv_login', {
+          email: state.session.correo,
+          accessKey: state.session.accessKey,
+          sheetTab: state.session.sheetTab || ''
+        }, 15000);
+        const minted = cleanStr(
+          (loginRes && (loginRes.authToken || (loginRes.user && loginRes.user.authToken))) || ''
+        );
+        if (minted) {
+          token = minted;
+          state.session.authToken = minted;
+        }
+      } catch (eMint) {}
+    }
+    if (!token) return { ok: false, reason: 'no_token' };
+
+    const payload = {
+      authToken: token,
+      advisorEmail: state.session.correo,
+      sheetTab: state.session.sheetTab || ''
+    };
     try {
-      const res = await callWebAppPost('inv_presence_list', {
-        authToken: state.session.authToken,
-        advisorEmail: state.session.correo
-      }, 8000);
+      let res = await callWebAppPost('inv_presence_list', payload, 22000);
+      if (!res || res.unavailable) {
+        res = await callWebAppPost('inv_presence_list', payload, 22000);
+      }
       if (res && res.ok && Array.isArray(res.users)) {
         return res;
       }
-    } catch (e) {}
-    return null;
+      if (res && res.unavailable) {
+        return { ok: false, reason: 'unavailable' };
+      }
+      return { ok: false, reason: 'auth_failed' };
+    } catch (e) {
+      return { ok: false, reason: 'unavailable' };
+    }
   }
 
   function isPresenceUserInRoleScope(rawUser) {
@@ -996,12 +1047,18 @@
 
   function ingestPresencePayload(res) {
     if (!res || !res.ok || !Array.isArray(res.users)) {
+      const reason = cleanStr(res && res.reason) || 'unavailable';
+      state.presenceError = reason;
+      if (state.presenceUsers && state.presenceUsers.length > 0 && reason === 'unavailable') {
+        return;
+      }
       state.presenceUsers = [];
       state.presenceOnlineCount = 0;
       state.presenceOfflineCount = 0;
       state.presenceServerTimeMs = 0;
       return;
     }
+    state.presenceError = '';
 
     const serverNow = Number(res.serverTimeMs) > 0 ? Number(res.serverTimeMs) : Date.now();
     const thresholdMs = Number(res.thresholdMs) > 0 ? Number(res.thresholdMs) : 180000;
@@ -1527,7 +1584,17 @@
     if (!listEl) return;
     const list = getFilteredPresenceUsers();
     if (!list.length) {
-      listEl.innerHTML = '<div class="cm-empty" style="grid-column:1/-1;">Sin registros.</div>';
+      let emptyMsg = 'Sin registros.';
+      if (!state.presenceUsers.length) {
+        if (state.presenceError === 'no_token' || state.presenceError === 'auth_failed') {
+          emptyMsg = 'Tu sesión en este dispositivo no tiene token de presencia activo. Toca SALIR arriba y vuelve a iniciar sesión para ver quién está conectado.';
+        } else if (state.presenceError === 'unavailable') {
+          emptyMsg = 'No se pudo consultar el equipo en vivo. Toca ↻ para reintentar.';
+        }
+      } else if (state.presenceFilter === 'ONLINE') {
+        emptyMsg = 'Nadie conectado en los últimos 3 minutos.';
+      }
+      listEl.innerHTML = `<div class="cm-empty" style="grid-column:1/-1;">${escapeHtml(emptyMsg)}</div>`;
       return;
     }
 
