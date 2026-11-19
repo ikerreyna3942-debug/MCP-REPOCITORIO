@@ -739,3 +739,46 @@ test('Project B (Item 8): onOpen registers PUBLIC menu callbacks (no trailing _)
   assert.equal(cfgSh._isHidden(), true);
   assert.equal(cfgSh.getRange(2, 2).getValue(), 'https://script.google.com/macros/s/AKfycbTEST12345/exec');
 });
+
+test('Project B (Generic Odoo + Sheet Upload): odoo_direct_upload_and_register uploads straight to Fotos Odoo subfolder and registers in FOTOS NORMALIZADAS & DATOS GENERAL without touching Project A or Row-3 formulas', () => {
+  const env = setupProjectBEnv({ buzonTrashed: false });
+
+  const uploadRes = postAction(env, {
+    ...OWNER_AUTH,
+    action: 'odoo_direct_upload_and_register',
+    fileName: 'HAK1PLUMNASS8_34_DERECHA.jpg',
+    dataUrl: SAMPLE_JPEG_DATA_URL,
+    dest: 'final',
+    subfolderKey: 'MUEBLES',
+    tipo: 'MUEBLE',
+    registerSheet: true,
+    sku: 'HAK1PLUMNASS8'
+  });
+
+  assert.equal(uploadRes.ok, true);
+  assert.equal(uploadRes.destFolderKey, 'MUEBLES');
+  assert.equal(uploadRes.folderId, IDS.ODOO_MUEBLES);
+  assert.ok(uploadRes.file && uploadRes.file.id);
+  assert.ok(uploadRes.sheetRegistration && uploadRes.sheetRegistration.ok);
+  assert.ok(uploadRes.sheetRegistration.fotosNormalizadas);
+  assert.ok(uploadRes.sheetRegistration.datosGeneral);
+  assert.equal(uploadRes.sheetRegistration.datosGeneral.row, 4);
+
+  const listRes = postAction(env, {
+    ...OWNER_AUTH,
+    action: 'odoo_final_list',
+    subfolderKey: 'MUEBLES'
+  });
+  assert.equal(listRes.ok, true);
+  assert.equal(listRes.folderId, IDS.ODOO_MUEBLES);
+  assert.ok(listRes.files.some((f) => f.id === uploadRes.file.id));
+
+  // Project A folders & Control de Productos remain 100% untouched, and Row-3 formulas remain intact
+  const ss = env.spreadsheetsById.get(IDS.PROMPTS_SHEET);
+  const dgSh = ss.getSheetByName('DATOS GENERAL');
+  const fnSh = ss.getSheetByName('FOTOS NORMALIZADAS');
+  assert.match(String(dgSh.getRange(3, 28).getValue()), /^=MAP/);
+  assert.match(String(fnSh.getRange(3, 3).getValue()), /^=MAP/);
+  assert.ok(!env.accessedFolderIds.includes(IDS.SUBIR_PREN));
+  assert.ok(!env.openedSpreadsheetIds.includes(IDS.SHEET_CONTROL));
+});

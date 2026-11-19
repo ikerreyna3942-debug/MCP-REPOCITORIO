@@ -885,6 +885,23 @@ html, body {
     gap: 7px;
 }
 
+.propt-check-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: #CBD5E1;
+    cursor: pointer;
+    user-select: none;
+}
+
+.propt-check-row input[type="checkbox"] {
+    margin-top: 2px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+}
+
 .propt-btn-sm {
     height: 32px;
     padding: 0 11px;

@@ -313,6 +313,19 @@
     };
 
     const SUBIR_PROPT_FOLDER_ID = '1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX';
+    const ALLOWED_PROJECT_B_FOLDER_IDS = {
+        '1lfq8VBF1q-Kg9m6_qd2GU5zxwEywYw_B': true,
+        '10UIhDWLKL0ySmzdcMemA5K5831YozuBa': true,
+        '1z-Ne0hBzXIi1dTfJOxtz1kUUPYQQNpTR': true,
+        '12gsKZVs6rFonOO8CIxokuE73bxhq8tS9': true,
+        '13inkyy1ZfGn7yD0ceSr6RSMquaA3OBO1': true,
+        '1rwRk-bZtb8m4Hso9pCJE1A0_QiS-rqUQ': true,
+        '1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX': true
+    };
+    const INBOX_DELETABLE_FOLDER_IDS = {
+        '1rwRk-bZtb8m4Hso9pCJE1A0_QiS-rqUQ': true,
+        '1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX': true
+    };
     const SCRIPT_URL_STORAGE_KEY = 'creata_prompts_webapp_url_v1';
     const OWNER_EMAIL_STORAGE_KEY = 'creata_prompts_owner_email_v1';
     const PIN_STORAGE_KEY = 'creata_prompts_pin_v1';
@@ -456,7 +469,7 @@
         }
     }
 
-    function renderProptGallery(files) {
+    function renderProptGallery(files, folderIdHint) {
         const grid = byId('proptGalleryGrid');
         if (!grid) return;
         const rawList = Array.isArray(files) ? files : [];
@@ -465,9 +478,11 @@
         updateProptCountBadges(list.length);
 
         if (!list.length) {
-            grid.innerHTML = '<div class="propt-empty">SUBIR PROPT no tiene fotos pendientes.</div>';
+            grid.innerHTML = '<div class="propt-empty">Sin fotos recientes en la carpeta seleccionada de Odoo.</div>';
             return;
         }
+
+        const allowDelete = !folderIdHint || Boolean(INBOX_DELETABLE_FOLDER_IDS[String(folderIdHint)]);
 
         grid.innerHTML = list.map((f) => {
             const rawId = String(f.id).trim();
@@ -479,6 +494,9 @@
             const thumb = escapeHtml(sanitizeSafeDriveUrl(f.thumbUrl, defaultThumb));
             const fallbackThumb = escapeHtml(sanitizeSafeDriveUrl(defaultFallback, defaultThumb));
             const viewUrl = escapeHtml(sanitizeSafeDriveUrl(f.viewUrl, defaultView));
+            const delBtn = allowDelete
+                ? '<button type="button" class="propt-mini-btn is-danger" data-del-id="' + fid + '" onclick="deleteProptFileById(this.getAttribute(\'data-del-id\'))" title="Enviar a papelera por ID">🗑</button>'
+                : '';
             return (
                 '<article class="propt-photo-card" data-file-id="' + fid + '">' +
                     '<div class="propt-photo-thumb-wrap">' +
@@ -491,7 +509,7 @@
                             '<span class="propt-photo-size">' + escapeHtml(formatBytes(f.sizeBytes)) + '</span>' +
                             '<div class="propt-photo-actions">' +
                                 '<a class="propt-mini-btn" href="' + viewUrl + '" target="_blank" rel="noopener" title="Abrir en Drive">↗</a>' +
-                                '<button type="button" class="propt-mini-btn is-danger" data-del-id="' + fid + '" onclick="deleteProptFileById(this.getAttribute(\'data-del-id\'))" title="Enviar a papelera por ID">🗑</button>' +
+                                delBtn +
                             '</div>' +
                         '</div>' +
                     '</div>' +
@@ -605,7 +623,7 @@
         const warnEl = byId('proptHealthWarning');
         if (warnEl) warnEl.classList.add('hidden');
         const grid = byId('proptGalleryGrid');
-        if (grid) grid.innerHTML = '<div class="propt-empty">Configura la URL de AppsScript_Prompts_Odoo.gs para ver y subir fotos a SUBIR PROPT.</div>';
+        if (grid) grid.innerHTML = '<div class="propt-empty">Conecta la URL de AppsScript_Prompts_Odoo.gs para subir fotos directo a Odoo y registrarlas en Base de Datos Generales.</div>';
         showProptFeedback('Configuración borrada de este navegador.', true);
     };
 
@@ -617,11 +635,28 @@
             return false;
         }
         setProptConnPill('idle', 'Conectando...');
+
+        const destSelectEl = byId('proptDestSelect');
+        const destChoice = String((destSelectEl && destSelectEl.value) || '').trim().toUpperCase();
+        let listAction = 'prompts_propt_list';
+        let listPayload = {};
+        if (destChoice === 'BUZON') {
+            listAction = 'odoo_buzon_list';
+        } else if (destChoice) {
+            listAction = 'odoo_final_list';
+            listPayload = { subfolderKey: destChoice, limit: 40 };
+        }
+
         try {
-            const [healthRes, listRes] = await Promise.all([
+            let [healthRes, listRes] = await Promise.all([
                 callPromptsAppsScript('prompts_health'),
-                callPromptsAppsScript('prompts_propt_list')
+                callPromptsAppsScript(listAction, listPayload)
             ]);
+
+            // Respaldo transparente si el Apps Script desplegado aún no incluye odoo_final_list
+            if (listAction === 'odoo_final_list' && (!listRes || !listRes.ok) && /no reconocida/i.test(String((listRes && listRes.error) || ''))) {
+                listRes = await callPromptsAppsScript('odoo_buzon_list');
+            }
 
             if (healthRes && Array.isArray(healthRes.warnings) && healthRes.warnings.length && warnEl) {
                 warnEl.textContent = '⚠️ ' + healthRes.warnings.join(' · ');
@@ -631,20 +666,20 @@
             }
 
             if (!listRes || !listRes.ok) {
-                const errMsg = (listRes && listRes.error) || 'No se pudo listar SUBIR PROPT.';
+                const errMsg = (listRes && listRes.error) || 'No se pudo listar la carpeta de Odoo.';
                 setProptConnPill('err', 'Error');
                 showProptFeedback(errMsg, false);
                 return false;
             }
 
-            if (listRes.folderId && listRes.folderId !== SUBIR_PROPT_FOLDER_ID) {
+            if (listRes.folderId && !ALLOWED_PROJECT_B_FOLDER_IDS[String(listRes.folderId)]) {
                 setProptConnPill('err', 'Carpeta inválida');
-                showProptFeedback('Bloqueado: el endpoint no apunta a SUBIR PROPT.', false);
+                showProptFeedback('Bloqueado: el endpoint devolvió una carpeta no autorizada para Odoo/Sheet.', false);
                 return false;
             }
 
             setProptConnPill('ok', 'Conectado');
-            renderProptGallery(listRes.files || []);
+            renderProptGallery(listRes.files || [], listRes.folderId || '');
             showProptFeedback('', true);
             return true;
         } catch (err) {
@@ -664,9 +699,20 @@
         });
         if (!imageFiles.length) return;
 
+        const destSelectEl = byId('proptDestSelect');
+        const tipoSelectEl = byId('proptTipoSelect');
+        const regCheckEl = byId('proptRegisterSheetCheck');
+        const skuInputEl = byId('proptSkuInput');
+
+        const destChoice = String((destSelectEl && destSelectEl.value) || 'MUEBLES').trim().toUpperCase();
+        const tipoChoice = String((tipoSelectEl && tipoSelectEl.value) || 'MUEBLE').trim().toUpperCase();
+        const registerSheet = regCheckEl ? Boolean(regCheckEl.checked) : true;
+        const activeSku = String((lastSkuMatch && lastSkuMatch.sku) || (skuInputEl && skuInputEl.value) || '').trim().toUpperCase();
+
         const btn = byId('btnUploadSubirPropt');
         if (btn) btn.disabled = true;
         let uploaded = 0;
+        let registeredCount = 0;
         let lastErr = '';
         try {
             for (let i = 0; i < imageFiles.length; i++) {
@@ -674,12 +720,35 @@
                 showProptFeedback('Subiendo ' + (i + 1) + '/' + imageFiles.length + ': ' + file.name + '...', true);
                 try {
                     const dataUrl = await readFileAsDataUrl(file);
-                    const res = await callPromptsAppsScript('prompts_propt_upload', {
+                    let res = await callPromptsAppsScript('odoo_direct_upload_and_register', {
                         fileName: file.name,
-                        dataUrl: dataUrl
+                        dataUrl: dataUrl,
+                        dest: destChoice === 'BUZON' ? 'buzon' : 'final',
+                        subfolderKey: destChoice === 'BUZON' ? '' : destChoice,
+                        tipo: tipoChoice,
+                        registerSheet: registerSheet,
+                        sku: registerSheet ? activeSku : ''
                     });
+                    if ((!res || !res.ok) && /no reconocida/i.test(String((res && res.error) || ''))) {
+                        // Respaldo compatible si el despliegue aún no fue actualizado con odoo_direct_upload_and_register
+                        res = await callPromptsAppsScript('odoo_buzon_upload', {
+                            fileName: file.name,
+                            dataUrl: dataUrl
+                        });
+                        if (res && res.ok && registerSheet && res.file && res.file.viewUrl) {
+                            const stem = String(file.name || 'foto').replace(/\.(jpe?g|png|webp|gif|avif|bmp)$/i, '').trim() || 'foto';
+                            const regRes = await callPromptsAppsScript('odoo_register_foto', Object.assign(
+                                { tipo: tipoChoice, nombre: stem, link: res.file.viewUrl },
+                                activeSku ? { sku: activeSku, updateDatosGeneral: true } : {}
+                            ));
+                            res.sheetRegistration = regRes;
+                        }
+                    }
                     if (res && res.ok) {
                         uploaded++;
+                        if (res.sheetRegistration && res.sheetRegistration.ok) {
+                            registeredCount++;
+                        }
                     } else {
                         lastErr = (res && res.error) || 'No se pudo subir ' + file.name;
                     }
@@ -689,7 +758,10 @@
             }
             if (uploaded > 0) {
                 await window.refreshProptDrawerData();
-                showProptFeedback('✅ ' + uploaded + ' foto(s) guardada(s) en SUBIR PROPT.' + (lastErr ? (' · Aviso: ' + lastErr) : ''), true);
+                const sheetNote = registeredCount > 0
+                    ? (' · Registrada(s) en Sheet (' + registeredCount + ')')
+                    : '';
+                showProptFeedback('✅ ' + uploaded + ' foto(s) subida(s) a Odoo' + sheetNote + '.' + (lastErr ? (' · Aviso: ' + lastErr) : ''), true);
             } else {
                 showProptFeedback(lastErr || 'No se pudo subir la imagen.', false);
             }
