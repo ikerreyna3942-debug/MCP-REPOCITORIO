@@ -15,14 +15,14 @@
     const MANUAL_LOCK_FLAG = 'creata_private_panel_manual_lock';
 
     const PROJECTS = [
-        { num: '1', title: 'Creación de Cotización',    url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/inventario.html' },
-        { num: '2', title: 'Seguimiento de Cotización', url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/seguimiento.html' },
+        { num: '1', title: 'Creación de Cotización',    url: './inventario.html', openModule: 'inventario' },
+        { num: '2', title: 'Seguimiento de Cotización', url: './inventario.html', openModule: 'seguimiento' },
         { num: '3', title: 'Catálogo',                  url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/index.html' },
         { num: '4', title: 'Cambios de Precio Web',     url: 'https://creata-control-precios.onrender.com/', render: true },
         { num: '5', title: 'Mapa 3D · Casa CREATA',     url: 'https://ikerreyna3942-debug.github.io/Casa-creata/' },
         { num: '6', title: 'Creación de Prompts',       url: 'https://buena-espero.onrender.com/', render: true },
         { num: '7', title: 'Alta de Odoo',              url: 'https://app-1-3y7y.onrender.com/', render: true },
-        { num: '8', title: 'Historial de Cotización',   url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/historial.html' },
+        { num: '8', title: 'Historial de Cotización',   url: './inventario.html', openModule: 'historial' },
         { num: '9', title: 'Subida de Fotos (Hoja 1)',  url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos.html' }
     ];
 
@@ -152,11 +152,23 @@
         return false;
     }
 
+    function prepareModuleLaunch(mod) {
+        try {
+            if (!mod || mod === 'inventario') {
+                if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('creata_open_module');
+                localStorage.removeItem('creata_open_module');
+            } else {
+                if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('creata_open_module', mod);
+                localStorage.setItem('creata_open_module', JSON.stringify({ module: mod, ts: Date.now() }));
+            }
+        } catch (e) {}
+    }
+
     function renderButtons() {
         const grid = document.getElementById('projectsGridContainer');
         if (grid) {
-            grid.innerHTML = PROJECTS.map((p) => (
-                '<a class="proj-btn" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener">' +
+            grid.innerHTML = PROJECTS.map((p, idx) => (
+                '<a class="proj-btn" data-proj-idx="' + idx + '" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener">' +
                     '<span class="proj-btn-left">' +
                         '<span class="proj-num">' + escapeHtml(p.num) + '</span>' +
                         '<span class="proj-name">' + escapeHtml(p.title) + '</span>' +
@@ -164,6 +176,20 @@
                     '<span class="proj-arrow">↗</span>' +
                 '</a>'
             )).join('');
+            if (!grid.dataset.creataBoundLaunch) {
+                grid.dataset.creataBoundLaunch = '1';
+                const onLaunch = (ev) => {
+                    const link = ev.target && ev.target.closest ? ev.target.closest('a[data-proj-idx]') : null;
+                    if (!link) return;
+                    const idx = parseInt(link.getAttribute('data-proj-idx'), 10);
+                    const proj = !isNaN(idx) ? PROJECTS[idx] : null;
+                    if (proj && proj.openModule) {
+                        prepareModuleLaunch(proj.openModule);
+                    }
+                };
+                grid.addEventListener('click', onLaunch);
+                grid.addEventListener('auxclick', onLaunch);
+            }
         }
 
         const sheetsGrid = document.getElementById('sheetsGridContainer');
@@ -321,7 +347,10 @@
             if (tag === 'INPUT' || tag === 'TEXTAREA') return;
             if (/^[1-9]$/.test(ev.key)) {
                 const p = PROJECTS[parseInt(ev.key, 10) - 1];
-                if (p) window.open(p.url, '_blank', 'noopener');
+                if (p) {
+                    if (p.openModule) prepareModuleLaunch(p.openModule);
+                    window.open(p.url, '_blank', 'noopener');
+                }
             }
         });
 

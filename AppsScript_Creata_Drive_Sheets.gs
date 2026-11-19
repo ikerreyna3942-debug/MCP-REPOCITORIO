@@ -54,6 +54,7 @@ function onOpen() {
       .addItem('8. Agregar / Actualizar Columna PRECIO DE LISTA (Cotizador)', 'agregarColumnaPrecioListaInventario')
       .addItem('9. Autocompletar Nuevos SKUs y Ordenar A-Z (INVENTARIO_EN_VIVO)', 'limpiarYCompletarInventarioEnVivo')
       .addItem('10. Crear / Verificar Hoja INVITADOS (Solo Ver · Máx. 2 Lugares)', 'crearVerificarHojaInvitados')
+      .addItem('11. Reparar Permisos Públicos de Fotos (Drive)', 'hacerPublicasFotosInventario')
       .addToUi();
   } catch (e) {}
 }
@@ -771,6 +772,8 @@ function doGet(e) {
   const adminPin = getProp_('ADMIN_PIN');
 
   if (action === 'init_now') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_maint', maxHits: 20, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       const initRes = dejarTodoListoSinFotos({ silentUi: true });
       ensureAutoSyncTrigger_();
@@ -781,6 +784,8 @@ function doGet(e) {
   }
 
   if (action === 'sync_now') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_maint', maxHits: 20, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       const syncRes = syncDriveFolderToSheet();
       ensureAutoSyncTrigger_();
@@ -791,6 +796,8 @@ function doGet(e) {
   }
 
   if (action === 'sync_inventory_tab') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_maint', maxHits: 20, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       const invRes = sincronizarPestanaInventarioEnVivo({ silentUi: true });
       return jsonResponse_({ ok: true, action: 'sync_inventory_tab', result: invRes });
@@ -800,6 +807,8 @@ function doGet(e) {
   }
 
   if (action === 'cm_inventory') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: true, allowAdminPin: true, rateBucket: 'get_cm_inv', maxHits: 60, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       ensureLiveErpSyncTrigger_();
       const ss = getSpreadsheet_();
@@ -819,7 +828,36 @@ function doGet(e) {
     }
   }
 
+  if (action === 'seg_get_state') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: false, rateBucket: 'seg_state', maxHits: 45, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
+    try {
+      const reqBody = {
+        authToken: extractAuthTokenFromRequest_(e, null),
+        includeInventory: String((e && e.parameter && e.parameter.includeInventory) || '') === '1'
+      };
+      return jsonResponse_(handleSegGetState_(reqBody));
+    } catch (err) {
+      return jsonResponse_({ ok: false });
+    }
+  }
+
+  if (action === 'inv_presence_list') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: false, rateBucket: 'pres_list', maxHits: 45, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
+    try {
+      const reqBody = {
+        authToken: extractAuthTokenFromRequest_(e, null)
+      };
+      return jsonResponse_(handleInvPresenceList_(reqBody));
+    } catch (err) {
+      return jsonResponse_({ ok: false });
+    }
+  }
+
   if (action === 'inv_ensure_invitados') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_maint', maxHits: 20, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       const shGuest = ensureInvitadosSheet_(getSpreadsheet_());
       return jsonResponse_({ ok: true, action: 'inv_ensure_invitados', sheetName: shGuest ? shGuest.getName() : 'INVITADOS' });
@@ -829,6 +867,8 @@ function doGet(e) {
   }
 
   if (action === 'inv_ensure_precio_lista') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_maint', maxHits: 20, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       const resCol = asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true, force: true });
       return jsonResponse_(Object.assign({ ok: true, action: 'inv_ensure_precio_lista' }, resCol));
@@ -838,6 +878,8 @@ function doGet(e) {
   }
 
   if (action === 'inv_erp_sync_now') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_maint', maxHits: 20, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       const resSync = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
@@ -848,6 +890,8 @@ function doGet(e) {
   }
 
   if (action === 'inv_autocomplete_sort') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_maint', maxHits: 20, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       const resAuto = autocompletarYOrdenarInventarioEnVivo_(getSpreadsheet_(), { silentUi: true, force: true });
       asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true });
@@ -858,6 +902,8 @@ function doGet(e) {
   }
 
   if (action === 'inv_users_directory') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_users_dir', maxHits: 30, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       return jsonResponse_(handleInvUsersDirectory_());
     } catch (err) {
@@ -866,6 +912,8 @@ function doGet(e) {
   }
 
   if (action === 'inv_plantilla_status') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: true, allowAdminPin: true, rateBucket: 'get_plantilla', maxHits: 45, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       return jsonResponse_(handleInvPlantillaStatus_());
     } catch (err) {
@@ -874,6 +922,8 @@ function doGet(e) {
   }
 
   if (action === 'inv_top_searched') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: true, allowAdminPin: true, rateBucket: 'get_top', maxHits: 45, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       return jsonResponse_(handleInvTopSearched_());
     } catch (err) {
@@ -920,98 +970,184 @@ function doPost(e) {
     const action = body.action || '';
     parsedAction = action;
 
-    // Acciones públicas exclusivas de inventario.html y seguimiento.html (autenticación de asesores, cotización en vivo S Mueblería y seguimiento)
+    // Acciones autenticadas de inventario, cotización en vivo S Mueblería y seguimiento
     if (action === 'inv_log_event') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_log', maxHits: 60, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvLogEvent_(body));
     }
     if (action === 'seg_action') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_seg_act', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
       return jsonResponse_(handleSegAction_(body));
     }
+    if (action === 'seg_get_state') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'seg_state', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+      return jsonResponse_(handleSegGetState_(body));
+    }
     if (action === 'seg_sync_now') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
       return jsonResponse_(Object.assign({ ok: true }, syncRes));
     }
     if (action === 'inv_login') {
+      const loginEmailKey = String((body && body.email) || 'anon').trim().toLowerCase();
+      if (!checkRateLimitSilent_('post_login:' + loginEmailKey, 20, 600)) {
+        return jsonResponse_({ ok: false });
+      }
       return jsonResponse_(handleInvLogin_(body));
     }
     if (action === 'inv_guest_heartbeat') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_hb', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvGuestHeartbeat_(body));
     }
+    if (action === 'inv_presence_heartbeat') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_pres_hb', maxHits: 60, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvPresenceHeartbeat_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false });
+      }
+    }
+    if (action === 'inv_presence_logout') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_pres_out', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvPresenceLogout_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false });
+      }
+    }
+    if (action === 'inv_presence_list') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'pres_list', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvPresenceList_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false });
+      }
+    }
     if (action === 'inv_ensure_invitados') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       const shGuest = ensureInvitadosSheet_(getSpreadsheet_());
       return jsonResponse_({ ok: true, sheetName: shGuest ? shGuest.getName() : 'INVITADOS' });
     }
     if (action === 'inv_update_key') {
+      const updEmailKey = String((body && body.email) || 'anon').trim().toLowerCase();
+      if (!checkRateLimitSilent_('post_updkey:' + updEmailKey, 15, 600)) {
+        return jsonResponse_({ ok: false });
+      }
       return jsonResponse_(handleInvUpdateKey_(body));
     }
     if (action === 'inv_submit_quote') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_quote', maxHits: 15, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvSubmitQuote_(body));
     }
     if (action === 'inv_my_quotes') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_myq', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvMyQuotes_(body));
     }
     if (action === 'inv_download_erp_quote_pdf') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_pdf', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvDownloadErpQuotePdf_(body));
     }
     if (action === 'inv_search_erp_clients') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_cli_s', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvSearchErpClients_(body));
     }
     if (action === 'inv_create_erp_client') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_cli_c', maxHits: 20, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvCreateErpClient_(body));
     }
     if (action === 'inv_upload_product_photo') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_photo', maxHits: 40, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvUploadProductPhoto_(body));
     }
     if (action === 'inv_plantilla_status') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_plantilla', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvPlantillaStatus_());
     }
     if (action === 'inv_record_search') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_search', maxHits: 60, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvRecordSearch_(body));
     }
     if (action === 'inv_top_searched') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_top', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvTopSearched_());
     }
     if (action === 'inv_ensure_precio_lista') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       const resCol = asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true, force: true });
       return jsonResponse_(Object.assign({ ok: true }, resCol));
     }
     if (action === 'inv_erp_sync_now') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
       return jsonResponse_(Object.assign({ ok: true }, syncRes));
     }
     if (action === 'inv_autocomplete_sort') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       const resAuto = autocompletarYOrdenarInventarioEnVivo_(getSpreadsheet_(), { silentUi: true, force: true });
       asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true });
       return jsonResponse_(Object.assign({ ok: true }, resAuto));
     }
+    if (action === 'inv_repair_photo_permissions') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_repair_perms', maxHits: 10, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      return jsonResponse_(hacerPublicasFotosInventario_(body || {}));
+    }
     if (action === 'fotos_subir_list') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleFotosSubirList_(body));
     }
     if (action === 'fotos_subir_upload_inbox') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleFotosSubirUploadInbox_(body));
     }
     if (action === 'fotos_subir_assign') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleFotosSubirAssign_(body));
     }
     if (action === 'fotos_delete' || action === 'fotos_subir_delete') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleFotosDelete_(body));
     }
     if (action === 'fotos_sync_skus') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleFotosSyncSkus_(body));
     }
     if (action === 'inv_setup_accounts') {
-      const adminPinCfg = getProp_('ADMIN_PIN');
-      const hasValidPin = !!(adminPinCfg && String(body.pin || '') === adminPinCfg);
-      if (!hasValidPin) {
-        const ssChk = getSpreadsheet_();
-        const erpMetaChk = readErpAdvisorsFromPlantilla_(ssChk);
-        const authChk = resolveAuthenticatedAdvisor_(ssChk, erpMetaChk.advisors, body);
-        if (!authChk.ok || !authChk.advisor || !authChk.advisor.isAdmin) {
-          return jsonResponse_({ ok: false, error: 'Solo los administradores autorizados pueden reorganizar las cuentas.' });
-        }
-      }
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_setup', maxHits: 10, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(organizarCuentasYDescuentosEnHojas({ silentUi: true }));
     }
 
@@ -2442,6 +2578,10 @@ function checkAndRegisterGuestDevice_(ss, guestUser, rawDeviceId, rawDeviceLabel
     return { ok: false, error: 'Correo de invitado inválido.' };
   }
   let maxAllowedPlaces = Math.max(1, Math.min(50, Number(guestUser && guestUser.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL_));
+  const guestTabNorm = String((guestUser && guestUser.sheetTab) || '').trim().toUpperCase();
+  if (guestTabNorm && !/^INVITADOS?$/.test(guestTabNorm)) {
+    return { ok: true, slotNumber: 1, activeCount: 1, maxPlaces: maxAllowedPlaces, devices: [] };
+  }
   if (!devId) {
     return { ok: true, slotNumber: 1, activeCount: 1, maxPlaces: maxAllowedPlaces, devices: [] };
   }
@@ -2660,6 +2800,169 @@ function verifyInvAuthToken_(token) {
   }
 }
 
+function extractAuthTokenFromRequest_(e, body) {
+  const fromBody = body && (body.authToken || body.token);
+  if (fromBody) return String(fromBody).trim();
+  const fromParam = e && e.parameter && (e.parameter.authToken || e.parameter.token);
+  return fromParam ? String(fromParam).trim() : '';
+}
+
+function hasValidAdminPin_(pinRaw) {
+  const cfgPin = getProp_('ADMIN_PIN');
+  return !!(cfgPin && String(pinRaw || '').trim() === cfgPin);
+}
+
+function makeShortCacheKey_(prefix, rawKey) {
+  try {
+    const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(rawKey || 'anon'));
+    return prefix + bytesToHex_(digest).slice(0, 32);
+  } catch (e) {
+    return prefix + String(rawKey || 'anon').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32);
+  }
+}
+
+function checkRateLimitSilent_(bucketKey, maxHits, windowSec) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const key = makeShortCacheKey_('rl_', bucketKey);
+    const cur = parseInt(cache.get(key) || '0', 10) || 0;
+    const next = cur + 1;
+    cache.put(key, String(next), Math.max(10, Number(windowSec) || 60));
+    return next <= (Number(maxHits) || 30);
+  } catch (e) {
+    return true;
+  }
+}
+
+function checkLoginThrottle_(email) {
+  try {
+    const clean = String(email || '').trim().toLowerCase();
+    if (!clean) return true;
+    const cache = CacheService.getScriptCache();
+    const key = makeShortCacheKey_('lf_', clean);
+    const fails = parseInt(cache.get(key) || '0', 10) || 0;
+    return fails < 8;
+  } catch (e) {
+    return true;
+  }
+}
+
+function recordLoginFailure_(email) {
+  try {
+    const clean = String(email || '').trim().toLowerCase();
+    if (!clean) return;
+    const cache = CacheService.getScriptCache();
+    const key = makeShortCacheKey_('lf_', clean);
+    const fails = (parseInt(cache.get(key) || '0', 10) || 0) + 1;
+    cache.put(key, String(fails), 600);
+  } catch (e) {}
+}
+
+function clearLoginFailures_(email) {
+  try {
+    const clean = String(email || '').trim().toLowerCase();
+    if (!clean) return;
+    CacheService.getScriptCache().remove(makeShortCacheKey_('lf_', clean));
+  } catch (e) {}
+}
+
+function isGuestReadOnlyUser_(u) {
+  if (!u) return false;
+  const tabNorm = String(u.sheetTab || '').trim().toUpperCase();
+  const puestoNorm = String(u.puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  return !!(
+    u.isGuest ||
+    u.soloLectura ||
+    /^INVITADOS?$/.test(tabNorm) ||
+    /INVITAD|SOLO\s*VER|SOLO\s*LECTURA/.test(puestoNorm)
+  );
+}
+
+function isTokenUserReadOnlyGuest_(tokenInfo) {
+  if (!tokenInfo || !tokenInfo.email) return true;
+  const cleanEmail = String(tokenInfo.email || '').trim().toLowerCase();
+  if (!cleanEmail) return true;
+  if (ADMIN_MASTER_EMAILS_ && ADMIN_MASTER_EMAILS_[cleanEmail]) return false;
+  const tabNorm = String(tokenInfo.sheetTab || '').trim().toUpperCase();
+  if (/^INVITADOS?$/.test(tabNorm)) return true;
+
+  const cacheKey = makeShortCacheKey_('inv_ro_g_', cleanEmail + '|' + tabNorm);
+  try {
+    const cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached === '1') return true;
+    if (cached === '0') return false;
+  } catch (eCacheRead) {}
+
+  try {
+    const ss = getSpreadsheet_();
+    const allUsers = readAllBranchUsers_(ss, []);
+    const matches = allUsers.filter((u) => u && u.correo === cleanEmail);
+    let isRoGuest = false;
+    if (matches.length > 0) {
+      const exactTabMatches = tabNorm
+        ? matches.filter((u) => tabsMatchNormalized_(u.sheetTab, tabNorm) || tabsMatchNormalized_(u.branchKey, tabNorm))
+        : [];
+      const toCheck = exactTabMatches.length > 0 ? exactTabMatches : matches;
+      isRoGuest = toCheck.every((u) => isGuestReadOnlyUser_(u));
+    }
+    try {
+      CacheService.getScriptCache().put(cacheKey, isRoGuest ? '1' : '0', 120);
+    } catch (eCachePut) {}
+    return isRoGuest;
+  } catch (eLookup) {
+    return false;
+  }
+}
+
+function authorizePrivateTokenOrPin_(e, body, opts) {
+  const cfg = opts || {};
+  const rateBucket = String(cfg.rateBucket || 'priv');
+  const maxHits = Number(cfg.maxHits) || 45;
+  const windowSec = Number(cfg.windowSec) || 60;
+  const reqPin = (body && body.pin) || (e && e.parameter && e.parameter.pin) || '';
+
+  if (cfg.allowAdminPin && hasValidAdminPin_(reqPin)) {
+    if (!checkRateLimitSilent_(rateBucket + ':pin', maxHits, windowSec)) {
+      return { ok: false };
+    }
+    return { ok: true, viaPin: true, tokenInfo: null };
+  }
+
+  const token = extractAuthTokenFromRequest_(e, body);
+  const tokenInfo = verifyInvAuthToken_(token);
+  if (!tokenInfo || !tokenInfo.email) {
+    return { ok: false };
+  }
+
+  if (!checkRateLimitSilent_(rateBucket + ':' + tokenInfo.email, maxHits, windowSec)) {
+    return { ok: false };
+  }
+
+  const isGuestTab = /^INVITADOS?$/.test(String(tokenInfo.sheetTab || '').trim().toUpperCase());
+  if (!cfg.allowGuest && (isGuestTab || isTokenUserReadOnlyGuest_(tokenInfo))) {
+    return { ok: false };
+  }
+
+  if (cfg.requireAdmin) {
+    if (isGuestTab || isTokenUserReadOnlyGuest_(tokenInfo)) return { ok: false };
+    const isKnownMaster = !!(ADMIN_MASTER_EMAILS_ && ADMIN_MASTER_EMAILS_[tokenInfo.email]);
+    if (!isKnownMaster) {
+      try {
+        const ssChk = getSpreadsheet_();
+        const erpMetaChk = readErpAdvisorsFromPlantilla_(ssChk);
+        const authChk = resolveAuthenticatedAdvisor_(ssChk, erpMetaChk.advisors, { authToken: token });
+        if (!authChk || !authChk.ok || !authChk.advisor || !authChk.advisor.isAdmin) {
+          return { ok: false };
+        }
+      } catch (eAdm) {
+        return { ok: false };
+      }
+    }
+  }
+
+  return { ok: true, viaPin: false, tokenInfo: tokenInfo };
+}
+
 function readErpAdvisorsFromPlantilla_(ss) {
   const sh = ss.getSheetByName('plantilla');
   const stores = [];
@@ -2861,7 +3164,13 @@ function readAllBranchUsers_(ss, erpAdvisors) {
       const resolvedErpLabel = (matchedErp && matchedErp.label) || explicitAdvisorLabel || '';
       const resolvedErpId = (matchedErp && matchedErp.id) || explicitAdvisorId || '';
       const resolvedErpBranch = (matchedErp && matchedErp.branch) || '';
-      const isAdminUser = !!cfg.isAdmin || !!ADMIN_MASTER_EMAILS_[correo] || /ADMINISTRADOR/i.test(puesto);
+      const isGuestRole = !ADMIN_MASTER_EMAILS_[correo] && isGuestReadOnlyUser_({
+        puesto: puesto,
+        sheetTab: actualTabName,
+        isGuest: false,
+        soloLectura: false
+      });
+      const isAdminUser = !isGuestRole && (!!cfg.isAdmin || !!ADMIN_MASTER_EMAILS_[correo] || /ADMINISTRADOR/i.test(puesto));
       const userErpStore = (isAdminUser && resolvedErpBranch) ? resolvedErpBranch : cfg.erpStore;
       const userPrefix = getStoreFolioPrefix_(userErpStore, cfg.orderPrefix);
 
@@ -2870,7 +3179,8 @@ function readAllBranchUsers_(ss, erpAdvisors) {
         rowNum: startRow + i,
         isAdmin: isAdminUser,
         isGuest: false,
-        maxDiscountPct: explicitDiscountPct,
+        soloLectura: isGuestRole,
+        maxDiscountPct: isGuestRole ? 0 : explicitDiscountPct,
         branchKey: isAdminUser ? 'ADMIN' : cfg.branchKey,
         branchLabel: cfg.label,
         erpStore: userErpStore,
@@ -2894,7 +3204,7 @@ function readAllBranchUsers_(ss, erpAdvisors) {
 }
 
 function sanitizeUserForClient_(u, includeSignedToken) {
-  const isGuest = !!(u && (u.isGuest || String(u.branchKey || u.sheetTab || '').toUpperCase() === 'INVITADOS'));
+  const isGuest = isGuestReadOnlyUser_(u) || !!(u && String(u.branchKey || '').trim().toUpperCase() === 'INVITADOS');
   const out = {
     sheetTab: u.sheetTab,
     rowNum: u.rowNum,
@@ -2970,6 +3280,9 @@ function handleInvLogin_(body) {
   if (!email) {
     return { ok: false, error: 'Ingresa tu correo electrónico.' };
   }
+  if (!checkLoginThrottle_(email)) {
+    return { ok: false };
+  }
 
   ensureLiveErpSyncTrigger_();
   const ss = getSpreadsheet_();
@@ -2978,6 +3291,7 @@ function handleInvLogin_(body) {
   const allUsers = readAllBranchUsers_(ss, erpMeta.advisors);
   const emailMatches = allUsers.filter((u) => u.correo === email);
   if (!emailMatches.length) {
+    recordLoginFailure_(email);
     return { ok: false, error: 'El correo ingresado no está registrado en ninguna hoja de sucursal ni en INVITADOS.' };
   }
 
@@ -2999,6 +3313,7 @@ function handleInvLogin_(body) {
     if (!inputKey) {
       return { ok: false, error: 'Ingresa tu contraseña para acceder con tu cuenta.' };
     }
+    recordLoginFailure_(email);
     registrarEventoHistorial_(ss, {
       clasificacion: 'ALERTA TÉCNICA',
       modulo: 'AppsScript · handleInvLogin_',
@@ -3013,11 +3328,13 @@ function handleInvLogin_(body) {
     return { ok: false, error: 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.' };
   }
 
+  clearLoginFailures_(email);
+
   // Si el usuario está dado de alta en varias tiendas/bodegas y su contraseña ya fue validada en al menos una de ellas,
   // incluir todas las tiendas/bodegas donde esté registrado su correo para que pueda elegir y cambiar de tienda libremente.
-  const hasValidNonGuestMatch = validMatches.some((u) => !u.isGuest);
+  const hasValidNonGuestMatch = validMatches.some((u) => !isGuestReadOnlyUser_(u));
   const candidateMatches = hasValidNonGuestMatch
-    ? emailMatches.filter((u) => !u.isGuest)
+    ? emailMatches.filter((u) => !isGuestReadOnlyUser_(u))
     : validMatches;
   const matchedViaDefKey = validMatches.some((u) => !!u.defKey && keysEqualNormalized_(inputKey, u.defKey));
   const hasAnyDefKeyForEmail = candidateMatches.some((u) => !!u.defKey);
@@ -3027,7 +3344,8 @@ function handleInvLogin_(body) {
   let guestLimitError = null;
   for (let mIdx = 0; mIdx < candidateMatches.length; mIdx++) {
     const cand = candidateMatches[mIdx];
-    if (cand.isGuest) {
+    const isInvitadosTabRow = /^INVITADOS?$/.test(String((cand && cand.sheetTab) || '').trim().toUpperCase());
+    if (cand.isGuest && isInvitadosTabRow) {
       const devCheck = checkAndRegisterGuestDevice_(ss, cand, deviceId, deviceLabel);
       if (!devCheck.ok) {
         guestLimitError = devCheck;
@@ -3062,6 +3380,7 @@ function handleInvLogin_(body) {
     : computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
 
   if (authorizedLocs.length > 1 && !selectedTab) {
+    try { recordInvPresence_(authorizedLocs[0], 'login', true); } catch (ePres) {}
     return {
       ok: true,
       chooseBranch: true,
@@ -3097,6 +3416,8 @@ function handleInvLogin_(body) {
       : 'Token HMAC emitido correctamente para sesión activa.'
   });
 
+  try { recordInvPresence_(chosenOut, 'login', true); } catch (ePres) {}
+
   return {
     ok: true,
     chooseBranch: false,
@@ -3120,12 +3441,15 @@ function handleInvUpdateKey_(body) {
   if (newKey.length < 4) {
     return { ok: false, error: 'La nueva contraseña debe tener al menos 4 caracteres.' };
   }
+  if (!checkLoginThrottle_(email)) {
+    return { ok: false };
+  }
 
   const ss = getSpreadsheet_();
   const tokenCheck = verifyInvAuthToken_(body.authToken);
   const tokenMatchesEmail = !!(tokenCheck && tokenCheck.email === email);
   const matchedTargets = [];
-  let anyAuthorized = tokenMatchesEmail || !currentKey;
+  let anyAuthorized = tokenMatchesEmail;
 
   for (let t = 0; t < INV_USER_TABS_.length; t++) {
     const cfg = INV_USER_TABS_[t];
@@ -3143,7 +3467,7 @@ function handleInvUpdateKey_(body) {
       if (rowEmail !== email) continue;
       const tempKey = cleanSheetKeyCell_(vals[i][5]);
       const defKey = cleanSheetKeyCell_(vals[i][6]);
-      if (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey) || (cfg.isGuest && !tempKey && !defKey)) {
+      if (currentKey && (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey))) {
         anyAuthorized = true;
       }
       matchedTargets.push({ sh: sh, rowNum: startRow + i, tabName: sh.getName() });
@@ -3151,8 +3475,10 @@ function handleInvUpdateKey_(body) {
   }
 
   if (!matchedTargets.length || !anyAuthorized) {
-    return { ok: false, error: 'No fue posible validar el usuario para actualizar la contraseña en la hoja.' };
+    recordLoginFailure_(email);
+    return { ok: false };
   }
+  clearLoginFailures_(email);
 
   const tokensByTab = {};
   for (let k = 0; k < matchedTargets.length; k++) {
@@ -3241,17 +3567,17 @@ function resolveAuthenticatedAdvisor_(ss, erpAdvisors, body) {
   // Si el usuario está asignado a varias tiendas/bodegas, permitirle cotizar en cualquiera de las hojas donde esté su correo
   let chosen = null;
   if (reqTab) {
-    chosen = userMatches.find((u) => !u.isGuest && (tabsMatchNormalized_(u.sheetTab, reqTab) || tabsMatchNormalized_(u.branchKey, reqTab))) || null;
+    chosen = userMatches.find((u) => !isGuestReadOnlyUser_(u) && (tabsMatchNormalized_(u.sheetTab, reqTab) || tabsMatchNormalized_(u.branchKey, reqTab))) || null;
   }
   if (!chosen && reqStore) {
     const reqStoreNorm = normalizeQuoteErpStore_(reqStore, reqTab);
-    chosen = userMatches.find((u) => !u.isGuest && normalizeQuoteErpStore_(u.erpStore, u.sheetTab) === reqStoreNorm) || null;
+    chosen = userMatches.find((u) => !isGuestReadOnlyUser_(u) && normalizeQuoteErpStore_(u.erpStore, u.sheetTab) === reqStoreNorm) || null;
   }
   if (!chosen && tokenTab) {
     chosen = userMatches.find((u) => tabsMatchNormalized_(u.sheetTab, tokenTab) || tabsMatchNormalized_(u.branchKey, tokenTab)) || null;
   }
   if (!chosen) {
-    chosen = userMatches.find((u) => !u.isGuest) || userMatches[0];
+    chosen = userMatches.find((u) => !isGuestReadOnlyUser_(u)) || userMatches[0];
   }
 
   if (!chosen) {
@@ -3303,7 +3629,8 @@ function ensureQuotesLedgerSheet_(ss) {
     'DESCUENTO_EXTRA',
     'TOTAL_CON_IVA',
     'ESTADO_ERP',
-    'NOTAS'
+    'NOTAS',
+    'ORIGEN_CREACION'
   ];
 
   if (!sh) {
@@ -3320,6 +3647,9 @@ function ensureQuotesLedgerSheet_(ss) {
     sh.getRange(1, 1, 1, 3).setBackground('#A38251');
     sh.setFrozenRows(1);
   } else if (sh.getLastRow() < 1) {
+    if (sh.getMaxColumns() < headers.length) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
+    }
     sh.getRange(1, 1, 1, headers.length)
       .setValues([headers])
       .setBackground('#252C32')
@@ -3327,6 +3657,18 @@ function ensureQuotesLedgerSheet_(ss) {
       .setFontWeight('bold')
       .setHorizontalAlignment('center');
     sh.setFrozenRows(1);
+  } else {
+    if (sh.getMaxColumns() < headers.length) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
+    }
+    if (!String(sh.getRange(1, 25).getDisplayValue() || '').trim()) {
+      sh.getRange(1, 25)
+        .setValue('ORIGEN_CREACION')
+        .setBackground('#252C32')
+        .setFontColor('#FFFFFF')
+        .setFontWeight('bold')
+        .setHorizontalAlignment('center');
+    }
   }
   return sh;
 }
@@ -3488,7 +3830,7 @@ function computeLiveErpFoliosAndQuotes_(ss, erpAdvisors) {
               advisorName: (advInfo && advInfo.name) || extractXmlTag_(blk, 'Vendedor') || extractXmlTag_(blk, 'Usuario') || '',
               erpAdvisor: (advInfo && advInfo.label) || '',
               erpUserId: idUsu || '',
-              clientName: extractXmlTag_(blk, 'Nombre') || extractXmlTag_(blk, 'Cliente') || 'Prospecto S Mueblería',
+              clientName: extractXmlTag_(blk, 'Nombre') || extractXmlTag_(blk, 'Cliente') || 'Prospecto CREATA',
               itemsCount: '',
               skusSummary: '',
               total: totalNum > 0 ? formatMoney_(totalNum) : '',
@@ -3532,6 +3874,82 @@ function computeLiveErpFoliosAndQuotes_(ss, erpAdvisors) {
   return {
     maxByPrefix: maxByPrefix,
     nextFolioByStore: nextFolioByStore,
+    recentErpQuotes: recentErpQuotes
+  };
+}
+
+function buildNextFolioByStoreMap_(maxByPrefix) {
+  const nextFolioByStore = {};
+  Object.keys(ERP_STORE_FOLIO_SERIES_).forEach((storeName) => {
+    const pfx = ERP_STORE_FOLIO_SERIES_[storeName];
+    if (maxByPrefix && maxByPrefix[pfx] && maxByPrefix[pfx] > 0) {
+      nextFolioByStore[storeName] = pfx + String(maxByPrefix[pfx] + 1);
+    }
+  });
+  return nextFolioByStore;
+}
+
+/**
+ * Baseline local rápido de folios: usa caché inv_erp_folios_v1 si está tibia o lee COTIZACIONES_EN_VIVO
+ * sin disparar descarga XML completa ObtenerCotizacionesTodas.
+ */
+function readLocalFoliosBaseline_(ss) {
+  const maxByPrefix = {};
+  let recentErpQuotes = [];
+
+  try {
+    const cachedRaw = CacheService.getScriptCache().get('inv_erp_folios_v1');
+    if (cachedRaw) {
+      const parsedCache = JSON.parse(cachedRaw);
+      if (parsedCache && parsedCache.maxByPrefix) {
+        Object.keys(parsedCache.maxByPrefix).forEach((k) => {
+          maxByPrefix[k] = Number(parsedCache.maxByPrefix[k]) || 0;
+        });
+        if (Array.isArray(parsedCache.recentErpQuotes)) {
+          recentErpQuotes = parsedCache.recentErpQuotes;
+        }
+      }
+    }
+  } catch (ce) {}
+
+  const shQuotes = ss ? ss.getSheetByName(TAB_QUOTES_LIVE_) : null;
+  if (shQuotes && shQuotes.getLastRow() >= 2) {
+    const qCols = shQuotes.getRange(2, 1, shQuotes.getLastRow() - 1, 2).getDisplayValues();
+    for (let i = 0; i < qCols.length; i++) {
+      observeFolioString_(qCols[i][1], maxByPrefix);
+      observeFolioString_(qCols[i][0], maxByPrefix);
+    }
+  }
+
+  return {
+    maxByPrefix: maxByPrefix,
+    nextFolioByStore: buildNextFolioByStoreMap_(maxByPrefix),
+    recentErpQuotes: recentErpQuotes
+  };
+}
+
+/**
+ * Actualiza maxByPrefix y la caché inv_erp_folios_v1 localmente en 0 ms tras emitir una cotización,
+ * evitando re-descargar ObtenerCotizacionesTodas post-envío.
+ */
+function updateFoliosCacheLocally_(folioSnap, newFolio) {
+  const maxByPrefix = {};
+  const srcMax = (folioSnap && folioSnap.maxByPrefix) || {};
+  Object.keys(srcMax).forEach((k) => {
+    maxByPrefix[k] = Number(srcMax[k]) || 0;
+  });
+  observeFolioString_(newFolio, maxByPrefix);
+  const recentErpQuotes = (folioSnap && Array.isArray(folioSnap.recentErpQuotes)) ? folioSnap.recentErpQuotes : [];
+  try {
+    CacheService.getScriptCache().put('inv_erp_folios_v1', JSON.stringify({
+      maxByPrefix: maxByPrefix,
+      recentErpQuotes: recentErpQuotes
+    }), 45);
+  } catch (cePut) {}
+
+  return {
+    maxByPrefix: maxByPrefix,
+    nextFolioByStore: buildNextFolioByStoreMap_(maxByPrefix),
     recentErpQuotes: recentErpQuotes
   };
 }
@@ -3620,7 +4038,7 @@ function hasGeneratedErpQuotePdf_(quoteIdRaw, folioRaw, statusRaw) {
 
 function isQuoteRowAllowedForUser_(rowMeta, verifiedUser, allowedManagerEmailsMap, requestedAdminStoreNorm) {
   if (!rowMeta || !verifiedUser) return false;
-  if (verifiedUser.isGuest || verifiedUser.soloLectura) return false;
+  if (isGuestReadOnlyUser_(verifiedUser)) return false;
   if (!hasGeneratedErpQuotePdf_(rowMeta.quoteId, rowMeta.folio || rowMeta.orderCode, rowMeta.status)) {
     return false;
   }
@@ -3649,6 +4067,14 @@ function isQuoteRowAllowedForUser_(rowMeta, verifiedUser, allowedManagerEmailsMa
 }
 
 function readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, allUsersOpt, requestedStore, maxItems) {
+  if (isGuestReadOnlyUser_(verifiedUser)) {
+    return {
+      quotes: [],
+      roleScope: 'INVITADO',
+      activeStore: 'SOLO LECTURA',
+      allowedAdvisorEmails: []
+    };
+  }
   const isAdmin = !!(verifiedUser && verifiedUser.isAdmin);
   const isManager = !isAdmin && isManagerUserRole_(verifiedUser);
   const roleScope = isAdmin ? 'ADMIN' : (isManager ? 'GERENTE' : 'ASESOR');
@@ -3679,7 +4105,8 @@ function readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, allUsers
 
   const lastR = shQuotes.getLastRow();
   const startR = Math.max(2, lastR - 400);
-  const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 24).getDisplayValues();
+  const numCols = Math.min(Math.max(shQuotes.getLastColumn(), 24), 25);
+  const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, numCols).getDisplayValues();
   const seenKeys = {};
 
   for (let i = vals.length - 1; i >= 0 && out.length < limit; i--) {
@@ -3701,7 +4128,8 @@ function readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, allUsers
       itemsCount: r[16] || '',
       skusSummary: r[17] || '',
       total: r[21] || '',
-      status: r[22] || ''
+      status: r[22] || '',
+      originCreation: String((r && r[24]) || '').trim()
     };
 
     if (!isQuoteRowAllowedForUser_(item, verifiedUser, allowedManagerEmailsMap, isAdmin ? activeStoreNorm : '')) {
@@ -3730,7 +4158,7 @@ function handleInvMyQuotes_(body) {
   if (!authCheck.ok) return authCheck;
 
   const u = authCheck.advisor;
-  if (u.isGuest || u.soloLectura) {
+  if (isGuestReadOnlyUser_(u)) {
     return {
       ok: true,
       advisor: sanitizeUserForClient_(u, false),
@@ -4674,7 +5102,7 @@ function handleInvSubmitQuote_(body) {
       return authCheck;
     }
     const verifiedUser = authCheck.advisor;
-    if (verifiedUser.isGuest || verifiedUser.soloLectura || String(verifiedUser.sheetTab || '').toUpperCase() === 'INVITADOS') {
+    if (isGuestReadOnlyUser_(verifiedUser)) {
       return {
         ok: false,
         error: 'Acceso de Solo Lectura (Hoja INVITADOS): tu correo tiene permiso únicamente para ver el inventario; no puede generar cotizaciones ni aplicar descuentos.'
@@ -4802,31 +5230,34 @@ function handleInvSubmitQuote_(body) {
     }
 
     const shQuotes = ensureQuotesLedgerSheet_(ss);
-    const folioSnapBefore = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+    const folioSnapBefore = sendToErp
+      ? readLocalFoliosBaseline_(ss)
+      : computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
     const estimatedFolio = peekNextStoreErpFolio_(erpStore, activePrefix, folioSnapBefore);
     const originHeaderTag = isProyQuote
       ? ('[PROYECTO · ' + erpStore + ' · ' + verifiedUser.nombre + ' <' + verifiedUser.correo + '>]')
       : ('[' + erpStore + ' · ' + verifiedUser.nombre + ' <' + verifiedUser.correo + '>]');
     const finalNotesForErp = rawNotes ? (originHeaderTag + ' ' + rawNotes) : originHeaderTag;
 
-    // 1) Mantener K5 en SOLO REVISIÓN para que ningún script externo reenvíe por duplicado
+    // 1) Mantener K5 en SOLO REVISIÓN para que ningún script externo reenvíe por duplicado (K8 intacta [BLOQUEADO-5])
     sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
     sh.getRange('K7').clearContent();
     sh.getRange('M7').clearContent();
 
-    // 2) Escribir tienda/bodega y asesor en plantilla
-    sh.getRange('C5').setValue(erpStore);
+    // 2) Escribir tienda/bodega y datos del cliente en bloques compactos en plantilla
     if (erpAdvisorLabel) {
-      sh.getRange('C6').setValue(erpAdvisorLabel);
+      sh.getRange('C5:C7').setValues([[erpStore], [erpAdvisorLabel], [categoryLabel]]);
+    } else {
+      sh.getRange('C5').setValue(erpStore);
+      sh.getRange('C7').setValue(categoryLabel);
     }
-    sh.getRange('C7').setValue(categoryLabel);
-    sh.getRange('C9').setValue(clientMode);
-    sh.getRange('G9').setNumberFormat('@').setValue(clientPhone);
-    sh.getRange('C10').setValue(clientNameRaw);
+    sh.getRange('C9:C11').setValues([[clientMode], [clientNameRaw], [finalNotesForErp]]);
+    sh.getRange('G9').setNumberFormat('@');
     if (deliveryDate) {
-      sh.getRange('G10').setValue(deliveryDate);
+      sh.getRange('G9:G10').setValues([[clientPhone], [deliveryDate]]);
+    } else {
+      sh.getRange('G9').setValue(clientPhone);
     }
-    sh.getRange('C11').setValue(finalNotesForErp);
     sh.getRange('H30').setValue(extraDiscount);
 
     // 3) Escribir columnas editables B (SKU), D (Cantidad), F (% Desc) en filas 15..29
@@ -4853,14 +5284,12 @@ function handleInvSubmitQuote_(body) {
     sh.getRange(15, 4, 15, 1).setValues(dVals);
     sh.getRange(15, 6, 15, 1).setValues(fVals);
 
-    SpreadsheetApp.flush();
-
     const ahoraStr = formatCancunNow_();
     if (!sendToErp) {
       sh.getRange('K6').setValue('🟢 EN REVISIÓN (' + estimatedFolio + ' · ' + activeQuoteType + ')');
       sh.getRange('K9').setValue(ahoraStr);
       SpreadsheetApp.flush();
-      registrarEventoHistorial_(ss, {
+      const histPreviewOk = !!registrarEventoHistorial_(ss, {
         clasificacion: 'MOVIMIENTO',
         modulo: 'AppsScript · plantilla',
         evento: 'COTIZACIÓN GUARDADA EN REVISIÓN',
@@ -4873,12 +5302,16 @@ function handleInvSubmitQuote_(body) {
       });
       const previewStatus = handleInvPlantillaStatus_();
       previewStatus.orderCode = estimatedFolio;
+      previewStatus.folioFinal = estimatedFolio;
       previewStatus.nextOrderCode = estimatedFolio;
       previewStatus.nextFolioByStore = folioSnapBefore.nextFolioByStore;
       previewStatus.quoteType = activeQuoteType;
       previewStatus.isProyecto = isProyQuote;
       previewStatus.serieLabel = verifiedUser.serieLabel;
       previewStatus.sentLiveToErp = false;
+      previewStatus.items = items;
+      previewStatus.serverLoggedSeguimiento = false;
+      previewStatus.serverLoggedHistorial = histPreviewOk;
       const allowedPreview = readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, authCheck.allUsers, erpStore);
       previewStatus.recentQuotes = allowedPreview.quotes;
       previewStatus.roleScope = allowedPreview.roleScope;
@@ -4890,8 +5323,23 @@ function handleInvSubmitQuote_(body) {
     // 4) Resolver IdProducto y precios reales para enviar EN VIVO directo a S Mueblería WCF
     //    (y respaldo automático por cola en plantilla!K5 si la sesión caché en Drive requiere renovación)
     const catalogMap = readPlantillaProductCatalogMap_(sh);
-    const sheetRows = sh.getRange(15, 2, items.length, 12).getValues(); // B..M
+    let needSheetFormulaRead = false;
+    for (let i = 0; i < items.length; i++) {
+      const skuCheck = String((items[i] && items[i].sku) || '').trim().toUpperCase();
+      const catCheck = catalogMap[skuCheck];
+      if (!catCheck || !catCheck.idProducto || !/^\d+$/.test(String(catCheck.idProducto)) || Number(catCheck.precio || 0) <= 0) {
+        needSheetFormulaRead = true;
+        break;
+      }
+    }
+    let sheetRows = [];
+    if (needSheetFormulaRead) {
+      SpreadsheetApp.flush();
+      sheetRows = sh.getRange(15, 2, items.length, 12).getValues(); // B..M
+    }
+
     const partidasErp = [];
+    const partidasForSeg = [];
     const skusSummaryParts = [];
 
     const displayClientForErp = isProyQuote && !/^\[?PROYECTO/i.test(clientNameRaw)
@@ -4941,14 +5389,19 @@ function handleInvSubmitQuote_(body) {
         }
 
         const precioUnit = Math.round(precioOrig * (1 - discFrac) * 10000) / 10000;
-        partidasErp.push({
+        const partidaObj = {
           Clave: sku,
           Nombre: nombreProd,
           Cantidad: cant,
           PrecioOriginal: precioOrig,
           PrecioUnitario: precioUnit,
           IdProducto: idProd
-        });
+        };
+        partidasErp.push(partidaObj);
+        partidasForSeg.push(Object.assign({}, partidaObj, {
+          model: reqItem.model || reqItem.modelo || '',
+          stockBreakdown: reqItem.stockBreakdown || reqItem.stockBodegas || reqItem.stocks || reqItem.inventario || reqItem.stockByLoc || null
+        }));
         skusSummaryParts.push(sku + ' x' + cant);
       }
 
@@ -4981,20 +5434,21 @@ function handleInvSubmitQuote_(body) {
         descuentoExtra: extraDiscount
       });
 
-      invalidateErpFoliosCache_();
-
       const folioFinal = erpResult.folio || estimatedFolio || ('ID-' + erpResult.idCotizacion);
       const refSujeto = idLead ? ('Lead ' + idLead) : ('Cliente ' + idCliente);
       const statusBannerTxt = '✅ COTIZACIÓN CREADA (' + ahoraStr + ') · FOLIO ' + folioFinal + ' · ' + refSujeto;
 
-      sh.getRange('K5').setValue('SOLO REVISIÓN (NO ENVIAR AL ERP)');
-      sh.getRange('K6').setValue(statusBannerTxt);
-      sh.getRange('K7').setValue(String(erpResult.idCotizacion));
+      // Batch K5:K7 + M7 + K9 sin tocar jamás plantilla!K8 ([BLOQUEADO-5])
+      sh.getRange('K5:K7').setValues([
+        ['SOLO REVISIÓN (NO ENVIAR AL ERP)'],
+        [statusBannerTxt],
+        [String(erpResult.idCotizacion)]
+      ]);
       sh.getRange('M7').setValue(folioFinal);
       // Conservar intacta la fórmula nativa de K8 en plantilla (PRESENTACION_DISENO)
       sh.getRange('K9').setValue(ahoraStr);
 
-      // 5) Registrar el mismo folio oficial de S Mueblería según su tienda o bodega en COTIZACIONES_EN_VIVO
+      // 5) Registrar el mismo folio oficial en COTIZACIONES_EN_VIVO con marca ORIGEN_CREACION = APP_COTIZACION (Col Y)
       shQuotes.appendRow([
         folioFinal,
         folioFinal,
@@ -5019,12 +5473,13 @@ function handleInvSubmitQuote_(body) {
         extraDiscount,
         erpResult.total,
         'COTIZACIÓN REGISTRADA',
-        rawNotes
+        rawNotes,
+        'APP_COTIZACION'
       ]);
       const appendedRow = shQuotes.getLastRow();
       shQuotes.getRange(appendedRow, 19, 1, 4).setNumberFormat('$#,##0.00');
 
-      registrarCotizacionAppEnSeguimiento_(ss, {
+      const segLoggedOk = !!registrarCotizacionAppEnSeguimiento_(ss, {
         folio: folioFinal,
         fechaStr: Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd'),
         sheetTab: verifiedUser.sheetTab,
@@ -5033,10 +5488,10 @@ function handleInvSubmitQuote_(body) {
         advisorEmail: verifiedUser.correo,
         clientName: displayClientForErp,
         clientPhone: clientPhone,
-        partidas: partidasErp
+        partidas: partidasForSeg
       });
 
-      registrarEventoHistorial_(ss, {
+      const histLoggedOk = !!registrarEventoHistorial_(ss, {
         clasificacion: 'MOVIMIENTO',
         modulo: 'AppsScript WCF · InsertarCotizacion',
         evento: 'COTIZACIÓN CREADA EN S MUEBLERÍA',
@@ -5050,33 +5505,48 @@ function handleInvSubmitQuote_(body) {
 
       SpreadsheetApp.flush();
 
-      const folioSnapAfter = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+      const folioSnapAfter = updateFoliosCacheLocally_(folioSnapBefore, folioFinal);
       const nextStoreFolio = peekNextStoreErpFolio_(erpStore, activePrefix, folioSnapAfter);
-
-      const finalOut = handleInvPlantillaStatus_();
-      finalOut.sentLiveToErp = true;
-      finalOut.orderCode = folioFinal;
-      finalOut.nextOrderCode = nextStoreFolio;
-      finalOut.nextFolioByStore = folioSnapAfter.nextFolioByStore;
-      finalOut.quoteType = activeQuoteType;
-      finalOut.isProyecto = isProyQuote;
-      finalOut.serieLabel = verifiedUser.serieLabel;
-      finalOut.folio = folioFinal;
-      finalOut.quoteId = String(erpResult.idCotizacion);
-      finalOut.erpUserId = String(idUsuarioNum);
-      finalOut.erpStatus = statusBannerTxt;
       const allowedAfterDirect = readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, authCheck.allUsers, erpStore);
-      finalOut.recentQuotes = allowedAfterDirect.quotes;
-      finalOut.roleScope = allowedAfterDirect.roleScope;
-      finalOut.activeStore = allowedAfterDirect.activeStore;
-      finalOut.branchAdvisorEmails = allowedAfterDirect.allowedAdvisorEmails;
-      return finalOut;
+
+      return {
+        ok: true,
+        erpStore: erpStore,
+        erpAdvisor: erpAdvisorLabel,
+        erpUserId: String(idUsuarioNum),
+        actionState: 'SOLO REVISIÓN (NO ENVIAR AL ERP)',
+        erpStatus: statusBannerTxt,
+        quoteId: String(erpResult.idCotizacion),
+        folio: folioFinal,
+        folioFinal: folioFinal,
+        subjectRef: refSujeto,
+        lastSync: ahoraStr,
+        extraDiscount: extraDiscount > 0 ? formatMoney_(extraDiscount) : '$0.00',
+        subtotal: formatMoney_(erpResult.subtotal),
+        iva: formatMoney_(erpResult.iva),
+        total: formatMoney_(erpResult.total),
+        sentLiveToErp: true,
+        orderCode: folioFinal,
+        nextOrderCode: nextStoreFolio,
+        nextFolioByStore: folioSnapAfter.nextFolioByStore,
+        quoteType: activeQuoteType,
+        isProyecto: isProyQuote,
+        serieLabel: verifiedUser.serieLabel,
+        items: partidasErp,
+        serverLoggedSeguimiento: segLoggedOk,
+        serverLoggedHistorial: histLoggedOk,
+        recentQuotes: allowedAfterDirect.quotes,
+        roleScope: allowedAfterDirect.roleScope,
+        activeStore: allowedAfterDirect.activeStore,
+        branchAdvisorEmails: allowedAfterDirect.allowedAdvisorEmails
+      };
     } catch (wcfErr) {
       // Respaldo automático: si el token caché en Drive expiró, encolar en plantilla!K5 para que servicio_en_vivo.py la suba e hidrate sesión
       const fallbackSummary = items.map(it => String(it.sku || '').trim().toUpperCase() + ' x' + Math.max(1, Math.round(Number(it.qty) || 1))).filter(Boolean);
       sh.getRange('K7').clearContent();
       sh.getRange('M7').clearContent();
       sh.getRange('K6').setValue('⏳ EN COLA AUTOMÁTICA PARA S MUEBLERÍA (' + ahoraStr + ')');
+      // Conservar intacta plantilla!K8 ([BLOQUEADO-5])
       sh.getRange('K9').setValue(ahoraStr);
       sh.getRange('K5').setValue('ENVIAR COTIZACIÓN A S MUEBLERÍA');
       SpreadsheetApp.flush();
@@ -5095,11 +5565,11 @@ function handleInvSubmitQuote_(body) {
       }
 
       if (daemonQid || daemonFolio) {
-        invalidateErpFoliosCache_();
         const folioResolved = daemonFolio || estimatedFolio || ('ID-' + daemonQid);
-        const subSheet = Number(sh.getRange('H31').getValue()) || 0;
-        const ivaSheet = Number(sh.getRange('H32').getValue()) || 0;
-        const totSheet = Number(sh.getRange('H33').getValue()) || 0;
+        const totRangeVals = sh.getRange('H31:H33').getValues();
+        const subSheet = Number(totRangeVals[0][0]) || 0;
+        const ivaSheet = Number(totRangeVals[1][0]) || 0;
+        const totSheet = Number(totRangeVals[2][0]) || 0;
 
         shQuotes.appendRow([
           folioResolved,
@@ -5125,11 +5595,12 @@ function handleInvSubmitQuote_(body) {
           extraDiscount,
           totSheet,
           'COTIZACIÓN REGISTRADA (VÍA SERVICIO)',
-          rawNotes
+          rawNotes,
+          'APP_COTIZACION'
         ]);
         const appRow = shQuotes.getLastRow();
         shQuotes.getRange(appRow, 19, 1, 4).setNumberFormat('$#,##0.00');
-        registrarCotizacionAppEnSeguimiento_(ss, {
+        const segLoggedDaemon = !!registrarCotizacionAppEnSeguimiento_(ss, {
           folio: folioResolved,
           fechaStr: Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd'),
           sheetTab: verifiedUser.sheetTab,
@@ -5138,9 +5609,9 @@ function handleInvSubmitQuote_(body) {
           advisorEmail: verifiedUser.correo,
           clientName: displayClientForErp,
           clientPhone: clientPhone,
-          partidas: partidasErp
+          partidas: partidasForSeg.length ? partidasForSeg : items
         });
-        registrarEventoHistorial_(ss, {
+        const histLoggedDaemon = !!registrarEventoHistorial_(ss, {
           clasificacion: 'MOVIMIENTO',
           modulo: 'AppsScript + servicio_en_vivo.py',
           evento: 'COTIZACIÓN CREADA VÍA COLA DE RESPALDO',
@@ -5153,11 +5624,12 @@ function handleInvSubmitQuote_(body) {
         });
         SpreadsheetApp.flush();
 
-        const snapAfterDaemon = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
+        const snapAfterDaemon = updateFoliosCacheLocally_(folioSnapBefore, folioResolved);
         const nextAfterDaemon = peekNextStoreErpFolio_(erpStore, activePrefix, snapAfterDaemon);
         const outDaemon = handleInvPlantillaStatus_();
         outDaemon.sentLiveToErp = true;
         outDaemon.orderCode = folioResolved;
+        outDaemon.folioFinal = folioResolved;
         outDaemon.nextOrderCode = nextAfterDaemon;
         outDaemon.nextFolioByStore = snapAfterDaemon.nextFolioByStore;
         outDaemon.quoteType = activeQuoteType;
@@ -5167,6 +5639,9 @@ function handleInvSubmitQuote_(body) {
         outDaemon.quoteId = daemonQid;
         outDaemon.erpUserId = String(idUsuarioNum);
         outDaemon.erpStatus = daemonStatus;
+        outDaemon.items = partidasErp.length ? partidasErp : items;
+        outDaemon.serverLoggedSeguimiento = segLoggedDaemon;
+        outDaemon.serverLoggedHistorial = histLoggedDaemon;
         const allowedAfterDaemon = readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, authCheck.allUsers, erpStore);
         outDaemon.recentQuotes = allowedAfterDaemon.quotes;
         outDaemon.roleScope = allowedAfterDaemon.roleScope;
@@ -5175,7 +5650,7 @@ function handleInvSubmitQuote_(body) {
         return outDaemon;
       }
 
-      registrarEventoHistorial_(ss, {
+      const histQueuedOk = !!registrarEventoHistorial_(ss, {
         clasificacion: 'FALLO DE CÓDIGO',
         modulo: 'AppsScript WCF · InsertarCotizacion',
         evento: 'ENVÍO WCF DIRECTO EN COLA DE RESPALDO',
@@ -5192,11 +5667,15 @@ function handleInvSubmitQuote_(body) {
       queuedOut.queuedForDaemon = true;
       queuedOut.wcfReason = String((wcfErr && wcfErr.message) || wcfErr || '');
       queuedOut.orderCode = estimatedFolio;
+      queuedOut.folioFinal = estimatedFolio;
       queuedOut.nextOrderCode = estimatedFolio;
       queuedOut.nextFolioByStore = folioSnapBefore.nextFolioByStore;
       queuedOut.quoteType = activeQuoteType;
       queuedOut.isProyecto = isProyQuote;
       queuedOut.serieLabel = verifiedUser.serieLabel;
+      queuedOut.items = partidasErp.length ? partidasErp : items;
+      queuedOut.serverLoggedSeguimiento = false;
+      queuedOut.serverLoggedHistorial = histQueuedOk;
       const allowedQueued = readAllowedGeneratedQuotesForUser_(ss, shQuotes, verifiedUser, authCheck.allUsers, erpStore);
       queuedOut.recentQuotes = allowedQueued.quotes;
       queuedOut.roleScope = allowedQueued.roleScope;
@@ -5662,11 +6141,12 @@ function buildSafeQuotePdfFileName_(folio, quoteId, clientName) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
-    .slice(0, maxLen || 28);
+    .slice(0, maxLen || 28)
+    .replace(/^_+|_+$/g, '');
 
   const fTag = cleanPart(folio || ('ID_' + quoteId), 20) || ('ID_' + quoteId);
   const cTag = cleanPart(clientName, 26);
-  return 'Cotizacion_SMuebleria_' + fTag + (cTag ? ('_' + cTag) : '') + '.pdf';
+  return 'CREATA-muebles-cotización_' + fTag + (cTag ? ('_' + cTag) : '') + '.pdf';
 }
 
 function handleInvDownloadErpQuotePdf_(body) {
@@ -5677,7 +6157,7 @@ function handleInvDownloadErpQuotePdf_(body) {
     return authCheck;
   }
   const verifiedUser = authCheck.advisor;
-  if (verifiedUser.isGuest || verifiedUser.soloLectura || String(verifiedUser.sheetTab || '').toUpperCase() === 'INVITADOS') {
+  if (isGuestReadOnlyUser_(verifiedUser)) {
     return {
       ok: false,
       error: 'Acceso de Solo Lectura (Hoja INVITADOS): tu cuenta no tiene permisos para consultar ni descargar cotizaciones.'
@@ -7954,7 +8434,7 @@ function handleInvSearchErpClients_(body) {
   if (!authCheck.ok) {
     return authCheck;
   }
-  if (authCheck.advisor && (authCheck.advisor.isGuest || authCheck.advisor.soloLectura)) {
+  if (isGuestReadOnlyUser_(authCheck.advisor)) {
     return { ok: false, error: 'Tu cuenta de Invitado (Solo Ver) no tiene permisos para consultar clientes ni cotizar.' };
   }
 
@@ -8080,7 +8560,7 @@ function handleInvCreateErpClient_(body) {
       return authCheck;
     }
     const verifiedUser = authCheck.advisor;
-    if (verifiedUser.isGuest || verifiedUser.soloLectura) {
+    if (isGuestReadOnlyUser_(verifiedUser)) {
       return { ok: false, error: 'Tu cuenta de Invitado (Solo Ver) no tiene permisos para dar de alta clientes ni cotizar.' };
     }
     const cfg = getErpRuntimeConfig_();
@@ -8343,23 +8823,10 @@ function handleInvUploadProductPhoto_(body) {
       return authCheck;
     }
     const verifiedUser = authCheck.advisor;
-    const puestoNorm = String(verifiedUser.puesto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-    const isAllowedManager = !!(verifiedUser.isAdmin || /GERENTE|\bSUB/.test(puestoNorm));
-    if (!isAllowedManager) {
-      registrarEventoHistorial_(ss, {
-        clasificacion: 'ALERTA TÉCNICA',
-        modulo: 'AppsScript · handleInvUploadProductPhoto_',
-        evento: 'INTENTO DE SUBIDA DE FOTO SIN PERMISO',
-        estado: '⚠️ BLOQUEADO',
-        usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
-        sucursal: verifiedUser.erpStore || verifiedUser.sheetTab || '',
-        referencia: String((body && body.sku) || '').trim().toUpperCase(),
-        detalle: 'Intento de carga de foto desde cuenta con puesto ' + (verifiedUser.puesto || 'ASESOR') + '.',
-        analisis: 'Validación activa: únicamente Gerentes, Subgerentes y Administradores tienen permiso de carga de fotografías.'
-      });
+    if (isGuestReadOnlyUser_(verifiedUser)) {
       return {
         ok: false,
-        error: 'Acceso restringido: únicamente las cuentas de Gerente o Administrador pueden agregar fotos a los productos.'
+        error: 'Tu cuenta de Invitado (Solo Ver) no tiene permisos para subir fotografías.'
       };
     }
 
@@ -8377,7 +8844,7 @@ function handleInvUploadProductPhoto_(body) {
 
     const ahoraStr = formatCancunNow_();
     const uploaderName = verifiedUser.nombre || verifiedUser.correo;
-    const roleStore = [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'GERENTE'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
+    const roleStore = [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'ASESOR'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
       .filter(Boolean)
       .join(' · ');
 
@@ -8422,9 +8889,40 @@ function handleInvUploadProductPhoto_(body) {
     const driveViewUrl = 'https://drive.google.com/file/d/' + fileId + '/view?usp=sharing';
     const folderUrl = 'https://drive.google.com/drive/folders/' + usedFolderId;
 
+    // Organizar copia automáticamente en la carpeta de categoría correspondiente (FOTOS SALAS, FOTOS COMEDORES, etc.)
+    let categoryFolderId = '';
+    let categoryFolderName = '';
+    try {
+      let catRaw = String((body && body.categoria) || '').trim();
+      let tipoRaw = String((body && body.tipo) || '').trim();
+      let nomLookup = productName;
+      if (!catRaw && !tipoRaw) {
+        const shInv = ss.getSheetByName('INVENTARIO_EN_VIVO');
+        if (shInv && shInv.getLastRow() >= 3) {
+          const invVals = shInv.getRange(3, 1, shInv.getLastRow() - 2, 7).getValues();
+          for (let i = 0; i < invVals.length; i++) {
+            if (cleanInvCell_(invVals[i][0]).toUpperCase() === skuUpper) {
+              tipoRaw = cleanInvCell_(invVals[i][1]) || tipoRaw;
+              nomLookup = cleanInvCell_(invVals[i][3]) || nomLookup;
+              catRaw = cleanInvCell_(invVals[i][6]) || catRaw;
+              break;
+            }
+          }
+        }
+      }
+      const destMeta = resolveCategoryDestFolderForProduct_(catRaw, tipoRaw, nomLookup);
+      if (destMeta && destMeta.id && destMeta.id !== usedFolderId) {
+        const catFolder = DriveApp.getFolderById(destMeta.id);
+        const catCopy = uploaded.makeCopy(fileName, catFolder);
+        catCopy.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        categoryFolderId = destMeta.id;
+        categoryFolderName = destMeta.name;
+      }
+    } catch (eCatCopy) {}
+
     // NO se inserta ni coloca la fotografía en el documento de Google Sheets ("FOTOS NUEVAS CARGADO");
     // únicamente queda alojada como archivo descargable en la carpeta de Google Drive "FOTOS NUEVAS CARGADO"
-    // y se registra el movimiento en texto plano dentro de la bitácora HISTORIAL.
+    // y organizada en su carpeta de categoría correspondiente, registrando el movimiento en HISTORIAL.
     registrarEventoHistorial_(ss, {
       clasificacion: 'MOVIMIENTO',
       modulo: 'AppsScript · Drive FOTOS NUEVAS CARGADO',
@@ -8433,7 +8931,9 @@ function handleInvUploadProductPhoto_(body) {
       usuario: uploaderName + ' (' + verifiedUser.correo + ')',
       sucursal: roleStore,
       referencia: skuUpper + ' · ' + productName,
-      detalle: 'Archivo descargable guardado únicamente en carpeta Drive "FOTOS NUEVAS CARGADO" (' + fileName + ') · Descarga: ' + downloadUrl,
+      detalle: 'Archivo descargable guardado en carpeta Drive "FOTOS NUEVAS CARGADO"' +
+        (categoryFolderName ? (' y clasificado en "' + categoryFolderName + '"') : '') +
+        ' (' + fileName + ') · Descarga: ' + downloadUrl,
       analisis: 'Sin colocar en el documento Google Sheets ni reemplazar Columna F de INVENTARIO_EN_VIVO. Carpeta: ' + folderUrl
     });
 
@@ -8448,6 +8948,8 @@ function handleInvUploadProductPhoto_(body) {
       url: downloadUrl,
       driveUrl: driveViewUrl,
       folderUrl: folderUrl,
+      categoryFolderId: categoryFolderId,
+      categoryFolderName: categoryFolderName,
       uploadedBy: uploaderName,
       timestamp: ahoraStr
     };
@@ -9511,13 +10013,49 @@ function sincronizarPasswordEnHojaSeguimiento_(email, newKey) {
   } catch (eSegPwd) {}
 }
 
+function extractPreSuppliedStockBreakdown_(pt) {
+  if (!pt || typeof pt !== 'object') return null;
+  const src = pt.stockBreakdown || pt.stockBodegas || pt.stocks || pt.inventario || pt.stockByLoc || pt;
+  if (!src || typeof src !== 'object') return null;
+  const hasAnyKey = (
+    src.cedis_bodega !== undefined || src.cedisBodega !== undefined ||
+    src.cedis_piso !== undefined || src.cedisPiso !== undefined ||
+    src.casa_bodega !== undefined || src.casaBodega !== undefined ||
+    src.colosio_bodega !== undefined || src.colosioBodega !== undefined ||
+    src.playa_bodega !== undefined || src.playaBodega !== undefined ||
+    src.ptc_bodega !== undefined || src.ptcBodega !== undefined
+  );
+  if (!hasAnyKey) return null;
+  return {
+    modelo: String(src.modelo || pt.model || pt.modelo || '').trim(),
+    cedis_bodega: Number(src.cedis_bodega !== undefined ? src.cedis_bodega : src.cedisBodega) || 0,
+    cedis_piso: Number(src.cedis_piso !== undefined ? src.cedis_piso : src.cedisPiso) || 0,
+    casa_bodega: Number(src.casa_bodega !== undefined ? src.casa_bodega : src.casaBodega) || 0,
+    casa_piso: Number(src.casa_piso !== undefined ? src.casa_piso : src.casaPiso) || 0,
+    colosio_bodega: Number(src.colosio_bodega !== undefined ? src.colosio_bodega : src.colosioBodega) || 0,
+    colosio_piso: Number(src.colosio_piso !== undefined ? src.colosio_piso : src.colosioPiso) || 0,
+    playa_bodega: Number(src.playa_bodega !== undefined ? src.playa_bodega : src.playaBodega) || 0,
+    playa_piso: Number(src.playa_piso !== undefined ? src.playa_piso : src.playaPiso) || 0,
+    ptc_bodega: Number(src.ptc_bodega !== undefined ? src.ptc_bodega : src.ptcBodega) || 0,
+    ptc_piso: Number(src.ptc_piso !== undefined ? src.ptc_piso : src.ptcPiso) || 0
+  };
+}
+
 function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
   try {
-    if (!info || !info.folio || !Array.isArray(info.partidas) || !info.partidas.length) return;
+    if (!info || !info.folio || !Array.isArray(info.partidas) || !info.partidas.length) return false;
     const ssSeg = getSpreadsheetSeguimiento_();
-    if (!ssSeg) return;
+    if (!ssSeg) return false;
     const shCot = ssSeg.getSheetByName('COTIZACIONES_CREATA');
-    if (!shCot) return;
+    if (!shCot) return false;
+
+    // Garantizar Columna AA (col 27) = ORIGEN_CREACION sin alterar datos previos
+    if (shCot.getMaxColumns() < 27) {
+      shCot.insertColumnsAfter(shCot.getMaxColumns(), 27 - shCot.getMaxColumns());
+    }
+    if (!String(shCot.getRange(1, 27).getDisplayValue() || '').trim()) {
+      shCot.getRange(1, 27).setValue('ORIGEN_CREACION');
+    }
 
     const folio = String(info.folio || '').trim().toUpperCase();
     const sucSeg = mapErpStoreToSeguimientoBranch_(info.erpStore || info.sheetTab, folio);
@@ -9527,32 +10065,48 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
     const clientName = String(info.clientName || 'Prospecto CREATA').trim();
     const clientPhone = String(info.clientPhone || '').replace(/\D+/g, '');
 
-    // Mapa rápido de existencias en INVENTARIO_EN_VIVO
-    const invMap = {};
-    try {
-      const shInv = (ssInv || getSpreadsheet_()).getSheetByName(CONFIG.TAB_INVENTORY);
-      if (shInv && shInv.getLastRow() >= 4) {
-        const invRows = shInv.getRange(4, 1, shInv.getLastRow() - 3, 21).getValues();
-        for (let i = 0; i < invRows.length; i++) {
-          const r = invRows[i];
-          const skuKey = String(r[1] || '').trim().toUpperCase();
-          if (!skuKey) continue;
-          invMap[skuKey] = {
-            modelo: String(r[3] || '').trim(),
-            cedis_bodega: Number(r[6]) || 0,
-            cedis_piso: Number(r[7]) || 0,
-            casa_bodega: Number(r[8]) || 0,
-            casa_piso: Number(r[9]) || 0,
-            colosio_bodega: (Number(r[10]) || 0) + (Number(r[12]) || 0),
-            colosio_piso: (Number(r[11]) || 0) + (Number(r[13]) || 0),
-            playa_bodega: Number(r[14]) || 0,
-            playa_piso: Number(r[15]) || 0,
-            ptc_bodega: Number(r[16]) || 0,
-            ptc_piso: Number(r[17]) || 0
-          };
-        }
+    // Solo escanear INVENTARIO_EN_VIVO si alguna partida no trae desglose de stock en el payload
+    const preSuppliedMap = {};
+    let needsInventoryScan = false;
+    for (let p = 0; p < info.partidas.length; p++) {
+      const pt = info.partidas[p] || {};
+      const sku = String(pt.Clave || pt.sku || '').trim().toUpperCase();
+      if (!sku) continue;
+      const preSt = extractPreSuppliedStockBreakdown_(pt);
+      if (preSt) {
+        preSuppliedMap[sku] = preSt;
+      } else {
+        needsInventoryScan = true;
       }
-    } catch (eInv) {}
+    }
+
+    const invMap = {};
+    if (needsInventoryScan) {
+      try {
+        const shInv = (ssInv || getSpreadsheet_()).getSheetByName(CONFIG.TAB_INVENTORY);
+        if (shInv && shInv.getLastRow() >= 4) {
+          const invRows = shInv.getRange(4, 1, shInv.getLastRow() - 3, 21).getValues();
+          for (let i = 0; i < invRows.length; i++) {
+            const r = invRows[i];
+            const skuKey = String(r[1] || '').trim().toUpperCase();
+            if (!skuKey) continue;
+            invMap[skuKey] = {
+              modelo: String(r[3] || '').trim(),
+              cedis_bodega: Number(r[6]) || 0,
+              cedis_piso: Number(r[7]) || 0,
+              casa_bodega: Number(r[8]) || 0,
+              casa_piso: Number(r[9]) || 0,
+              colosio_bodega: (Number(r[10]) || 0) + (Number(r[12]) || 0),
+              colosio_piso: (Number(r[11]) || 0) + (Number(r[13]) || 0),
+              playa_bodega: Number(r[14]) || 0,
+              playa_piso: Number(r[15]) || 0,
+              ptc_bodega: Number(r[16]) || 0,
+              ptc_piso: Number(r[17]) || 0
+            };
+          }
+        }
+      } catch (eInv) {}
+    }
 
     // Verificar partidas existentes para no duplicar ID_Partida
     const existingRowByPartida = {};
@@ -9565,6 +10119,8 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
       }
     }
 
+    const newRows = [];
+    let updatedCount = 0;
     for (let p = 0; p < info.partidas.length; p++) {
       const pt = info.partidas[p] || {};
       const sku = String(pt.Clave || pt.sku || '').trim().toUpperCase();
@@ -9573,7 +10129,7 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
       const cant = Math.max(1, Number(pt.Cantidad || pt.qty || 1) || 1);
       const precio = Number(pt.PrecioUnitario || pt.PrecioOriginal || pt.price || 0) || 0;
       const nombreProd = String(pt.Nombre || pt.name || sku).trim();
-      const st = invMap[sku] || null;
+      const st = preSuppliedMap[sku] || invMap[sku] || null;
 
       let cb = 0, cp = 0, tb = 0, tp = 0, tot = 0;
       if (st) {
@@ -9611,7 +10167,7 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
         clientPhone,
         sku,
         nombreProd,
-        (st && st.modelo) || String(pt.model || ''),
+        (st && st.modelo) || String(pt.model || pt.modelo || ''),
         precio.toFixed(2),
         String(cant),
         String(Math.max(tot, cant)),
@@ -9625,18 +10181,31 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
         sem,
         acc,
         'Cotizado',
-        ''
+        '',
+        'APP_COTIZACION'
       ];
 
       const targetRow = existingRowByPartida[idPartida.toUpperCase()];
       if (targetRow) {
         shCot.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
+        updatedCount++;
       } else {
-        shCot.appendRow(rowValues);
+        newRows.push(rowValues);
       }
     }
+
+    if (newRows.length > 0) {
+      const startRow = Math.max(2, shCot.getLastRow() + 1);
+      const endRow = startRow + newRows.length - 1;
+      if (shCot.getMaxRows() < endRow) {
+        shCot.insertRowsAfter(shCot.getMaxRows(), endRow - shCot.getMaxRows());
+      }
+      shCot.getRange(startRow, 1, newRows.length, 27).setValues(newRows);
+    }
+    return (newRows.length > 0 || updatedCount > 0);
   } catch (eRegSeg) {
     Logger.log('Aviso registrarCotizacionAppEnSeguimiento_: ' + eRegSeg);
+    return false;
   }
 }
 
@@ -9646,6 +10215,12 @@ function handleSegAction_(body) {
   const folio = String(b.folio || '').trim().toUpperCase();
   const payload = b.payload || {};
   const ssInv = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ssInv);
+  const authReq = b.authToken ? b : Object.assign({}, b, { authToken: b.token || '' });
+  const authCheck = resolveAuthenticatedAdvisor_(ssInv, erpMeta.advisors, authReq);
+  if (!authCheck || !authCheck.ok || !authCheck.advisor || isGuestReadOnlyUser_(authCheck.advisor)) {
+    return { ok: false };
+  }
   const ssSeg = getSpreadsheetSeguimiento_();
   const ahoraStr = Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd HH:mm:ss');
 
@@ -9737,4 +10312,712 @@ function handleSegAction_(body) {
 
   return { ok: true };
 }
+
+function extractDriveFileIdFromCell_(rawVal) {
+  const s = String(rawVal || '').trim();
+  if (!s) return '';
+  const m = s.match(/\/d\/([a-zA-Z0-9_-]{20,})|[?&]id=([a-zA-Z0-9_-]{20,})|^([a-zA-Z0-9_-]{25,})$/);
+  return m ? (m[1] || m[2] || m[3] || '') : '';
+}
+
+function readSheetDisplayMatrixSafe_(book, tabName, maxTailRows) {
+  if (!book || !tabName) return [];
+  const sh = book.getSheetByName(tabName);
+  if (!sh) return [];
+  const lastR = sh.getLastRow();
+  const lastC = sh.getLastColumn();
+  if (lastR < 1 || lastC < 1) return [];
+  if (maxTailRows && lastR > maxTailRows + 1) {
+    const hdr = sh.getRange(1, 1, 1, lastC).getDisplayValues();
+    const startR = Math.max(2, lastR - maxTailRows + 1);
+    const tail = sh.getRange(startR, 1, lastR - startR + 1, lastC).getDisplayValues();
+    return hdr.concat(tail);
+  }
+  return sh.getRange(1, 1, lastR, lastC).getDisplayValues();
+}
+
+/**
+ * Endpoint autenticado seg_get_state: sirve estado de Seguimiento e Historial en vivo sin exponer
+ * lecturas anónimas ni escribir en ninguna hoja.
+ */
+function handleSegGetState_(body) {
+  const b = body || {};
+  const ssInv = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ssInv);
+  const authCheck = resolveAuthenticatedAdvisor_(ssInv, erpMeta.advisors, b);
+  if (!authCheck || !authCheck.ok || !authCheck.advisor) {
+    return { ok: false };
+  }
+  const verifiedUser = authCheck.advisor;
+  if (isGuestReadOnlyUser_(verifiedUser)) {
+    return { ok: false };
+  }
+
+  const isAdmin = !!verifiedUser.isAdmin;
+  const isManager = !isAdmin && isManagerUserRole_(verifiedUser);
+  const roleScope = isAdmin ? 'ADMIN' : (isManager ? 'GERENTE' : 'ASESOR');
+  const userEmail = String(verifiedUser.correo || '').trim().toLowerCase();
+  const userNameNorm = normPlainUpper_(verifiedUser.nombre || '');
+  const userBranchSeg = mapErpStoreToSeguimientoBranch_(verifiedUser.erpStore || verifiedUser.sheetTab, '');
+  const userStoreNorm = normalizeQuoteErpStore_(verifiedUser.erpStore, verifiedUser.sheetTab);
+
+  const ssSeg = getSpreadsheetSeguimiento_();
+  const cotCreata = readSheetDisplayMatrixSafe_(ssSeg, 'COTIZACIONES_CREATA', 0);
+  const cotVivo = readSheetDisplayMatrixSafe_(ssInv, TAB_QUOTES_LIVE_, 0);
+  const cierres = readSheetDisplayMatrixSafe_(ssSeg, 'CIERRES_COTIZACIONES', 0);
+  const configCreata = readSheetDisplayMatrixSafe_(ssSeg, 'CONFIG_CREATA', 0);
+
+  let histMov = readSheetDisplayMatrixSafe_(ssSeg, 'HISTORIAL_MOVIMIENTOS', 500);
+  if (!isAdmin && histMov.length > 1) {
+    const hdrM = histMov[0];
+    const filteredM = [];
+    for (let i = 1; i < histMov.length; i++) {
+      const r = histMov[i] || [];
+      const rowEmail = String(r[3] || '').trim().toLowerCase();
+      const rowUser = normPlainUpper_(r[2] || '');
+      const rowBranch = normPlainUpper_(r[4] || '');
+      const sameUser = (userEmail && rowEmail === userEmail) || (userNameNorm && rowUser && rowUser.indexOf(userNameNorm) !== -1);
+      const sameBranch = isManager && rowBranch && (rowBranch === normPlainUpper_(userBranchSeg) || rowBranch === userStoreNorm);
+      if (sameUser || sameBranch) filteredM.push(r);
+    }
+    histMov = [hdrM].concat(filteredM);
+  }
+
+  let histSeg = [];
+  const shHistInv = ssInv.getSheetByName(TAB_HISTORIAL_);
+  if (shHistInv && shHistInv.getLastRow() >= 6) {
+    const lastR = shHistInv.getLastRow();
+    const lastC = Math.min(shHistInv.getLastColumn(), 10);
+    const hdrRow = shHistInv.getRange(6, 1, 1, lastC).getDisplayValues()[0];
+    const scanStart = Math.max(7, lastR - 1500);
+    const dataRows = lastR >= 7 ? shHistInv.getRange(scanStart, 1, lastR - scanStart + 1, lastC).getDisplayValues() : [];
+    const matchedSeg = [];
+    for (let i = 0; i < dataRows.length; i++) {
+      const r = dataRows[i] || [];
+      if (String(r[2] || '').trim().toUpperCase() !== 'SEGUIMIENTO_COTIZACIONES') continue;
+      if (!isAdmin) {
+        const rowUsr = String(r[5] || '').toLowerCase();
+        const rowSuc = normPlainUpper_(r[6] || '');
+        const sameUser = (userEmail && rowUsr.indexOf(userEmail) !== -1) || (userNameNorm && normPlainUpper_(r[5] || '').indexOf(userNameNorm) !== -1);
+        const sameBranch = isManager && rowSuc && (rowSuc === normPlainUpper_(userBranchSeg) || rowSuc === userStoreNorm);
+        if (!sameUser && !sameBranch) continue;
+      }
+      matchedSeg.push(r);
+    }
+    histSeg = [hdrRow].concat(matchedSeg.slice(-500));
+  }
+
+  const inventoryPhotosBySku = {};
+  let invFullRows = null;
+  const shInv = ssInv.getSheetByName(CONFIG.TAB_INVENTORY);
+  if (shInv && shInv.getLastRow() >= 4) {
+    const lastR = shInv.getLastRow();
+    const lastC = shInv.getLastColumn();
+    if (b.includeInventory) {
+      invFullRows = shInv.getRange(1, 1, lastR, lastC).getDisplayValues();
+      for (let i = 3; i < invFullRows.length; i++) {
+        const r = invFullRows[i] || [];
+        const sku = String(r[1] || '').trim().toUpperCase();
+        if (!sku) continue;
+        const fotoRaw = String(r[5] || '').trim();
+        const driveId = extractDriveFileIdFromCell_(fotoRaw);
+        const priceColIdx = r.length > 48 ? 48 : (r.length > 20 ? 20 : -1);
+        const priceNum = priceColIdx >= 0 ? (parseFloat(String(r[priceColIdx] || '').replace(/[^0-9.-]/g, '')) || 0) : 0;
+        inventoryPhotosBySku[sku] = {
+          foto: fotoRaw,
+          driveId: driveId,
+          nombre: String(r[2] || '').trim(),
+          modelo: String(r[3] || '').trim(),
+          precio: priceNum
+        };
+      }
+    } else {
+      const photoCols = shInv.getRange(4, 2, lastR - 3, 5).getDisplayValues(); // B..F (SKU, Nombre, Modelo, ..., Foto)
+      const priceVals = lastC >= 49 ? shInv.getRange(4, 49, lastR - 3, 1).getDisplayValues() : null; // AW
+      for (let i = 0; i < photoCols.length; i++) {
+        const r = photoCols[i] || [];
+        const sku = String(r[0] || '').trim().toUpperCase();
+        if (!sku) continue;
+        const fotoRaw = String(r[4] || '').trim();
+        const driveId = extractDriveFileIdFromCell_(fotoRaw);
+        const rawP = priceVals && priceVals[i] ? priceVals[i][0] : '';
+        const priceNum = parseFloat(String(rawP || '').replace(/[^0-9.-]/g, '')) || 0;
+        inventoryPhotosBySku[sku] = {
+          foto: fotoRaw,
+          driveId: driveId,
+          nombre: String(r[1] || '').trim(),
+          modelo: String(r[2] || '').trim(),
+          precio: priceNum
+        };
+      }
+    }
+  }
+
+  const sheetsOut = {
+    COTIZACIONES_CREATA: cotCreata,
+    COTIZACIONES_EN_VIVO: cotVivo,
+    CIERRES_COTIZACIONES: cierres,
+    CONFIG_CREATA: configCreata,
+    HISTORIAL_MOVIMIENTOS: histMov,
+    HISTORIAL_SEG: histSeg
+  };
+  if (invFullRows) {
+    sheetsOut.INVENTARIO_EN_VIVO = invFullRows;
+  }
+
+  return {
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    roleScope: roleScope,
+    sheets: sheetsOut,
+    cotCreataRows: cotCreata,
+    cotVivoRows: cotVivo,
+    cierresRows: cierres,
+    cfgRows: configCreata,
+    histMovRows: histMov,
+    histSegRows: histSeg,
+    inventoryPhotosBySku: inventoryPhotosBySku
+  };
+}
+
+/**
+ * Utilidad idempotente para reparar permisos públicos (ANYONE_WITH_LINK / VIEW) en carpetas y fotos
+ * de inventario sin modificar jamás celdas ni fórmulas de Google Sheets ([BLOQUEADO-5]).
+ */
+function hacerPublicasFotosInventario_(opts) {
+  const cfg = opts || {};
+  const startMs = Date.now();
+  const timeBudgetMs = Math.max(30000, Math.min(300000, Number(cfg.timeBudgetMs) || 240000));
+  const startIndex = Math.max(0, parseInt(String(cfg.startIndex || 0), 10) || 0);
+  const maxFiles = Math.max(1, Math.min(2000, parseInt(String(cfg.maxFiles || 250), 10) || 250));
+
+  const summary = {
+    ok: true,
+    foldersChecked: 0,
+    foldersUpdated: 0,
+    filesChecked: 0,
+    filesUpdated: 0,
+    alreadyPublic: 0,
+    errors: [],
+    nextStartIndex: 0,
+    remaining: 0
+  };
+
+  function ensurePublicItem_(item, isFolder) {
+    if (!item) return;
+    if (isFolder) summary.foldersChecked++;
+    else summary.filesChecked++;
+    try {
+      const access = item.getSharingAccess();
+      if (access === DriveApp.Access.ANYONE_WITH_LINK || access === DriveApp.Access.ANYONE) {
+        summary.alreadyPublic++;
+        return;
+      }
+      item.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      if (isFolder) summary.foldersUpdated++;
+      else summary.filesUpdated++;
+    } catch (eShare) {
+      if (summary.errors.length < 30) {
+        summary.errors.push((isFolder ? 'folder:' : 'file:') + item.getId() + ' -> ' + String((eShare && eShare.message) || eShare));
+      }
+    }
+  }
+
+  // 1) Carpetas conocidas de fotografías (solo si startIndex === 0)
+  const seenFolderIds = {};
+  if (startIndex === 0) {
+    const folderIds = [
+      CATEGORIAS_DEST_ROOT_FOLDER_ID_,
+      FOTOS_NUEVAS_CARGADO_FOLDER_ID_,
+      '1wRhGgjmvRdRG-uVM8WgULScn6hBDmksm', // FONDO BLANCO Y SISTEMA
+      '1h0EYNwxabLWFeWt_KECi18WMmdDGwSeh', // MUEBLES FALTANTES ODOO
+      '1SonCsCEzZvtIuhbwwRrQ_9WnhLe8DHc9', // PROVEEDORES
+      '1EEsV3w-XaKnm3RWPerAqNlcs4d4tm3kv',
+      '1i-VknqqeAX2Qj5JKBO5-fEtmxR_h6wQN',
+      '1eSoUmv6IqQ7iU5BZPf8drKg6ktD6ESVT',
+      '17k8kIyyBcAcYIPpICvU7LXGzKvDDuHUk',
+      '1M8xqPRijm_JdsWSsTEPEX3CsgGfvJyDm',
+      '1CI3J-86sx9aCW6RX-i1k26mJ52xT_Nyw'
+    ];
+    const recurseSubfolderIds = {};
+    recurseSubfolderIds[FOTOS_NUEVAS_CARGADO_FOLDER_ID_] = true;
+    recurseSubfolderIds['1wRhGgjmvRdRG-uVM8WgULScn6hBDmksm'] = true;
+    recurseSubfolderIds['1h0EYNwxabLWFeWt_KECi18WMmdDGwSeh'] = true;
+    recurseSubfolderIds['1SonCsCEzZvtIuhbwwRrQ_9WnhLe8DHc9'] = true;
+
+    for (let i = 0; i < CATEGORIAS_DEST_FOLDERS_.length; i++) {
+      if (CATEGORIAS_DEST_FOLDERS_[i] && CATEGORIAS_DEST_FOLDERS_[i].id) {
+        folderIds.push(CATEGORIAS_DEST_FOLDERS_[i].id);
+      }
+    }
+
+    for (let i = 0; i < folderIds.length; i++) {
+      const fid = String(folderIds[i] || '').trim();
+      if (!fid || seenFolderIds[fid]) continue;
+      seenFolderIds[fid] = true;
+      try {
+        const fld = DriveApp.getFolderById(fid);
+        ensurePublicItem_(fld, true);
+        if (recurseSubfolderIds[fid]) {
+          const subIt = fld.getFolders();
+          while (subIt.hasNext() && (Date.now() - startMs) < timeBudgetMs) {
+            const subFld = subIt.next();
+            const subId = subFld.getId();
+            if (!seenFolderIds[subId]) {
+              seenFolderIds[subId] = true;
+              ensurePublicItem_(subFld, true);
+            }
+          }
+        }
+      } catch (eFld) {
+        if (summary.errors.length < 30) {
+          summary.errors.push('folder:' + fid + ' -> ' + String((eFld && eFld.message) || eFld));
+        }
+      }
+    }
+  }
+
+  // 2) IDs únicos leídos EN SOLO LECTURA desde INVENTARIO_EN_VIVO Col F (filas 4+) y Hoja '1' Col D (filas 2+)
+  const fileIdSet = {};
+  const fileIds = [];
+  const addFileId = (raw) => {
+    const id = extractDriveFileIdFromCell_(raw);
+    if (id && !fileIdSet[id]) {
+      fileIdSet[id] = true;
+      fileIds.push(id);
+    }
+  };
+
+  try {
+    const ss = getSpreadsheet_();
+    const shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+    if (shInv && shInv.getLastRow() >= 4) {
+      const colF = shInv.getRange(4, 6, shInv.getLastRow() - 3, 1).getDisplayValues();
+      for (let i = 0; i < colF.length; i++) addFileId(colF[i][0]);
+    }
+    const sh1 = ss.getSheetByName('1');
+    if (sh1 && sh1.getLastRow() >= 2 && sh1.getLastColumn() >= 4) {
+      const colD = sh1.getRange(2, 4, sh1.getLastRow() - 1, 1).getDisplayValues();
+      for (let i = 0; i < colD.length; i++) addFileId(colD[i][0]);
+    }
+  } catch (eRead) {
+    summary.errors.push('sheet_read:' + String((eRead && eRead.message) || eRead));
+  }
+
+  const endIndex = Math.min(fileIds.length, startIndex + maxFiles);
+  let idx = startIndex;
+  for (; idx < endIndex; idx++) {
+    if ((Date.now() - startMs) >= timeBudgetMs) break;
+    const fid = fileIds[idx];
+    try {
+      const file = DriveApp.getFileById(fid);
+      ensurePublicItem_(file, false);
+    } catch (eFile) {
+      if (summary.errors.length < 30) {
+        summary.errors.push('file:' + fid + ' -> ' + String((eFile && eFile.message) || eFile));
+      }
+    }
+  }
+
+  summary.nextStartIndex = idx < fileIds.length ? idx : 0;
+  summary.remaining = Math.max(0, fileIds.length - idx);
+  return summary;
+}
+
+/**
+ * Wrapper sin parámetros para ejecutar directamente desde el editor de Apps Script o el menú de Google Sheets.
+ */
+function hacerPublicasFotosInventario() {
+  const res = hacerPublicasFotosInventario_({});
+  Logger.log(JSON.stringify(res));
+  return res;
+}
+
+// ============================================================================
+// PRESENCIA EN LÍNEA / DESCONECTADO (PUNTO #16 — SOLO CACHE + PROPERTIES, 0 HOJAS)
+// ============================================================================
+const INV_PRESENCE_STATE_KEY_ = 'INV_PRESENCE_STATE_V1';
+const INV_PRESENCE_ONLINE_THRESHOLD_MS_ = 180000;
+const INV_PRESENCE_CACHE_TTL_SEC_ = 21600;
+const INV_PRESENCE_MAX_BYTES_ = 7500;
+
+function utf8ByteLength_(str) {
+  const s = String(str || '');
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff && i + 1 < s.length) {
+      bytes += 4;
+      i++;
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
+function normalizePresenceKey_(correo, nombre) {
+  const cleanMail = String(correo || '').trim().toLowerCase();
+  if (cleanMail) return cleanMail;
+  return String(nombre || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function sanitizePresenceVista_(vista) {
+  return String(vista || '').replace(/[\r\n\t\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+function sanitizePresenceEntry_(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const correo = String(raw.correo || '').trim().toLowerCase();
+  const nombre = String(raw.nombre || '').trim();
+  const key = normalizePresenceKey_(correo, nombre);
+  if (!key) return null;
+  const lastSeenMs = Number(raw.lastSeenMs) > 0 ? Math.floor(Number(raw.lastSeenMs)) : 0;
+  return {
+    lastSeenMs: lastSeenMs,
+    nombre: nombre,
+    correo: correo,
+    sucursal: String(raw.sucursal || '').trim().slice(0, 80),
+    rol: String(raw.rol || '').trim().slice(0, 60),
+    vista: sanitizePresenceVista_(raw.vista),
+    online: Boolean(raw.online)
+  };
+}
+
+function readInvPresenceMap_() {
+  let raw = '';
+  let fromCache = false;
+  try {
+    const cached = CacheService.getScriptCache().get(INV_PRESENCE_STATE_KEY_);
+    if (cached) {
+      raw = String(cached);
+      fromCache = true;
+    }
+  } catch (eCache) {}
+
+  if (!raw) {
+    try {
+      const propVal = PropertiesService.getScriptProperties().getProperty(INV_PRESENCE_STATE_KEY_);
+      if (propVal) {
+        raw = String(propVal);
+      }
+    } catch (eProp) {}
+  }
+
+  if (!raw) return {};
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const cleanMap = {};
+    const keys = Object.keys(parsed);
+    for (let i = 0; i < keys.length; i++) {
+      const k = String(keys[i] || '').trim().toLowerCase();
+      if (!k) continue;
+      const entry = sanitizePresenceEntry_(parsed[keys[i]]);
+      if (entry) cleanMap[k] = entry;
+    }
+    if (!fromCache) {
+      try {
+        CacheService.getScriptCache().put(INV_PRESENCE_STATE_KEY_, JSON.stringify(cleanMap), INV_PRESENCE_CACHE_TTL_SEC_);
+      } catch (eWarm) {}
+    }
+    return cleanMap;
+  } catch (eParse) {
+    return {};
+  }
+}
+
+function writeInvPresenceMap_(map) {
+  const src = (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+  const cleanMap = {};
+  const keys = Object.keys(src);
+  for (let i = 0; i < keys.length; i++) {
+    const k = String(keys[i] || '').trim().toLowerCase();
+    if (!k) continue;
+    const entry = sanitizePresenceEntry_(src[keys[i]]);
+    if (entry) cleanMap[k] = entry;
+  }
+
+  let json = JSON.stringify(cleanMap);
+  if (utf8ByteLength_(json) > INV_PRESENCE_MAX_BYTES_) {
+    const now = Date.now();
+    const pruneOrder = Object.keys(cleanMap).map((k) => {
+      const e = cleanMap[k];
+      const isOnline = Boolean(
+        e &&
+        e.online !== false &&
+        Number(e.lastSeenMs) > 0 &&
+        (now - Number(e.lastSeenMs)) <= INV_PRESENCE_ONLINE_THRESHOLD_MS_
+      );
+      return {
+        key: k,
+        isOnline: isOnline,
+        lastSeenMs: Number(e && e.lastSeenMs) || 0
+      };
+    });
+    pruneOrder.sort((a, b) => {
+      if (a.isOnline !== b.isOnline) return a.isOnline ? 1 : -1;
+      return a.lastSeenMs - b.lastSeenMs;
+    });
+    for (let i = 0; i < pruneOrder.length && utf8ByteLength_(json) > INV_PRESENCE_MAX_BYTES_; i++) {
+      delete cleanMap[pruneOrder[i].key];
+      json = JSON.stringify(cleanMap);
+    }
+  }
+
+  try {
+    CacheService.getScriptCache().put(INV_PRESENCE_STATE_KEY_, json, INV_PRESENCE_CACHE_TTL_SEC_);
+  } catch (eCache) {}
+  try {
+    PropertiesService.getScriptProperties().setProperty(INV_PRESENCE_STATE_KEY_, json);
+  } catch (eProp) {}
+  return cleanMap;
+}
+
+function recordInvPresence_(advisor, vista, onlineFlag) {
+  const now = Date.now();
+  if (!advisor || typeof advisor !== 'object') return now;
+
+  const correo = String(advisor.correo || '').trim().toLowerCase();
+  const nombre = String(advisor.nombre || '').trim();
+  const key = normalizePresenceKey_(correo, nombre);
+  if (!key) return now;
+
+  const sucursal = String(advisor.erpStore || advisor.sucursal || advisor.sheetTab || '').trim().slice(0, 80);
+  const rol = String(
+    advisor.puesto ||
+    (advisor.isAdmin ? 'ADMINISTRADOR' : (isGuestReadOnlyUser_(advisor) ? 'INVITADO' : 'ASESOR'))
+  ).trim().slice(0, 60);
+
+  const entry = {
+    lastSeenMs: now,
+    nombre: nombre,
+    correo: correo,
+    sucursal: sucursal,
+    rol: rol,
+    vista: sanitizePresenceVista_(vista),
+    online: Boolean(onlineFlag)
+  };
+
+  let lock = null;
+  let locked = false;
+  try {
+    if (typeof LockService !== 'undefined' && LockService && typeof LockService.getScriptLock === 'function') {
+      lock = LockService.getScriptLock();
+      locked = !!lock.tryLock(1500);
+    }
+  } catch (eLock) {
+    locked = false;
+  }
+
+  try {
+    const map = readInvPresenceMap_();
+    map[key] = entry;
+    writeInvPresenceMap_(map);
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRel) {}
+    }
+  }
+  return now;
+}
+
+function resolvePresenceActor_(body, allowGuest) {
+  const b = body || {};
+  const token = String(b.authToken || b.token || '').trim();
+  const tokenInfo = verifyInvAuthToken_(token);
+  if (!tokenInfo || !tokenInfo.email) return null;
+
+  const ss = getSpreadsheet_();
+  const authBody = {
+    authToken: token,
+    sheetTab: String(b.sheetTab || '').trim(),
+    erpStore: String(b.erpStore || '').trim()
+  };
+  const authCheck = resolveAuthenticatedAdvisor_(ss, [], authBody);
+  if (authCheck && authCheck.ok && authCheck.advisor) {
+    if (!allowGuest && isGuestReadOnlyUser_(authCheck.advisor)) {
+      return null;
+    }
+    return {
+      advisor: authCheck.advisor,
+      allUsers: authCheck.allUsers || []
+    };
+  }
+
+  if (allowGuest) {
+    const allUsers = readAllBranchUsers_(ss, []);
+    const matches = allUsers.filter((u) => u.correo === tokenInfo.email);
+    if (!matches.length) return null;
+    const chosen =
+      matches.find((u) => tabsMatchNormalized_(u.sheetTab, tokenInfo.sheetTab) || tabsMatchNormalized_(u.branchKey, tokenInfo.sheetTab)) ||
+      matches.find((u) => !u.isGuest) ||
+      matches[0];
+    if (!chosen) return null;
+    return { advisor: chosen, allUsers: allUsers };
+  }
+
+  return null;
+}
+
+function handleInvPresenceHeartbeat_(body) {
+  const b = body || {};
+  const actor = resolvePresenceActor_(b, true);
+  if (!actor || !actor.advisor) {
+    return { ok: false };
+  }
+  const vista = sanitizePresenceVista_(b.vista || 'inventario') || 'inventario';
+  const now = recordInvPresence_(actor.advisor, vista, true);
+  return { ok: true, serverTimeMs: now };
+}
+
+function handleInvPresenceLogout_(body) {
+  const b = body || {};
+  const actor = resolvePresenceActor_(b, true);
+  if (!actor || !actor.advisor) {
+    return { ok: false };
+  }
+  recordInvPresence_(actor.advisor, 'logout', false);
+  return { ok: true };
+}
+
+function handleInvPresenceList_(body) {
+  const b = body || {};
+  const actor = resolvePresenceActor_(b, false);
+  if (!actor || !actor.advisor || isGuestReadOnlyUser_(actor.advisor)) {
+    return { ok: false };
+  }
+
+  const now = Date.now();
+  const allUsers = Array.isArray(actor.allUsers) ? actor.allUsers : [];
+  const presenceMap = readInvPresenceMap_();
+
+  const mergedByKey = {};
+  const guestKeys = {};
+
+  for (let i = 0; i < allUsers.length; i++) {
+    const u = allUsers[i];
+    if (!u) continue;
+    const key = normalizePresenceKey_(u.correo, u.nombre);
+    if (!key) continue;
+    if (isGuestReadOnlyUser_(u)) {
+      guestKeys[key] = true;
+      continue;
+    }
+    const uSucursal = String(u.erpStore || u.sheetTab || '').trim();
+    const uRol = String(u.puesto || (u.isAdmin ? 'ADMINISTRADOR' : 'ASESOR')).trim();
+    const uNombre = String(u.nombre || '').trim();
+    const uCorreo = String(u.correo || '').trim().toLowerCase();
+
+    if (!mergedByKey[key]) {
+      mergedByKey[key] = {
+        nombre: uNombre,
+        correo: uCorreo,
+        sucursal: uSucursal,
+        rol: uRol,
+        isAdmin: !!u.isAdmin
+      };
+    } else {
+      if (!mergedByKey[key].nombre && uNombre) mergedByKey[key].nombre = uNombre;
+      if (u.isAdmin && !mergedByKey[key].isAdmin) {
+        mergedByKey[key].isAdmin = true;
+        if (uRol) mergedByKey[key].rol = uRol;
+      } else if (!mergedByKey[key].rol && uRol) {
+        mergedByKey[key].rol = uRol;
+      }
+      if (!mergedByKey[key].sucursal && uSucursal) {
+        mergedByKey[key].sucursal = uSucursal;
+      }
+    }
+  }
+
+  const masterKevinKey = normalizePresenceKey_('kevin.reyna@grupoanipa.com', 'Kevin Reyna');
+  if (masterKevinKey && !mergedByKey[masterKevinKey]) {
+    mergedByKey[masterKevinKey] = {
+      nombre: 'Kevin Reyna',
+      correo: 'kevin.reyna@grupoanipa.com',
+      sucursal: 'CEDIS',
+      rol: 'ADMINISTRADOR',
+      isAdmin: true
+    };
+  }
+
+  const presenceKeys = Object.keys(presenceMap);
+  for (let i = 0; i < presenceKeys.length; i++) {
+    const pKey = presenceKeys[i];
+    if (!pKey || mergedByKey[pKey] || guestKeys[pKey]) continue;
+    const pEntry = presenceMap[pKey];
+    if (!pEntry) continue;
+    const pRolNorm = String(pEntry.rol || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    const pSucNorm = String(pEntry.sucursal || '').trim().toUpperCase();
+    if (/INVITAD|SOLO\s*VER|SOLO\s*LECTURA/.test(pRolNorm) || /^INVITADOS?$|^SOLO LECTURA$/.test(pSucNorm)) {
+      continue;
+    }
+    mergedByKey[pKey] = {
+      nombre: String(pEntry.nombre || pEntry.correo || '').trim(),
+      correo: String(pEntry.correo || '').trim().toLowerCase(),
+      sucursal: String(pEntry.sucursal || '').trim(),
+      rol: String(pEntry.rol || 'ASESOR').trim(),
+      isAdmin: /ADMINISTRADOR/i.test(String(pEntry.rol || ''))
+    };
+  }
+
+  const users = [];
+  const dirKeys = Object.keys(mergedByKey);
+  for (let i = 0; i < dirKeys.length; i++) {
+    const k = dirKeys[i];
+    const base = mergedByKey[k];
+    const entry = presenceMap[k] || null;
+    const lastSeenMs = entry && Number(entry.lastSeenMs) > 0 ? Number(entry.lastSeenMs) : 0;
+    const online = Boolean(
+      entry &&
+      entry.online !== false &&
+      lastSeenMs > 0 &&
+      (now - lastSeenMs) <= INV_PRESENCE_ONLINE_THRESHOLD_MS_
+    );
+    const vista = entry ? sanitizePresenceVista_(entry.vista) : '';
+    const sucursal = String((online && entry && entry.sucursal) || base.sucursal || (entry && entry.sucursal) || '').trim();
+    const rol = String(base.rol || (entry && entry.rol) || 'ASESOR').trim();
+    const nombre = String(base.nombre || (entry && entry.nombre) || base.correo || '').trim();
+    const correo = String(base.correo || (entry && entry.correo) || '').trim().toLowerCase();
+
+    users.push({
+      nombre: nombre,
+      correo: correo,
+      sucursal: sucursal,
+      rol: rol,
+      vista: vista,
+      online: online,
+      lastSeenMs: lastSeenMs
+    });
+  }
+
+  users.sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    if ((b.lastSeenMs || 0) !== (a.lastSeenMs || 0)) return (b.lastSeenMs || 0) - (a.lastSeenMs || 0);
+    return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es', { sensitivity: 'base' });
+  });
+
+  let onlineCount = 0;
+  for (let i = 0; i < users.length; i++) {
+    if (users[i].online) onlineCount++;
+  }
+  const offlineCount = users.length - onlineCount;
+
+  return {
+    ok: true,
+    serverTimeMs: now,
+    thresholdMs: INV_PRESENCE_ONLINE_THRESHOLD_MS_,
+    onlineCount: onlineCount,
+    offlineCount: offlineCount,
+    users: users
+  };
+}
+
+
 

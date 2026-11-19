@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
+    <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -15,6 +16,7 @@
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./fotos-productos-styles.css?v=9">
+    <script src="./creata-guard.js"></script>
 </head>
 <body>
 
@@ -74,7 +76,7 @@
 
                 <div class="header-actions">
                     <a class="hdr-btn" href="./panel.html">Panel</a>
-                    <a class="hdr-btn" href="./seguimiento.html" target="_blank" rel="noopener">Cotización ↗</a>
+                    <a class="hdr-btn" href="./inventario.html" target="_blank" rel="noopener">Cotización ↗</a>
                     <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
                     <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn" onclick="refreshAllPhotoWorkspace(true)">↻ Fotos</button>
                     <a class="hdr-btn" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
@@ -270,11 +272,11 @@
     </div>
 
     <div id="photoLightbox" class="lightbox-backdrop hidden" onclick="closePhotoLightbox()">
-        <img id="photoLightboxImg" src="" alt="Vista" referrerpolicy="no-referrer">
+        <img id="photoLightboxImg" src="" alt="Vista" referrerpolicy="no-referrer" draggable="false">
     </div>
 
     <script src="./creata-logo.js?v=32"></script>
     <script src="./creata-cloud.js?v=32"></script>
-    <script src="./fotos-productos-app.js?v=10"></script>
+    <script src="./fotos-productos-app.js?v=11"></script>
 </body>
 </html>

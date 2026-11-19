@@ -23,6 +23,7 @@
     const FOTOS_OFFLINE_IDB_STORE = 'pending_photos';
 
     let _fotosUiCheckpointRestoredOnce = false;
+    let _fotosRestoringCheckpoint = false;
     let _fotosFlushingOutbox = false;
 
     const SHEET_GIDS = {
@@ -73,7 +74,8 @@
         syncSkusInFlight: false,
         sessionSavedLogs: [],
         sessionSavedBySku: new Map(),
-        deletedQueue: null
+        deletedQueue: null,
+        lightboxUrl: ''
     };
 
     function cleanStr(val) {
@@ -161,12 +163,7 @@
         const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
         if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid) && step === 0) {
             imgEl.setAttribute('data-fb-step', '1');
-            imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w1000';
-            return;
-        }
-        if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid) && step === 1) {
-            imgEl.setAttribute('data-fb-step', '2');
-            imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid);
+            imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w400';
             return;
         }
         imgEl.onerror = null;
@@ -418,12 +415,15 @@
     }
 
     function buildOwnerAuthPayload() {
-        return {
+        const payload = {
             authToken: state.authToken || '',
             advisorEmail: OWNER_EMAIL,
-            accessKey: state.accessKey || 'kevin123',
             sheetTab: 'PROYECTOS'
         };
+        if (state.accessKey) {
+            payload.accessKey = state.accessKey;
+        }
+        return payload;
     }
 
     function readDeletedQueue() {
@@ -703,9 +703,16 @@
             if (typeof sessionStorage !== 'undefined') {
                 cachedSecret = cleanStr(sessionStorage.getItem(FOTOS_SECRET_SESSION_KEY));
             }
+            if (!cachedSecret) {
+                cachedSecret = cleanStr(localStorage.getItem(FOTOS_SECRET_SESSION_KEY));
+            }
         } catch (e) {}
 
         const candidateKeys = [FOTOS_SESSION_KEY, PANEL_SESSION_KEY, HIST_SESSION_KEY, INV_SESSION_KEY];
+        let matchedOwner = false;
+        let bestToken = '';
+        let bestKey = cachedSecret;
+        let otherInvEmail = '';
 
         for (let i = 0; i < candidateKeys.length; i++) {
             try {
@@ -716,16 +723,28 @@
                 const email = normalizeEmailInput(parsed.correo);
                 if (email && email !== OWNER_EMAIL) {
                     if (candidateKeys[i] === INV_SESSION_KEY) {
-                        return { valid: false, otherEmail: email, needsReauth: false };
+                        otherInvEmail = email;
                     }
                     continue;
                 }
                 if (email === OWNER_EMAIL && !parsed.mustChangeKey) {
+                    matchedOwner = true;
                     const tok = cleanStr(parsed.authToken);
-                    const storedKey = cleanStr(parsed.accessKey) || cachedSecret || 'kevin123';
-                    return { valid: true, authToken: tok, accessKey: storedKey };
+                    const storedKey = cleanStr(parsed.accessKey);
+                    if (tok && !bestToken) bestToken = tok;
+                    if (storedKey && !bestKey) bestKey = storedKey;
                 }
             } catch (e) {}
+        }
+
+        if (matchedOwner) {
+            if (bestToken || bestKey) {
+                return { valid: true, authToken: bestToken, accessKey: bestKey };
+            }
+            return { valid: false, otherEmail: '', needsReauth: true };
+        }
+        if (otherInvEmail) {
+            return { valid: false, otherEmail: otherInvEmail, needsReauth: false };
         }
 
         return { valid: false, otherEmail: '', needsReauth: false };
@@ -763,6 +782,7 @@
         state.accessKey = '';
         try {
             localStorage.removeItem(FOTOS_SESSION_KEY);
+            localStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
             if (typeof sessionStorage !== 'undefined') {
                 sessionStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
                 sessionStorage.setItem(MANUAL_LOCK_FLAG, '1');
@@ -872,6 +892,11 @@
                     localStorage.setItem(HIST_SESSION_KEY, payload);
                     if (typeof sessionStorage !== 'undefined') {
                         sessionStorage.setItem(FOTOS_SECRET_SESSION_KEY, typedKey);
+                    }
+                    if (!issuedToken) {
+                        localStorage.setItem(FOTOS_SECRET_SESSION_KEY, typedKey);
+                    } else {
+                        localStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
                     }
                 } catch (e) {}
                 if (pwdInp) pwdInp.value = '';
@@ -2564,6 +2589,8 @@
         if (!box || !img) return;
         img.src = clean;
         box.classList.remove('hidden');
+        state.lightboxUrl = clean.indexOf('data:') === 0 ? '' : clean;
+        saveFotosUiCheckpointNow();
     };
 
     window.closePhotoLightbox = function () {
@@ -2571,6 +2598,10 @@
         const img = document.getElementById('photoLightboxImg');
         if (box) box.classList.add('hidden');
         if (img) img.src = '';
+        if (state.lightboxUrl) {
+            state.lightboxUrl = '';
+            saveFotosUiCheckpointNow();
+        }
     };
 
     // =========================================================================
@@ -2883,7 +2914,7 @@
     }
 
     function saveFotosUiCheckpointNow() {
-        if (!_fotosUiCheckpointRestoredOnce) return;
+        if (!_fotosUiCheckpointRestoredOnce || _fotosRestoringCheckpoint) return;
         try {
             const skuListEl = document.getElementById('skuResultsList');
             const galEl = document.getElementById('inboxGalleryContainer');
@@ -2908,6 +2939,7 @@
                 inboxSearchQuery: state.inboxSearchQuery || '',
                 selectedInboxFileId: state.selectedInboxFileId || '',
                 selectedPhotoItem: selPhoto,
+                lightboxUrl: (state.lightboxUrl && !String(state.lightboxUrl).startsWith('data:')) ? state.lightboxUrl : '',
                 skuListScrollTop: skuListEl ? Math.round(skuListEl.scrollTop || 0) : 0,
                 galleryScrollTop: galEl ? Math.round(galEl.scrollTop || 0) : 0,
                 windowScrollY: Math.round(window.scrollY || 0)
@@ -2918,12 +2950,14 @@
 
     function restoreFotosUiCheckpointOnce() {
         _fotosUiCheckpointRestoredOnce = true;
+        _fotosRestoringCheckpoint = true;
         try {
             const raw = localStorage.getItem(FOTOS_UI_CHECKPOINT_STORAGE);
             if (!raw) {
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
+                _fotosRestoringCheckpoint = false;
                 return;
             }
             const cp = JSON.parse(raw);
@@ -2931,6 +2965,7 @@
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
+                _fotosRestoringCheckpoint = false;
                 return;
             }
 
@@ -2994,7 +3029,7 @@
                 if (destSel) destSel.value = cp.destFolderId;
             }
 
-            setTimeout(() => {
+            const finishRestore = () => {
                 try {
                     const skuListEl = document.getElementById('skuResultsList');
                     if (skuListEl && typeof cp.skuListScrollTop === 'number' && cp.skuListScrollTop > 0) {
@@ -3007,9 +3042,21 @@
                     if (typeof cp.windowScrollY === 'number' && cp.windowScrollY > 0) {
                         window.scrollTo({ top: cp.windowScrollY, behavior: 'auto' });
                     }
-                } catch (e) {}
-            }, 60);
+                    if (typeof cp.lightboxUrl === 'string' && /^https?:\/\//i.test(cp.lightboxUrl)) {
+                        window.openPhotoLightbox(cp.lightboxUrl);
+                    }
+                } catch (e) {
+                } finally {
+                    _fotosRestoringCheckpoint = false;
+                }
+            };
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => setTimeout(finishRestore, 60));
+            } else {
+                setTimeout(finishRestore, 60);
+            }
         } catch (e) {
+            _fotosRestoringCheckpoint = false;
             applySkuFiltersAndRender();
             renderInboxGallery();
             renderSelectedProductStage();
@@ -3104,6 +3151,12 @@
                 galScrollTimer = setTimeout(() => saveFotosUiCheckpointNow(), 250);
             }, { passive: true });
         }
+
+        let winScrollTimer = null;
+        window.addEventListener('scroll', () => {
+            if (winScrollTimer) clearTimeout(winScrollTimer);
+            winScrollTimer = setTimeout(() => saveFotosUiCheckpointNow(), 250);
+        }, { passive: true });
 
         window.addEventListener('pagehide', () => saveFotosUiCheckpointNow());
         window.addEventListener('beforeunload', () => saveFotosUiCheckpointNow());

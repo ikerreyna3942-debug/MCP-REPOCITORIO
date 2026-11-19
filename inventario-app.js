@@ -1,5 +1,6 @@
 (function () {
     'use strict';
+    if (window.CreataGuard && (window.CreataGuard.blocked || window.CreataGuard.isBlocked)) return;
 
     const DEFAULT_WAREHOUSES = [
         'LPPT',
@@ -34,7 +35,12 @@
         'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
     ];
 
-    const PAGE_SIZE = 80;
+    const PAGE_SIZE_MOBILE = 24;
+    const PAGE_SIZE_DESKTOP = 32;
+    function getAdaptivePageSize() {
+        return (typeof window !== 'undefined' && window.innerWidth >= 768) ? PAGE_SIZE_DESKTOP : PAGE_SIZE_MOBILE;
+    }
+    const PAGE_SIZE = getAdaptivePageSize();
     const CANONICAL_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwWdasvfk3W5FJVZvbEylibYXFxGAr0W4zVb3dq-ws0BqStyiSYQ8oZWLqOPagQBrxv/exec';
     const CART_KEY = 'creata_inv_open_cart_v1';
     const DEFAULT_MIN_STOCK = 2;
@@ -1755,16 +1761,254 @@
     const THUMB_PLACEHOLDER_SVG =
         '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
 
-    // Miniatura con respaldo a la miniatura de Drive y luego al ícono vacío
-    function buildThumbHtml(it) {
+    const failedDrivePhotoIds = new Set();
+    const OPTFIT_STORAGE_KEY = 'creata_optfit_map_v1';
+    const OPTFIT_MAX_ENTRIES = 800;
+    let optFitMap = null;
+    let optFitSaveTimer = null;
+    let optFitCanvas = null;
+    let optFitCtx = null;
+    const optFitQueue = [];
+    let optFitScheduled = false;
+
+    function loadOptFitMap() {
+        if (optFitMap) return optFitMap;
+        optFitMap = {};
+        try {
+            const raw = sessionStorage.getItem(OPTFIT_STORAGE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object') optFitMap = parsed;
+            }
+        } catch (e) {
+            optFitMap = {};
+        }
+        return optFitMap;
+    }
+
+    function scheduleSaveOptFitMap() {
+        if (optFitSaveTimer) return;
+        optFitSaveTimer = setTimeout(function () {
+            optFitSaveTimer = null;
+            try {
+                const map = loadOptFitMap();
+                const keys = Object.keys(map);
+                if (keys.length > OPTFIT_MAX_ENTRIES) {
+                    const excess = keys.length - OPTFIT_MAX_ENTRIES;
+                    for (let i = 0; i < excess; i++) delete map[keys[i]];
+                }
+                sessionStorage.setItem(OPTFIT_STORAGE_KEY, JSON.stringify(map));
+            } catch (e) {}
+        }, 500);
+    }
+
+    function applyOptFitVars(imgEl, fit) {
+        if (!imgEl || !fit || fit === 'skip') return;
+        if (fit.s && fit.s > 1.01) {
+            imgEl.style.setProperty('--opt-scale', String(fit.s));
+        }
+        if (fit.tx) {
+            imgEl.style.setProperty('--opt-tx', String(fit.tx) + '%');
+        }
+        if (fit.ty) {
+            imgEl.style.setProperty('--opt-ty', String(fit.ty) + '%');
+        }
+    }
+
+    function analyzeImageOpticalFit(imgEl) {
+        if (!imgEl || !imgEl.naturalWidth || !imgEl.naturalHeight) return 'skip';
+        if (imgEl.naturalWidth < 16 || imgEl.naturalHeight < 16) return 'skip';
+        try {
+            if (!optFitCanvas) {
+                optFitCanvas = document.createElement('canvas');
+                optFitCanvas.width = 64;
+                optFitCanvas.height = 64;
+                optFitCtx = optFitCanvas.getContext('2d', { willReadFrequently: true });
+            }
+            if (!optFitCtx) return 'skip';
+            const size = 64;
+            optFitCtx.clearRect(0, 0, size, size);
+            const nw = imgEl.naturalWidth;
+            const nh = imgEl.naturalHeight;
+            const ratio = Math.min(size / nw, size / nh);
+            const dw = Math.max(1, Math.round(nw * ratio));
+            const dh = Math.max(1, Math.round(nh * ratio));
+            const ox = Math.floor((size - dw) / 2);
+            const oy = Math.floor((size - dh) / 2);
+            optFitCtx.drawImage(imgEl, ox, oy, dw, dh);
+            const data = optFitCtx.getImageData(0, 0, size, size).data;
+
+            let borderCount = 0;
+            let transCount = 0;
+            let sumR = 0, sumG = 0, sumB = 0;
+            const bSamples = [];
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    if (x >= 2 && x < size - 2 && y >= 2 && y < size - 2) continue;
+                    const idx = (y * size + x) * 4;
+                    const a = data[idx + 3];
+                    borderCount++;
+                    if (a < 24) {
+                        transCount++;
+                    } else {
+                        sumR += data[idx];
+                        sumG += data[idx + 1];
+                        sumB += data[idx + 2];
+                        bSamples.push(data[idx], data[idx + 1], data[idx + 2]);
+                    }
+                }
+            }
+            const transRatio = borderCount > 0 ? (transCount / borderCount) : 0;
+            const opaqueBorder = bSamples.length / 3;
+            const mR = opaqueBorder > 0 ? sumR / opaqueBorder : 255;
+            const mG = opaqueBorder > 0 ? sumG / opaqueBorder : 255;
+            const mB = opaqueBorder > 0 ? sumB / opaqueBorder : 255;
+            let varSum = 0;
+            for (let i = 0; i < bSamples.length; i += 3) {
+                const dr = bSamples[i] - mR;
+                const dg = bSamples[i + 1] - mG;
+                const db = bSamples[i + 2] - mB;
+                varSum += (dr * dr + dg * dg + db * db) / 3;
+            }
+            const borderStdDev = opaqueBorder > 0 ? Math.sqrt(varSum / opaqueBorder) : 0;
+            if (transRatio < 0.08 && borderStdDev > 28) {
+                return 'skip';
+            }
+
+            let minX = size, minY = size, maxX = -1, maxY = -1, fgCount = 0;
+            const useAlpha = transRatio >= 0.08;
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const idx = (y * size + x) * 4;
+                    const a = data[idx + 3];
+                    if (a <= 24) continue;
+                    let isFg = useAlpha;
+                    if (!isFg) {
+                        const dist = Math.abs(data[idx] - mR) + Math.abs(data[idx + 1] - mG) + Math.abs(data[idx + 2] - mB);
+                        isFg = dist > 54;
+                    }
+                    if (isFg) {
+                        fgCount++;
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            if (fgCount < 40 || maxX <= minX || maxY <= minY) return 'skip';
+            const boxW = maxX - minX + 1;
+            const boxH = maxY - minY + 1;
+            if (boxW < 8 || boxH < 8) return 'skip';
+            const occ = Math.max(boxW / size, boxH / size);
+            if (occ > 0.88) return { s: 1, tx: 0, ty: 0 };
+
+            const scale = Math.max(1.0, Math.min(1.55, +(0.84 / Math.max(0.30, occ)).toFixed(3)));
+            const cx = (minX + maxX) / 2;
+            const cy = (minY + maxY) / 2;
+            const tx = Math.max(-12, Math.min(12, +(((size / 2 - cx) / size) * 100).toFixed(2)));
+            const ty = Math.max(-12, Math.min(12, +(((size / 2 - cy) / size) * 100).toFixed(2)));
+            if (scale <= 1.04 && Math.abs(tx) < 2 && Math.abs(ty) < 2) {
+                return { s: 1, tx: 0, ty: 0 };
+            }
+            return { s: scale, tx: tx, ty: ty };
+        } catch (e) {
+            return 'skip';
+        }
+    }
+
+    function drainOptFitQueue() {
+        optFitScheduled = false;
+        const map = loadOptFitMap();
+        let processed = 0;
+        let dirty = false;
+        while (optFitQueue.length > 0 && processed < 6) {
+            const imgEl = optFitQueue.shift();
+            if (!imgEl || !imgEl.isConnected) continue;
+            const fid = imgEl.getAttribute('data-fid') || '';
+            if (fid && Object.prototype.hasOwnProperty.call(map, fid)) {
+                applyOptFitVars(imgEl, map[fid]);
+                continue;
+            }
+            const fit = analyzeImageOpticalFit(imgEl);
+            if (fid) {
+                map[fid] = fit;
+                dirty = true;
+            }
+            applyOptFitVars(imgEl, fit);
+            processed++;
+        }
+        if (dirty) scheduleSaveOptFitMap();
+        if (optFitQueue.length > 0) scheduleOptFitDrain();
+    }
+
+    function scheduleOptFitDrain() {
+        if (optFitScheduled) return;
+        optFitScheduled = true;
+        if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(drainOptFitQueue, { timeout: 300 });
+        } else {
+            setTimeout(drainOptFitQueue, 16);
+        }
+    }
+
+    window.__invOnCardImgLoad = function (imgEl) {
+        if (!imgEl || !imgEl.getAttribute('data-card-img')) return;
+        const fid = imgEl.getAttribute('data-fid') || '';
+        const map = loadOptFitMap();
+        if (fid && Object.prototype.hasOwnProperty.call(map, fid)) {
+            applyOptFitVars(imgEl, map[fid]);
+            return;
+        }
+        optFitQueue.push(imgEl);
+        scheduleOptFitDrain();
+    };
+
+    window.__invHandleCardImgError = function (imgEl) {
+        if (!imgEl) return;
+        const fid = imgEl.getAttribute('data-fid') || '';
+        if (fid) failedDrivePhotoIds.add(fid);
+        const stage = imgEl.parentElement;
+        if (stage) {
+            stage.classList.add('is-empty');
+            stage.innerHTML = '<div class="inv-thumb-placeholder">' + THUMB_PLACEHOLDER_SVG + '</div>';
+        }
+    };
+
+    function buildThumbHtml(it, opts) {
+        const o = opts || {};
         const url = photoUrlForItem(it);
-        if (!url) return '<div class="inv-thumb">' + THUMB_PLACEHOLDER_SVG + '</div>';
-        const fid = extractDriveFileId(it.f);
-        const small = fid ? ('https://lh3.googleusercontent.com/d/' + fid + '=w400') : url;
-        const fallback = fid ? ('https://drive.google.com/thumbnail?id=' + fid + '&sz=w400') : '';
-        return '<div class="inv-thumb"><img loading="lazy" decoding="async" alt="" src="' + escapeHtml(small) + '" ' +
-            'data-fb="' + escapeHtml(fallback) + '" ' +
-            'onerror="if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=\'\';}else if(this.parentNode){this.parentNode.innerHTML=window.__INV_THUMB_PH||\'\';}"></div>';
+        const fid = it ? extractDriveFileId(it.f) : '';
+        if (!url || (fid && failedDrivePhotoIds.has(fid))) {
+            return '<div class="inv-thumb"><div class="inv-thumb-stage is-empty"><div class="inv-thumb-placeholder">' + THUMB_PLACEHOLDER_SVG + '</div></div></div>';
+        }
+        let targetUrl = url;
+        if (fid) {
+            const sz = o.compact
+                ? '=w160'
+                : (o.card && typeof window !== 'undefined' && window.innerWidth >= 768 ? '=w600' : '=w400');
+            targetUrl = 'https://lh3.googleusercontent.com/d/' + fid + sz;
+        }
+        const loadingAttr = o.eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
+        const cardAttr = o.card ? ' data-card-img="1"' : '';
+        let inlineFitStyle = '';
+        if (o.card && fid) {
+            const cachedFit = loadOptFitMap()[fid];
+            if (cachedFit && cachedFit !== 'skip') {
+                const parts = [];
+                if (cachedFit.s && cachedFit.s > 1.01) parts.push('--opt-scale:' + cachedFit.s);
+                if (cachedFit.tx) parts.push('--opt-tx:' + cachedFit.tx + '%');
+                if (cachedFit.ty) parts.push('--opt-ty:' + cachedFit.ty + '%');
+                if (parts.length) inlineFitStyle = ' style="' + parts.join(';') + '"';
+            }
+        }
+        return '<div class="inv-thumb"><div class="inv-thumb-stage">' +
+            '<img ' + loadingAttr + ' decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" alt=""' +
+            cardAttr + (fid ? (' data-fid="' + escapeHtml(fid) + '"') : '') + inlineFitStyle +
+            ' src="' + escapeHtml(targetUrl) + '"' +
+            (o.card ? ' onload="window.__invOnCardImgLoad&&window.__invOnCardImgLoad(this)"' : '') +
+            ' onerror="window.__invHandleCardImgError&&window.__invHandleCardImgError(this)">' +
+            '</div></div>';
     }
     window.__INV_THUMB_PH = THUMB_PLACEHOLDER_SVG;
 
@@ -2137,11 +2381,17 @@
 
     function updateCartBadge() {
         const isLockedDone = (typeof isActiveQuoteCompleted === 'function' && isActiveQuoteCompleted());
-        const totalQty = isLockedDone
+        const guestMode = (typeof isGuestSession === 'function' && isGuestSession());
+        const totalQty = (isLockedDone || guestMode)
             ? 0
             : Object.values(cart).reduce((acc, row) => acc + (Number(row.qty) || 0), 0);
         const el = document.getElementById('headerCartCount');
         if (el) el.textContent = String(totalQty);
+        const fabBadge = document.getElementById('invFabBadge');
+        if (fabBadge) {
+            fabBadge.textContent = String(totalQty);
+            fabBadge.classList.toggle('hidden', totalQty <= 0 || guestMode);
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -2334,10 +2584,12 @@
     // FILTRADO: EN TODOS AGRUPADO POR MISMO MODELO + VARIANTES · EN CATEGORÍAS TODAS LAS PIEZAS SEPARADAS
     // (BOTÓN STOCK: PIEZAS CON MAYOR CANTIDAD FÍSICA SIN CONTAR LPPT)
     // ------------------------------------------------------------------------
-    function applyFilter(query, preserveCount) {
+    let lastRenderedCardKeys = [];
+
+    function applyFilter(query, preserveCount, explicitMinCount) {
         const rawTrim = String(query || '').trim();
         const clearBtn = document.getElementById('invClearBtn');
-        if (clearBtn) clearBtn.style.display = rawTrim ? 'block' : 'none';
+        if (clearBtn) clearBtn.style.display = rawTrim ? 'flex' : 'none';
 
         isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
         activeFilteredGroupsByKey.clear();
@@ -2476,10 +2728,75 @@
 
         renderCategoryBar();
 
-        const initialCap = isMainCoverActive ? 120 : PAGE_SIZE;
-        const targetInitial = preserveCount ? Math.max(initialCap, renderedCount) : initialCap;
-        renderedCount = 0;
+        const initialCap = getAdaptivePageSize();
+        const minWanted = (typeof explicitMinCount === 'number' && explicitMinCount > 0)
+            ? Math.max(initialCap, explicitMinCount)
+            : initialCap;
+        const targetInitial = preserveCount ? Math.max(minWanted, renderedCount) : minWanted;
         const container = document.getElementById('invListContainer');
+
+        // Actualización in-place sin recargar fotos cuando la lista filtrada conserva los mismos SKUs
+        if (preserveCount && container && filteredGroups.length > 0) {
+            const nextCount = Math.min(filteredGroups.length, targetInitial);
+            if (nextCount === lastRenderedCardKeys.length && nextCount > 0) {
+                let sameKeys = true;
+                for (let i = 0; i < nextCount; i++) {
+                    if (String(filteredGroups[i].key || '') !== lastRenderedCardKeys[i]) {
+                        sameKeys = false;
+                        break;
+                    }
+                }
+                if (sameKeys) {
+                    const cards = container.children;
+                    if (cards && cards.length === nextCount) {
+                        for (let i = 0; i < nextCount; i++) {
+                            const grp = filteredGroups[i];
+                            const cardEl = cards[i];
+                            const titleEl = cardEl.querySelector('[data-card-title]');
+                            const subEl = cardEl.querySelector('[data-card-sub]');
+                            const stockEl = cardEl.querySelector('[data-card-stock]');
+                            if (grp.items.length > 1) {
+                                const nextTitle = grp.displayTitle || grp.title || '';
+                                if (titleEl && titleEl.textContent !== nextTitle) titleEl.textContent = nextTitle;
+                                const nextSub = grp.items.length + ' variantes';
+                                if (subEl && subEl.textContent !== nextSub) subEl.textContent = nextSub;
+                                if (stockEl) stockEl.remove();
+                            } else {
+                                const it = grp.items[0];
+                                const nextTitle = grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s || '';
+                                if (titleEl && titleEl.textContent !== nextTitle) titleEl.textContent = nextTitle;
+                                const nextSub = it.s || '';
+                                if (subEl && subEl.textContent !== nextSub) subEl.textContent = nextSub;
+                                const ownPhysQty = getBodegaPisoStock(it);
+                                if (activeCategory === 'STOCK' && ownPhysQty > 0) {
+                                    const badgeTxt = ownPhysQty + ' pz';
+                                    if (stockEl) {
+                                        if (stockEl.textContent !== badgeTxt) stockEl.textContent = badgeTxt;
+                                    } else {
+                                        const metaEl = cardEl.querySelector('.inv-card-meta');
+                                        if (metaEl) {
+                                            const sp = document.createElement('span');
+                                            sp.className = 'inv-card-stock';
+                                            sp.setAttribute('data-card-stock', '1');
+                                            sp.textContent = badgeTxt;
+                                            metaEl.appendChild(sp);
+                                        }
+                                    }
+                                } else if (stockEl) {
+                                    stockEl.remove();
+                                }
+                            }
+                        }
+                        const moreWrap = document.getElementById('invLoadMoreWrap');
+                        if (moreWrap) moreWrap.classList.toggle('hidden', renderedCount >= filteredGroups.length);
+                        return;
+                    }
+                }
+            }
+        }
+
+        renderedCount = 0;
+        lastRenderedCardKeys = [];
         if (container) container.innerHTML = '';
         renderMoreItems(targetInitial);
     }
@@ -2789,70 +3106,76 @@
         const maxAllowed = filteredGroups.length;
 
         if (maxAllowed === 0) {
+            lastRenderedCardKeys = [];
             if (isMainCoverActive) {
                 container.innerHTML =
-                    '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold leading-relaxed" ' +
-                    'style="grid-column: 1 / -1; border-color:#E8E4DE; color:#252C32; background:#FFFFFF;">' +
-                    'No hay productos para mostrar en este momento.' +
+                    '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold" ' +
+                    'style="grid-column: 1 / -1; border-color:#E6E1D8; color:#1A1816; background:#FFFFFF;">' +
+                    'Sin productos disponibles.' +
                     '</div>';
             } else {
                 const inp = document.getElementById('invSearchInput');
                 const curQ = cleanStr(inp && inp.value);
                 const filterLbl = formatActiveFilterLabel();
                 container.innerHTML =
-                    '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold leading-relaxed space-y-2" ' +
-                    'style="grid-column: 1 / -1; border-color:#E8E4DE; color:#252C32; background:#FFFFFF;">' +
-                    '<div>No se encontraron productos que coincidan' +
-                        (curQ ? (' con <strong>“' + escapeHtml(curQ) + '”</strong>') : '') +
+                    '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold space-y-1.5" ' +
+                    'style="grid-column: 1 / -1; border-color:#E6E1D8; color:#1A1816; background:#FFFFFF;">' +
+                    '<div>Sin resultados' +
+                        (curQ ? (' para <strong>“' + escapeHtml(curQ) + '”</strong>') : '') +
                         (activeCategory !== 'ALL' ? (' en <strong>' + escapeHtml(filterLbl) + '</strong>') : '') +
                     '.</div>' +
-                    '<div class="text-[11px] opacity-75">Prueba con otras palabras o cambia a <strong>TODOS</strong> para buscar en todo el inventario.</div>' +
                     '</div>';
             }
             if (moreWrap) moreWrap.classList.add('hidden');
             return;
         }
 
-        const step = (typeof batchSize === 'number' && batchSize > 0) ? batchSize : PAGE_SIZE;
+        const step = (typeof batchSize === 'number' && batchSize > 0) ? batchSize : getAdaptivePageSize();
         const nextEnd = Math.min(renderedCount + step, maxAllowed);
+        const eagerCount = (typeof window !== 'undefined' && window.innerWidth >= 768) ? 6 : 4;
         const frag = document.createDocumentFragment();
 
         for (let i = renderedCount; i < nextEnd; i++) {
             const grp = filteredGroups[i];
             const row = document.createElement('div');
             row.className = 'inv-row';
+            row.setAttribute('data-card-key', String(grp.key || ''));
+            lastRenderedCardKeys.push(String(grp.key || ''));
 
             if (grp.items.length > 1) {
-                // Listado limpio sin precio afuera (el precio se muestra adentro al abrir el inventario del producto)
                 row.onclick = function () {
                     openGroupModal(grp.key);
                 };
                 row.innerHTML =
-                    buildThumbHtml(firstPhotoItem(grp.items)) +
-                    '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
-                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + grp.items.length + ' variantes</div>' +
+                    buildThumbHtml(firstPhotoItem(grp.items), { card: true, eager: i < eagerCount }) +
+                    '<div class="inv-card-body">' +
+                        '<div class="inv-card-title" data-card-title="1">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
+                        '<div class="inv-card-meta"><span data-card-sub="1">' + grp.items.length + ' variantes</span></div>' +
                     '</div>' +
-                    '<svg class="w-4 h-4 shrink-0" style="color:#A38251;" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
-                        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 5l7 7-7 7"></path>' +
-                    '</svg>';
+                    '<div class="inv-card-foot">' +
+                        '<svg class="inv-card-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">' +
+                            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 5l7 7-7 7"></path>' +
+                        '</svg>' +
+                    '</div>';
             } else {
                 const it = grp.items[0];
                 const skuKey = String(it.s || '').toUpperCase();
+                row.setAttribute('data-card-sku', skuKey);
+                row.setAttribute('data-sku', String(it.s || ''));
                 const ownPhysQty = getBodegaPisoStock(it);
                 const stockBadgeHtml = (activeCategory === 'STOCK' && ownPhysQty > 0)
-                    ? ' <span class="inline-flex items-center ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold border align-middle" style="background:#ECFDF5; border-color:#A7F3D0; color:#065F46;">Stock: ' + ownPhysQty + ' pz</span>'
+                    ? '<span class="inv-card-stock" data-card-stock="1">' + ownPhysQty + ' pz</span>'
                     : '';
                 row.onclick = function () {
                     openProductDetail(it.s, false);
                 };
                 row.innerHTML =
-                    buildThumbHtml(it) +
-                    '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
-                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + stockBadgeHtml + '</div>' +
+                    buildThumbHtml(it, { card: true, eager: i < eagerCount }) +
+                    '<div class="inv-card-body">' +
+                        '<div class="inv-card-title" data-card-title="1">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
+                        '<div class="inv-card-meta"><span data-card-sub="1">' + escapeHtml(it.s) + '</span>' + stockBadgeHtml + '</div>' +
                     '</div>' +
-                    buildCardCartControlHtml(skuKey);
+                    '<div class="inv-card-foot">' + buildCardCartControlHtml(skuKey) + '</div>';
 
                 const ctrlWrap = row.querySelector('[data-sku-ctrl]');
                 bindCardCartControlEvents(ctrlWrap, it.s);
@@ -2864,19 +3187,28 @@
         container.appendChild(frag);
         renderedCount = nextEnd;
 
+        if (window.CreataGuard && typeof window.CreataGuard.protectImages === 'function') {
+            window.CreataGuard.protectImages(container);
+        }
+
         if (moreWrap) {
             if (renderedCount < maxAllowed) moreWrap.classList.remove('hidden');
             else moreWrap.classList.add('hidden');
         }
     };
 
+    let searchDebounceTimer = null;
     window.clearInvSearch = function () {
+        if (searchDebounceTimer) {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = null;
+        }
         const inp = document.getElementById('invSearchInput');
         if (inp) {
             inp.value = '';
-            inp.focus();
         }
         applyFilter('');
+        scheduleSaveInvWorkspaceCheckpoint();
     };
 
     // ------------------------------------------------------------------------
@@ -3128,12 +3460,12 @@
                 const skuKey = String(it.s || '').toUpperCase();
                 const varLabel = entry.varLabel;
                 return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
-                    buildThumbHtml(it) +
+                    buildThumbHtml(it, { compact: true }) +
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
+                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#1A1816;">' +
                             formatTitleWithPriceHtml(varLabel, it.pr) +
                         '</div>' +
-                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#A38251;">' + escapeHtml(it.s) + '</div>' +
+                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#9E7B4F;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
                     buildCardCartControlHtml(skuKey) +
                 '</div>';
@@ -3147,6 +3479,9 @@
                 const ctrlWrap = rowEl.querySelector('[data-sku-ctrl]');
                 bindCardCartControlEvents(ctrlWrap, sku);
             });
+            if (window.CreataGuard && typeof window.CreataGuard.protectImages === 'function') {
+                window.CreataGuard.protectImages(varList);
+            }
         }
 
         if (varStep) varStep.classList.remove('hidden');
@@ -3173,7 +3508,10 @@
 
         const modal = document.getElementById('productDetailModal');
         if (modal) modal.classList.add('open');
-        refreshLiveSheetNow();
+        if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
+            scheduleSaveInvWorkspaceCheckpoint();
+        }
+        refreshLiveSheetNow(false);
         return true;
     };
 
@@ -3209,7 +3547,10 @@
 
         const modal = document.getElementById('productDetailModal');
         if (modal) modal.classList.add('open');
-        refreshLiveSheetNow();
+        if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
+            scheduleSaveInvWorkspaceCheckpoint();
+        }
+        refreshLiveSheetNow(false);
         return true;
     };
 
@@ -3271,8 +3612,14 @@
         currentDetailItem = null;
         currentGroup = null;
         visualDiscActiveSku = '';
+        if (!invWorkspaceRestoring) {
+            pendingWorkspaceDetailRestore = null;
+        }
         const discInp = document.getElementById('detVisualDiscInput');
         if (discInp) discInp.value = '';
+        if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
+            scheduleSaveInvWorkspaceCheckpoint();
+        }
     };
 
     function renderDetailModal(it, showGroupBack) {
@@ -3344,30 +3691,55 @@
             }
         }
 
-        // Cuadro de 1 sola foto
+        // Cuadro de foto renderizado en canvas protegido (sin fallback a drive.google.com/thumbnail)
         const driveId = extractDriveFileId(it.f);
-        const photoUrl = resolveDriveOrImgUrl(it.f);
+        const photoUrl = driveId ? ('https://lh3.googleusercontent.com/d/' + driveId + '=w1000') : resolveDriveOrImgUrl(it.f);
+        const stageEl = document.getElementById('detPhotoCanvasStage');
         const imgEl = document.getElementById('detPhotoImg');
         const emptyEl = document.getElementById('detPhotoEmpty');
-        if (photoUrl) {
-            imgEl.dataset.fallbackTried = '';
-            imgEl.src = photoUrl;
-            imgEl.classList.remove('hidden');
-            emptyEl.classList.add('hidden');
-            imgEl.onerror = function () {
-                if (driveId && !imgEl.dataset.fallbackTried) {
-                    imgEl.dataset.fallbackTried = '1';
-                    imgEl.src = 'https://drive.google.com/thumbnail?id=' + driveId + '&sz=w1000';
-                    return;
-                }
-                imgEl.classList.add('hidden');
-                emptyEl.classList.remove('hidden');
-            };
-        } else {
-            imgEl.dataset.fallbackTried = '';
+        if (imgEl) {
+            imgEl.onerror = null;
             imgEl.src = '';
             imgEl.classList.add('hidden');
-            emptyEl.classList.remove('hidden');
+        }
+        if (photoUrl && !(driveId && failedDrivePhotoIds.has(driveId))) {
+            if (emptyEl) emptyEl.classList.add('hidden');
+            if (stageEl && window.CreataGuard && typeof window.CreataGuard.renderCanvasImage === 'function') {
+                stageEl.innerHTML = '';
+                stageEl.classList.remove('hidden');
+                window.CreataGuard.renderCanvasImage(stageEl, photoUrl, baseTitle, function (reason) {
+                    if (reason === 'image_load_error') {
+                        if (driveId) failedDrivePhotoIds.add(driveId);
+                        stageEl.innerHTML = '';
+                        stageEl.classList.add('hidden');
+                        if (emptyEl) emptyEl.classList.remove('hidden');
+                    }
+                });
+            } else if (imgEl) {
+                if (stageEl) {
+                    stageEl.innerHTML = '';
+                    stageEl.classList.add('hidden');
+                }
+                imgEl.setAttribute('referrerpolicy', 'no-referrer');
+                imgEl.setAttribute('crossorigin', 'anonymous');
+                imgEl.setAttribute('draggable', 'false');
+                imgEl.src = photoUrl;
+                imgEl.classList.remove('hidden');
+                imgEl.onerror = function () {
+                    if (driveId) failedDrivePhotoIds.add(driveId);
+                    imgEl.classList.add('hidden');
+                    if (emptyEl) emptyEl.classList.remove('hidden');
+                };
+                if (window.CreataGuard && typeof window.CreataGuard.protectImages === 'function') {
+                    window.CreataGuard.protectImages(document.getElementById('detPhotoWrap'));
+                }
+            }
+        } else {
+            if (stageEl) {
+                stageEl.innerHTML = '';
+                stageEl.classList.add('hidden');
+            }
+            if (emptyEl) emptyEl.classList.remove('hidden');
         }
 
         const sameSkuRefresh = !!(relatedStockRefSku && relatedStockRefSku === key);
@@ -3401,13 +3773,22 @@
                 : '';
 
             if (isLppt) {
-                // Si no hay piezas en LPPT (qty <= 0), no colocar nada de LPPT; mencionar la cantidad una sola vez
                 if (qty > 0) {
                     const lpptMsg = formatLpptArrivalText(it, qty);
                     whHtml.push(
                         '<div class="rounded-xl border px-3.5 py-3 flex items-center gap-2.5 ' + semClass + spanClass + '">' +
                             '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
                             '<span class="text-xs font-extrabold leading-snug">' + escapeHtml(lpptMsg) + '</span>' +
+                        '</div>'
+                    );
+                } else {
+                    whHtml.push(
+                        '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between ' + semClass + spanClass + '">' +
+                            '<div class="flex items-center gap-2 min-w-0 pr-2">' +
+                                '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
+                                '<span class="text-xs font-extrabold uppercase tracking-wide truncate">' + escapeHtml(whName) + '</span>' +
+                            '</div>' +
+                            '<span class="text-lg font-black shrink-0">0</span>' +
                         '</div>'
                     );
                 }
@@ -3591,16 +3972,16 @@
     }
 
     // ------------------------------------------------------------------------
-    // EXCLUSIVO GERENTES / SUBGERENTES Y ADMINISTRADORES:
-    // SUBIR ARCHIVO DESCARGABLE A CARPETA DRIVE "FOTOS NUEVAS CARGADO"
-    // (SIN COLOCAR EN EL DOCUMENTO DE GOOGLE SHEETS NI REEMPLAZAR COLUMNA "F" DE INVENTARIO_EN_VIVO)
+    // SUBIDA DE FOTOS (1:1 STUDIO FRAMING · MULTI-FOTO · TODOS EXCEPTO INVITADOS)
     // ------------------------------------------------------------------------
     let managerPhotoUploadInFlight = false;
+    let uploadPhotoPendingFiles = [];
+    let uploadPhotoObjectUrls = [];
 
     function canManageProductPhotos() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
         if (typeof isGuestSession === 'function' && isGuestSession()) return false;
-        return !!getAdvisorRoleInfo().isManager;
+        return true;
     }
 
     function setDetailUploadPhotoStatus(text, tone, htmlContent) {
@@ -3636,41 +4017,127 @@
         wrap.classList.remove('hidden');
         if (inp) inp.disabled = managerPhotoUploadInFlight;
         if (btnTxt && !managerPhotoUploadInFlight) {
-            btnTxt.textContent = '📷 Subir foto a Drive';
+            btnTxt.textContent = 'Subir foto';
         }
     }
 
-    function compressImageFileToDataUrl(file, maxDim, quality) {
+    function normalizePhotoToSquare1x1DataUrl(file, targetSide, quality) {
+        const side = targetSide || 1080;
+        const jpegQ = quality || 0.86;
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onerror = () => reject(new Error('No se pudo leer el archivo de imagen seleccionado.'));
+            reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
             reader.onload = function () {
                 const rawDataUrl = String(reader.result || '');
                 if (!rawDataUrl.startsWith('data:image/')) {
-                    reject(new Error('Selecciona un archivo de imagen válido (JPG, PNG o WEBP).'));
+                    reject(new Error('Archivo no válido.'));
                     return;
                 }
                 const img = new Image();
-                img.onerror = function () {
-                    // Si el navegador no decodifica en canvas (ej. HEIC convertido parcial), enviar dataUrl original si es moderado
-                    resolve(rawDataUrl);
-                };
+                img.onerror = function () { resolve(rawDataUrl); };
                 img.onload = function () {
                     try {
-                        const w = img.naturalWidth || img.width || 1;
-                        const h = img.naturalHeight || img.height || 1;
-                        const limit = maxDim || 1200;
-                        const scale = Math.min(1, limit / Math.max(w, h));
-                        const nw = Math.max(1, Math.round(w * scale));
-                        const nh = Math.max(1, Math.round(h * scale));
-                        const canvas = document.createElement('canvas');
-                        canvas.width = nw;
-                        canvas.height = nh;
-                        const ctx = canvas.getContext('2d');
+                        const nw = img.naturalWidth || img.width || 1;
+                        const nh = img.naturalHeight || img.height || 1;
+
+                        // Detectar bordes uniformes en muestreo 64x64 para recortar margen excesivo de estudio
+                        const sSize = 64;
+                        const sCan = document.createElement('canvas');
+                        sCan.width = sSize;
+                        sCan.height = sSize;
+                        const sCtx = sCan.getContext('2d', { willReadFrequently: true });
+                        const sScale = Math.min(sSize / nw, sSize / nh);
+                        const sdw = Math.max(1, Math.round(nw * sScale));
+                        const sdh = Math.max(1, Math.round(nh * sScale));
+                        const sox = Math.floor((sSize - sdw) / 2);
+                        const soy = Math.floor((sSize - sdh) / 2);
+                        sCtx.clearRect(0, 0, sSize, sSize);
+                        sCtx.drawImage(img, sox, soy, sdw, sdh);
+                        const sData = sCtx.getImageData(sox, soy, sdw, sdh).data;
+
+                        let bCount = 0, tCount = 0, rSum = 0, gSum = 0, bSum = 0;
+                        const bRgb = [];
+                        for (let y = 0; y < sdh; y++) {
+                            for (let x = 0; x < sdw; x++) {
+                                if (x >= 2 && x < sdw - 2 && y >= 2 && y < sdh - 2) continue;
+                                const p = (y * sdw + x) * 4;
+                                bCount++;
+                                if (sData[p + 3] < 24) {
+                                    tCount++;
+                                } else {
+                                    rSum += sData[p];
+                                    gSum += sData[p + 1];
+                                    bSum += sData[p + 2];
+                                    bRgb.push(sData[p], sData[p + 1], sData[p + 2]);
+                                }
+                            }
+                        }
+                        const transRatio = bCount > 0 ? (tCount / bCount) : 0;
+                        const opqN = bRgb.length / 3;
+                        const mR = opqN > 0 ? rSum / opqN : 255;
+                        const mG = opqN > 0 ? gSum / opqN : 255;
+                        const mB = opqN > 0 ? bSum / opqN : 255;
+                        let vSum = 0;
+                        for (let i = 0; i < bRgb.length; i += 3) {
+                            const dr = bRgb[i] - mR, dg = bRgb[i + 1] - mG, db = bRgb[i + 2] - mB;
+                            vSum += (dr * dr + dg * dg + db * db) / 3;
+                        }
+                        const stdDev = opqN > 0 ? Math.sqrt(vSum / opqN) : 0;
+
+                        let sx = 0, sy = 0, sw = nw, sh = nh;
+                        if (transRatio >= 0.08 || stdDev <= 26) {
+                            let minX = sdw, minY = sdh, maxX = -1, maxY = -1, fgN = 0;
+                            const useAlpha = transRatio >= 0.08;
+                            for (let y = 0; y < sdh; y++) {
+                                for (let x = 0; x < sdw; x++) {
+                                    const p = (y * sdw + x) * 4;
+                                    if (sData[p + 3] <= 24) continue;
+                                    let isFg = useAlpha;
+                                    if (!isFg) {
+                                        const dist = Math.abs(sData[p] - mR) + Math.abs(sData[p + 1] - mG) + Math.abs(sData[p + 2] - mB);
+                                        isFg = dist > 52;
+                                    }
+                                    if (isFg) {
+                                        fgN++;
+                                        if (x < minX) minX = x;
+                                        if (x > maxX) maxX = x;
+                                        if (y < minY) minY = y;
+                                        if (y > maxY) maxY = y;
+                                    }
+                                }
+                            }
+                            if (fgN > 30 && maxX > minX && maxY > minY) {
+                                const bx = Math.max(0, Math.floor((minX / sdw) * nw) - Math.round(nw * 0.02));
+                                const by = Math.max(0, Math.floor((minY / sdh) * nh) - Math.round(nh * 0.02));
+                                const bx2 = Math.min(nw, Math.ceil(((maxX + 1) / sdw) * nw) + Math.round(nw * 0.02));
+                                const by2 = Math.min(nh, Math.ceil(((maxY + 1) / sdh) * nh) + Math.round(nh * 0.02));
+                                if ((bx2 - bx) >= nw * 0.2 && (by2 - by) >= nh * 0.2) {
+                                    sx = bx;
+                                    sy = by;
+                                    sw = bx2 - bx;
+                                    sh = by2 - by;
+                                }
+                            }
+                        }
+
+                        const out = document.createElement('canvas');
+                        out.width = side;
+                        out.height = side;
+                        const ctx = out.getContext('2d');
                         ctx.fillStyle = '#FFFFFF';
-                        ctx.fillRect(0, 0, nw, nh);
-                        ctx.drawImage(img, 0, 0, nw, nh);
-                        resolve(canvas.toDataURL('image/jpeg', quality || 0.84));
+                        ctx.fillRect(0, 0, side, side);
+
+                        const pad = Math.round(side * 0.08);
+                        const boxMax = side - pad * 2;
+                        const fitScale = Math.min(boxMax / sw, boxMax / sh);
+                        const dw = Math.max(1, Math.round(sw * fitScale));
+                        const dh = Math.max(1, Math.round(sh * fitScale));
+                        const dx = Math.round((side - dw) / 2);
+                        const dy = Math.round((side - dh) / 2);
+                        ctx.imageSmoothingEnabled = true;
+                        ctx.imageSmoothingQuality = 'high';
+                        ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+                        resolve(out.toDataURL('image/jpeg', jpegQ));
                     } catch (eCanvas) {
                         resolve(rawDataUrl);
                     }
@@ -3681,110 +4148,338 @@
         });
     }
 
-    window.uploadManagerProductPhoto = async function (inputEl) {
-        const file = inputEl && inputEl.files && inputEl.files[0] ? inputEl.files[0] : null;
-        if (inputEl) inputEl.value = '';
-        if (!file || managerPhotoUploadInFlight) return;
-
-        if (!canManageProductPhotos()) {
-            setDetailUploadPhotoStatus('Acceso restringido: únicamente Gerentes y Administradores pueden subir fotos a la carpeta Drive.', 'err');
+    function setUploadPhotoModalStatus(text, tone) {
+        const el = document.getElementById('uploadPhotoStatus');
+        if (!el) return;
+        if (!text) {
+            el.textContent = '';
+            el.classList.add('hidden');
             return;
         }
-        if (!currentDetailItem || !currentDetailItem.s) return;
+        el.textContent = text;
+        el.className = 'rounded-xl border px-3 py-2 text-xs font-bold ' +
+            (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
+    }
 
-        const targetSku = String(currentDetailItem.s).trim().toUpperCase();
-        const targetName = stripDimensionsFromProductText(currentDetailItem.n) || targetSku;
-        const btnTxt = document.getElementById('detUploadPhotoBtnText');
+    function revokeUploadPhotoPreviews() {
+        for (let i = 0; i < uploadPhotoObjectUrls.length; i++) {
+            try { URL.revokeObjectURL(uploadPhotoObjectUrls[i]); } catch (e) {}
+        }
+        uploadPhotoObjectUrls = [];
+    }
+
+    function renderUploadPhotoPreviewGrid() {
+        const grid = document.getElementById('uploadPhotoPreviewGrid');
+        const countEl = document.getElementById('uploadPhotoCountLabel');
+        if (countEl) {
+            const n = uploadPhotoPendingFiles.length;
+            countEl.textContent = n === 1 ? '1 seleccionada' : (n + ' seleccionadas');
+        }
+        revokeUploadPhotoPreviews();
+        if (!grid) return;
+        if (!uploadPhotoPendingFiles.length) {
+            grid.innerHTML = '';
+            grid.classList.add('hidden');
+            return;
+        }
+        grid.innerHTML = uploadPhotoPendingFiles.map((file, idx) => {
+            const url = URL.createObjectURL(file);
+            uploadPhotoObjectUrls.push(url);
+            return '<div class="inv-upload-tile">' +
+                '<img src="' + escapeHtml(url) + '" alt="">' +
+                '<button type="button" class="inv-upload-tile-rm" onclick="removeUploadPhotoFileAt(' + idx + ')" aria-label="Quitar">✕</button>' +
+            '</div>';
+        }).join('');
+        grid.classList.remove('hidden');
+    }
+
+    window.removeUploadPhotoFileAt = function (idx) {
+        if (managerPhotoUploadInFlight) return;
+        if (idx >= 0 && idx < uploadPhotoPendingFiles.length) {
+            uploadPhotoPendingFiles.splice(idx, 1);
+            renderUploadPhotoPreviewGrid();
+        }
+    };
+
+    window.onUploadPhotoFilesSelected = function (fileList) {
+        const inp = document.getElementById('uploadPhotoFilesInput');
+        if (!fileList || !fileList.length) return;
+        for (let i = 0; i < fileList.length; i++) {
+            const f = fileList[i];
+            if (f && (!f.type || /^image\//i.test(f.type))) {
+                uploadPhotoPendingFiles.push(f);
+            }
+        }
+        if (inp) inp.value = '';
+        renderUploadPhotoPreviewGrid();
+        setUploadPhotoModalStatus('', '');
+    };
+
+    window.selectUploadPhotoModelOption = function (skuVal) {
+        const sku = String(skuVal || '').trim().toUpperCase();
+        const it = bySkuMap.get(sku);
+        const inp = document.getElementById('uploadPhotoModelInput');
+        const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+        const badge = document.getElementById('uploadPhotoMatchedBadge');
+        const dd = document.getElementById('uploadPhotoModelDropdown');
+        if (it) {
+            const cleanName = stripDimensionsFromProductText(it.n) || it.mo || it.s;
+            if (inp) inp.value = cleanName;
+            if (hiddenSku) hiddenSku.value = sku;
+            if (badge) {
+                badge.textContent = sku + ' · ' + cleanName;
+                badge.classList.remove('hidden');
+            }
+        } else {
+            if (hiddenSku) hiddenSku.value = sku;
+            if (badge) badge.classList.add('hidden');
+        }
+        if (dd) dd.classList.add('hidden');
+    };
+
+    window.filterUploadPhotoModelOptions = function (rawQuery) {
+        const dd = document.getElementById('uploadPhotoModelDropdown');
+        const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+        const badge = document.getElementById('uploadPhotoMatchedBadge');
+        if (hiddenSku) hiddenSku.value = '';
+        if (badge) badge.classList.add('hidden');
+        if (!dd) return;
+
+        const q = normalizePlain(rawQuery || '').trim();
+        const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+        const matches = [];
+        for (let i = 0; i < allItems.length && matches.length < 24; i++) {
+            const it = allItems[i];
+            if (!it || !it.s) continue;
+            if (!tokens.length) {
+                matches.push(it);
+                continue;
+            }
+            const hay = normalizePlain((it.s || '') + ' ' + (it.mo || '') + ' ' + (it.n || ''));
+            let ok = true;
+            for (let t = 0; t < tokens.length; t++) {
+                if (hay.indexOf(tokens[t]) === -1) { ok = false; break; }
+            }
+            if (ok) matches.push(it);
+        }
+
+        if (!matches.length) {
+            dd.innerHTML = '';
+            dd.classList.add('hidden');
+            return;
+        }
+        dd.innerHTML = matches.map(it => {
+            const sku = String(it.s || '').trim().toUpperCase();
+            const nm = stripDimensionsFromProductText(it.n) || it.mo || sku;
+            return '<button type="button" class="inv-combo-opt" onmousedown="event.preventDefault(); selectUploadPhotoModelOption(\'' + escapeHtml(sku) + '\')">' +
+                '<span class="inv-combo-opt-sku">' + escapeHtml(sku) + '</span>' +
+                '<span class="inv-combo-opt-name">' + escapeHtml(nm) + '</span>' +
+            '</button>';
+        }).join('');
+        dd.classList.remove('hidden');
+    };
+
+    window.openUploadPhotoModelDropdown = function () {
+        const inp = document.getElementById('uploadPhotoModelInput');
+        window.filterUploadPhotoModelOptions(inp ? inp.value : '');
+    };
+
+    window.openUploadPhotoModal = function (prefillItem) {
+        if (!canManageProductPhotos()) return;
+        const modal = document.getElementById('uploadPhotoModal');
+        const inp = document.getElementById('uploadPhotoModelInput');
+        const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+        const badge = document.getElementById('uploadPhotoMatchedBadge');
+        const dd = document.getElementById('uploadPhotoModelDropdown');
+        const progWrap = document.getElementById('uploadPhotoProgressWrap');
+        const progBar = document.getElementById('uploadPhotoProgressBar');
+        const subBtn = document.getElementById('uploadPhotoSubmitBtn');
+
+        uploadPhotoPendingFiles = [];
+        renderUploadPhotoPreviewGrid();
+        setUploadPhotoModalStatus('', '');
+        if (progWrap) progWrap.classList.add('hidden');
+        if (progBar) progBar.style.width = '0%';
+        if (subBtn) {
+            subBtn.disabled = false;
+            subBtn.textContent = 'Subir';
+        }
+        if (dd) dd.classList.add('hidden');
+
+        if (prefillItem && prefillItem.s) {
+            const sku = String(prefillItem.s).trim().toUpperCase();
+            const nm = stripDimensionsFromProductText(prefillItem.n) || prefillItem.mo || sku;
+            if (inp) inp.value = nm;
+            if (hiddenSku) hiddenSku.value = sku;
+            if (badge) {
+                badge.textContent = sku + ' · ' + nm;
+                badge.classList.remove('hidden');
+            }
+        } else {
+            if (inp) inp.value = '';
+            if (hiddenSku) hiddenSku.value = '';
+            if (badge) badge.classList.add('hidden');
+        }
+
+        if (modal) modal.classList.add('open');
+    };
+
+    window.openUploadPhotoModalFromDetail = function () {
+        if (!canManageProductPhotos()) return;
+        window.openUploadPhotoModal(currentDetailItem || null);
+    };
+
+    window.closeUploadPhotoModal = function () {
+        if (managerPhotoUploadInFlight) return;
+        const modal = document.getElementById('uploadPhotoModal');
+        const dd = document.getElementById('uploadPhotoModelDropdown');
+        if (dd) dd.classList.add('hidden');
+        if (modal) modal.classList.remove('open');
+        uploadPhotoPendingFiles = [];
+        renderUploadPhotoPreviewGrid();
+        setUploadPhotoModalStatus('', '');
+    };
+
+    window.submitMultiProductPhotos = async function () {
+        if (managerPhotoUploadInFlight) return;
+        if (!canManageProductPhotos()) {
+            setUploadPhotoModalStatus('Sesión sin permiso para subir fotos.', 'err');
+            return;
+        }
+        const inp = document.getElementById('uploadPhotoModelInput');
+        const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+        const typedVal = cleanStr(inp ? inp.value : '');
+        const pickedSku = cleanStr(hiddenSku ? hiddenSku.value : '').toUpperCase();
+        const exactItem = pickedSku ? bySkuMap.get(pickedSku) : bySkuMap.get(typedVal.toUpperCase());
+        const targetSku = (exactItem && exactItem.s ? String(exactItem.s) : (pickedSku || typedVal)).trim().toUpperCase();
+        const targetName = (exactItem ? (stripDimensionsFromProductText(exactItem.n) || targetSku) : (typedVal || targetSku));
+
+        if (!targetSku) {
+            setUploadPhotoModalStatus('Selecciona o escribe un modelo o SKU.', 'warn');
+            if (inp) inp.focus();
+            return;
+        }
+        if (!uploadPhotoPendingFiles.length) {
+            setUploadPhotoModalStatus('Selecciona al menos una foto.', 'warn');
+            return;
+        }
+
+        const total = uploadPhotoPendingFiles.length;
+        const progWrap = document.getElementById('uploadPhotoProgressWrap');
+        const progBar = document.getElementById('uploadPhotoProgressBar');
+        const subBtn = document.getElementById('uploadPhotoSubmitBtn');
 
         managerPhotoUploadInFlight = true;
-        if (inputEl) inputEl.disabled = true;
-        if (btnTxt) btnTxt.textContent = '⏳ Subiendo a Drive...';
-        setDetailUploadPhotoStatus('Guardando archivo descargable en carpeta Drive ("FOTOS NUEVAS CARGADO") sin colocarlo en el documento...', 'warn');
+        if (subBtn) {
+            subBtn.disabled = true;
+            subBtn.textContent = 'Subiendo...';
+        }
+        if (progWrap) progWrap.classList.remove('hidden');
+        if (progBar) progBar.style.width = '5%';
+        setUploadPhotoModalStatus('Subiendo 0 de ' + total + '...', 'warn');
+
+        let completed = 0;
+        let okCount = 0;
+        let failCount = 0;
+        let authStopped = false;
+        let lastErrMsg = '';
+        let cursor = 0;
+        const filesSnap = uploadPhotoPendingFiles.slice();
+
+        async function uploadOne(file) {
+            try {
+                const dataUrl = await normalizePhotoToSquare1x1DataUrl(file, 1080, 0.86);
+                const res = await callInvWebAppPost('inv_upload_product_photo', {
+                    authToken: activeAdvisorSession.authToken || '',
+                    sheetTab: activeAdvisorSession.sheetTab || '',
+                    advisorEmail: activeAdvisorSession.correo || '',
+                    advisorName: activeAdvisorSession.nombre || '',
+                    sku: targetSku,
+                    productName: targetName,
+                    categoria: (exactItem && (exactItem.c || exactItem._cat)) ? String(exactItem.c || exactItem._cat) : '',
+                    tipo: (exactItem && exactItem.tp) ? String(exactItem.tp) : '',
+                    targetFolderId: FOTOS_NUEVAS_CARGADO_FOLDER_ID,
+                    driveOnly: true,
+                    skipSheetWrite: true,
+                    dataUrl: dataUrl
+                }, 40000, true);
+
+                if (res && res.authRequired) {
+                    authStopped = true;
+                    lastErrMsg = res.error || 'Confirma tu contraseña para continuar.';
+                    return;
+                }
+                if (res && res.ok) {
+                    okCount++;
+                } else {
+                    failCount++;
+                    lastErrMsg = (res && res.error) ? res.error : 'Error al guardar foto.';
+                }
+            } catch (err) {
+                failCount++;
+                lastErrMsg = (err && err.message) ? err.message : 'Error al procesar foto.';
+            } finally {
+                completed++;
+                if (progBar) {
+                    progBar.style.width = Math.max(8, Math.round((completed / total) * 100)) + '%';
+                }
+                if (!authStopped) {
+                    setUploadPhotoModalStatus('Subiendo ' + completed + ' de ' + total + '...', 'warn');
+                }
+            }
+        }
+
+        async function worker() {
+            while (cursor < filesSnap.length && !authStopped) {
+                const idx = cursor++;
+                await uploadOne(filesSnap[idx]);
+            }
+        }
 
         try {
-            const dataUrl = await compressImageFileToDataUrl(file, 1200, 0.84);
-            const res = await callInvWebAppPost('inv_upload_product_photo', {
-                authToken: activeAdvisorSession.authToken || '',
-                sheetTab: activeAdvisorSession.sheetTab || '',
-                advisorEmail: activeAdvisorSession.correo || '',
-                advisorName: activeAdvisorSession.nombre || '',
-                sku: targetSku,
-                productName: targetName,
-                targetFolderId: FOTOS_NUEVAS_CARGADO_FOLDER_ID,
-                driveOnly: true,
-                skipSheetWrite: true,
-                dataUrl: dataUrl
-            }, 35000);
+            const concurrency = Math.min(2, filesSnap.length);
+            const workers = [];
+            for (let w = 0; w < concurrency; w++) workers.push(worker());
+            await Promise.all(workers);
 
-            if (res && res.authRequired) {
-                setDetailUploadPhotoStatus('Confirma tu contraseña personal para guardar el archivo en la carpeta Drive "FOTOS NUEVAS CARGADO".', 'warn');
-                promptSessionReauth(res.error || 'Confirma tu contraseña para subir fotografías a la carpeta Drive "FOTOS NUEVAS CARGADO".', null);
+            if (authStopped) {
+                setUploadPhotoModalStatus(lastErrMsg || 'Confirma tu contraseña para subir fotos.', 'warn');
+                promptSessionReauth(lastErrMsg || 'Confirma tu contraseña para continuar.', null);
                 return;
             }
 
-            if (!res || res.needsRedeploy || res.unavailable) {
-                reportSystemHistoryEvent({
-                    classification: 'ALERTA TÉCNICA',
-                    module: 'inventario-app.js · uploadManagerProductPhoto',
-                    event: 'SUBIDA DE FOTO PENDIENTE DE ACTUALIZAR WEBAPP',
-                    status: '⚠️ ALERTA',
-                    ref: targetSku + ' · ' + targetName,
-                    detail: 'El endpoint inv_upload_product_photo requiere publicar Nueva versión de AppsScript_Creata_Drive_Sheets.gs.',
-                    analysis: 'Publicar Nueva versión en Extensiones → Apps Script → Implementar → Administrar implementaciones.'
-                });
-                setDetailUploadPhotoStatus('Para activar el guardado únicamente en carpeta Drive (sin colocar en Google Sheets), publica una Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Extensiones → Apps Script → Implementar → Administrar implementaciones.', 'warn');
-                return;
+            if (okCount > 0 && failCount === 0) {
+                uploadPhotoPendingFiles = [];
+                renderUploadPhotoPreviewGrid();
+                const okMsg = '✓ ' + okCount + (okCount === 1 ? ' foto guardada' : ' fotos guardadas') + ' (' + targetSku + ').';
+                setUploadPhotoModalStatus(okMsg, 'ok');
+                if (currentDetailItem && String(currentDetailItem.s || '').toUpperCase() === targetSku) {
+                    setDetailUploadPhotoStatus(okMsg, 'ok');
+                }
+            } else if (okCount > 0) {
+                setUploadPhotoModalStatus('✓ ' + okCount + ' guardadas · ' + failCount + ' con error (' + (lastErrMsg || 'reintenta') + ').', 'warn');
+            } else {
+                setUploadPhotoModalStatus(lastErrMsg || 'No se pudieron guardar las fotos.', 'err');
             }
-
-            if (!res.ok) {
-                reportSystemHistoryEvent({
-                    classification: 'FALLO DE CÓDIGO',
-                    module: 'inventario-app.js · uploadManagerProductPhoto',
-                    event: 'ERROR AL GUARDAR ARCHIVO DE FOTO EN DRIVE',
-                    status: '❌ ERROR',
-                    ref: targetSku + ' · ' + targetName,
-                    detail: res.error || 'Respuesta sin éxito al subir fotografía.',
-                    analysis: 'Revisar permisos de carpeta Drive FOTOS NUEVAS CARGADO o sesión del usuario.'
-                });
-                setDetailUploadPhotoStatus(res.error || 'No se pudo guardar la fotografía en Drive.', 'err');
-                return;
-            }
-
-            const fileId = cleanStr(res.fileId) || extractDriveFileId(res.downloadUrl || res.driveUrl || res.url || '');
-            const downloadUrl = cleanStr(res.downloadUrl) || (fileId ? ('https://drive.google.com/uc?export=download&id=' + fileId) : cleanStr(res.url));
-            const folderUrl = cleanStr(res.folderUrl) || ('https://drive.google.com/drive/folders/' + FOTOS_NUEVAS_CARGADO_FOLDER_ID);
-
-            // NO se modifica it.f ni se coloca en la ficha del producto:
-            // inventario.html muestra exclusivamente las fotografías oficiales de la Columna "F" de INVENTARIO_EN_VIVO.
-            const statusHtml =
-                '<div class="space-y-1.5">' +
-                    '<div>✓ Archivo guardado en carpeta Drive <strong>FOTOS NUEVAS CARGADO</strong> (' + escapeHtml(targetSku + ' · ' + targetName) + '). No se colocó en el documento ni en la ficha.</div>' +
-                    '<div class="flex flex-wrap items-center gap-2 pt-0.5">' +
-                        (downloadUrl
-                            ? ('<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener" download class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-extrabold uppercase tracking-wider text-[10px]" style="background:#FFFFFF; border-color:#059669; color:#065F46;">⬇ Descargar archivo</a>')
-                            : '') +
-                        '<a href="' + escapeHtml(folderUrl) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-extrabold uppercase tracking-wider text-[10px]" style="background:#FFFFFF; border-color:#E1DBC5; color:#252C32;">Abrir carpeta Drive</a>' +
-                    '</div>' +
-                '</div>';
-            setDetailUploadPhotoStatus('', 'ok', statusHtml);
-        } catch (err) {
-            const msgErr = err && err.message ? err.message : 'Error al procesar la fotografía.';
-            reportSystemHistoryEvent({
-                classification: 'FALLO DE CÓDIGO',
-                module: 'inventario-app.js · uploadManagerProductPhoto',
-                event: 'EXCEPCIÓN PROCESANDO FOTOGRAFÍA',
-                status: '❌ ERROR',
-                ref: targetSku + ' · ' + targetName,
-                detail: msgErr,
-                analysis: cleanStr(err && err.stack) || 'Error en compresión canvas o envío de imagen.'
-            });
-            setDetailUploadPhotoStatus(msgErr, 'err');
         } finally {
             managerPhotoUploadInFlight = false;
+            if (subBtn) {
+                subBtn.disabled = false;
+                subBtn.textContent = 'Subir';
+            }
             if (currentDetailItem) {
                 refreshDetailManagerPhotoControls(currentDetailItem, true);
             }
         }
+    };
+
+    window.uploadManagerProductPhoto = async function (inputEl) {
+        const files = inputEl && inputEl.files && inputEl.files.length ? Array.from(inputEl.files) : [];
+        if (inputEl) inputEl.value = '';
+        if (!files.length || managerPhotoUploadInFlight) return;
+        if (!canManageProductPhotos()) return;
+        window.openUploadPhotoModal(currentDetailItem || null);
+        window.onUploadPhotoFilesSelected(files);
     };
 
     let relatedStockExpanded = false;
@@ -3950,15 +4645,15 @@
             const locSummary = buildDeliveryStockSummary(it);
             const dispTxt = entry.stock === 1 ? '1 disponible para entrega' : (entry.stock + ' disponibles para entrega');
             return '<div class="inv-row" data-rel-sku="' + escapeHtml(skuKey) + '" style="background:#FFFFFF;">' +
-                buildThumbHtml(it) +
+                buildThumbHtml(it, { compact: true }) +
                 '<div class="min-w-0 flex-1 pr-2">' +
-                    '<div class="text-xs sm:text-sm font-bold uppercase leading-snug" style="color:#252C32;">' +
+                    '<div class="text-xs sm:text-sm font-bold uppercase leading-snug" style="color:#1A1816;">' +
                         formatTitleWithPriceHtml(titleTxt, it.pr) +
                     '</div>' +
                     '<div class="text-[11px] font-semibold tracking-wider mt-0.5 flex flex-wrap items-center gap-1.5">' +
-                        '<span style="color:#A38251;">' + escapeHtml(it.s) + '</span>' +
+                        '<span style="color:#9E7B4F;">' + escapeHtml(it.s) + '</span>' +
                         '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold sem-green">' + escapeHtml(dispTxt) + '</span>' +
-                        (locSummary ? ('<span class="text-[10px] font-bold opacity-75" style="color:#252C32;">(' + escapeHtml(locSummary) + ')</span>') : '') +
+                        (locSummary ? ('<span class="text-[10px] font-bold opacity-75" style="color:#1A1816;">(' + escapeHtml(locSummary) + ')</span>') : '') +
                     '</div>' +
                 '</div>' +
                 buildCardCartControlHtml(skuKey) +
@@ -3975,6 +4670,9 @@
             const ctrlWrap = rowEl.querySelector('[data-sku-ctrl]');
             bindCardCartControlEvents(ctrlWrap, sku);
         });
+        if (window.CreataGuard && typeof window.CreataGuard.protectImages === 'function') {
+            window.CreataGuard.protectImages(listEl);
+        }
     }
 
     window.toggleRelatedInStockProducts = function () {
@@ -3995,6 +4693,7 @@
     const AUTH_SESSION_KEY = 'creata_inv_advisor_session_v1';
     const PENDING_KEYS_STORAGE = 'creata_inv_updated_keys_v1';
     const QUOTE_META_STORAGE = 'creata_inv_quote_draft_meta_v1';
+    const QUOTE_META_STORAGE_ALT = 'creata_inv_quote_meta_v1';
 
     const USER_BRANCH_TABS = [
         {
@@ -4654,7 +5353,8 @@
     function loadQuoteDraftMeta() {
         const fallback = createBlankQuoteMeta();
         try {
-            const saved = JSON.parse(localStorage.getItem(QUOTE_META_STORAGE) || 'null');
+            const rawSaved = localStorage.getItem(QUOTE_META_STORAGE) || localStorage.getItem(QUOTE_META_STORAGE_ALT) || 'null';
+            const saved = JSON.parse(rawSaved);
             if (saved && typeof saved === 'object') {
                 return Object.assign(fallback, saved, {
                     clientMode: FIXED_QUOTE_CLIENT_MODE,
@@ -4713,7 +5413,9 @@
         if (extraEl) quoteDraftMeta.extraDiscount = Math.max(0, Number(extraEl.value) || 0);
 
         try {
-            localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
+            const jsonMeta = JSON.stringify(quoteDraftMeta);
+            localStorage.setItem(QUOTE_META_STORAGE, jsonMeta);
+            localStorage.setItem(QUOTE_META_STORAGE_ALT, jsonMeta);
         } catch (e) {}
         if (typeof syncActiveQuoteDraftStorage === 'function') {
             syncActiveQuoteDraftStorage();
@@ -4903,6 +5605,322 @@
     }
 
     // ------------------------------------------------------------------------
+    // PRESENCIA EN TIEMPO REAL (#16) + FAB ÚNICO (#9) + NAVEGACIÓN IN-APP (#7, #10)
+    // ------------------------------------------------------------------------
+    const INV_PRESENCE_DEVICE_KEY = 'creata_inv_presence_dev_v1';
+    let lastPresenceHeartbeatMs = 0;
+    let activeInAppModule = 'home'; // 'home' | 'seguimiento' | 'historial'
+    let invFabIsOpen = false;
+    let pendingPostAuthModuleIntent = '';
+
+    function getInvPresenceDeviceId() {
+        try {
+            let id = localStorage.getItem(INV_PRESENCE_DEVICE_KEY);
+            if (!id) {
+                id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+                localStorage.setItem(INV_PRESENCE_DEVICE_KEY, id);
+            }
+            return id;
+        } catch (e) {
+            return 'dev_mem_' + Math.random().toString(36).slice(2, 10);
+        }
+    }
+
+    let lastPresenceVistaSent = '';
+    function currentPresenceVista() {
+        return (activeInAppModule && activeInAppModule !== 'home') ? activeInAppModule : 'inventario';
+    }
+
+    function sendInvPresenceHeartbeat(sessObj, forceNow) {
+        const s = sessObj || activeAdvisorSession;
+        if (!s || s.mustChangeKey || !s.correo || !s.authToken) return;
+        if (window.CreataGuard && (window.CreataGuard.blocked || window.CreataGuard.isBlocked)) return;
+        const now = Date.now();
+        const vista = currentPresenceVista();
+        const vistaChanged = vista !== lastPresenceVistaSent;
+        if (!forceNow && !vistaChanged && (now - lastPresenceHeartbeatMs) < 45000) return;
+        if (!forceNow && typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+        lastPresenceHeartbeatMs = now;
+        lastPresenceVistaSent = vista;
+        const roleInfo = (typeof getAdvisorRoleInfo === 'function') ? getAdvisorRoleInfo(s) : {};
+        callInvWebAppPost('inv_presence_heartbeat', {
+            authToken: s.authToken || '',
+            correo: s.correo || '',
+            nombre: s.nombre || s.correo || '',
+            puesto: s.puesto || '',
+            sheetTab: s.sheetTab || '',
+            branchLabel: s.branchLabel || s.sheetTab || '',
+            erpStore: s.erpStore || '',
+            role: s.isGuest ? 'INVITADO' : (roleInfo.roleLabel || (s.isAdmin ? 'ADMIN' : (s.isManager ? 'GERENTE' : 'ASESOR'))),
+            isGuest: !!s.isGuest,
+            isAdmin: !!s.isAdmin,
+            isManager: !!s.isManager,
+            deviceId: getInvPresenceDeviceId(),
+            vista: vista,
+            view: vista,
+            page: 'inventario'
+        }, 8000, true).catch(() => {});
+    }
+
+    function sendInvPresenceLogout(sessObj) {
+        const s = sessObj;
+        if (!s || !s.correo) return;
+        callInvWebAppPost('inv_presence_logout', {
+            authToken: s.authToken || '',
+            correo: s.correo || '',
+            sheetTab: s.sheetTab || '',
+            deviceId: getInvPresenceDeviceId()
+        }, 5000, true).catch(() => {});
+    }
+
+    window.closeFabMenu = function () {
+        invFabIsOpen = false;
+        const root = document.getElementById('invFabRoot');
+        const menu = document.getElementById('invFabMenu');
+        const toggle = document.getElementById('invFabToggleBtn');
+        const backdrop = document.getElementById('invFabBackdrop');
+        if (root) root.classList.remove('is-open');
+        if (menu) menu.classList.add('hidden');
+        if (backdrop) backdrop.classList.add('hidden');
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    };
+
+    window.openFabMenu = function () {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return;
+        invFabIsOpen = true;
+        const root = document.getElementById('invFabRoot');
+        const menu = document.getElementById('invFabMenu');
+        const toggle = document.getElementById('invFabToggleBtn');
+        const backdrop = document.getElementById('invFabBackdrop');
+        if (root) root.classList.add('is-open');
+        if (menu) menu.classList.remove('hidden');
+        if (backdrop) backdrop.classList.remove('hidden');
+        if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    };
+
+    window.toggleFabMenu = function () {
+        if (invFabIsOpen) window.closeFabMenu();
+        else window.openFabMenu();
+    };
+
+    document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') {
+            if (invFabIsOpen) window.closeFabMenu();
+            const upModal = document.getElementById('uploadPhotoModal');
+            if (upModal && upModal.classList.contains('open')) {
+                window.closeUploadPhotoModal();
+            }
+        }
+    });
+
+    function buildInAppModuleContext() {
+        const s = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
+        return {
+            session: s,
+            apiUrl: (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
+                ? (window.CREATA_CLOUD_CONFIG.getApiUrl() || CANONICAL_WEBAPP_URL)
+                : CANONICAL_WEBAPP_URL,
+            onGoHome: function () { window.goHomeFromLogo(); }
+        };
+    }
+
+    function unmountActiveModules() {
+        try {
+            if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.unmount === 'function') {
+                window.CreataSeguimientoModule.unmount();
+            }
+        } catch (e) {}
+        try {
+            if (window.CreataHistorialModule && typeof window.CreataHistorialModule.unmount === 'function') {
+                window.CreataHistorialModule.unmount();
+            }
+        } catch (e) {}
+    }
+
+    window.closeInAppModules = function (opts) {
+        const o = opts || {};
+        const mainView = document.getElementById('invMainView');
+        const segView = document.getElementById('inAppSeguimientoView');
+        const histView = document.getElementById('inAppHistorialView');
+        unmountActiveModules();
+        if (segView) segView.classList.add('hidden');
+        if (histView) histView.classList.add('hidden');
+        if (mainView) mainView.classList.remove('hidden');
+        document.body.classList.remove('inv-module-open');
+        activeInAppModule = 'home';
+        const histBtn = document.getElementById('headerHistorialBtn');
+        if (histBtn) histBtn.classList.remove('is-active');
+        if (!o.skipCheckpoint && typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
+            scheduleSaveInvWorkspaceCheckpoint();
+        }
+    };
+
+    window.openInAppSeguimiento = function () {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            pendingPostAuthModuleIntent = 'seguimiento';
+            openAuthModalForStartup();
+            return;
+        }
+        if (isGuestSession()) return;
+        window.closeFabMenu();
+        closeProductDetail();
+        closeCartModal();
+        if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
+
+        const mainView = document.getElementById('invMainView');
+        const segView = document.getElementById('inAppSeguimientoView');
+        const histView = document.getElementById('inAppHistorialView');
+        const segRoot = document.getElementById('inAppSeguimientoRoot');
+        if (!segView || !segRoot) return;
+
+        try {
+            if (window.CreataHistorialModule && typeof window.CreataHistorialModule.unmount === 'function') {
+                window.CreataHistorialModule.unmount();
+            }
+        } catch (e) {}
+        if (histView) histView.classList.add('hidden');
+        if (mainView) mainView.classList.add('hidden');
+        segView.classList.remove('hidden');
+        document.body.classList.add('inv-module-open');
+        activeInAppModule = 'seguimiento';
+
+        if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.mount === 'function') {
+            window.CreataSeguimientoModule.mount(segRoot, buildInAppModuleContext());
+        } else {
+            segRoot.innerHTML = '<div style="padding:24px;text-align:center;font-size:13px;font-weight:700;">Cargando Seguimiento...</div>';
+        }
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        sendInvPresenceHeartbeat(activeAdvisorSession, false);
+        if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') scheduleSaveInvWorkspaceCheckpoint();
+    };
+
+    window.openInAppHistorial = function () {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            pendingPostAuthModuleIntent = 'historial';
+            openAuthModalForStartup();
+            return;
+        }
+        if (isGuestSession()) return;
+        window.closeFabMenu();
+        closeProductDetail();
+        closeCartModal();
+        if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
+
+        const mainView = document.getElementById('invMainView');
+        const segView = document.getElementById('inAppSeguimientoView');
+        const histView = document.getElementById('inAppHistorialView');
+        const histRoot = document.getElementById('inAppHistorialRoot');
+        if (!histView || !histRoot) return;
+
+        try {
+            if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.unmount === 'function') {
+                window.CreataSeguimientoModule.unmount();
+            }
+        } catch (e) {}
+        if (segView) segView.classList.add('hidden');
+        if (mainView) mainView.classList.add('hidden');
+        histView.classList.remove('hidden');
+        document.body.classList.add('inv-module-open');
+        activeInAppModule = 'historial';
+
+        if (window.CreataHistorialModule && typeof window.CreataHistorialModule.mount === 'function') {
+            window.CreataHistorialModule.mount(histRoot, buildInAppModuleContext());
+        } else {
+            histRoot.innerHTML = '<div style="padding:24px;text-align:center;font-size:13px;font-weight:700;">Cargando Historial...</div>';
+        }
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        sendInvPresenceHeartbeat(activeAdvisorSession, false);
+        if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') scheduleSaveInvWorkspaceCheckpoint();
+    };
+
+    window.openInAppModule = function (moduleName) {
+        if (moduleName === 'seguimiento') window.openInAppSeguimiento();
+        else if (moduleName === 'historial') window.openInAppHistorial();
+        else window.closeInAppModules();
+    };
+
+    window.goHomeFromLogo = function () {
+        window.closeFabMenu();
+        closeProductDetail();
+        closeCartModal();
+        if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
+        if (typeof window.closeBarcodeScanner === 'function') window.closeBarcodeScanner();
+        window.closeInAppModules({ skipCheckpoint: true });
+        activeCategory = 'ALL';
+        activeSubCategory = 'ALL';
+        const inp = document.getElementById('invSearchInput');
+        if (inp) inp.value = '';
+        if (searchDebounceTimer) {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = null;
+        }
+        applyFilter('');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        sendInvPresenceHeartbeat(activeAdvisorSession, false);
+        if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') scheduleSaveInvWorkspaceCheckpoint();
+    };
+    window.goToHomeView = window.goHomeFromLogo;
+
+    function readAndConsumeOpenModuleIntent() {
+        let intent = '';
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            const qMod = cleanStr(params.get('openModule') || params.get('module')).toLowerCase();
+            if (qMod === 'seguimiento' || qMod === 'historial') intent = qMod;
+        } catch (e) {}
+        if (!intent) {
+            try {
+                const stored = cleanStr(sessionStorage.getItem('creata_open_module')).toLowerCase();
+                if (stored === 'seguimiento' || stored === 'historial') intent = stored;
+            } catch (e) {}
+        }
+        try { sessionStorage.removeItem('creata_open_module'); } catch (e) {}
+        try {
+            const lRaw = localStorage.getItem('creata_open_module');
+            localStorage.removeItem('creata_open_module');
+            if (!intent && lRaw) {
+                let mod = '';
+                if (String(lRaw).charAt(0) === '{') {
+                    const parsed = JSON.parse(lRaw);
+                    const ts = Number(parsed && parsed.ts) || 0;
+                    if (parsed && parsed.module && (!ts || (Date.now() - ts) <= 30000)) {
+                        mod = cleanStr(parsed.module).toLowerCase();
+                    }
+                }
+                if (mod === 'seguimiento' || mod === 'historial') intent = mod;
+            }
+        } catch (e) {}
+        if (intent && window.history && typeof window.history.replaceState === 'function') {
+            try {
+                const u = new URL(window.location.href);
+                if (u.searchParams.has('openModule') || u.searchParams.has('module')) {
+                    u.searchParams.delete('openModule');
+                    u.searchParams.delete('module');
+                    window.history.replaceState({}, '', u.pathname + (u.search || '') + (u.hash || ''));
+                }
+            } catch (e) {}
+        }
+        return intent;
+    }
+
+    function applyPostAuthRestoreFlow() {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return;
+        const intent = pendingPostAuthModuleIntent || readAndConsumeOpenModuleIntent();
+        pendingPostAuthModuleIntent = '';
+        if (intent === 'seguimiento' && !isGuestSession()) {
+            window.openInAppSeguimiento();
+            return;
+        }
+        if (intent === 'historial' && !isGuestSession()) {
+            window.openInAppHistorial();
+            return;
+        }
+        if (typeof restoreInvWorkspaceCheckpoint === 'function') {
+            restoreInvWorkspaceCheckpoint();
+        }
+    }
+
+    // ------------------------------------------------------------------------
     // BITÁCORA EXCLUSIVA EN HOJA "HISTORIAL": FALLOS DE CÓDIGO Y MOVIMIENTOS
     // ------------------------------------------------------------------------
     const FOTOS_NUEVAS_CARGADO_FOLDER_ID = '1rPFbjvovC5fSDPHS29yYpbLwM90c-5L9';
@@ -4932,17 +5950,37 @@
             const branchStr = cleanStr(opts.branch) ||
                 (sess ? (sess.erpStore || sess.branchLabel || sess.sheetTab || '') : '');
 
+            const classClean = cleanStr(opts.classification) || 'FALLO DE CÓDIGO';
+            const modClean = cleanStr(opts.module) || 'inventario-app.js';
+            const evClean = cleanStr(opts.event) || 'EVENTO SISTEMA';
+            const stClean = cleanStr(opts.status) || '⚠️ ALERTA';
+            const refClean = cleanStr(opts.ref) || '';
+            const detClean = cleanStr(opts.detail) || '';
+
             callInvWebAppPost('inv_log_event', {
-                classification: cleanStr(opts.classification) || 'FALLO DE CÓDIGO',
-                module: cleanStr(opts.module) || 'inventario-app.js',
-                event: cleanStr(opts.event) || 'EVENTO SISTEMA',
-                status: cleanStr(opts.status) || '⚠️ ALERTA',
+                classification: classClean,
+                module: modClean,
+                event: evClean,
+                status: stClean,
                 user: userStr,
                 branch: branchStr,
-                ref: cleanStr(opts.ref) || '',
-                detail: cleanStr(opts.detail) || '',
+                ref: refClean,
+                detail: detClean,
                 analysis: cleanStr(opts.analysis) || ''
             }, 9000).catch(() => {});
+
+            if (/FALLO|ERROR/i.test(classClean) || /ERROR|❌/i.test(stClean)) {
+                if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.notifyFailure === 'function') {
+                    window.CreataLiveAlerts.notifyFailure({
+                        module: modClean,
+                        event: evClean,
+                        ref: refClean,
+                        detail: detClean,
+                        user: userStr,
+                        branch: branchStr
+                    });
+                }
+            }
         } catch (eHist) {}
     }
 
@@ -5431,58 +6469,79 @@
         const switchBtn = document.getElementById('sessionSwitchBranchBtn');
         const headerSwitchStoreBtn = document.getElementById('headerSwitchStoreBtn');
         const headerSwitchStoreBtnText = document.getElementById('headerSwitchStoreBtnText');
-        const trackQuoteBtn = document.getElementById('headerTrackQuoteBtn');
-        const cartBtn = document.getElementById('headerCartBtn');
+        const headerExtraWrap = document.getElementById('invHeaderExtra');
+        const headerHistBtn = document.getElementById('headerHistorialBtn');
+        const headerLogoutBtn = document.getElementById('headerLogoutBtn');
         const guestBadgeWrap = document.getElementById('headerGuestBadgeWrap');
         const guestBadgeText = document.getElementById('headerGuestBadgeText');
 
+        const fabRoot = document.getElementById('invFabRoot');
+        const fabQuoteBtn = document.getElementById('fabQuoteBtn');
+        const fabSeguimientoBtn = document.getElementById('fabSeguimientoBtn');
+        const fabUploadPhotoBtn = document.getElementById('fabUploadPhotoBtn');
+
+        const isAuthed = !!(activeAdvisorSession && !activeAdvisorSession.mustChangeKey);
         const guestMode = isGuestSession();
-        if (trackQuoteBtn) {
-            trackQuoteBtn.classList.toggle('hidden', guestMode);
-            trackQuoteBtn.style.display = guestMode ? 'none' : '';
+
+        if (headerHistBtn) {
+            headerHistBtn.classList.toggle('hidden', !isAuthed || guestMode);
         }
-        if (cartBtn) {
-            cartBtn.classList.toggle('hidden', guestMode);
-            cartBtn.style.display = guestMode ? 'none' : '';
+        if (headerLogoutBtn) {
+            headerLogoutBtn.classList.toggle('hidden', !isAuthed || guestMode);
         }
+
+        if (fabRoot) {
+            fabRoot.classList.toggle('hidden', !isAuthed);
+            if (!isAuthed) window.closeFabMenu();
+        }
+        if (fabQuoteBtn) fabQuoteBtn.classList.toggle('hidden', guestMode);
+        if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', guestMode);
+        if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canManageProductPhotos());
+
+        let showGuest = false;
         if (guestBadgeWrap) {
-            if (guestMode && activeAdvisorSession) {
+            if (guestMode && isAuthed) {
+                showGuest = true;
                 const maxCap = Math.max(1, Math.min(50, Number(activeAdvisorSession.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL));
                 const slotNum = Math.max(1, Math.min(maxCap, Number(activeAdvisorSession.guestSlotNum) || 1));
                 if (guestBadgeText) {
-                    guestBadgeText.textContent = 'SOLO VER · LUGAR ' + slotNum + '/' + maxCap + ' · ' + (activeAdvisorSession.nombre || activeAdvisorSession.correo || 'INVITADO');
+                    guestBadgeText.textContent = 'SOLO VER · ' + slotNum + '/' + maxCap;
                 }
                 guestBadgeWrap.classList.remove('hidden');
-                guestBadgeWrap.style.display = 'inline-flex';
             } else {
                 guestBadgeWrap.classList.add('hidden');
-                guestBadgeWrap.style.display = 'none';
             }
         }
 
-        const multiLocs = (activeAdvisorSession && !guestMode && !activeAdvisorSession.isAdmin && Array.isArray(activeAdvisorSession.allLocations))
+        const multiLocs = (isAuthed && !guestMode && !activeAdvisorSession.isAdmin && Array.isArray(activeAdvisorSession.allLocations))
             ? activeAdvisorSession.allLocations.filter(l => l && !l.isGuest)
             : [];
+        let showSwitch = false;
         if (headerSwitchStoreBtn) {
-            if (multiLocs.length > 1 && activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
+            if (multiLocs.length > 1) {
+                showSwitch = true;
                 const shortStore = cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab) || 'Tienda';
                 if (headerSwitchStoreBtnText) {
-                    headerSwitchStoreBtnText.textContent = '📍 ' + shortStore + ' ▾';
+                    headerSwitchStoreBtnText.textContent = shortStore + ' ▾';
                 }
                 headerSwitchStoreBtn.classList.remove('hidden');
-                headerSwitchStoreBtn.style.display = '';
             } else {
                 headerSwitchStoreBtn.classList.add('hidden');
-                headerSwitchStoreBtn.style.display = 'none';
             }
         }
+
+        if (headerExtraWrap) {
+            headerExtraWrap.classList.toggle('hidden', !(showGuest || showSwitch));
+        }
+
+        updateCartBadge();
 
         if (currentDetailItem && typeof refreshDetailManagerPhotoControls === 'function') {
             refreshDetailManagerPhotoControls(currentDetailItem, true);
         }
 
         if (!bar) return;
-        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+        if (!isAuthed) {
             bar.classList.add('hidden');
             return;
         }
@@ -5491,23 +6550,23 @@
         if (branchEl) {
             const prefix = getStoreFolioPrefix(activeAdvisorSession.erpStore, activeAdvisorSession.orderPrefix);
             if (guestMode) {
-                branchEl.textContent = 'INVITADO · SOLO VER (SIN COTIZAR NI DESCUENTOS)';
+                branchEl.textContent = 'INVITADO · SOLO VER';
             } else if (activeAdvisorSession.isAdmin) {
-                branchEl.textContent = 'ADMINISTRADOR · TODAS LAS TIENDAS';
+                branchEl.textContent = 'ADMINISTRADOR';
             } else if (activeAdvisorSession.isProyecto) {
-                branchEl.textContent = 'PROYECTO · FOLIO ' + prefix;
+                branchEl.textContent = 'PROYECTO · ' + prefix;
             } else {
-                branchEl.textContent = (activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '') + ' · FOLIO ' + prefix;
+                branchEl.textContent = (activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || '') + ' · ' + prefix;
             }
         }
         if (erpEl) {
             if (guestMode) {
                 const maxCap = Math.max(1, Math.min(50, Number(activeAdvisorSession.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL));
                 const slotNum = Math.max(1, Math.min(maxCap, Number(activeAdvisorSession.guestSlotNum) || 1));
-                erpEl.textContent = 'Lugar ' + slotNum + ' de ' + maxCap + ' autorizado';
+                erpEl.textContent = 'Lugar ' + slotNum + '/' + maxCap;
                 erpEl.classList.remove('hidden');
             } else if (activeAdvisorSession.erpAdvisorId) {
-                erpEl.textContent = 'Usuario S Mueblería #' + activeAdvisorSession.erpAdvisorId;
+                erpEl.textContent = 'ID #' + activeAdvisorSession.erpAdvisorId;
                 erpEl.classList.remove('hidden');
             } else {
                 erpEl.textContent = '';
@@ -5528,7 +6587,9 @@
             quoteDraftMeta.erpAdvisorId = activeAdvisorSession.erpAdvisorId || '';
         }
         try {
-            localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
+            const jsonMeta = JSON.stringify(quoteDraftMeta);
+            localStorage.setItem(QUOTE_META_STORAGE, jsonMeta);
+            localStorage.setItem(QUOTE_META_STORAGE_ALT, jsonMeta);
         } catch (e) {}
         populateQuoteAdvisorControls();
     }
@@ -5553,6 +6614,7 @@
         }
         modal.classList.remove('open');
         renderAdvisorHeaderBar();
+        sendInvPresenceHeartbeat(activeAdvisorSession, true);
         if (isGuestSession()) {
             verifyActiveGuestSessionLive();
         } else {
@@ -5750,6 +6812,7 @@
         if (modal) modal.classList.remove('open');
         renderAdvisorHeaderBar();
         refreshGuestReadOnlyUIState();
+        sendInvPresenceHeartbeat(sessionObj, true);
         if (!sessionObj.isGuest) {
             refreshMyLiveQuotesInfo();
         }
@@ -5768,11 +6831,7 @@
             return;
         }
 
-        const cartModalEl = document.getElementById('cartModal');
-        if (!cartModalEl || !cartModalEl.classList.contains('open')) {
-            const searchInp = document.getElementById('invSearchInput');
-            if (searchInp) setTimeout(() => searchInp.focus(), 60);
-        }
+        applyPostAuthRestoreFlow();
     }
 
     let lastGuestHeartbeatMs = 0;
@@ -6218,6 +7277,7 @@
             if (modal) modal.classList.remove('open');
             renderAdvisorHeaderBar();
             refreshGuestReadOnlyUIState();
+            sendInvPresenceHeartbeat(activeAdvisorSession, true);
             if (!isGuestSession()) {
                 populateQuoteAdvisorControls();
                 refreshMyLiveQuotesInfo();
@@ -6232,17 +7292,21 @@
                 return;
             }
 
-            const searchInp = document.getElementById('invSearchInput');
-            if (searchInp) setTimeout(() => searchInp.focus(), 60);
+            applyPostAuthRestoreFlow();
         } finally {
             if (saveBtn) {
                 saveBtn.disabled = false;
-                saveBtn.textContent = 'Guardar nueva contraseña y continuar';
+                saveBtn.textContent = 'Guardar';
             }
         }
     };
 
     window.logoutAdvisorSession = function () {
+        const prevSess = activeAdvisorSession;
+        sendInvPresenceLogout(prevSess);
+        window.closeFabMenu();
+        window.closeInAppModules({ skipCheckpoint: true });
+        if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
         saveAdvisorSession(null);
         pendingAuthContext = null;
         pendingQuoteRetrySendToErp = null;
@@ -6440,7 +7504,7 @@
                         'data-q-store="' + escapeHtml(cleanStr(q.erpStore || q.branchTab)) + '" ' +
                         'class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider transition hover:opacity-90" ' +
                         'style="background:#252C32; color:#FFFFFF;" ' +
-                        'title="Descargar PDF original generado por S Mueblería">' +
+                        'title="Descargar PDF de cotización">' +
                         '⬇ Descargar PDF' +
                     '</button>' +
                 '</div>' +
@@ -6537,7 +7601,7 @@
             : activeAdvisorSession.erpStore;
         currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
         const nextBadge = document.getElementById('quoteNextOrderBadge');
-        if (nextBadge) nextBadge.textContent = 'Folio S Mueblería: ' + currentNextOrderCode;
+        if (nextBadge) nextBadge.textContent = 'Folio: ' + currentNextOrderCode;
 
         if (activeAdvisorSession.authToken) {
             const res = await callInvWebAppPost('inv_my_quotes', {
@@ -6661,7 +7725,7 @@
             optsHtml += '</optgroup>';
         }
         if (otherAdvs.length > 0) {
-            optsHtml += '<optgroup label="Otros Usuarios Activos S Mueblería">';
+            optsHtml += '<optgroup label="Otros asesores">';
             otherAdvs.forEach(a => {
                 optsHtml += '<option value="' + escapeHtml(a.id) + '" data-label="' + escapeHtml(a.label) + '" data-branch="' + escapeHtml(a.branch || '') + '">' + escapeHtml(a.label) + '</option>';
             });
@@ -6786,19 +7850,19 @@
 
         if (titleEl) {
             if (isAdmin) {
-                titleEl.textContent = 'Cotización · Modo Administrador (Acceso Total)';
+                titleEl.textContent = 'Cotización · Admin';
             } else {
                 titleEl.textContent = isProy
-                    ? 'Cotización de Proyecto'
-                    : 'Cotización de Tienda / Bodega';
+                    ? 'Cotización · Proyecto'
+                    : 'Cotización';
             }
         }
 
         if (hdrInfo) {
             if (sess) {
                 hdrInfo.textContent = (sess.nombre || sess.correo) + ' · ' +
-                    (isAdmin ? ('ADMIN · ' + effectiveStore) : (isProy ? 'MODALIDAD PROYECTO' : ('Tienda: ' + (sess.branchLabel || sess.sheetTab)))) +
-                    ' · Folio S Mueblería: ' + folioEstimate;
+                    (isAdmin ? ('ADMIN · ' + effectiveStore) : (isProy ? 'PROYECTO' : (sess.branchLabel || sess.sheetTab))) +
+                    ' · Folio: ' + folioEstimate;
             } else {
                 hdrInfo.textContent = '';
             }
@@ -6806,18 +7870,18 @@
 
         if (originBadge) {
             originBadge.textContent = isAdmin
-                ? ('ADMIN · SERIE ' + prefix)
-                : (isProy ? ('PROYECTO · SERIE ' + prefix) : ('TIENDA · SERIE ' + prefix));
-            originBadge.style.background = (isProy || isAdmin) ? '#252C32' : '#A38251';
+                ? ('ADMIN · ' + prefix)
+                : (isProy ? ('PROYECTO · ' + prefix) : ('TIENDA · ' + prefix));
+            originBadge.style.background = (isProy || isAdmin) ? '#1A1816' : '#9E7B4F';
             originBadge.style.color = '#FFFFFF';
         }
 
         if (nextOrderBadge) {
-            nextOrderBadge.textContent = 'Folio S Mueblería: ' + folioEstimate;
+            nextOrderBadge.textContent = 'Folio: ' + folioEstimate;
         }
 
         if (idBadge) {
-            idBadge.textContent = effectiveAdvisorId ? ('ID S Mueblería: ' + effectiveAdvisorId) : 'Usuario Vinculado';
+            idBadge.textContent = effectiveAdvisorId ? ('ID: ' + effectiveAdvisorId) : '';
         }
 
         const multiLocs = (sess && !isAdmin && !sess.isGuest && Array.isArray(sess.allLocations))
@@ -6825,11 +7889,7 @@
             : [];
 
         if (storeLbl) {
-            if (multiLocs.length > 1) {
-                storeLbl.textContent = 'Tienda / Bodega a Cotizar (' + multiLocs.length + ' asignadas)';
-            } else {
-                storeLbl.textContent = isProy ? 'Área / Modalidad Proyecto' : 'Tienda / Bodega S Mueblería';
-            }
+            storeLbl.textContent = isProy ? 'Proyecto' : 'Sucursal';
         }
         if (multiStoreSel) {
             if (multiLocs.length > 1) {
@@ -7118,9 +8178,12 @@
             if (d.completed) {
                 localStorage.removeItem(CART_KEY);
                 localStorage.removeItem(QUOTE_META_STORAGE);
+                localStorage.removeItem(QUOTE_META_STORAGE_ALT);
             } else {
+                const jsonMeta = JSON.stringify(quoteDraftMeta);
                 localStorage.setItem(CART_KEY, JSON.stringify(cart));
-                localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
+                localStorage.setItem(QUOTE_META_STORAGE, jsonMeta);
+                localStorage.setItem(QUOTE_META_STORAGE_ALT, jsonMeta);
             }
         } catch (e) {}
         persistQuoteDraftsToStorage();
@@ -7242,8 +8305,10 @@
         }
         const activeNow = getActiveQuoteDraft();
         try {
+            const jsonMeta = JSON.stringify((activeNow && activeNow.meta) || createBlankQuoteMeta());
             localStorage.setItem(CART_KEY, JSON.stringify((activeNow && activeNow.cart) || {}));
-            localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify((activeNow && activeNow.meta) || createBlankQuoteMeta()));
+            localStorage.setItem(QUOTE_META_STORAGE, jsonMeta);
+            localStorage.setItem(QUOTE_META_STORAGE_ALT, jsonMeta);
         } catch (e) {}
         persistQuoteDraftsToStorage();
     }
@@ -7297,6 +8362,7 @@
         try {
             localStorage.removeItem(CART_KEY);
             localStorage.removeItem(QUOTE_META_STORAGE);
+            localStorage.removeItem(QUOTE_META_STORAGE_ALT);
         } catch (e) {}
         persistQuoteDraftsToStorage();
         syncAllCartControlsUI();
@@ -7353,8 +8419,8 @@
                 ? (cliShort.length > 18 ? (cliShort.slice(0, 18) + '…') : cliShort)
                 : ('Cotización ' + (idx + 1));
             const statusPart = d.completed
-                ? ('✓ Emitida' + (d.submittedMeta && d.submittedMeta.folio ? (' · ' + d.submittedMeta.folio) : ''))
-                : ((qtySum > 0 ? (qtySum + ' pz · ') : '') + '⏱ ' + formatRemainingDraftTime(d.expiresAt));
+                ? ('✓ ' + ((d.submittedMeta && d.submittedMeta.folio) ? d.submittedMeta.folio : 'Emitida'))
+                : ((qtySum > 0 ? (qtySum + 'pz ') : '') + '⏱' + formatRemainingDraftTime(d.expiresAt).replace(/\s+/g, ''));
 
             const bg = isAct ? '#252C32' : '#FFFFFF';
             const fg = isAct ? '#FFFFFF' : '#252C32';
@@ -7477,8 +8543,8 @@
         }
         const nm = cleanStr(quoteDraftMeta.clientName) || 'Cliente seleccionado';
         const tag = cid > 0
-            ? ('Cliente S Mueblería #' + cid + (quoteDraftMeta.erpNoCliente ? (' · No. ' + quoteDraftMeta.erpNoCliente) : ''))
-            : ('Prospecto S Mueblería #' + lid);
+            ? ('Cliente #' + cid + (quoteDraftMeta.erpNoCliente ? (' · No. ' + quoteDraftMeta.erpNoCliente) : ''))
+            : ('Prospecto #' + lid);
         const extraInfo = [cleanStr(quoteDraftMeta.clientPhone), cleanStr(quoteDraftMeta.clientEmail), cleanStr(quoteDraftMeta.erpClientAddress)]
             .filter(Boolean)
             .join(' · ');
@@ -7564,7 +8630,7 @@
 
         const q = cleanStr(inp ? inp.value : '');
         if (q.length < 2) {
-            resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Escribe al menos 2 letras o dígitos (nombre, teléfono, correo o No. de cliente) para buscar en S Mueblería.</div>';
+            resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Escribe al menos 2 caracteres para buscar.</div>';
             resEl.classList.remove('hidden');
             if (inp) inp.focus();
             return;
@@ -7575,7 +8641,7 @@
             btn.disabled = true;
             btn.textContent = 'Buscando...';
         }
-        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-semibold bg-white" style="border-color:#E1DBC5; color:#252C32;">Consultando base de datos de clientes...</div>';
+        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-semibold bg-white" style="border-color:#E6E1D8; color:#1A1816;">Buscando cliente...</div>';
         resEl.classList.remove('hidden');
 
         try {
@@ -7587,30 +8653,30 @@
             }, 25000);
 
             if (res && res.authRequired) {
-                resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Confirma tu contraseña personal para consultar clientes en S Mueblería.</div>';
-                promptSessionReauth(res.error || 'Confirma tu contraseña para buscar clientes en S Mueblería.', null);
+                resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Confirma tu contraseña para consultar clientes.</div>';
+                promptSessionReauth(res.error || 'Confirma tu contraseña para buscar clientes.', null);
                 return;
             }
 
             if (!res || res.needsRedeploy || res.unavailable) {
                 resEl.innerHTML =
                     '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">' +
-                    'Para activar la búsqueda directa en la base de datos de S Mueblería, publica una <strong>Nueva versión</strong> de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones</em>.' +
+                    'Búsqueda no disponible en este momento.' +
                     '</div>';
                 return;
             }
 
             if (!res.ok) {
-                resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-red">' + escapeHtml(res.error || 'No se pudo realizar la búsqueda en S Mueblería.') + '</div>';
+                resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-red">' + escapeHtml(res.error || 'No se pudo completar la búsqueda.') + '</div>';
                 return;
             }
 
             lastErpClientSearchResults = Array.isArray(res.clients) ? res.clients : [];
             if (!lastErpClientSearchResults.length) {
                 resEl.innerHTML =
-                    '<div class="rounded-lg border px-3 py-2.5 text-xs font-semibold bg-white flex flex-wrap items-center justify-between gap-2" style="border-color:#E1DBC5; color:#252C32;">' +
-                        '<span>Sin coincidencias en S Mueblería para <strong>' + escapeHtml(q) + '</strong>.</span>' +
-                        '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase" style="background:#A38251; color:#FFFFFF;">+ Dar de alta cliente</button>' +
+                    '<div class="rounded-lg border px-3 py-2.5 text-xs font-semibold bg-white flex flex-wrap items-center justify-between gap-2" style="border-color:#E6E1D8; color:#1A1816;">' +
+                        '<span>Sin coincidencias para <strong>' + escapeHtml(q) + '</strong>.</span>' +
+                        '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Nuevo cliente</button>' +
                     '</div>';
                 return;
             }
@@ -7621,22 +8687,22 @@
                     ? ('CLIENTE #' + c.idCliente + (c.noCliente ? (' · No. ' + c.noCliente) : ''))
                     : ('PROSPECTO #' + c.idLead);
                 const subParts = [cleanStr(c.telefono || c.celular), cleanStr(c.correo), cleanStr(c.direccion)].filter(Boolean);
-                return '<div class="rounded-lg border px-3 py-2 bg-white flex items-center justify-between gap-2 hover:shadow-sm transition" style="border-color:#E1DBC5;">' +
+                return '<div class="rounded-lg border px-3 py-2 bg-white flex items-center justify-between gap-2 hover:shadow-sm transition" style="border-color:#E6E1D8;">' +
                     '<div class="min-w-0">' +
                         '<div class="flex flex-wrap items-center gap-1.5">' +
-                            '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (isCli ? '#252C32' : '#A38251') + '; color:#FFFFFF;">' + escapeHtml(badgeTxt) + '</span>' +
-                            '<span class="text-xs font-extrabold uppercase truncate" style="color:#252C32;">' + escapeHtml(c.nombre || '') + '</span>' +
+                            '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (isCli ? '#1A1816' : '#9E7B4F') + '; color:#FFFFFF;">' + escapeHtml(badgeTxt) + '</span>' +
+                            '<span class="text-xs font-extrabold uppercase truncate" style="color:#1A1816;">' + escapeHtml(c.nombre || '') + '</span>' +
                         '</div>' +
-                        (subParts.length ? ('<div class="text-[11px] font-semibold opacity-80 truncate mt-0.5" style="color:#252C32;">' + escapeHtml(subParts.join(' · ')) + '</div>') : '') +
+                        (subParts.length ? ('<div class="text-[11px] font-semibold opacity-80 truncate mt-0.5" style="color:#1A1816;">' + escapeHtml(subParts.join(' · ')) + '</div>') : '') +
                     '</div>' +
-                    '<button type="button" onclick="selectErpClientFromSearch(' + idx + ')" class="px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase shrink-0" style="background:#A38251; color:#FFFFFF;">Elegir</button>' +
+                    '<button type="button" onclick="selectErpClientFromSearch(' + idx + ')" class="px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase shrink-0" style="background:#9E7B4F; color:#FFFFFF;">Elegir</button>' +
                 '</div>';
             }).join('');
         } finally {
             erpClientSearchInFlight = false;
             if (btn) {
                 btn.disabled = isActiveQuoteCompleted();
-                btn.textContent = 'Buscar cliente';
+                btn.textContent = 'Buscar';
             }
         }
     };
@@ -7713,9 +8779,9 @@
         erpClientCreateInFlight = true;
         if (btn) {
             btn.disabled = true;
-            btn.textContent = 'Guardando en S Mueblería...';
+            btn.textContent = 'Guardando...';
         }
-        showNewErpClientMsg('Registrando nuevo cliente...', 'warn');
+        showNewErpClientMsg('Registrando cliente...', 'warn');
 
         try {
             const sess = enrichAdvisorLocation(activeAdvisorSession);
@@ -7745,18 +8811,18 @@
             }, 30000);
 
             if (res && res.authRequired) {
-                showNewErpClientMsg('Confirma tu contraseña personal para registrar clientes en S Mueblería.', 'warn');
-                promptSessionReauth(res.error || 'Confirma tu contraseña para dar de alta clientes en S Mueblería.', null);
+                showNewErpClientMsg('Confirma tu contraseña para registrar clientes.', 'warn');
+                promptSessionReauth(res.error || 'Confirma tu contraseña para continuar.', null);
                 return;
             }
 
             if (!res || res.needsRedeploy || res.unavailable) {
-                showNewErpClientMsg('Publica una Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Extensiones → Apps Script → Implementar para activar el alta directa en S Mueblería.', 'warn');
+                showNewErpClientMsg('Registro de clientes no disponible en este momento.', 'warn');
                 return;
             }
 
             if (!res.ok || !res.client) {
-                showNewErpClientMsg(res.error || 'No fue posible registrar al cliente en S Mueblería.', 'err');
+                showNewErpClientMsg(res.error || 'No fue posible registrar al cliente.', 'err');
                 return;
             }
 
@@ -7770,7 +8836,7 @@
             erpClientCreateInFlight = false;
             if (btn) {
                 btn.disabled = isActiveQuoteCompleted();
-                btn.textContent = 'Guardar cliente en S Mueblería';
+                btn.textContent = 'Guardar cliente';
             }
         }
     };
@@ -7927,6 +8993,9 @@
         applyQuoteCompletedLockUI();
         renderMyRecentQuotes(myRecentQuotesList);
         document.getElementById('cartModal').classList.add('open');
+        if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
+            scheduleSaveInvWorkspaceCheckpoint();
+        }
         refreshMyLiveQuotesInfo();
     };
 
@@ -7939,6 +9008,9 @@
         // Cuando se termina una cotización y se cierra la pestaña/ventana, descartar la terminada y dejar lista únicamente una nueva cotización
         if (quoteDrafts.some(d => d && d.completed)) {
             purgeCompletedAndActivateBlankDraft();
+        }
+        if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
+            scheduleSaveInvWorkspaceCheckpoint();
         }
     };
 
@@ -8074,38 +9146,41 @@
         wrap.innerHTML = bd.lines.map((ln, idx) => {
             const unitStr = ln.unitList > 0 ? formatPrice(ln.unitList) : 'Sin precio';
             const lineSubStr = ln.lineSubtotal > 0 ? formatPrice(ln.lineSubtotal) : '$0.00';
-            return '<div class="rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5" style="border-color:#E8E4DE; background:#FFFFFF;">' +
-                (function () { const liveIt = bySkuMap.get(ln.key); return liveIt ? buildThumbHtml(liveIt) : ''; })() +
+            return '<div class="rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5" style="border-color:#E6E1D8; background:#FFFFFF;">' +
+                (function () { const liveIt = bySkuMap.get(ln.key); return liveIt ? buildThumbHtml(liveIt, { compact: true }) : ''; })() +
                 '<div class="min-w-0 flex-1 cursor-pointer" onclick="closeCartModal(); openProductDetail(\'' + escapeHtml(ln.key) + '\', false, true)">' +
-                    '<div class="text-xs font-extrabold uppercase leading-snug" style="color:#252C32;">' +
+                    '<div class="text-xs font-extrabold uppercase leading-snug" style="color:#1A1816;">' +
                         '<span class="opacity-50 mr-1">' + (idx + 1) + '.</span>' +
                         escapeHtml(ln.name) +
                     '</div>' +
-                    '<div class="text-[11px] font-bold mt-0.5 flex flex-wrap items-center gap-2" style="color:#A38251;">' +
+                    '<div class="text-[11px] font-bold mt-0.5 flex flex-wrap items-center gap-2" style="color:#9E7B4F;">' +
                         '<span>P. Lista: ' + escapeHtml(unitStr) + '</span>' +
-                        '<span style="color:#252C32;">· Importe: ' + escapeHtml(lineSubStr) + '</span>' +
+                        '<span style="color:#1A1816;">· Importe: ' + escapeHtml(lineSubStr) + '</span>' +
                     '</div>' +
                 '</div>' +
                 '<div class="flex flex-wrap items-center gap-2 shrink-0 ml-auto">' +
-                    '<div class="flex items-center gap-1" title="Porcentaje de descuento en esta partida">' +
+                    '<div class="flex items-center gap-1" title="Descuento">' +
                         '<span class="text-[10px] font-bold uppercase opacity-70">Desc% (máx ' + bd.maxPct + ')</span>' +
                         '<input type="number" min="0" max="' + bd.maxPct + '" step="0.5" value="' + (ln.discountPct || 0) + '"' + disAttr + ' ' +
                                'onchange="setCartItemDiscount(\'' + escapeHtml(ln.key) + '\', this.value)" ' +
                                'class="w-14 rounded-lg border px-1.5 py-1 text-center text-xs font-bold outline-none" ' +
-                               'style="border-color:#E1DBC5; color:#252C32;">' +
+                               'style="border-color:#E6E1D8; color:#1A1816;">' +
                     '</div>' +
                     (locked
-                        ? ('<span class="px-2.5 py-1 rounded-full text-xs font-extrabold border" style="border-color:#E1DBC5; color:#252C32;">Cant: ' + ln.qty + '</span>')
+                        ? ('<span class="px-2.5 py-1 rounded-full text-xs font-extrabold border" style="border-color:#E6E1D8; color:#1A1816;">Cant: ' + ln.qty + '</span>')
                         : ('<div class="flex items-center gap-1">' +
-                            '<button type="button" title="Restar 1 pieza" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-7 h-7 rounded-full border text-sm font-bold hover:bg-red-50" style="border-color:#E1DBC5;">−</button>' +
+                            '<button type="button" title="Restar 1" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-8 h-8 rounded-full border text-sm font-bold hover:bg-red-50" style="border-color:#E6E1D8;">−</button>' +
                             '<span class="w-6 text-center text-xs font-extrabold">' + ln.qty + '</span>' +
-                            '<button type="button" title="Sumar 1 pieza" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-7 h-7 rounded-full border text-sm font-bold" style="border-color:#A38251; background:#A38251; color:#FFF;">+</button>' +
-                            '<button type="button" title="Quitar producto de la cotización" onclick="removeFromCart(\'' + escapeHtml(ln.key) + '\')" class="ml-1 px-2.5 h-7 rounded-full border text-[10px] font-extrabold uppercase tracking-wider transition" style="border-color:#FECACA; background:#FEF2F2; color:#991B1B;">✕ Quitar</button>' +
+                            '<button type="button" title="Sumar 1" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-8 h-8 rounded-full border text-sm font-bold" style="border-color:#9E7B4F; background:#9E7B4F; color:#FFF;">+</button>' +
+                            '<button type="button" title="Quitar" onclick="removeFromCart(\'' + escapeHtml(ln.key) + '\')" class="ml-1 px-2.5 h-8 rounded-full border text-[10px] font-extrabold uppercase tracking-wider transition" style="border-color:#F5BCBC; background:#FEF1F1; color:#9E1F1F;">✕</button>' +
                         '</div>')) +
                 '</div>' +
             '</div>';
         }).join('');
 
+        if (window.CreataGuard && typeof window.CreataGuard.protectImages === 'function') {
+            window.CreataGuard.protectImages(wrap);
+        }
         renderQuoteTotalsOnly();
     }
 
@@ -8169,24 +9244,29 @@
         };
     }
 
+    function buildFormalQuotePdfFileName(folio, clientName) {
+        const cleanFolio = cleanStr(folio).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'CREATA';
+        const cleanClient = cleanStr(clientName)
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+            .slice(0, 32);
+        return cleanClient
+            ? ('CREATA-muebles-cotización_' + cleanFolio + '_' + cleanClient + '.pdf')
+            : ('CREATA-muebles-cotización_' + cleanFolio + '.pdf');
+    }
+
     function buildFormattedQuoteText(payload) {
         const bd = payload.breakdown;
         const officialFolio = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.folio) || payload.orderCode || '';
-        const qidPart = (lastSubmittedQuoteMeta && lastSubmittedQuoteMeta.quoteId)
-            ? (' (ID ERP ' + lastSubmittedQuoteMeta.quoteId + ')')
-            : '';
         const lines = [
-            payload.isProyecto
-                ? 'COTIZACIÓN DE PROYECTO — CREATA MUEBLES'
-                : 'COTIZACIÓN DE TIENDA / BODEGA — CREATA MUEBLES',
-            'Folio S Mueblería: ' + officialFolio + qidPart,
-            (payload.isProyecto ? 'Modalidad / Área: PROYECTO · ' : 'Tienda / Bodega S Mueblería: ') + payload.erpStore,
-            'Asesor S Mueblería: ' + (payload.erpAdvisorLabel || payload.advisorName || ''),
-            'Cuenta Cotizador: ' + (payload.advisorEmail || ''),
-            (payload.isProyecto ? 'Proyecto / Cliente: ' : 'Cliente / Prospecto: ') + payload.clientName,
+            'CREATA-muebles-cotización',
+            'Folio: ' + officialFolio,
+            'Sucursal: ' + payload.erpStore,
+            'Asesor: ' + (payload.erpAdvisorLabel || payload.advisorName || ''),
+            'Cliente: ' + payload.clientName,
             payload.clientPhone ? ('Teléfono: ' + payload.clientPhone) : '',
-            payload.clientEmail ? ('Correo Cliente: ' + payload.clientEmail) : '',
-            'Entrega Tentativa: ' + payload.deliveryDate,
+            payload.clientEmail ? ('Correo: ' + payload.clientEmail) : '',
+            'Entrega: ' + payload.deliveryDate,
             payload.notes ? ('Notas: ' + payload.notes) : '',
             '----------------------------------------',
             'PARTIDAS:'
@@ -8205,11 +9285,11 @@
 
         lines.push('----------------------------------------');
         if (bd.extraDiscount > 0) {
-            lines.push('Descuento Extra: -' + formatPrice(bd.extraDiscount));
+            lines.push('Descuento: -' + formatPrice(bd.extraDiscount));
         }
-        lines.push('Subtotal (sin IVA): ' + (formatPrice(bd.subtotalNoIva) || '$0.00'));
+        lines.push('Subtotal: ' + (formatPrice(bd.subtotalNoIva) || '$0.00'));
         lines.push('IVA (16%): ' + (formatPrice(bd.ivaAmount) || '$0.00'));
-        lines.push('TOTAL COTIZACIÓN: ' + (formatPrice(bd.totalWithIva) || '$0.00'));
+        lines.push('TOTAL: ' + (formatPrice(bd.totalWithIva) || '$0.00'));
         return lines.join('\n');
     }
 
@@ -8237,64 +9317,60 @@
         const todayStr = formatDateDMY(new Date());
         const logoSrc = window.CREATA_LOGO_B64 || '';
         const folioTxt = (submittedMeta && submittedMeta.folio) || payload.orderCode || '';
-        const qidTxt = (submittedMeta && submittedMeta.quoteId) ? submittedMeta.quoteId : '';
-        const docHeading = payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización CREATA Muebles';
+        const docHeading = 'CREATA-muebles-cotización';
 
         const rowsHtml = bd.lines.map((ln, idx) =>
             '<tr>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (idx + 1) + '</td>' +
-                '<td style="padding:6px;border-bottom:1px solid #E8E4DE;text-align:center;">' +
-                    (ln.photoUrl ? ('<img src="' + escapeHtml(ln.photoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E8E4DE;border-radius:6px;background:#FFF;">') : '') +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (idx + 1) + '</td>' +
+                '<td style="padding:6px;border-bottom:1px solid #E6E1D8;text-align:center;">' +
+                    (ln.photoUrl ? ('<img src="' + escapeHtml(ln.photoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E6E1D8;border-radius:6px;background:#FFF;">') : '') +
                 '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;font-weight:600;">' + escapeHtml(ln.name) +
-                    (ln.measures ? ('<div style="font-size:10px;color:#6B7280;margin-top:2px;font-weight:400;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;font-weight:600;">' + escapeHtml(ln.name) +
+                    (ln.measures ? ('<div style="font-size:10px;color:#6F6860;margin-top:2px;font-weight:400;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
                 '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;font-weight:700;">' + ln.qty + '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:right;">' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (ln.discountPct > 0 ? (ln.discountPct + '%') : '0%') + '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:right;font-weight:700;">' + escapeHtml(formatPrice(ln.lineSubtotal) || '$0.00') + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;font-weight:700;">' + ln.qty + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:right;">' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (ln.discountPct > 0 ? (ln.discountPct + '%') : '0%') + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:right;font-weight:700;">' + escapeHtml(formatPrice(ln.lineSubtotal) || '$0.00') + '</td>' +
             '</tr>'
         ).join('');
 
         const win = window.open('', '_blank');
         if (!win) return;
         win.document.write(
-            '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>' + escapeHtml(docHeading) + ' — ' + escapeHtml(folioTxt) + ' — ' + escapeHtml(payload.clientName) + '</title>' +
-            '<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700;800&display=swap" rel="stylesheet">' +
-            '<style>body{font-family:Raleway,sans-serif;color:#252C32;margin:28px;font-size:12px;} ' +
-            'table{width:100%;border-collapse:collapse;margin-top:16px;} th{background:#252C32;color:#FFF;padding:9px 8px;text-transform:uppercase;font-size:11px;letter-spacing:0.04em;} ' +
-            '.box{border:1px solid #E1DBC5;border-radius:10px;padding:12px 14px;margin-top:12px;background:#FAF9F6;} ' +
+            '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>' + escapeHtml(docHeading) + (folioTxt ? (' — ' + escapeHtml(folioTxt)) : '') + ' — ' + escapeHtml(payload.clientName) + '</title>' +
+            '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">' +
+            '<style>body{font-family:"Plus Jakarta Sans",sans-serif;color:#1A1816;margin:28px;font-size:12px;} ' +
+            'table{width:100%;border-collapse:collapse;margin-top:16px;} th{background:#1A1816;color:#FFF;padding:9px 8px;text-transform:uppercase;font-size:11px;letter-spacing:0.04em;} ' +
+            '.box{border:1px solid #E6E1D8;border-radius:10px;padding:12px 14px;margin-top:12px;background:#F8F6F2;} ' +
             '@media print{.no-print{display:none!important;}}</style></head><body>' +
-            '<div style="display:flex;align-items:center;justify-content:space-between;background:#252C32;color:#FFF;padding:16px 20px;border-radius:12px;">' +
-                '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:48px;object-fit:contain;">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;background:#1A1816;color:#FFF;padding:16px 20px;border-radius:12px;">' +
+                '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:48px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                 '<div style="text-align:right;">' +
-                    '<div style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">' + escapeHtml(docHeading) + '</div>' +
-                    '<div style="color:#E1DBC5;font-size:11px;margin-top:3px;">Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>' +
-                        (qidTxt ? (' (ID ERP ' + escapeHtml(qidTxt) + ')') : '') +
-                    '</div>' +
-                    '<div style="color:#E1DBC5;font-size:11px;margin-top:2px;">Fecha: ' + escapeHtml(todayStr) + ' · ' + escapeHtml(payload.erpStore) + '</div>' +
+                    '<div style="font-size:15px;font-weight:800;letter-spacing:0.04em;">' + escapeHtml(docHeading) + '</div>' +
+                    '<div style="color:#DFCCB2;font-size:11px;margin-top:3px;">Folio: <strong>' + escapeHtml(folioTxt) + '</strong></div>' +
+                    '<div style="color:#DFCCB2;font-size:11px;margin-top:2px;">Fecha: ' + escapeHtml(todayStr) + ' · ' + escapeHtml(payload.erpStore) + '</div>' +
                 '</div>' +
             '</div>' +
             '<div class="box" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
-                '<div><strong>' + (payload.isProyecto ? 'Proyecto / Cliente:' : 'Cliente / Prospecto:') + '</strong> ' + escapeHtml(payload.clientName) + '</div>' +
-                '<div><strong>Tienda / Bodega S Mueblería:</strong> ' + escapeHtml(payload.erpStore) + '</div>' +
+                '<div><strong>Cliente:</strong> ' + escapeHtml(payload.clientName) + '</div>' +
+                '<div><strong>Sucursal:</strong> ' + escapeHtml(payload.erpStore) + '</div>' +
                 '<div><strong>Teléfono:</strong> ' + escapeHtml(payload.clientPhone || 'Por definir') + '</div>' +
-                '<div><strong>Entrega Tentativa:</strong> ' + escapeHtml(payload.deliveryDate) + '</div>' +
-                (payload.clientEmail ? ('<div><strong>Correo Cliente:</strong> ' + escapeHtml(payload.clientEmail) + '</div>') : '') +
-                '<div><strong>Asesor S Mueblería:</strong> ' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</div>' +
-                '<div><strong>Correo Cuenta:</strong> ' + escapeHtml(payload.advisorEmail || '') + '</div>' +
+                '<div><strong>Entrega:</strong> ' + escapeHtml(payload.deliveryDate) + '</div>' +
+                (payload.clientEmail ? ('<div><strong>Correo:</strong> ' + escapeHtml(payload.clientEmail) + '</div>') : '') +
+                '<div><strong>Asesor:</strong> ' + escapeHtml(payload.erpAdvisorLabel || payload.advisorName) + '</div>' +
                 (payload.notes ? ('<div style="grid-column:span 2;"><strong>Notas:</strong> ' + escapeHtml(payload.notes) + '</div>') : '') +
             '</div>' +
             '<table><thead><tr><th>#</th><th>Imagen</th><th style="text-align:left;">Descripción</th><th>Cant.</th><th style="text-align:right;">Precio Lista</th><th>% Desc.</th><th style="text-align:right;">Importe</th></tr></thead>' +
             '<tbody>' + rowsHtml + '</tbody></table>' +
-            '<div style="margin-left:auto;max-width:300px;margin-top:16px;border:1px solid #E1DBC5;border-radius:10px;padding:12px 14px;background:#FAF9F6;">' +
-                (bd.extraDiscount > 0 ? ('<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Descuento Extra:</span><strong>-' + escapeHtml(formatPrice(bd.extraDiscount)) + '</strong></div>') : '') +
-                '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Subtotal (sin IVA):</span><strong>' + escapeHtml(formatPrice(bd.subtotalNoIva) || '$0.00') + '</strong></div>' +
+            '<div style="margin-left:auto;max-width:300px;margin-top:16px;border:1px solid #E6E1D8;border-radius:10px;padding:12px 14px;background:#F8F6F2;">' +
+                (bd.extraDiscount > 0 ? ('<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Descuento:</span><strong>-' + escapeHtml(formatPrice(bd.extraDiscount)) + '</strong></div>') : '') +
+                '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span>Subtotal:</span><strong>' + escapeHtml(formatPrice(bd.subtotalNoIva) || '$0.00') + '</strong></div>' +
                 '<div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>IVA (16%):</span><strong>' + escapeHtml(formatPrice(bd.ivaAmount) || '$0.00') + '</strong></div>' +
-                '<div style="display:flex;justify-content:space-between;border-top:1px solid #E1DBC5;padding-top:8px;font-size:14px;font-weight:800;color:#A38251;"><span>TOTAL COTIZACIÓN:</span><span>' + escapeHtml(formatPrice(bd.totalWithIva) || '$0.00') + '</span></div>' +
+                '<div style="display:flex;justify-content:space-between;border-top:1px solid #E6E1D8;padding-top:8px;font-size:14px;font-weight:800;color:#9E7B4F;"><span>TOTAL:</span><span>' + escapeHtml(formatPrice(bd.totalWithIva) || '$0.00') + '</span></div>' +
             '</div>' +
             '<div class="no-print" style="margin-top:20px;text-align:right;">' +
-                '<button onclick="window.print()" style="background:#A38251;color:#FFF;border:none;padding:10px 20px;border-radius:999px;font-weight:800;cursor:pointer;text-transform:uppercase;">Imprimir / Guardar PDF</button>' +
+                '<button onclick="window.print()" style="background:#9E7B4F;color:#FFF;border:none;padding:10px 20px;border-radius:999px;font-weight:800;cursor:pointer;text-transform:uppercase;">Imprimir / Guardar PDF</button>' +
             '</div>' +
             '</body></html>'
         );
@@ -8308,78 +9384,8 @@
         openPrintableQuoteWindow(payload, lastSubmittedQuoteMeta);
     };
 
-    function openQuoteConfirmCreateModal(payload) {
-        const modalEl = document.getElementById('quoteConfirmCreateModal');
-        const titleEl = document.getElementById('quoteConfirmCreateTitle');
-        const sumEl = document.getElementById('quoteConfirmCreateSummary');
-        if (!modalEl || !sumEl) return;
-
-        const bd = (payload && payload.breakdown) || computeQuoteBreakdown();
-        const lines = (bd && Array.isArray(bd.lines)) ? bd.lines : [];
-        const totalQty = lines.reduce((s, ln) => s + (Number(ln && ln.qty) || 0), 0);
-
-        if (titleEl) {
-            titleEl.textContent = payload && payload.isProyecto
-                ? 'Confirmar Creación · Cotización Proyecto'
-                : 'Confirmar Creación de Cotización';
-        }
-
-        const linesHtml = lines.map((ln, idx) => {
-            const discBadge = (Number(ln.discountPct) || 0) > 0
-                ? (' <span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold" style="background:#ECFDF5;color:#065F46;">-' + escapeHtml(String(ln.discountPct)) + '%</span>')
-                : '';
-            return '<div class="flex items-start justify-between gap-2 py-1.5 border-b last:border-b-0" style="border-color:#E8E4DE;">' +
-                '<div class="min-w-0">' +
-                    '<div class="font-bold leading-snug">' + (idx + 1) + '. ' + escapeHtml(ln.name || ln.sku) + discBadge + '</div>' +
-                    '<div class="text-[10px] font-semibold opacity-75">SKU: ' + escapeHtml(ln.sku) + ' · Cant: <strong>' + ln.qty + '</strong> · P. Lista: ' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</div>' +
-                '</div>' +
-                '<div class="font-extrabold shrink-0 text-right">' + escapeHtml(formatPrice(ln.lineSubtotal) || '$0.00') + '</div>' +
-            '</div>';
-        }).join('');
-
-        sumEl.innerHTML =
-            '<div class="font-extrabold uppercase tracking-wider text-[11px]" style="color:#A38251;">' +
-                'Resumen de la cotización' +
-            '</div>' +
-            '<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11px]">' +
-                '<div><span class="opacity-75">' + (payload && payload.isProyecto ? 'Proyecto / Cliente:' : 'Cliente / Prospecto:') + '</span> <strong>' + escapeHtml((payload && payload.clientName) || '') + '</strong></div>' +
-                '<div><span class="opacity-75">Tienda / Bodega:</span> <strong>' + escapeHtml((payload && payload.erpStore) || '') + '</strong></div>' +
-                '<div><span class="opacity-75">Folio estimado:</span> <strong>' + escapeHtml((payload && payload.orderCode) || '') + '</strong></div>' +
-                '<div><span class="opacity-75">Entrega tentativa:</span> <strong>' + escapeHtml((payload && payload.deliveryDate) || '') + '</strong></div>' +
-                '<div class="sm:col-span-2"><span class="opacity-75">Asesor S Mueblería:</span> <strong>' + escapeHtml((payload && (payload.erpAdvisorLabel || payload.advisorName)) || '') + '</strong></div>' +
-                (payload && payload.clientPhone ? ('<div><span class="opacity-75">Teléfono:</span> <strong>' + escapeHtml(payload.clientPhone) + '</strong></div>') : '') +
-            '</div>' +
-            '<div class="pt-1.5 border-t" style="border-color:#E1DBC5;">' +
-                '<div class="text-[10px] font-extrabold uppercase tracking-wider mb-1 opacity-80">Partidas (' + lines.length + ' · ' + totalQty + (totalQty === 1 ? ' pieza' : ' piezas') + ')</div>' +
-                '<div class="max-h-40 overflow-y-auto pr-1">' + linesHtml + '</div>' +
-            '</div>' +
-            '<div class="pt-2 border-t space-y-1 text-[11px]" style="border-color:#E1DBC5;">' +
-                (bd && bd.extraDiscount > 0
-                    ? ('<div class="flex items-center justify-between"><span>Descuento extra:</span><strong style="color:#065F46;">-' + escapeHtml(formatPrice(bd.extraDiscount)) + '</strong></div>')
-                    : '') +
-                '<div class="flex items-center justify-between"><span>Subtotal (sin IVA):</span><strong>' + escapeHtml(formatPrice(bd && bd.subtotalNoIva) || '$0.00') + '</strong></div>' +
-                '<div class="flex items-center justify-between"><span>IVA (16%):</span><strong>' + escapeHtml(formatPrice(bd && bd.ivaAmount) || '$0.00') + '</strong></div>' +
-                '<div class="flex items-center justify-between pt-1 border-t text-xs font-extrabold uppercase" style="border-color:#E1DBC5;">' +
-                    '<span>Total Cotización:</span>' +
-                    '<span class="text-sm font-black" style="color:#A38251;">' + escapeHtml(formatPrice(bd && bd.totalWithIva) || '$0.00') + '</span>' +
-                '</div>' +
-            '</div>';
-
-        const confirmBtn = document.getElementById('btnConfirmCreateQuoteErp');
-        if (confirmBtn) confirmBtn.disabled = false;
-        modalEl.classList.add('open');
-        if (confirmBtn) setTimeout(() => confirmBtn.focus(), 40);
-    }
-
-    window.closeQuoteConfirmCreateModal = function () {
-        const modalEl = document.getElementById('quoteConfirmCreateModal');
-        if (modalEl) modalEl.classList.remove('open');
-    };
-
+    window.closeQuoteConfirmCreateModal = function () {};
     window.confirmCreateQuoteInErp = function () {
-        const confirmBtn = document.getElementById('btnConfirmCreateQuoteErp');
-        if (confirmBtn) confirmBtn.disabled = true;
-        window.closeQuoteConfirmCreateModal();
         window.submitQuoteToSystem(true, true);
     };
 
@@ -8425,7 +9431,7 @@
     function triggerBase64PdfBrowserDownload(base64Str, fileName) {
         const blob = base64ToPdfBlob(base64Str);
         const blobUrl = URL.createObjectURL(blob);
-        const safeName = cleanStr(fileName) || 'Cotizacion_SMuebleria.pdf';
+        const safeName = cleanStr(fileName) || 'CREATA-muebles-cotización.pdf';
         const link = document.createElement('a');
         link.href = blobUrl;
         link.download = /\.pdf$/i.test(safeName) ? safeName : (safeName + '.pdf');
@@ -8488,7 +9494,7 @@
 
         if (!qidClean && !folio) {
             if (!o.autoTriggered) {
-                setAcceptedModalPdfStatus('warn', '⏳ Esta cotización aún está en cola y todavía no cuenta con ID oficial en S Mueblería.');
+                setAcceptedModalPdfStatus('warn', '⏳ Cotización en proceso.');
             }
             return false;
         }
@@ -8500,15 +9506,15 @@
         const prevBtnHtml = activeBtn ? activeBtn.innerHTML : '';
 
         erpPdfDownloadInFlight = true;
-        if (activeBtn) {
+        if (activeBtn && !o.skipBrowserDownload) {
             activeBtn.disabled = true;
-            activeBtn.innerHTML = '⏳ Descargando PDF S Mueblería...';
+            activeBtn.innerHTML = '⏳ Descargando PDF...';
         }
-        if (modalPdfBtn && modalPdfBtn !== activeBtn) {
+        if (modalPdfBtn && modalPdfBtn !== activeBtn && !o.skipBrowserDownload) {
             modalPdfBtn.disabled = true;
         }
-        if (modalOpen) {
-            setAcceptedModalPdfStatus('warn', '⏳ Obteniendo el PDF original directo desde <strong>S Mueblería</strong>...');
+        if (modalOpen && !o.skipBrowserDownload) {
+            setAcceptedModalPdfStatus('warn', '⏳ Preparando PDF...');
         }
 
         let downloadedOk = false;
@@ -8526,14 +9532,7 @@
                 }, 45000);
 
                 if (res && res.authRequired) {
-                    if (o.autoTriggered) {
-                        if (modalOpen) {
-                            setAcceptedModalPdfStatus(
-                                'warn',
-                                '<div>Presiona <strong>⬇ Descargar PDF Original S Mueblería</strong> para confirmar tu contraseña y bajar el archivo.</div>'
-                            );
-                        }
-                    } else {
+                    if (!o.autoTriggered) {
                         pendingPdfDownloadRetryOpts = {
                             quoteId: qidClean,
                             folio: folio,
@@ -8544,7 +9543,7 @@
                             triggerBtn: o.triggerBtn || null
                         };
                         promptSessionReauth(
-                            res.error || 'Confirma tu contraseña personal para descargar el PDF original de S Mueblería.',
+                            res.error || 'Confirma tu contraseña para descargar el PDF.',
                             null
                         );
                     }
@@ -8552,15 +9551,21 @@
                 }
 
                 if (res && res.ok && res.pdfBase64) {
-                    const rawName = cleanStr(res.fileName) || ('Cotizacion_SMuebleria_' + (folio || ('ID_' + qidClean)) + '.pdf');
-                    const finalFile = /\.pdf$/i.test(rawName) ? rawName : (rawName + '.pdf');
+                    const finalFile = buildFormalQuotePdfFileName(folio || ('ID-' + qidClean), cli);
                     const pdfBlob = o.skipBrowserDownload
                         ? base64ToPdfBlob(res.pdfBase64)
                         : triggerBase64PdfBrowserDownload(res.pdfBase64, finalFile);
+                    let pdfFileObj = null;
+                    try {
+                        if (typeof File === 'function') {
+                            pdfFileObj = new File([pdfBlob], finalFile, { type: 'application/pdf' });
+                        }
+                    } catch (eFile) {}
                     if (lastAcceptedQuoteSnapshot) {
                         lastAcceptedQuoteSnapshot.pdfBase64 = res.pdfBase64;
                         lastAcceptedQuoteSnapshot.pdfFileName = finalFile;
                         lastAcceptedQuoteSnapshot.pdfBlob = pdfBlob;
+                        lastAcceptedQuoteSnapshot.pdfFile = pdfFileObj;
                         if (cleanStr(res.pdfDriveUrl)) {
                             lastAcceptedQuoteSnapshot.pdfDriveUrl = cleanStr(res.pdfDriveUrl);
                         }
@@ -8570,60 +9575,54 @@
                         persistAcceptedQuoteModalCheckpoint();
                     }
                     downloadedOk = true;
-                    if (modalOpen) {
-                        setAcceptedModalPdfStatus(
-                            'ok',
-                            '✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(finalFile) + '</strong>'
-                        );
-                    } else if (!o.triggerBtn) {
-                        renderQuoteStatusBanner(
-                            'ok',
-                            '<div>✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(finalFile) + '</strong></div>'
-                        );
-                    }
-                    if (activeBtn) {
-                        activeBtn.innerHTML = '✓ PDF S Mueblería Descargado';
-                        setTimeout(() => {
-                            if (activeBtn) activeBtn.innerHTML = prevBtnHtml;
-                        }, 2600);
+                    if (!o.skipBrowserDownload) {
+                        if (modalOpen) {
+                            setAcceptedModalPdfStatus('ok', '✓ PDF descargado: <strong>' + escapeHtml(finalFile) + '</strong>');
+                        } else if (!o.triggerBtn) {
+                            renderQuoteStatusBanner('ok', '<div>✓ PDF descargado: <strong>' + escapeHtml(finalFile) + '</strong></div>');
+                        }
+                        if (activeBtn) {
+                            activeBtn.innerHTML = '✓ PDF descargado';
+                            setTimeout(() => {
+                                if (activeBtn) activeBtn.innerHTML = prevBtnHtml;
+                            }, 2200);
+                        }
+                    } else if (modalOpen) {
+                        setAcceptedModalPdfStatus('ok', '✓ PDF listo: <strong>' + escapeHtml(finalFile) + '</strong>');
                     }
                     return true;
                 }
 
                 if (res && (res.needsRedeploy || res.unavailable)) {
-                    const redeployHtml =
-                        '<div>Para activar la descarga automática del PDF original de S Mueblería, publica una <strong>Nueva versión</strong> de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.</div>';
-                    if (modalOpen) {
-                        setAcceptedModalPdfStatus('warn', redeployHtml);
-                    } else {
-                        renderQuoteStatusBanner('warn', redeployHtml);
+                    if (!o.skipBrowserDownload) {
+                        const msgHtml = '<div>PDF temporalmente no disponible.</div>';
+                        if (modalOpen) setAcceptedModalPdfStatus('warn', msgHtml);
+                        else renderQuoteStatusBanner('warn', msgHtml);
                     }
                     return false;
                 }
 
-                const errMsg = cleanStr((res && res.error) || 'S Mueblería no entregó el PDF en este intento.');
-                if (modalOpen) {
-                    setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(errMsg));
-                } else {
-                    renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(errMsg) + '</div>');
+                if (!o.skipBrowserDownload) {
+                    const errMsg = cleanStr((res && res.error) || 'No se pudo obtener el PDF.');
+                    if (modalOpen) setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(errMsg));
+                    else renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(errMsg) + '</div>');
                 }
                 return false;
             } catch (dlErr) {
-                const msg = cleanStr((dlErr && dlErr.message) || dlErr || 'Error de conexión al descargar el PDF.');
-                if (modalOpen) {
-                    setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(msg));
-                } else {
-                    renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(msg) + '</div>');
+                if (!o.skipBrowserDownload) {
+                    const msg = cleanStr((dlErr && dlErr.message) || dlErr || 'Error de conexión al descargar el PDF.');
+                    if (modalOpen) setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(msg));
+                    else renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(msg) + '</div>');
                 }
                 return false;
             } finally {
                 erpPdfDownloadInFlight = false;
                 erpPdfDownloadPromise = null;
-                if (activeBtn) {
+                if (activeBtn && !o.skipBrowserDownload) {
                     activeBtn.disabled = false;
                     if (!downloadedOk) activeBtn.innerHTML = prevBtnHtml;
                 }
-                if (modalPdfBtn && modalPdfBtn !== activeBtn) {
+                if (modalPdfBtn && modalPdfBtn !== activeBtn && !o.skipBrowserDownload) {
                     modalPdfBtn.disabled = false;
                 }
             }
@@ -8634,16 +9633,15 @@
 
     window.downloadAcceptedQuoteOriginalPdf = function (btnEl) {
         const snap = lastAcceptedQuoteSnapshot;
-        if (snap && snap.pdfBase64 && snap.pdfFileName) {
-            triggerBase64PdfBrowserDownload(snap.pdfBase64, snap.pdfFileName);
-            setAcceptedModalPdfStatus(
-                'ok',
-                '✓ PDF original de S Mueblería descargado: <strong>' + escapeHtml(snap.pdfFileName) + '</strong>'
-            );
-            return Promise.resolve(true);
-        }
         const meta = (snap && snap.submittedMeta) || lastSubmittedQuoteMeta || {};
         const pay = (snap && snap.payload) || {};
+        if (snap && snap.pdfBase64) {
+            const formalName = buildFormalQuotePdfFileName(meta.folio || meta.orderCode || pay.orderCode || '', pay.clientName || '');
+            snap.pdfFileName = formalName;
+            triggerBase64PdfBrowserDownload(snap.pdfBase64, formalName);
+            setAcceptedModalPdfStatus('ok', '✓ PDF descargado: <strong>' + escapeHtml(formalName) + '</strong>');
+            return Promise.resolve(true);
+        }
         return window.downloadOriginalErpQuotePdf({
             quoteId: meta.quoteId || '',
             folio: meta.folio || meta.orderCode || '',
@@ -8651,6 +9649,7 @@
             clientName: pay.clientName || '',
             erpStore: pay.erpStore || '',
             autoTriggered: false,
+            skipBrowserDownload: false,
             triggerBtn: btnEl || document.getElementById('btnDownloadErpPdfModal')
         });
     };
@@ -8736,9 +9735,8 @@
             const doc = decodeQuoteDocToken(token);
             if (!doc || typeof doc !== 'object') return false;
 
-            const docHeading = doc.p ? 'Cotización de Proyecto' : 'Cotización CREATA Muebles';
+            const docHeading = 'CREATA-muebles-cotización';
             const folioTxt = cleanStr(doc.f) || 'En proceso';
-            const qidTxt = cleanStr(doc.q);
             const logoSrc = window.CREATA_LOGO_B64 || '';
             const items = Array.isArray(doc.i) ? doc.i : [];
 
@@ -8753,41 +9751,39 @@
                 const liveIt = sku ? bySkuMap.get(sku.toUpperCase()) : null;
                 const photoUrl = liveIt ? photoUrlForItem(liveIt) : '';
                 return '<tr>' +
-                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (idx + 1) + '</td>' +
-                    '<td style="padding:8px;border-bottom:1px solid #E8E4DE;text-align:center;">' +
-                        (photoUrl ? ('<img src="' + escapeHtml(photoUrl) + '" style="width:60px;height:60px;object-fit:contain;border:1px solid #E8E4DE;border-radius:8px;background:#FFF;">') : '<span style="font-size:10px;color:#9CA3AF;">' + escapeHtml(sku) + '</span>') +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (idx + 1) + '</td>' +
+                    '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' +
+                        (photoUrl ? ('<img src="' + escapeHtml(photoUrl) + '" style="width:60px;height:60px;object-fit:contain;border:1px solid #E6E1D8;border-radius:8px;background:#FFF;">') : '<span style="font-size:10px;color:#6F6860;">' + escapeHtml(sku) + '</span>') +
                     '</td>' +
-                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;font-weight:700;">' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;font-weight:700;">' +
                         escapeHtml(name) +
-                        (sku ? ('<div style="font-size:10px;color:#A38251;margin-top:2px;">SKU: ' + escapeHtml(sku) + '</div>') : '') +
-                        (measures ? ('<div style="font-size:10px;color:#6B7280;margin-top:2px;font-weight:500;">Medidas: ' + escapeHtml(measures) + '</div>') : '') +
+                        (sku ? ('<div style="font-size:10px;color:#9E7B4F;margin-top:2px;">SKU: ' + escapeHtml(sku) + '</div>') : '') +
+                        (measures ? ('<div style="font-size:10px;color:#6F6860;margin-top:2px;font-weight:500;">Medidas: ' + escapeHtml(measures) + '</div>') : '') +
                     '</td>' +
-                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:center;font-weight:800;">' + qty + '</td>' +
-                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:right;">' + escapeHtml(formatPrice(unitList) || '$0.00') + '</td>' +
-                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:center;">' + (discPct > 0 ? (discPct + '%') : '0%') + '</td>' +
-                    '<td style="padding:10px 8px;border-bottom:1px solid #E8E4DE;text-align:right;font-weight:800;">' + escapeHtml(formatPrice(lineSubtotal) || '$0.00') + '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;text-align:center;font-weight:800;">' + qty + '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;text-align:right;">' + escapeHtml(formatPrice(unitList) || '$0.00') + '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (discPct > 0 ? (discPct + '%') : '0%') + '</td>' +
+                    '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;text-align:right;font-weight:800;">' + escapeHtml(formatPrice(lineSubtotal) || '$0.00') + '</td>' +
                 '</tr>';
             }).join('');
 
             document.title = docHeading + ' — ' + folioTxt + ' — ' + cleanStr(doc.c || 'CREATA Muebles');
             document.body.innerHTML =
-                '<div style="max-width:920px;margin:24px auto;padding:0 16px;font-family:Raleway,sans-serif;color:#252C32;font-size:12px;">' +
-                    '<div class="no-print" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;background:#FFFFFF;border:1px solid #E1DBC5;padding:12px 16px;border-radius:14px;box-shadow:0 4px 14px rgba(0,0,0,0.05);">' +
-                        '<div style="font-weight:800;font-size:13px;color:#252C32;">📄 Documento Oficial de Cotización · CREATA Muebles</div>' +
+                '<div style="max-width:920px;margin:24px auto;padding:0 16px;font-family:\'Plus Jakarta Sans\',sans-serif;color:#1A1816;font-size:12px;">' +
+                    '<div class="no-print" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;background:#FFFFFF;border:1px solid #E6E1D8;padding:12px 16px;border-radius:14px;">' +
+                        '<div style="font-weight:800;font-size:13px;color:#1A1816;">' + escapeHtml(docHeading) + '</div>' +
                         '<div style="display:flex;flex-wrap:wrap;gap:8px;">' +
-                            (doc.u ? ('<a href="' + escapeHtml(doc.u) + '" target="_blank" rel="noopener" style="background:#252C32;color:#FFF;text-decoration:none;padding:9px 16px;border-radius:999px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">⬇ PDF Original S Mueblería</a>') : '') +
-                            '<button type="button" onclick="window.print()" style="background:#A38251;color:#FFF;border:none;padding:9px 18px;border-radius:999px;font-weight:800;font-size:11px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;">🖨️ Imprimir / Guardar PDF</button>' +
+                            (doc.u ? ('<a href="' + escapeHtml(doc.u) + '" target="_blank" rel="noopener" style="background:#1A1816;color:#FFF;text-decoration:none;padding:9px 16px;border-radius:999px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">⬇ Descargar PDF</a>') : '') +
+                            '<button type="button" onclick="window.print()" style="background:#9E7B4F;color:#FFF;border:none;padding:9px 18px;border-radius:999px;font-weight:800;font-size:11px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;">Imprimir / PDF</button>' +
                         '</div>' +
                     '</div>' +
-                    '<div style="background:#FFFFFF;border:1px solid #E1DBC5;border-radius:16px;padding:22px;box-shadow:0 8px 24px rgba(0,0,0,0.06);">' +
-                        '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:#252C32;color:#FFF;padding:16px 20px;border-radius:12px;">' +
-                            '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:46px;object-fit:contain;">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+                    '<div style="background:#FFFFFF;border:1px solid #E6E1D8;border-radius:16px;padding:22px;">' +
+                        '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:#1A1816;color:#FFF;padding:16px 20px;border-radius:12px;">' +
+                            '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:46px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                             '<div style="text-align:right;">' +
-                                '<div style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">' + escapeHtml(docHeading) + '</div>' +
-                                '<div style="color:#E1DBC5;font-size:12px;margin-top:3px;">Folio S Mueblería: <strong>' + escapeHtml(folioTxt) + '</strong>' +
-                                    (qidTxt ? (' (ID ERP ' + escapeHtml(qidTxt) + ')') : '') +
-                                '</div>' +
-                                '<div style="color:#E1DBC5;font-size:11px;margin-top:2px;">Fecha: ' + escapeHtml(cleanStr(doc.d)) + (doc.s ? (' · ' + escapeHtml(doc.s)) : '') + '</div>' +
+                                '<div style="font-size:15px;font-weight:800;letter-spacing:0.04em;">' + escapeHtml(docHeading) + '</div>' +
+                                '<div style="color:#DFCCB2;font-size:12px;margin-top:3px;">Folio: <strong>' + escapeHtml(folioTxt) + '</strong></div>' +
+                                '<div style="color:#DFCCB2;font-size:11px;margin-top:2px;">Fecha: ' + escapeHtml(cleanStr(doc.d)) + (doc.s ? (' · ' + escapeHtml(doc.s)) : '') + '</div>' +
                             '</div>' +
                         '</div>' +
                         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;border:1px solid #E1DBC5;border-radius:12px;padding:14px 16px;margin-top:14px;background:#FAF9F6;">' +
@@ -8838,7 +9834,7 @@
         return '';
     }
 
-    window.sendAcceptedQuoteToClientWhatsApp = async function (btnEl) {
+    window.sendAcceptedQuoteToClientWhatsApp = function () {
         let snap = lastAcceptedQuoteSnapshot;
         if (!snap || !snap.payload) {
             const fallbackPayload = collectQuoteSubmissionPayload(false);
@@ -8853,18 +9849,20 @@
         const payload = snap.payload || collectQuoteSubmissionPayload(false);
         const metaObj = snap.submittedMeta || lastSubmittedQuoteMeta || {};
         const folioTxt = cleanStr((metaObj && (metaObj.folio || metaObj.orderCode)) || (payload && payload.orderCode)) || 'En proceso';
-        const qidTxt = cleanStr(metaObj && metaObj.quoteId);
+        const cliName = cleanStr(payload.clientName) || 'Cliente';
+        const advName = cleanStr((payload.erpAdvisorLabel || payload.advisorName || '')).split('|')[0].trim() || 'Asesor CREATA';
+        const storeName = cleanStr(payload.erpStore) || 'CREATA Muebles';
 
         let phone10 = extractClientPhone10Digits(payload.clientPhone || quoteDraftMeta.clientPhone);
         if (!phone10) {
             const prompted = window.prompt(
-                'Ingresa el número de WhatsApp del cliente (10 dígitos) para enviarle la cotización ' + folioTxt + ':',
+                'WhatsApp del cliente (10 dígitos):',
                 cleanStr(payload.clientPhone || quoteDraftMeta.clientPhone)
             );
             if (prompted === null) return;
             phone10 = extractClientPhone10Digits(prompted);
             if (!phone10) {
-                setAcceptedModalPdfStatus('warn', '⚠️ Ingresa un número de WhatsApp válido de 10 dígitos para enviar la cotización al cliente.');
+                setAcceptedModalPdfStatus('warn', '⚠️ Ingresa 10 dígitos válidos.');
                 return;
             }
             payload.clientPhone = phone10;
@@ -8872,11 +9870,11 @@
             const phoneInp = document.getElementById('quoteClientPhoneInput');
             if (phoneInp) phoneInp.value = phone10;
             try {
-                localStorage.setItem(QUOTE_META_STORAGE, JSON.stringify(quoteDraftMeta));
+                const jsonMeta = JSON.stringify(quoteDraftMeta);
+                localStorage.setItem(QUOTE_META_STORAGE, jsonMeta);
+                localStorage.setItem(QUOTE_META_STORAGE_ALT, jsonMeta);
             } catch (e) {}
-            if (typeof syncActiveQuoteDraftStorage === 'function') {
-                syncActiveQuoteDraftStorage();
-            }
+            if (typeof syncActiveQuoteDraftStorage === 'function') syncActiveQuoteDraftStorage();
             try {
                 const segPhones = JSON.parse(localStorage.getItem('creata_seg_phones_v1') || '{}');
                 if (folioTxt) segPhones[folioTxt] = phone10;
@@ -8897,79 +9895,38 @@
             persistAcceptedQuoteModalCheckpoint();
         }
 
-        const activeBtn = btnEl || document.getElementById('btnSendAcceptedQuoteWhatsApp');
-        const prevBtnHtml = activeBtn ? activeBtn.innerHTML : '';
-
-        if (erpPdfDownloadInFlight && erpPdfDownloadPromise) {
-            if (activeBtn) {
-                activeBtn.disabled = true;
-                activeBtn.innerHTML = '⏳ Preparando PDF...';
-            }
-            setAcceptedModalPdfStatus('warn', '⏳ Terminando de preparar el documento PDF de la cotización para colocarlo en WhatsApp...');
-            await Promise.race([
-                erpPdfDownloadPromise.catch(() => false),
-                new Promise(r => setTimeout(r, 6000))
-            ]);
-            if (activeBtn) {
-                activeBtn.disabled = false;
-                activeBtn.innerHTML = prevBtnHtml;
-            }
-        } else if (!snap.pdfBase64 && !snap.isQueued && (qidTxt || folioTxt) && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
-            window.downloadOriginalErpQuotePdf({
-                quoteId: qidTxt,
-                folio: folioTxt,
-                erpUserId: metaObj.erpUserId || payload.erpAdvisorId || '',
-                clientName: payload.clientName || '',
-                erpStore: payload.erpStore || '',
-                autoTriggered: true
-            });
+        // Handoff inmediato SIN texto predefinido, SIN ?text=, SIN enlaces
+        const isTouchMobile = (typeof window !== 'undefined') && (window.innerWidth < 1024) && ('ontouchstart' in window || (navigator && navigator.maxTouchPoints > 0));
+        let pdfFileObj = snap.pdfFile || null;
+        if (!pdfFileObj && snap.pdfBlob && typeof File === 'function') {
+            try {
+                const formalName = snap.pdfFileName || buildFormalQuotePdfFileName(folioTxt, cliName);
+                pdfFileObj = new File([snap.pdfBlob], formalName, { type: 'application/pdf' });
+                snap.pdfFile = pdfFileObj;
+            } catch (eFile) {}
         }
 
-        const docUrl = buildShareableQuoteDocumentUrl(payload, metaObj, snap.pdfDriveUrl || '');
-        const cliName = cleanStr(payload.clientName) || 'Cliente';
-        const advName = cleanStr((payload.erpAdvisorLabel || payload.advisorName || '')).split('|')[0].trim() || 'Asesor CREATA';
-        const storeName = cleanStr(payload.erpStore) || 'CREATA Muebles';
-        const bd = payload.breakdown || computeQuoteBreakdown();
-        const lines = Array.isArray(bd && bd.lines) ? bd.lines : [];
-        const itemsBlock = lines.map(ln => {
-            const discTxt = (Number(ln.discountPct) || 0) > 0 ? (' (-' + ln.discountPct + '%)') : '';
-            return '• *' + (Number(ln.qty) || 1) + 'x* ' + cleanStr(ln.name || ln.sku) + discTxt + ' — *' + (formatPrice(ln.lineSubtotal) || '$0.00') + '*';
-        }).join('\n');
-        const totalFmt = formatPrice(bd && bd.totalWithIva) || '$0.00';
-
-        const msgParts = [
-            'Hola *' + cliName + '*, un gusto saludarte.',
-            'Te comparto tu cotización oficial de *CREATA Muebles*:',
-            '',
-            '📋 *Folio S Mueblería:* ' + folioTxt,
-            '🏬 *Sucursal:* ' + storeName,
-            '👤 *Asesor:* ' + advName,
-            payload.deliveryDate ? ('🚚 *Entrega tentativa:* ' + payload.deliveryDate) : '',
-            '',
-            '🛋️ *Partidas cotizadas:*',
-            itemsBlock,
-            (bd && bd.extraDiscount > 0) ? ('🏷️ *Descuento adicional:* -' + formatPrice(bd.extraDiscount)) : '',
-            '💰 *Total Cotización (IVA incluido):* ' + totalFmt,
-            '',
-            '📄 *Documento de Cotización (Abrir / Descargar PDF):*',
-            docUrl
-        ].filter(Boolean);
-
-        if (snap.pdfDriveUrl) {
-            msgParts.push('');
-            msgParts.push('📥 *PDF Original S Mueblería:*');
-            msgParts.push(snap.pdfDriveUrl);
+        let sharedViaNative = false;
+        if (isTouchMobile && pdfFileObj && typeof navigator !== 'undefined' && typeof navigator.canShare === 'function' && typeof navigator.share === 'function') {
+            try {
+                if (navigator.canShare({ files: [pdfFileObj] })) {
+                    sharedViaNative = true;
+                    navigator.share({ files: [pdfFileObj] }).catch(function () {});
+                }
+            } catch (eShare) {
+                sharedViaNative = false;
+            }
         }
-        msgParts.push('');
-        msgParts.push('Quedo pendiente de cualquier duda o comentario para apoyarte.');
 
-        const msgText = msgParts.join('\n');
-        const waUrl = 'https://wa.me/52' + phone10 + '?text=' + encodeURIComponent(msgText);
-        window.open(waUrl, '_blank', 'noopener');
+        if (!sharedViaNative) {
+            window.open('https://wa.me/52' + phone10, '_blank', 'noopener');
+        }
 
         setAcceptedModalPdfStatus(
             'ok',
-            '✓ WhatsApp abierto para <strong>' + escapeHtml(cliName) + '</strong> (<strong>' + escapeHtml(phone10) + '</strong>) con el documento de la cotización colocado.'
+            sharedViaNative
+                ? '✓ Compartiendo PDF con <strong>' + escapeHtml(cliName) + '</strong>.'
+                : '✓ Chat abierto con <strong>' + escapeHtml(cliName) + '</strong> (' + escapeHtml(phone10) + ').'
         );
 
         try {
@@ -8979,6 +9936,7 @@
         } catch (eContact) {}
 
         callInvWebAppPost('seg_action', {
+            authToken: (activeAdvisorSession && activeAdvisorSession.authToken) || '',
             subAction: 'SEG_WHATSAPP',
             folio: folioTxt,
             usuario: advName,
@@ -9002,14 +9960,20 @@
         const totalQty = (bd && Array.isArray(bd.lines))
             ? bd.lines.reduce((s, ln) => s + (Number(ln && ln.qty) || 0), 0)
             : 0;
+        const formalFileName = buildFormalQuotePdfFileName(folioTxt || ('ID-' + qidTxt), payload && payload.clientName);
+        const prevSnap = lastAcceptedQuoteSnapshot;
+        const prevFolio = prevSnap ? cleanStr((prevSnap.submittedMeta && (prevSnap.submittedMeta.folio || prevSnap.submittedMeta.orderCode)) || (prevSnap.payload && prevSnap.payload.orderCode)) : '';
+        const samePrevQuote = !!(prevSnap && folioTxt && prevFolio && prevFolio === folioTxt);
         lastAcceptedQuoteSnapshot = {
             payload: payload,
             submittedMeta: metaObj ? Object.assign({}, metaObj) : null,
             isQueued: !!o.isQueued,
-            pdfBase64: (o.pdfBase64 || (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.pdfBase64)) || '',
-            pdfFileName: (o.pdfFileName || (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.pdfFileName)) || '',
-            pdfDriveUrl: (o.pdfDriveUrl || (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.pdfDriveUrl)) || '',
-            pdfDownloadUrl: (o.pdfDownloadUrl || (lastAcceptedQuoteSnapshot && lastAcceptedQuoteSnapshot.pdfDownloadUrl)) || ''
+            pdfBase64: (o.pdfBase64 || (samePrevQuote && prevSnap.pdfBase64)) || '',
+            pdfFileName: formalFileName,
+            pdfBlob: samePrevQuote ? (prevSnap.pdfBlob || null) : null,
+            pdfFile: samePrevQuote ? (prevSnap.pdfFile || null) : null,
+            pdfDriveUrl: (o.pdfDriveUrl || (samePrevQuote && prevSnap.pdfDriveUrl)) || '',
+            pdfDownloadUrl: (o.pdfDownloadUrl || (samePrevQuote && prevSnap.pdfDownloadUrl)) || ''
         };
         persistAcceptedQuoteModalCheckpoint();
 
@@ -9024,30 +9988,43 @@
             const hasErpRef = !o.isQueued && !!(qidTxt || folioTxt);
             pdfBtn.classList.toggle('hidden', !hasErpRef);
             pdfBtn.disabled = false;
-            pdfBtn.innerHTML = '⬇ Descargar PDF Original S Mueblería';
+            pdfBtn.innerHTML = '⬇ Descargar PDF';
         }
 
         if (titleEl) {
-            titleEl.textContent = o.isQueued ? 'Cotización en Cola Automática' : 'Cotización Creada en S Mueblería';
+            titleEl.textContent = o.isQueued ? 'CREATA-muebles-cotización · En cola' : 'CREATA-muebles-cotización';
         }
-        sumEl.style.background = o.isQueued ? '#FFFBEB' : '#ECFDF5';
-        sumEl.style.borderColor = o.isQueued ? '#FDE68A' : '#A7F3D0';
-        sumEl.style.color = o.isQueued ? '#92400E' : '#065F46';
+        sumEl.style.background = o.isQueued ? '#FEF7EA' : '#EDF8F2';
+        sumEl.style.borderColor = o.isQueued ? '#F5D59B' : '#B5E4CC';
+        sumEl.style.color = o.isQueued ? '#8E5409' : '#146342';
 
         sumEl.innerHTML =
             '<div class="font-extrabold uppercase">' +
-                (o.isQueued ? '⏳ Cotización guardada en cola automática' : '✓ Cotización creada correctamente') +
+                (o.isQueued ? '⏳ Cotización en cola' : '✓ Cotización creada') +
             '</div>' +
-            (folioTxt ? ('<div>Folio S Mueblería: <strong class="text-sm">' + escapeHtml(folioTxt) + '</strong>' + (qidTxt ? (' · ID ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') + '</div>') : '') +
-            '<div>Cliente / Proyecto: <strong>' + escapeHtml((payload && payload.clientName) || 'Por definir') + '</strong>' +
+            (folioTxt ? ('<div>Folio: <strong class="text-sm">' + escapeHtml(folioTxt) + '</strong></div>') : '') +
+            '<div>Cliente: <strong>' + escapeHtml((payload && payload.clientName) || 'Por definir') + '</strong>' +
                 (payload && payload.clientPhone ? (' · Tel: <strong>' + escapeHtml(payload.clientPhone) + '</strong>') : '') +
             '</div>' +
-            '<div>Asesor S Mueblería: <strong>' + escapeHtml((payload && (payload.erpAdvisorLabel || payload.advisorName)) || '') + '</strong></div>' +
-            '<div>Tienda / Bodega: <strong>' + escapeHtml((payload && payload.erpStore) || '') + '</strong> · Piezas: <strong>' + totalQty + '</strong> · Total: <strong>' + escapeHtml(formatPrice(bd && bd.totalWithIva) || '$0.00') + '</strong></div>';
+            '<div>Asesor: <strong>' + escapeHtml((payload && (payload.erpAdvisorLabel || payload.advisorName)) || '') + '</strong></div>' +
+            '<div>Sucursal: <strong>' + escapeHtml((payload && payload.erpStore) || '') + '</strong> · Piezas: <strong>' + totalQty + '</strong> · Total: <strong>' + escapeHtml(formatPrice(bd && bd.totalWithIva) || '$0.00') + '</strong></div>';
 
         modalEl.classList.add('open');
-        const acceptBtn = document.getElementById('btnAcceptGeneratedQuote');
-        if (acceptBtn) setTimeout(() => acceptBtn.focus(), 40);
+        if (!invWorkspaceRestoring && window.CreataLiveAlerts && typeof window.CreataLiveAlerts.notifyQuoteCreated === 'function') {
+            const alertPayload = {
+                folio: folioTxt || ('ID-' + qidTxt),
+                clientName: (payload && payload.clientName) || 'Cliente',
+                erpStore: (payload && payload.erpStore) || '',
+                advisorName: (payload && (payload.erpAdvisorLabel || payload.advisorName)) || '',
+                total: formatPrice(bd && bd.totalWithIva) || '$0.00',
+                isQueued: !!o.isQueued
+            };
+            setTimeout(function () {
+                if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.notifyQuoteCreated === 'function') {
+                    window.CreataLiveAlerts.notifyQuoteCreated(alertPayload);
+                }
+            }, 450);
+        }
     }
 
     window.acceptGeneratedQuoteAndReset = function () {
@@ -9057,8 +10034,8 @@
         purgeCompletedAndActivateBlankDraft();
         const cartScroll = document.querySelector('#cartModal .overflow-y-auto');
         if (cartScroll) cartScroll.scrollTop = 0;
-        const nameInp = document.getElementById('quoteClientNameInput');
-        if (nameInp && !nameInp.disabled) setTimeout(() => nameInp.focus(), 40);
+        window.closeCartModal();
+        scheduleSaveInvWorkspaceCheckpoint();
     };
 
     window.printAcceptedQuoteSnapshot = function () {
@@ -9139,28 +10116,22 @@
             return;
         }
 
-        // Solicitar confirmación explícita antes de crear la cotización
-        if (sendToErp && !confirmed) {
-            openQuoteConfirmCreateModal(payload);
-            return;
-        }
-
-        window.closeQuoteConfirmCreateModal();
-
+        // Creación directa en 1 paso sin modal intermedio de confirmación
         const btnRev = document.getElementById('btnLoadPlantillaReview');
         const btnSend = document.getElementById('btnSendQuoteErp');
         quoteSubmitInFlight = true;
         if (btnRev) btnRev.disabled = true;
-        if (btnSend) btnSend.disabled = true;
+        if (btnSend) {
+            btnSend.disabled = true;
+            btnSend.textContent = 'Creando...';
+        }
 
         renderQuoteStatusBanner(
             'warn',
             '<div class="font-extrabold uppercase">' +
-                (sendToErp
-                    ? ('Enviando ' + (payload.isProyecto ? 'Cotización de Proyecto' : 'Cotización') + '...')
-                    : 'Cargando cotización en revisión en Google Sheets...') +
+                (sendToErp ? 'Creando cotización...' : 'Guardando revisión...') +
             '</div>' +
-            '<div>Tienda / Bodega: <strong>' + escapeHtml(payload.erpStore) + '</strong> · Folio S Mueblería estimado: <strong>' + escapeHtml(payload.orderCode) + '</strong> · Usuario ERP: <strong>' + escapeHtml(payload.erpAdvisorLabel || payload.advisorEmail) + '</strong></div>'
+            '<div>Sucursal: <strong>' + escapeHtml(payload.erpStore) + '</strong> · Folio: <strong>' + escapeHtml(payload.orderCode) + '</strong></div>'
         );
 
         try {
@@ -9169,11 +10140,11 @@
             if (res && res.authRequired) {
                 renderQuoteStatusBanner(
                     'warn',
-                    '<div class="font-extrabold uppercase">Verificación de titular requerida</div>' +
-                    '<div>' + escapeHtml(res.error || 'Confirma tu contraseña personal para emitir esta cotización.') + '</div>'
+                    '<div class="font-extrabold uppercase">Verificación requerida</div>' +
+                    '<div>' + escapeHtml(res.error || 'Confirma tu contraseña para continuar.') + '</div>'
                 );
                 promptSessionReauth(
-                    res.error || 'Confirma tu contraseña personal para emitir tu cotización.',
+                    res.error || 'Confirma tu contraseña para emitir tu cotización.',
                     !!sendToErp
                 );
                 return;
@@ -9214,10 +10185,8 @@
                     syncActiveQuoteDraftStorage();
                     renderQuoteStatusBanner(
                         'ok',
-                        '<div class="font-extrabold uppercase">✓ Cotización cargada en revisión en Google Sheets (Serie ' + escapeHtml(payload.orderPrefix) + ')</div>' +
-                        '<div>Tienda / Bodega: <strong>' + escapeHtml(res.erpStore || payload.erpStore) + '</strong>' +
-                            ' · Usuario S Mueblería: <strong>' + escapeHtml(res.erpAdvisor || payload.erpAdvisorLabel) + '</strong></div>' +
-                        (res.erpStatus ? ('<div>Estado: ' + escapeHtml(res.erpStatus) + '</div>') : '')
+                        '<div class="font-extrabold uppercase">✓ Revisión guardada</div>' +
+                        '<div>Sucursal: <strong>' + escapeHtml(res.erpStore || payload.erpStore) + '</strong></div>'
                     );
                     return;
                 }
@@ -9260,7 +10229,7 @@
                     }
                     renderMyRecentQuotes(myRecentQuotesList);
 
-                    // Sincronizar automáticamente la cotización recién creada hacia Seguimiento de Cotizaciones para todos los usuarios y tiendas
+                    // Puente local inmediato hacia Seguimiento + evitar duplicados si el servidor ya registró
                     try {
                         const segFolio = folClean || qidClean;
                         if (segFolio) {
@@ -9291,27 +10260,37 @@
                                 cleanList.unshift(segBridgeQuote);
                                 localStorage.setItem(bridgeKey, JSON.stringify(cleanList.slice(0, 120)));
                             } catch (eLs) {}
-                            callInvWebAppPost('inv_log_event', {
-                                classification: 'MOVIMIENTO',
-                                module: 'SEGUIMIENTO_COTIZACIONES',
-                                event: 'SEG_NUEVA_COTIZACION_APP',
-                                status: '✅ OK',
-                                user: segBridgeQuote.advisorName || segBridgeQuote.advisorEmail || 'Asesor App',
-                                branch: segBridgeQuote.erpStore || segBridgeQuote.sheetTab || 'SUCURSAL',
-                                ref: segFolio,
-                                detail: JSON.stringify(segBridgeQuote),
-                                analysis: 'Cotización creada en App/Cotizador y agregada automáticamente a Seguimiento de Cotizaciones.'
-                            }, 12000).catch(() => {});
-                            callInvWebAppPost('seg_action', {
-                                subAction: 'SEG_NUEVA_COTIZACION_APP',
-                                folio: segFolio,
-                                payload: segBridgeQuote
-                            }, 12000).catch(() => {});
+                            if (!res.serverLoggedHistorial) {
+                                callInvWebAppPost('inv_log_event', {
+                                    classification: 'MOVIMIENTO',
+                                    module: 'SEGUIMIENTO_COTIZACIONES',
+                                    event: 'SEG_NUEVA_COTIZACION_APP',
+                                    status: '✅ OK',
+                                    user: segBridgeQuote.advisorName || segBridgeQuote.advisorEmail || 'Asesor',
+                                    branch: segBridgeQuote.erpStore || segBridgeQuote.sheetTab || 'SUCURSAL',
+                                    ref: segFolio,
+                                    detail: JSON.stringify(segBridgeQuote),
+                                    analysis: 'Cotización creada en inventario.'
+                                }, 12000).catch(() => {});
+                            }
+                            if (!res.serverLoggedSeguimiento) {
+                                callInvWebAppPost('seg_action', {
+                                    authToken: (activeAdvisorSession && activeAdvisorSession.authToken) || '',
+                                    subAction: 'SEG_NUEVA_COTIZACION_APP',
+                                    folio: segFolio,
+                                    payload: segBridgeQuote
+                                }, 12000).catch(() => {});
+                            }
+                            if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.refresh === 'function') {
+                                window.CreataSeguimientoModule.refresh();
+                            }
+                            if (window.CreataHistorialModule && typeof window.CreataHistorialModule.refresh === 'function') {
+                                window.CreataHistorialModule.refresh();
+                            }
                         }
                     } catch (eSeg) {}
                 };
 
-                // Flujo directo 24/7 hacia sistema.smuebleria.com
                 if (res.sentLiveToErp) {
                     const folioTxt = folioFromRes || assignedFolio || ('ID-' + cleanStr(res.quoteId));
                     const qidTxt = cleanStr(res.quoteId);
@@ -9328,19 +10307,17 @@
                     markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     renderQuoteStatusBanner(
                         'ok',
-                        '<div class="font-extrabold uppercase">✓ Cotización creada correctamente</div>' +
-                        '<div>Folio S Mueblería (' + escapeHtml(payload.erpStore) + '): <strong>' + escapeHtml(folioTxt) + '</strong>' +
-                            (qidTxt ? (' · ID Cotización ERP: <strong>' + escapeHtml(qidTxt) + '</strong>') : '') +
-                        '</div>' +
-                        '<div>Emitida con usuario S Mueblería: <strong>' + escapeHtml(payload.erpAdvisorLabel) + '</strong></div>' +
+                        '<div class="font-extrabold uppercase">✓ CREATA-muebles-cotización creada</div>' +
+                        '<div>Folio (' + escapeHtml(payload.erpStore) + '): <strong>' + escapeHtml(folioTxt) + '</strong></div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
-                            '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#065F46;">⬇ Descargar PDF Original S Mueblería →</button>' +
-                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#059669;">📲 Enviar a WhatsApp del Cliente →</button>' +
-                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / Impresión CREATA →</button>' +
-                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
+                            '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#146342;">⬇ Descargar PDF</button>' +
+                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#146342;">📲 Enviar</button>' +
+                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Vista</button>' +
+                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#1A1816;">+ Nueva</button>' +
                         '</div>'
                     );
                     openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: false });
+                    // Pre-cargar PDF en segundo plano sin abrir descarga automática del navegador (listo para 1-tap Enviar / Descargar)
                     window.downloadOriginalErpQuotePdf({
                         quoteId: qidTxt,
                         folio: folioTxt,
@@ -9348,12 +10325,12 @@
                         clientName: payload.clientName,
                         erpStore: payload.erpStore,
                         autoTriggered: true,
+                        skipBrowserDownload: true,
                         triggerBtn: document.getElementById('btnDownloadErpPdfModal')
                     });
                     return;
                 }
 
-                // Compatibilidad en caso de que la implementación WebApp aún no se haya actualizado a la nueva versión
                 let latest = res;
                 for (let attempt = 0; attempt < 6; attempt++) {
                     if (latest && (cleanStr(latest.folio) || cleanStr(latest.quoteId) || /COTIZACI[ÓO]N CREADA|ENVIADA EN VIVO|ERROR/i.test(String(latest.erpStatus || '')))) {
@@ -9382,15 +10359,13 @@
                     populateQuoteAdvisorControls();
                     renderQuoteStatusBanner(
                         'ok',
-                        '<div class="font-extrabold uppercase">✓ Cotización registrada correctamente</div>' +
-                        '<div>Folio S Mueblería: <strong>' + escapeHtml(folioFallback || assignedFolio) + '</strong>' +
-                            (qidFallback ? (' · ID Cotización: <strong>' + escapeHtml(qidFallback) + '</strong>') : '') +
-                        '</div>' +
+                        '<div class="font-extrabold uppercase">✓ CREATA-muebles-cotización registrada</div>' +
+                        '<div>Folio: <strong>' + escapeHtml(folioFallback || assignedFolio) + '</strong></div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
-                            '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#065F46;">⬇ Descargar PDF Original S Mueblería →</button>' +
-                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#059669;">📲 Enviar a WhatsApp del Cliente →</button>' +
-                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Vista / Impresión CREATA →</button>' +
-                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
+                            '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#146342;">⬇ Descargar PDF</button>' +
+                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#146342;">📲 Enviar</button>' +
+                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Vista</button>' +
+                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#1A1816;">+ Nueva</button>' +
                         '</div>'
                     );
                     openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: false });
@@ -9401,6 +10376,7 @@
                         clientName: payload.clientName,
                         erpStore: payload.erpStore,
                         autoTriggered: true,
+                        skipBrowserDownload: true,
                         triggerBtn: document.getElementById('btnDownloadErpPdfModal')
                     });
                 } else if (res.queuedForDaemon) {
@@ -9414,20 +10390,18 @@
                     markActiveQuoteCompleted(lastSubmittedQuoteMeta);
                     renderQuoteStatusBanner(
                         'warn',
-                        '<div class="font-extrabold uppercase">⏳ Cotización guardada en cola automática</div>' +
-                        '<div>La sesión directa en nube estaba por renovarse, así que la cotización quedó lista en <code>plantilla</code> (<strong>ENVIAR COTIZACIÓN A S MUEBLERÍA</strong>). En cuanto <code>servicio_en_vivo.py</code> esté activo en la PC sincronizadora, se cargará automáticamente con su folio oficial.</div>' +
+                        '<div class="font-extrabold uppercase">⏳ Cotización en cola</div>' +
                         '<div class="pt-1 flex flex-wrap items-center gap-3">' +
-                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#059669;">📲 Enviar a WhatsApp del Cliente →</button>' +
-                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Abrir Comprobante / PDF provisional →</button>' +
-                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#252C32;">+ Iniciar nueva cotización →</button>' +
+                            '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#146342;">📲 Enviar</button>' +
+                            '<button type="button" onclick="printQuoteTemplate()" class="underline font-extrabold">Vista</button>' +
+                            '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#1A1816;">+ Nueva</button>' +
                         '</div>'
                     );
                     openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: true });
                 } else {
                     renderQuoteStatusBanner(
                         'warn',
-                        '<div class="font-extrabold uppercase">Plantilla registrada · Falta activar nueva versión de Apps Script para envío directo 24/7</div>' +
-                        '<div>Para que la cotización se registre directamente sin depender de ninguna computadora encendida, pega el código actualizado de <code>AppsScript_Creata_Drive_Sheets.gs</code> en <em>Extensiones → Apps Script → Implementar → Administrar implementaciones → Editar → Nueva versión</em>.</div>'
+                        '<div class="font-extrabold uppercase">Cotización registrada en revisión</div>'
                     );
                 }
                 return;
@@ -9618,7 +10592,7 @@
             } catch (e) {
                 // Si el almacenamiento del navegador está lleno, simplemente no se guarda el respaldo
             }
-        }, 1500);
+        }, 200);
     }
 
     async function restoreLiveInventoryCacheIfAny() {
@@ -10213,6 +11187,9 @@
 
             const inp = document.getElementById('invSearchInput');
             applyFilter(inp ? inp.value : '', true);
+            if (typeof tryFulfillPendingWorkspaceDetailRestore === 'function') {
+                tryFulfillPendingWorkspaceDetailRestore();
+            }
 
             const modalEl = document.getElementById('productDetailModal');
             const isModalOpen = modalEl && modalEl.classList.contains('open');
@@ -10241,6 +11218,8 @@
                     }
                 }
             }
+        } else if (typeof tryFulfillPendingWorkspaceDetailRestore === 'function') {
+            tryFulfillPendingWorkspaceDetailRestore();
         }
 
         return true;
@@ -10308,8 +11287,11 @@
         return false;
     }
 
-    window.refreshLiveSheetNow = async function () {
+    let lastLiveSyncCompletedMs = 0;
+    const MIN_LIVE_SYNC_GAP_MS = 30000;
+    window.refreshLiveSheetNow = async function (forceNow) {
         if (liveSyncInFlight) return;
+        if (forceNow !== true && lastLiveSyncCompletedMs > 0 && (Date.now() - lastLiveSyncCompletedMs) < MIN_LIVE_SYNC_GAP_MS) return;
         liveSyncInFlight = true;
         try {
             syncPendingKeyUpdatesToCloud().catch(() => {});
@@ -10336,6 +11318,7 @@
             setLiveConnectionStatus(false);
         } finally {
             liveSyncInFlight = false;
+            lastLiveSyncCompletedMs = Date.now();
         }
     };
 
@@ -10407,9 +11390,68 @@
     ];
     let invWorkspaceRestoring = false;
     let invWorkspaceSaveTimer = null;
+    let pendingWorkspaceDetailRestore = null;
 
-    function saveInvWorkspaceCheckpointNow() {
+    function applyRestoredDetailModalExtraState(cpObj) {
+        if (!cpObj) return;
+        const detDiscInp = document.getElementById('detVisualDiscInput');
+        if (cpObj.detailSku && detDiscInp && typeof cpObj.detailVisualDisc === 'string' && cpObj.detailVisualDisc !== '') {
+            detDiscInp.value = cpObj.detailVisualDisc;
+            if (typeof window.updateDetailVisualDiscount === 'function') window.updateDetailVisualDiscount();
+        }
+        if (cpObj.detailSku && cpObj.detailRelatedOpen && currentDetailItem) {
+            prepareRelatedInStockSection(currentDetailItem, true);
+        }
+        if (Number(cpObj.detailScrollTop) > 0) {
+            const targetScroll = Number(cpObj.detailScrollTop);
+            requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                    const detScrollEl = document.querySelector('#productDetailModal > .inv-modal-card');
+                    if (detScrollEl) detScrollEl.scrollTop = targetScroll;
+                });
+            });
+        }
+    }
+
+    function tryFulfillPendingWorkspaceDetailRestore() {
+        if (!pendingWorkspaceDetailRestore) return false;
+        const authReady = !!(activeAdvisorSession && !activeAdvisorSession.mustChangeKey);
+        if (!authReady) return false;
+        const p = pendingWorkspaceDetailRestore;
+        let opened = false;
+        invWorkspaceRestoring = true;
+        try {
+            if (p.detailSku) {
+                opened = !!openProductDetail(p.detailSku, !!p.detailFromGroup, true);
+            } else if (p.groupKey) {
+                opened = !!openGroupModal(p.groupKey);
+            }
+            if (opened) {
+                pendingWorkspaceDetailRestore = null;
+                applyRestoredDetailModalExtraState(p);
+            }
+        } finally {
+            invWorkspaceRestoring = false;
+        }
+        if (opened) {
+            saveInvWorkspaceCheckpointNow();
+        }
+        return opened;
+    }
+
+    function readStoredInvWorkspaceCheckpoint() {
+        try {
+            const raw = localStorage.getItem(INV_WORKSPACE_CHECKPOINT_KEY);
+            const cp = raw ? JSON.parse(raw) : null;
+            return (cp && typeof cp === 'object') ? cp : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function saveInvWorkspaceCheckpointNow(opts) {
         if (invWorkspaceRestoring) return;
+        const o = opts || {};
         try {
             const searchInp = document.getElementById('invSearchInput');
             const prodModal = document.getElementById('productDetailModal');
@@ -10418,6 +11460,11 @@
             const newCliPanel = document.getElementById('quoteNewErpClientPanel');
             const erpSearchInp = document.getElementById('quoteErpClientSearchInput');
             const crumbEl = document.getElementById('detGroupCrumb');
+            const catBar = document.getElementById('invCategoryBar');
+            const subBar = document.getElementById('invSubCategoryBar');
+            const detScrollEl = document.querySelector('#productDetailModal > .inv-modal-card');
+            const detDiscInp = document.getElementById('detVisualDiscInput');
+            const relPanel = document.getElementById('detRelatedStockPanel');
 
             const newCliFields = {};
             let hasAnyNewCliVal = false;
@@ -10431,19 +11478,50 @@
             }
 
             const prodOpen = !!(prodModal && prodModal.classList.contains('open'));
+            const keepPendingDetail = !prodOpen && !!pendingWorkspaceDetailRestore;
             const cartOpen = !!(cartModal && cartModal.classList.contains('open'));
             const newCliOpen = !!(newCliPanel && !newCliPanel.classList.contains('hidden'));
+            const moduleNow = (activeInAppModule && activeInAppModule !== 'home') ? activeInAppModule : 'inventario';
+            const prevCp = readStoredInvWorkspaceCheckpoint();
+            let scrollYVal = Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0));
+            if (typeof o.forceScrollY === 'number') {
+                scrollYVal = Math.max(0, o.forceScrollY);
+            } else if (moduleNow !== 'inventario') {
+                // La vista de Seguimiento/Historial tiene su propio scroll: conservar el del inventario
+                scrollYVal = (prevCp && Number(prevCp.scrollY) > 0) ? Number(prevCp.scrollY) : 0;
+            }
 
             const cp = {
                 ts: Date.now(),
+                activeModule: moduleNow,
                 category: activeCategory || 'ALL',
                 subCategory: activeSubCategory || 'ALL',
                 searchQuery: searchInp ? String(searchInp.value || '') : '',
-                scrollY: Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0)),
-                detailOpen: prodOpen,
-                detailSku: (prodOpen && currentDetailItem && currentDetailItem.s) ? String(currentDetailItem.s) : '',
-                detailFromGroup: !!(prodOpen && crumbEl && !crumbEl.classList.contains('hidden')),
-                groupKey: (prodOpen && !currentDetailItem && currentGroup && currentGroup.key) ? String(currentGroup.key) : '',
+                renderedCount: (moduleNow === 'inventario')
+                    ? Math.max(0, Number(renderedCount) || 0)
+                    : Math.max(0, Number(prevCp && prevCp.renderedCount) || Number(renderedCount) || 0),
+                scrollY: scrollYVal,
+                catScrollLeft: catBar ? Math.max(0, Math.round(catBar.scrollLeft || 0)) : 0,
+                subCatScrollLeft: subBar ? Math.max(0, Math.round(subBar.scrollLeft || 0)) : 0,
+                detailOpen: prodOpen || keepPendingDetail,
+                detailSku: prodOpen
+                    ? ((currentDetailItem && currentDetailItem.s) ? String(currentDetailItem.s) : '')
+                    : (keepPendingDetail ? String(pendingWorkspaceDetailRestore.detailSku || '') : ''),
+                detailFromGroup: prodOpen
+                    ? !!(crumbEl && !crumbEl.classList.contains('hidden'))
+                    : (keepPendingDetail ? !!pendingWorkspaceDetailRestore.detailFromGroup : false),
+                groupKey: prodOpen
+                    ? ((!currentDetailItem && currentGroup && currentGroup.key) ? String(currentGroup.key) : '')
+                    : (keepPendingDetail ? String(pendingWorkspaceDetailRestore.groupKey || '') : ''),
+                detailVisualDisc: prodOpen
+                    ? ((detDiscInp && detDiscInp.value !== '') ? String(detDiscInp.value) : '')
+                    : (keepPendingDetail ? String(pendingWorkspaceDetailRestore.detailVisualDisc || '') : ''),
+                detailScrollTop: prodOpen
+                    ? (detScrollEl ? Math.max(0, Math.round(detScrollEl.scrollTop || 0)) : 0)
+                    : (keepPendingDetail ? (Number(pendingWorkspaceDetailRestore.detailScrollTop) || 0) : 0),
+                detailRelatedOpen: prodOpen
+                    ? !!(relatedStockExpanded || (relPanel && !relPanel.classList.contains('hidden')))
+                    : (keepPendingDetail ? !!pendingWorkspaceDetailRestore.detailRelatedOpen : false),
                 cartOpen: cartOpen,
                 cartScrollTop: (cartOpen && cartScrollEl) ? Math.max(0, Math.round(cartScrollEl.scrollTop || 0)) : 0,
                 erpClientSearchQuery: erpSearchInp ? String(erpSearchInp.value || '') : '',
@@ -10464,12 +11542,13 @@
     }
 
     function restoreInvWorkspaceCheckpoint() {
+        let restoredModule = '';
         try {
             const raw = localStorage.getItem(INV_WORKSPACE_CHECKPOINT_KEY);
-            if (!raw) return;
+            if (!raw) return restoredModule;
             const cp = JSON.parse(raw);
-            if (!cp || typeof cp !== 'object') return;
-            if (cp.ts && (Date.now() - Number(cp.ts)) > (7 * 24 * 60 * 60 * 1000)) return;
+            if (!cp || typeof cp !== 'object') return restoredModule;
+            if (cp.ts && (Date.now() - Number(cp.ts)) > (7 * 24 * 60 * 60 * 1000)) return restoredModule;
 
             invWorkspaceRestoring = true;
             try {
@@ -10484,7 +11563,23 @@
                 if (searchInp && qStr) {
                     searchInp.value = qStr;
                 }
-                applyFilter(qStr);
+                const savedCount = Math.max(0, Number(cp.renderedCount) || 0);
+                applyFilter(qStr, false, savedCount > 0 ? savedCount : undefined);
+
+                const catBar = document.getElementById('invCategoryBar');
+                const subBar = document.getElementById('invSubCategoryBar');
+                const applyStripScroll = function () {
+                    if (catBar && Number(cp.catScrollLeft) > 0) {
+                        catBar.scrollLeft = Number(cp.catScrollLeft);
+                        updateHorizontalStripFade(catBar);
+                    }
+                    if (subBar && Number(cp.subCatScrollLeft) > 0) {
+                        subBar.scrollLeft = Number(cp.subCatScrollLeft);
+                        updateHorizontalStripFade(subBar);
+                    }
+                };
+                applyStripScroll();
+                requestAnimationFrame(applyStripScroll);
 
                 if (cp.newCliFields && typeof cp.newCliFields === 'object') {
                     Object.keys(cp.newCliFields).forEach(fid => {
@@ -10498,12 +11593,31 @@
                 }
 
                 const authReady = !!(activeAdvisorSession && !activeAdvisorSession.mustChangeKey);
-                if (authReady) {
+                const wantModule = (cp.activeModule === 'seguimiento' || cp.activeModule === 'historial') ? cp.activeModule : '';
+                if (authReady && wantModule && !isGuestSession()) {
+                    if (wantModule === 'seguimiento') window.openInAppSeguimiento();
+                    else window.openInAppHistorial();
+                    restoredModule = wantModule;
+                } else if (authReady) {
                     if (cp.detailOpen) {
+                        let openedNow = false;
                         if (cp.detailSku) {
-                            openProductDetail(cp.detailSku, !!cp.detailFromGroup, true);
+                            openedNow = !!openProductDetail(cp.detailSku, !!cp.detailFromGroup, true);
                         } else if (cp.groupKey) {
-                            openGroupModal(cp.groupKey);
+                            openedNow = !!openGroupModal(cp.groupKey);
+                        }
+                        if (openedNow) {
+                            pendingWorkspaceDetailRestore = null;
+                            applyRestoredDetailModalExtraState(cp);
+                        } else if (cp.detailSku || cp.groupKey) {
+                            pendingWorkspaceDetailRestore = {
+                                detailSku: cp.detailSku || '',
+                                detailFromGroup: !!cp.detailFromGroup,
+                                groupKey: cp.groupKey || '',
+                                detailVisualDisc: cp.detailVisualDisc || '',
+                                detailScrollTop: Number(cp.detailScrollTop) || 0,
+                                detailRelatedOpen: !!cp.detailRelatedOpen
+                            };
                         }
                     }
                     if (cp.cartOpen && !isGuestSession()) {
@@ -10535,10 +11649,20 @@
                     } catch (eAcc) {}
                 }
 
-                if (cp.scrollY > 0) {
-                    setTimeout(() => {
-                        window.scrollTo({ top: cp.scrollY, behavior: 'auto' });
-                    }, 80);
+                if (!restoredModule && Number(cp.scrollY) > 0) {
+                    const targetY = Number(cp.scrollY);
+                    const applyScroll = function () {
+                        if (activeInAppModule !== 'home') return;
+                        window.scrollTo({ top: targetY, behavior: 'auto' });
+                    };
+                    requestAnimationFrame(function () {
+                        requestAnimationFrame(function () {
+                            applyScroll();
+                            setTimeout(function () {
+                                if (Math.abs((window.scrollY || 0) - targetY) > 4) applyScroll();
+                            }, 120);
+                        });
+                    });
                 }
             } finally {
                 invWorkspaceRestoring = false;
@@ -10546,6 +11670,7 @@
         } catch (e) {
             invWorkspaceRestoring = false;
         }
+        return restoredModule;
     }
 
     function bindInvPersistenceListeners() {
@@ -10565,12 +11690,19 @@
             });
         });
 
-        NEW_ERP_CLIENT_FIELD_IDS.concat(['quoteErpClientSearchInput']).forEach(fid => {
+        NEW_ERP_CLIENT_FIELD_IDS.concat(['quoteErpClientSearchInput', 'detVisualDiscInput']).forEach(fid => {
             const el = document.getElementById(fid);
             if (!el) return;
             el.addEventListener('input', scheduleSaveInvWorkspaceCheckpoint);
             el.addEventListener('change', scheduleSaveInvWorkspaceCheckpoint);
         });
+
+        ['invCategoryBar', 'invSubCategoryBar'].forEach(function (barId) {
+            const bar = document.getElementById(barId);
+            if (bar) bar.addEventListener('scroll', scheduleSaveInvWorkspaceCheckpoint, { passive: true });
+        });
+        const detScrollEl = document.querySelector('#productDetailModal > .inv-modal-card');
+        if (detScrollEl) detScrollEl.addEventListener('scroll', scheduleSaveInvWorkspaceCheckpoint, { passive: true });
 
         window.addEventListener('scroll', scheduleSaveInvWorkspaceCheckpoint, { passive: true });
         const cartScrollEl = document.querySelector('#cartModal .overflow-y-auto');
@@ -10581,6 +11713,235 @@
             scheduleSaveInvWorkspaceCheckpoint();
         }, true);
     }
+
+    // ------------------------------------------------------------------------
+    // ALERTAS EN VIVO EN LAPTOP Y CELULAR (CREACIÓN DE COTIZACIONES Y FALLAS CRÍTICAS)
+    // ------------------------------------------------------------------------
+    const LIVE_ALERTS_SEEN_KEY = 'creata_live_alerts_seen_v1';
+    const LIVE_POLL_INTERVAL_MS = 60000;
+
+    (function initCreataLiveAlertsModule() {
+        let seenMap = {};
+        let pollBaselineSeeded = false;
+        let pollInFlight = false;
+        try {
+            const raw = sessionStorage.getItem(LIVE_ALERTS_SEEN_KEY) || localStorage.getItem(LIVE_ALERTS_SEEN_KEY);
+            if (raw) seenMap = JSON.parse(raw) || {};
+        } catch (e) {}
+
+        function markAlertSeen(sig) {
+            if (!sig) return false;
+            if (seenMap[sig]) return false;
+            seenMap[sig] = Date.now();
+            try {
+                const keys = Object.keys(seenMap);
+                if (keys.length > 240) {
+                    keys.slice(0, keys.length - 180).forEach(k => { delete seenMap[k]; });
+                }
+                const json = JSON.stringify(seenMap);
+                sessionStorage.setItem(LIVE_ALERTS_SEEN_KEY, json);
+                localStorage.setItem(LIVE_ALERTS_SEEN_KEY, json);
+            } catch (e) {}
+            return true;
+        }
+
+        function ensureToastContainer() {
+            let wrap = document.getElementById('creataLiveAlertToastWrap');
+            if (!wrap && document.body) {
+                wrap = document.createElement('div');
+                wrap.id = 'creataLiveAlertToastWrap';
+                wrap.setAttribute('aria-live', 'polite');
+                wrap.style.cssText = 'position:fixed;top:14px;right:14px;z-index:96;max-width:min(370px,calc(100vw - 28px));display:flex;flex-direction:column;gap:8px;pointer-events:none;';
+                document.body.appendChild(wrap);
+            }
+            return wrap;
+        }
+
+        function showInAppToast(opts) {
+            const o = opts || {};
+            const wrap = ensureToastContainer();
+            if (!wrap) return;
+            const isErr = o.kind === 'error';
+            const card = document.createElement('div');
+            card.style.cssText = 'pointer-events:auto;background:#FFFFFF;border:1.5px solid ' + (isErr ? '#DC2626' : '#10B981') +
+                ';border-left:5px solid ' + (isErr ? '#DC2626' : '#10B981') +
+                ';border-radius:14px;padding:11px 13px;box-shadow:0 12px 28px rgba(26,24,22,0.18);font-family:"Plus Jakarta Sans",sans-serif;color:#1A1816;transition:opacity .2s ease;';
+            card.innerHTML =
+                '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">' +
+                    '<div style="font-size:12px;font-weight:800;line-height:1.3;color:' + (isErr ? '#991B1B' : '#065F46') + ';">' +
+                        escapeHtml(o.title || 'Aviso en vivo') +
+                    '</div>' +
+                    '<button type="button" aria-label="Cerrar aviso" style="background:transparent;border:none;font-size:13px;font-weight:800;color:#6B655E;cursor:pointer;line-height:1;padding:0 2px;">✕</button>' +
+                '</div>' +
+                '<div style="font-size:11.5px;font-weight:600;color:#252C32;margin-top:4px;line-height:1.35;">' +
+                    escapeHtml(o.body || '') +
+                '</div>' +
+                '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:7px;">' +
+                    '<button type="button" data-open-hist="1" style="background:transparent;border:none;font-size:11px;font-weight:800;color:#9E7B4F;cursor:pointer;text-decoration:underline;padding:0;">Ver en Historial</button>' +
+                '</div>';
+
+            const closeBtn = card.querySelector('button[aria-label="Cerrar aviso"]');
+            const histBtn = card.querySelector('button[data-open-hist="1"]');
+            const removeCard = function () {
+                if (card.parentNode) card.parentNode.removeChild(card);
+            };
+            if (closeBtn) closeBtn.addEventListener('click', removeCard);
+            if (histBtn) {
+                histBtn.addEventListener('click', function () {
+                    removeCard();
+                    if (typeof window.openInAppHistorial === 'function') window.openInAppHistorial();
+                });
+            }
+            wrap.appendChild(card);
+            while (wrap.children.length > 3) {
+                wrap.removeChild(wrap.firstChild);
+            }
+            setTimeout(removeCard, 6500);
+        }
+
+        function dispatchSystemNotification(title, body, tag) {
+            try {
+                if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+                const notifOpts = {
+                    body: String(body || ''),
+                    tag: String(tag || ('creata-alert-' + Date.now())),
+                    renotify: false,
+                    data: { openModule: 'historial' }
+                };
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.getRegistration('./inventario').then(function (reg) {
+                        if (reg && typeof reg.showNotification === 'function') {
+                            reg.showNotification(title, notifOpts).catch(function () {
+                                try { new Notification(title, notifOpts); } catch (eN) {}
+                            });
+                        } else {
+                            try { new Notification(title, notifOpts); } catch (eN2) {}
+                        }
+                    }).catch(function () {
+                        try { new Notification(title, notifOpts); } catch (eN3) {}
+                    });
+                } else {
+                    new Notification(title, notifOpts);
+                }
+            } catch (e) {}
+        }
+
+        function notifyQuoteCreated(info) {
+            const d = info || {};
+            const folio = cleanStr(d.folio) || 'SIN-FOLIO';
+            const client = cleanStr(d.clientName) || 'Cliente';
+            const store = cleanStr(d.erpStore) || '';
+            const advisor = cleanStr(d.advisorName).split('|')[0].trim();
+            const total = cleanStr(d.total);
+            const sig = 'QUOTE|' + folio;
+            if (!markAlertSeen(sig)) return;
+
+            const title = '📋 Movimiento: Cotización ' + folio;
+            const bodyParts = [client];
+            if (store) bodyParts.push(store);
+            if (advisor) bodyParts.push(advisor);
+            if (total) bodyParts.push(total);
+            const body = bodyParts.join(' · ');
+
+            if (d.showToast !== false) {
+                showInAppToast({ kind: 'quote', title: title, body: body });
+            }
+            dispatchSystemNotification(title, body, sig);
+        }
+
+        function notifyFailure(info) {
+            const d = info || {};
+            const ev = cleanStr(d.event) || 'Falla crítica';
+            const mod = cleanStr(d.module) || 'Sistema';
+            const det = cleanStr(d.detail).slice(0, 120);
+            const ref = cleanStr(d.ref);
+            const sig = 'ERR|' + mod + '|' + ev + '|' + ref + '|' + det.slice(0, 60);
+            if (!markAlertSeen(sig)) return;
+
+            const title = '⚠️ Falla fuerte: ' + ev;
+            const body = [mod, ref, det].filter(Boolean).join(' · ');
+            showInAppToast({ kind: 'error', title: title, body: body });
+            dispatchSystemNotification(title, body, sig);
+        }
+
+        async function enableAndTest() {
+            let perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported';
+            if (perm === 'default' && typeof Notification.requestPermission === 'function') {
+                try {
+                    perm = await Notification.requestPermission();
+                } catch (e) {}
+            }
+            try { localStorage.setItem('creata_live_alerts_enabled_v1', '1'); } catch (e) {}
+            const title = '🔔 Alertas en vivo activas';
+            const body = (perm === 'granted')
+                ? 'Recibirás avisos en laptop y celular cuando se cree una cotización o ocurra una falla fuerte.'
+                : 'Avisos en pantalla activos para movimientos de creación y fallas fuertes.';
+            showInAppToast({ kind: 'quote', title: title, body: body });
+            if (perm === 'granted') {
+                dispatchSystemNotification(title, body, 'creata-alert-test-' + Date.now());
+            }
+            return perm;
+        }
+
+        async function poll() {
+            if (pollInFlight || !activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return;
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+            pollInFlight = true;
+            try {
+                const histRows = await fetchSheetCsvRows('HISTORIAL');
+                if (Array.isArray(histRows) && histRows.length > 1) {
+                    const startIdx = Math.max(1, histRows.length - 12);
+                    for (let i = startIdx; i < histRows.length; i++) {
+                        const r = histRows[i] || [];
+                        const ts = cleanStr(r[0]);
+                        const clas = cleanStr(r[1]).toUpperCase();
+                        const mod = cleanStr(r[2]);
+                        const ev = cleanStr(r[3]);
+                        const st = cleanStr(r[4]);
+                        const usr = cleanStr(r[5]);
+                        const suc = cleanStr(r[6]);
+                        const ref = cleanStr(r[7]);
+                        const det = cleanStr(r[8]);
+                        const rowSig = 'HROW|' + ts + '|' + ev + '|' + ref;
+                        if (!pollBaselineSeeded) {
+                            markAlertSeen(rowSig);
+                            if (ref) markAlertSeen('QUOTE|' + ref);
+                            continue;
+                        }
+                        if (!markAlertSeen(rowSig)) continue;
+                        if (/COTIZACION CREADA|NUEVA_COTIZACION/i.test(ev)) {
+                            notifyQuoteCreated({
+                                folio: ref || ts,
+                                clientName: det.slice(0, 48) || usr,
+                                erpStore: suc,
+                                advisorName: usr
+                            });
+                        } else if (/FALLO/i.test(clas) || /ERROR|❌/i.test(st)) {
+                            notifyFailure({
+                                module: mod,
+                                event: ev,
+                                ref: ref,
+                                detail: det || st,
+                                user: usr,
+                                branch: suc
+                            });
+                        }
+                    }
+                    pollBaselineSeeded = true;
+                }
+            } catch (e) {} finally {
+                pollInFlight = false;
+            }
+        }
+
+        window.CreataLiveAlerts = {
+            notifyQuoteCreated: notifyQuoteCreated,
+            notifyFailure: notifyFailure,
+            enableAndTest: enableAndTest,
+            poll: poll
+        };
+        window.toggleLiveAlertsPermission = enableAndTest;
+    })();
 
     document.addEventListener('DOMContentLoaded', async function () {
         await unpackInitialInventoryIfNeeded();
@@ -10654,6 +12015,7 @@
                     lastLiveSignature = computeItemsSignature(allItems);
                     const curInp = document.getElementById('invSearchInput');
                     applyFilter(curInp ? curInp.value : '', true);
+                    tryFulfillPendingWorkspaceDetailRestore();
                 }
             }
             if (activeAdvisorSession) {
@@ -10675,36 +12037,56 @@
         const inp = document.getElementById('invSearchInput');
         if (inp) {
             inp.addEventListener('input', function () {
-                applyFilter(this.value);
-                scheduleSaveInvWorkspaceCheckpoint();
+                const val = this.value;
+                const clearBtn = document.getElementById('invClearBtn');
+                if (clearBtn) clearBtn.classList.toggle('hidden', !val);
+                if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+                searchDebounceTimer = setTimeout(function () {
+                    searchDebounceTimer = null;
+                    applyFilter(val);
+                    scheduleSaveInvWorkspaceCheckpoint();
+                }, 150);
             });
-            if (activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
-                inp.focus();
-            }
         }
         applyFilter('');
         bindInvPersistenceListeners();
-        restoreInvWorkspaceCheckpoint();
+        const bootModuleIntent = readAndConsumeOpenModuleIntent();
+        const bootAuthReady = !!(activeAdvisorSession && !activeAdvisorSession.mustChangeKey);
+        const bootRestoredModule = restoreInvWorkspaceCheckpoint();
+        if (bootModuleIntent) {
+            if (bootAuthReady) {
+                if (!isGuestSession() && bootModuleIntent !== bootRestoredModule) {
+                    window.openInAppModule(bootModuleIntent);
+                }
+            } else {
+                pendingPostAuthModuleIntent = bootModuleIntent;
+            }
+        }
 
         const loadMoreSentinel = document.getElementById('invLoadMoreWrap');
         if (loadMoreSentinel && typeof IntersectionObserver !== 'undefined') {
             const moreObs = new IntersectionObserver(function (entries) {
                 if (entries && entries.some(e => e.isIntersecting) && renderedCount < filteredGroups.length) {
-                    renderMoreItems(isMainCoverActive ? 120 : PAGE_SIZE);
+                    renderMoreItems(getAdaptivePageSize());
                 }
             }, { rootMargin: '420px 0px' });
             moreObs.observe(loadMoreSentinel);
         }
-        refreshLiveSheetNow();
-        setInterval(function () {
-            if (document.visibilityState !== 'hidden') {
-                refreshLiveSheetNow();
+        refreshLiveSheetNow(true);
+        function runSmartLivePollTick() {
+            if (document.visibilityState === 'visible') {
+                refreshLiveSheetNow(false);
+                sendInvPresenceHeartbeat(activeAdvisorSession, false);
+                if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.poll === 'function') {
+                    window.CreataLiveAlerts.poll();
+                }
             }
-        }, 12000);
-        window.addEventListener('focus', refreshLiveSheetNow);
+        }
+        setInterval(runSmartLivePollTick, 60000);
+        window.addEventListener('focus', function () { refreshLiveSheetNow(false); });
         window.addEventListener('online', function () {
             flushInvOfflineOutbox().catch(() => {});
-            refreshLiveSheetNow();
+            refreshLiveSheetNow(true);
         });
         window.addEventListener('offline', function () {
             if (typeof window.saveQuoteDraftMeta === 'function' && !isActiveQuoteCompleted()) {
@@ -10713,19 +12095,32 @@
             saveInvWorkspaceCheckpointNow();
             setLiveConnectionStatus(false);
         });
+        const saveMountedModuleCheckpoints = function () {
+            try {
+                if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.isMounted === 'function' && window.CreataSeguimientoModule.isMounted()) {
+                    window.CreataSeguimientoModule.saveCheckpoint();
+                }
+            } catch (e) {}
+            try {
+                if (window.CreataHistorialModule && typeof window.CreataHistorialModule.isMounted === 'function' && window.CreataHistorialModule.isMounted()) {
+                    window.CreataHistorialModule.saveCheckpoint();
+                }
+            } catch (e) {}
+        };
+        // Sin purgar borradores al salir: en celular abrir WhatsApp dispara pagehide
         window.addEventListener('pagehide', function () {
             if (typeof window.saveQuoteDraftMeta === 'function' && !isActiveQuoteCompleted()) {
                 window.saveQuoteDraftMeta();
             }
             saveInvWorkspaceCheckpointNow();
-            purgeCompletedQuoteDraftsOnExit();
+            saveMountedModuleCheckpoints();
         });
         window.addEventListener('beforeunload', function () {
             if (typeof window.saveQuoteDraftMeta === 'function' && !isActiveQuoteCompleted()) {
                 window.saveQuoteDraftMeta();
             }
             saveInvWorkspaceCheckpointNow();
-            purgeCompletedQuoteDraftsOnExit();
+            saveMountedModuleCheckpoints();
         });
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'hidden') {
@@ -10733,9 +12128,11 @@
                     window.saveQuoteDraftMeta();
                 }
                 saveInvWorkspaceCheckpointNow();
+                saveMountedModuleCheckpoints();
             } else if (document.visibilityState === 'visible') {
                 pruneExpiredQuoteDrafts(true);
-                refreshLiveSheetNow();
+                refreshLiveSheetNow(false);
+                sendInvPresenceHeartbeat(activeAdvisorSession, false);
             }
         });
 
