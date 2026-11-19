@@ -2262,4 +2262,294 @@ body.inv-split-dragging .inv-split-iframe {
   pointer-events: none !important;
 }
 
+/* ============================================================================
+ * Settings Modal (#settingsModal) & Role Preview Pill
+ * ============================================================================ */
+#invHeader .inv-hdr-btn-role-preview {
+  background: rgba(158, 123, 79, 0.28);
+  border-color: rgba(204, 166, 107, 0.72);
+  color: #FBF6EE;
+  font-weight: 800;
+}
+
+#settingsModal .inv-settings-card {
+  max-width: 600px;
+}
+
+.inv-settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inv-settings-section {
+  background: var(--inv-surface);
+  border: 1px solid var(--inv-border);
+  border-radius: 12px;
+  padding: 12px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.inv-settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inv-settings-section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--inv-ink);
+  letter-spacing: -0.01em;
+}
+
+.inv-settings-section-sub {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--inv-muted);
+  line-height: 1.4;
+}
+
+.inv-settings-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--inv-accent-soft);
+  border: 1px solid var(--inv-accent-border);
+  color: var(--inv-accent-hover);
+}
+
+.inv-settings-preview-box {
+  background: var(--inv-surface-subtle);
+  border: 1px dashed var(--inv-accent-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: var(--inv-font-mono);
+  font-size: 11px;
+  color: var(--inv-ink-2);
+  word-break: break-all;
+}
+
+.inv-settings-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--inv-ink-2);
+}
+
+.inv-settings-checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.inv-settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.inv-settings-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 520px) {
+  .inv-settings-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.inv-settings-status {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.inv-settings-status.is-ok {
+  background: var(--inv-ok-bg);
+  color: var(--inv-ok-ink);
+  border-color: var(--inv-ok-border);
+}
+
+.inv-settings-status.is-err {
+  background: var(--inv-err-bg);
+  color: var(--inv-err-ink);
+  border-color: var(--inv-err-border);
+}
+
+.inv-settings-status.is-warn {
+  background: var(--inv-warn-bg);
+  color: var(--inv-warn-ink);
+  border-color: var(--inv-warn-border);
+}
+
+.inv-settings-session-list,
+.inv-settings-prod-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.inv-settings-session-item,
+.inv-settings-prod-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--inv-surface-subtle);
+  border: 1px solid var(--inv-border-subtle);
+}
+
+.inv-settings-item-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.inv-settings-item-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--inv-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inv-settings-item-meta {
+  font-size: 10.5px;
+  color: var(--inv-muted);
+  margin-top: 2px;
+}
+
+.inv-settings-pill-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  background: var(--inv-ok-bg);
+  color: var(--inv-ok-ink);
+  border: 1px solid var(--inv-ok-border);
+}
+
+.inv-settings-pill-arch {
+  background: var(--inv-warn-bg);
+  color: var(--inv-warn-ink);
+  border: 1px solid var(--inv-warn-border);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.inv-settings-pill-del {
+  background: var(--inv-err-bg);
+  color: var(--inv-err-ink);
+  border: 1px solid var(--inv-err-border);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.inv-btn-danger-soft {
+  background: var(--inv-err-bg);
+  color: var(--inv-err-ink);
+  border: 1px solid var(--inv-err-border);
+  border-radius: 9px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inv-btn-warn-soft {
+  background: var(--inv-warn-bg);
+  color: var(--inv-warn-ink);
+  border: 1px solid var(--inv-warn-border);
+  border-radius: 9px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inv-settings-role-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.inv-role-chip-btn {
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1.5px solid var(--inv-border);
+  background: var(--inv-surface-subtle);
+  color: var(--inv-ink-2);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  text-align: center;
+  transition: all 140ms ease;
+}
+
+.inv-role-chip-btn.is-active {
+  background: var(--inv-ink);
+  border-color: var(--inv-ink);
+  color: #FFFFFF;
+}
+
+.inv-settings-suggest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--inv-border);
+  border-radius: 9px;
+  background: #FFFFFF;
+  padding: 4px;
+}
+
+.inv-settings-suggest-btn {
+  width: 100%;
+  text-align: left;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--inv-ink);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inv-settings-suggest-btn:hover {
+  background: var(--inv-surface-subtle);
+}
+
 

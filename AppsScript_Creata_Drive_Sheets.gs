@@ -1037,6 +1037,45 @@ function doPost(e) {
         return jsonResponse_({ ok: false });
       }
     }
+    if (action === 'inv_my_sessions') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_mysess', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvMySessions_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false });
+      }
+    }
+    if (action === 'inv_revoke_session') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_revsess', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvRevokeSession_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false });
+      }
+    }
+    if (action === 'inv_product_overrides_get') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_ovr_get', maxHits: 60, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        return jsonResponse_(handleInvProductOverridesGet_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false });
+      }
+    }
+    if (action === 'inv_product_override_save') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_ovr_save', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvProductOverrideSave_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : 'Error al guardar producto.' });
+      }
+    }
     if (action === 'inv_ensure_invitados') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
@@ -11055,7 +11094,12 @@ function handleInvPresenceHeartbeat_(body) {
   }
   const vista = sanitizePresenceVista_(b.vista || 'inventario') || 'inventario';
   const now = recordInvPresence_(actor.advisor, vista, true);
-  return { ok: true, serverTimeMs: now };
+  const devStatus = recordUserDeviceSession_(actor.advisor, b, vista, true);
+  return {
+    ok: true,
+    serverTimeMs: now,
+    sessionRevoked: Boolean(devStatus && devStatus.revoked)
+  };
 }
 
 function handleInvPresenceLogout_(body) {
@@ -11065,6 +11109,7 @@ function handleInvPresenceLogout_(body) {
     return { ok: false };
   }
   recordInvPresence_(actor.advisor, 'logout', false);
+  recordUserDeviceSession_(actor.advisor, b, 'logout', false);
   return { ok: true };
 }
 
@@ -11199,6 +11244,370 @@ function handleInvPresenceList_(body) {
     offlineCount: offlineCount,
     users: users
   };
+}
+
+// ============================================================================
+// CONFIGURACIÓN DE USUARIO — SESIONES ABIERTAS POR DISPOSITIVO + OVERRIDES SKU
+// ============================================================================
+const INV_USER_DEVICES_PREFIX_ = 'INV_UDEV_V1_';
+const INV_PRODUCT_OVERRIDES_TAB_ = '_INV_PRODUCT_OVERRIDES';
+const INV_PRODUCT_OVERRIDES_CACHE_KEY_ = 'INV_PROD_OVERRIDES_V1';
+
+function getUserDevicesStoreKey_(emailRaw) {
+  const email = String(emailRaw || '').trim().toLowerCase().replace(/,/g, '.');
+  return makeShortCacheKey_(INV_USER_DEVICES_PREFIX_, email || 'anon');
+}
+
+function readUserDevicesMap_(emailRaw) {
+  const storeKey = getUserDevicesStoreKey_(emailRaw);
+  let raw = '';
+  try {
+    raw = CacheService.getScriptCache().get(storeKey) || '';
+  } catch (eC) {}
+  if (!raw) {
+    try {
+      raw = PropertiesService.getScriptProperties().getProperty(storeKey) || '';
+    } catch (eP) {}
+  }
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeUserDevicesMap_(emailRaw, mapObj) {
+  const storeKey = getUserDevicesStoreKey_(emailRaw);
+  const clean = {};
+  const now = Date.now();
+  const maxAgeMs = 30 * 24 * 3600 * 1000;
+  const entries = Object.keys(mapObj || {}).map((k) => mapObj[k]).filter((e) => {
+    if (!e || !e.deviceId) return false;
+    const ts = Number(e.lastSeenMs || e.revokedAt || 0);
+    return !ts || (now - ts) <= maxAgeMs;
+  });
+  entries.sort((a, b) => Number(b.lastSeenMs || 0) - Number(a.lastSeenMs || 0));
+  const capped = entries.slice(0, 12);
+  for (let i = 0; i < capped.length; i++) {
+    clean[capped[i].deviceId] = capped[i];
+  }
+  const json = JSON.stringify(clean);
+  try {
+    CacheService.getScriptCache().put(storeKey, json, INV_PRESENCE_CACHE_TTL_SEC_);
+  } catch (eC) {}
+  try {
+    PropertiesService.getScriptProperties().setProperty(storeKey, json);
+  } catch (eP) {}
+  return clean;
+}
+
+function recordUserDeviceSession_(advisor, body, vista, onlineFlag) {
+  if (!advisor || !advisor.correo) return { revoked: false };
+  const email = String(advisor.correo || '').trim().toLowerCase().replace(/,/g, '.');
+  const devId = String((body && body.deviceId) || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+  if (!email || !devId) return { revoked: false };
+  const devLabel = String((body && body.deviceLabel) || 'Dispositivo').trim().slice(0, 80);
+  const sucursal = String((body && (body.erpStore || body.branchLabel || body.sheetTab)) || advisor.erpStore || advisor.sheetTab || '').trim().slice(0, 60);
+  const sessionStartedMs = Number((body && body.sessionStartedMs) || 0);
+  const now = Date.now();
+
+  let lock = null;
+  let locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    locked = !!lock.tryLock(1500);
+  } catch (eL) {}
+
+  try {
+    const map = readUserDevicesMap_(email);
+    const existing = map[devId] || null;
+    if (onlineFlag && existing && Number(existing.revokedAt || 0) > 0) {
+      if (!sessionStartedMs || sessionStartedMs <= Number(existing.revokedAt)) {
+        return { revoked: true };
+      }
+    }
+    map[devId] = {
+      deviceId: devId,
+      deviceLabel: devLabel || (existing && existing.deviceLabel) || 'Navegador',
+      sucursal: sucursal,
+      vista: sanitizePresenceVista_(vista || 'inventario'),
+      lastSeenMs: now,
+      online: Boolean(onlineFlag),
+      revokedAt: onlineFlag ? 0 : (existing ? Number(existing.revokedAt || 0) : 0)
+    };
+    writeUserDevicesMap_(email, map);
+    return { revoked: false };
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eR) {}
+    }
+  }
+}
+
+function handleInvMySessions_(body) {
+  const b = body || {};
+  const actor = resolvePresenceActor_(b, false);
+  if (!actor || !actor.advisor || isGuestReadOnlyUser_(actor.advisor)) {
+    return { ok: false };
+  }
+  const email = String(actor.advisor.correo || '').trim().toLowerCase().replace(/,/g, '.');
+  const currentDevId = String(b.deviceId || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+  const now = Date.now();
+  if (currentDevId) {
+    recordUserDeviceSession_(actor.advisor, b, b.vista || 'configuracion', true);
+  }
+  const map = readUserDevicesMap_(email);
+  const sessions = Object.keys(map).map((k) => {
+    const e = map[k];
+    const lastSeenMs = Number(e.lastSeenMs || 0);
+    const revokedAt = Number(e.revokedAt || 0);
+    const active = Boolean(
+      e.online !== false &&
+      revokedAt === 0 &&
+      lastSeenMs > 0 &&
+      (now - lastSeenMs) <= (24 * 3600 * 1000)
+    );
+    const onlineNow = Boolean(active && (now - lastSeenMs) <= INV_PRESENCE_ONLINE_THRESHOLD_MS_);
+    return {
+      deviceId: e.deviceId,
+      deviceLabel: String(e.deviceLabel || 'Dispositivo'),
+      sucursal: String(e.sucursal || ''),
+      vista: String(e.vista || ''),
+      lastSeenMs: lastSeenMs,
+      online: onlineNow,
+      active: active,
+      revoked: revokedAt > 0,
+      isCurrent: Boolean(currentDevId && e.deviceId === currentDevId)
+    };
+  });
+  sessions.sort((a, bItem) => {
+    if (a.isCurrent !== bItem.isCurrent) return a.isCurrent ? -1 : 1;
+    if (a.online !== bItem.online) return a.online ? -1 : 1;
+    return Number(bItem.lastSeenMs || 0) - Number(a.lastSeenMs || 0);
+  });
+  return {
+    ok: true,
+    serverTimeMs: now,
+    currentDeviceId: currentDevId,
+    sessions: sessions
+  };
+}
+
+function handleInvRevokeSession_(body) {
+  const b = body || {};
+  const actor = resolvePresenceActor_(b, false);
+  if (!actor || !actor.advisor || isGuestReadOnlyUser_(actor.advisor)) {
+    return { ok: false };
+  }
+  const email = String(actor.advisor.correo || '').trim().toLowerCase().replace(/,/g, '.');
+  const targetDeviceId = String(b.targetDeviceId || '').trim();
+  const currentDevId = String(b.deviceId || '').trim();
+  const now = Date.now();
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const map = readUserDevicesMap_(email);
+    let revokedCount = 0;
+    const keys = Object.keys(map);
+    for (let i = 0; i < keys.length; i++) {
+      const id = keys[i];
+      if (targetDeviceId === 'ALL_OTHERS') {
+        if (currentDevId && id === currentDevId) continue;
+        map[id].online = false;
+        map[id].revokedAt = now;
+        revokedCount++;
+      } else if (targetDeviceId && id === targetDeviceId) {
+        map[id].online = false;
+        map[id].revokedAt = now;
+        revokedCount++;
+      }
+    }
+    writeUserDevicesMap_(email, map);
+    return { ok: true, revokedCount: revokedCount, serverTimeMs: now };
+  } finally {
+    try { lock.releaseLock(); } catch (eR) {}
+  }
+}
+
+function sanitizeOverrideTextCell_(raw, maxLen) {
+  let s = String(raw === null || raw === undefined ? '' : raw).replace(/[\r\n\t]+/g, ' ').trim();
+  if (maxLen && s.length > maxLen) s = s.slice(0, maxLen);
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
+  return s;
+}
+
+function ensureProductOverridesSheet_(ss) {
+  let sh = ss.getSheetByName(INV_PRODUCT_OVERRIDES_TAB_);
+  if (!sh) {
+    sh = ss.insertSheet(INV_PRODUCT_OVERRIDES_TAB_);
+    sh.getRange(1, 1, 1, 8).setValues([[
+      'SKU', 'ESTADO', 'NOMBRE_EDITADO', 'CATEGORIA_EDITADA',
+      'PRECIO_EDITADO', 'NOTA', 'ACTUALIZADO_POR', 'FECHA'
+    ]]);
+    try { sh.hideSheet(); } catch (eHide) {}
+  }
+  return sh;
+}
+
+function readProductOverridesMap_(ss) {
+  try {
+    const cached = CacheService.getScriptCache().get(INV_PRODUCT_OVERRIDES_CACHE_KEY_);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (eC) {}
+
+  const sh = ss.getSheetByName(INV_PRODUCT_OVERRIDES_TAB_);
+  const out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  const vals = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    const sku = String(vals[i][0] || '').trim().toUpperCase();
+    if (!sku) continue;
+    const status = String(vals[i][1] || 'VISIBLE').trim().toUpperCase();
+    const priceRaw = vals[i][4];
+    const priceNum = (priceRaw !== '' && priceRaw !== null && priceRaw !== undefined && isFinite(Number(priceRaw)))
+      ? Number(priceRaw)
+      : null;
+    out[sku] = {
+      sku: sku,
+      status: (status === 'ARCHIVADO' || status === 'ELIMINADO') ? status : 'VISIBLE',
+      name: String(vals[i][2] || '').trim(),
+      category: String(vals[i][3] || '').trim(),
+      price: priceNum,
+      note: String(vals[i][5] || '').trim(),
+      updatedBy: String(vals[i][6] || '').trim(),
+      updatedAt: String(vals[i][7] || '').trim()
+    };
+  }
+  try {
+    CacheService.getScriptCache().put(INV_PRODUCT_OVERRIDES_CACHE_KEY_, JSON.stringify(out), 300);
+  } catch (ePut) {}
+  return out;
+}
+
+function handleInvProductOverridesGet_(body) {
+  const ss = getSpreadsheet_();
+  const overrides = readProductOverridesMap_(ss);
+  return {
+    ok: true,
+    overrides: overrides,
+    count: Object.keys(overrides).length
+  };
+}
+
+function handleInvProductOverrideSave_(body) {
+  const b = body || {};
+  const ss = getSpreadsheet_();
+  const auth = verifyExclusiveKevinOwner_(ss, b);
+  if (!auth.ok) return auth;
+
+  const sku = String(b.sku || '').trim().toUpperCase();
+  if (!sku || sku.length > 60) {
+    return { ok: false, error: 'SKU inválido.' };
+  }
+  const op = String(b.op || 'SAVE').trim().toUpperCase();
+  if (op !== 'SAVE' && op !== 'ARCHIVE' && op !== 'RESTORE' && op !== 'DELETE') {
+    return { ok: false, error: 'Operación no permitida: ' + op };
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureProductOverridesSheet_(ss);
+    const lastRow = sh.getLastRow();
+    let rowIdx = -1;
+    let existingRow = null;
+    if (lastRow >= 2) {
+      const rows = sh.getRange(2, 1, lastRow - 1, 8).getValues();
+      for (let i = 0; i < rows.length; i++) {
+        if (String(rows[i][0] || '').trim().toUpperCase() === sku) {
+          rowIdx = i + 2;
+          existingRow = rows[i];
+          break;
+        }
+      }
+    }
+
+    const prevStatus = existingRow ? String(existingRow[1] || 'VISIBLE').trim().toUpperCase() : 'VISIBLE';
+    let nextStatus = prevStatus;
+    if (op === 'ARCHIVE') nextStatus = 'ARCHIVADO';
+    else if (op === 'DELETE') nextStatus = 'ELIMINADO';
+    else if (op === 'RESTORE') nextStatus = 'VISIBLE';
+    else if (op === 'SAVE' && (prevStatus !== 'ARCHIVADO' && prevStatus !== 'ELIMINADO')) nextStatus = 'VISIBLE';
+
+    const nextName = (b.name !== undefined)
+      ? sanitizeOverrideTextCell_(b.name, 140)
+      : (existingRow ? String(existingRow[2] || '').trim() : '');
+    const nextCat = (b.category !== undefined)
+      ? sanitizeOverrideTextCell_(b.category, 80)
+      : (existingRow ? String(existingRow[3] || '').trim() : '');
+    let nextPrice = '';
+    if (b.price !== undefined && b.price !== null && String(b.price).trim() !== '') {
+      const pNum = Number(String(b.price).replace(/[^0-9.]/g, ''));
+      if (isFinite(pNum) && pNum >= 0) nextPrice = pNum;
+    } else if (b.price === undefined && existingRow && existingRow[4] !== '') {
+      nextPrice = existingRow[4];
+    }
+    const nextNote = (b.note !== undefined)
+      ? sanitizeOverrideTextCell_(b.note, 220)
+      : (existingRow ? String(existingRow[5] || '').trim() : '');
+    const nowStr = formatCancunNow_();
+
+    const rowValues = [[
+      sanitizeOverrideTextCell_(sku, 60),
+      nextStatus,
+      nextName,
+      nextCat,
+      nextPrice,
+      nextNote,
+      OWNER_FOTOS_EMAIL_,
+      nowStr
+    ]];
+
+    if (rowIdx > 0) {
+      sh.getRange(rowIdx, 1, 1, 8).setValues(rowValues);
+    } else {
+      sh.getRange(Math.max(2, lastRow + 1), 1, 1, 8).setValues(rowValues);
+    }
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove(INV_PRODUCT_OVERRIDES_CACHE_KEY_); } catch (eClr) {}
+
+    try {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'Configuración · Productos Cotizador',
+        evento: 'PRODUCTO ' + op + ' (' + nextStatus + ')',
+        estado: '✅ OK',
+        usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
+        sucursal: 'ADMINISTRADOR',
+        referencia: sku,
+        detalle: 'Estado: ' + nextStatus + (nextName ? (' · Nombre: ' + nextName) : '') + (nextPrice !== '' ? (' · Precio: $' + nextPrice) : ''),
+        analisis: 'Guardado en ' + INV_PRODUCT_OVERRIDES_TAB_ + ' sin alterar fórmulas de INVENTARIO_EN_VIVO ni CATALOGO_PRODUCTOS.'
+      });
+    } catch (eHist) {}
+
+    return {
+      ok: true,
+      sku: sku,
+      override: {
+        sku: sku,
+        status: nextStatus,
+        name: nextName.replace(/^'/, ''),
+        category: nextCat.replace(/^'/, ''),
+        price: nextPrice === '' ? null : Number(nextPrice),
+        note: nextNote.replace(/^'/, ''),
+        updatedBy: OWNER_FOTOS_EMAIL_,
+        updatedAt: nowStr
+      }
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
+  }
 }
 
 
