@@ -736,8 +736,72 @@ main#invMainView.inv-main {
   flex-shrink: 0;
 }
 
-/* Compact Horizontal Rows inside Modals (#detVariantsList, #detRelatedStockList) */
-#detVariantsList .inv-row,
+/* Variant Cards with Full Card-Sized Photos (#detVariantsList) & Compact Rows (#detRelatedStockList) */
+#detVariantsList.inv-det-variants-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 640px) {
+  #detVariantsList.inv-det-variants-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+#detVariantsList .inv-row.inv-variant-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  background-color: var(--inv-surface);
+  border: 1px solid var(--inv-border);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+#detVariantsList .inv-row.inv-variant-card:hover {
+  border-color: var(--inv-accent-border);
+  box-shadow: var(--inv-shadow-xs);
+}
+
+#detVariantsList .inv-row.inv-variant-card > .inv-card-top-right {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#detVariantsList .inv-row.inv-variant-card > .inv-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 220px;
+  max-height: 310px;
+  background-color: #FFFFFF;
+  border-bottom: 1px solid var(--inv-border-subtle);
+  padding: 3%;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #C7BFB2;
+}
+
+#detVariantsList .inv-row.inv-variant-card > .inv-variant-card-body {
+  padding: 8px 10px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 #detRelatedStockList .inv-row {
   display: flex;
   flex-direction: row;
@@ -751,13 +815,11 @@ main#invMainView.inv-main {
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
-#detVariantsList .inv-row:hover,
 #detRelatedStockList .inv-row:hover {
   border-color: var(--inv-accent-border);
   box-shadow: var(--inv-shadow-xs);
 }
 
-#detVariantsList .inv-thumb,
 #detRelatedStockList .inv-thumb,
 #cartItemsContainer .inv-thumb {
   width: 56px;
@@ -787,7 +849,16 @@ main#invMainView.inv-main {
   justify-content: center;
 }
 
-#detVariantsList .inv-thumb img,
+#detVariantsList .inv-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  transform: translate(var(--opt-tx, 0%), var(--opt-ty, 0%)) scale(var(--opt-scale, 1));
+  transform-origin: center center;
+  transition: transform 180ms ease;
+}
+
 #detRelatedStockList .inv-thumb img,
 #cartItemsContainer .inv-thumb img {
   width: 100%;
@@ -1237,6 +1308,11 @@ main#invMainView.inv-main {
 /* ============================================================================
  * Product Detail Modal (#productDetailModal) — Uniform Text & Informative Buttons
  * ============================================================================ */
+#productDetailModal .hidden,
+#productDetailModal .inv-det-action-btn.hidden {
+  display: none !important;
+}
+
 #productDetailModal .inv-det-uniform-text {
   font-size: 10.5px;
   line-height: 1.25;
@@ -1252,14 +1328,30 @@ main#invMainView.inv-main {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 26px;
-  height: 26px;
-  padding: 2px 10px;
+  min-height: 27px;
+  height: 27px;
+  padding: 2px 12px;
   border-radius: 9999px;
   font-size: 10.5px;
   font-weight: 800;
   line-height: 1.1;
   cursor: pointer;
+}
+
+#detPhotoWrap.inv-det-photo-stage {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 240px;
+  max-height: 350px;
+  border-radius: 12px;
+  border: 1px solid #E1DBC5;
+  background-color: #FFFFFF;
+  padding: 3%;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #productDetailModal .inv-det-top-info-grid {

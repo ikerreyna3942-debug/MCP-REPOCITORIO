@@ -23,8 +23,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="./creata-modules.css?v=4">
-    <link rel="stylesheet" href="./inventario-ui.css?v=4">
+    <link rel="stylesheet" href="./creata-modules.css?v=5">
+    <link rel="stylesheet" href="./inventario-ui.css?v=5">
 </head>
 <body>
 
@@ -178,8 +178,8 @@
                             class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold border shrink-0"
                             style="border-color:#E8E4DE; color:#252C32;" aria-label="Cerrar">✕</button>
                 </div>
-                <!-- FILA 2: BOTÓN DE COTIZACIÓN DEBAJO DEL TÍTULO -->
-                <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <!-- FILA 2: BOTÓN DE AGREGAR DEBAJO DEL TÍTULO -->
+                <div id="detHeaderActionsRow" class="flex flex-wrap items-center gap-1.5 mt-1.5">
                     <button type="button" id="detSubCartBtn" onclick="subtractCurrentDetailFromCart()"
                             title="Restar 1 unidad de la cotización"
                             class="hidden inv-det-action-btn border flex items-center justify-center transition"
@@ -189,7 +189,7 @@
                     <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
                             class="inv-det-action-btn uppercase tracking-wider transition"
                             style="background:#A38251; border:1px solid #A38251; color:#FFFFFF;">
-                        + Cotización
+                        Agregar
                     </button>
                     <button type="button" id="detRemoveAllCartBtn" onclick="removeCurrentDetailFromCart()"
                             title="Quitar producto de la cotización"
@@ -200,21 +200,21 @@
                 </div>
             </div>
 
-            <!-- PASO 1 (SOLO CUANDO EL MODELO TIENE VARIANTES): LISTADO DE VARIANTES DISPONIBLES -->
-            <div id="detVariantsStep" class="p-3 space-y-1.5 hidden">
-                <div id="detVariantsList" class="space-y-1.5"></div>
+            <!-- PASO 1 (SOLO CUANDO EL MODELO TIENE VARIANTES): LISTADO DE VARIANTES CON FOTO DEL TAMAÑO DE LA FICHA -->
+            <div id="detVariantsStep" class="p-3 space-y-2.5 hidden">
+                <div id="detVariantsList" class="inv-det-variants-grid"></div>
             </div>
 
-            <!-- PASO 2: VISTA DEL PRODUCTO / VARIANTE SELECCIONADA (COMPACTA SIN DESLIZAR) -->
+            <!-- PASO 2: VISTA DEL PRODUCTO / VARIANTE SELECCIONADA CON FOTO DEL TAMAÑO DE LA FICHA -->
             <div id="detSingleStep" class="p-2.5 sm:p-3 space-y-2">
-                <div id="detPhotoWrap" class="w-full h-32 sm:h-40 rounded-xl border flex items-center justify-center overflow-hidden relative"
+                <div id="detPhotoWrap" class="inv-det-photo-stage w-full rounded-xl border flex items-center justify-center overflow-hidden relative"
                      style="background:#FFFFFF; border-color:#E1DBC5;">
                     <div id="detPhotoCanvasStage" class="inv-det-canvas-stage hidden"></div>
                     <img id="detPhotoImg" src="" alt="" draggable="false" referrerpolicy="no-referrer" class="w-full h-full object-contain hidden">
                     <div id="detPhotoEmpty" class="flex items-center justify-center select-none">
-                        <div class="w-10 h-10 rounded-full flex items-center justify-center border"
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center border"
                              style="border-color:#E1DBC5; background:#E8E4DE; color:#A38251;">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                             </svg>
                         </div>
@@ -277,12 +277,12 @@
                 </div>
             </div>
 
-            <!-- BOTÓN INFERIOR: VER TODOS LOS PRODUCTOS CON STOCK PARA ENTREGA RELACIONADOS CON SU TIPO DE PRODUCTO -->
+            <!-- BOTÓN INFERIOR: PRODUCTOS DE ENTREGA INMEDIATA -->
             <div id="detRelatedStockSection" class="px-2.5 sm:px-3 pb-2.5 pt-0.5 space-y-1.5 hidden">
                 <button type="button" id="detRelatedStockBtn" onclick="toggleRelatedInStockProducts()"
                         class="inv-det-info-btn w-full justify-center uppercase tracking-wider transition shadow-sm"
                         style="background:#252C32; border-color:#A38251; color:#FFFFFF;">
-                    <span id="detRelatedStockBtnLabel" class="inv-det-info-val" style="color:#FFFFFF;">Ver productos con stock para entrega</span>
+                    <span id="detRelatedStockBtnLabel" class="inv-det-info-val" style="color:#FFFFFF;">Productos de entrega inmediata</span>
                 </button>
                 <div id="detRelatedStockPanel" class="hidden rounded-xl border p-2.5 space-y-1.5" style="border-color:#E1DBC5; background:#FAF9F6;">
                     <div id="detRelatedStockSubhead" class="inv-det-uniform-text font-extrabold uppercase tracking-wider" style="color:#A38251;"></div>
@@ -880,6 +880,6 @@
     <script src="inventario-data-3.js?v=43"></script>
     <script src="./seguimiento-app.js?v=4"></script>
     <script src="./historial-app.js?v=3"></script>
-    <script src="inventario-app.js?v=73"></script>
+    <script src="inventario-app.js?v=74"></script>
 </body>
 </html>

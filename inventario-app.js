@@ -3366,6 +3366,7 @@
         const nameEl = document.getElementById('detName');
         const priceWrapEl = document.getElementById('detPriceWrap');
         const priceEl = document.getElementById('detPrice');
+        const actionsRow = document.getElementById('detHeaderActionsRow');
         const addBtn = document.getElementById('detAddCartBtn');
         const subBtn = document.getElementById('detSubCartBtn');
         const remAllBtn = document.getElementById('detRemoveAllCartBtn');
@@ -3386,6 +3387,7 @@
         }
         if (priceEl) priceEl.textContent = '';
         if (priceWrapEl) priceWrapEl.classList.add('hidden');
+        if (actionsRow) actionsRow.classList.add('hidden');
         if (addBtn) addBtn.classList.add('hidden');
         if (subBtn) subBtn.classList.add('hidden');
         if (remAllBtn) remAllBtn.classList.add('hidden');
@@ -3456,15 +3458,17 @@
                 const it = entry.it;
                 const skuKey = String(it.s || '').toUpperCase();
                 const varLabel = entry.varLabel;
-                return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
-                    buildThumbHtml(it, { compact: true }) +
-                    '<div class="min-w-0 flex-1 pr-2">' +
+                return '<div class="inv-row inv-variant-card" data-var-sku="' + escapeHtml(skuKey) + '">' +
+                    '<div class="inv-card-top-right">' +
+                        buildCardCartControlHtml(skuKey) +
+                    '</div>' +
+                    buildThumbHtml(it, { card: true, eager: true }) +
+                    '<div class="inv-variant-card-body">' +
                         '<div class="inv-det-uniform-text font-bold uppercase leading-snug" style="color:#1A1816;">' +
                             formatTitleWithPriceHtml(varLabel, it.pr) +
                         '</div>' +
                         '<div class="inv-det-uniform-text font-semibold tracking-wider mt-0.5" style="color:#9E7B4F;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
-                    buildCardCartControlHtml(skuKey) +
                 '</div>';
             }).join('');
 
@@ -3626,6 +3630,7 @@
         const priceWrapEl = document.getElementById('detPriceWrap');
         const priceEl = document.getElementById('detPrice');
         const discInp = document.getElementById('detVisualDiscInput');
+        const actionsRow = document.getElementById('detHeaderActionsRow');
         const addBtn = document.getElementById('detAddCartBtn');
         const subBtn = document.getElementById('detSubCartBtn');
         const remAllBtn = document.getElementById('detRemoveAllCartBtn');
@@ -3672,19 +3677,21 @@
         const key = String(it.s || '').toUpperCase();
         const q = (!guestMode && cart[key]) ? (Number(cart[key].qty) || 0) : 0;
         if (guestMode) {
+            if (actionsRow) actionsRow.classList.add('hidden');
             if (addBtn) addBtn.classList.add('hidden');
             if (subBtn) subBtn.classList.add('hidden');
             if (remAllBtn) remAllBtn.classList.add('hidden');
         } else {
+            if (actionsRow) actionsRow.classList.remove('hidden');
             if (addBtn) {
                 addBtn.classList.remove('hidden');
-                addBtn.textContent = q > 0 ? ('+ Cotización (' + q + ')') : '+ Cotización';
+                addBtn.textContent = q > 0 ? ('Agregar (' + q + ')') : 'Agregar';
             }
             if (subBtn) {
-                subBtn.classList.toggle('hidden', q <= 0);
+                subBtn.classList.add('hidden');
             }
             if (remAllBtn) {
-                remAllBtn.classList.toggle('hidden', q <= 0);
+                remAllBtn.classList.add('hidden');
             }
         }
 
@@ -4584,8 +4591,7 @@
         const typeLabel = getRelatedTypeDisplayLabel(refItem);
         secEl.classList.remove('hidden');
 
-        const prefixVerb = relatedStockExpanded ? 'Ocultar' : 'Ver';
-        btnLbl.textContent = prefixVerb + ' productos con stock para entrega · ' + typeLabel + ' (' + matches.length + ')';
+        btnLbl.textContent = 'Productos de entrega inmediata';
 
         if (relatedStockExpanded) {
             renderRelatedInStockList(matches, typeLabel);
@@ -8883,13 +8889,13 @@
             const subBtn = document.getElementById('detSubCartBtn');
             const remAllBtn = document.getElementById('detRemoveAllCartBtn');
             if (addBtn) {
-                addBtn.textContent = q > 0 ? ('+ Cotización (' + q + ')') : '+ Cotización';
+                addBtn.textContent = q > 0 ? ('Agregar (' + q + ')') : 'Agregar';
             }
             if (subBtn) {
-                subBtn.classList.toggle('hidden', q <= 0);
+                subBtn.classList.add('hidden');
             }
             if (remAllBtn) {
-                remAllBtn.classList.toggle('hidden', q <= 0);
+                remAllBtn.classList.add('hidden');
             }
         }
     }
