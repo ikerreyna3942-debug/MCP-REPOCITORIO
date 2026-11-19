@@ -4009,11 +4009,17 @@
 
     const OWNER_FOTOS_EMAIL = 'kevin.reyna@grupoanipa.com';
 
-    function canManageProductPhotos() {
+    function isFotosAppOwner() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
         if (typeof isGuestSession === 'function' && isGuestSession()) return false;
         const emailNorm = String(activeAdvisorSession.correo || '').trim().toLowerCase().replace(/,/g, '.');
         return emailNorm === OWNER_FOTOS_EMAIL;
+    }
+
+    function canManageProductPhotos() {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
+        if (typeof isGuestSession === 'function' && isGuestSession()) return false;
+        return true;
     }
 
     function setDetailUploadPhotoStatus(text, tone, htmlContent) {
@@ -6666,10 +6672,13 @@
         const fabSeguimientoBtn = document.getElementById('fabSeguimientoBtn');
         const fabUploadPhotoBtn = document.getElementById('fabUploadPhotoBtn');
         const fabSplitFotosBtn = document.getElementById('fabSplitFotosBtn');
+        const uploadPhotoAppFotosLink = document.getElementById('uploadPhotoAppFotosLink');
+        const uploadPhotoSplitBtn = document.getElementById('uploadPhotoSplitBtn');
 
         const isAuthed = !!(activeAdvisorSession && !activeAdvisorSession.mustChangeKey);
         const guestMode = isGuestSession();
-        const canFotosOwner = canManageProductPhotos();
+        const canUploadDrivePhotos = canManageProductPhotos();
+        const isOwnerFotos = isFotosAppOwner();
 
         if (headerHistBtn) {
             headerHistBtn.classList.toggle('hidden', !isAuthed || guestMode);
@@ -6684,9 +6693,11 @@
         }
         if (fabQuoteBtn) fabQuoteBtn.classList.toggle('hidden', guestMode);
         if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', guestMode);
-        if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canFotosOwner);
-        if (fabSplitFotosBtn) fabSplitFotosBtn.classList.toggle('hidden', !canFotosOwner);
-        if (!canFotosOwner && _invSplitActive && typeof window.closeInvSplitFotosDock === 'function') {
+        if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canUploadDrivePhotos);
+        if (fabSplitFotosBtn) fabSplitFotosBtn.classList.toggle('hidden', !isOwnerFotos);
+        if (uploadPhotoAppFotosLink) uploadPhotoAppFotosLink.classList.toggle('hidden', !isOwnerFotos);
+        if (uploadPhotoSplitBtn) uploadPhotoSplitBtn.classList.toggle('hidden', !isOwnerFotos);
+        if (!isOwnerFotos && _invSplitActive && typeof window.closeInvSplitFotosDock === 'function') {
             window.closeInvSplitFotosDock();
         }
 
@@ -12515,7 +12526,7 @@
     };
 
     window.toggleInvSplitFotosDock = function () {
-        if (!canManageProductPhotos()) {
+        if (!isFotosAppOwner()) {
             _invSplitActive = false;
             applyInvSplitDomState();
             return;

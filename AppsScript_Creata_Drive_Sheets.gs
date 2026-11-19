@@ -8829,14 +8829,6 @@ function handleInvUploadProductPhoto_(body) {
         error: 'Tu cuenta de Invitado (Solo Ver) no tiene permisos para subir fotografías.'
       };
     }
-    const emailNormUp = String((verifiedUser && verifiedUser.correo) || '').trim().toLowerCase().replace(/,/g, '.');
-    if (emailNormUp !== OWNER_FOTOS_EMAIL_) {
-      return {
-        ok: false,
-        forbidden: true,
-        error: 'Acceso exclusivo denegado: la subida de fotografías está autorizada únicamente para ' + OWNER_FOTOS_EMAIL_ + '.'
-      };
-    }
 
     const skuUpper = String((body && body.sku) || '').trim().toUpperCase();
     const productName = String((body && body.productName) || skuUpper).trim();

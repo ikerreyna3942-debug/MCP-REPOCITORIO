@@ -839,7 +839,7 @@
                     <h3 class="inv-modal-title">Subir foto por categoría</h3>
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
-                    <a href="./fotos-productos.html" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border" style="border-color:#A38251;color:#EFE8D8;background:rgba(163,130,81,0.22);text-decoration:none;">App Fotos ↗</a>
+                    <a id="uploadPhotoAppFotosLink" href="./fotos-productos.html" class="hidden px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border" style="border-color:#A38251;color:#EFE8D8;background:rgba(163,130,81,0.22);text-decoration:none;">App Fotos ↗</a>
                     <button type="button" id="uploadPhotoCloseBtn" onclick="closeUploadPhotoModal()" class="inv-modal-close-dark" aria-label="Cerrar">✕</button>
                 </div>
             </div>
@@ -905,7 +905,7 @@
                 <div id="uploadPhotoStatus" class="hidden rounded-xl border px-3 py-2 text-xs font-bold"></div>
             </div>
             <div class="inv-modal-foot" style="justify-content:space-between;flex-wrap:wrap;gap:6px;">
-                <button type="button" onclick="closeUploadPhotoModal(); toggleInvSplitFotosDock();" class="inv-btn-secondary" style="border-color:#A38251;color:#8C6D3F;font-weight:800;">⬛⬜ Dividir pantalla</button>
+                <button type="button" id="uploadPhotoSplitBtn" onclick="closeUploadPhotoModal(); toggleInvSplitFotosDock();" class="inv-btn-secondary hidden" style="border-color:#A38251;color:#8C6D3F;font-weight:800;">⬛⬜ Dividir pantalla</button>
                 <div style="display:inline-flex;gap:8px;margin-left:auto;">
                     <button type="button" onclick="closeUploadPhotoModal()" class="inv-btn-secondary">Cancelar</button>
                     <button type="button" id="uploadPhotoSubmitBtn" onclick="submitMultiProductPhotos()" class="inv-btn-primary">Subir a categoría</button>
