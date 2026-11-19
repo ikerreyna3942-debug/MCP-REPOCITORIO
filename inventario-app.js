@@ -3990,22 +3990,12 @@
 
     function refreshDetailManagerPhotoControls(it, preserveStatus) {
         const wrap = document.getElementById('detManagerPhotoWrap');
-        const btnTxt = document.getElementById('detUploadPhotoBtnText');
         const inp = document.getElementById('detUploadPhotoInput');
         if (!preserveStatus) {
             setDetailUploadPhotoStatus('', '');
         }
-        if (!wrap) return;
-        if (!it || !canManageProductPhotos()) {
-            wrap.classList.add('hidden');
-            if (inp) inp.disabled = true;
-            return;
-        }
-        wrap.classList.remove('hidden');
-        if (inp) inp.disabled = managerPhotoUploadInFlight;
-        if (btnTxt && !managerPhotoUploadInFlight) {
-            btnTxt.textContent = 'Subir foto';
-        }
+        if (wrap) wrap.classList.add('hidden');
+        if (inp) inp.disabled = true;
     }
 
     function normalizePhotoToSquare1x1DataUrl(file, targetSide, quality) {

@@ -2329,11 +2329,6 @@
            </div>`
         : '';
 
-      // Conditional "Adjuntar foto" button (#14) — rendered ONLY when item has a verified photo
-      const attachBtnHtml = hasPhoto
-        ? `<button type="button" class="cm-seg-attach-btn" data-seg-action="attach-photo" data-item-id="${escapeHtml(it.ID_Partida)}" data-sku="${escapeHtml(it.Clave_Producto)}">📷 Adjuntar foto</button>`
-        : '';
-
       return `
         <div class="cm-seg-modal-item ${isChecked ? 'is-checked' : ''}">
           <label class="cm-seg-modal-item-left" style="cursor:pointer;">
@@ -2346,7 +2341,6 @@
           </label>
           <div class="cm-seg-modal-item-right">
             <span class="cm-pill ${pillCls}">${stTotal} pz</span>
-            ${attachBtnHtml}
           </div>
         </div>
       `;
