@@ -2852,12 +2852,12 @@
         const selPhoto = getActiveSelectedPhotoObject();
         if (!prod || !selPhoto) return;
 
+        const autoDestMeta = resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
         const destSelect = document.getElementById('destFolderSelect');
-        const targetFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId) || prod.destFolderId;
-        const targetDestMeta = DEST_FOLDER_BY_ID.get(targetFolderId) || {
-            id: targetFolderId,
-            name: prod.destFolderName || 'FOTOS INTERIOR'
-        };
+        const requestedFolderId = cleanStr(destSelect ? destSelect.value : '') || cleanStr(prod.destFolderId);
+        const targetDestMeta = (requestedFolderId && DEST_FOLDER_BY_ID.get(requestedFolderId)) || autoDestMeta;
+        const targetFolderId = targetDestMeta.id;
+        if (destSelect && targetFolderId) destSelect.value = targetFolderId;
 
         let activeFileId = selPhoto.id;
         const isLocalPendingPhoto = String(activeFileId || '').indexOf('local_inb_') === 0;

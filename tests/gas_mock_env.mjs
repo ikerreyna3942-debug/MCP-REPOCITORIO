@@ -28,14 +28,20 @@ export function createMockGasEnvironment(options = {}) {
   let activeUserEmail = options.activeUserEmail || '';
   let nextAutoFileSeq = 1;
 
-  function makeFolder(id, name, { parentId = null, trashed = false } = {}) {
+  let totalFileGetParentsCalls = 0;
+
+  function makeFolder(id, name, { parentId = null, parentIds = null, trashed = false, throwOnGetParents = false } = {}) {
+    const pSet = new Set();
+    if (parentId) pSet.add(parentId);
+    if (Array.isArray(parentIds)) parentIds.forEach((p) => p && pSet.add(p));
     const folderState = {
       id,
       name,
-      parentIds: new Set(parentId ? [parentId] : []),
+      parentIds: pSet,
       childFolderIds: new Set(),
       fileIds: new Set(),
       trashed: Boolean(trashed),
+      throwOnGetParents: Boolean(throwOnGetParents),
       sharing: null
     };
     const api = {
@@ -45,7 +51,10 @@ export function createMockGasEnvironment(options = {}) {
       setName: (n) => { folderState.name = String(n); return api; },
       isTrashed: () => folderState.trashed,
       setTrashed: (t) => { folderState.trashed = Boolean(t); return api; },
-      getParents: () => makeIterator(Array.from(folderState.parentIds).map((pid) => foldersById.get(pid)).filter(Boolean)),
+      getParents: () => {
+        if (folderState.throwOnGetParents) throw new Error('Simulated Drive getParents error on folder ' + folderState.id);
+        return makeIterator(Array.from(folderState.parentIds).map((pid) => foldersById.get(pid)).filter(Boolean));
+      },
       getFolders: () => makeIterator(Array.from(folderState.childFolderIds).map((cid) => foldersById.get(cid)).filter(Boolean)),
       getFiles: () => makeIterator(Array.from(folderState.fileIds).map((fid) => filesById.get(fid)).filter(Boolean)),
       addFile: (fileObj) => {
@@ -75,8 +84,10 @@ export function createMockGasEnvironment(options = {}) {
       }
     };
     foldersById.set(id, api);
-    if (parentId && foldersById.has(parentId)) {
-      foldersById.get(parentId)._state.childFolderIds.add(id);
+    for (const pid of pSet) {
+      if (foldersById.has(pid)) {
+        foldersById.get(pid)._state.childFolderIds.add(id);
+      }
     }
     return api;
   }
@@ -88,7 +99,8 @@ export function createMockGasEnvironment(options = {}) {
     parentIds = null,
     trashed = false,
     updatedAt = new Date('2026-11-19T12:00:00.000Z'),
-    targetId = null
+    targetId = null,
+    throwOnGetParents = false
   } = {}) {
     const pSet = new Set();
     if (parentId) pSet.add(parentId);
@@ -104,7 +116,9 @@ export function createMockGasEnvironment(options = {}) {
       updatedAt: updatedAt instanceof Date ? updatedAt : new Date(updatedAt),
       sharing: null,
       description: '',
-      targetId
+      targetId,
+      throwOnGetParents: Boolean(throwOnGetParents),
+      getParentsCalls: 0
     };
 
     const api = {
@@ -118,7 +132,12 @@ export function createMockGasEnvironment(options = {}) {
       isTrashed: () => fileState.trashed,
       setTrashed: (t) => { fileState.trashed = Boolean(t); return api; },
       getTargetId: () => fileState.targetId,
-      getParents: () => makeIterator(Array.from(fileState.parentIds).map((pid) => foldersById.get(pid)).filter(Boolean)),
+      getParents: () => {
+        fileState.getParentsCalls++;
+        totalFileGetParentsCalls++;
+        if (fileState.throwOnGetParents) throw new Error('Simulated Drive getParents error on file ' + fileState.id);
+        return makeIterator(Array.from(fileState.parentIds).map((pid) => foldersById.get(pid)).filter(Boolean));
+      },
       moveTo: (destFolder) => {
         for (const oldPid of Array.from(fileState.parentIds)) {
           const oldF = foldersById.get(oldPid);
@@ -355,10 +374,15 @@ export function createMockGasEnvironment(options = {}) {
           return chain;
         },
         alert: (title, msg) => { uiAlerts.push({ title, msg }); },
-        prompt: (title, msg) => ({
-          getSelectedButton: () => 'OK',
-          getResponseText: () => 'https://script.google.com/macros/s/MOCK_DEPLOY_ID_12345/exec'
-        })
+        prompt: (title, msg) => {
+          const next = promptResponses.length > 0
+            ? promptResponses.shift()
+            : { button: 'OK', text: 'https://script.google.com/macros/s/MOCK_DEPLOY_ID_12345/exec' };
+          return {
+            getSelectedButton: () => next.button || 'OK',
+            getResponseText: () => (next.text !== undefined ? next.text : '')
+          };
+        }
       })
     },
     PropertiesService: {
@@ -422,6 +446,7 @@ export function createMockGasEnvironment(options = {}) {
     }
   };
 
+  const promptResponses = [];
   const context = vm.createContext(sandbox);
 
   return {
@@ -433,11 +458,15 @@ export function createMockGasEnvironment(options = {}) {
     filesById,
     spreadsheetsById,
     scriptProps,
+    cacheStore,
     openedSpreadsheetIds,
     accessedFolderIds,
     lockEvents,
     uiAlerts,
     createdMenus,
+    promptResponses,
+    getTotalFileGetParentsCalls: () => totalFileGetParentsCalls,
+    resetFileGetParentsCalls: () => { totalFileGetParentsCalls = 0; },
     setActiveUserEmail: (e) => { activeUserEmail = e; },
     setActiveSpreadsheetId: (id) => { activeSpreadsheetId = id; },
     loadScript(filePath) {

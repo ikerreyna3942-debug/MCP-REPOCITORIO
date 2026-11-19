@@ -234,6 +234,176 @@ test('Project A: handleFotosDelete_ trashes SUBIR PREN file cleanly and REJECTS 
   assert.equal(env.filesById.get('external_file_001').isTrashed(), false);
 });
 
+test('Project A (Items 1-2): rejects all 4 fotos odoo subfolders, SUBIR PROPT subfolder, unrelated folders, cyclic/throwing getParents, and invalid targetFolderId', () => {
+  const env = setupProjectAEnv();
+  const sh1 = env.spreadsheetsById.get(IDS.SHEET_CONTROL).getSheetByName('1');
+
+  // Create all 4 verified fotos odoo subfolders + a nested subfolder under SUBIR PROPT
+  const odooSubfolders = [
+    ['10UIhDWLKL0ySmzdcMemA5K5831YozuBa', 'FOTOS MUEBLES'],
+    ['1z-Ne0hBzXIi1dTfJOxtz1kUUPYQQNpTR', 'FOTOS ACCESORIOS Y ESPEJOS'],
+    ['12gsKZVs6rFonOO8CIxokuE73bxhq8tS9', 'FOTOS TELAS'],
+    ['13inkyy1ZfGn7yD0ceSr6RSMquaA3OBO1', 'OTROS']
+  ];
+  for (const [subId, subName] of odooSubfolders) {
+    env.makeFolder(subId, subName, { parentId: IDS.FOTOS_ODOO });
+    env.makeFile('file_' + subId, subName + '.jpg', { parentId: subId });
+  }
+  env.makeFolder('subir_propt_child_01', 'Renders Hijos', { parentId: IDS.SUBIR_PROPT });
+  env.makeFile('file_propt_child', 'RENDER_HIJO.jpg', { parentId: 'subir_propt_child_01' });
+
+  // Also test nested forbidden subfolder linked inside SUBIR PREN -> must be excluded by resolveSubirInboxFolders_
+  env.foldersById.get(IDS.SUBIR_PREN)._state.childFolderIds.add('10UIhDWLKL0ySmzdcMemA5K5831YozuBa');
+  env.foldersById.get(IDS.SUBIR_PREN)._state.childFolderIds.add('subir_propt_child_01');
+  const resolved = env.context.resolveSubirInboxFolders_();
+  assert.equal(resolved.folderIdsMap['10UIhDWLKL0ySmzdcMemA5K5831YozuBa'], undefined);
+  assert.equal(resolved.folderIdsMap['subir_propt_child_01'], undefined);
+
+  // Assign MUST reject all 4 fotos odoo subfolders, SUBIR PROPT child, and unrelated external folder
+  for (const badFileId of [
+    'file_10UIhDWLKL0ySmzdcMemA5K5831YozuBa',
+    'file_1z-Ne0hBzXIi1dTfJOxtz1kUUPYQQNpTR',
+    'file_12gsKZVs6rFonOO8CIxokuE73bxhq8tS9',
+    'file_13inkyy1ZfGn7yD0ceSr6RSMquaA3OBO1',
+    'file_propt_child',
+    'external_file_001'
+  ]) {
+    const res = env.context.handleFotosSubirAssign_({
+      ...KEVIN_AUTH,
+      sku: 'SKU-SALA-01',
+      driveFileId: badFileId
+    });
+    assert.equal(res.ok, false, `Assign must reject ${badFileId}`);
+    assert.equal(res.forbiddenFolder, true, `Assign must flag forbiddenFolder for ${badFileId}`);
+  }
+  assert.equal(sh1.getRange(3, 4).getValue(), '', 'Hoja 1 must not be mutated on rejected assigns');
+
+  // Multi-parent file in SUBIR PREN + fotos odoo/FOTOS MUEBLES must be hidden from list & rejected on assign/delete
+  env.makeFile('multi_pren_odoo', 'MULTI.jpg', {
+    parentIds: [IDS.SUBIR_PREN, '10UIhDWLKL0ySmzdcMemA5K5831YozuBa']
+  });
+  const listRes = env.context.handleFotosSubirList_({ ...KEVIN_AUTH });
+  assert.ok(!listRes.files.some((f) => f.id === 'multi_pren_odoo'));
+  assert.equal(env.context.handleFotosSubirAssign_({ ...KEVIN_AUTH, sku: 'SKU-SALA-01', driveFileId: 'multi_pren_odoo' }).ok, false);
+  assert.equal(env.context.handleFotosDelete_({ ...KEVIN_AUTH, driveFileId: 'multi_pren_odoo', source: 'INBOX', skipListReturn: true }).ok, false);
+  assert.equal(env.filesById.get('multi_pren_odoo').isTrashed(), false);
+
+  // Fail closed when getParents() throws
+  env.makeFile('throwing_file_01', 'BROKEN_PARENTS.jpg', {
+    parentId: IDS.SUBIR_PREN,
+    throwOnGetParents: true
+  });
+  assert.equal(env.context.isFileInForbiddenProjectBFolder_(env.filesById.get('throwing_file_01')), true);
+  assert.equal(env.context.isFileInProjectAAllowedFolders_(env.filesById.get('throwing_file_01')), false);
+  assert.equal(env.context.handleFotosSubirAssign_({ ...KEVIN_AUTH, sku: 'SKU-SALA-01', driveFileId: 'throwing_file_01' }).ok, false);
+
+  // Cycle guard: cyclic folder parent graph must not infinite-loop
+  const cycA = env.makeFolder('cyc_folder_a', 'Cycle A');
+  const cycB = env.makeFolder('cyc_folder_b', 'Cycle B', { parentId: 'cyc_folder_a' });
+  cycA._state.parentIds.add('cyc_folder_b');
+  assert.equal(env.context.isFolderOrAncestorForbiddenProjectB_(cycB, 8), false);
+
+  // Strict targetFolderId: forbidden or unknown non-empty targetFolderId must be explicitly rejected
+  const badTargetPropt = env.context.handleFotosSubirAssign_({
+    ...KEVIN_AUTH,
+    sku: 'SKU-SALA-01',
+    driveFileId: 'pren_file_001',
+    targetFolderId: IDS.SUBIR_PROPT
+  });
+  assert.equal(badTargetPropt.ok, false);
+  assert.equal(badTargetPropt.forbiddenFolder, true);
+  const badTargetUnknown = env.context.handleFotosSubirAssign_({
+    ...KEVIN_AUTH,
+    sku: 'SKU-SALA-01',
+    driveFileId: 'pren_file_001',
+    targetFolderId: 'nonexistent_folder_xyz'
+  });
+  assert.equal(badTargetUnknown.ok, false);
+  assert.equal(badTargetUnknown.forbiddenFolder, true);
+  // Source file remained in SUBIR PREN untouched
+  assert.ok(env.foldersById.get(IDS.SUBIR_PREN)._state.fileIds.has('pren_file_001'));
+});
+
+test('Project A (Items 3-4): shortcut fallthrough/bypass blocked in list/assign/delete, and shared-SKU handleFotosDelete_ rejects non-Project-A links BEFORE clearing Hoja 1', () => {
+  const env = setupProjectAEnv();
+  const sh1 = env.spreadsheetsById.get(IDS.SHEET_CONTROL).getSheetByName('1');
+
+  env.makeFolder('10UIhDWLKL0ySmzdcMemA5K5831YozuBa', 'FOTOS MUEBLES', { parentId: IDS.FOTOS_ODOO });
+  env.makeFile('odoo_muebles_long_id_0001', 'ODOO_MUEBLE.jpg', { parentId: '10UIhDWLKL0ySmzdcMemA5K5831YozuBa' });
+  env.makeFile('propt_trashed_target_001', 'TRASHED_RENDER.jpg', { parentId: IDS.SUBIR_PROPT, trashed: true });
+
+  // Shortcuts placed in SUBIR PREN:
+  // 1) Shortcut to SUBIR PROPT file
+  env.makeFile('sc_to_propt_0001', 'shortcut_propt.jpg', {
+    mimeType: 'application/vnd.google-apps.shortcut',
+    parentId: IDS.SUBIR_PREN,
+    targetId: 'propt_file_001'
+  });
+  // 2) Broken shortcut named *.jpg pointing to trashed SUBIR PROPT file
+  env.makeFile('sc_broken_trashed_01', 'render_shortcut.jpg', {
+    mimeType: 'application/vnd.google-apps.shortcut',
+    parentId: IDS.SUBIR_PREN,
+    targetId: 'propt_trashed_target_001'
+  });
+  // 3) Shortcut pointing to missing ID
+  env.makeFile('sc_missing_target_01', 'missing_shortcut.png', {
+    mimeType: 'application/vnd.google-apps.shortcut',
+    parentId: IDS.SUBIR_PREN,
+    targetId: 'does_not_exist_999'
+  });
+  // 4) Shortcut pointing to unrelated external folder file
+  env.makeFile('sc_external_target_01', 'ext_shortcut.jpg', {
+    mimeType: 'application/vnd.google-apps.shortcut',
+    parentId: IDS.SUBIR_PREN,
+    targetId: 'external_file_001'
+  });
+
+  // listSubirInboxFilesInternal_ MUST NOT leak any of those 4 shortcuts or their targets!
+  const listed = env.context.listSubirInboxFilesInternal_();
+  const listedIds = listed.map((f) => f.id);
+  for (const leaked of ['sc_to_propt_0001', 'sc_broken_trashed_01', 'sc_missing_target_01', 'sc_external_target_01', 'propt_file_001', 'external_file_001']) {
+    assert.ok(!listedIds.includes(leaked), `List must exclude ${leaked}`);
+  }
+
+  // Direct handleFotosSubirAssign_ on shortcut to SUBIR PROPT or broken shortcut must REJECT with 0 mutations
+  for (const scId of ['sc_to_propt_0001', 'sc_broken_trashed_01', 'sc_external_target_01']) {
+    const res = env.context.handleFotosSubirAssign_({
+      ...KEVIN_AUTH,
+      sku: 'SKU-SALA-01',
+      driveFileId: scId
+    });
+    assert.equal(res.ok, false, `Assign must reject shortcut ${scId}`);
+    assert.equal(res.forbiddenFolder, true);
+  }
+
+  // Item 4: Shared-SKU in Hoja "1" linked to fotos odoo/FOTOS MUEBLES (usedByOtherSku=true -> willTrashDrive=false)
+  // AND keepDriveFile=true linked to external folder -> BOTH must reject BEFORE clearing Hoja "1"!
+  const odooUrl = 'https://drive.google.com/file/d/odoo_muebles_long_id_0001/view?usp=sharing';
+  sh1.getRange(3, 4).setValue(odooUrl);
+  sh1.getRange(4, 4).setValue(odooUrl); // shared with SKU-COM-02 so usedByOtherSku === true!
+
+  const delSharedOdoo = env.context.handleFotosDelete_({
+    ...KEVIN_AUTH,
+    sku: 'SKU-SALA-01',
+    skipListReturn: true
+  });
+  assert.equal(delSharedOdoo.ok, false);
+  assert.equal(delSharedOdoo.forbiddenFolder, true);
+  assert.equal(sh1.getRange(3, 4).getValue(), odooUrl, 'Hoja 1 Row 3 must NOT be cleared for forbidden Project B link');
+
+  const extUrl = 'https://drive.google.com/file/d/external_file_001/view?usp=sharing';
+  sh1.getRange(3, 4).setValue(extUrl);
+  const delKeepExt = env.context.handleFotosDelete_({
+    ...KEVIN_AUTH,
+    sku: 'SKU-SALA-01',
+    keepDriveFile: true,
+    skipListReturn: true
+  });
+  assert.equal(delKeepExt.ok, false);
+  assert.equal(delKeepExt.forbiddenFolder, true);
+  assert.equal(sh1.getRange(3, 4).getValue(), extUrl, 'Hoja 1 Row 3 must NOT be cleared for external link even with keepDriveFile: true');
+});
+
 test('Project A: MAX_PEND_MS = 8000 budget cap is preserved in handleFotosSubirList_', () => {
   const src = fs.readFileSync(PROJECT_A_GS, 'utf8');
   const fnMatch = src.match(/function handleFotosSubirList_\([\s\S]*?\n\}/);

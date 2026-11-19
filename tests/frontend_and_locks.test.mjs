@@ -45,9 +45,18 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
 
   const promptsSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
-  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v2['"]/);
+  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v3['"]/);
   assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v4['"]/);
   assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v4['"]/);
+
+  const promptsHtmlSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts.html'), 'utf8');
+  assert.match(promptsHtmlSrc, /prompts-manifest\.json\?v=3/);
+  assert.match(promptsHtmlSrc, /prompts-styles\.css\?v=3/);
+  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=3/);
+  assert.match(promptsHtmlSrc, /Configurar PIN/);
+
+  const promptsCssSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-styles.css'), 'utf8');
+  assert.match(promptsCssSrc, /@media\s*\(\s*max-width:\s*440px\s*\)/);
 
   const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   for (const iconRel of ['prompts-icon-192.png', 'prompts-icon-512.png', 'prompts-apple-icon.png']) {
@@ -120,4 +129,275 @@ test('Static cross-project isolation invariants hold across Project A, Project B
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
   assert.match(fotosHtml, /fotos-productos-app\.js\?v=15/);
+});
+
+test('Prompts PWA (Items 12-14): blocks DOM XSS & javascript: URIs in renderProptGallery, prevents ?scriptUrl= silent overwrite & PIN exfiltration, and handles clipboard fallback', async () => {
+  const vm = await import('node:vm');
+  const promptsJsSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-app.js'), 'utf8');
+
+  function makeEl(id) {
+    const classes = new Set();
+    const listeners = {};
+    return {
+      id,
+      value: '',
+      innerHTML: '',
+      textContent: '',
+      src: '',
+      style: {},
+      disabled: false,
+      classList: {
+        add: (...c) => c.forEach((x) => classes.add(x)),
+        remove: (...c) => c.forEach((x) => classes.delete(x)),
+        toggle: (c, force) => {
+          if (typeof force === 'boolean') {
+            if (force) classes.add(c);
+            else classes.delete(c);
+          } else if (classes.has(c)) {
+            classes.delete(c);
+          } else {
+            classes.add(c);
+          }
+        },
+        contains: (c) => classes.has(c)
+      },
+      setAttribute: () => {},
+      getAttribute: () => '',
+      select: () => {},
+      addEventListener: (ev, fn) => {
+        listeners[ev] = listeners[ev] || [];
+        listeners[ev].push(fn);
+      },
+      _trigger: (ev) => (listeners[ev] || []).forEach((fn) => fn())
+    };
+  }
+
+  const els = new Map();
+  for (const id of [
+    'promptsStatusPill', 'promptsStatusText', 'promptsLoadingOverlay', 'overlaySpinner',
+    'overlayTitle', 'overlaySub', 'overlayTimer', 'overlayActions', 'promptsAppFrame',
+    'btnInstallPromptsApp', 'nativeInstallBanner', 'promptsShell', 'floatingExpandBarBtn',
+    'proptScriptUrlInput', 'proptOwnerEmailInput', 'proptPinInput', 'proptConnStatus',
+    'proptFeedback', 'proptCountBadge', 'proptListCountLabel', 'proptGalleryGrid',
+    'proptConfigBox', 'proptDrawer', 'proptDrawerBackdrop', 'proptHealthWarning',
+    'proptSkuInput', 'proptSkuResult'
+  ]) {
+    els.set(id, makeEl(id));
+  }
+
+  const storage = new Map([
+    ['creata_prompts_webapp_url_v1', 'https://script.google.com/macros/s/LEGIT_SAVED_ID/exec'],
+    ['creata_prompts_pin_v1', 'MY_SECRET_PIN_777']
+  ]);
+  const fetchCalls = [];
+  const replaceStateCalls = [];
+  let execCopyResult = true;
+  let execCopyCalled = false;
+
+  const sandbox = {
+    console,
+    Date,
+    Math,
+    JSON,
+    RegExp,
+    Array,
+    Object,
+    String,
+    Number,
+    Boolean,
+    Error,
+    Promise,
+    URL,
+    URLSearchParams,
+    AbortController,
+    setTimeout,
+    clearTimeout,
+    setInterval: () => 1,
+    clearInterval: () => {},
+    localStorage: {
+      getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => storage.set(k, String(v)),
+      removeItem: (k) => storage.delete(k)
+    },
+    navigator: {
+      onLine: true,
+      userAgent: 'Mozilla/5.0',
+      platform: 'Linux',
+      maxTouchPoints: 0,
+      serviceWorker: { register: () => Promise.resolve() }
+    },
+    history: {
+      replaceState: (_s, _t, u) => replaceStateCalls.push(u)
+    },
+    location: {
+      protocol: 'https:',
+      pathname: '/MCP-REPOCITORIO/prompts.html',
+      search: '?scriptUrl=https%3A%2F%2Fscript.google.com%2Fmacros%2Fs%2FATTACKER_GAS_999%2Fexec',
+      hash: '',
+      href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts.html?scriptUrl=https%3A%2F%2Fscript.google.com%2Fmacros%2Fs%2FATTACKER_GAS_999%2Fexec'
+    },
+    document: {
+      readyState: 'complete',
+      getElementById: (id) => els.get(id) || null,
+      querySelectorAll: () => [],
+      addEventListener: () => {},
+      createElement: () => makeEl('tmp_ta'),
+      body: {
+        appendChild: () => {},
+        removeChild: () => {}
+      },
+      execCommand: (cmd) => {
+        if (cmd === 'copy') execCopyCalled = true;
+        return execCopyResult;
+      }
+    },
+    fetch: async (url, init) => {
+      const parsedBody = init && init.body ? JSON.parse(init.body) : null;
+      fetchCalls.push({ url, body: parsedBody });
+      if (parsedBody && parsedBody.action === 'prompts_health') {
+        return { text: async () => JSON.stringify({ ok: true, warnings: [] }) };
+      }
+      if (parsedBody && parsedBody.action === 'prompts_propt_list') {
+        return {
+          text: async () => JSON.stringify({
+            ok: true,
+            folderId: '1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX',
+            files: [
+              // Adversarial XSS f.id -> MUST BE SKIPPED!
+              { id: "abc'-alert(1)-'", name: 'xss.jpg', viewUrl: 'javascript:alert(1)', thumbUrl: 'javascript:alert(2)' },
+              // Valid Drive ID with malicious javascript: viewUrl & thumbUrl -> MUST BE SANITIZED to https://drive/lh3!
+              { id: 'ValidDriveId_12345', name: '<img src=x onerror=alert(9)>.jpg', viewUrl: 'javascript:alert(3)', thumbUrl: 'https://evil.example/pwn.jpg', sizeBytes: 2048 }
+            ]
+          })
+        };
+      }
+      if (parsedBody && parsedBody.action === 'prompts_sku_lookup') {
+        return {
+          text: async () => JSON.stringify({
+            ok: true,
+            found: true,
+            match: { sku: 'SKU-1', tipo_mueble: 'SILLON', medidas: '80 x 80 cm', nombre: 'LUMINA' }
+          })
+        };
+      }
+      return { text: async () => JSON.stringify({ ok: true }) };
+    }
+  };
+  sandbox.window = sandbox;
+  sandbox.window.addEventListener = () => {};
+  sandbox.window.matchMedia = () => ({ matches: false });
+
+  vm.runInNewContext(promptsJsSrc, sandbox, { filename: 'prompts-app.js' });
+
+  // Item 13: ?scriptUrl= MUST NOT overwrite localStorage, MUST strip from URL via history.replaceState,
+  // MUST prefill input & clear PIN input!
+  assert.equal(storage.get('creata_prompts_webapp_url_v1'), 'https://script.google.com/macros/s/LEGIT_SAVED_ID/exec');
+  assert.equal(replaceStateCalls.length, 1);
+  assert.equal(replaceStateCalls[0], '/MCP-REPOCITORIO/prompts.html');
+  assert.equal(els.get('proptScriptUrlInput').value, 'https://script.google.com/macros/s/ATTACKER_GAS_999/exec');
+  assert.equal(els.get('proptPinInput').value, '');
+
+  // Opening drawer while pendingSuggestedScriptUrl is active MUST NOT send saved PIN to attacker URL!
+  sandbox.window.toggleProptDrawer(true);
+  assert.equal(fetchCalls.filter((c) => c.url.includes('ATTACKER_GAS_999')).length, 0);
+
+  // Clicking save with changed URL and blank PIN MUST be rejected (requires re-entering PIN)
+  await sandbox.window.saveProptScriptConfig();
+  assert.equal(storage.get('creata_prompts_webapp_url_v1'), 'https://script.google.com/macros/s/LEGIT_SAVED_ID/exec');
+  assert.equal(fetchCalls.filter((c) => c.url.includes('ATTACKER_GAS_999')).length, 0);
+
+  // Now test Item 12 (XSS + javascript: URI sanitization) against the legit saved URL
+  els.get('proptScriptUrlInput').value = 'https://script.google.com/macros/s/LEGIT_SAVED_ID/exec';
+  els.get('proptPinInput').value = 'MY_SECRET_PIN_777';
+  await sandbox.window.saveProptScriptConfig();
+
+  const galleryHtml = els.get('proptGalleryGrid').innerHTML;
+  assert.ok(!galleryHtml.includes("alert(1)"), 'Invalid XSS f.id must be filtered out');
+  assert.ok(!galleryHtml.includes('javascript:'), 'javascript: URIs must NEVER appear in rendered gallery HTML');
+  assert.ok(!galleryHtml.includes('evil.example'), 'Non-Drive external thumbUrl must be replaced with safe Drive URL');
+  assert.ok(galleryHtml.includes('data-fb-src="https://drive.google.com/thumbnail?id=ValidDriveId_12345&amp;sz=w480"'));
+  assert.ok(galleryHtml.includes("this.src=this.getAttribute('data-fb-src')||''"), 'onerror must read data-fb-src with zero dynamic JS interpolation');
+  assert.ok(galleryHtml.includes('href="https://drive.google.com/file/d/ValidDriveId_12345/view?usp=sharing"'));
+
+  // Item 14: copySkuLookupSummary() fallback with execCommand('copy') and honest error toast when copy fails
+  els.get('proptSkuInput').value = 'SKU-1';
+  await sandbox.window.lookupPromptsSku();
+  await sandbox.window.copySkuLookupSummary();
+  assert.equal(execCopyCalled, true);
+  assert.match(els.get('proptFeedback').textContent, /copiados/i);
+
+  execCopyResult = false;
+  await sandbox.window.copySkuLookupSummary();
+  assert.match(els.get('proptFeedback').textContent, /No se pudo copiar/i);
+});
+
+test('App #9 (Feature F8): Auto-acomodar por categoría button removed from fotos-productos.html while Guardar preserves automatic category folder resolution with zero dead DOM refs', () => {
+  const fotosHtml = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos.html'), 'utf8');
+  const fotosJs = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos-app.js'), 'utf8');
+
+  // 1) Separate Auto-acomodar button/control MUST NOT exist in fotos-productos.html
+  assert.ok(!/Auto-acomodar por categor/i.test(fotosHtml), 'Auto-acomodar por categoría label must be removed from fotos-productos.html');
+  assert.ok(!fotosHtml.includes('btnAutoAssignByCategory'), 'btnAutoAssignByCategory must be removed from fotos-productos.html');
+  assert.ok(!fotosHtml.includes('autoAssignMatchedInboxByCategory'), 'fotos-productos.html must not wire onclick to autoAssignMatchedInboxByCategory');
+
+  // 2) Zero dead DOM references to btnAutoAssignByCategory in fotos-productos-app.js
+  assert.ok(!fotosJs.includes('btnAutoAssignByCategory'), 'fotos-productos-app.js must not reference removed btnAutoAssignByCategory');
+
+  // 3) Guardar button remains intact and assignSelectedPhotoToProduct resolves category folder automatically
+  assert.match(fotosHtml, /id="btnAssignPhotoNow"[\s\S]*?onclick="assignSelectedPhotoToProduct\(\)"[\s\S]*?>\s*Guardar\s*</);
+  const assignFnMatch = fotosJs.match(/window\.assignSelectedPhotoToProduct\s*=\s*async function[\s\S]*?showAssignFeedback\(/);
+  assert.ok(assignFnMatch, 'assignSelectedPhotoToProduct must exist');
+  assert.match(assignFnMatch[0], /resolveCategoryDestFolderForProduct\(/, 'Guardar must resolve category folder automatically');
+  assert.match(assignFnMatch[0], /DEST_FOLDER_BY_ID\.get\(/, 'Guardar must validate against DEST_FOLDER_BY_ID');
+});
+
+test('Prompts SW (Item 14): prompts-sw.js v3 evicts v2, preserves other app caches, and bypasses script.google.com and buena-espero.onrender.com', async () => {
+  const vm = await import('node:vm');
+  const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
+  const listeners = {};
+  const deletedKeys = [];
+  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-fotos-app-v4', 'creata-inventario-v1'];
+
+  const swSandbox = {
+    URL,
+    AbortController,
+    setTimeout,
+    clearTimeout,
+    Promise,
+    Response: { error: () => ({ ok: false }) },
+    Request: function (u, o) { return { url: u, ...(o || {}) }; },
+    caches: {
+      keys: async () => existingKeys.slice(),
+      delete: async (k) => { deletedKeys.push(k); return true; },
+      open: async () => ({ put: async () => {}, match: async () => null })
+    },
+    fetch: async () => ({ ok: true, clone: () => ({}) }),
+    self: {
+      location: { origin: 'https://ikerreyna3942-debug.github.io', href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-sw.js' },
+      skipWaiting: async () => {},
+      clients: { claim: async () => {} },
+      addEventListener: (ev, fn) => { listeners[ev] = fn; }
+    }
+  };
+  vm.runInNewContext(swSrc, swSandbox, { filename: 'prompts-sw.js' });
+
+  // Activate evicts ONLY older creata-prompts-app-* caches
+  let activatePromise;
+  listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
+  await activatePromise;
+  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2']);
+
+  // Fetch bypasses script.google.com, buena-espero.onrender.com, and POST requests; intercepts same-origin GET
+  const checkIntercept = (url, method = 'GET') => {
+    let intercepted = false;
+    listeners.fetch({
+      request: { url, method, mode: 'cors' },
+      respondWith: () => { intercepted = true; }
+    });
+    return intercepted;
+  };
+  assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
+  assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
+  assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=3', 'GET'), true);
 });

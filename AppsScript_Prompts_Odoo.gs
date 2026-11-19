@@ -110,6 +110,14 @@ const DATOS_GENERAL_FIELD_TO_COL_ = {
   bultos: 39
 };
 
+// Columnas de enlaces en DATOS GENERAL (validación estricta https://)
+const DATOS_GENERAL_LINK_COLS_ = {
+  29: 'AC',
+  32: 'AF',
+  35: 'AI',
+  38: 'AL'
+};
+
 // Columnas de datos exactas (1-based) en FOTOS NORMALIZADAS (verificadas en vivo):
 // MUEBLE -> B(2)/D(4), TELA -> F(6)/H(8), MADERA -> J(10)/L(12), SWATCH -> N(14)/P(16)
 // PROHIBIDO escribir en C(3), G(7), K(11), O(15) (=MAP(...IMAGE(...)))
@@ -119,6 +127,18 @@ const FOTOS_NORM_BLOCKS_ = {
   MADERA: { tipo: 'MADERA', nameCol: 10, linkCol: 12, formulaCol: 11, datosNomCol: 33, datosLinkCol: 35 },
   SWATCH: { tipo: 'SWATCH', nameCol: 14, linkCol: 16, formulaCol: 15, datosNomCol: 36, datosLinkCol: 38 }
 };
+
+const PAYLOAD_ID_FIELDS_TO_GUARD_ = [
+  'fileId',
+  'driveFileId',
+  'folderId',
+  'destFolderId',
+  'targetFolderId',
+  'targetSubfolder',
+  'subfolderKey',
+  'sheetId',
+  'spreadsheetId'
+];
 
 // ============================================================================
 // GUARDIAS DE AISLAMIENTO PROYECTO B <-> PROYECTO A
@@ -138,18 +158,85 @@ function assertNotForbiddenProjectAId_(id, contextLabel) {
   }
 }
 
+function validateNoForbiddenProjectAIdsInPayload_(payload, contextLabel) {
+  if (!payload || typeof payload !== 'object') return null;
+  for (let i = 0; i < PAYLOAD_ID_FIELDS_TO_GUARD_.length; i++) {
+    const field = PAYLOAD_ID_FIELDS_TO_GUARD_[i];
+    if (payload[field] === undefined || payload[field] === null) continue;
+    const raw = String(payload[field]).trim();
+    if (raw && isForbiddenProjectAId_(raw)) {
+      return {
+        ok: false,
+        project: PROMPTS_PROJECT_TAG_,
+        forbiddenFolder: true,
+        field: field,
+        error: 'Aislamiento Proyecto A/B: acceso bloqueado al recurso de Proyecto A "' +
+          FORBIDDEN_PROJECT_A_IDS_[raw] + '" (' + raw + ') en ' + String(contextLabel || 'operación') + ' (' + field + ').'
+      };
+    }
+  }
+  return null;
+}
+
+function isFolderOrAncestorForbiddenProjectA_(folderObj, maxDepth) {
+  if (!folderObj) return false;
+  const limit = (typeof maxDepth === 'number' && maxDepth > 0) ? Math.floor(maxDepth) : 8;
+  const visited = {};
+  const queue = [{ folder: folderObj, depth: 0 }];
+  while (queue.length > 0) {
+    const item = queue.shift();
+    const cur = item.folder;
+    const depth = item.depth;
+    if (!cur) continue;
+    let fid = '';
+    try {
+      fid = String((cur.getId && cur.getId()) || '').trim();
+    } catch (eId) {
+      return true; // Fail closed
+    }
+    if (isForbiddenProjectAId_(fid)) return true;
+    if (fid) {
+      if (visited[fid]) continue;
+      visited[fid] = true;
+    }
+    if (depth >= limit) continue;
+    try {
+      const pIt = cur.getParents && cur.getParents();
+      while (pIt && pIt.hasNext()) {
+        const pf = pIt.next();
+        if (pf) queue.push({ folder: pf, depth: depth + 1 });
+      }
+    } catch (eWalk) {
+      return true; // Fail closed if getParents() throws
+    }
+  }
+  return false;
+}
+
 function isFileInForbiddenProjectAFolder_(file) {
   if (!file) return false;
   try {
     const fid = String((file.getId && file.getId()) || '').trim();
     if (isForbiddenProjectAId_(fid)) return true;
+    const mime = String((file.getMimeType && file.getMimeType()) || '').toLowerCase();
+    if (mime === 'application/vnd.google-apps.shortcut') {
+      const targetId = String((file.getTargetId && file.getTargetId()) || '').trim();
+      if (!targetId || isForbiddenProjectAId_(targetId)) return true;
+      const targetFile = DriveApp.getFileById(targetId);
+      if (!targetFile) return true;
+      const tParents = targetFile.getParents();
+      while (tParents && tParents.hasNext()) {
+        if (isFolderOrAncestorForbiddenProjectA_(tParents.next(), 8)) return true;
+      }
+    }
     const pIt = file.getParents();
     while (pIt && pIt.hasNext()) {
       const pf = pIt.next();
-      const pid = String((pf && pf.getId && pf.getId()) || '').trim();
-      if (isForbiddenProjectAId_(pid)) return true;
+      if (isFolderOrAncestorForbiddenProjectA_(pf, 8)) return true;
     }
-  } catch (ePar) {}
+  } catch (ePar) {
+    return true; // Fail closed if getParents() throws
+  }
   return false;
 }
 
@@ -239,9 +326,28 @@ function getConfiguredPromptsPin_() {
   return '';
 }
 
+function getAllowedOwnerEmails_() {
+  const primary = getConfiguredOwnerEmail_();
+  const allowed = {};
+  if (primary) allowed[primary] = true;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const extra = String((props && props.getProperty('ALLOWED_OWNER_EMAILS')) || '').trim();
+    if (extra) {
+      const parts = extra.split(/[;\n]+/);
+      for (let i = 0; i < parts.length; i++) {
+        const norm = normalizeEmail_(parts[i]);
+        if (norm) allowed[norm] = true;
+      }
+    }
+  } catch (eProp) {}
+  return allowed;
+}
+
 function verifyPromptsOwnerAuth_(payload) {
   const body = payload || {};
   const expectedOwner = getConfiguredOwnerEmail_();
+  const allowedEmails = getAllowedOwnerEmails_();
   const expectedPin = getConfiguredPromptsPin_();
 
   const providedEmail = normalizeEmail_(body.ownerEmail || body.email || body.correo || '');
@@ -252,8 +358,19 @@ function verifyPromptsOwnerAuth_(payload) {
     }
   } catch (eSess) {}
 
-  const emailMatched = (providedEmail && providedEmail === expectedOwner) ||
-    (!providedEmail && activeEmail && activeEmail === expectedOwner);
+  const isSameOwnerSession = !!(activeEmail && Object.prototype.hasOwnProperty.call(allowedEmails, activeEmail));
+
+  if (providedEmail && !Object.prototype.hasOwnProperty.call(allowedEmails, providedEmail)) {
+    return {
+      ok: false,
+      authRequired: true,
+      forbidden: true,
+      error: 'Acceso denegado: operación autorizada únicamente para ' + expectedOwner + '.'
+    };
+  }
+
+  const emailMatched = (providedEmail && Object.prototype.hasOwnProperty.call(allowedEmails, providedEmail)) ||
+    (!providedEmail && isSameOwnerSession);
 
   if (!emailMatched) {
     return {
@@ -264,19 +381,45 @@ function verifyPromptsOwnerAuth_(payload) {
     };
   }
 
-  if (expectedPin) {
-    const providedPin = String(body.pin || body.promptsPin || '').trim();
-    if (!providedPin || providedPin !== expectedPin) {
-      return {
-        ok: false,
-        authRequired: true,
-        forbidden: true,
-        error: 'PIN inválido o faltante para ejecutar operaciones de Prompts/Odoo.'
-      };
+  // Ejecución interna del titular desde Google Sheets (menú/editor)
+  if (isSameOwnerSession) {
+    if (expectedPin && (body.pin !== undefined || body.promptsPin !== undefined)) {
+      const providedPinSess = String(body.pin || body.promptsPin || '').trim();
+      if (providedPinSess && providedPinSess !== expectedPin) {
+        return {
+          ok: false,
+          authRequired: true,
+          forbidden: true,
+          error: 'PIN inválido para ejecutar operaciones de Prompts/Odoo.'
+        };
+      }
     }
+    return { ok: true, ownerEmail: activeEmail || expectedOwner, authMode: 'session' };
   }
 
-  return { ok: true, ownerEmail: expectedOwner };
+  // Llamadas externas al Web App (GitHub Pages / clientes externos):
+  // Exigir PROMPTS_PIN configurado en ScriptProperties (fail closed si falta)
+  if (!expectedPin) {
+    return {
+      ok: false,
+      authRequired: true,
+      pinSetupRequired: true,
+      forbidden: true,
+      error: 'Configura PROMPTS_PIN desde el menú CREATA Prompts & Odoo → Configurar PIN en Base de Datos Generales para habilitar acceso externo seguro.'
+    };
+  }
+
+  const providedPin = String(body.pin || body.promptsPin || '').trim();
+  if (!providedPin || providedPin !== expectedPin) {
+    return {
+      ok: false,
+      authRequired: true,
+      forbidden: true,
+      error: 'PIN inválido o faltante para ejecutar operaciones de Prompts/Odoo.'
+    };
+  }
+
+  return { ok: true, ownerEmail: providedEmail || expectedOwner, authMode: 'pin' };
 }
 
 function parseRequestPayload_(e) {
@@ -351,17 +494,41 @@ function isImageDriveFile_(file) {
   return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif|tiff?)$/i.test(name);
 }
 
-function listImagesInFolderById_(folderObj) {
+function resolveSafeImageFileForProjectB_(fileObj, checkMultiParent) {
+  if (!fileObj || (fileObj.isTrashed && fileObj.isTrashed())) return null;
+  let f = fileObj;
+  let mime = String((f.getMimeType && f.getMimeType()) || '').toLowerCase();
+  if (mime === 'application/vnd.google-apps.shortcut') {
+    try {
+      const targetId = String((f.getTargetId && f.getTargetId()) || '').trim();
+      if (!targetId || isForbiddenProjectAId_(targetId)) return null;
+      const targetFile = DriveApp.getFileById(targetId);
+      if (!targetFile || (targetFile.isTrashed && targetFile.isTrashed())) return null;
+      if (isFileInForbiddenProjectAFolder_(targetFile)) return null;
+      f = targetFile;
+      mime = String((f.getMimeType && f.getMimeType()) || '').toLowerCase();
+      if (mime === 'application/vnd.google-apps.shortcut') return null;
+    } catch (eSc) {
+      return null;
+    }
+  }
+  if (!isImageDriveFile_(f)) return null;
+  if (checkMultiParent && isFileInForbiddenProjectAFolder_(f)) return null;
+  return f;
+}
+
+function listImagesInFolderById_(folderObj, opts) {
   const folderId = String(folderObj.getId() || '').trim();
   assertNotForbiddenProjectAId_(folderId, 'listImagesInFolderById_');
+  const checkMultiParent = (opts && typeof opts.checkMultiParent === 'boolean') ? opts.checkMultiParent : true;
   const items = [];
   const seenIds = {};
   const it = folderObj.getFiles();
   while (it && it.hasNext()) {
-    const f = it.next();
+    const rawFile = it.next();
     try {
-      if (!isImageDriveFile_(f)) continue;
-      if (isFileInForbiddenProjectAFolder_(f)) continue;
+      const f = resolveSafeImageFileForProjectB_(rawFile, checkMultiParent);
+      if (!f) continue;
       const fid = String(f.getId() || '').trim();
       if (!fid || seenIds[fid]) continue;
       seenIds[fid] = true;
@@ -378,16 +545,41 @@ function listImagesInFolderById_(folderObj) {
   return items;
 }
 
-function countImagesInFolder_(folderObj) {
+function countImagesInFolder_(folderObj, opts) {
+  const folderId = String((folderObj && folderObj.getId && folderObj.getId()) || '').trim();
+  if (folderId) assertNotForbiddenProjectAId_(folderId, 'countImagesInFolder_');
+  const checkMultiParent = (opts && typeof opts.checkMultiParent === 'boolean') ? opts.checkMultiParent : true;
   let count = 0;
   const it = folderObj.getFiles();
   while (it && it.hasNext()) {
-    const f = it.next();
+    const rawFile = it.next();
     try {
-      if (isImageDriveFile_(f) && !isFileInForbiddenProjectAFolder_(f)) count++;
+      const f = resolveSafeImageFileForProjectB_(rawFile, checkMultiParent);
+      if (f) count++;
     } catch (eC) {}
   }
   return count;
+}
+
+function sanitizeUploadFilename_(rawFileName, ext, defaultPrefix) {
+  const safeExt = String(ext || 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+  const prefix = String(defaultPrefix || 'subir_propt').replace(/[^a-zA-Z0-9_-]/g, '_') || 'subir_propt';
+  let cleaned = String(rawFileName || '')
+    .replace(/(?:^|[\\/])\.\.(?=[\\/]|$)/g, ' ')
+    .replace(/\.\.+/g, '.')
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/[\u0000-\u001f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  cleaned = cleaned.replace(/^[.\s]+/, '').replace(/[.\s]+$/, '');
+  const extMatch = cleaned.match(/^(.*)\.(jpe?g|png|webp|gif|avif|bmp)$/i);
+  let baseName = extMatch ? String(extMatch[1] || '').trim() : cleaned;
+  const finalExt = extMatch ? String(extMatch[2] || safeExt).toLowerCase() : safeExt;
+  baseName = baseName.replace(/^[.\s]+|[.\s]+$/g, '');
+  if (!baseName) {
+    return prefix + '_' + Date.now() + '.' + finalExt;
+  }
+  return baseName + '.' + finalExt;
 }
 
 function parseAndValidateImageUpload_(payload, defaultPrefix) {
@@ -415,11 +607,7 @@ function parseAndValidateImageUpload_(payload, defaultPrefix) {
     };
   }
   const ext = ALLOWED_IMAGE_MIME_TYPES_[mime];
-  const rawName = String((payload && payload.fileName) || (defaultPrefix + '-' + Date.now() + '.' + ext))
-    .replace(/[\\/:*?"<>|]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const finalName = /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(rawName) ? rawName : (rawName + '.' + ext);
+  const finalName = sanitizeUploadFilename_(payload && payload.fileName, ext, defaultPrefix);
   const blob = Utilities.newBlob(bytes, mime, finalName);
   return { ok: true, blob: blob, mime: mime, fileName: finalName, sizeBytes: bytes.length };
 }
@@ -481,9 +669,15 @@ function doGet(e) {
     const payload = parseRequestPayload_(e);
     const action = String(payload.action || 'prompts_health').trim();
     if (action === 'prompts_health' || action === 'health' || action === 'ping') {
+      const forbiddenErr = validateNoForbiddenProjectAIdsInPayload_(payload, action);
+      if (forbiddenErr) return jsonResponse_(forbiddenErr);
       return jsonResponse_(handlePromptsHealth_(payload));
     }
-    return jsonResponse_(dispatchPromptsAction_(action, payload));
+    return jsonResponse_({
+      ok: false,
+      project: PROMPTS_PROJECT_TAG_,
+      error: 'Esta acción requiere HTTP POST.'
+    });
   } catch (err) {
     return jsonResponse_({
       ok: false,
@@ -515,6 +709,9 @@ function doPost(e) {
 }
 
 function dispatchPromptsAction_(action, payload) {
+  const forbiddenErr = validateNoForbiddenProjectAIdsInPayload_(payload, action);
+  if (forbiddenErr) return forbiddenErr;
+
   switch (action) {
     case 'prompts_health':
       return handlePromptsHealth_(payload);
@@ -550,6 +747,9 @@ function dispatchPromptsAction_(action, payload) {
 // ============================================================================
 // 1. prompts_health (GET / POST)
 // ============================================================================
+const PROMPTS_HEALTH_CACHE_KEY_ = 'PROMPTS_HEALTH_BULK_V1';
+const PROMPTS_HEALTH_CACHE_TTL_SEC_ = 120;
+
 function inspectFolderHealth_(folderId, label, options) {
   const opts = options || {};
   const info = {
@@ -572,7 +772,7 @@ function inspectFolderHealth_(folderId, label, options) {
     }
     info.ok = true;
     if (!opts.skipCount) {
-      info.count = countImagesInFolder_(folder);
+      info.count = countImagesInFolder_(folder, { checkMultiParent: opts.checkMultiParent !== false });
     }
   } catch (err) {
     info.ok = false;
@@ -582,6 +782,8 @@ function inspectFolderHealth_(folderId, label, options) {
 }
 
 function handlePromptsHealth_(payload) {
+  const opts = payload || {};
+  const fullScan = opts.fullScan === true || String(opts.fullScan || '').trim().toLowerCase() === 'true';
   const warnings = [];
   let sheetOk = false;
   let sheetName = 'Base de Datos Generales';
@@ -596,11 +798,54 @@ function handlePromptsHealth_(payload) {
     warnings.push('No se pudo abrir Base de Datos Generales: ' + sheetError);
   }
 
-  const subirPropt = inspectFolderHealth_(SUBIR_PROPT_FOLDER_ID_, 'SUBIR PROPT');
-  const buzonOdoo = inspectFolderHealth_(BUZON_ODOO_FOLDER_ID_, 'SUBIDA DE FOTOS');
-  const fotosOdoo = inspectFolderHealth_(FOTOS_ODOO_FINAL_FOLDER_ID_, 'fotos odoo');
-  const telas = inspectFolderHealth_(TELAS_FOLDER_ID_, 'TELAS');
-  const maderas = inspectFolderHealth_(MADERAS_FOLDER_ID_, 'MADERAS');
+  // Carpetas de bandeja activas: inspección en vivo con checkMultiParent: true
+  const subirPropt = inspectFolderHealth_(SUBIR_PROPT_FOLDER_ID_, 'SUBIR PROPT', { checkMultiParent: true });
+  const buzonOdoo = inspectFolderHealth_(BUZON_ODOO_FOLDER_ID_, 'SUBIDA DE FOTOS', { checkMultiParent: true });
+
+  // Carpetas masivas de catálogo solo lectura: checkMultiParent: false + caché 120s (evita ~245+ RPCs en GAS V8)
+  let fotosOdoo = null;
+  let telas = null;
+  let maderas = null;
+  let bulkCacheHit = false;
+
+  if (!fullScan) {
+    try {
+      const cache = CacheService.getScriptCache();
+      const cachedRaw = cache && cache.get(PROMPTS_HEALTH_CACHE_KEY_);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        if (cached && cached.fotosOdoo && cached.telas && cached.maderas) {
+          fotosOdoo = cached.fotosOdoo;
+          telas = cached.telas;
+          maderas = cached.maderas;
+          bulkCacheHit = true;
+        }
+      }
+    } catch (eCacheRead) {}
+  }
+
+  if (!bulkCacheHit) {
+    fotosOdoo = inspectFolderHealth_(FOTOS_ODOO_FINAL_FOLDER_ID_, 'fotos odoo', { checkMultiParent: false });
+    telas = inspectFolderHealth_(TELAS_FOLDER_ID_, 'TELAS', { checkMultiParent: false });
+    maderas = inspectFolderHealth_(MADERAS_FOLDER_ID_, 'MADERAS', { checkMultiParent: false });
+    fotosOdoo.subfolders = {};
+    const subKeys = Object.keys(FOTOS_ODOO_SUBFOLDERS_);
+    for (let i = 0; i < subKeys.length; i++) {
+      const sk = subKeys[i];
+      const meta = FOTOS_ODOO_SUBFOLDERS_[sk];
+      fotosOdoo.subfolders[sk] = inspectFolderHealth_(meta.id, meta.name, { checkMultiParent: false });
+    }
+    try {
+      const cache = CacheService.getScriptCache();
+      if (cache) {
+        cache.put(
+          PROMPTS_HEALTH_CACHE_KEY_,
+          JSON.stringify({ fotosOdoo: fotosOdoo, telas: telas, maderas: maderas }),
+          PROMPTS_HEALTH_CACHE_TTL_SEC_
+        );
+      }
+    } catch (eCacheWrite) {}
+  }
 
   if (!subirPropt.ok) {
     warnings.push('Carpeta SUBIR PROPT no disponible: ' + (subirPropt.warning || subirPropt.error || 'error'));
@@ -617,14 +862,6 @@ function handlePromptsHealth_(payload) {
     warnings.push('Carpeta fotos odoo no disponible: ' + (fotosOdoo.warning || fotosOdoo.error || 'error'));
   }
 
-  fotosOdoo.subfolders = {};
-  const subKeys = Object.keys(FOTOS_ODOO_SUBFOLDERS_);
-  for (let i = 0; i < subKeys.length; i++) {
-    const sk = subKeys[i];
-    const meta = FOTOS_ODOO_SUBFOLDERS_[sk];
-    fotosOdoo.subfolders[sk] = inspectFolderHealth_(meta.id, meta.name);
-  }
-
   return {
     ok: sheetOk && subirPropt.ok,
     project: PROMPTS_PROJECT_TAG_,
@@ -632,6 +869,8 @@ function handlePromptsHealth_(payload) {
     sheetName: sheetName,
     sheetOk: sheetOk,
     sheetError: sheetError || undefined,
+    pinConfigured: Boolean(getConfiguredPromptsPin_()),
+    bulkCacheHit: bulkCacheHit,
     folders: {
       subirPropt: subirPropt,
       buzonOdoo: buzonOdoo,
@@ -666,7 +905,7 @@ function handlePromptsProptList_(payload) {
       error: 'La carpeta SUBIR PROPT está en la Papelera de Google Drive.'
     };
   }
-  const files = listImagesInFolderById_(folder);
+  const files = listImagesInFolderById_(folder, { checkMultiParent: true });
   return {
     ok: true,
     project: PROMPTS_PROJECT_TAG_,
@@ -689,7 +928,7 @@ function handlePromptsProptUpload_(payload) {
   const lock = LockService.getScriptLock();
   lock.waitLock(25000);
   try {
-    const parsed = parseAndValidateImageUpload_(payload, 'propt');
+    const parsed = parseAndValidateImageUpload_(payload, 'subir_propt');
     if (!parsed.ok) return parsed;
 
     const folder = getSafeFolderById_(SUBIR_PROPT_FOLDER_ID_, 'prompts_propt_upload');
@@ -776,8 +1015,8 @@ function handlePromptsMaterialsList_(payload) {
   const telasFolder = getSafeFolderById_(TELAS_FOLDER_ID_, 'prompts_materials_list:TELAS');
   const maderasFolder = getSafeFolderById_(MADERAS_FOLDER_ID_, 'prompts_materials_list:MADERAS');
 
-  const telas = (telasFolder.isTrashed && telasFolder.isTrashed()) ? [] : listImagesInFolderById_(telasFolder);
-  const maderas = (maderasFolder.isTrashed && maderasFolder.isTrashed()) ? [] : listImagesInFolderById_(maderasFolder);
+  const telas = (telasFolder.isTrashed && telasFolder.isTrashed()) ? [] : listImagesInFolderById_(telasFolder, { checkMultiParent: false });
+  const maderas = (maderasFolder.isTrashed && maderasFolder.isTrashed()) ? [] : listImagesInFolderById_(maderasFolder, { checkMultiParent: false });
 
   return {
     ok: true,
@@ -953,20 +1192,49 @@ function handleOdooBuzonUpload_(payload) {
 }
 
 function resolveOdooFinalDestFolder_(subfolderKey) {
-  const keyNorm = String(subfolderKey || '').trim().toUpperCase();
-  if (keyNorm && Object.prototype.hasOwnProperty.call(FOTOS_ODOO_SUBFOLDERS_, keyNorm)) {
-    const subMeta = FOTOS_ODOO_SUBFOLDERS_[keyNorm];
-    const subFolder = getSafeFolderById_(subMeta.id, 'odoo_move_to_final:' + keyNorm);
-    if (subFolder.isTrashed && subFolder.isTrashed()) {
-      return { ok: false, folderTrashed: true, folderId: subMeta.id, error: 'La subcarpeta destino "' + subMeta.name + '" está en la Papelera.' };
+  const raw = String(subfolderKey || '').trim();
+  if (raw && isForbiddenProjectAId_(raw)) {
+    return {
+      ok: false,
+      forbiddenFolder: true,
+      error: 'Aislamiento Proyecto A/B: carpeta destino prohibida "' + FORBIDDEN_PROJECT_A_IDS_[raw] + '".'
+    };
+  }
+  const keyNorm = raw.toUpperCase();
+  if (!raw || keyNorm === 'ROOT' || raw === FOTOS_ODOO_FINAL_FOLDER_ID_) {
+    const rootFolder = getSafeFolderById_(FOTOS_ODOO_FINAL_FOLDER_ID_, 'odoo_move_to_final:root');
+    if (rootFolder.isTrashed && rootFolder.isTrashed()) {
+      return { ok: false, folderTrashed: true, folderId: FOTOS_ODOO_FINAL_FOLDER_ID_, error: 'La carpeta fotos odoo está en la Papelera.' };
     }
-    return { ok: true, folder: subFolder, id: subMeta.id, name: String(subFolder.getName() || subMeta.name), key: keyNorm };
+    return { ok: true, folder: rootFolder, id: FOTOS_ODOO_FINAL_FOLDER_ID_, name: String(rootFolder.getName() || 'fotos odoo'), key: 'ROOT' };
   }
-  const rootFolder = getSafeFolderById_(FOTOS_ODOO_FINAL_FOLDER_ID_, 'odoo_move_to_final:root');
-  if (rootFolder.isTrashed && rootFolder.isTrashed()) {
-    return { ok: false, folderTrashed: true, folderId: FOTOS_ODOO_FINAL_FOLDER_ID_, error: 'La carpeta fotos odoo está en la Papelera.' };
+
+  let matchedMeta = null;
+  if (Object.prototype.hasOwnProperty.call(FOTOS_ODOO_SUBFOLDERS_, keyNorm)) {
+    matchedMeta = FOTOS_ODOO_SUBFOLDERS_[keyNorm];
+  } else {
+    const subKeys = Object.keys(FOTOS_ODOO_SUBFOLDERS_);
+    for (let i = 0; i < subKeys.length; i++) {
+      const meta = FOTOS_ODOO_SUBFOLDERS_[subKeys[i]];
+      if (meta && meta.id === raw) {
+        matchedMeta = meta;
+        break;
+      }
+    }
   }
-  return { ok: true, folder: rootFolder, id: FOTOS_ODOO_FINAL_FOLDER_ID_, name: String(rootFolder.getName() || 'fotos odoo'), key: 'ROOT' };
+
+  if (!matchedMeta) {
+    return {
+      ok: false,
+      error: 'Subcarpeta destino inválida en fotos odoo ("' + raw + '"). Valores permitidos: ROOT, MUEBLES, ACCESORIOS, TELAS, OTROS.'
+    };
+  }
+
+  const subFolder = getSafeFolderById_(matchedMeta.id, 'odoo_move_to_final:' + matchedMeta.key);
+  if (subFolder.isTrashed && subFolder.isTrashed()) {
+    return { ok: false, folderTrashed: true, folderId: matchedMeta.id, error: 'La subcarpeta destino "' + matchedMeta.name + '" está en la Papelera.' };
+  }
+  return { ok: true, folder: subFolder, id: matchedMeta.id, name: String(subFolder.getName() || matchedMeta.name), key: matchedMeta.key };
 }
 
 function handleOdooMoveToFinal_(payload) {
@@ -979,25 +1247,69 @@ function handleOdooMoveToFinal_(payload) {
   }
   assertNotForbiddenProjectAId_(fileId, 'odoo_move_to_final');
 
+  const subKeyRaw = String((payload && payload.subfolderKey) || '').trim();
+  const targetSubRaw = String((payload && payload.targetSubfolder) || '').trim();
+  if (subKeyRaw && targetSubRaw && subKeyRaw.toUpperCase() !== targetSubRaw.toUpperCase()) {
+    return { ok: false, error: 'Conflicto de parámetros: "subfolderKey" y "targetSubfolder" tienen valores distintos.' };
+  }
+  const requestedSubfolder = subKeyRaw || targetSubRaw;
+
   const lock = LockService.getScriptLock();
   lock.waitLock(25000);
   try {
-    const buzonCheck = getActiveBuzonOdooFolder_('odoo_move_to_final');
-    if (!buzonCheck.ok) return buzonCheck;
-
-    const dest = resolveOdooFinalDestFolder_(payload && payload.subfolderKey);
+    const dest = resolveOdooFinalDestFolder_(requestedSubfolder);
     if (!dest.ok) return dest;
 
     const file = DriveApp.getFileById(fileId);
-    const allowedSources = [BUZON_ODOO_FOLDER_ID_];
-    if (payload && payload.allowFromPropt) {
-      allowedSources.push(SUBIR_PROPT_FOLDER_ID_);
+    if (!file) {
+      return { ok: false, error: 'Archivo no encontrado en Drive: ' + fileId };
     }
+    if (file.isTrashed && file.isTrashed()) {
+      return { ok: false, fileTrashed: true, error: 'El archivo origen está en la Papelera de Google Drive y no puede moverse a fotos odoo.' };
+    }
+    if (isFileInForbiddenProjectAFolder_(file)) {
+      return {
+        ok: false,
+        forbiddenFolder: true,
+        error: 'Aislamiento Proyecto A/B: el archivo pertenece a una carpeta exclusiva de Proyecto A y no puede moverse desde Prompts/Odoo.'
+      };
+    }
+
+    const allowFromPropt = !!(payload && payload.allowFromPropt);
+    const buzonCheck = getActiveBuzonOdooFolder_('odoo_move_to_final');
+    const fileParents = getFileParentIds_(file);
+    const inSubirPropt = fileParents.indexOf(SUBIR_PROPT_FOLDER_ID_) !== -1;
+    const inBuzonOdoo = fileParents.indexOf(BUZON_ODOO_FOLDER_ID_) !== -1;
+
+    if (!allowFromPropt) {
+      if (!buzonCheck.ok) return buzonCheck;
+    } else if (!inSubirPropt) {
+      if (inBuzonOdoo && !buzonCheck.ok) return buzonCheck;
+    } else {
+      const proptFolder = getSafeFolderById_(SUBIR_PROPT_FOLDER_ID_, 'odoo_move_to_final:checkPropt');
+      if (proptFolder.isTrashed && proptFolder.isTrashed()) {
+        return { ok: false, folderTrashed: true, folderId: SUBIR_PROPT_FOLDER_ID_, error: 'La carpeta SUBIR PROPT está en la Papelera de Google Drive.' };
+      }
+    }
+
+    const allowedSources = [];
+    if (buzonCheck.ok) allowedSources.push(BUZON_ODOO_FOLDER_ID_);
+    if (allowFromPropt) allowedSources.push(SUBIR_PROPT_FOLDER_ID_);
     assertFileBelongsToAllowedFolders_(file, allowedSources, 'odoo_move_to_final');
 
-    const newName = String((payload && payload.newName) || '').replace(/[\\/:*?"<>|]+/g, ' ').trim();
-    if (newName) {
-      file.setName(newName);
+    const rawNewName = String((payload && payload.newName) || '').trim();
+    if (rawNewName) {
+      const safeNewName = rawNewName
+        .replace(/(?:^|[\\/])\.\.(?=[\\/]|$)/g, ' ')
+        .replace(/\.\.+/g, '.')
+        .replace(/[\\/:*?"<>|]+/g, ' ')
+        .replace(/[\u0000-\u001f]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/^[.\s]+|[.\s]+$/g, '')
+        .trim();
+      if (safeNewName) {
+        file.setName(safeNewName);
+      }
     }
     file.moveTo(dest.folder);
     try {
@@ -1019,8 +1331,89 @@ function handleOdooMoveToFinal_(payload) {
 }
 
 // ============================================================================
-// 8. odoo_register_foto (Protección estricta Fila >= 4 y columnas sin fórmulas)
+// 8. odoo_register_foto (Validación atómica, Fila >= 4, columnas y anti-fórmulas)
 // ============================================================================
+const MAX_SHEET_ROW_EXTENSION_ = 5000;
+
+function parseStrictSheetRow_(rawVal, maxExistingRows, fieldLabel, minRow) {
+  const minAllowed = minRow || 4;
+  if (rawVal === undefined || rawVal === null || String(rawVal).trim() === '') {
+    return { ok: true, provided: false, row: 0 };
+  }
+  if (typeof rawVal === 'boolean' || typeof rawVal === 'object') {
+    return {
+      ok: false,
+      error: 'Número de fila inválido en "' + fieldLabel + '": se requiere un entero >= ' + minAllowed + '.'
+    };
+  }
+  const n = Number(rawVal);
+  if (!isFinite(n) || !Number.isInteger(n)) {
+    return {
+      ok: false,
+      error: 'Número de fila inválido en "' + fieldLabel + '" ("' + String(rawVal) + '"): se requiere un entero finito >= ' + minAllowed + '.'
+    };
+  }
+  if (n < minAllowed) {
+    return {
+      ok: false,
+      formulaProtected: true,
+      error: 'Protección de fórmulas: prohibido escribir en filas < ' + minAllowed + ' de ' + fieldLabel + ' (fila 3 contiene fórmulas maestras).'
+    };
+  }
+  const maxAllowed = Math.max(Number(maxExistingRows) || 0, minAllowed) + MAX_SHEET_ROW_EXTENSION_;
+  if (n > maxAllowed) {
+    return {
+      ok: false,
+      error: 'Número de fila fuera de rango en "' + fieldLabel + '" (' + n + ' excede el máximo permitido ' + maxAllowed + ').'
+    };
+  }
+  return { ok: true, provided: true, row: n };
+}
+
+function validateSafeHttpsLink_(val, fieldLabel) {
+  const s = String(val === null || val === undefined ? '' : val).trim();
+  if (!s || /^\s*[=+@\t\r]/.test(s) || !/^https:\/\/\S+$/i.test(s)) {
+    return {
+      ok: false,
+      invalidLink: true,
+      formulaInjectionBlocked: true,
+      error: 'Enlace inválido o bloqueado en "' + fieldLabel + '": se requiere una URL https:// válida sin fórmulas.'
+    };
+  }
+  return { ok: true, value: s };
+}
+
+function validateSafeSheetText_(val, fieldLabel) {
+  if (val === null || val === undefined || val === '') {
+    return { ok: true, value: '' };
+  }
+  if (typeof val === 'number') {
+    if (!isFinite(val)) {
+      return { ok: false, error: 'Valor numérico inválido en "' + fieldLabel + '".' };
+    }
+    return { ok: true, value: val };
+  }
+  const s = String(val);
+  if (/^\s*[=+@\t\r]/.test(s)) {
+    return {
+      ok: false,
+      formulaInjectionBlocked: true,
+      error: 'Inyección de fórmula bloqueada en "' + fieldLabel + '": el valor no puede iniciar con =, +, @ o caracteres de control.'
+    };
+  }
+  if (/^\s*-/.test(s)) {
+    const trimmed = s.trim();
+    if (!/^-\d+(?:\.\d+)?$/.test(trimmed) || !isFinite(Number(trimmed))) {
+      return {
+        ok: false,
+        formulaInjectionBlocked: true,
+        error: 'Inyección de fórmula bloqueada en "' + fieldLabel + '": el valor con "-" inicial debe ser un número finito válido.'
+      };
+    }
+  }
+  return { ok: true, value: val };
+}
+
 function handleOdooRegisterFoto_(payload) {
   const auth = verifyPromptsOwnerAuth_(payload);
   if (!auth.ok) return auth;
@@ -1036,38 +1429,50 @@ function handleOdooRegisterFoto_(payload) {
       datosGeneral: null
     };
 
-    // A) Registro en FOTOS NORMALIZADAS (solo filas >= 4, solo pares B/D, F/H, J/L, N/P; jamás C/G/K/O)
+    // ========================================================================
+    // FASE 1: VALIDACIÓN Y PLANIFICACIÓN COMPLETA (CERO MUTACIONES EN SHEETS)
+    // ========================================================================
     const tipoRaw = String((payload && payload.tipo) || '').trim().toUpperCase();
     const nombreFoto = String((payload && (payload.nombre || payload.fileName)) || '').trim();
     const linkFoto = String((payload && (payload.link || payload.viewUrl || payload.url)) || '').trim();
+    const hasNormRowArg = !!(payload && payload.rowNumber !== undefined && payload.rowNumber !== null && String(payload.rowNumber).trim() !== '');
 
-    if (tipoRaw) {
-      const block = FOTOS_NORM_BLOCKS_[tipoRaw];
-      if (!block) {
+    let normPlan = null;
+    if (tipoRaw || hasNormRowArg) {
+      if (!tipoRaw) {
+        return { ok: false, error: 'Se especificó "rowNumber" pero falta "tipo" (MUEBLE, TELA, MADERA, SWATCH).' };
+      }
+      if (!Object.prototype.hasOwnProperty.call(FOTOS_NORM_BLOCKS_, tipoRaw)) {
         return {
           ok: false,
           error: 'Tipo de foto inválido ("' + tipoRaw + '"). Valores válidos: MUEBLE, TELA, MADERA, SWATCH.'
         };
       }
+      const block = FOTOS_NORM_BLOCKS_[tipoRaw];
       if (!nombreFoto || !linkFoto) {
         return { ok: false, error: 'Se requieren "nombre" y "link" para registrar en FOTOS NORMALIZADAS.' };
       }
+
+      const nameCheck = validateSafeSheetText_(nombreFoto, 'FOTOS NORMALIZADAS.nombre');
+      if (!nameCheck.ok) return nameCheck;
+      const linkCheck = validateSafeHttpsLink_(linkFoto, 'FOTOS NORMALIZADAS.link');
+      if (!linkCheck.ok) return linkCheck;
 
       const shNorm = ss.getSheetByName('FOTOS NORMALIZADAS');
       if (!shNorm) {
         return { ok: false, error: 'No se encontró la pestaña "FOTOS NORMALIZADAS" en Base de Datos Generales.' };
       }
 
-      let targetNormRow = Number((payload && payload.rowNumber) || 0);
-      if (targetNormRow && targetNormRow < FOTOS_NORM_MIN_DATA_ROW_) {
-        return {
-          ok: false,
-          formulaProtected: true,
-          error: 'Protección de fórmulas: prohibido escribir en filas < 4 de FOTOS NORMALIZADAS (fila 3 contiene =MAP/IMAGE).'
-        };
-      }
+      const normRowCheck = parseStrictSheetRow_(
+        payload && payload.rowNumber,
+        shNorm.getMaxRows(),
+        'FOTOS NORMALIZADAS',
+        FOTOS_NORM_MIN_DATA_ROW_
+      );
+      if (!normRowCheck.ok) return normRowCheck;
 
-      if (!targetNormRow) {
+      let targetNormRow = normRowCheck.row;
+      if (!normRowCheck.provided) {
         const lastRow = Math.max(shNorm.getLastRow(), FOTOS_NORM_MIN_DATA_ROW_);
         const scanCount = Math.max(1, lastRow - FOTOS_NORM_MIN_DATA_ROW_ + 1);
         const nameVals = shNorm.getRange(FOTOS_NORM_MIN_DATA_ROW_, block.nameCol, scanCount, 1).getDisplayValues();
@@ -1089,44 +1494,58 @@ function handleOdooRegisterFoto_(payload) {
         }
       }
 
-      if (targetNormRow > shNorm.getMaxRows()) {
-        shNorm.insertRowsAfter(shNorm.getMaxRows(), targetNormRow - shNorm.getMaxRows());
-      }
-      // Escribir ÚNICAMENTE nameCol y linkCol (NUNCA formulaCol C/G/K/O)
-      shNorm.getRange(targetNormRow, block.nameCol).setValue(nombreFoto);
-      shNorm.getRange(targetNormRow, block.linkCol).setValue(linkFoto);
-
-      result.fotosNormalizadas = {
-        tipo: block.tipo,
+      normPlan = {
+        sheet: shNorm,
+        block: block,
         row: targetNormRow,
-        nameCol: colIndexToLetter_(block.nameCol),
-        linkCol: colIndexToLetter_(block.linkCol),
-        protectedFormulaCol: colIndexToLetter_(block.formulaCol)
+        nombre: nombreFoto,
+        link: linkCheck.value
       };
     }
 
-    // B) Actualización opcional en DATOS GENERAL (solo filas >= 4, solo columnas manuales permitidas)
-    const dgRowRequested = Number((payload && payload.datosGeneralRow) || 0);
-    const dgFields = (payload && payload.datosGeneralFields && typeof payload.datosGeneralFields === 'object')
+    // Validación Sección B: DATOS GENERAL (acepta datosGeneralRow/fila y datosGeneralFields/datosGeneralUpdates)
+    const hasDgRowArg = !!(payload && payload.datosGeneralRow !== undefined && payload.datosGeneralRow !== null && String(payload.datosGeneralRow).trim() !== '');
+    const hasFilaArg = !!(payload && payload.fila !== undefined && payload.fila !== null && String(payload.fila).trim() !== '');
+    const dgFieldsObj = (payload && payload.datosGeneralFields && typeof payload.datosGeneralFields === 'object' && !Array.isArray(payload.datosGeneralFields))
       ? payload.datosGeneralFields
+      : null;
+    const dgUpdatesObj = (payload && payload.datosGeneralUpdates && typeof payload.datosGeneralUpdates === 'object' && !Array.isArray(payload.datosGeneralUpdates))
+      ? payload.datosGeneralUpdates
       : null;
     const skuForDg = String((payload && payload.sku) || '').trim().toUpperCase();
 
-    if (dgRowRequested || dgFields || (skuForDg && tipoRaw && payload && payload.updateDatosGeneral)) {
+    let dgPlan = null;
+    if (hasDgRowArg || hasFilaArg || dgFieldsObj || dgUpdatesObj || (skuForDg && tipoRaw && payload && payload.updateDatosGeneral)) {
       const shDg = ss.getSheetByName('DATOS GENERAL');
       if (!shDg) {
         return { ok: false, error: 'No se encontró la pestaña "DATOS GENERAL" en Base de Datos Generales.' };
       }
 
-      if (dgRowRequested && dgRowRequested < DATOS_GENERAL_MIN_DATA_ROW_) {
+      const maxDgRows = shDg.getMaxRows();
+      const parsedDgRow = parseStrictSheetRow_(
+        payload && payload.datosGeneralRow,
+        maxDgRows,
+        'DATOS GENERAL',
+        DATOS_GENERAL_MIN_DATA_ROW_
+      );
+      if (!parsedDgRow.ok) return parsedDgRow;
+
+      const parsedFila = parseStrictSheetRow_(
+        payload && payload.fila,
+        maxDgRows,
+        'DATOS GENERAL (fila)',
+        DATOS_GENERAL_MIN_DATA_ROW_
+      );
+      if (!parsedFila.ok) return parsedFila;
+
+      if (parsedDgRow.provided && parsedFila.provided && parsedDgRow.row !== parsedFila.row) {
         return {
           ok: false,
-          formulaProtected: true,
-          error: 'Protección de fórmulas: prohibido escribir en filas < 4 de DATOS GENERAL (fila 3 contiene fórmulas ARRAYFORMULA/MAP/LET).'
+          error: 'Conflicto de parámetros: "datosGeneralRow" (' + parsedDgRow.row + ') y "fila" (' + parsedFila.row + ') tienen valores distintos.'
         };
       }
 
-      let targetDgRow = dgRowRequested;
+      let targetDgRow = parsedDgRow.provided ? parsedDgRow.row : (parsedFila.provided ? parsedFila.row : 0);
       if (!targetDgRow && skuForDg) {
         const lastDgRow = shDg.getLastRow();
         if (lastDgRow >= DATOS_GENERAL_MIN_DATA_ROW_) {
@@ -1150,14 +1569,18 @@ function handleOdooRegisterFoto_(payload) {
       const toWriteByCol = {};
       const blockedColumns = [];
 
-      if (tipoRaw && FOTOS_NORM_BLOCKS_[tipoRaw] && nombreFoto && linkFoto && payload && payload.updateDatosGeneral !== false) {
-        const blk = FOTOS_NORM_BLOCKS_[tipoRaw];
-        toWriteByCol[blk.datosNomCol] = nombreFoto;
-        toWriteByCol[blk.datosLinkCol] = linkFoto;
+      if (normPlan && payload && payload.updateDatosGeneral !== false) {
+        toWriteByCol[normPlan.block.datosNomCol] = normPlan.nombre;
+        toWriteByCol[normPlan.block.datosLinkCol] = normPlan.link;
       }
 
-      if (dgFields) {
-        const fKeys = Object.keys(dgFields);
+      const fieldSources = [];
+      if (dgFieldsObj) fieldSources.push(dgFieldsObj);
+      if (dgUpdatesObj) fieldSources.push(dgUpdatesObj);
+
+      for (let sIdx = 0; sIdx < fieldSources.length; sIdx++) {
+        const srcObj = fieldSources[sIdx];
+        const fKeys = Object.keys(srcObj);
         for (let k = 0; k < fKeys.length; k++) {
           const rawKey = fKeys[k];
           const lowerKey = String(rawKey || '').trim().toLowerCase();
@@ -1168,7 +1591,16 @@ function handleOdooRegisterFoto_(payload) {
             blockedColumns.push(String(rawKey));
             continue;
           }
-          toWriteByCol[colIdx] = dgFields[rawKey];
+          const rawVal = srcObj[rawKey];
+          if (Object.prototype.hasOwnProperty.call(DATOS_GENERAL_LINK_COLS_, colIdx)) {
+            const linkCheckDg = validateSafeHttpsLink_(rawVal, 'DATOS GENERAL.' + rawKey);
+            if (!linkCheckDg.ok) return linkCheckDg;
+            toWriteByCol[colIdx] = linkCheckDg.value;
+          } else {
+            const txtCheckDg = validateSafeSheetText_(rawVal, 'DATOS GENERAL.' + rawKey);
+            if (!txtCheckDg.ok) return txtCheckDg;
+            toWriteByCol[colIdx] = txtCheckDg.value;
+          }
         }
       }
 
@@ -1182,27 +1614,56 @@ function handleOdooRegisterFoto_(payload) {
         };
       }
 
-      if (targetDgRow > shDg.getMaxRows()) {
-        shDg.insertRowsAfter(shDg.getMaxRows(), targetDgRow - shDg.getMaxRows());
-      }
-
-      const writtenColumns = [];
-      for (let c = 0; c < colIndices.length; c++) {
-        const colNum = Number(colIndices[c]);
-        if (!Object.prototype.hasOwnProperty.call(DATOS_GENERAL_MANUAL_COLS_, colNum)) continue;
-        shDg.getRange(targetDgRow, colNum).setValue(toWriteByCol[colNum]);
-        writtenColumns.push(DATOS_GENERAL_MANUAL_COLS_[colNum]);
-      }
-
-      result.datosGeneral = {
+      dgPlan = {
+        sheet: shDg,
         row: targetDgRow,
-        writtenColumns: writtenColumns,
+        toWriteByCol: toWriteByCol,
+        colIndices: colIndices,
         blockedColumns: blockedColumns
       };
     }
 
-    if (!result.fotosNormalizadas && !result.datosGeneral) {
+    if (!normPlan && !dgPlan) {
       return { ok: false, error: 'No se especificaron datos para registrar en FOTOS NORMALIZADAS ni en DATOS GENERAL.' };
+    }
+
+    // ========================================================================
+    // FASE 2: EJECUCIÓN ATÓMICA (SOLO SI TODAS LAS VALIDACIONES PASARON)
+    // ========================================================================
+    if (normPlan) {
+      if (normPlan.row > normPlan.sheet.getMaxRows()) {
+        normPlan.sheet.insertRowsAfter(normPlan.sheet.getMaxRows(), normPlan.row - normPlan.sheet.getMaxRows());
+      }
+      // Escribir ÚNICAMENTE nameCol y linkCol (NUNCA formulaCol C/G/K/O)
+      normPlan.sheet.getRange(normPlan.row, normPlan.block.nameCol).setValue(normPlan.nombre);
+      normPlan.sheet.getRange(normPlan.row, normPlan.block.linkCol).setValue(normPlan.link);
+
+      result.fotosNormalizadas = {
+        tipo: normPlan.block.tipo,
+        row: normPlan.row,
+        nameCol: colIndexToLetter_(normPlan.block.nameCol),
+        linkCol: colIndexToLetter_(normPlan.block.linkCol),
+        protectedFormulaCol: colIndexToLetter_(normPlan.block.formulaCol)
+      };
+    }
+
+    if (dgPlan) {
+      if (dgPlan.row > dgPlan.sheet.getMaxRows()) {
+        dgPlan.sheet.insertRowsAfter(dgPlan.sheet.getMaxRows(), dgPlan.row - dgPlan.sheet.getMaxRows());
+      }
+      const writtenColumns = [];
+      for (let c = 0; c < dgPlan.colIndices.length; c++) {
+        const colNum = Number(dgPlan.colIndices[c]);
+        if (!Object.prototype.hasOwnProperty.call(DATOS_GENERAL_MANUAL_COLS_, colNum)) continue;
+        dgPlan.sheet.getRange(dgPlan.row, colNum).setValue(dgPlan.toWriteByCol[colNum]);
+        writtenColumns.push(DATOS_GENERAL_MANUAL_COLS_[colNum]);
+      }
+
+      result.datosGeneral = {
+        row: dgPlan.row,
+        writtenColumns: writtenColumns,
+        blockedColumns: dgPlan.blockedColumns
+      };
     }
 
     SpreadsheetApp.flush();
@@ -1290,17 +1751,18 @@ function onOpen() {
   try {
     const ui = SpreadsheetApp.getUi();
     ui.createMenu('CREATA Prompts & Odoo')
-      .addItem('🩺 Diagnóstico de carpetas (SUBIR PROPT / Odoo)', 'menuPromptsHealthCheck_')
-      .addItem('🔗 Guardar/Publicar URL del Web App en _PROMPTS_CONFIG', 'menuPublishPromptsWebAppUrl_')
-      .addItem('🔓 Reparar permisos públicos (solo Proyecto B)', 'menuRepairPromptsPermissions_')
+      .addItem('🩺 Diagnóstico de carpetas (SUBIR PROPT / Odoo)', 'menuPromptsHealthCheck')
+      .addItem('🔗 Guardar/Publicar URL del Web App en _PROMPTS_CONFIG', 'menuPublishPromptsWebAppUrl')
+      .addItem('🔐 Configurar PIN (PROMPTS_PIN)', 'menuConfigurePromptsPin')
+      .addItem('🔓 Reparar permisos públicos (solo Proyecto B)', 'menuRepairPromptsPermissions')
       .addToUi();
   } catch (eUi) {}
 }
 
 function savePromptsWebAppUrlToConfig_(webAppUrl) {
   const cleanUrl = String(webAppUrl || resolveWebAppUrl_() || '').trim();
-  if (!cleanUrl || !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/i.test(cleanUrl)) {
-    return { ok: false, error: 'URL de Web App inválida. Debe comenzar con https://script.google.com/macros/s/.../exec' };
+  if (!cleanUrl || !/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/i.test(cleanUrl)) {
+    return { ok: false, error: 'URL de Web App inválida. Debe coincidir exactamente con https://script.google.com/macros/s/<ID>/exec' };
   }
 
   try {
@@ -1333,11 +1795,12 @@ function savePromptsWebAppUrlToConfig_(webAppUrl) {
   };
 }
 
-function menuPromptsHealthCheck_() {
-  const res = handlePromptsHealth_({});
+function menuPromptsHealthCheck() {
+  const res = handlePromptsHealth_({ fullScan: true });
   const ui = SpreadsheetApp.getUi();
   const lines = [
     'Proyecto: Prompts IA & Alta de Odoo (Base de Datos Generales)',
+    'PIN externo (PROMPTS_PIN): ' + (res.pinConfigured ? 'Configurado ✅' : 'PENDIENTE ⚠️ (ejecuta Configurar PIN)'),
     'SUBIR PROPT: ' + (res.folders.subirPropt.ok ? ('OK (' + res.folders.subirPropt.count + ' fotos)') : 'ERROR'),
     'SUBIDA DE FOTOS (Buzón): ' + (res.folders.buzonOdoo.trashed ? 'EN PAPELERA (restaurar antes de usar)' : (res.folders.buzonOdoo.ok ? ('OK (' + res.folders.buzonOdoo.count + ' fotos)') : 'ERROR')),
     'fotos odoo: ' + (res.folders.fotosOdoo.ok ? 'OK' : 'ERROR'),
@@ -1350,7 +1813,7 @@ function menuPromptsHealthCheck_() {
   ui.alert('CREATA Prompts & Odoo — Diagnóstico', lines.join('\n'), ui.ButtonSet.OK);
 }
 
-function menuPublishPromptsWebAppUrl_() {
+function menuPublishPromptsWebAppUrl() {
   const ui = SpreadsheetApp.getUi();
   const detected = resolveWebAppUrl_();
   const promptRes = ui.prompt(
@@ -1368,8 +1831,33 @@ function menuPublishPromptsWebAppUrl_() {
   );
 }
 
-function menuRepairPromptsPermissions_() {
-  const res = handlePromptsRepairPermissions_({ ownerEmail: getConfiguredOwnerEmail_() });
+function menuConfigurePromptsPin() {
+  const ui = SpreadsheetApp.getUi();
+  const promptRes = ui.prompt(
+    'Configurar PIN (PROMPTS_PIN)',
+    'Ingresa el PIN secreto (mínimo 4 caracteres) para autorizar llamadas externas desde GitHub Pages / Prompts PWA:',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (promptRes.getSelectedButton() !== ui.Button.OK) return;
+  const newPin = String(promptRes.getResponseText() || '').trim();
+  if (newPin.length < 4) {
+    ui.alert('PIN inválido', 'El PIN debe tener al menos 4 caracteres.', ui.ButtonSet.OK);
+    return;
+  }
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('PROMPTS_PIN', newPin);
+  ui.alert(
+    'PROMPTS_PIN guardado',
+    'El PIN externo quedó guardado en ScriptProperties. Úsalo en prompts.html (panel SUBIR PROPT) para conectar de forma segura.',
+    ui.ButtonSet.OK
+  );
+}
+
+function menuRepairPromptsPermissions() {
+  const res = handlePromptsRepairPermissions_({
+    ownerEmail: getConfiguredOwnerEmail_(),
+    pin: getConfiguredPromptsPin_()
+  });
   const ui = SpreadsheetApp.getUi();
   if (!res.ok) {
     ui.alert('Permisos Proyecto B', res.error || 'Error al reparar permisos.', ui.ButtonSet.OK);

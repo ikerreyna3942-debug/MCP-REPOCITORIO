@@ -589,6 +589,57 @@ html, body {
     }
 }
 
+@media (max-width: 440px) {
+    .prompts-topbar {
+        padding: 0 5px;
+        gap: 4px;
+    }
+
+    .topbar-brand {
+        gap: 5px;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .topbar-icon {
+        width: 20px;
+        height: 20px;
+    }
+
+    .topbar-title-wrap {
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .topbar-title {
+        font-size: 11px;
+        max-width: 96px;
+    }
+
+    .status-pill {
+        padding: 3px;
+    }
+
+    #promptsStatusText {
+        display: none;
+    }
+
+    .topbar-actions {
+        gap: 3px;
+    }
+
+    .tb-btn {
+        height: 26px;
+        padding: 0 6px;
+        font-size: 10px;
+    }
+
+    .tb-btn-icon {
+        width: 25px;
+        padding: 0;
+    }
+}
+
 /* ===== BOTÓN Y PANEL DESLIZABLE SUBIR PROPT & SKU (PROYECTO B) ===== */
 .tb-btn-propt {
     background: rgba(201, 164, 106, 0.16);

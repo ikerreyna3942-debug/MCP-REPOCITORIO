@@ -280,6 +280,8 @@
     let proptDrawerOpen = false;
     let proptFilesCache = [];
     let lastSkuMatch = null;
+    let pendingSuggestedScriptUrl = '';
+    let pinInputManuallyEdited = false;
 
     function escapeHtml(str) {
         return String(str || '')
@@ -288,6 +290,18 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function isValidDriveId(id) {
+        return /^[A-Za-z0-9_-]{4,}$/.test(String(id || '').trim());
+    }
+
+    function sanitizeSafeDriveUrl(url, fallbackUrl) {
+        const raw = String(url || '').trim();
+        if (/^https:\/\/(?:lh3\.googleusercontent\.com|drive\.google\.com)\//i.test(raw)) {
+            return raw;
+        }
+        return String(fallbackUrl || '').trim();
     }
 
     function formatBytes(bytes) {
@@ -299,7 +313,7 @@
     }
 
     function isValidAppsScriptUrl(url) {
-        return /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec(?:\?.*)?$/i.test(String(url || '').trim());
+        return /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/i.test(String(url || '').trim());
     }
 
     function getProptConfig() {
@@ -319,9 +333,14 @@
         const urlEl = byId('proptScriptUrlInput');
         const emailEl = byId('proptOwnerEmailInput');
         const pinEl = byId('proptPinInput');
-        if (urlEl) urlEl.value = cfg.scriptUrl;
+        const effectiveUrl = pendingSuggestedScriptUrl || cfg.scriptUrl;
+        const differsFromSaved = Boolean(pendingSuggestedScriptUrl && pendingSuggestedScriptUrl !== cfg.scriptUrl);
+        if (urlEl) urlEl.value = effectiveUrl;
         if (emailEl) emailEl.value = cfg.ownerEmail;
-        if (pinEl) pinEl.value = cfg.pin;
+        if (pinEl) {
+            pinEl.value = differsFromSaved ? '' : cfg.pin;
+        }
+        pinInputManuallyEdited = false;
     }
 
     function setProptConnPill(state, text) {
@@ -398,7 +417,8 @@
     function renderProptGallery(files) {
         const grid = byId('proptGalleryGrid');
         if (!grid) return;
-        const list = Array.isArray(files) ? files : [];
+        const rawList = Array.isArray(files) ? files : [];
+        const list = rawList.filter((f) => f && isValidDriveId(f.id));
         proptFilesCache = list;
         updateProptCountBadges(list.length);
 
@@ -408,16 +428,20 @@
         }
 
         grid.innerHTML = list.map((f) => {
-            const fid = escapeHtml(f.id);
+            const rawId = String(f.id).trim();
+            const fid = escapeHtml(rawId);
             const fname = escapeHtml(f.name || 'foto.jpg');
-            const thumb = escapeHtml(f.thumbUrl || ('https://lh3.googleusercontent.com/d/' + f.id + '=w800'));
-            const fallbackThumb = escapeHtml('https://drive.google.com/thumbnail?id=' + encodeURIComponent(f.id) + '&sz=w480');
-            const viewUrl = escapeHtml(f.viewUrl || ('https://drive.google.com/file/d/' + f.id + '/view?usp=sharing'));
+            const defaultThumb = 'https://lh3.googleusercontent.com/d/' + rawId + '=w800';
+            const defaultFallback = 'https://drive.google.com/thumbnail?id=' + rawId + '&sz=w480';
+            const defaultView = 'https://drive.google.com/file/d/' + rawId + '/view?usp=sharing';
+            const thumb = escapeHtml(sanitizeSafeDriveUrl(f.thumbUrl, defaultThumb));
+            const fallbackThumb = escapeHtml(sanitizeSafeDriveUrl(defaultFallback, defaultThumb));
+            const viewUrl = escapeHtml(sanitizeSafeDriveUrl(f.viewUrl, defaultView));
             return (
                 '<article class="propt-photo-card" data-file-id="' + fid + '">' +
                     '<div class="propt-photo-thumb-wrap">' +
-                        '<img class="propt-photo-thumb" src="' + thumb + '" alt="' + fname + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" ' +
-                        'onerror="if(!this.dataset.fb){this.dataset.fb=\'1\';this.src=\'' + fallbackThumb + '\';}">' +
+                        '<img class="propt-photo-thumb" src="' + thumb + '" data-fb-src="' + fallbackThumb + '" alt="' + fname + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" ' +
+                        'onerror="if(!this.dataset.fb){this.dataset.fb=\'1\';this.src=this.getAttribute(\'data-fb-src\')||\'\';}">' +
                     '</div>' +
                     '<div class="propt-photo-info">' +
                         '<div class="propt-photo-name" title="' + fname + '">' + fname + '</div>' +
@@ -462,7 +486,11 @@
         if (nextOpen) {
             syncProptConfigInputs();
             const cfg = getProptConfig();
-            if (isValidAppsScriptUrl(cfg.scriptUrl)) {
+            if (pendingSuggestedScriptUrl) {
+                window.toggleProptConfigPanel(true);
+                setProptConnPill('idle', 'Confirmar URL');
+                showProptFeedback('URL recibida por enlace. Verifica que sea tu despliegue, ingresa tu PROMPTS_PIN y haz clic en "Guardar y conectar".', false);
+            } else if (isValidAppsScriptUrl(cfg.scriptUrl)) {
                 window.toggleProptConfigPanel(false);
                 window.refreshProptDrawerData();
             } else {
@@ -473,21 +501,40 @@
     };
 
     window.saveProptScriptConfig = async function () {
-        const urlVal = String((byId('proptScriptUrlInput') && byId('proptScriptUrlInput').value) || '').trim();
-        const emailVal = String((byId('proptOwnerEmailInput') && byId('proptOwnerEmailInput').value) || '').trim() || DEFAULT_OWNER_EMAIL;
-        const pinVal = String((byId('proptPinInput') && byId('proptPinInput').value) || '').trim();
+        const urlEl = byId('proptScriptUrlInput');
+        const emailEl = byId('proptOwnerEmailInput');
+        const pinEl = byId('proptPinInput');
+        const urlVal = String((urlEl && urlEl.value) || '').trim();
+        const emailVal = String((emailEl && emailEl.value) || '').trim() || DEFAULT_OWNER_EMAIL;
+        const pinVal = String((pinEl && pinEl.value) || '').trim();
 
         if (!isValidAppsScriptUrl(urlVal)) {
             setProptConnPill('err', 'URL inválida');
             showProptFeedback('Ingresa una URL válida de Google Apps Script (https://script.google.com/macros/s/.../exec).', false);
             return;
         }
+
+        const prevCfg = getProptConfig();
+        const urlChanged = Boolean(prevCfg.scriptUrl && prevCfg.scriptUrl !== urlVal);
+        if (urlChanged) {
+            if (!pinVal || (prevCfg.pin && pinVal === prevCfg.pin && !pinInputManuallyEdited)) {
+                if (pinEl) pinEl.value = '';
+                pinInputManuallyEdited = false;
+                setProptConnPill('err', 'Confirma PIN');
+                showProptFeedback('Cambiaste la URL del Apps Script: vuelve a escribir tu PROMPTS_PIN para confirmar y haz clic en "Guardar y conectar".', false);
+                return;
+            }
+        }
+
         try {
             localStorage.setItem(SCRIPT_URL_STORAGE_KEY, urlVal);
             localStorage.setItem(OWNER_EMAIL_STORAGE_KEY, emailVal);
             if (pinVal) localStorage.setItem(PIN_STORAGE_KEY, pinVal);
             else localStorage.removeItem(PIN_STORAGE_KEY);
         } catch (e) {}
+
+        pendingSuggestedScriptUrl = '';
+        pinInputManuallyEdited = false;
 
         showProptFeedback('Probando conexión con AppsScript_Prompts_Odoo.gs...', true);
         const ok = await window.refreshProptDrawerData();
@@ -497,6 +544,8 @@
     };
 
     window.clearProptScriptConfig = function () {
+        pendingSuggestedScriptUrl = '';
+        pinInputManuallyEdited = false;
         try {
             localStorage.removeItem(SCRIPT_URL_STORAGE_KEY);
             localStorage.removeItem(PIN_STORAGE_KEY);
@@ -603,7 +652,7 @@
 
     window.deleteProptFileById = async function (fileId) {
         const cleanId = String(fileId || '').trim();
-        if (!cleanId) return;
+        if (!isValidDriveId(cleanId)) return;
         const found = proptFilesCache.find((item) => item && item.id === cleanId);
         const label = (found && found.name) || cleanId;
         if (typeof window.confirm === 'function' && !window.confirm('¿Enviar a la papelera de Drive "' + label + '" (solo en SUBIR PROPT)?')) {
@@ -673,12 +722,28 @@
             lastSkuMatch.medidas ? ('Medidas: ' + lastSkuMatch.medidas) : '',
             lastSkuMatch.nombre ? ('Nombre: ' + lastSkuMatch.nombre) : ''
         ].filter(Boolean).join(' | ');
+        let copied = false;
         try {
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 await navigator.clipboard.writeText(text);
+                copied = true;
+            } else if (document && typeof document.createElement === 'function' && typeof document.execCommand === 'function') {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                copied = Boolean(document.execCommand('copy'));
+                document.body.removeChild(ta);
             }
-            showProptFeedback('📋 Datos del SKU copiados al portapapeles.', true);
         } catch (e) {
+            copied = false;
+        }
+        if (copied) {
+            showProptFeedback('📋 Datos del SKU copiados al portapapeles.', true);
+        } else {
             showProptFeedback('No se pudo copiar automáticamente.', false);
         }
     };
@@ -686,10 +751,36 @@
     function ingestQueryScriptUrl() {
         try {
             const params = new URLSearchParams(window.location.search || '');
+            if (!params.has('scriptUrl')) return;
             const qUrl = String(params.get('scriptUrl') || '').trim();
-            if (qUrl && isValidAppsScriptUrl(qUrl)) {
-                localStorage.setItem(SCRIPT_URL_STORAGE_KEY, qUrl);
+
+            // Retirar ?scriptUrl= de la barra de direcciones inmediatamente
+            params.delete('scriptUrl');
+            const cleanSearch = params.toString();
+            const cleanLocation =
+                (window.location.pathname || '') +
+                (cleanSearch ? ('?' + cleanSearch) : '') +
+                (window.location.hash || '');
+            if (window.history && typeof window.history.replaceState === 'function') {
+                window.history.replaceState(null, '', cleanLocation);
             }
+
+            if (!qUrl || !isValidAppsScriptUrl(qUrl)) return;
+
+            // Nunca sobrescribir localStorage silenciosamente: solo prellenar y exigir confirmación manual
+            pendingSuggestedScriptUrl = qUrl;
+            const cfg = getProptConfig();
+            const urlEl = byId('proptScriptUrlInput');
+            const pinEl = byId('proptPinInput');
+            if (urlEl) urlEl.value = qUrl;
+            if (pinEl && cfg.scriptUrl !== qUrl) {
+                pinEl.value = '';
+                pinInputManuallyEdited = false;
+            }
+            const box = byId('proptConfigBox');
+            if (box) box.classList.remove('hidden');
+            setProptConnPill('idle', 'Confirmar URL');
+            showProptFeedback('URL detectada en el enlace. Verifica la URL, ingresa tu PROMPTS_PIN y haz clic en "Guardar y conectar" para confirmar.', false);
         } catch (e) {}
     }
 
@@ -705,8 +796,26 @@
 
     function initPromptsApp() {
         registerPromptsServiceWorker();
-        ingestQueryScriptUrl();
         syncProptConfigInputs();
+        ingestQueryScriptUrl();
+
+        const pinEl = byId('proptPinInput');
+        if (pinEl) {
+            pinEl.addEventListener('input', () => {
+                pinInputManuallyEdited = true;
+            });
+        }
+        const urlEl = byId('proptScriptUrlInput');
+        if (urlEl) {
+            urlEl.addEventListener('input', () => {
+                const cfg = getProptConfig();
+                const currentVal = String(urlEl.value || '').trim();
+                if (cfg.scriptUrl && currentVal !== cfg.scriptUrl && pinEl) {
+                    pinEl.value = '';
+                    pinInputManuallyEdited = false;
+                }
+            });
+        }
 
         // Restaurar preferencia de barra colapsada
         try {
