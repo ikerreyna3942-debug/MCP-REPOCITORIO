@@ -136,14 +136,14 @@
                 <span class="inv-fab-item-label">Seguimiento de cotización</span>
             </button>
 
-            <button type="button" id="fabUploadPhotoBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openUploadPhotoModal();">
+            <button type="button" id="fabUploadPhotoBtn" class="inv-fab-item hidden" role="menuitem" onclick="closeFabMenu(); openUploadPhotoModal();">
                 <span class="inv-fab-item-ico" aria-hidden="true">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                 </span>
                 <span class="inv-fab-item-label">Subir foto</span>
             </button>
 
-            <button type="button" id="fabSplitFotosBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); toggleInvSplitFotosDock();">
+            <button type="button" id="fabSplitFotosBtn" class="inv-fab-item hidden" role="menuitem" onclick="closeFabMenu(); toggleInvSplitFotosDock();">
                 <span class="inv-fab-item-ico" aria-hidden="true">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 4H5a2 2 0 00-2 2v12a2 2 0 002 2h4m6-16h4a2 2 0 012 2v12a2 2 0 01-2 2h-4m-3-16v16"></path></svg>
                 </span>
@@ -839,7 +839,7 @@
                     <h3 class="inv-modal-title">Subir foto por categoría</h3>
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
-                    <a href="./fotos-productos.html" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border" style="border-color:#A38251;color:#EFE8D8;background:rgba(163,130,81,0.22);text-decoration:none;">App Fotos ↗</a>
+                    <a id="uploadPhotoAppFotosLink" href="./fotos-productos.html" class="hidden px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border" style="border-color:#A38251;color:#EFE8D8;background:rgba(163,130,81,0.22);text-decoration:none;">App Fotos ↗</a>
                     <button type="button" id="uploadPhotoCloseBtn" onclick="closeUploadPhotoModal()" class="inv-modal-close-dark" aria-label="Cerrar">✕</button>
                 </div>
             </div>
@@ -905,7 +905,7 @@
                 <div id="uploadPhotoStatus" class="hidden rounded-xl border px-3 py-2 text-xs font-bold"></div>
             </div>
             <div class="inv-modal-foot" style="justify-content:space-between;flex-wrap:wrap;gap:6px;">
-                <button type="button" onclick="closeUploadPhotoModal(); toggleInvSplitFotosDock();" class="inv-btn-secondary" style="border-color:#A38251;color:#8C6D3F;font-weight:800;">⬛⬜ Dividir pantalla</button>
+                <button type="button" id="uploadPhotoSplitBtn" onclick="closeUploadPhotoModal(); toggleInvSplitFotosDock();" class="inv-btn-secondary hidden" style="border-color:#A38251;color:#8C6D3F;font-weight:800;">⬛⬜ Dividir pantalla</button>
                 <div style="display:inline-flex;gap:8px;margin-left:auto;">
                     <button type="button" onclick="closeUploadPhotoModal()" class="inv-btn-secondary">Cancelar</button>
                     <button type="button" id="uploadPhotoSubmitBtn" onclick="submitMultiProductPhotos()" class="inv-btn-primary">Subir a categoría</button>
@@ -942,6 +942,6 @@
     <script src="inventario-data-3.js?v=45"></script>
     <script src="./seguimiento-app.js?v=5"></script>
     <script src="./historial-app.js?v=3"></script>
-    <script src="inventario-app.js?v=78"></script>
+    <script src="inventario-app.js?v=79"></script>
 </body>
 </html>

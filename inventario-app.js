@@ -4007,6 +4007,15 @@
     let uploadPhotoPendingFiles = [];
     let uploadPhotoObjectUrls = [];
 
+    const OWNER_FOTOS_EMAIL = 'kevin.reyna@grupoanipa.com';
+
+    function isFotosAppOwner() {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
+        if (typeof isGuestSession === 'function' && isGuestSession()) return false;
+        const emailNorm = String(activeAdvisorSession.correo || '').trim().toLowerCase().replace(/,/g, '.');
+        return emailNorm === OWNER_FOTOS_EMAIL;
+    }
+
     function canManageProductPhotos() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
         if (typeof isGuestSession === 'function' && isGuestSession()) return false;
@@ -6662,9 +6671,14 @@
         const fabQuoteBtn = document.getElementById('fabQuoteBtn');
         const fabSeguimientoBtn = document.getElementById('fabSeguimientoBtn');
         const fabUploadPhotoBtn = document.getElementById('fabUploadPhotoBtn');
+        const fabSplitFotosBtn = document.getElementById('fabSplitFotosBtn');
+        const uploadPhotoAppFotosLink = document.getElementById('uploadPhotoAppFotosLink');
+        const uploadPhotoSplitBtn = document.getElementById('uploadPhotoSplitBtn');
 
         const isAuthed = !!(activeAdvisorSession && !activeAdvisorSession.mustChangeKey);
         const guestMode = isGuestSession();
+        const canUploadDrivePhotos = canManageProductPhotos();
+        const isOwnerFotos = isFotosAppOwner();
 
         if (headerHistBtn) {
             headerHistBtn.classList.toggle('hidden', !isAuthed || guestMode);
@@ -6679,7 +6693,13 @@
         }
         if (fabQuoteBtn) fabQuoteBtn.classList.toggle('hidden', guestMode);
         if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', guestMode);
-        if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canManageProductPhotos());
+        if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canUploadDrivePhotos);
+        if (fabSplitFotosBtn) fabSplitFotosBtn.classList.toggle('hidden', !isOwnerFotos);
+        if (uploadPhotoAppFotosLink) uploadPhotoAppFotosLink.classList.toggle('hidden', !isOwnerFotos);
+        if (uploadPhotoSplitBtn) uploadPhotoSplitBtn.classList.toggle('hidden', !isOwnerFotos);
+        if (!isOwnerFotos && _invSplitActive && typeof window.closeInvSplitFotosDock === 'function') {
+            window.closeInvSplitFotosDock();
+        }
 
         let showGuest = false;
         if (guestBadgeWrap) {
@@ -12506,6 +12526,11 @@
     };
 
     window.toggleInvSplitFotosDock = function () {
+        if (!isFotosAppOwner()) {
+            _invSplitActive = false;
+            applyInvSplitDomState();
+            return;
+        }
         if (!_invSplitActive) {
             loadInvSplitPrefs();
             _invSplitActive = true;
