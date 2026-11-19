@@ -127,7 +127,7 @@ button, input, select, textarea {
     "extra extra extra";
   align-items: center;
   column-gap: 8px;
-  row-gap: 6px;
+  row-gap: 5px;
   width: 100%;
   min-width: 0;
 }
@@ -143,7 +143,7 @@ button, input, select, textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 2px 0;
   margin: 0;
   background: transparent;
   border: none;
@@ -167,20 +167,23 @@ button, input, select, textarea {
   outline-offset: 2px;
 }
 
-/* Logo height strictly >= 15% taller than 36px search & 34-36px filter pills */
+/* Logotipo más grande y protagonista a un costado del buscador */
 #invHeader #headerLogoImg.logo-img {
-  height: 42px;
+  height: 44px;
   width: auto;
-  max-width: 132px;
+  max-width: 168px;
   object-fit: contain;
   display: block;
   filter: brightness(0) invert(1);
 }
 
+/* Barra de búsqueda más pequeña y compacta a un costado del logotipo */
 #invHeader .inv-search-cell {
   grid-area: search;
+  justify-self: start;
   min-width: 0;
   width: 100%;
+  max-width: 190px;
 }
 
 #invHeader .inv-search-box {
@@ -188,10 +191,11 @@ button, input, select, textarea {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 36px;
+  height: 26px;
   background-color: var(--inv-surface);
-  border: 1.5px solid rgba(158, 123, 79, 0.55);
+  border: 1px solid rgba(158, 123, 79, 0.55);
   border-radius: var(--inv-radius-pill);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
@@ -202,9 +206,9 @@ button, input, select, textarea {
 
 #invHeader .inv-search-icon {
   position: absolute;
-  left: 11px;
-  width: 15px;
-  height: 15px;
+  left: 8px;
+  width: 12px;
+  height: 12px;
   color: var(--inv-accent);
   pointer-events: none;
   flex-shrink: 0;
@@ -216,9 +220,10 @@ button, input, select, textarea {
   border: none;
   background: transparent;
   color: var(--inv-ink);
-  padding: 0 36px 0 32px;
-  font-size: 13px;
+  padding: 0 22px 0 24px;
+  font-size: 10.5px;
   font-weight: 600;
+  letter-spacing: 0.1px;
   outline: none;
   min-width: 0;
   border-radius: var(--inv-radius-pill);
@@ -236,31 +241,33 @@ button, input, select, textarea {
 
 #invHeader #invClearBtn {
   position: absolute;
-  right: 2px;
+  right: 3px;
   top: 50%;
   transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
+  width: 16px;
+  height: 16px;
   border: none;
   border-radius: var(--inv-radius-pill);
-  background: transparent;
-  color: var(--inv-muted);
-  font-size: 13px;
-  font-weight: 700;
+  background: var(--inv-surface-subtle);
+  color: var(--inv-ink);
+  font-size: 9px;
+  font-weight: 800;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
 }
 
 #invHeader #invClearBtn:hover {
-  background: var(--inv-surface-subtle);
-  color: var(--inv-ink);
+  background: var(--inv-accent);
+  color: #FFFFFF;
 }
 
 /* Header Utility Actions (Historial, Logout) & Extra Row (Store Switcher, Guest Badge) */
 #invHeader .inv-header-utils {
   grid-area: util;
+  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -283,26 +290,27 @@ button, input, select, textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 36px;
-  min-width: 36px;
-  padding: 0 9px;
+  gap: 4px;
+  min-height: 25px;
+  padding: 2px 9px;
   border-radius: var(--inv-radius-pill);
-  border: 1px solid var(--inv-header-border);
-  background-color: rgba(255, 255, 255, 0.08);
-  color: var(--inv-header-ink);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  border: 1px solid rgba(225, 219, 197, 0.55);
+  background-color: rgba(255, 255, 255, 0.09);
+  color: #E1DBC5;
+  font-size: 7.5px;
+  font-weight: 800;
+  letter-spacing: 0.35px;
   text-transform: uppercase;
   white-space: nowrap;
+  line-height: 1.2;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 #invHeader .inv-hdr-btn:hover {
-  background-color: rgba(255, 255, 255, 0.16);
-  border-color: rgba(158, 123, 79, 0.7);
+  background-color: rgba(225, 219, 197, 0.2);
+  border-color: #FFFFFF;
+  color: #FFFFFF;
 }
 
 #invHeader .inv-hdr-btn.hidden {
@@ -313,11 +321,11 @@ button, input, select, textarea {
   border-color: rgba(158, 123, 79, 0.72);
   background-color: rgba(158, 123, 79, 0.22);
   color: #FAF8F3;
-  height: 32px;
-  padding: 0 11px;
+  min-height: 25px;
+  padding: 2px 10px;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  text-align: left;
 }
 
 #invHeader .inv-hdr-btn-ghost {
@@ -330,28 +338,29 @@ button, input, select, textarea {
 }
 
 #invHeader .inv-hdr-ico {
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
   flex-shrink: 0;
 }
 
 #invHeader .inv-hdr-lbl {
-  display: none;
+  display: inline;
 }
 
 #invHeader .inv-guest-badge {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 2px 4px 2px 10px;
+  gap: 5px;
+  min-height: 25px;
+  padding: 2px 4px 2px 9px;
   border-radius: var(--inv-radius-pill);
   border: 1px solid var(--inv-accent);
   background-color: var(--inv-accent-soft);
   color: var(--inv-ink);
-  font-size: 11px;
+  font-size: 8px;
   font-weight: 800;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.3px;
   text-transform: uppercase;
   max-width: 100%;
 }
@@ -361,19 +370,19 @@ button, input, select, textarea {
 }
 
 #invHeader #headerGuestBadgeText {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.25;
 }
 
 #invHeader .inv-guest-exit {
-  height: 26px;
-  padding: 0 10px;
+  min-height: 21px;
+  padding: 1px 8px;
   border: none;
   border-radius: var(--inv-radius-pill);
   background-color: var(--inv-ink);
   color: #FFFFFF;
-  font-size: 11px;
+  font-size: 7.5px;
   font-weight: 800;
   text-transform: uppercase;
   cursor: pointer;
@@ -381,19 +390,19 @@ button, input, select, textarea {
 }
 
 /* ============================================================================
- * Category & Sub-Category Horizontal Filter Strips
+ * Category & Sub-Category Horizontal Filter Strips (Original Compact Sizing)
  * ============================================================================ */
 #invHeader .inv-cats-cell {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   overflow-x: auto;
   overflow-y: hidden;
   touch-action: pan-x;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  padding: 1px 0;
+  padding: 1px 2px;
   width: 100%;
   min-width: 0;
 }
@@ -408,23 +417,23 @@ button, input, select, textarea {
 }
 
 #invHeader .inv-cats-cell.can-scroll-right {
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent 100%);
-  mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent 100%);
 }
 
 #invHeader .inv-cats-cell.can-scroll-left {
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 26px);
-  mask-image: linear-gradient(to right, transparent 0%, #000 26px);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 14px);
+  mask-image: linear-gradient(to right, transparent 0%, #000 14px);
 }
 
 #invHeader .inv-cats-cell.can-scroll-left.can-scroll-right {
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 26px, #000 calc(100% - 26px), transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0%, #000 26px, #000 calc(100% - 26px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 14px, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 14px, #000 calc(100% - 18px), transparent 100%);
 }
 
 #invHeader .inv-subcats-cell {
-  padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 5px;
+  border-top: 1px solid rgba(225, 219, 197, 0.14);
 }
 
 #invHeader .inv-cat-pill {
@@ -432,51 +441,62 @@ button, input, select, textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 34px;
-  min-height: 34px;
-  padding: 0 12px;
+  gap: 4px;
+  min-height: 25px;
+  padding: 2px 10px;
   border-radius: var(--inv-radius-pill);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background-color: rgba(255, 255, 255, 0.08);
-  color: #EFECE6;
-  font-size: 11px;
+  border: 1px solid rgba(225, 219, 197, 0.35);
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #FFFFFF;
+  font-size: 7.5px;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.45px;
   text-transform: uppercase;
   white-space: nowrap;
+  line-height: 1.2;
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 #invHeader .inv-cat-pill:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  border-color: rgba(158, 123, 79, 0.65);
+  background-color: rgba(163, 130, 81, 0.28);
+  border-color: #E1DBC5;
+  color: #FFFFFF;
 }
 
 #invHeader .inv-cat-pill.active {
   background-color: var(--inv-accent);
   border-color: var(--inv-accent);
   color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 #invHeader .inv-cat-pill.stock-pill {
-  border-color: rgba(158, 123, 79, 0.55);
-  background-color: rgba(158, 123, 79, 0.16);
+  border-color: rgba(225, 219, 197, 0.65);
+  background-color: rgba(163, 130, 81, 0.22);
+  color: #E1DBC5;
+  font-weight: 800;
 }
 
 #invHeader .inv-cat-pill.stock-pill.active {
-  background-color: var(--inv-accent);
-  border-color: var(--inv-accent);
+  background-color: #10B981;
+  border-color: #10B981;
   color: #FFFFFF;
 }
 
 #invHeader .inv-sub-pill {
-  height: 30px;
-  min-height: 30px;
-  padding: 0 11px;
-  font-size: 11px;
-  background-color: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.12);
+  min-height: 22px;
+  padding: 2px 8.5px;
+  font-size: 7px;
+  background-color: transparent;
+  border-color: rgba(225, 219, 197, 0.28);
+  color: #E1DBC5;
+}
+
+#invHeader .inv-sub-pill.active {
+  background-color: #FFFFFF;
+  border-color: #FFFFFF;
+  color: #252C32;
 }
 
 /* ============================================================================
@@ -565,14 +585,14 @@ main#invMainView.inv-main {
   transform: scale(0.99);
 }
 
-/* 1:1 Studio Photo Container */
+/* 1:1 Studio Photo Container — Maximized photo space */
 #invListContainer .inv-row .inv-thumb {
   width: 100%;
   min-width: 0;
   height: auto;
   aspect-ratio: 1 / 1;
   background-color: #FFFFFF;
-  padding: 7%;
+  padding: 2.5%;
   border: none;
   border-bottom: 1px solid var(--inv-border-subtle);
   border-radius: 0;
@@ -582,6 +602,40 @@ main#invMainView.inv-main {
   align-items: center;
   justify-content: center;
   color: #C7BFB2;
+}
+
+/* Top-Right Floating Action Overlay on Card (+ Circle or Variant Badge) */
+#invListContainer .inv-row .inv-card-top-right {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: calc(100% - 14px);
+}
+
+#invListContainer .inv-row .inv-card-variant-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: var(--inv-radius-pill);
+  background-color: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--inv-accent);
+  color: var(--inv-ink);
+  font-family: var(--inv-font-sans);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(26, 24, 22, 0.14);
+  backdrop-filter: blur(4px);
 }
 
 #invListContainer .inv-row .inv-thumb-stage {
@@ -620,28 +674,28 @@ main#invMainView.inv-main {
   justify-content: center;
 }
 
-/* Compact Info Below Photo (#12, #13) */
+/* Compact Info Below Photo — Full Text Visibility (Never Clipped in Half) */
 #invListContainer .inv-row > .inv-card-body {
-  padding: 9px 10px 6px;
+  padding: 8px 10px 10px;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
 #invListContainer .inv-row .inv-card-title {
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
-  line-height: 1.32;
+  line-height: 1.35;
   letter-spacing: -0.005em;
   color: var(--inv-ink);
   text-transform: uppercase;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: block;
+  overflow: visible;
+  white-space: normal;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 #invListContainer .inv-row .inv-card-meta {
@@ -650,10 +704,11 @@ main#invMainView.inv-main {
   align-items: center;
   gap: 4px;
   font-family: var(--inv-font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   color: var(--inv-accent);
-  line-height: 1.25;
+  line-height: 1.3;
+  word-break: break-word;
 }
 
 #invListContainer .inv-row .inv-card-stock {
@@ -665,24 +720,14 @@ main#invMainView.inv-main {
   background-color: var(--inv-ok-bg);
   border: 1px solid var(--inv-ok-border);
   color: var(--inv-ok-ink);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
+  line-height: 1.25;
 }
 
-/* Bottom-Flow Non-Obstructive Cart Control / Variant Footer */
+/* Bottom Footer Removed so Photo Gets Full Vertical Priority */
 #invListContainer .inv-row > .inv-card-foot {
-  padding: 2px 10px 10px;
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-height: 44px;
-}
-
-#invListContainer .inv-row > .inv-card-foot .cart-ctrl-wrap {
-  width: 100%;
-  display: flex;
-  justify-content: flex-end;
+  display: none !important;
 }
 
 #invListContainer .inv-row .inv-card-chevron {
@@ -753,35 +798,42 @@ main#invMainView.inv-main {
 }
 
 /* ============================================================================
- * Card & Modal Cart Controls (>= 36px touch targets)
+ * Card & Modal Cart Controls — Strict Circle for "+" Button
  * ============================================================================ */
 .cart-ctrl-wrap {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   flex-shrink: 0;
+  z-index: 5;
 }
 
 .cart-plus-btn {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  border-radius: var(--inv-radius-pill);
-  border: 1px solid var(--inv-accent);
-  background-color: var(--inv-accent-soft);
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  padding: 0;
+  aspect-ratio: 1 / 1;
+  border-radius: 9999px;
+  border: 1.5px solid var(--inv-accent);
+  background-color: rgba(255, 255, 255, 0.95);
   color: var(--inv-ink);
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 700;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  box-shadow: 0 2px 8px rgba(26, 24, 22, 0.16);
   transition: background-color 140ms ease, color 140ms ease, transform 120ms ease;
 }
 
-.cart-plus-btn:hover {
+.cart-plus-btn:hover,
+.cart-plus-btn.in-cart {
   background-color: var(--inv-accent);
+  border-color: var(--inv-accent);
   color: #FFFFFF;
 }
 
@@ -792,36 +844,39 @@ main#invMainView.inv-main {
 .cart-qty-pill {
   display: inline-flex;
   align-items: center;
-  height: 36px;
+  height: 32px;
   border-radius: var(--inv-radius-pill);
-  background-color: var(--inv-ink);
-  color: #FFFFFF;
-  border: 1px solid var(--inv-ink);
+  background-color: rgba(255, 255, 255, 0.96);
+  color: var(--inv-ink);
+  border: 1.5px solid var(--inv-accent);
   overflow: hidden;
-  box-shadow: var(--inv-shadow-xs);
+  box-shadow: 0 2px 8px rgba(26, 24, 22, 0.16);
 }
 
 .cart-qty-step {
-  width: 32px;
-  height: 36px;
+  width: 26px;
+  height: 100%;
   border: none;
   background: transparent;
-  color: #FFFFFF;
-  font-size: 15px;
+  color: var(--inv-ink);
+  font-size: 14px;
   font-weight: 800;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  padding: 0;
   transition: background-color 120ms ease;
 }
 
-.cart-qty-step:hover {
-  background-color: rgba(255, 255, 255, 0.14);
+.cart-qty-step.minus:hover {
+  background-color: #FEE2E2;
+  color: #991B1B;
 }
 
 .cart-qty-step.plus {
   background-color: var(--inv-accent);
+  color: #FFFFFF;
 }
 
 .cart-qty-step.plus:hover {
@@ -829,11 +884,11 @@ main#invMainView.inv-main {
 }
 
 .cart-qty-num {
-  min-width: 24px;
-  padding: 0 4px;
+  min-width: 20px;
+  padding: 0 3px;
   text-align: center;
   font-family: var(--inv-font-mono);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -844,13 +899,13 @@ main#invMainView.inv-main {
 }
 
 .inv-load-more-btn {
-  min-height: 40px;
-  padding: 0 22px;
+  min-height: 36px;
+  padding: 4px 20px;
   border-radius: var(--inv-radius-pill);
   border: 1px solid var(--inv-accent);
   background-color: var(--inv-surface);
   color: var(--inv-ink);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -864,7 +919,7 @@ main#invMainView.inv-main {
 }
 
 /* ============================================================================
- * Single Expandable 4-Action Floating Button (#invFabRoot, z-index: 40 < modals)
+ * Single Expandable Floating Button (#invFabRoot, z-index: 40 < modals)
  * ============================================================================ */
 #invFabBackdrop.inv-fab-backdrop {
   position: fixed;
@@ -897,8 +952,9 @@ main#invMainView.inv-main {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 236px;
-  max-width: calc(100vw - 32px);
+  width: max-content;
+  min-width: 240px;
+  max-width: calc(100vw - 24px);
   padding: 6px;
   background-color: var(--inv-surface);
   border: 1px solid var(--inv-border);
@@ -928,13 +984,13 @@ main#invMainView.inv-main {
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: 0 12px;
+  min-height: 42px;
+  padding: 6px 12px;
   border: 1px solid transparent;
   border-radius: 10px;
   background-color: transparent;
   color: var(--inv-ink);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
   text-align: left;
   cursor: pointer;
@@ -983,9 +1039,9 @@ main#invMainView.inv-main {
 #invFabRoot .inv-fab-item-label {
   flex: 1 1 auto;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.25;
 }
 
 #invFabRoot .inv-fab-item-badge {
@@ -1355,10 +1411,9 @@ main#invMainView.inv-main {
   font-size: 11px;
   font-weight: 600;
   color: var(--inv-ink-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 240px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.3;
 }
 
 .inv-quote-meta-badges {
@@ -1527,9 +1582,9 @@ main#invMainView.inv-main {
   font-size: 12px;
   font-weight: 600;
   color: var(--inv-ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.3;
 }
 
 .inv-combo-matched {
@@ -1645,13 +1700,13 @@ main#invMainView.inv-main {
 }
 
 .inv-btn-primary {
-  min-height: 38px;
-  padding: 0 18px;
+  min-height: 36px;
+  padding: 4px 16px;
   border: none;
   border-radius: var(--inv-radius-pill);
   background-color: var(--inv-accent);
   color: #FFFFFF;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1669,13 +1724,13 @@ main#invMainView.inv-main {
 }
 
 .inv-btn-secondary {
-  min-height: 38px;
-  padding: 0 16px;
+  min-height: 36px;
+  padding: 4px 15px;
   border-radius: var(--inv-radius-pill);
   border: 1px solid var(--inv-border);
   background-color: var(--inv-surface);
   color: var(--inv-ink);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1690,13 +1745,13 @@ main#invMainView.inv-main {
  * Responsive Breakpoints (#5, #10, #12)
  * ============================================================================ */
 
-/* iOS anti-zoom on mobile inputs (< 768px) */
-@media (max-width: 767px) {
-  #invHeader #invSearchInput,
-  .modal-backdrop input,
-  .modal-backdrop select,
-  .modal-backdrop textarea {
-    font-size: 16px !important;
+@media (max-width: 390px) {
+  #invHeader #headerLogoImg.logo-img {
+    height: 38px;
+    max-width: 145px;
+  }
+  #invHeader .inv-search-cell {
+    max-width: 155px;
   }
 }
 
@@ -1716,14 +1771,19 @@ main#invMainView.inv-main {
     gap: 10px;
   }
   #invHeader .inv-search-cell {
-    flex: 1 1 auto;
+    flex: 0 1 210px;
+    width: 210px;
+    max-width: 210px;
   }
   #invHeader .inv-header-extra {
     flex-wrap: nowrap;
     flex-shrink: 0;
   }
+  #invHeader .inv-header-utils {
+    margin-left: auto;
+  }
   #invHeader .inv-hdr-btn-store {
-    height: 36px;
+    min-height: 27px;
   }
   #productDetailModal .inv-det-head {
     flex-direction: row;
@@ -1753,17 +1813,20 @@ main#invMainView.inv-main {
 /* Tablet: 768px - 1023px (3 columns) */
 @media (min-width: 768px) {
   #invHeader .inv-header-inner {
-    padding: 9px 20px 8px;
-    gap: 8px;
+    padding: 8px 18px 7px;
+    gap: 7px;
   }
   #invHeader #headerLogoImg.logo-img {
-    height: 44px;
-    max-width: 148px;
+    height: 48px;
+    max-width: 190px;
   }
-  #invHeader .inv-cat-pill {
-    height: 34px;
-    min-height: 34px;
-    padding: 0 13px;
+  #invHeader .inv-search-cell {
+    flex: 0 1 230px;
+    width: 230px;
+    max-width: 230px;
+  }
+  #invHeader .inv-search-box {
+    height: 27px;
   }
   main#invMainView.inv-main {
     padding: 16px 20px 96px;
@@ -1773,13 +1836,44 @@ main#invMainView.inv-main {
     gap: 14px;
   }
   #invListContainer .inv-row .inv-card-title {
-    font-size: 13px;
+    font-size: 12px;
   }
   #invListContainer .inv-row > .inv-card-body {
-    padding: 10px 12px 6px;
+    padding: 9px 11px 11px;
   }
-  #invListContainer .inv-row > .inv-card-foot {
-    padding: 2px 12px 12px;
+}
+
+/* PC: >= 920px (Original compact filter sizes + prominent logo + compact search bar next to logo) */
+@media (min-width: 920px) {
+  #invHeader #headerLogoImg.logo-img {
+    height: 52px;
+    max-width: 215px;
+  }
+  #invHeader .inv-search-cell {
+    flex: 0 1 250px;
+    width: 250px;
+    max-width: 250px;
+  }
+  #invHeader .inv-search-box {
+    height: 28px;
+  }
+  #invHeader #invSearchInput {
+    font-size: 11px;
+  }
+  #invHeader .inv-hdr-btn {
+    min-height: 28px;
+    padding: 2px 10px;
+    font-size: 8.5px;
+  }
+  #invHeader .inv-cat-pill {
+    min-height: 26px;
+    padding: 2px 10.5px;
+    font-size: 8.8px;
+  }
+  #invHeader .inv-sub-pill {
+    min-height: 23px;
+    padding: 2px 9px;
+    font-size: 8.2px;
   }
 }
 
@@ -1794,3 +1888,26 @@ main#invMainView.inv-main {
     bottom: 24px;
   }
 }
+
+@media (min-width: 1280px) {
+  #invHeader #headerLogoImg.logo-img {
+    height: 54px;
+    max-width: 225px;
+  }
+  #invHeader .inv-search-cell {
+    flex: 0 1 265px;
+    width: 265px;
+    max-width: 265px;
+  }
+  #invHeader .inv-cat-pill {
+    min-height: 27px;
+    padding: 2px 11.5px;
+    font-size: 9.2px;
+  }
+  #invHeader .inv-sub-pill {
+    min-height: 24px;
+    padding: 2px 10px;
+    font-size: 8.5px;
+  }
+}
+

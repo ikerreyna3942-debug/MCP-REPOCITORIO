@@ -2311,7 +2311,11 @@
       if (!actBtn) return;
       const action = actBtn.getAttribute('data-hist-action');
       if (action === 'close-module') {
-        if (typeof mountOpts.onClose === 'function') mountOpts.onClose();
+        if (mountOpts && typeof mountOpts.onClose === 'function') mountOpts.onClose();
+        else if (mountOpts && typeof mountOpts.onGoHome === 'function') mountOpts.onGoHome();
+        else if (typeof global.closeInAppModules === 'function') global.closeInAppModules();
+        else if (typeof global.goHomeFromLogo === 'function') global.goHomeFromLogo();
+        else global.location.href = './inventario.html';
       } else if (action === 'refresh') {
         syncAllProjectHistory(false);
       } else if (action === 'live-alerts') {

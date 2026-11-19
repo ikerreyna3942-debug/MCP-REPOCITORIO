@@ -1649,15 +1649,15 @@
         <div class="cm-topbar-inner">
           <div class="cm-topbar-left">
             <button type="button" class="cm-btn cm-btn-back" data-seg-action="close-module" aria-label="Volver">← Volver</button>
-            <h1 class="cm-title">Seguimiento</h1>
+            <h1 class="cm-title">Seguimiento de Cotizaciones</h1>
             <span id="seg_hdrUserRoleStore" class="cm-subtitle-chip"></span>
           </div>
           <div class="cm-topbar-right">
             <span id="seg_lastSyncLabel" class="cm-subtitle-chip cm-mono"></span>
-            <button type="button" id="seg_btnKevinAuditHeader" class="cm-btn cm-hidden" data-seg-action="open-kevin-audit" title="Auditoría">Auditoría</button>
-            <button type="button" id="seg_btnManualSync" class="cm-btn cm-btn-icon" data-seg-action="manual-sync" aria-label="Actualizar">
-              <span id="seg_syncIcon">↻</span>
-              <span id="seg_syncText">Actualizar</span>
+            <button type="button" id="seg_btnKevinAuditHeader" class="cm-btn cm-hidden" data-seg-action="open-kevin-audit" title="Historial y Movimientos">🛡️ Historial y Movimientos</button>
+            <button type="button" id="seg_btnManualSync" class="cm-btn cm-btn-icon" data-seg-action="manual-sync" aria-label="Actualizar ERP">
+              <span id="seg_syncIcon">🔄</span>
+              <span id="seg_syncText">Actualizar ERP</span>
             </button>
           </div>
         </div>
@@ -1666,9 +1666,9 @@
       <main class="cm-main">
         <section id="seg_filtersGridContainer" class="cm-seg-filters" aria-label="Filtros">
           <div>
-            <label class="cm-field-label" for="seg_filterSucursal">Tienda</label>
+            <label class="cm-field-label" for="seg_filterSucursal">📍 Sucursal / Tienda</label>
             <select id="seg_filterSucursal" class="cm-select" data-seg-change="sucursal">
-              <option value="TODAS">Todas</option>
+              <option value="TODAS">Todas las Sucursales</option>
             </select>
             <div id="seg_fixedSucursalBadge" class="cm-seg-fixed-branch cm-hidden">
               <span id="seg_fixedSucursalLabel"></span>
@@ -1676,35 +1676,35 @@
           </div>
 
           <div id="seg_filterAsesorWrap">
-            <label class="cm-field-label" for="seg_filterAsesor">Asesor</label>
+            <label class="cm-field-label" for="seg_filterAsesor">👤 Asesor</label>
             <select id="seg_filterAsesor" class="cm-select" data-seg-change="filter">
-              <option value="TODOS">Todos</option>
+              <option value="TODOS">Todos los Asesores</option>
             </select>
           </div>
 
           <div>
-            <label class="cm-field-label" for="seg_filterUrgencia">Estado</label>
+            <label class="cm-field-label" for="seg_filterUrgencia">🚨 Nivel de Alerta / Stock</label>
             <select id="seg_filterUrgencia" class="cm-select" data-seg-change="filter">
-              <option value="TODOS">Todos</option>
-              <option value="CRITICO">Crítico</option>
-              <option value="SOLO_PISO">Solo piso</option>
-              <option value="BAJADA">Bajada</option>
-              <option value="SEGUIMIENTO_DIAS">+3 días</option>
-              <option value="ESTABLE">Disponible</option>
+              <option value="TODOS">Todos los Estados</option>
+              <option value="CRITICO">🔥 Crítico (Stock bajo / agotándose)</option>
+              <option value="SOLO_PISO">🏛️ Solo en Piso de Exhibición</option>
+              <option value="BAJADA">📉 Bajó Stock</option>
+              <option value="SEGUIMIENTO_DIAS">📅 Seguimiento (3+ días)</option>
+              <option value="ESTABLE">🟢 Disponible / Estable</option>
             </select>
           </div>
 
           <div>
-            <label class="cm-field-label" for="seg_filterSearch">Buscar</label>
+            <label class="cm-field-label" for="seg_filterSearch">🔍 Buscar Folio, Cliente o Mueble</label>
             <div class="cm-seg-search-wrap">
-              <input id="seg_filterSearch" type="search" class="cm-input" placeholder="Folio, cliente, SKU..." autocomplete="off" data-seg-input="search">
+              <input id="seg_filterSearch" type="search" class="cm-input" placeholder="Ej. Mariana, PTC32001, Sofá..." autocomplete="off" data-seg-input="search">
               <button type="button" id="seg_btnClearSearch" class="cm-seg-clear-btn cm-hidden" data-seg-action="clear-search" aria-label="Limpiar">✕</button>
             </div>
           </div>
         </section>
 
         <div class="cm-seg-meta-bar">
-          <div id="seg_statsSummary">Cargando...</div>
+          <div id="seg_statsSummary">Cargando cotizaciones completas...</div>
           <div id="seg_closuresMetricsSummary"></div>
         </div>
 
@@ -1714,13 +1714,13 @@
           <table class="cm-seg-table">
             <thead>
               <tr>
-                <th>Folio</th>
-                <th>Asesor</th>
+                <th>Folio / Fecha</th>
+                <th>Asesor / Tienda</th>
                 <th>Cliente</th>
-                <th>Muebles</th>
-                <th>Estado</th>
-                <th>Aviso</th>
-                <th>Acciones</th>
+                <th>Muebles Cotizados (Piezas)</th>
+                <th>Estado Global</th>
+                <th>Aviso WhatsApp</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody id="seg_tableBody"></tbody>
@@ -1733,28 +1733,28 @@
         <div class="cm-modal-card" role="dialog" aria-modal="true" aria-labelledby="seg_previewModalTitle">
           <div class="cm-modal-head">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;">
-              <h2 id="seg_previewModalTitle" class="cm-modal-title">Seguimiento</h2>
+              <h2 id="seg_previewModalTitle" class="cm-modal-title">💬 Seguimiento Persuasivo de Cotización</h2>
               <span id="seg_previewUrgencyBadge"></span>
             </div>
             <button type="button" class="cm-modal-close" data-seg-action="close-preview" aria-label="Cerrar">&times;</button>
           </div>
 
           <div id="seg_modalRecipientTabs" class="cm-seg-recipient-tabs cm-hidden">
-            <button type="button" id="seg_btnRecipientCliente" class="cm-seg-tab-btn is-active" data-seg-action="recipient" data-recipient="CLIENTE">Cliente</button>
-            <button type="button" id="seg_btnRecipientAsesor" class="cm-seg-tab-btn" data-seg-action="recipient" data-recipient="ASESOR">Asesor</button>
+            <button type="button" id="seg_btnRecipientCliente" class="cm-seg-tab-btn is-active" data-seg-action="recipient" data-recipient="CLIENTE">👤 Mensaje al Cliente</button>
+            <button type="button" id="seg_btnRecipientAsesor" class="cm-seg-tab-btn" data-seg-action="recipient" data-recipient="ASESOR">👔 Alerta de Supervisión al Asesor</button>
           </div>
 
           <div class="cm-seg-info-grid">
             <div class="cm-seg-info-box">
-              <div class="cm-field-label">Cliente</div>
+              <div class="cm-field-label">Cliente Destinatario 👤</div>
               <div id="seg_previewCliente" style="font-weight:800;font-size:0.9rem;">--</div>
               <div style="margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <span id="seg_previewPhoneVal" class="cm-mono" style="font-weight:700;">--</span>
-                <button type="button" class="cm-seg-link-btn" data-seg-action="edit-modal-phone">Editar</button>
+                <button type="button" class="cm-seg-link-btn" data-seg-action="edit-modal-phone">✏️ Editar celular</button>
               </div>
             </div>
             <div class="cm-seg-info-box">
-              <div class="cm-field-label">Asesor</div>
+              <div class="cm-field-label">Asesor Asignado &amp; Tienda 🛎️</div>
               <div id="seg_previewAsesor" style="font-weight:800;font-size:0.9rem;">--</div>
               <div id="seg_previewAsesorContact" style="font-size:0.74rem;color:var(--cm-muted);margin-top:2px;">--</div>
               <div id="seg_previewSucursal" style="font-size:0.74rem;color:var(--cm-muted);">--</div>
@@ -1762,29 +1762,29 @@
           </div>
 
           <div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;">
-              <span class="cm-field-label" style="margin:0;">Piezas</span>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
+              <span class="cm-field-label" style="margin:0;">📦 Piezas a incluir en el mensaje:</span>
               <label style="display:inline-flex;align-items:center;gap:6px;font-size:0.76rem;font-weight:700;cursor:pointer;">
                 <input type="checkbox" id="seg_chkSelectAllItems" checked data-seg-change="select-all">
-                <span>Todas</span>
+                <span>Seleccionar todas</span>
               </label>
             </div>
             <div id="seg_modalItemsList" class="cm-seg-modal-items"></div>
           </div>
 
           <div id="seg_modalToneSelectorWrap">
-            <div class="cm-field-label">Plantilla</div>
+            <div class="cm-field-label">Tono del mensaje persuasivo:</div>
             <div class="cm-seg-tpl-grid">
-              <button type="button" id="seg_btnTplEmocional" class="cm-seg-tpl-btn is-active" data-seg-action="select-tpl" data-tpl="EMOCIONAL">1. Ilusión</button>
-              <button type="button" id="seg_btnTplPiso" class="cm-seg-tpl-btn" data-seg-action="select-tpl" data-tpl="SOLO_PISO">2. Última en Piso</button>
-              <button type="button" id="seg_btnTplSeguimiento" class="cm-seg-tpl-btn" data-seg-action="select-tpl" data-tpl="SEGUIMIENTO">3. Seguimiento</button>
+              <button type="button" id="seg_btnTplEmocional" class="cm-seg-tpl-btn is-active" data-seg-action="select-tpl" data-tpl="EMOCIONAL">💖 1. Ilusión &amp; Disponibilidad</button>
+              <button type="button" id="seg_btnTplPiso" class="cm-seg-tpl-btn" data-seg-action="select-tpl" data-tpl="SOLO_PISO">⭐ 2. Última en Tienda</button>
+              <button type="button" id="seg_btnTplSeguimiento" class="cm-seg-tpl-btn" data-seg-action="select-tpl" data-tpl="SEGUIMIENTO">🤝 3. Seguimiento Cálido</button>
             </div>
           </div>
 
           <div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-              <label class="cm-field-label" for="seg_previewMessageText" style="margin:0;">Mensaje</label>
-              <button type="button" class="cm-seg-link-btn" data-seg-action="rebuild-msg">Restaurar</button>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap;">
+              <label class="cm-field-label" for="seg_previewMessageText" style="margin:0;">Mensaje generado (puedes editarlo libremente antes de enviar):</label>
+              <button type="button" class="cm-seg-link-btn" data-seg-action="rebuild-msg">Restaurar texto</button>
             </div>
             <textarea id="seg_previewMessageText" rows="6" class="cm-textarea" data-seg-input="preview-msg"></textarea>
           </div>
@@ -1792,9 +1792,9 @@
           <div id="seg_previewLastContacted" style="font-size:0.76rem;color:var(--cm-muted);"></div>
 
           <div class="cm-seg-modal-actions">
-            <button type="button" class="cm-btn" data-seg-action="copy-msg">Copiar</button>
-            <button type="button" id="seg_btnActionEmail" class="cm-btn" data-seg-action="send-email">Correo</button>
-            <button type="button" id="seg_btnActionWhatsApp" class="cm-btn cm-btn-emerald" data-seg-action="send-wa">WhatsApp</button>
+            <button type="button" class="cm-btn" data-seg-action="copy-msg">📋 Copiar Texto</button>
+            <button type="button" id="seg_btnActionEmail" class="cm-btn" data-seg-action="send-email">✉️ Enviar Correo al Cliente</button>
+            <button type="button" id="seg_btnActionWhatsApp" class="cm-btn cm-btn-emerald" data-seg-action="send-wa">📲 Enviar WhatsApp al Cliente</button>
           </div>
         </div>
       </div>
@@ -1804,23 +1804,23 @@
         <div class="cm-modal-card cm-modal-sm" role="dialog" aria-modal="true" aria-labelledby="seg_closeModalTitle">
           <div class="cm-modal-head">
             <div>
-              <h2 id="seg_closeModalTitle" class="cm-modal-title">Cerrar · <span id="seg_closeModalFolio" class="cm-mono"></span></h2>
+              <h2 id="seg_closeModalTitle" class="cm-modal-title">🔒 Cerrar Cotización • <span id="seg_closeModalFolio" class="cm-mono"></span></h2>
               <div id="seg_closeModalCliente" style="font-size:0.78rem;color:var(--cm-muted);margin-top:2px;">--</div>
             </div>
             <button type="button" class="cm-modal-close" data-seg-action="close-cerrar" aria-label="Cerrar">&times;</button>
           </div>
 
           <div>
-            <span class="cm-field-label">Resultado</span>
+            <span class="cm-field-label">Resultado de la Negociación:</span>
             <div class="cm-seg-close-grid">
-              <button type="button" id="seg_btnCloseStatusGanada" class="cm-seg-status-btn is-ganada" data-seg-action="close-status" data-status="GANADA">Ganada</button>
-              <button type="button" id="seg_btnCloseStatusPerdida" class="cm-seg-status-btn" data-seg-action="close-status" data-status="PERDIDA">Perdida</button>
-              <button type="button" id="seg_btnCloseStatusCancelada" class="cm-seg-status-btn" data-seg-action="close-status" data-status="CANCELADA">Cancelada</button>
+              <button type="button" id="seg_btnCloseStatusGanada" class="cm-seg-status-btn is-ganada" data-seg-action="close-status" data-status="GANADA">✅ Ganada</button>
+              <button type="button" id="seg_btnCloseStatusPerdida" class="cm-seg-status-btn" data-seg-action="close-status" data-status="PERDIDA">❌ Perdida</button>
+              <button type="button" id="seg_btnCloseStatusCancelada" class="cm-seg-status-btn" data-seg-action="close-status" data-status="CANCELADA">⚠️ Cancelada</button>
             </div>
           </div>
 
           <div>
-            <label class="cm-field-label" for="seg_closeModalMotivo">Motivo</label>
+            <label class="cm-field-label" for="seg_closeModalMotivo">Motivo del Cierre:</label>
             <select id="seg_closeModalMotivo" class="cm-select" data-seg-change="close-motivo">
               <option value="Venta Concretada Exitosamente">Venta Concretada Exitosamente</option>
               <option value="Falta de Inventario / Producto Agotado">Falta de Inventario / Producto Agotado</option>
@@ -1829,18 +1829,18 @@
               <option value="Compró con la Competencia">Compró con la Competencia</option>
               <option value="El Cliente no Volvió a Responder">El Cliente no Volvió a Responder</option>
               <option value="Cambio de Proyecto / No Requiere Mobiliario">Cambio de Proyecto / No Requiere Mobiliario</option>
-              <option value="Otro">Otro</option>
+              <option value="Otro">Otro Motivo</option>
             </select>
           </div>
 
           <div>
-            <label class="cm-field-label" for="seg_closeModalComentarios">Notas</label>
-            <textarea id="seg_closeModalComentarios" rows="3" class="cm-textarea" placeholder="Comentarios..." data-seg-input="close-comentarios"></textarea>
+            <label class="cm-field-label" for="seg_closeModalComentarios">Observaciones y Retroalimentación del Asesor:</label>
+            <textarea id="seg_closeModalComentarios" rows="3" class="cm-textarea" placeholder="Ej. El cliente compró comedor; seccional no disponible en el acabado solicitado..." data-seg-input="close-comentarios"></textarea>
           </div>
 
           <div style="display:flex;gap:8px;justify-content:flex-end;">
             <button type="button" class="cm-btn" data-seg-action="close-cerrar">Cancelar</button>
-            <button type="button" id="seg_btnSubmitClose" class="cm-btn cm-btn-primary" data-seg-action="submit-close">Confirmar</button>
+            <button type="button" id="seg_btnSubmitClose" class="cm-btn cm-btn-primary" data-seg-action="submit-close">Confirmar Cierre</button>
           </div>
         </div>
       </div>
@@ -1849,39 +1849,39 @@
       <div id="seg_modalKevinAudit" class="cm-modal-backdrop cm-hidden" data-seg-backdrop="kevin-audit">
         <div class="cm-modal-card cm-modal-lg" role="dialog" aria-modal="true" aria-labelledby="seg_auditModalTitle">
           <div class="cm-modal-head">
-            <h2 id="seg_auditModalTitle" class="cm-modal-title">Auditoría</h2>
+            <h2 id="seg_auditModalTitle" class="cm-modal-title">🛡️ Panel Maestro de Auditoría e Historial de Movimientos</h2>
             <div style="display:flex;align-items:center;gap:6px;">
-              <button type="button" id="seg_btnExportAudit" class="cm-btn cm-btn-emerald" data-seg-action="export-audit">CSV</button>
+              <button type="button" id="seg_btnExportAudit" class="cm-btn cm-btn-emerald" data-seg-action="export-audit">📥 Descargar CSV de Auditoría</button>
               <button type="button" class="cm-modal-close" data-seg-action="close-kevin-audit" aria-label="Cerrar">&times;</button>
             </div>
           </div>
 
           <div class="cm-seg-audit-kpis">
             <div class="cm-seg-audit-kpi">
-              <div class="cm-field-label">Accesos</div>
+              <div class="cm-field-label">Inicios Exitosos 🟢</div>
               <div id="seg_auditMetricLoginsOk" class="cm-seg-audit-kpi-val cm-tabular">0</div>
             </div>
             <div class="cm-seg-audit-kpi">
-              <div class="cm-field-label">Fallidos</div>
+              <div class="cm-field-label">Intentos Fallidos 🔴</div>
               <div id="seg_auditMetricLoginsFail" class="cm-seg-audit-kpi-val cm-tabular">0</div>
             </div>
             <div class="cm-seg-audit-kpi">
-              <div class="cm-field-label">WhatsApps</div>
+              <div class="cm-field-label">WhatsApps Enviados 📲</div>
               <div id="seg_auditMetricWhatsApps" class="cm-seg-audit-kpi-val cm-tabular">0</div>
             </div>
             <div class="cm-seg-audit-kpi">
-              <div class="cm-field-label">Cierres</div>
+              <div class="cm-field-label">Ventas Cerradas 🏆</div>
               <div id="seg_auditMetricCierres" class="cm-seg-audit-kpi-val cm-tabular">0</div>
             </div>
           </div>
 
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;">
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <button type="button" id="seg_tabAuditLogins" class="cm-seg-tab-btn is-active" data-seg-action="audit-tab" data-tab="LOGINS">Accesos</button>
-              <button type="button" id="seg_tabAuditMovimientos" class="cm-seg-tab-btn" data-seg-action="audit-tab" data-tab="MOVIMIENTOS">Movimientos</button>
-              <button type="button" id="seg_tabAuditCotizaciones" class="cm-seg-tab-btn" data-seg-action="audit-tab" data-tab="HISTORIAL_COTIZACIONES">Cotizaciones</button>
+              <button type="button" id="seg_tabAuditLogins" class="cm-seg-tab-btn is-active" data-seg-action="audit-tab" data-tab="LOGINS">🔐 Inicios de Sesión</button>
+              <button type="button" id="seg_tabAuditMovimientos" class="cm-seg-tab-btn" data-seg-action="audit-tab" data-tab="MOVIMIENTOS">📋 Registro de Movimientos</button>
+              <button type="button" id="seg_tabAuditCotizaciones" class="cm-seg-tab-btn" data-seg-action="audit-tab" data-tab="HISTORIAL_COTIZACIONES">📂 Historial de Cotizaciones</button>
             </div>
-            <input type="search" id="seg_auditSearchInput" class="cm-input" style="max-width:260px;" placeholder="Buscar..." data-seg-input="audit-search">
+            <input type="search" id="seg_auditSearchInput" class="cm-input" style="max-width:260px;" placeholder="🔍 Buscar usuario, folio, IP..." data-seg-input="audit-search">
           </div>
 
           <div id="seg_auditTableContainer" style="min-height:220px;max-height:48dvh;overflow-y:auto;"></div>
@@ -1926,7 +1926,7 @@
       if (selSuc) {
         const prev = selSuc.value;
         selSuc.innerHTML = [
-          '<option value="TODAS">Todas</option>',
+          '<option value="TODAS">Todas las Sucursales</option>',
           '<option value="PLAYA">Playa del Carmen</option>',
           '<option value="COLOSIO">Colosio</option>',
           '<option value="PUERTO CANCUN">Puerto Cancún (PTC)</option>',
@@ -1988,7 +1988,7 @@
       return aSuc === currentSucursal;
     });
 
-    select.innerHTML = '<option value="TODOS">Todos</option>' +
+    select.innerHTML = '<option value="TODOS">Todos los Asesores</option>' +
       filtered.map(a => `<option value="${escapeHtml(a.nombre)}">${escapeHtml(a.nombre)}</option>`).join('');
 
     if (filtered.some(a => a.nombre === currentVal)) {
@@ -2157,7 +2157,7 @@
               <div style="margin-top:4px;">
                 ${q.WhatsApp_Cliente
                   ? `<span class="cm-mono" style="font-size:0.74rem;color:var(--cm-ink-2);">${escapeHtml(q.WhatsApp_Cliente)}</span>`
-                  : `<button type="button" class="cm-seg-link-btn" data-seg-action="prompt-phone" data-folio="${escapeHtml(q.Folio_ERP)}">+ Celular</button>`}
+                  : `<button type="button" class="cm-seg-link-btn" data-seg-action="prompt-phone" data-folio="${escapeHtml(q.Folio_ERP)}">+ Agregar celular</button>`}
               </div>
             </td>
             <td style="min-width:220px;max-width:360px;">
@@ -2172,10 +2172,10 @@
             <td>${avisoTag}</td>
             <td>
               <div style="display:flex;flex-direction:column;gap:6px;">
-                <button type="button" class="cm-btn cm-btn-accent" data-seg-action="open-preview" data-folio="${escapeHtml(q.Folio_ERP)}">Seguimiento</button>
+                <button type="button" class="cm-btn cm-btn-accent" data-seg-action="open-preview" data-folio="${escapeHtml(q.Folio_ERP)}">📲 Seguimiento</button>
                 ${q.Cerrada
                   ? `<span class="cm-pill ${q.Estatus_Cierre === 'GANADA' ? 'cm-pill-emerald' : 'cm-pill-slate'}">${escapeHtml(q.Estatus_Cierre || 'Cerrada')}</span>`
-                  : `<button type="button" class="cm-btn cm-btn-ghost" data-seg-action="open-cerrar" data-folio="${escapeHtml(q.Folio_ERP)}">Cerrar</button>`}
+                  : `<button type="button" class="cm-btn cm-btn-ghost" data-seg-action="open-cerrar" data-folio="${escapeHtml(q.Folio_ERP)}">🔒 Cerrar</button>`}
               </div>
             </td>
           </tr>
@@ -2218,7 +2218,7 @@
                 <div class="cm-seg-phone-row">
                   ${q.WhatsApp_Cliente
                     ? `<span class="cm-mono" style="font-weight:700;">${escapeHtml(q.WhatsApp_Cliente)}</span>`
-                    : `<button type="button" class="cm-seg-link-btn" data-seg-action="prompt-phone" data-folio="${escapeHtml(q.Folio_ERP)}">+ Celular</button>`}
+                    : `<button type="button" class="cm-seg-link-btn" data-seg-action="prompt-phone" data-folio="${escapeHtml(q.Folio_ERP)}">+ Agregar celular</button>`}
                 </div>
               </div>
               <div style="flex-shrink:0;">${renderBadge(q)}</div>
@@ -2227,17 +2227,17 @@
             <div class="cm-seg-items-box">${itemsListHtml}</div>
 
             <div class="cm-seg-card-foot">
-              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(q.Asesor)}</span>
+              <span style="min-width:0;word-break:break-word;">${escapeHtml(q.Asesor)}</span>
               ${q.Fecha_Ultimo_Aviso
                 ? `<span class="cm-pill cm-pill-emerald cm-tabular">${escapeHtml(q.Fecha_Ultimo_Aviso)}</span>`
                 : '<span class="cm-pill cm-pill-slate">Sin aviso</span>'}
             </div>
 
             <div class="cm-seg-card-actions">
-              <button type="button" class="cm-btn cm-btn-accent" data-seg-action="open-preview" data-folio="${escapeHtml(q.Folio_ERP)}">Seguimiento</button>
+              <button type="button" class="cm-btn cm-btn-accent" data-seg-action="open-preview" data-folio="${escapeHtml(q.Folio_ERP)}">📲 Seguimiento</button>
               ${q.Cerrada
                 ? `<span class="cm-pill ${q.Estatus_Cierre === 'GANADA' ? 'cm-pill-emerald' : 'cm-pill-slate'}">${escapeHtml(q.Estatus_Cierre || 'Cerrada')}</span>`
-                : `<button type="button" class="cm-btn" data-seg-action="open-cerrar" data-folio="${escapeHtml(q.Folio_ERP)}">Cerrar</button>`}
+                : `<button type="button" class="cm-btn" data-seg-action="open-cerrar" data-folio="${escapeHtml(q.Folio_ERP)}">🔒 Cerrar</button>`}
             </div>
           </article>
         `;
@@ -2270,8 +2270,8 @@
     const contactBox = $('seg_previewLastContacted');
     if (contactBox) {
       contactBox.textContent = q.Fecha_Ultimo_Aviso
-        ? `Último aviso: ${q.Fecha_Ultimo_Aviso}`
-        : 'Sin aviso previo';
+        ? `🕒 Último aviso enviado: ${q.Fecha_Ultimo_Aviso}`
+        : '🕒 Sin registro de aviso previo';
     }
 
     SELECTED_ITEMS_SET.clear();
@@ -2317,7 +2317,7 @@
 
       // Conditional "Adjuntar foto" button (#14) — rendered ONLY when item has a verified photo
       const attachBtnHtml = hasPhoto
-        ? `<button type="button" class="cm-seg-attach-btn" data-seg-action="attach-photo" data-item-id="${escapeHtml(it.ID_Partida)}" data-sku="${escapeHtml(it.Clave_Producto)}">Adjuntar foto</button>`
+        ? `<button type="button" class="cm-seg-attach-btn" data-seg-action="attach-photo" data-item-id="${escapeHtml(it.ID_Partida)}" data-sku="${escapeHtml(it.Clave_Producto)}">📷 Adjuntar foto</button>`
         : '';
 
       return `
@@ -2427,7 +2427,7 @@
     } finally {
       if (triggerBtn) {
         triggerBtn.disabled = false;
-        triggerBtn.textContent = prevText || 'Adjuntar foto';
+        triggerBtn.textContent = prevText || '📷 Adjuntar foto';
       }
     }
   }
@@ -2463,13 +2463,13 @@
 
     if (recipient === 'CLIENTE') {
       if (tplSelector) tplSelector.classList.remove('cm-hidden');
-      if (btnWa) btnWa.textContent = 'WhatsApp';
-      if (btnEm) btnEm.textContent = 'Correo';
+      if (btnWa) btnWa.textContent = '📲 Enviar WhatsApp al Cliente';
+      if (btnEm) btnEm.textContent = '✉️ Enviar Correo al Cliente';
       rebuildModalMessage();
     } else {
       if (tplSelector) tplSelector.classList.add('cm-hidden');
-      if (btnWa) btnWa.textContent = 'WhatsApp Asesor';
-      if (btnEm) btnEm.textContent = 'Correo Asesor';
+      if (btnWa) btnWa.textContent = '📲 Enviar WhatsApp al Asesor';
+      if (btnEm) btnEm.textContent = '✉️ Enviar Correo al Asesor';
       buildAdvisorAlertMessage();
     }
     saveSegUiCheckpointNow();
@@ -3319,7 +3319,11 @@
 
       switch (action) {
         case 'close-module':
-          if (typeof mountOpts.onClose === 'function') mountOpts.onClose();
+          if (mountOpts && typeof mountOpts.onClose === 'function') mountOpts.onClose();
+          else if (mountOpts && typeof mountOpts.onGoHome === 'function') mountOpts.onGoHome();
+          else if (typeof global.closeInAppModules === 'function') global.closeInAppModules();
+          else if (typeof global.goHomeFromLogo === 'function') global.goHomeFromLogo();
+          else global.location.href = './inventario.html';
           break;
         case 'manual-sync':
           triggerManualSync();

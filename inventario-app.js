@@ -3147,15 +3147,12 @@
                     openGroupModal(grp.key);
                 };
                 row.innerHTML =
+                    '<div class="inv-card-top-right">' +
+                        '<span class="inv-card-variant-badge" data-card-sub="1">' + grp.items.length + ' variantes</span>' +
+                    '</div>' +
                     buildThumbHtml(firstPhotoItem(grp.items), { card: true, eager: i < eagerCount }) +
                     '<div class="inv-card-body">' +
                         '<div class="inv-card-title" data-card-title="1">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
-                        '<div class="inv-card-meta"><span data-card-sub="1">' + grp.items.length + ' variantes</span></div>' +
-                    '</div>' +
-                    '<div class="inv-card-foot">' +
-                        '<svg class="inv-card-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">' +
-                            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 5l7 7-7 7"></path>' +
-                        '</svg>' +
                     '</div>';
             } else {
                 const it = grp.items[0];
@@ -3170,12 +3167,12 @@
                     openProductDetail(it.s, false);
                 };
                 row.innerHTML =
+                    '<div class="inv-card-top-right">' + buildCardCartControlHtml(skuKey) + '</div>' +
                     buildThumbHtml(it, { card: true, eager: i < eagerCount }) +
                     '<div class="inv-card-body">' +
                         '<div class="inv-card-title" data-card-title="1">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
                         '<div class="inv-card-meta"><span data-card-sub="1">' + escapeHtml(it.s) + '</span>' + stockBadgeHtml + '</div>' +
-                    '</div>' +
-                    '<div class="inv-card-foot">' + buildCardCartControlHtml(skuKey) + '</div>';
+                    '</div>';
 
                 const ctrlWrap = row.querySelector('[data-sku-ctrl]');
                 bindCardCartControlEvents(ctrlWrap, it.s);
@@ -5687,6 +5684,7 @@
 
     window.openFabMenu = function () {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return;
+        if (typeof syncPwaInstallButtonState === 'function') syncPwaInstallButtonState();
         invFabIsOpen = true;
         const root = document.getElementById('invFabRoot');
         const menu = document.getElementById('invFabMenu');
@@ -5720,6 +5718,7 @@
             apiUrl: (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
                 ? (window.CREATA_CLOUD_CONFIG.getApiUrl() || CANONICAL_WEBAPP_URL)
                 : CANONICAL_WEBAPP_URL,
+            onClose: function () { window.closeInAppModules(); },
             onGoHome: function () { window.goHomeFromLogo(); }
         };
     }
@@ -5754,6 +5753,7 @@
             scheduleSaveInvWorkspaceCheckpoint();
         }
     };
+    window.closeInAppModuleView = window.closeInAppModules;
 
     window.openInAppSeguimiento = function () {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
@@ -12144,28 +12144,41 @@
     });
 
     // ------------------------------------------------------------------------
-    // INSTALACIÓN DE APP MÓVIL (PWA iOS / ANDROID / DESKTOP)
+    // INSTALACIÓN DE APP MÓVIL (PWA iOS / ANDROID / DESKTOP) — EN MENÚ FLOTANTE
     // ------------------------------------------------------------------------
+    const PWA_INSTALLED_STORAGE_KEY = 'creata_pwa_installed_v1';
     let deferredPwaInstallPrompt = null;
 
     function isRunningStandalonePwa() {
         try {
-            if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+            if (window.matchMedia && (
+                window.matchMedia('(display-mode: standalone)').matches ||
+                window.matchMedia('(display-mode: fullscreen)').matches ||
+                window.matchMedia('(display-mode: minimal-ui)').matches ||
+                window.matchMedia('(display-mode: window-controls-overlay)').matches
+            )) return true;
             if (window.navigator && window.navigator.standalone === true) return true;
+            if (typeof document !== 'undefined' && document.referrer && document.referrer.indexOf('android-app://') === 0) return true;
+            if (localStorage.getItem(PWA_INSTALLED_STORAGE_KEY) === '1') return true;
         } catch (e) {}
         return false;
     }
 
     function syncPwaInstallButtonState() {
+        const fabBtn = document.getElementById('fabInstallAppBtn');
         const headerBtn = document.getElementById('headerInstallAppBtn');
         const nativeModalBtn = document.getElementById('btnTriggerNativeAppInstall');
-        const isStandalone = isRunningStandalonePwa();
+        const isInstalled = isRunningStandalonePwa();
+        if (fabBtn) {
+            fabBtn.classList.toggle('hidden', isInstalled);
+            fabBtn.style.display = isInstalled ? 'none' : '';
+        }
         if (headerBtn) {
-            headerBtn.classList.toggle('hidden', isStandalone);
-            headerBtn.style.display = isStandalone ? 'none' : '';
+            headerBtn.classList.toggle('hidden', isInstalled);
+            headerBtn.style.display = isInstalled ? 'none' : '';
         }
         if (nativeModalBtn) {
-            nativeModalBtn.classList.toggle('hidden', !deferredPwaInstallPrompt);
+            nativeModalBtn.classList.toggle('hidden', !deferredPwaInstallPrompt || isInstalled);
         }
     }
 
@@ -12173,13 +12186,31 @@
         window.addEventListener('beforeinstallprompt', function (e) {
             e.preventDefault();
             deferredPwaInstallPrompt = e;
+            try { localStorage.removeItem(PWA_INSTALLED_STORAGE_KEY); } catch (err) {}
             syncPwaInstallButtonState();
         });
         window.addEventListener('appinstalled', function () {
             deferredPwaInstallPrompt = null;
+            try { localStorage.setItem(PWA_INSTALLED_STORAGE_KEY, '1'); } catch (err) {}
             syncPwaInstallButtonState();
             window.closeInstallAppModal();
         });
+        if (window.matchMedia) {
+            try {
+                const mq = window.matchMedia('(display-mode: standalone)');
+                if (mq && typeof mq.addEventListener === 'function') {
+                    mq.addEventListener('change', syncPwaInstallButtonState);
+                }
+            } catch (e) {}
+        }
+        if (window.navigator && typeof window.navigator.getInstalledRelatedApps === 'function') {
+            window.navigator.getInstalledRelatedApps().then(function (apps) {
+                if (Array.isArray(apps) && apps.length > 0) {
+                    try { localStorage.setItem(PWA_INSTALLED_STORAGE_KEY, '1'); } catch (err) {}
+                    syncPwaInstallButtonState();
+                }
+            }).catch(function () {});
+        }
     }
 
     window.openInstallAppModal = function () {
@@ -12197,7 +12228,11 @@
         if (!deferredPwaInstallPrompt) return;
         try {
             deferredPwaInstallPrompt.prompt();
-            await deferredPwaInstallPrompt.userChoice;
+            const choice = await deferredPwaInstallPrompt.userChoice;
+            if (choice && choice.outcome === 'accepted') {
+                try { localStorage.setItem(PWA_INSTALLED_STORAGE_KEY, '1'); } catch (err) {}
+                window.closeInstallAppModal();
+            }
         } catch (e) {}
         deferredPwaInstallPrompt = null;
         syncPwaInstallButtonState();
