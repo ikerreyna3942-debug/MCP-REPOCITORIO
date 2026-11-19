@@ -38,6 +38,7 @@
     const SHEET_ICON_SVG = '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="2" y1="6.5" x2="14" y2="6.5"/><line x1="2" y1="10.5" x2="14" y2="10.5"/><line x1="6.5" y1="2" x2="6.5" y2="14"/></svg>';
 
     let unlocked = false;
+    let panelBackNav = null;
 
     function cleanStr(v) {
         return v === null || v === undefined ? '' : String(v).trim();
@@ -218,7 +219,7 @@
         });
     }
 
-    function unlockHub() {
+    function unlockHub(fromUserAction) {
         unlocked = true;
         try {
             if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(MANUAL_LOCK_FLAG);
@@ -229,10 +230,16 @@
         if (main) main.classList.remove('hidden');
         renderButtons();
         wakeRenderServersSilently();
+        if (fromUserAction && panelBackNav && typeof panelBackNav.syncDepthOnUserAction === 'function') {
+            panelBackNav.syncDepthOnUserAction('unlock');
+        }
     }
 
     window.lockHubPortal = function () {
         unlocked = false;
+        if (panelBackNav && typeof panelBackNav.resetToBase === 'function') {
+            panelBackNav.resetToBase();
+        }
         try {
             localStorage.removeItem(PANEL_SESSION_KEY);
             if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(MANUAL_LOCK_FLAG, '1');
@@ -328,12 +335,32 @@
                     if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(FOTOS_SECRET_SESSION_KEY, typedKey);
                 } catch (e) {}
                 if (pwdInp) pwdInp.value = '';
-                unlockHub();
+                unlockHub(true);
             }
         } finally {
             if (btn) { btn.disabled = false; btn.textContent = 'Entrar'; }
         }
     };
+
+    function initPanelBackNav() {
+        if (!window.CreataBackNav || typeof window.CreataBackNav.createController !== 'function') {
+            return;
+        }
+        panelBackNav = window.CreataBackNav.createController({
+            appId: 'panel',
+            exitGuardMs: 2500,
+            exitMessage: 'Presiona Atrás otra vez para salir',
+            isEnabled: () => unlocked === true,
+            steps: []
+        });
+        panelBackNav.init();
+        window.__CREATA_PANEL_BACK_NAV__ = panelBackNav;
+        window.handlePanelBackAction = function (opts) {
+            return panelBackNav
+                ? panelBackNav.stepBackOnce(opts)
+                : { handled: false, blocked: false, stepId: null, toast: '', source: 'manual' };
+        };
+    }
 
     function init() {
         if (window.CREATA_LOGO_B64) {
@@ -341,6 +368,8 @@
                 img.src = window.CREATA_LOGO_B64;
             });
         }
+
+        initPanelBackNav();
 
         document.addEventListener('keydown', (ev) => {
             if (!unlocked || ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -356,7 +385,7 @@
         });
 
         if (checkExistingOwnerSession()) {
-            unlockHub();
+            unlockHub(false);
         } else {
             const pwd = document.getElementById('hubOwnerPassword');
             if (pwd) setTimeout(() => pwd.focus(), 80);

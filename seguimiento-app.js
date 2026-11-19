@@ -73,8 +73,17 @@
   let scrollTimer = null;
   let toastTimer = null;
   let searchDebounceTimer = null;
+  let _segPrevSearchNonEmpty = false;
 
   let boundHandlers = null;
+
+  function notifySegBackStatePush(reason) {
+    try {
+      if (mountOpts && typeof mountOpts.onBackStatePush === 'function') {
+        mountOpts.onBackStatePush(reason || 'seg_state');
+      }
+    } catch (e) {}
+  }
 
   let APP_STATE = {
     user: null,
@@ -2300,6 +2309,7 @@
 
     setModalRecipient('CLIENTE');
     $('seg_previewModal')?.classList.remove('cm-hidden');
+    if (!_segRestoringCheckpoint) notifySegBackStatePush('seg_preview_modal');
     saveSegUiCheckpointNow();
   }
 
@@ -2723,6 +2733,7 @@
     if (cmEl) cmEl.value = '';
     selectCloseStatus('GANADA');
     $('seg_modalCerrarCotizacion')?.classList.remove('cm-hidden');
+    if (!_segRestoringCheckpoint) notifySegBackStatePush('seg_cerrar_modal');
     saveSegUiCheckpointNow();
   }
 
@@ -2929,6 +2940,7 @@
   async function openKevinAuditModal() {
     if (!isKevinReyna(APP_STATE.user)) return;
     $('seg_modalKevinAudit')?.classList.remove('cm-hidden');
+    if (!_segRestoringCheckpoint) notifySegBackStatePush('seg_audit_modal');
     loadKevinAuditData();
     saveSegUiCheckpointNow();
     await fetchLiveState(true);
@@ -3355,6 +3367,8 @@
           }
           const inp = $('seg_filterSearch');
           if (inp) inp.value = '';
+          _segPrevSearchNonEmpty = false;
+          $('seg_btnClearSearch')?.classList.add('cm-hidden');
           renderQuotes();
           saveSegUiCheckpointNow();
           break;
@@ -3420,12 +3434,18 @@
           delete _pendingSegCheckpointRestore.filterSucursal;
           delete _pendingSegCheckpointRestore.filterAsesor;
         }
+        if (cleanStr(el.value).toUpperCase() !== 'TODAS') {
+          notifySegBackStatePush('seg_filter');
+        }
         populateAdvisorFilter();
         renderQuotes();
         saveSegUiCheckpointNow();
       } else if (kind === 'filter') {
         if (_pendingSegCheckpointRestore) {
           delete _pendingSegCheckpointRestore.filterAsesor;
+        }
+        if (cleanStr(el.value).toUpperCase() !== 'TODOS') {
+          notifySegBackStatePush('seg_filter');
         }
         renderQuotes();
         saveSegUiCheckpointNow();
@@ -3447,6 +3467,11 @@
           delete _pendingSegCheckpointRestore.scrollY;
           delete _pendingSegCheckpointRestore.containerScrollTop;
         }
+        const nowNonEmpty = Boolean(cleanStr(el.value));
+        if (!_segPrevSearchNonEmpty && nowNonEmpty) {
+          notifySegBackStatePush('seg_search');
+        }
+        _segPrevSearchNonEmpty = nowNonEmpty;
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
         searchDebounceTimer = setTimeout(() => {
           renderQuotes();
@@ -3479,7 +3504,8 @@
       fetchLiveState(true);
     };
     const onKeyDown = (ev) => {
-      if (!mounted || ev.key !== 'Escape') return;
+      if (!mounted || ev.key !== 'Escape' || ev.__creataEscapeHandled) return;
+      if ((mountOpts && mountOpts.backNavManaged) || Boolean(global.__CREATA_INV_BACK_NAV__)) return;
       if (!$('seg_previewModal')?.classList.contains('cm-hidden')) closePreviewModal();
       else if (!$('seg_modalCerrarCotizacion')?.classList.contains('cm-hidden')) closeModalCerrar();
       else if (!$('seg_modalKevinAudit')?.classList.contains('cm-hidden')) closeKevinAuditModal();
@@ -3521,6 +3547,7 @@
   function resetSegInMemoryState() {
     _segFetchSeq++;
     _pendingSegCheckpointRestore = null;
+    _segPrevSearchNonEmpty = false;
     APP_STATE.user = null;
     APP_STATE.quotes = [];
     APP_STATE.rawPartidas = [];
@@ -3535,6 +3562,123 @@
     ACTIVE_CLOSE_FOLIO = null;
     SELECTED_ITEMS_SET.clear();
     AUDIT_STATE.logs = [];
+  }
+
+  function isSegModalVisible(id) {
+    const el = $(id);
+    return Boolean(el && !el.classList.contains('cm-hidden'));
+  }
+
+  function hasActiveOverlay() {
+    if (!mounted) return false;
+    return isSegModalVisible('seg_previewModal') ||
+      isSegModalVisible('seg_modalCerrarCotizacion') ||
+      isSegModalVisible('seg_modalKevinAudit');
+  }
+
+  function hasActiveSegFilters() {
+    if (!mounted) return false;
+    const selUrg = $('seg_filterUrgencia');
+    if (selUrg && cleanStr(selUrg.value) && cleanStr(selUrg.value).toUpperCase() !== 'TODOS') return true;
+    const asesorWrap = $('seg_filterAsesorWrap');
+    const selAse = $('seg_filterAsesor');
+    if (selAse && (!asesorWrap || !asesorWrap.classList.contains('cm-hidden'))) {
+      const vA = cleanStr(selAse.value);
+      if (vA && vA.toUpperCase() !== 'TODOS') return true;
+    }
+    const selSuc = $('seg_filterSucursal');
+    if (selSuc && !selSuc.classList.contains('cm-hidden')) {
+      const vS = cleanStr(selSuc.value);
+      if (vS && vS.toUpperCase() !== 'TODAS') return true;
+    }
+    return false;
+  }
+
+  function getBackDepthWeight() {
+    if (!mounted) return 0;
+    let w = 1; // module view itself
+    if (cleanStr($('seg_filterSearch')?.value || '')) w += 1;
+    if (hasActiveSegFilters()) w += 1;
+    return w;
+  }
+
+  function handleBackAction(opts) {
+    if (!mounted) return { handled: false, action: '' };
+    const options = opts && typeof opts === 'object' ? opts : {};
+    const phase = options.phase || 'all';
+
+    if (phase === 'overlay' || phase === 'all') {
+      if (isSegModalVisible('seg_previewModal')) {
+        if (_pendingSegCheckpointRestore) delete _pendingSegCheckpointRestore.previewModal;
+        closePreviewModal();
+        return { handled: true, action: 'seg_preview_modal' };
+      }
+      if (isSegModalVisible('seg_modalCerrarCotizacion')) {
+        if (_pendingSegCheckpointRestore) delete _pendingSegCheckpointRestore.closeModal;
+        closeModalCerrar();
+        return { handled: true, action: 'seg_cerrar_modal' };
+      }
+      if (isSegModalVisible('seg_modalKevinAudit')) {
+        closeKevinAuditModal();
+        return { handled: true, action: 'seg_audit_modal' };
+      }
+      if (phase === 'overlay') {
+        return { handled: false, action: '' };
+      }
+    }
+
+    if (phase === 'view' || phase === 'all') {
+      const searchInp = $('seg_filterSearch');
+      if (searchInp && cleanStr(searchInp.value)) {
+        if (_pendingSegCheckpointRestore) {
+          delete _pendingSegCheckpointRestore.scrollY;
+          delete _pendingSegCheckpointRestore.containerScrollTop;
+        }
+        if (searchDebounceTimer) {
+          clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = null;
+        }
+        searchInp.value = '';
+        _segPrevSearchNonEmpty = false;
+        $('seg_btnClearSearch')?.classList.add('cm-hidden');
+        renderQuotes();
+        saveSegUiCheckpointNow();
+        return { handled: true, action: 'seg_search', toast: 'Búsqueda limpiada' };
+      }
+
+      if (hasActiveSegFilters()) {
+        const selSuc = $('seg_filterSucursal');
+        if (selSuc && !selSuc.classList.contains('cm-hidden')) {
+          selSuc.value = 'TODAS';
+        }
+        const selUrg = $('seg_filterUrgencia');
+        if (selUrg) selUrg.value = 'TODOS';
+        const asesorWrap = $('seg_filterAsesorWrap');
+        const selAse = $('seg_filterAsesor');
+        if (selAse && (!asesorWrap || !asesorWrap.classList.contains('cm-hidden'))) {
+          selAse.value = 'TODOS';
+        }
+        if (_pendingSegCheckpointRestore) {
+          delete _pendingSegCheckpointRestore.filterSucursal;
+          delete _pendingSegCheckpointRestore.filterAsesor;
+        }
+        populateAdvisorFilter();
+        renderQuotes();
+        saveSegUiCheckpointNow();
+        return { handled: true, action: 'seg_filters', toast: 'Filtros restablecidos' };
+      }
+
+      if (mountOpts && typeof mountOpts.onClose === 'function') {
+        mountOpts.onClose();
+      } else if (mountOpts && typeof mountOpts.onGoHome === 'function') {
+        mountOpts.onGoHome();
+      } else if (typeof global.closeInAppModules === 'function') {
+        global.closeInAppModules();
+      }
+      return { handled: true, action: 'seg_close_module', toast: 'Volviendo al inventario' };
+    }
+
+    return { handled: false, action: '' };
   }
 
   // ============================================================================
@@ -3588,6 +3732,7 @@
     } else {
       populateAdvisorFilter();
     }
+    _segPrevSearchNonEmpty = Boolean(cleanStr($('seg_filterSearch')?.value || ''));
 
     fetchLiveState(false);
     flushSegOfflineOutbox();
@@ -3639,6 +3784,9 @@
     unmount,
     saveCheckpoint,
     refresh,
-    isMounted
+    isMounted,
+    handleBackAction,
+    hasActiveOverlay,
+    getBackDepthWeight
   };
 })(window);

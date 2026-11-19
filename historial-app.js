@@ -33,6 +33,16 @@
   let activeInspectedQuote = null;
   let activeInspectedPhoto = null;
   let historyPdfDownloadInFlight = false;
+  let tabHistory = [];
+  let _histPrevSearchNonEmpty = false;
+
+  function notifyHistBackStatePush(reason) {
+    try {
+      if (mountOpts && typeof mountOpts.onBackStatePush === 'function') {
+        mountOpts.onBackStatePush(reason || 'hist_state');
+      }
+    } catch (e) {}
+  }
 
   const state = {
     session: null,
@@ -2031,6 +2041,7 @@
     `;
 
     modal.classList.remove('cm-hidden');
+    if (!_histRestoringCheckpoint) notifyHistBackStatePush('hist_quote_modal');
     saveHistCheckpointNow();
   }
 
@@ -2060,6 +2071,7 @@
     `;
 
     modal.classList.remove('cm-hidden');
+    if (!_histRestoringCheckpoint) notifyHistBackStatePush('hist_photo_modal');
 
     // Use canvas rendering via CreataGuard when available (silent protection, #15)
     const canvasHost = $('hist_photoCanvasHost');
@@ -2086,9 +2098,17 @@
   // ============================================================================
   // NAVEGACIÓN DE PESTAÑAS Y EXPORTACIÓN CSV (SIN URLS DRIVE EN FOTOS)
   // ============================================================================
-  function switchHistoryTab(tabName) {
+  function switchHistoryTab(tabName, opts) {
+    const options = opts || {};
     if (!state.allowedTabs.includes(tabName)) {
       tabName = state.allowedTabs[0] || 'quotes';
+    }
+    const prevTab = state.activeTab;
+    if (!options.fromBack && !options.silent && prevTab && prevTab !== tabName && state.allowedTabs.includes(prevTab)) {
+      if (tabHistory[tabHistory.length - 1] !== prevTab) {
+        tabHistory.push(prevTab);
+        if (tabHistory.length > 10) tabHistory.shift();
+      }
     }
     state.activeTab = tabName;
     const allTabs = ['overview', 'quotes', 'seguimiento', 'historial', 'photos', 'presence'];
@@ -2098,6 +2118,9 @@
       if (btn) btn.classList.toggle('is-active', t === tabName);
       if (panel) panel.classList.toggle('cm-hidden', t !== tabName);
     });
+    if (!options.fromBack && !options.silent && !_histRestoringCheckpoint && prevTab !== tabName) {
+      notifyHistBackStatePush('hist_tab');
+    }
     saveHistCheckpointNow();
   }
 
@@ -2333,6 +2356,7 @@
         rootEl.querySelectorAll('[data-hist-seg-kind]').forEach(b => {
           b.classList.toggle('is-active', b.getAttribute('data-hist-seg-kind') === state.segKindFilter);
         });
+        if (state.segKindFilter !== 'ALL') notifyHistBackStatePush('hist_filter');
         renderSeguimientoTab();
         saveHistCheckpointNow();
         return;
@@ -2342,6 +2366,7 @@
       if (presenceFilterBtn) {
         const nextF = presenceFilterBtn.getAttribute('data-hist-presence-filter') || 'ALL';
         state.presenceFilter = ['ALL', 'ONLINE', 'OFFLINE'].includes(nextF) ? nextF : 'ALL';
+        if (state.presenceFilter !== 'ALL') notifyHistBackStatePush('hist_filter');
         renderPresencePanel();
         saveHistCheckpointNow();
         return;
@@ -2353,6 +2378,7 @@
         rootEl.querySelectorAll('[data-hist-class]').forEach(b => {
           b.classList.toggle('is-active', b.getAttribute('data-hist-class') === state.historialClassFilter);
         });
+        if (state.historialClassFilter !== 'ALL') notifyHistBackStatePush('hist_filter');
         renderHistorialTab();
         saveHistCheckpointNow();
         return;
@@ -2395,6 +2421,7 @@
         const inp = $('hist_globalSearch');
         if (inp) inp.value = '';
         state.searchQuery = '';
+        _histPrevSearchNonEmpty = false;
         $('hist_btnClearSearch')?.classList.add('cm-hidden');
         renderAll();
         saveHistCheckpointNow();
@@ -2411,18 +2438,22 @@
       const kind = el.getAttribute('data-hist-change');
       if (kind === 'quotes-store') {
         state.quotesStoreFilter = el.value || 'ALL';
+        if (state.quotesStoreFilter !== 'ALL') notifyHistBackStatePush('hist_filter');
         renderQuotesTab();
         saveHistCheckpointNow();
       } else if (kind === 'quotes-status') {
         state.quotesStatusFilter = el.value || 'ALL';
+        if (state.quotesStatusFilter !== 'ALL') notifyHistBackStatePush('hist_filter');
         renderQuotesTab();
         saveHistCheckpointNow();
       } else if (kind === 'seg-status') {
         state.segStatusFilter = el.value || 'ALL';
+        if (state.segStatusFilter !== 'ALL') notifyHistBackStatePush('hist_filter');
         renderSeguimientoTab();
         saveHistCheckpointNow();
       } else if (kind === 'hist-branch') {
         state.historialBranchFilter = el.value || 'ALL';
+        if (state.historialBranchFilter !== 'ALL') notifyHistBackStatePush('hist_filter');
         renderHistorialTab();
         saveHistCheckpointNow();
       }
@@ -2433,6 +2464,11 @@
       if (!el || !el.getAttribute) return;
       if (el.getAttribute('data-hist-input') === 'search') {
         const val = el.value || '';
+        const nowNonEmpty = Boolean(cleanStr(val));
+        if (!_histPrevSearchNonEmpty && nowNonEmpty) {
+          notifyHistBackStatePush('hist_search');
+        }
+        _histPrevSearchNonEmpty = nowNonEmpty;
         $('hist_btnClearSearch')?.classList.toggle('cm-hidden', !val);
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
         searchDebounceTimer = setTimeout(() => {
@@ -2454,9 +2490,10 @@
       if (document.visibilityState === 'hidden') saveHistCheckpointNow();
     };
     const onKeyDown = (ev) => {
-      if (!mounted || ev.key !== 'Escape') return;
-      if (!$('hist_quoteInspectModal')?.classList.contains('cm-hidden')) closeModal('quote');
-      else if (!$('hist_photoPreviewModal')?.classList.contains('cm-hidden')) closeModal('photo');
+      if (!mounted || ev.key !== 'Escape' || ev.__creataEscapeHandled) return;
+      if ((mountOpts && mountOpts.backNavManaged) || Boolean(global.__CREATA_INV_BACK_NAV__)) return;
+      if (!$('hist_photoPreviewModal')?.classList.contains('cm-hidden')) closeModal('photo');
+      else if (!$('hist_quoteInspectModal')?.classList.contains('cm-hidden')) closeModal('quote');
     };
 
     rootEl.addEventListener('click', onClick);
@@ -2507,6 +2544,176 @@
     state.activeQuoteForModal = null;
     activeInspectedQuote = null;
     activeInspectedPhoto = null;
+    tabHistory = [];
+    _histPrevSearchNonEmpty = false;
+  }
+
+  function isHistModalVisible(id) {
+    const el = $(id);
+    return Boolean(el && !el.classList.contains('cm-hidden'));
+  }
+
+  function hasActiveOverlay() {
+    if (!mounted) return false;
+    return isHistModalVisible('hist_photoPreviewModal') || isHistModalVisible('hist_quoteInspectModal');
+  }
+
+  function hasActiveTabFilters() {
+    if (!mounted) return false;
+    if (state.activeTab === 'quotes') {
+      return Boolean(
+        (state.quotesStoreFilter && state.quotesStoreFilter !== 'ALL') ||
+        (state.quotesStatusFilter && state.quotesStatusFilter !== 'ALL')
+      );
+    }
+    if (state.activeTab === 'seguimiento') {
+      return Boolean(
+        (state.segKindFilter && state.segKindFilter !== 'ALL') ||
+        (state.segStatusFilter && state.segStatusFilter !== 'ALL')
+      );
+    }
+    if (state.activeTab === 'historial') {
+      return Boolean(
+        (state.historialClassFilter && state.historialClassFilter !== 'ALL') ||
+        (state.historialBranchFilter && state.historialBranchFilter !== 'ALL')
+      );
+    }
+    if (state.activeTab === 'presence') {
+      return Boolean(state.presenceFilter && state.presenceFilter !== 'ALL');
+    }
+    return false;
+  }
+
+  function resetActiveTabFilters() {
+    if (state.activeTab === 'quotes') {
+      state.quotesStoreFilter = 'ALL';
+      state.quotesStatusFilter = 'ALL';
+      const stSel = $('hist_quotesStoreSelect');
+      const statusSel = $('hist_quotesStatusSelect');
+      if (stSel) stSel.value = 'ALL';
+      if (statusSel) statusSel.value = 'ALL';
+      renderQuotesTab();
+      saveHistCheckpointNow();
+      return true;
+    }
+    if (state.activeTab === 'seguimiento') {
+      state.segKindFilter = 'ALL';
+      state.segStatusFilter = 'ALL';
+      if (rootEl) {
+        rootEl.querySelectorAll('[data-hist-seg-kind]').forEach(b => {
+          b.classList.toggle('is-active', b.getAttribute('data-hist-seg-kind') === 'ALL');
+        });
+      }
+      const statusSel = $('hist_segStatusSelect');
+      if (statusSel) statusSel.value = 'ALL';
+      renderSeguimientoTab();
+      saveHistCheckpointNow();
+      return true;
+    }
+    if (state.activeTab === 'historial') {
+      state.historialClassFilter = 'ALL';
+      state.historialBranchFilter = 'ALL';
+      if (rootEl) {
+        rootEl.querySelectorAll('[data-hist-class]').forEach(b => {
+          b.classList.toggle('is-active', b.getAttribute('data-hist-class') === 'ALL');
+        });
+      }
+      const brSel = $('hist_historialBranchSelect');
+      if (brSel) brSel.value = 'ALL';
+      renderHistorialTab();
+      saveHistCheckpointNow();
+      return true;
+    }
+    if (state.activeTab === 'presence') {
+      state.presenceFilter = 'ALL';
+      renderPresencePanel();
+      saveHistCheckpointNow();
+      return true;
+    }
+    return false;
+  }
+
+  function getBackDepthWeight() {
+    if (!mounted) return 0;
+    let w = 1; // module view itself
+    const sInp = $('hist_globalSearch');
+    if (cleanStr(state.searchQuery) || cleanStr(sInp ? sInp.value : '')) w += 1;
+    if (hasActiveTabFilters()) w += 1;
+    const defaultTab = (Array.isArray(state.allowedTabs) && state.allowedTabs[0]) || 'quotes';
+    if (tabHistory.length > 0) w += tabHistory.length;
+    else if (state.activeTab && state.activeTab !== defaultTab) w += 1;
+    return w;
+  }
+
+  function handleBackAction(opts) {
+    if (!mounted) return { handled: false, action: '' };
+    const options = opts && typeof opts === 'object' ? opts : {};
+    const phase = options.phase || 'all';
+
+    if (phase === 'overlay' || phase === 'all') {
+      if (isHistModalVisible('hist_photoPreviewModal')) {
+        closeModal('photo');
+        return { handled: true, action: 'hist_photo_modal' };
+      }
+      if (isHistModalVisible('hist_quoteInspectModal')) {
+        closeModal('quote');
+        return { handled: true, action: 'hist_quote_modal' };
+      }
+      if (phase === 'overlay') {
+        return { handled: false, action: '' };
+      }
+    }
+
+    if (phase === 'view' || phase === 'all') {
+      const inp = $('hist_globalSearch');
+      const curSearch = cleanStr(state.searchQuery) || cleanStr(inp ? inp.value : '');
+      if (curSearch) {
+        if (searchDebounceTimer) {
+          clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = null;
+        }
+        if (inp) inp.value = '';
+        state.searchQuery = '';
+        _histPrevSearchNonEmpty = false;
+        $('hist_btnClearSearch')?.classList.add('cm-hidden');
+        renderAll();
+        saveHistCheckpointNow();
+        return { handled: true, action: 'hist_search', toast: 'Búsqueda limpiada' };
+      }
+
+      if (hasActiveTabFilters()) {
+        resetActiveTabFilters();
+        return { handled: true, action: 'hist_filters', toast: 'Filtros restablecidos' };
+      }
+
+      const defaultTab = (Array.isArray(state.allowedTabs) && state.allowedTabs[0]) || 'quotes';
+      let targetTab = '';
+      while (tabHistory.length > 0) {
+        const candidate = tabHistory.pop();
+        if (candidate && candidate !== state.activeTab && state.allowedTabs.includes(candidate)) {
+          targetTab = candidate;
+          break;
+        }
+      }
+      if (!targetTab && state.activeTab && state.activeTab !== defaultTab && state.allowedTabs.includes(defaultTab)) {
+        targetTab = defaultTab;
+      }
+      if (targetTab) {
+        switchHistoryTab(targetTab, { fromBack: true });
+        return { handled: true, action: 'hist_tab', toast: 'Pestaña anterior' };
+      }
+
+      if (mountOpts && typeof mountOpts.onClose === 'function') {
+        mountOpts.onClose();
+      } else if (mountOpts && typeof mountOpts.onGoHome === 'function') {
+        mountOpts.onGoHome();
+      } else if (typeof global.closeInAppModules === 'function') {
+        global.closeInAppModules();
+      }
+      return { handled: true, action: 'hist_close_module', toast: 'Volviendo al inventario' };
+    }
+
+    return { handled: false, action: '' };
   }
 
   // ============================================================================
@@ -2581,13 +2788,14 @@
       }
       if (typeof preCp.searchQuery === 'string') {
         state.searchQuery = preCp.searchQuery;
+        _histPrevSearchNonEmpty = Boolean(cleanStr(preCp.searchQuery));
         const sInp = $('hist_globalSearch');
         const cBtn = $('hist_btnClearSearch');
         if (sInp) sInp.value = preCp.searchQuery;
         if (cBtn) cBtn.classList.toggle('cm-hidden', !preCp.searchQuery);
       }
     }
-    switchHistoryTab(state.activeTab);
+    switchHistoryTab(state.activeTab, { silent: true });
 
     syncAllProjectHistory(false);
 
@@ -2638,6 +2846,9 @@
     unmount,
     saveCheckpoint,
     refresh,
-    isMounted
+    isMounted,
+    handleBackAction,
+    hasActiveOverlay,
+    getBackDepthWeight
   };
 })(window);

@@ -7,14 +7,15 @@
  *   tráfico hacia Render (https://buena-espero.onrender.com/).
  */
 const CACHE_PREFIX = 'creata-prompts-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v3';
+const CACHE_NAME = CACHE_PREFIX + 'v4';
 const PAGE_URL = './prompts.html';
 const NETWORK_TIMEOUT_MS = 7000;
 
 const SHELL_ASSETS = [
     './prompts.html',
     './prompts-styles.css?v=3',
-    './prompts-app.js?v=3',
+    './creata-back-nav.js?v=1',
+    './prompts-app.js?v=4',
     './prompts-manifest.json?v=3',
     './prompts-icon-192.png',
     './prompts-icon-512.png',

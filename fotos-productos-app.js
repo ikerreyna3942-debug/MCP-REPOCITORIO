@@ -26,6 +26,7 @@
     let _fotosRestoringCheckpoint = false;
     let _fotosFlushingOutbox = false;
     let _deferredFotosInstallPrompt = null;
+    let _fotosBackNav = null;
 
     const SHEET_GIDS = {
         '1': '620514545',
@@ -79,8 +80,32 @@
         sessionSavedLogs: [],
         sessionSavedBySku: new Map(),
         deletedQueue: null,
-        lightboxUrl: ''
+        lightboxUrl: '',
+        lightboxOpen: false,
+        activeMobileSection: 'secSkuFinder',
+        mobileSectionHistory: []
     };
+
+    function syncFotosBackNav(reason) {
+        if (_fotosRestoringCheckpoint) return;
+        if (_fotosBackNav && typeof _fotosBackNav.syncDepthOnUserAction === 'function') {
+            _fotosBackNav.syncDepthOnUserAction(reason);
+        }
+    }
+
+    function isElHidden(id) {
+        const el = document.getElementById(id);
+        return !el || (el.classList && el.classList.contains('hidden'));
+    }
+
+    function isMobileViewport() {
+        try {
+            if (typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth > 0) {
+                return window.innerWidth <= 1024;
+            }
+        } catch (e) {}
+        return false;
+    }
 
     function cleanStr(val) {
         return val === null || val === undefined ? '' : String(val).trim();
@@ -926,6 +951,12 @@
         state.unlocked = false;
         state.authToken = '';
         state.accessKey = '';
+        if (typeof window.closePhotoLightbox === 'function') window.closePhotoLightbox();
+        if (typeof window.closeFotosInstallModal === 'function') window.closeFotosInstallModal();
+        if (typeof window.closeFotosSplitCotizador === 'function') window.closeFotosSplitCotizador();
+        if (_fotosBackNav && typeof _fotosBackNav.resetToBase === 'function') {
+            _fotosBackNav.resetToBase();
+        }
         try {
             localStorage.removeItem(FOTOS_SESSION_KEY);
             localStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
@@ -1047,6 +1078,7 @@
                 } catch (e) {}
                 if (pwdInp) pwdInp.value = '';
                 unlockFotosPortal();
+                syncFotosBackNav('unlock');
             }
         } finally {
             if (submitBtn) {
@@ -1518,9 +1550,12 @@
             renderInboxGallery();
         }
         saveFotosUiCheckpointNow();
+        if (state.skuCategoryFilter !== 'ALL') {
+            syncFotosBackNav('sku_category');
+        }
     };
 
-    window.clearSkuSearch = function () {
+    window.clearSkuSearch = function (opts) {
         const inp = document.getElementById('skuSearchInput');
         const clr = document.getElementById('skuSearchClearBtn');
         if (inp) inp.value = '';
@@ -1528,7 +1563,13 @@
         state.skuSearchQuery = '';
         applySkuFiltersAndRender();
         saveFotosUiCheckpointNow();
-        if (inp) inp.focus();
+        if (inp) {
+            if (opts && opts.focus === false) {
+                if (typeof inp.blur === 'function') inp.blur();
+            } else {
+                if (typeof inp.focus === 'function') inp.focus();
+            }
+        }
     };
 
     window.setSkuFilterMode = function (mode) {
@@ -1539,6 +1580,9 @@
         renderSkuCategoryFilterRow();
         applySkuFiltersAndRender();
         saveFotosUiCheckpointNow();
+        if (state.skuFilterMode !== 'ALL') {
+            syncFotosBackNav('sku_filter');
+        }
     };
 
     function applySkuFiltersAndRender() {
@@ -1617,10 +1661,10 @@
                 '<div class="photo-empty-placeholder" style="display:flex;flex-direction:column;gap:8px;padding:18px 12px;">' +
                     '<span>Sin resultados</span>' +
                     (rawTyped.length >= 3
-                        ? ('<button type="button" class="hdr-btn is-accent" style="height:30px;padding:0 12px;" onclick="syncSkusNow(\'' + escapeHtml(rawTyped.replace(/'/g, "\\'")) + '\')">↻ ERP "' + escapeHtml(rawTyped) + '"</button>')
+                        ? ('<button type="button" class="hdr-btn is-accent is-compact-btn" onclick="syncSkusNow(\'' + escapeHtml(rawTyped.replace(/'/g, "\\'")) + '\')">↻ ERP "' + escapeHtml(rawTyped) + '"</button>')
                         : '') +
                     (looksLikeSku
-                        ? ('<button type="button" class="hdr-btn" style="height:28px;padding:0 12px;background:#252C32;color:#FFF;" onclick="useNewManualSku(\'' + escapeHtml(rawTyped.replace(/'/g, "\\'")) + '\')">+ SKU "' + escapeHtml(rawTyped) + '"</button>')
+                        ? ('<button type="button" class="hdr-btn is-neutral is-compact-btn" onclick="useNewManualSku(\'' + escapeHtml(rawTyped.replace(/'/g, "\\'")) + '\')">+ SKU "' + escapeHtml(rawTyped) + '"</button>')
                         : '') +
                 '</div>';
             return;
@@ -1683,7 +1727,7 @@
         }
     }
 
-    window.selectSkuProduct = function (skuRaw) {
+    window.selectSkuProduct = function (skuRaw, opts) {
         const sku = cleanStr(skuRaw).toUpperCase();
         const prod = state.productBySku.get(sku);
         if (!prod) return;
@@ -1696,6 +1740,20 @@
         if (destSel && prod.destFolderId) destSel.value = prod.destFolderId;
 
         updateSkuListSelectionInDom(prevSku, sku);
+        renderSelectedProductStage();
+        updateAssignButtonState();
+        saveFotosUiCheckpointNow();
+        if (!(opts && opts.skipBackSync)) {
+            syncFotosBackNav('selected_sku');
+        }
+    };
+
+    window.clearSelectedSku = function () {
+        if (!state.selectedSku) return;
+        const prevSku = state.selectedSku;
+        state.selectedSku = '';
+        updateSkuListSelectionInDom(prevSku, '');
+        hideAssignFeedback();
         renderSelectedProductStage();
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
@@ -1910,11 +1968,22 @@
 
     function updateAssignButtonState() {
         const btn = document.getElementById('btnAssignPhotoNow');
-        if (!btn) return;
         const selPhoto = getActiveSelectedPhotoObject();
         const canAssign = !!(state.selectedSku && selPhoto);
-        btn.disabled = !canAssign;
-        btn.textContent = state.selectedSku ? ('Guardar en ' + state.selectedSku) : 'Guardar';
+        if (btn) {
+            btn.disabled = !canAssign;
+            btn.textContent = state.selectedSku ? ('Guardar en ' + state.selectedSku) : 'Guardar';
+        }
+        const quickBar = document.getElementById('mobileQuickSaveBar');
+        const quickSku = document.getElementById('mobileQuickSaveSku');
+        const quickBtn = document.getElementById('btnMobileQuickSaveNow');
+        const showQuick = canAssign && !_fotosSplitActive;
+        if (quickBar) quickBar.classList.toggle('hidden', !showQuick);
+        if (quickSku) quickSku.textContent = state.selectedSku || '—';
+        if (quickBtn) quickBtn.disabled = !canAssign;
+        if (document.body && document.body.classList) {
+            document.body.classList.toggle('has-mobile-quick-save', showQuick);
+        }
     }
 
     function showAssignFeedback(msgHtml, isOk) {
@@ -1939,6 +2008,26 @@
         if (tabLoaded) tabLoaded.classList.toggle('active', state.galleryMode === 'LOADED');
         renderInboxGallery();
         saveFotosUiCheckpointNow();
+        if (state.galleryMode === 'LOADED') {
+            syncFotosBackNav('gallery_mode');
+        }
+    };
+
+    window.clearInboxSearch = function (opts) {
+        const inp = document.getElementById('inboxSearchInput');
+        const clr = document.getElementById('inboxSearchClearBtn');
+        if (inp) inp.value = '';
+        if (clr) clr.classList.add('hidden');
+        state.inboxSearchQuery = '';
+        renderInboxGallery();
+        saveFotosUiCheckpointNow();
+        if (inp) {
+            if (opts && opts.focus === false) {
+                if (typeof inp.blur === 'function') inp.blur();
+            } else if (opts && opts.focus === true) {
+                if (typeof inp.focus === 'function') inp.focus();
+            }
+        }
     };
 
     window.refreshInboxOnly = async function (manualRefresh) {
@@ -2160,7 +2249,7 @@
                         }
                     }
                     if (!state.selectedSku || explicitInName === sug || typeConflict) {
-                        window.selectSkuProduct(sug);
+                        window.selectSkuProduct(sug, { skipBackSync: true });
                     }
                 }
             }
@@ -2170,6 +2259,9 @@
         renderSelectedProductStage();
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
+        if (!alreadySame) {
+            syncFotosBackNav('selected_photo');
+        }
     };
 
     window.takeLoadedPhotoForAssign = function (skuRaw, fileIdRaw, ev) {
@@ -2211,6 +2303,9 @@
         renderSelectedProductStage();
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
+        if (!alreadySame) {
+            syncFotosBackNav('selected_photo');
+        }
     };
 
     window.takeCurrentProductPhoto = function () {
@@ -2369,11 +2464,12 @@
             fromLoaded: false,
             skuOrigin: cleanStr(fObj.skuOrigin)
         } : null;
-        window.selectSkuProduct(sku);
+        window.selectSkuProduct(sku, { skipBackSync: true });
         updateGallerySelectionInDom();
         renderSelectedProductStage();
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
+        syncFotosBackNav('selected_photo');
     };
 
     window.clearSelectedInboxPhoto = function () {
@@ -2541,12 +2637,13 @@
                 skuOrigin: ''
             };
             if (!state.selectedSku && firstEntry.item._suggestedSku && state.productBySku.has(firstEntry.item._suggestedSku)) {
-                window.selectSkuProduct(firstEntry.item._suggestedSku);
+                window.selectSkuProduct(firstEntry.item._suggestedSku, { skipBackSync: true });
             }
             state.galleryMode = 'INBOX';
             window.setGalleryMode('INBOX');
             renderSelectedProductStage();
             updateAssignButtonState();
+            syncFotosBackNav('selected_photo');
         }
 
         showAssignFeedback(
@@ -2784,14 +2881,29 @@
         }
     };
 
-    window.jumpToFotosSection = function (secId, btnEl) {
-        const el = document.getElementById(secId);
+    window.jumpToFotosSection = function (secId, btnEl, opts) {
+        const nextSec = cleanStr(secId) || 'secSkuFinder';
+        const prevSec = state.activeMobileSection || 'secSkuFinder';
+        const isFromBack = Boolean(opts && opts.fromBack);
+        if (!isFromBack && prevSec !== nextSec) {
+            if (state.mobileSectionHistory[state.mobileSectionHistory.length - 1] !== prevSec) {
+                state.mobileSectionHistory.push(prevSec);
+                if (state.mobileSectionHistory.length > 8) {
+                    state.mobileSectionHistory.shift();
+                }
+            }
+        }
+        state.activeMobileSection = nextSec;
+        const el = document.getElementById(nextSec);
         if (el && typeof el.scrollIntoView === 'function') {
             el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         document.querySelectorAll('#mobileFotosJumpBar .mobile-jump-btn').forEach((b) => {
-            b.classList.toggle('active', b === btnEl || b.getAttribute('data-jump') === secId);
+            b.classList.toggle('active', b === btnEl || b.getAttribute('data-jump') === nextSec);
         });
+        if (!isFromBack && prevSec !== nextSec) {
+            syncFotosBackNav('mobile_section');
+        }
     };
 
     function isFotosStandaloneInstalled() {
@@ -2839,6 +2951,7 @@
         const m = document.getElementById('fotosInstallModal');
         if (m) {
             m.classList.remove('hidden');
+            syncFotosBackNav('install_modal');
         } else {
             showAssignFeedback(
                 '📲 Para descargar la aplicación: abre el menú del navegador (⋮ o Compartir en iPhone) y toca <strong>"Instalar aplicación / Agregar a pantalla principal"</strong>.',
@@ -3062,10 +3175,10 @@
                 '<div class="session-log-row">' +
                     '<span><strong>' + escapeHtml(item.sku) + '</strong> → ' + escapeHtml(item.destFolderName) + ' (Fila ' + escapeHtml(item.rowNumber) + ')</span>' +
                     '<div style="display:flex;gap:6px;">' +
-                        '<button type="button" class="hdr-btn is-accent" style="height:24px;" onclick="takeLoadedPhotoForAssign(\'' + safeSku + '\', \'' + safeFid + '\', event)">Tomar</button>' +
-                        '<button type="button" class="hdr-btn is-danger" style="height:24px;" onclick="deleteLoadedPhotoBySku(\'' + safeSku + '\', \'' + safeFid + '\', event)">🗑</button>' +
-                        '<button type="button" class="hdr-btn" style="height:24px;background:#252C32;color:#FFF;" onclick="selectSkuProduct(\'' + safeSku + '\')">Ver</button>' +
-                        '<a href="' + escapeHtml(item.newUrl) + '" target="_blank" rel="noopener" class="hdr-btn" style="height:24px;">↗</a>' +
+                        '<button type="button" class="hdr-btn is-accent stage-action-btn" onclick="takeLoadedPhotoForAssign(\'' + safeSku + '\', \'' + safeFid + '\', event)">Tomar</button>' +
+                        '<button type="button" class="hdr-btn is-danger stage-action-btn" onclick="deleteLoadedPhotoBySku(\'' + safeSku + '\', \'' + safeFid + '\', event)">🗑</button>' +
+                        '<button type="button" class="hdr-btn is-neutral stage-action-btn" onclick="selectSkuProduct(\'' + safeSku + '\')">Ver</button>' +
+                        '<a href="' + escapeHtml(item.newUrl) + '" target="_blank" rel="noopener" class="hdr-btn stage-action-btn">↗</a>' +
                     '</div>' +
                 '</div>'
             );
@@ -3181,8 +3294,10 @@
         if (!box || !img) return;
         img.src = clean;
         box.classList.remove('hidden');
+        state.lightboxOpen = true;
         state.lightboxUrl = clean.indexOf('data:') === 0 ? '' : clean;
         saveFotosUiCheckpointNow();
+        syncFotosBackNav('lightbox');
     };
 
     window.closePhotoLightbox = function () {
@@ -3190,6 +3305,7 @@
         const img = document.getElementById('photoLightboxImg');
         if (box) box.classList.add('hidden');
         if (img) img.src = '';
+        state.lightboxOpen = false;
         if (state.lightboxUrl) {
             state.lightboxUrl = '';
             saveFotosUiCheckpointNow();
@@ -3525,6 +3641,7 @@
                 savedAt: Date.now(),
                 skuSearchQuery: state.skuSearchQuery || '',
                 skuFilterMode: state.skuFilterMode || 'ALL',
+                skuCategoryFilter: state.skuCategoryFilter || 'ALL',
                 selectedSku: state.selectedSku || '',
                 destFolderId: destSel ? (destSel.value || '') : '',
                 galleryMode: state.galleryMode || 'INBOX',
@@ -3576,10 +3693,16 @@
                 });
             }
 
+            if (typeof cp.skuCategoryFilter === 'string' && cp.skuCategoryFilter) {
+                state.skuCategoryFilter = cp.skuCategoryFilter;
+            }
+
             if (typeof cp.inboxSearchQuery === 'string') {
                 state.inboxSearchQuery = cp.inboxSearchQuery;
                 const inboxInp = document.getElementById('inboxSearchInput');
+                const inboxClr = document.getElementById('inboxSearchClearBtn');
                 if (inboxInp) inboxInp.value = cp.inboxSearchQuery;
+                if (inboxClr) inboxClr.classList.toggle('hidden', !cp.inboxSearchQuery.trim());
             }
 
             if (cp.galleryMode === 'LOADED' || cp.galleryMode === 'INBOX') {
@@ -3805,9 +3928,21 @@
         if (badge) {
             badge.textContent = _fotosSplitPct + '% / ' + (100 - _fotosSplitPct) + '%';
         }
-        if (_fotosSplitActive && frame && (!frame.getAttribute('src') || frame.getAttribute('src') === 'about:blank')) {
-            frame.setAttribute('src', './inventario.html?embed=1');
+        if (_fotosSplitActive && frame) {
+            const loadedSrc = (frame.dataset && frame.dataset.loadedSrc) || frame.getAttribute('src') || '';
+            if (!loadedSrc || loadedSrc === 'about:blank') {
+                const targetUrl = './inventario.html?embed=1';
+                if (window.CreataBackNav && typeof window.CreataBackNav.replaceIframeUrl === 'function') {
+                    window.CreataBackNav.replaceIframeUrl(frame, targetUrl);
+                } else if (typeof frame.setAttribute === 'function') {
+                    frame.setAttribute('src', targetUrl);
+                }
+                try {
+                    if (frame.dataset) frame.dataset.loadedSrc = targetUrl;
+                } catch (e) {}
+            }
         }
+        updateAssignButtonState();
     }
 
     window.setFotosSplitPreset = function (pctVal) {
@@ -3844,6 +3979,9 @@
             _fotosSplitActive = false;
         }
         applyFotosSplitDomState();
+        if (_fotosSplitActive) {
+            syncFotosBackNav('split_cotizador');
+        }
     };
 
     function bindFotosSplitResizerDrag() {
@@ -3903,6 +4041,112 @@
         window.addEventListener('touchcancel', stopDrag);
     }
 
+    function initFotosBackNav() {
+        const factory = (window.CreataBackNav && typeof window.CreataBackNav.createController === 'function')
+            ? window.CreataBackNav.createController
+            : (typeof window.createCreataBackNavController === 'function' ? window.createCreataBackNavController : null);
+        if (!factory) return;
+
+        _fotosBackNav = factory({
+            appId: 'fotos',
+            toastId: 'fotosBackToast',
+            maxDepth: 12,
+            exitGuardMs: 2500,
+            exitMessage: 'Presiona Atrás otra vez para salir',
+            isEnabled: () => state.unlocked === true,
+            steps: [
+                {
+                    id: 'lightbox',
+                    isActive: () => Boolean(state.lightboxOpen || state.lightboxUrl || !isElHidden('photoLightbox')),
+                    undo: () => window.closePhotoLightbox(),
+                    escapeAllowed: true
+                },
+                {
+                    id: 'install_modal',
+                    isActive: () => !isElHidden('fotosInstallModal'),
+                    undo: () => window.closeFotosInstallModal(),
+                    escapeAllowed: true
+                },
+                {
+                    id: 'split_cotizador',
+                    isActive: () => _fotosSplitActive === true,
+                    undo: () => window.closeFotosSplitCotizador(),
+                    escapeAllowed: true,
+                    toast: 'Pantalla dividida cerrada'
+                },
+                {
+                    id: 'selected_photo',
+                    isActive: () => Boolean(state.selectedInboxFileId || state.selectedPhotoItem),
+                    undo: () => window.clearSelectedInboxPhoto(),
+                    escapeAllowed: true,
+                    toast: 'Foto deseleccionada'
+                },
+                {
+                    id: 'inbox_search',
+                    isActive: () => Boolean(cleanStr(state.inboxSearchQuery)),
+                    undo: () => window.clearInboxSearch({ focus: false }),
+                    escapeAllowed: true,
+                    toast: 'Filtro de galería limpiado'
+                },
+                {
+                    id: 'gallery_mode',
+                    isActive: () => state.galleryMode === 'LOADED',
+                    undo: () => window.setGalleryMode('INBOX'),
+                    escapeAllowed: false,
+                    toast: 'Volviendo a SUBIR PREN'
+                },
+                {
+                    id: 'mobile_section',
+                    isActive: () => state.mobileSectionHistory.length > 0 || (isMobileViewport() && state.activeMobileSection !== 'secSkuFinder'),
+                    depthWeight: () => Math.max(1, state.mobileSectionHistory.length),
+                    undo: () => {
+                        const prev = state.mobileSectionHistory.length > 0
+                            ? state.mobileSectionHistory.pop()
+                            : 'secSkuFinder';
+                        window.jumpToFotosSection(prev, null, { fromBack: true });
+                    },
+                    escapeAllowed: false,
+                    toast: 'Paso anterior'
+                },
+                {
+                    id: 'selected_sku',
+                    isActive: () => Boolean(state.selectedSku),
+                    undo: () => window.clearSelectedSku(),
+                    escapeAllowed: true,
+                    toast: 'SKU deseleccionado'
+                },
+                {
+                    id: 'sku_search',
+                    isActive: () => Boolean(cleanStr(state.skuSearchQuery)),
+                    undo: () => window.clearSkuSearch({ focus: false }),
+                    escapeAllowed: true,
+                    toast: 'Búsqueda limpiada'
+                },
+                {
+                    id: 'sku_category',
+                    isActive: () => Boolean(state.skuCategoryFilter && state.skuCategoryFilter !== 'ALL'),
+                    undo: () => window.setSkuCategoryFilter('ALL'),
+                    escapeAllowed: false,
+                    toast: 'Categoría: Todas'
+                },
+                {
+                    id: 'sku_filter',
+                    isActive: () => Boolean(state.skuFilterMode && state.skuFilterMode !== 'ALL'),
+                    undo: () => window.setSkuFilterMode('ALL'),
+                    escapeAllowed: false,
+                    toast: 'Filtro: Todos'
+                }
+            ]
+        });
+
+        _fotosBackNav.init();
+        window.__CREATA_FOTOS_BACK_NAV__ = _fotosBackNav;
+        window.handleFotosBackAction = function () {
+            if (!state.unlocked) return { handled: false, blocked: false };
+            return _fotosBackNav ? _fotosBackNav.stepBackOnce() : { handled: false };
+        };
+    }
+
     function initFotosApp() {
         try {
             if ('serviceWorker' in navigator && /^https?:$/i.test(window.location.protocol)) {
@@ -3923,6 +4167,7 @@
         });
         syncFotosInstallAppBtn();
         bindFotosSplitResizerDrag();
+        initFotosBackNav();
 
         // Sincronización en vivo con el Cotizador cuando están en Pantalla Dividida
         window.addEventListener('message', (ev) => {
@@ -3931,7 +4176,7 @@
             if (d.type === 'CREATA_SPLIT_SELECT_SKU' && d.source !== 'fotos' && d.sku) {
                 const targetSku = cleanStr(d.sku).toUpperCase();
                 if (targetSku && state.productBySku.has(targetSku) && state.selectedSku !== targetSku) {
-                    window.selectSkuProduct(targetSku);
+                    window.selectSkuProduct(targetSku, { skipBackSync: true });
                 }
             }
         });
@@ -3955,7 +4200,12 @@
         if (skuInp) {
             skuInp.addEventListener('input', () => {
                 const val = skuInp.value || '';
+                const wasEmpty = !cleanStr(state.skuSearchQuery);
+                state.skuSearchQuery = val;
                 if (clrBtn) clrBtn.classList.toggle('hidden', !val.trim());
+                if (wasEmpty && Boolean(cleanStr(val))) {
+                    syncFotosBackNav('sku_search');
+                }
                 if (skuRaf) cancelAnimationFrame(skuRaf);
                 skuRaf = requestAnimationFrame(() => {
                     state.skuSearchQuery = val;
@@ -3977,10 +4227,17 @@
         }
 
         const inboxInp = document.getElementById('inboxSearchInput');
+        const inboxClrBtn = document.getElementById('inboxSearchClearBtn');
         let inboxRaf = 0;
         if (inboxInp) {
             inboxInp.addEventListener('input', () => {
                 const val = inboxInp.value || '';
+                const wasEmpty = !cleanStr(state.inboxSearchQuery);
+                state.inboxSearchQuery = val;
+                if (inboxClrBtn) inboxClrBtn.classList.toggle('hidden', !val.trim());
+                if (wasEmpty && Boolean(cleanStr(val))) {
+                    syncFotosBackNav('inbox_search');
+                }
                 if (inboxRaf) cancelAnimationFrame(inboxRaf);
                 inboxRaf = requestAnimationFrame(() => {
                     state.inboxSearchQuery = val;
@@ -4034,8 +4291,14 @@
 
         document.addEventListener('keydown', (ev) => {
             if (ev.key === 'Escape') {
-                window.closePhotoLightbox();
-                window.closeFotosInstallModal();
+                if (!state.unlocked) return;
+                if (_fotosBackNav && typeof _fotosBackNav.handleEscape === 'function') {
+                    _fotosBackNav.handleEscape();
+                } else if (state.lightboxOpen || state.lightboxUrl || !isElHidden('photoLightbox')) {
+                    window.closePhotoLightbox();
+                } else if (!isElHidden('fotosInstallModal')) {
+                    window.closeFotosInstallModal();
+                }
             }
         });
 

@@ -473,7 +473,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px));
   overflow-y: auto;
 }
 
@@ -560,7 +560,7 @@
 #inAppSeguimientoRoot .cm-toast,
 #inAppHistorialRoot .cm-toast {
   position: fixed;
-  bottom: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translate(-50%, 0);
   z-index: 95;
@@ -574,7 +574,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
   transition: opacity 180ms ease, transform 180ms ease;
 }
 

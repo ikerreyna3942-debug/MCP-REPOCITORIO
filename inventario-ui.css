@@ -41,6 +41,13 @@
   --inv-font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --inv-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --inv-module-header-h: 54px;
+  --creata-back-toast-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --creata-back-toast-bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 @media (min-width: 768px) {
