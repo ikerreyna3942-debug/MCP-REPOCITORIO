@@ -16,7 +16,7 @@
     const MANUAL_LOCK_FLAG = 'creata_private_fotos_manual_lock';
     const DELETED_QUEUE_STORAGE = 'creata_fotos_deleted_queue_v1';
     const SAVED_OVERRIDES_STORAGE = 'creata_fotos_saved_overrides_v1';
-    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v5';
+    const FAST_CACHE_STORAGE = 'creata_fotos_fast_cache_v6';
     const FOTOS_UI_CHECKPOINT_STORAGE = 'creata_fotos_ui_checkpoint_v1';
     const FOTOS_OFFLINE_OUTBOX_STORAGE = 'creata_fotos_offline_outbox_v1';
     const FOTOS_OFFLINE_IDB_NAME = 'creata_fotos_offline_idb_v1';
@@ -25,6 +25,7 @@
     let _fotosUiCheckpointRestoredOnce = false;
     let _fotosRestoringCheckpoint = false;
     let _fotosFlushingOutbox = false;
+    let _deferredFotosInstallPrompt = null;
 
     const SHEET_GIDS = {
         '1': '620514545',
@@ -33,19 +34,20 @@
     };
 
     const CATEGORIAS_DEST_FOLDERS = [
-        { key: 'SALAS',        id: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', name: 'FOTOS SALAS' },
-        { key: 'SILLONES',     id: '1zqGnweu7T5-9f6dQoVXuT9MZTBPefSNm', name: 'FOTOS SILLONES' },
-        { key: 'SOFA_CAMA',    id: '1nU1UgT78XiGo-OLrV4tIrxNKxy9CTd8_', name: 'FOTOS SOFÁ CAMA Y FUTTONES' },
-        { key: 'MESA_CENTRO',  id: '1-KcgtpX7hVbsxFsejewVY7QT95Jzno_A', name: 'FOTOS MESA DE CENTRO' },
-        { key: 'MESA_LATERAL', id: '1oRW0Mtpc7tKvDZjfrq4VCwhA332fV1lX', name: 'FOTOS MESA LATERALES' },
-        { key: 'COMEDORES',    id: '1iaZaA1TXcGVL9WABWi656Xouzviiog6K', name: 'FOTOS COMEDORES' },
-        { key: 'RECAMARAS',    id: '1LyU1n-4SsuJTuchYQmGYHRpcdu0gh2i6', name: 'FOTOS RECAMARAS' },
-        { key: 'AUXILIARES',   id: '1peDTq6kj9iPZaxxYUId0Jw-MJmQN4aJ8', name: 'FOTOS DE AUXILIARES' },
-        { key: 'ACCESORIOS',   id: '13mOw-BpuZSYpD55qPangEEXWuWW-1OL9', name: 'FOTOS ACCESORIOS Y ESPEJOS' },
-        { key: 'INTERIOR',     id: '1mo5gn59M0m-psn0f6o9B1OtUHeCpz3S9', name: 'FOTOS INTERIOR' }
+        { key: 'SALAS',        id: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', name: 'FOTOS SALAS',                  short: 'Salas' },
+        { key: 'SILLONES',     id: '1zqGnweu7T5-9f6dQoVXuT9MZTBPefSNm', name: 'FOTOS SILLONES',               short: 'Sillones' },
+        { key: 'SOFA_CAMA',    id: '1nU1UgT78XiGo-OLrV4tIrxNKxy9CTd8_', name: 'FOTOS SOFÁ CAMA Y FUTTONES',   short: 'Sofá Cama' },
+        { key: 'MESA_CENTRO',  id: '1-KcgtpX7hVbsxFsejewVY7QT95Jzno_A', name: 'FOTOS MESA DE CENTRO',         short: 'Mesa Centro' },
+        { key: 'MESA_LATERAL', id: '1oRW0Mtpc7tKvDZjfrq4VCwhA332fV1lX', name: 'FOTOS MESA LATERALES',         short: 'Mesa Lateral' },
+        { key: 'COMEDORES',    id: '1iaZaA1TXcGVL9WABWi656Xouzviiog6K', name: 'FOTOS COMEDORES',              short: 'Comedores' },
+        { key: 'RECAMARAS',    id: '1LyU1n-4SsuJTuchYQmGYHRpcdu0gh2i6', name: 'FOTOS RECAMARAS',              short: 'Recámaras' },
+        { key: 'AUXILIARES',   id: '1peDTq6kj9iPZaxxYUId0Jw-MJmQN4aJ8', name: 'FOTOS DE AUXILIARES',          short: 'Auxiliares' },
+        { key: 'ACCESORIOS',   id: '13mOw-BpuZSYpD55qPangEEXWuWW-1OL9', name: 'FOTOS ACCESORIOS Y ESPEJOS',   short: 'Accesorios' },
+        { key: 'INTERIOR',     id: '1mo5gn59M0m-psn0f6o9B1OtUHeCpz3S9', name: 'FOTOS INTERIOR',               short: 'Interior' }
     ];
 
     const DEST_FOLDER_BY_ID = new Map(CATEGORIAS_DEST_FOLDERS.map((f) => [f.id, f]));
+    const DEST_FOLDER_BY_KEY = new Map(CATEGORIAS_DEST_FOLDERS.map((f) => [f.key, f]));
 
     const state = {
         unlocked: false,
@@ -54,8 +56,10 @@
         products: [],
         productBySku: new Map(),
         productByNormName: new Map(),
+        siblingsByGroupKey: new Map(),
         filteredProducts: [],
         skuFilterMode: 'ALL',
+        skuCategoryFilter: 'ALL',
         skuSearchQuery: '',
         selectedSku: '',
         galleryMode: 'INBOX',
@@ -555,6 +559,27 @@
         saveCacheTimer = setTimeout(saveFastCacheNow, 250);
     }
 
+    function buildProductGroupKey(p) {
+        if (!p) return '';
+        const mo = normPlainCat(p.modelo || '');
+        const tp = normPlainCat(p.tipo || '');
+        if (!mo || mo.length < 3 || /^(ESTANDAR|PRODUCTO|ACCESORIO|ACCESORIOS|SIN|VARIOS)$/.test(mo)) return '';
+        return (tp || p.destFolderId || 'GEN') + '::' + mo;
+    }
+
+    function rebuildSiblingVariantsIndex() {
+        const byGrp = new Map();
+        for (let i = 0; i < state.products.length; i++) {
+            const p = state.products[i];
+            const gk = buildProductGroupKey(p);
+            p._groupKey = gk;
+            if (!gk) continue;
+            if (!byGrp.has(gk)) byGrp.set(gk, []);
+            byGrp.get(gk).push(p);
+        }
+        state.siblingsByGroupKey = byGrp;
+    }
+
     function saveFastCacheNow() {
         try {
             const compactProducts = new Array(state.products.length);
@@ -570,7 +595,11 @@
                     p.inInv ? 1 : 0,
                     p.categoria,
                     p.tipo,
-                    p.destFolderId
+                    p.destFolderId,
+                    p.modelo || '',
+                    p.variante || '',
+                    p.medidas || '',
+                    p.acabado || ''
                 ];
             }
             const compactInbox = state.rawInboxFromDrive.slice(0, 220).map((f) => ({
@@ -602,6 +631,7 @@
             localStorage.removeItem('creata_fotos_fast_cache_v2');
             localStorage.removeItem('creata_fotos_fast_cache_v3');
             localStorage.removeItem('creata_fotos_fast_cache_v4');
+            localStorage.removeItem('creata_fotos_fast_cache_v5');
             const raw = localStorage.getItem(FAST_CACHE_STORAGE);
             if (!raw) return false;
             const parsed = JSON.parse(raw);
@@ -638,10 +668,17 @@
                 }
                 const destId = String(r[9] || '');
                 const destMeta = DEST_FOLDER_BY_ID.get(destId) || CATEGORIAS_DEST_FOLDERS[9];
+                const modelo = String(r[10] || '');
+                const variante = String(r[11] || '');
+                const medidas = String(r[12] || '');
+                const acabado = String(r[13] || '');
                 const searchSkuNorm = normalizeSearchText(sku);
                 const dispNorm = normalizeSearchText(displayName);
                 const cleanCat = cleanCategoryForPhotoSearch(r[7] || '', r[8] || '', displayName + ' ' + colBName);
-                const searchNameNorm = normalizeSearchText(displayName + ' ' + colBName + ' ' + cleanCat + ' ' + (r[8] || ''));
+                const searchNameNorm = normalizeSearchText(
+                    displayName + ' ' + colBName + ' ' + cleanCat + ' ' + (r[8] || '') + ' ' +
+                    modelo + ' ' + variante + ' ' + medidas + ' ' + acabado + ' ' + destMeta.name
+                );
                 const item = {
                     sku: sku,
                     colBName: colBName,
@@ -653,6 +690,10 @@
                     inInv: !!r[6],
                     categoria: String(r[7] || ''),
                     tipo: String(r[8] || ''),
+                    modelo: modelo,
+                    variante: variante,
+                    medidas: medidas,
+                    acabado: acabado,
                     destFolderId: destMeta.id,
                     destFolderName: destMeta.name,
                     searchSkuNorm: searchSkuNorm,
@@ -669,6 +710,7 @@
             state.products = list;
             state.productBySku = bySku;
             state.productByNormName = byNormName;
+            rebuildSiblingVariantsIndex();
             state.fotosNuevasSheetItems = Array.isArray(parsed.fn) ? parsed.fn : [];
             state.rawInboxFromDrive = Array.isArray(parsed.inb) ? parsed.inb : [];
             state.inboxFiles = filterAndMergeInboxFiles(state.rawInboxFromDrive);
@@ -1097,7 +1139,7 @@
             try {
                 const [rows1, rowsInv] = await Promise.all([
                     fetchSheetRows('1', 'A1:D9500'),
-                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:G5500')
+                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:N5500')
                 ]);
 
                 if ((!rows1 || !rows1.length) && (!rowsInv || !rowsInv.length) && state.products.length > 0) {
@@ -1109,6 +1151,16 @@
                 const delFiles = delQueue.fileIds || {};
                 state.fotosNuevasSheetItems = [];
 
+                const buildAcabadoSummary = (tl, ct, md, cm, mt) => {
+                    const parts = [];
+                    if (tl) parts.push(tl + (ct && normPlainCat(tl).indexOf(normPlainCat(ct)) === -1 ? (' (' + ct + ')') : ''));
+                    else if (ct) parts.push(ct);
+                    if (md) parts.push(md + (cm && normPlainCat(md).indexOf(normPlainCat(cm)) === -1 ? (' ' + cm) : ''));
+                    else if (cm) parts.push(cm);
+                    if (!parts.length && mt) parts.push(mt);
+                    return parts.join(' · ');
+                };
+
                 const invMap = new Map();
                 if (Array.isArray(rowsInv)) {
                     for (let i = 1; i < rowsInv.length; i++) {
@@ -1116,14 +1168,24 @@
                         const sku = cleanStr(r[0]).toUpperCase();
                         if (!sku || sku === 'SKU') continue;
                         const photoInvRaw = cleanPhotoUrl(r[5]);
+                        const tl = cleanStr(r[7]);
+                        const ct = cleanStr(r[8]);
+                        const md = cleanStr(r[9]);
+                        const cm = cleanStr(r[10]);
+                        const mt = cleanStr(r[11]);
+                        const med = cleanStr(r[12]);
+                        const acabado = buildAcabadoSummary(tl, ct, md, cm, mt);
                         if (!invMap.has(sku)) {
                             invMap.set(sku, {
                                 sku: sku,
                                 tipo: cleanStr(r[1]),
                                 modelo: cleanStr(r[2]),
                                 nombreInv: cleanStr(r[3]),
+                                variante: cleanStr(r[4]),
                                 photoInv: photoInvRaw,
-                                categoria: cleanStr(r[6])
+                                categoria: cleanStr(r[6]),
+                                medidas: med,
+                                acabado: acabado
                             });
                         } else if (photoInvRaw && !invMap.get(sku).photoInv) {
                             invMap.get(sku).photoInv = photoInvRaw;
@@ -1166,6 +1228,10 @@
                                 inInv: !!inv,
                                 categoria: inv ? inv.categoria : '',
                                 tipo: inv ? inv.tipo : '',
+                                modelo: inv ? inv.modelo : '',
+                                variante: inv ? inv.variante : '',
+                                medidas: inv ? inv.medidas : '',
+                                acabado: inv ? inv.acabado : '',
                                 destFolderId: dest.id,
                                 destFolderName: dest.name,
                                 searchSkuNorm: '',
@@ -1207,6 +1273,10 @@
                         inInv: true,
                         categoria: inv.categoria,
                         tipo: inv.tipo,
+                        modelo: inv.modelo || '',
+                        variante: inv.variante || '',
+                        medidas: inv.medidas || '',
+                        acabado: inv.acabado || '',
                         destFolderId: dest.id,
                         destFolderName: dest.name,
                         searchSkuNorm: '',
@@ -1251,7 +1321,10 @@
                         byNormName.set(dispNorm, skuKeySafe(p.sku));
                     }
                     const cleanCat = cleanCategoryForPhotoSearch(p.categoria, p.tipo, p.displayName + ' ' + p.colBName);
-                    p.searchNameNorm = normalizeSearchText(p.displayName + ' ' + p.colBName + ' ' + cleanCat + ' ' + p.tipo);
+                    p.searchNameNorm = normalizeSearchText(
+                        p.displayName + ' ' + p.colBName + ' ' + cleanCat + ' ' + p.tipo + ' ' +
+                        (p.modelo || '') + ' ' + (p.variante || '') + ' ' + (p.medidas || '') + ' ' + (p.acabado || '') + ' ' + (p.destFolderName || '')
+                    );
                     p.searchNorm = (p.searchSkuNorm + ' ' + p.searchNameNorm).trim();
                 }
 
@@ -1263,6 +1336,7 @@
                 state.products = list;
                 state.productBySku = mergedMap;
                 state.productByNormName = byNormName;
+                rebuildSiblingVariantsIndex();
                 state.inboxFiles = filterAndMergeInboxFiles(state.rawInboxFromDrive.length ? state.rawInboxFromDrive : state.inboxFiles);
                 invalidateLoadedPhotosCache();
                 scheduleSaveFastCache();
@@ -1271,6 +1345,7 @@
                     if (!_fotosUiCheckpointRestoredOnce) {
                         restoreFotosUiCheckpointOnce();
                     } else {
+                        renderSkuCategoryFilterRow();
                         applySkuFiltersAndRender();
                         renderInboxGallery();
                         if (state.selectedSku) renderSelectedProductStage();
@@ -1289,6 +1364,58 @@
         return cleanStr(s).toUpperCase();
     }
 
+    function renderSkuCategoryFilterRow() {
+        const wrap = document.getElementById('skuCategoryFilterRow');
+        if (!wrap) return;
+
+        const countsByFolderId = new Map();
+        const mode = state.skuFilterMode;
+        for (let i = 0; i < state.products.length; i++) {
+            const p = state.products[i];
+            if (mode === 'NO_PHOTO' && p.photoUrl) continue;
+            if (mode === 'HAS_PHOTO' && !p.photoUrl) continue;
+            if (mode === 'IN_INV' && !p.inInv) continue;
+            const fid = p.destFolderId || CATEGORIAS_DEST_FOLDERS[9].id;
+            countsByFolderId.set(fid, (countsByFolderId.get(fid) || 0) + 1);
+        }
+
+        const activeCatKey = state.skuCategoryFilter || 'ALL';
+        const pills = [
+            '<button type="button" class="cat-filter-pill' + (activeCatKey === 'ALL' ? ' active' : '') + '" data-cat-key="ALL" onclick="setSkuCategoryFilter(\'ALL\')">' +
+                '<span>Todas</span>' +
+            '</button>'
+        ];
+        for (let i = 0; i < CATEGORIAS_DEST_FOLDERS.length; i++) {
+            const f = CATEGORIAS_DEST_FOLDERS[i];
+            const cnt = countsByFolderId.get(f.id) || 0;
+            const isAct = activeCatKey === f.key;
+            pills.push(
+                '<button type="button" class="cat-filter-pill' + (isAct ? ' active' : '') + '" data-cat-key="' + escapeHtml(f.key) + '" onclick="setSkuCategoryFilter(\'' + escapeHtml(f.key) + '\')">' +
+                    '<span>' + escapeHtml(f.short || f.name.replace(/^FOTOS\s+(DE\s+)?/i, '')) + '</span>' +
+                    '<span class="cat-cnt">' + cnt + '</span>' +
+                '</button>'
+            );
+        }
+        wrap.innerHTML = pills.join('');
+    }
+
+    window.setSkuCategoryFilter = function (catKey) {
+        state.skuCategoryFilter = catKey || 'ALL';
+        renderSkuCategoryFilterRow();
+        if (state.skuCategoryFilter !== 'ALL') {
+            const fMeta = DEST_FOLDER_BY_KEY.get(state.skuCategoryFilter);
+            const destSel = document.getElementById('destFolderSelect');
+            if (fMeta && destSel && !state.selectedSku) {
+                destSel.value = fMeta.id;
+            }
+        }
+        applySkuFiltersAndRender();
+        if (state.galleryMode === 'LOADED') {
+            renderInboxGallery();
+        }
+        saveFotosUiCheckpointNow();
+    };
+
     window.clearSkuSearch = function () {
         const inp = document.getElementById('skuSearchInput');
         const clr = document.getElementById('skuSearchClearBtn');
@@ -1305,6 +1432,7 @@
         document.querySelectorAll('.filter-pill[data-filter]').forEach((b) => {
             b.classList.toggle('active', b.getAttribute('data-filter') === state.skuFilterMode);
         });
+        renderSkuCategoryFilterRow();
         applySkuFiltersAndRender();
         saveFotosUiCheckpointNow();
     };
@@ -1313,6 +1441,10 @@
         const q = normalizeSearchText(state.skuSearchQuery);
         const tokens = q ? q.split(' ').filter(Boolean) : [];
         const mode = state.skuFilterMode;
+        const catFilterMeta = (state.skuCategoryFilter && state.skuCategoryFilter !== 'ALL')
+            ? DEST_FOLDER_BY_KEY.get(state.skuCategoryFilter)
+            : null;
+        const requiredFolderId = catFilterMeta ? catFilterMeta.id : '';
 
         const matches = [];
         const products = state.products;
@@ -1324,6 +1456,7 @@
             if (mode === 'NO_PHOTO' && p.photoUrl) continue;
             if (mode === 'HAS_PHOTO' && !p.photoUrl) continue;
             if (mode === 'IN_INV' && !p.inInv) continue;
+            if (requiredFolderId && p.destFolderId !== requiredFolderId) continue;
 
             if (tLen > 0) {
                 let ok = true;
@@ -1398,6 +1531,12 @@
             const thumb = p.photoUrl ? buildPhotoThumbUrl(fid || p.photoUrl, 160) : '';
             const safeSku = escapeHtml(p.sku.replace(/'/g, "\\'"));
             const safeFid = escapeHtml(fid.replace(/'/g, "\\'"));
+            const destMeta = DEST_FOLDER_BY_ID.get(p.destFolderId);
+            const catShort = destMeta ? (destMeta.short || destMeta.name.replace(/^FOTOS\s+(DE\s+)?/i, '')) : (p.destFolderName || '').replace(/^FOTOS\s+(DE\s+)?/i, '');
+            const subParts = [];
+            if (p.modelo) subParts.push(p.modelo);
+            if (p.variante && p.variante !== 'ESTÁNDAR' && normPlainCat(p.variante) !== normPlainCat(p.modelo)) subParts.push(p.variante);
+            if (p.medidas) subParts.push(p.medidas);
 
             htmlParts[i] =
                 '<div class="sku-item' + (isSel ? ' selected' : '') + '" data-sku="' + escapeHtml(p.sku) + '" onclick="selectSkuProduct(\'' + safeSku + '\')">' +
@@ -1412,6 +1551,7 @@
                             '<span class="sku-status-badge ' + (p.photoUrl ? 'has-photo' : 'no-photo') + '">' +
                                 (p.photoUrl ? 'Foto' : 'Sin foto') +
                             '</span>' +
+                            (catShort ? ('<span class="sku-cat-chip">' + escapeHtml(catShort) + '</span>') : '') +
                             (p.photoUrl
                                 ? ('<span class="sku-quick-actions">' +
                                     '<button type="button" class="sku-quick-btn is-take" onclick="takePhotoFromSkuRow(\'' + safeSku + '\', event)">Tomar</button>' +
@@ -1420,6 +1560,7 @@
                                 : '') +
                         '</div>' +
                         '<div class="sku-name">' + escapeHtml(p.displayName) + '</div>' +
+                        (subParts.length ? ('<div class="sku-submeta">' + escapeHtml(subParts.join(' · ')) + '</div>') : '') +
                     '</div>' +
                 '</div>';
         }
@@ -1483,6 +1624,10 @@
         const colASku = document.getElementById('selColASku');
         const colBName = document.getElementById('selColBName');
         const catLabel = document.getElementById('selCategoryLabel');
+        const moVarVal = document.getElementById('selModelVariantVal');
+        const dimsFinVal = document.getElementById('selDimsFinishVal');
+        const sibWrap = document.getElementById('selSiblingVariantsWrap');
+        const sibList = document.getElementById('selSiblingVariantsList');
 
         const curOpenLink = document.getElementById('curPhotoOpenLink');
         const curTakeBtn = document.getElementById('curPhotoTakeBtn');
@@ -1494,6 +1639,10 @@
             if (colASku) colASku.textContent = '—';
             if (colBName) colBName.textContent = '—';
             if (catLabel) catLabel.textContent = '—';
+            if (moVarVal) moVarVal.textContent = '—';
+            if (dimsFinVal) dimsFinVal.textContent = '—';
+            if (sibWrap) sibWrap.classList.add('hidden');
+            if (sibList) sibList.innerHTML = '';
             if (curOpenLink) curOpenLink.classList.add('hidden');
             if (curTakeBtn) curTakeBtn.classList.add('hidden');
             if (curDeleteBtn) curDeleteBtn.classList.add('hidden');
@@ -1508,6 +1657,46 @@
         if (colASku) colASku.textContent = prod.sku;
         if (colBName) colBName.textContent = prod.colBName || prod.displayName;
         if (catLabel) catLabel.textContent = prod.destFolderName.replace(/^FOTOS\s+(DE\s+)?/i, '');
+
+        if (moVarVal) {
+            const mvParts = [];
+            if (prod.modelo) mvParts.push(prod.modelo);
+            if (prod.variante && prod.variante !== 'ESTÁNDAR' && normPlainCat(prod.variante) !== normPlainCat(prod.modelo)) {
+                mvParts.push(prod.variante);
+            } else if (!mvParts.length && prod.tipo) {
+                mvParts.push(prod.tipo);
+            }
+            moVarVal.textContent = mvParts.length ? mvParts.join(' · ') : (prod.tipo || 'Estándar');
+        }
+
+        if (dimsFinVal) {
+            const dfParts = [];
+            if (prod.medidas) dfParts.push(prod.medidas);
+            if (prod.acabado) dfParts.push(prod.acabado);
+            dimsFinVal.textContent = dfParts.length ? dfParts.join(' · ') : (prod.categoria || '—');
+        }
+
+        if (sibWrap && sibList) {
+            const gk = prod._groupKey || buildProductGroupKey(prod);
+            const sibs = (gk && state.siblingsByGroupKey.get(gk)) || [];
+            if (sibs.length > 1) {
+                sibList.innerHTML = sibs.slice(0, 24).map((sItem) => {
+                    const isAct = sItem.sku === prod.sku;
+                    const vLabel = (sItem.variante && sItem.variante !== 'ESTÁNDAR' && normPlainCat(sItem.variante) !== normPlainCat(sItem.modelo))
+                        ? sItem.variante
+                        : (sItem.acabado || sItem.medidas || sItem.sku);
+                    const safeSku = escapeHtml(sItem.sku.replace(/'/g, "\\'"));
+                    return '<button type="button" class="sib-var-pill' + (isAct ? ' active' : '') + '" onclick="selectSkuProduct(\'' + safeSku + '\')" title="' + escapeHtml(sItem.sku + ' · ' + sItem.displayName) + '">' +
+                        '<span class="sib-var-dot' + (sItem.photoUrl ? ' has-photo' : '') + '"></span>' +
+                        '<span>' + escapeHtml(sItem.sku) + ' · ' + escapeHtml(vLabel.slice(0, 26)) + '</span>' +
+                    '</button>';
+                }).join('');
+                sibWrap.classList.remove('hidden');
+            } else {
+                sibWrap.classList.add('hidden');
+                sibList.innerHTML = '';
+            }
+        }
 
         const savedSession = state.sessionSavedBySku.get(prod.sku) || null;
         const curStageTitle = curCanvas && curCanvas.parentElement
@@ -2275,6 +2464,172 @@
         }
     };
 
+    window.uploadDirectToSelectedCategory = async function (inputEl) {
+        const rawList = inputEl && inputEl.files ? Array.from(inputEl.files) : [];
+        const files = rawList.filter((f) => {
+            if (!f) return false;
+            const mime = String(f.type || '').toLowerCase();
+            return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '');
+        });
+        if (!files.length || state.uploadInFlight) return;
+        if (inputEl) inputEl.value = '';
+
+        // Si solo se seleccionó 1 archivo y no hay SKU elegido, intentar detectar el SKU por el nombre del archivo
+        if (!state.selectedSku && files.length === 1) {
+            const autoSku = findSuggestedSkuForFileName(files[0].name);
+            if (autoSku && state.productBySku.has(autoSku)) {
+                window.selectSkuProduct(autoSku);
+            }
+        }
+
+        // Si aún no hay SKU elegido pero se suben varias fotos con nombre de SKU, subirlas a bandeja y auto-acomodar por categoría
+        if (!state.selectedSku) {
+            let anyMatched = false;
+            for (let i = 0; i < files.length; i++) {
+                if (findSuggestedSkuForFileName(files[i].name)) { anyMatched = true; break; }
+            }
+            if (!anyMatched) {
+                showAssignFeedback('⚠️ Primero selecciona un SKU en la lista (o sube una foto cuyo nombre contenga el SKU).', false);
+                window.jumpToFotosSection('secSkuFinder');
+                return;
+            }
+            await window.uploadLocalFilesToSubir({ files: files });
+            await window.autoAssignMatchedInboxByCategory();
+            return;
+        }
+
+        // Subir foto(s) y asignarlas directamente al SKU seleccionado y a su carpeta de Categoría en Drive
+        const targetSku = state.selectedSku;
+        const prod = state.productBySku.get(targetSku);
+        if (!prod) return;
+
+        const destSelect = document.getElementById('destFolderSelect');
+        const chosenFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId) || prod.destFolderId;
+        const chosenFolderMeta = DEST_FOLDER_BY_ID.get(chosenFolderId) || resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
+        if (destSelect && chosenFolderMeta) destSelect.value = chosenFolderMeta.id;
+
+        await window.uploadLocalFilesToSubir({ files: [files[0]] });
+        if (state.selectedSku === targetSku && getActiveSelectedPhotoObject()) {
+            await window.assignSelectedPhotoToProduct();
+        }
+        // Si seleccionó fotos adicionales en el mismo lote, subirlas a la bandeja y auto-acomodar las que tengan SKU en su nombre
+        if (files.length > 1) {
+            await window.uploadLocalFilesToSubir({ files: files.slice(1) });
+            await window.autoAssignMatchedInboxByCategory(true);
+        }
+    };
+
+    window.autoAssignMatchedInboxByCategory = async function (silentIfNone) {
+        if (!state.inboxFiles.length) {
+            if (!silentIfNone) showAssignFeedback('ℹ️ No hay fotos pendientes en SUBIR COTIZACION.', true);
+            return;
+        }
+        const candidates = [];
+        for (let i = 0; i < state.inboxFiles.length; i++) {
+            const f = state.inboxFiles[i];
+            if (!f || !f.id) continue;
+            const sugSku = cleanStr(f._suggestedSku || findSuggestedSkuForFileName(f.name) || f.skuOrigin).toUpperCase();
+            if (sugSku && state.productBySku.has(sugSku)) {
+                candidates.push({ file: f, sku: sugSku });
+            }
+        }
+        if (!candidates.length) {
+            if (!silentIfNone) {
+                showAssignFeedback('ℹ️ Selecciona un SKU y toca "Guardar" (ninguna foto en bandeja tiene SKU en el nombre).', false);
+            }
+            return;
+        }
+
+        let assignedCount = 0;
+        const lastCategories = [];
+        for (let i = 0; i < candidates.length; i++) {
+            const item = candidates[i];
+            const prod = state.productBySku.get(item.sku);
+            if (!prod) continue;
+            const catDest = resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
+            prod.destFolderId = catDest.id;
+            prod.destFolderName = catDest.name;
+
+            state.selectedSku = prod.sku;
+            const destSel = document.getElementById('destFolderSelect');
+            if (destSel) destSel.value = catDest.id;
+
+            state.selectedInboxFileId = item.file.id;
+            state.selectedPhotoItem = {
+                id: item.file.id,
+                name: item.file.name,
+                viewUrl: item.file.viewUrl || ('https://drive.google.com/file/d/' + item.file.id + '/view?usp=sharing'),
+                thumbDataUrl: item.file.thumbDataUrl || '',
+                localDataUrl: item.file.localDataUrl || '',
+                fromLoaded: false,
+                skuOrigin: cleanStr(item.file.skuOrigin)
+            };
+            await window.assignSelectedPhotoToProduct();
+            assignedCount++;
+            if (lastCategories.indexOf(catDest.name) === -1) lastCategories.push(catDest.name);
+        }
+
+        if (assignedCount > 0) {
+            showAssignFeedback(
+                '✅ ' + assignedCount + ' foto(s) acomodada(s) automáticamente por categoría (' + escapeHtml(lastCategories.slice(0, 3).join(', ')) + ').',
+                true
+            );
+        }
+    };
+
+    window.jumpToFotosSection = function (secId, btnEl) {
+        const el = document.getElementById(secId);
+        if (el && typeof el.scrollIntoView === 'function') {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        document.querySelectorAll('#mobileFotosJumpBar .mobile-jump-btn').forEach((b) => {
+            b.classList.toggle('active', b === btnEl || b.getAttribute('data-jump') === secId);
+        });
+    };
+
+    function isFotosStandaloneInstalled() {
+        try {
+            if (window.navigator && window.navigator.standalone === true) return true;
+            if (window.matchMedia && (
+                window.matchMedia('(display-mode: standalone)').matches ||
+                window.matchMedia('(display-mode: window-controls-overlay)').matches ||
+                window.matchMedia('(display-mode: fullscreen)').matches
+            )) {
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    function syncFotosInstallAppBtn() {
+        const btn = document.getElementById('btnInstallFotosApp');
+        if (!btn) return;
+        if (isFotosStandaloneInstalled()) {
+            btn.classList.add('hidden');
+        } else {
+            btn.classList.remove('hidden');
+        }
+    }
+
+    window.triggerInstallFotosApp = async function () {
+        if (_deferredFotosInstallPrompt) {
+            try {
+                _deferredFotosInstallPrompt.prompt();
+                const choice = await _deferredFotosInstallPrompt.userChoice;
+                if (choice && choice.outcome === 'accepted') {
+                    _deferredFotosInstallPrompt = null;
+                    const btn = document.getElementById('btnInstallFotosApp');
+                    if (btn) btn.classList.add('hidden');
+                }
+            } catch (e) {}
+            return;
+        }
+        showAssignFeedback(
+            '📲 Para instalar en tu celular: abre el menú del navegador (⋮ o Compartir en iPhone) y toca <strong>"Agregar a la pantalla principal / Instalar aplicación"</strong>.',
+            true
+        );
+    };
+
     window.assignSelectedPhotoToProduct = async function () {
         const prod = state.selectedSku ? state.productBySku.get(state.selectedSku) : null;
         const selPhoto = getActiveSelectedPhotoObject();
@@ -3014,6 +3369,7 @@
                 };
             }
 
+            renderSkuCategoryFilterRow();
             applySkuFiltersAndRender();
             renderInboxGallery();
 
@@ -3057,6 +3413,7 @@
             }
         } catch (e) {
             _fotosRestoringCheckpoint = false;
+            renderSkuCategoryFilterRow();
             applySkuFiltersAndRender();
             renderInboxGallery();
             renderSelectedProductStage();
@@ -3077,6 +3434,18 @@
             }
         } catch (eSw) {}
 
+        window.addEventListener('beforeinstallprompt', (ev) => {
+            ev.preventDefault();
+            _deferredFotosInstallPrompt = ev;
+            syncFotosInstallAppBtn();
+        });
+        window.addEventListener('appinstalled', () => {
+            _deferredFotosInstallPrompt = null;
+            const btn = document.getElementById('btnInstallFotosApp');
+            if (btn) btn.classList.add('hidden');
+        });
+        syncFotosInstallAppBtn();
+
         if (window.CREATA_LOGO_B64) {
             document.querySelectorAll('[data-creata-logo]').forEach((img) => {
                 img.src = window.CREATA_LOGO_B64;
@@ -3086,6 +3455,7 @@
         populateDestFolderSelect();
         hydrateSavedOverrides();
         hydrateFromFastCache();
+        renderSkuCategoryFilterRow();
         loadSheetsCatalog();
 
         const skuInp = document.getElementById('skuSearchInput');

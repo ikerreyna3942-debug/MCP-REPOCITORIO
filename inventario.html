@@ -24,7 +24,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=5">
-    <link rel="stylesheet" href="./inventario-ui.css?v=5">
+    <link rel="stylesheet" href="./inventario-ui.css?v=7">
 </head>
 <body>
 
@@ -178,19 +178,20 @@
                             class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold border shrink-0"
                             style="border-color:#E8E4DE; color:#252C32;" aria-label="Cerrar">✕</button>
                 </div>
-                <!-- FILA 2: BOTÓN DE AGREGAR DEBAJO DEL TÍTULO -->
+                <!-- FILA 2: BOTÓN DE AGREGAR DEBAJO DEL TÍTULO (CON DESCUENTO DE PIEZAS INTEGRADO) -->
                 <div id="detHeaderActionsRow" class="flex flex-wrap items-center gap-1.5 mt-1.5">
-                    <button type="button" id="detSubCartBtn" onclick="subtractCurrentDetailFromCart()"
-                            title="Restar 1 unidad de la cotización"
-                            class="hidden inv-det-action-btn border flex items-center justify-center transition"
-                            style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32; min-width:26px; padding:0 7px;">
-                        −
-                    </button>
-                    <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
-                            class="inv-det-action-btn uppercase tracking-wider transition"
-                            style="background:#A38251; border:1px solid #A38251; color:#FFFFFF;">
-                        Agregar
-                    </button>
+                    <div id="detAddPillWrap" class="inv-det-add-pill inline-flex items-center">
+                        <button type="button" id="detSubCartBtn" onclick="subtractCurrentDetailFromCart()"
+                                title="Descontar 1 pieza de la cotización"
+                                class="hidden inv-det-action-btn inv-det-sub-btn flex items-center justify-center transition"
+                                aria-label="Descontar 1 pieza">
+                            −
+                        </button>
+                        <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
+                                class="inv-det-action-btn inv-det-add-btn uppercase tracking-wider transition">
+                            Agregar
+                        </button>
+                    </div>
                     <button type="button" id="detRemoveAllCartBtn" onclick="removeCurrentDetailFromCart()"
                             title="Quitar producto de la cotización"
                             class="hidden inv-det-action-btn uppercase tracking-wider border transition"
@@ -823,14 +824,36 @@
         </div>
     </div>
 
-    <!-- MODAL MULTI-FOTO (#9) -->
+    <!-- MODAL MULTI-FOTO POR CATEGORÍA (#9) -->
     <div id="uploadPhotoModal" class="modal-backdrop" style="z-index:82;" onclick="if(event.target===this) closeUploadPhotoModal()">
         <div class="inv-modal-card inv-modal-sm">
             <div class="inv-modal-head inv-modal-head-dark">
-                <h3 class="inv-modal-title">Subir foto</h3>
-                <button type="button" id="uploadPhotoCloseBtn" onclick="closeUploadPhotoModal()" class="inv-modal-close-dark" aria-label="Cerrar">✕</button>
+                <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                    <h3 class="inv-modal-title">Subir foto por categoría</h3>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <a href="./fotos-productos.html" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border" style="border-color:#A38251;color:#EFE8D8;background:rgba(163,130,81,0.22);text-decoration:none;">App Fotos ↗</a>
+                    <button type="button" id="uploadPhotoCloseBtn" onclick="closeUploadPhotoModal()" class="inv-modal-close-dark" aria-label="Cerrar">✕</button>
+                </div>
             </div>
-            <div class="inv-modal-body">
+            <div class="inv-modal-body" style="gap:10px;">
+                <div class="inv-field">
+                    <label for="uploadPhotoCategorySelect" class="inv-field-label">Categoría de la foto *</label>
+                    <select id="uploadPhotoCategorySelect" class="inv-input" onchange="onUploadPhotoCategoryChanged(this.value)">
+                        <option value="AUTO">Automática según categoría del producto</option>
+                        <option value="1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb">FOTOS SALAS</option>
+                        <option value="1zqGnweu7T5-9f6dQoVXuT9MZTBPefSNm">FOTOS SILLONES</option>
+                        <option value="1nU1UgT78XiGo-OLrV4tIrxNKxy9CTd8_">FOTOS SOFÁ CAMA Y FUTTONES</option>
+                        <option value="1-KcgtpX7hVbsxFsejewVY7QT95Jzno_A">FOTOS MESA DE CENTRO</option>
+                        <option value="1oRW0Mtpc7tKvDZjfrq4VCwhA332fV1lX">FOTOS MESA LATERALES</option>
+                        <option value="1iaZaA1TXcGVL9WABWi656Xouzviiog6K">FOTOS COMEDORES</option>
+                        <option value="1LyU1n-4SsuJTuchYQmGYHRpcdu0gh2i6">FOTOS RECAMARAS</option>
+                        <option value="1peDTq6kj9iPZaxxYUId0Jw-MJmQN4aJ8">FOTOS DE AUXILIARES</option>
+                        <option value="13mOw-BpuZSYpD55qPangEEXWuWW-1OL9">FOTOS ACCESORIOS Y ESPEJOS</option>
+                        <option value="1mo5gn59M0m-psn0f6o9B1OtUHeCpz3S9">FOTOS INTERIOR</option>
+                    </select>
+                </div>
+
                 <div class="inv-field">
                     <label for="uploadPhotoModelInput" class="inv-field-label">Modelo o SKU *</label>
                     <div class="inv-combo-wrap">
@@ -845,6 +868,15 @@
                     <div id="uploadPhotoMatchedBadge" class="hidden inv-combo-matched"></div>
                 </div>
 
+                <!-- FICHA COMPACTA DEL PRODUCTO Y VARIANTES PARA CELULAR -->
+                <div id="uploadPhotoProductInfoCard" class="hidden rounded-xl border p-2.5 text-xs" style="border-color:#E1DBC5;background:#F9F6EE;color:#252C32;">
+                    <div id="uploadPhotoProductInfoGrid" class="grid grid-cols-2 gap-1.5"></div>
+                    <div id="uploadPhotoSiblingVariantsWrap" class="hidden mt-2 pt-1.5 border-t" style="border-color:#E1DBC5;">
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider mb-1" style="color:#8C6D3F;">Variantes del modelo:</div>
+                        <div id="uploadPhotoSiblingVariantsList" class="flex items-center gap-1.5 overflow-x-auto pb-0.5"></div>
+                    </div>
+                </div>
+
                 <div class="inv-field">
                     <div class="inv-field-row">
                         <label for="uploadPhotoFilesInput" class="inv-field-label">Fotos *</label>
@@ -854,7 +886,7 @@
                         <svg class="inv-upload-ico" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                         </svg>
-                        <span>Elegir 1 o varias fotos</span>
+                        <span>Tomar o elegir 1 o varias fotos</span>
                         <input type="file" id="uploadPhotoFilesInput" accept="image/*" multiple class="hidden" onchange="onUploadPhotoFilesSelected(this.files)">
                     </label>
                     <div id="uploadPhotoPreviewGrid" class="inv-upload-preview-grid hidden"></div>
@@ -867,19 +899,19 @@
             </div>
             <div class="inv-modal-foot">
                 <button type="button" onclick="closeUploadPhotoModal()" class="inv-btn-secondary">Cancelar</button>
-                <button type="button" id="uploadPhotoSubmitBtn" onclick="submitMultiProductPhotos()" class="inv-btn-primary">Subir</button>
+                <button type="button" id="uploadPhotoSubmitBtn" onclick="submitMultiProductPhotos()" class="inv-btn-primary">Subir a categoría</button>
             </div>
         </div>
     </div>
 
-    <script src="creata-finishes.js?v=32"></script>
-    <script src="creata-img.js?v=32"></script>
-    <script src="creata-cloud.js?v=32"></script>
-    <script src="inventario-data-1.js?v=43"></script>
-    <script src="inventario-data-2.js?v=43"></script>
-    <script src="inventario-data-3.js?v=43"></script>
+    <script src="creata-finishes.js?v=33"></script>
+    <script src="creata-img.js?v=33"></script>
+    <script src="creata-cloud.js?v=33"></script>
+    <script src="inventario-data-1.js?v=45"></script>
+    <script src="inventario-data-2.js?v=45"></script>
+    <script src="inventario-data-3.js?v=45"></script>
     <script src="./seguimiento-app.js?v=5"></script>
     <script src="./historial-app.js?v=3"></script>
-    <script src="inventario-app.js?v=75"></script>
+    <script src="inventario-app.js?v=77"></script>
 </body>
 </html>

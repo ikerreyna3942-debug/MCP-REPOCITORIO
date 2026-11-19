@@ -2,20 +2,28 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
     <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+    <meta name="theme-color" content="#11161D">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Fotos CREATA">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Fotos · Hoja 1 | CREATA</title>
+    <title>App Fotos por Categoría | CREATA</title>
+    <link rel="manifest" href="./fotos-manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://docs.google.com" crossorigin>
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=9">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=12">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -26,7 +34,7 @@
             <div class="private-gate-top">
                 <div class="gate-brand-row" style="margin-bottom:0;">
                     <img data-creata-logo alt="CREATA" class="gate-logo">
-                    <span class="gate-private-tag">Fotos</span>
+                    <span class="gate-private-tag">App Fotos</span>
                 </div>
             </div>
 
@@ -61,7 +69,7 @@
         </div>
     </section>
 
-    <!-- INTERFAZ PRINCIPAL COMPACTA -->
+    <!-- INTERFAZ PRINCIPAL COMPACTA Y ADAPTADA PARA CELULAR -->
     <div id="privateAppShell" class="hidden">
 
         <header class="exec-header">
@@ -70,30 +78,38 @@
                     <img data-creata-logo alt="CREATA" class="header-logo">
                     <span class="header-divider" aria-hidden="true"></span>
                     <div class="header-titles">
-                        <h1>Fotos · Hoja "1"</h1>
+                        <h1>App Fotos · Categorías</h1>
                     </div>
                 </div>
 
                 <div class="header-actions">
+                    <button type="button" id="btnInstallFotosApp" class="hdr-btn is-accent hidden" onclick="triggerInstallFotosApp()">📲 Instalar App</button>
                     <a class="hdr-btn" href="./panel.html">Panel</a>
-                    <a class="hdr-btn" href="./inventario.html" target="_blank" rel="noopener">Cotización ↗</a>
+                    <a class="hdr-btn" href="./inventario.html">Cotizador</a>
                     <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
                     <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn" onclick="refreshAllPhotoWorkspace(true)">↻ Fotos</button>
-                    <a class="hdr-btn" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
+                    <a class="hdr-btn hide-on-xs" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
                     <button type="button" class="hdr-btn" onclick="lockFotosPortal()">Salir</button>
                 </div>
             </div>
+
+            <!-- BARRA DE NAVEGACIÓN RÁPIDA EN CELULAR -->
+            <nav id="mobileFotosJumpBar" class="mobile-jump-bar" aria-label="Secciones de la aplicación">
+                <button type="button" class="mobile-jump-btn active" data-jump="secSkuFinder" onclick="jumpToFotosSection('secSkuFinder', this)">1. SKU / Categoría</button>
+                <button type="button" class="mobile-jump-btn" data-jump="secProductStage" onclick="jumpToFotosSection('secProductStage', this)">2. Producto y Foto</button>
+                <button type="button" class="mobile-jump-btn" data-jump="secGalleryInbox" onclick="jumpToFotosSection('secGalleryInbox', this)">3. Bandeja / Galería</button>
+            </nav>
         </header>
 
         <main class="workspace-shell">
 
-            <!-- 2 COLUMNAS -->
+            <!-- 2 COLUMNAS EN PC · FLUJO MÓVIL EN CELULAR -->
             <section class="workbench-grid">
 
-                <!-- IZQUIERDA: BUSCADOR -->
-                <div class="panel-card">
+                <!-- IZQUIERDA: BUSCADOR POR SKU Y CATEGORÍA -->
+                <div id="secSkuFinder" class="panel-card">
                     <div class="panel-header">
-                        <h2>SKU</h2>
+                        <h2>1. Buscar SKU o Categoría</h2>
                         <div style="display:flex;align-items:center;gap:6px;">
                             <button type="button" id="btnSyncSkusCard" class="hdr-btn is-accent" style="height:24px;padding:0 9px;font-size:10.5px;" onclick="syncSkusNow()">↻ SKUs</button>
                             <span id="skuListCountBadge" class="panel-badge">0</span>
@@ -109,46 +125,70 @@
                                 type="search"
                                 id="skuSearchInput"
                                 class="search-input"
-                                placeholder="SKU o Nombre..."
+                                placeholder="Buscar SKU, modelo, variante o categoría..."
                                 autocomplete="off"
                             >
                             <button type="button" id="skuSearchClearBtn" class="search-clear-btn hidden" onclick="clearSkuSearch()">✕</button>
                         </div>
 
-                        <div class="filter-pills-row" style="margin-bottom:10px;">
+                        <div class="filter-pills-row" style="margin-bottom:8px;">
                             <button type="button" class="filter-pill active" data-filter="ALL" onclick="setSkuFilterMode('ALL')">Todos</button>
                             <button type="button" class="filter-pill" data-filter="NO_PHOTO" onclick="setSkuFilterMode('NO_PHOTO')">Sin foto</button>
                             <button type="button" class="filter-pill" data-filter="HAS_PHOTO" onclick="setSkuFilterMode('HAS_PHOTO')">Con foto</button>
                             <button type="button" class="filter-pill" data-filter="IN_INV" onclick="setSkuFilterMode('IN_INV')">Inventario</button>
                         </div>
 
+                        <!-- FILTRO POR CATEGORÍA DE FOTOS -->
+                        <div id="skuCategoryFilterRow" class="category-pills-scroll" aria-label="Filtrar por categoría"></div>
+
                         <div id="skuResultsList" class="sku-list"></div>
                     </div>
                 </div>
 
-                <!-- DERECHA: FOTOS + SUBIR COTIZACION / CARGADAS -->
+                <!-- DERECHA: INFORMACIÓN DEL PRODUCTO + SUBIDA POR CATEGORÍA + GALERÍA -->
                 <div class="right-column-stack">
 
-                    <div class="panel-card">
+                    <div id="secProductStage" class="panel-card">
                         <div class="panel-header">
-                            <h2>Producto</h2>
-                            <span id="selectedRowBadge" class="panel-badge">—</span>
+                            <h2>2. Ficha del Producto y Categoría</h2>
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <label id="btnDirectUploadLabel" class="hdr-btn is-accent" style="cursor:pointer;height:26px;padding:0 10px;font-size:10.5px;">
+                                    📷 Subir foto a categoría
+                                    <input type="file" id="directCategoryPhotoInput" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
+                                </label>
+                                <span id="selectedRowBadge" class="panel-badge">—</span>
+                            </div>
                         </div>
                         <div class="panel-body">
 
+                            <!-- INFORMACIÓN DEL PRODUCTO Y VARIANTES ACOMODADA PARA CELULAR -->
                             <div class="selected-sheet-summary">
                                 <div class="sheet-col-box">
                                     <div class="sheet-col-tag">SKU (Col A)</div>
                                     <div id="selColASku" class="sheet-col-val mono">—</div>
                                 </div>
                                 <div class="sheet-col-box">
-                                    <div class="sheet-col-tag">Nombre (Col B)</div>
+                                    <div class="sheet-col-tag">Categoría Drive</div>
+                                    <div id="selCategoryLabel" class="sheet-col-val is-gold">—</div>
+                                </div>
+                                <div class="sheet-col-box span-full">
+                                    <div class="sheet-col-tag">Nombre del producto (Col B)</div>
                                     <div id="selColBName" class="sheet-col-val">—</div>
                                 </div>
                                 <div class="sheet-col-box">
-                                    <div class="sheet-col-tag">Categoría</div>
-                                    <div id="selCategoryLabel" class="sheet-col-val">—</div>
+                                    <div class="sheet-col-tag">Modelo · Variante</div>
+                                    <div id="selModelVariantVal" class="sheet-col-val">—</div>
                                 </div>
+                                <div class="sheet-col-box">
+                                    <div class="sheet-col-tag">Medidas · Acabado</div>
+                                    <div id="selDimsFinishVal" class="sheet-col-val">—</div>
+                                </div>
+                            </div>
+
+                            <!-- TIRILLA DE VARIANTES HERMANAS DEL MISMO MODELO -->
+                            <div id="selSiblingVariantsWrap" class="sibling-variants-strip hidden">
+                                <div class="sibling-variants-label">Variantes del modelo:</div>
+                                <div id="selSiblingVariantsList" class="sibling-variants-pills"></div>
                             </div>
 
                             <div class="dual-preview-grid">
@@ -187,28 +227,34 @@
 
                             <div class="assign-controls-bar">
                                 <div class="dest-folder-picker">
-                                    <label for="destFolderSelect" class="field-label" style="margin:0;">Destino:</label>
+                                    <label for="destFolderSelect" class="field-label" style="margin:0;">Categoría destino:</label>
                                     <select id="destFolderSelect" class="dest-select"></select>
                                 </div>
 
-                                <button
-                                    type="button"
-                                    id="btnAssignPhotoNow"
-                                    class="btn-primary-gold"
-                                    style="padding: 0 20px;"
-                                    onclick="assignSelectedPhotoToProduct()"
-                                    disabled
-                                >
-                                    Guardar
-                                </button>
+                                <div class="assign-btns-cluster">
+                                    <label class="btn-secondary-upload" title="Tomar o elegir foto del celular y guardarla directo en su categoría">
+                                        📷 Subir directo
+                                        <input type="file" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
+                                    </label>
+                                    <button
+                                        type="button"
+                                        id="btnAssignPhotoNow"
+                                        class="btn-primary-gold"
+                                        style="padding: 0 18px;"
+                                        onclick="assignSelectedPhotoToProduct()"
+                                        disabled
+                                    >
+                                        Guardar
+                                    </button>
+                                </div>
                             </div>
 
                             <div id="assignFeedbackBox" class="assign-feedback-banner hidden"></div>
                         </div>
                     </div>
 
-                    <!-- GALERÍA: SUBIR COTIZACION / CARGADAS -->
-                    <div class="panel-card">
+                    <!-- GALERÍA: SUBIR COTIZACION / CARGADAS POR CATEGORÍA -->
+                    <div id="secGalleryInbox" class="panel-card">
                         <div class="panel-header" style="flex-wrap:wrap; gap:8px;">
                             <div class="gallery-mode-tabs">
                                 <button type="button" id="tabGalleryInbox" class="gallery-tab-btn active" onclick="setGalleryMode('INBOX')">
@@ -220,10 +266,13 @@
                                     <span id="loadedHeaderBadge" class="panel-badge">0</span>
                                 </button>
                             </div>
+                            <button type="button" id="btnAutoAssignByCategory" class="hdr-btn is-accent" style="height:26px;padding:0 10px;font-size:10px;" onclick="autoAssignMatchedInboxByCategory()" title="Acomoda y guarda automáticamente en su carpeta de categoría todas las fotos con SKU detectado">
+                                ⚡ Auto-acomodar por categoría
+                            </button>
                         </div>
                         <div class="panel-body">
                             <div class="inbox-toolbar">
-                                <div class="search-box-wrap" style="flex:1 1 200px; max-width:300px;">
+                                <div class="search-box-wrap" style="flex:1 1 180px; max-width:300px;">
                                     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                                         <circle cx="11" cy="11" r="7"></circle>
                                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -233,7 +282,7 @@
                                         id="inboxSearchInput"
                                         class="search-input"
                                         style="height:34px; font-size:12px;"
-                                        placeholder="Filtrar..."
+                                        placeholder="Filtrar por SKU, nombre o categoría..."
                                         autocomplete="off"
                                     >
                                 </div>
@@ -258,7 +307,7 @@
                     <!-- HISTORIAL BREVE DE SESIÓN -->
                     <div id="sessionHistoryPanel" class="panel-card hidden">
                         <div class="panel-header">
-                            <h2>Guardadas hoy</h2>
+                            <h2>Guardadas hoy por categoría</h2>
                             <span id="sessionSavedCountBadge" class="panel-badge">0</span>
                         </div>
                         <div class="panel-body">
@@ -275,8 +324,8 @@
         <img id="photoLightboxImg" src="" alt="Vista" referrerpolicy="no-referrer" draggable="false">
     </div>
 
-    <script src="./creata-logo.js?v=32"></script>
-    <script src="./creata-cloud.js?v=32"></script>
-    <script src="./fotos-productos-app.js?v=11"></script>
+    <script src="./creata-logo.js?v=33"></script>
+    <script src="./creata-cloud.js?v=33"></script>
+    <script src="./fotos-productos-app.js?v=12"></script>
 </body>
 </html>

@@ -2335,6 +2335,44 @@
                         grp.items[j]._groupTitle = grp.title;
                     }
                 }
+
+                // Propagar información estructural faltante (Medidas por tamaño/pieza, Madera, Color de madera, Materiales) entre variantes hermanas del mismo modelo
+                const getVarSizeSig = x => {
+                    const txt = ' ' + plainModelToken((x.n || '') + ' ' + (x.vr || '') + ' ' + (x.tp || '')) + ' ';
+                    const sigs = [];
+                    if (/\b(?:KING\s*SIZE|KING|KS)\b/.test(txt)) sigs.push('KS');
+                    else if (/\b(?:QUEEN\s*SIZE|QUEEN|QS)\b/.test(txt)) sigs.push('QS');
+                    else if (/\b(?:MATRIMONIAL|MAT)\b/.test(txt)) sigs.push('MAT');
+                    else if (/\b(?:INDIVIDUAL|IND)\b/.test(txt)) sigs.push('IND');
+                    if (/\b(?:GRANDE|GDE)\b/.test(txt)) sigs.push('GDE');
+                    else if (/\b(?:MEDIAN[OA]|MED)\b/.test(txt)) sigs.push('MED');
+                    else if (/\b(?:CHIC[OA]|CH)\b/.test(txt)) sigs.push('CH');
+                    if (/\bCHAISE\b/.test(txt)) sigs.push('CHAISE');
+                    if (/\bESQUINERO\b/.test(txt)) sigs.push('ESQ');
+                    if (/\b(?:LOVE\s*SEAT|LOVESEAT|2\s*P)\b/.test(txt)) sigs.push('2P');
+                    if (/\b(?:3\s*P|SOFA\s*3)\b/.test(txt)) sigs.push('3P');
+                    if (/\b(?:TABURETE|OTTOMAN|POUF|PUFF)\b/.test(txt)) sigs.push('TAB');
+                    return sigs.length ? sigs.join('_') : 'STD';
+                };
+                let sharedMd = '', sharedCm = '', sharedMt = '';
+                for (let j = 0; j < grp.items.length; j++) {
+                    const x = grp.items[j];
+                    if (!sharedMd && cleanStr(x.md)) sharedMd = cleanStr(x.md);
+                    if (!sharedCm && cleanStr(x.cm)) sharedCm = cleanStr(x.cm);
+                    if (!sharedMt && cleanStr(x.mt)) sharedMt = cleanStr(x.mt);
+                }
+                for (let j = 0; j < grp.items.length; j++) {
+                    const x = grp.items[j];
+                    if (!cleanStr(x.mo) && bestMo) x.mo = bestMo;
+                    if (!cleanStr(x.md) && sharedMd) x.md = sharedMd;
+                    if (!cleanStr(x.cm) && sharedCm && (!cleanStr(x.md) || cleanStr(x.md) === sharedMd)) x.cm = sharedCm;
+                    if (!cleanStr(x.mt) && sharedMt) x.mt = sharedMt;
+                    if (!cleanStr(x.m)) {
+                        const sig = getVarSizeSig(x);
+                        const donor = grp.items.find(y => cleanStr(y.m) && getVarSizeSig(y) === sig);
+                        if (donor) x.m = cleanStr(donor.m);
+                    }
+                }
             }
             grp.displayTitle = (grp.items.length > 1
                 ? grp.title
@@ -3688,7 +3726,7 @@
                 addBtn.textContent = q > 0 ? ('Agregar (' + q + ')') : 'Agregar';
             }
             if (subBtn) {
-                subBtn.classList.add('hidden');
+                subBtn.classList.toggle('hidden', q <= 0);
             }
             if (remAllBtn) {
                 remAllBtn.classList.add('hidden');
@@ -3909,24 +3947,24 @@
             mtClean = keptParts.join(', ');
         }
 
-        // 5) Limpiar u omitir Variante cuando es ESTÁNDAR, igual al nombre/modelo/SKU, o repite Tela / Madera / Materiales / Medidas
+        // 5) Conservar Variante siempre que aporte información de la variante (acabado, pieza, tamaño, tela, madera o tono),
+        //    omitiendo únicamente "ESTÁNDAR" o repeticiones literales del nombre completo, modelo, tipo o SKU.
         if (vr) {
-            const alreadyCovered = new Set(
-                [normTp, normMo, normTl, normCt, normMd, normCm, normSpec(mtClean), normSpec(med)]
-                    .filter(Boolean)
-                    .join(' ')
-                    .split(' ')
-                    .filter(Boolean)
-            );
             const vrSegments = vr.split(/\s*·\s*/).map(cleanStr).filter(Boolean).filter(seg => {
                 const nSeg = normSpec(seg);
-                if (!nSeg || nSeg === 'ESTANDAR' || nSeg === normNom || nSeg === normMo || nSeg === normSku || nSeg === normTl || nSeg === normMd) {
+                if (!nSeg || nSeg === 'ESTANDAR' || nSeg === normNom || nSeg === normMo || nSeg === normTp || nSeg === normSku) {
                     return false;
                 }
-                const words = nSeg.split(' ').filter(w => !/^(DE|DEL|LA|EL|EN|CON|Y)$/.test(w));
-                return !(words.length > 0 && words.every(w => alreadyCovered.has(w)));
+                return true;
             });
             vr = vrSegments.join(' · ');
+        }
+        if (!vr) {
+            const fallbackVrParts = [];
+            if (tl) fallbackVrParts.push(tl);
+            if (md) fallbackVrParts.push(md + (cm && normMd.indexOf(normCm) === -1 ? ' ' + cm : ''));
+            else if (cm) fallbackVrParts.push(cm);
+            if (fallbackVrParts.length > 0) vr = fallbackVrParts.join(' · ');
         }
 
         const candidateRows = [
@@ -3943,6 +3981,7 @@
             ['Materiales', mtClean]
         ];
 
+        const ALWAYS_KEEP_LABELS = new Set(['SKU / Clave', 'Categoría', 'Modelo', 'Variante', 'Medidas', 'Tela', 'Color de tela', 'Madera', 'Color de madera']);
         const seenBoxValues = new Set();
         const finalRows = [];
         for (let i = 0; i < candidateRows.length; i++) {
@@ -3951,7 +3990,7 @@
             if (!val) continue;
             const nVal = normSpec(val);
             if (!nVal) continue;
-            if (i > 0 && seenBoxValues.has(nVal)) continue;
+            if (!ALWAYS_KEEP_LABELS.has(label) && seenBoxValues.has(nVal)) continue;
             seenBoxValues.add(nVal);
             finalRows.push([label, val]);
         }
@@ -4192,6 +4231,142 @@
         setUploadPhotoModalStatus('', '');
     };
 
+    const PHOTO_CATEGORY_DEST_FOLDERS = [
+        { key: 'SALAS',        id: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', name: 'FOTOS SALAS',                short: 'Salas' },
+        { key: 'SILLONES',     id: '1zqGnweu7T5-9f6dQoVXuT9MZTBPefSNm', name: 'FOTOS SILLONES',             short: 'Sillones' },
+        { key: 'SOFA_CAMA',    id: '1nU1UgT78XiGo-OLrV4tIrxNKxy9CTd8_', name: 'FOTOS SOFÁ CAMA Y FUTTONES', short: 'Sofá Cama' },
+        { key: 'MESA_CENTRO',  id: '1-KcgtpX7hVbsxFsejewVY7QT95Jzno_A', name: 'FOTOS MESA DE CENTRO',       short: 'Mesa Centro' },
+        { key: 'MESA_LATERAL', id: '1oRW0Mtpc7tKvDZjfrq4VCwhA332fV1lX', name: 'FOTOS MESA LATERALES',       short: 'Mesa Lateral' },
+        { key: 'COMEDORES',    id: '1iaZaA1TXcGVL9WABWi656Xouzviiog6K', name: 'FOTOS COMEDORES',            short: 'Comedores' },
+        { key: 'RECAMARAS',    id: '1LyU1n-4SsuJTuchYQmGYHRpcdu0gh2i6', name: 'FOTOS RECAMARAS',            short: 'Recámaras' },
+        { key: 'AUXILIARES',   id: '1peDTq6kj9iPZaxxYUId0Jw-MJmQN4aJ8', name: 'FOTOS DE AUXILIARES',        short: 'Auxiliares' },
+        { key: 'ACCESORIOS',   id: '13mOw-BpuZSYpD55qPangEEXWuWW-1OL9', name: 'FOTOS ACCESORIOS Y ESPEJOS', short: 'Accesorios' },
+        { key: 'INTERIOR',     id: '1mo5gn59M0m-psn0f6o9B1OtUHeCpz3S9', name: 'FOTOS INTERIOR',             short: 'Interior' }
+    ];
+    const PHOTO_DEST_BY_ID = new Map(PHOTO_CATEGORY_DEST_FOLDERS.map(f => [f.id, f]));
+
+    function resolvePhotoDestCategoryFolder(it) {
+        if (!it) return PHOTO_CATEGORY_DEST_FOLDERS[9];
+        const cat = plainModelToken(it._cat || it.c || '');
+        const tp = plainModelToken(it.tp || '');
+        const nom = plainModelToken(it.n || '');
+        const tpNom = (tp + ' ' + nom).trim();
+        const text = (tpNom + ' ' + cat).trim();
+
+        if (/\bFUTON|\bFUTTON|SOFA\s*CAMA/.test(text)) return PHOTO_CATEGORY_DEST_FOLDERS[2];
+        if (/MESA\s+LATERAL|MESA\s+AUXILIAR/.test(text) || (cat.indexOf('MESAS DE CENTRO') !== -1 && /\bLATERAL|\bAUXILIAR/.test(text))) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[4];
+        }
+        if (/MESA\s+DE\s+CENTRO|MESA\s+CENTRAL|\bNIDO\b/.test(text) || cat.indexOf('MESAS DE CENTRO') !== -1) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[3];
+        }
+        if (/\bSILLAS?\b/.test(nom) && !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nom) && !/^SALA\b/.test(nom)) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[5];
+        }
+        if (/\b(SILLON(?:ES)?|POLTRONA|RECLINABLE|BUTACA|TABURETE|OTTOMAN|PUFF)\b/.test(tpNom)) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[1];
+        }
+        if (cat.indexOf('SALAS') !== -1 || /\bSALA\b|\bMODULAR\b|LOVE\s*SEAT|\bCHAISE\b|\bESQUINERO\b|\bSOFA\b/.test(tpNom)) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[0];
+        }
+        if (cat.indexOf('COMEDORES') !== -1 || /\bCOMEDOR|MESA\s+DE\s+COMEDOR|\bSILLA\b|\bBANCO\b|\bBANCA\b/.test(tpNom)) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[5];
+        }
+        if (cat.indexOf('RECAMARAS') !== -1 || /\bCAMA\b|\bCABECERA|\bCOLCHON|\bBURO\b|\bCOMODA\b|\bCAJONERA|\bTOCADOR|PIE\s+DE\s+CAMA/.test(tpNom)) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[6];
+        }
+        if (
+            cat.indexOf('ACCESORIOS') !== -1 || cat.indexOf('COJINES') !== -1 || cat.indexOf('ESPEJOS') !== -1 || cat.indexOf('ILUMINACION') !== -1 ||
+            /\bESPEJO|\bCUADRO|\bLAMPARA|\bCOJIN|\bFUNDA|\bPLANTA|\bFOLLAJE|\bFLORERO|\bJARRON|\bCHAROLA|\bTAPETE|\bVELA\b|\bFIGURA|\bACCESORIO/.test(tpNom)
+        ) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[8];
+        }
+        if (
+            cat.indexOf('BUFETERAS') !== -1 || cat.indexOf('COMPLEMENTOS') !== -1 || cat.indexOf('OFICINA') !== -1 || cat.indexOf('EXTERIOR') !== -1 ||
+            /\bCREDENZA|\bBUFETERA|\bLIBRERO|MUEBLE\s+PARA\s+TV|MESA\s+DE\s+TV|\bBAR\b|\bCONSOLA|\bAUXILIAR|\bESCRITORIO/.test(tpNom)
+        ) {
+            return PHOTO_CATEGORY_DEST_FOLDERS[7];
+        }
+        return PHOTO_CATEGORY_DEST_FOLDERS[9];
+    }
+
+    function renderUploadPhotoProductInfoCard(it) {
+        const card = document.getElementById('uploadPhotoProductInfoCard');
+        const grid = document.getElementById('uploadPhotoProductInfoGrid');
+        const sibWrap = document.getElementById('uploadPhotoSiblingVariantsWrap');
+        const sibList = document.getElementById('uploadPhotoSiblingVariantsList');
+        if (!card || !grid) return;
+        if (!it) {
+            card.classList.add('hidden');
+            grid.innerHTML = '';
+            if (sibWrap) sibWrap.classList.add('hidden');
+            if (sibList) sibList.innerHTML = '';
+            return;
+        }
+
+        const catFolder = resolvePhotoDestCategoryFolder(it);
+        const catSel = document.getElementById('uploadPhotoCategorySelect');
+        const activeFolderId = (catSel && catSel.value && catSel.value !== 'AUTO' && PHOTO_DEST_BY_ID.has(catSel.value))
+            ? catSel.value
+            : catFolder.id;
+        const activeFolderMeta = PHOTO_DEST_BY_ID.get(activeFolderId) || catFolder;
+
+        const finishParts = [];
+        if (cleanStr(it.tl)) finishParts.push(cleanStr(it.tl) + (cleanStr(it.ct) && plainModelToken(it.tl).indexOf(plainModelToken(it.ct)) === -1 ? (' (' + cleanStr(it.ct) + ')') : ''));
+        if (cleanStr(it.md)) finishParts.push(cleanStr(it.md) + (cleanStr(it.cm) && plainModelToken(it.md).indexOf(plainModelToken(it.cm)) === -1 ? (' ' + cleanStr(it.cm)) : ''));
+        else if (cleanStr(it.cm)) finishParts.push(cleanStr(it.cm));
+        if (!finishParts.length && cleanStr(it.mt)) finishParts.push(cleanStr(it.mt));
+
+        const infoCells = [
+            ['SKU', cleanStr(it.s)],
+            ['Categoría Foto', activeFolderMeta.name.replace(/^FOTOS\s+(DE\s+)?/i, '')],
+            ['Modelo', cleanStr(it.mo) || cleanStr(it.tp) || '—'],
+            ['Variante', (cleanStr(it.vr) && cleanStr(it.vr) !== 'ESTÁNDAR') ? cleanStr(it.vr) : (finishParts[0] || 'Estándar')],
+            ['Medidas', cleanStr(it.m) || '—'],
+            ['Acabado / Material', finishParts.join(' · ') || '—']
+        ];
+
+        grid.innerHTML = infoCells.map(pair => (
+            '<div class="rounded-lg px-2 py-1 border" style="background:#FFFFFF;border-color:#E7E0CD;min-width:0;">' +
+                '<div class="text-[9px] font-extrabold uppercase tracking-wider" style="color:#8C6D3F;">' + escapeHtml(pair[0]) + '</div>' +
+                '<div class="text-[11px] font-bold truncate" style="color:#252C32;" title="' + escapeHtml(pair[1]) + '">' + escapeHtml(pair[1]) + '</div>' +
+            '</div>'
+        )).join('');
+        card.classList.remove('hidden');
+
+        if (sibWrap && sibList) {
+            const grp = it._groupKey ? groupsByKey.get(it._groupKey) : null;
+            const sibs = (grp && Array.isArray(grp.items)) ? grp.items : [];
+            if (sibs.length > 1) {
+                sibList.innerHTML = sibs.slice(0, 20).map(sib => {
+                    const sSku = cleanStr(sib.s).toUpperCase();
+                    const isCur = sSku === cleanStr(it.s).toUpperCase();
+                    const vLbl = (cleanStr(sib.vr) && cleanStr(sib.vr) !== 'ESTÁNDAR') ? cleanStr(sib.vr) : (cleanStr(sib.tl) || cleanStr(sib.md) || sSku);
+                    return '<button type="button" class="px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap" ' +
+                        'style="' + (isCur ? 'background:#252C32;color:#FFFFFF;border-color:#252C32;' : 'background:#FFFFFF;color:#252C32;border-color:#D8CFAF;') + '" ' +
+                        'onclick="selectUploadPhotoModelOption(\'' + escapeHtml(sSku) + '\')">' +
+                        escapeHtml(sSku + ' · ' + vLbl.slice(0, 22)) +
+                    '</button>';
+                }).join('');
+                sibWrap.classList.remove('hidden');
+            } else {
+                sibWrap.classList.add('hidden');
+                sibList.innerHTML = '';
+            }
+        }
+    }
+
+    window.onUploadPhotoCategoryChanged = function () {
+        const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+        const curSku = cleanStr(hiddenSku ? hiddenSku.value : '').toUpperCase();
+        if (curSku && bySkuMap.has(curSku)) {
+            renderUploadPhotoProductInfoCard(bySkuMap.get(curSku));
+        } else {
+            const inp = document.getElementById('uploadPhotoModelInput');
+            window.filterUploadPhotoModelOptions(inp ? inp.value : '');
+        }
+    };
+
     window.selectUploadPhotoModelOption = function (skuVal) {
         const sku = String(skuVal || '').trim().toUpperCase();
         const it = bySkuMap.get(sku);
@@ -4199,17 +4374,22 @@
         const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
         const badge = document.getElementById('uploadPhotoMatchedBadge');
         const dd = document.getElementById('uploadPhotoModelDropdown');
+        const catSel = document.getElementById('uploadPhotoCategorySelect');
         if (it) {
             const cleanName = stripDimensionsFromProductText(it.n) || it.mo || it.s;
+            const catFolder = resolvePhotoDestCategoryFolder(it);
             if (inp) inp.value = cleanName;
             if (hiddenSku) hiddenSku.value = sku;
+            if (catSel && catFolder) catSel.value = catFolder.id;
             if (badge) {
-                badge.textContent = sku + ' · ' + cleanName;
+                badge.textContent = sku + ' · ' + cleanName + ' · ' + catFolder.name;
                 badge.classList.remove('hidden');
             }
+            renderUploadPhotoProductInfoCard(it);
         } else {
             if (hiddenSku) hiddenSku.value = sku;
             if (badge) badge.classList.add('hidden');
+            renderUploadPhotoProductInfoCard(null);
         }
         if (dd) dd.classList.add('hidden');
     };
@@ -4218,21 +4398,25 @@
         const dd = document.getElementById('uploadPhotoModelDropdown');
         const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
         const badge = document.getElementById('uploadPhotoMatchedBadge');
+        const catSel = document.getElementById('uploadPhotoCategorySelect');
         if (hiddenSku) hiddenSku.value = '';
         if (badge) badge.classList.add('hidden');
+        renderUploadPhotoProductInfoCard(null);
         if (!dd) return;
 
+        const filterFolderId = (catSel && catSel.value && catSel.value !== 'AUTO') ? catSel.value : '';
         const q = normalizePlain(rawQuery || '').trim();
         const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
         const matches = [];
         for (let i = 0; i < allItems.length && matches.length < 24; i++) {
             const it = allItems[i];
             if (!it || !it.s) continue;
+            if (filterFolderId && resolvePhotoDestCategoryFolder(it).id !== filterFolderId) continue;
             if (!tokens.length) {
                 matches.push(it);
                 continue;
             }
-            const hay = normalizePlain((it.s || '') + ' ' + (it.mo || '') + ' ' + (it.n || ''));
+            const hay = normalizePlain((it.s || '') + ' ' + (it.mo || '') + ' ' + (it.n || '') + ' ' + (it.vr || '') + ' ' + (it.c || ''));
             let ok = true;
             for (let t = 0; t < tokens.length; t++) {
                 if (hay.indexOf(tokens[t]) === -1) { ok = false; break; }
@@ -4248,9 +4432,11 @@
         dd.innerHTML = matches.map(it => {
             const sku = String(it.s || '').trim().toUpperCase();
             const nm = stripDimensionsFromProductText(it.n) || it.mo || sku;
+            const catMeta = resolvePhotoDestCategoryFolder(it);
+            const vrTxt = (cleanStr(it.vr) && cleanStr(it.vr) !== 'ESTÁNDAR') ? (' · ' + cleanStr(it.vr)) : '';
             return '<button type="button" class="inv-combo-opt" onmousedown="event.preventDefault(); selectUploadPhotoModelOption(\'' + escapeHtml(sku) + '\')">' +
                 '<span class="inv-combo-opt-sku">' + escapeHtml(sku) + '</span>' +
-                '<span class="inv-combo-opt-name">' + escapeHtml(nm) + '</span>' +
+                '<span class="inv-combo-opt-name">' + escapeHtml(nm + vrTxt) + ' <strong style="color:#8C6D3F;font-size:10px;">[' + escapeHtml(catMeta.short) + ']</strong></span>' +
             '</button>';
         }).join('');
         dd.classList.remove('hidden');
@@ -4268,6 +4454,7 @@
         const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
         const badge = document.getElementById('uploadPhotoMatchedBadge');
         const dd = document.getElementById('uploadPhotoModelDropdown');
+        const catSel = document.getElementById('uploadPhotoCategorySelect');
         const progWrap = document.getElementById('uploadPhotoProgressWrap');
         const progBar = document.getElementById('uploadPhotoProgressBar');
         const subBtn = document.getElementById('uploadPhotoSubmitBtn');
@@ -4279,23 +4466,28 @@
         if (progBar) progBar.style.width = '0%';
         if (subBtn) {
             subBtn.disabled = false;
-            subBtn.textContent = 'Subir';
+            subBtn.textContent = 'Subir a categoría';
         }
         if (dd) dd.classList.add('hidden');
 
         if (prefillItem && prefillItem.s) {
             const sku = String(prefillItem.s).trim().toUpperCase();
             const nm = stripDimensionsFromProductText(prefillItem.n) || prefillItem.mo || sku;
+            const catFolder = resolvePhotoDestCategoryFolder(prefillItem);
             if (inp) inp.value = nm;
             if (hiddenSku) hiddenSku.value = sku;
+            if (catSel && catFolder) catSel.value = catFolder.id;
             if (badge) {
-                badge.textContent = sku + ' · ' + nm;
+                badge.textContent = sku + ' · ' + nm + ' · ' + catFolder.name;
                 badge.classList.remove('hidden');
             }
+            renderUploadPhotoProductInfoCard(prefillItem);
         } else {
             if (inp) inp.value = '';
             if (hiddenSku) hiddenSku.value = '';
+            if (catSel) catSel.value = 'AUTO';
             if (badge) badge.classList.add('hidden');
+            renderUploadPhotoProductInfoCard(null);
         }
 
         if (modal) modal.classList.add('open');
@@ -4325,11 +4517,18 @@
         }
         const inp = document.getElementById('uploadPhotoModelInput');
         const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+        const catSel = document.getElementById('uploadPhotoCategorySelect');
         const typedVal = cleanStr(inp ? inp.value : '');
         const pickedSku = cleanStr(hiddenSku ? hiddenSku.value : '').toUpperCase();
         const exactItem = pickedSku ? bySkuMap.get(pickedSku) : bySkuMap.get(typedVal.toUpperCase());
         const targetSku = (exactItem && exactItem.s ? String(exactItem.s) : (pickedSku || typedVal)).trim().toUpperCase();
         const targetName = (exactItem ? (stripDimensionsFromProductText(exactItem.n) || targetSku) : (typedVal || targetSku));
+
+        const autoCatFolder = resolvePhotoDestCategoryFolder(exactItem || { n: targetName });
+        const chosenCatFolderId = (catSel && catSel.value && catSel.value !== 'AUTO' && PHOTO_DEST_BY_ID.has(catSel.value))
+            ? catSel.value
+            : autoCatFolder.id;
+        const chosenCatFolderMeta = PHOTO_DEST_BY_ID.get(chosenCatFolderId) || autoCatFolder;
 
         if (!targetSku) {
             setUploadPhotoModalStatus('Selecciona o escribe un modelo o SKU.', 'warn');
@@ -4353,7 +4552,7 @@
         }
         if (progWrap) progWrap.classList.remove('hidden');
         if (progBar) progBar.style.width = '5%';
-        setUploadPhotoModalStatus('Subiendo 0 de ' + total + '...', 'warn');
+        setUploadPhotoModalStatus('Subiendo 0 de ' + total + ' a ' + chosenCatFolderMeta.name + '...', 'warn');
 
         let completed = 0;
         let okCount = 0;
@@ -4373,9 +4572,11 @@
                     advisorName: activeAdvisorSession.nombre || '',
                     sku: targetSku,
                     productName: targetName,
-                    categoria: (exactItem && (exactItem.c || exactItem._cat)) ? String(exactItem.c || exactItem._cat) : '',
+                    categoria: (exactItem && (exactItem.c || exactItem._cat)) ? String(exactItem.c || exactItem._cat) : chosenCatFolderMeta.name,
                     tipo: (exactItem && exactItem.tp) ? String(exactItem.tp) : '',
                     targetFolderId: FOTOS_NUEVAS_CARGADO_FOLDER_ID,
+                    targetCategoryFolderId: chosenCatFolderMeta.id,
+                    targetCategoryFolderName: chosenCatFolderMeta.name,
                     driveOnly: true,
                     skipSheetWrite: true,
                     dataUrl: dataUrl
@@ -8882,7 +9083,7 @@
                 addBtn.textContent = q > 0 ? ('Agregar (' + q + ')') : 'Agregar';
             }
             if (subBtn) {
-                subBtn.classList.add('hidden');
+                subBtn.classList.toggle('hidden', q <= 0);
             }
             if (remAllBtn) {
                 remAllBtn.classList.add('hidden');

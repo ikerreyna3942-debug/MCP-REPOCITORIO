@@ -1338,6 +1338,47 @@ main#invMainView.inv-main {
   cursor: pointer;
 }
 
+#productDetailModal .inv-det-add-pill {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 9999px;
+  overflow: hidden;
+  border: 1px solid #A38251;
+  background: #A38251;
+}
+
+#productDetailModal .inv-det-sub-btn {
+  min-width: 28px;
+  height: 27px;
+  min-height: 27px;
+  padding: 0 8px;
+  border: none;
+  border-right: 1px solid #A38251;
+  border-radius: 0;
+  background: #FFFFFF;
+  color: #252C32;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+#productDetailModal .inv-det-sub-btn:hover {
+  background: #FAF9F6;
+}
+
+#productDetailModal .inv-det-add-btn {
+  border: none;
+  border-radius: 0;
+  background: #A38251;
+  color: #FFFFFF;
+  padding: 2px 12px;
+  height: 27px;
+  min-height: 27px;
+}
+
+#productDetailModal .inv-det-add-btn:hover {
+  background: #8E6E42;
+}
+
 #detPhotoWrap.inv-det-photo-stage {
   width: 100%;
   aspect-ratio: 4 / 3;
