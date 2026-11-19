@@ -411,3 +411,33 @@ test('Project A: MAX_PEND_MS = 8000 budget cap is preserved in handleFotosSubirL
   assert.match(fnMatch[0], /const MAX_PEND_MS\s*=\s*8000;/);
   assert.match(fnMatch[0], /\(Date\.now\(\)\s*-\s*startPendMs\)\s*>\s*MAX_PEND_MS/);
 });
+
+test('Project A: doPost(fotos_subir_list) returns explicit authRequired when unauthenticated and mints renewedAuthToken + SUBIR PREN files on valid Kevin accessKey', () => {
+  const env = setupProjectAEnv();
+
+  // 1) Unauthenticated call returns explicit authRequired: true instead of silent { ok: false }
+  const unauthResp = env.context.doPost({
+    postData: { contents: JSON.stringify({ action: 'fotos_subir_list', advisorEmail: 'kevin.reyna@grupoanipa.com' }) }
+  });
+  const unauthJson = JSON.parse(unauthResp.getContent());
+  assert.equal(unauthJson.ok, false);
+  assert.equal(unauthJson.authRequired, true);
+
+  // 2) Call with expired authToken + valid Kevin accessKey succeeds, returns SUBIR PREN files, and issues renewedAuthToken
+  const validResp = env.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'fotos_subir_list',
+        authToken: 'expired_or_empty_token',
+        advisorEmail: 'kevin.reyna@grupoanipa.com',
+        accessKey: 'KEVIN2026'
+      })
+    }
+  });
+  const validJson = JSON.parse(validResp.getContent());
+  assert.equal(validJson.ok, true);
+  assert.equal(validJson.inboxFolderId, IDS.SUBIR_PREN);
+  assert.ok(validJson.renewedAuthToken && validJson.renewedAuthToken.length > 10, 'Must mint fresh renewedAuthToken');
+  assert.deepEqual(validJson.files.map((f) => f.id).sort(), ['pren_file_001', 'pren_file_002']);
+});
+
