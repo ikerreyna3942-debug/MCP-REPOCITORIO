@@ -729,6 +729,10 @@ function dispatchPromptsAction_(action, payload) {
       return handleOdooBuzonList_(payload);
     case 'odoo_buzon_upload':
       return handleOdooBuzonUpload_(payload);
+    case 'odoo_final_list':
+      return handleOdooFinalList_(payload);
+    case 'odoo_direct_upload_and_register':
+      return handleOdooDirectUploadAndRegister_(payload);
     case 'odoo_move_to_final':
       return handleOdooMoveToFinal_(payload);
     case 'odoo_register_foto':
@@ -1235,6 +1239,111 @@ function resolveOdooFinalDestFolder_(subfolderKey) {
     return { ok: false, folderTrashed: true, folderId: matchedMeta.id, error: 'La subcarpeta destino "' + matchedMeta.name + '" está en la Papelera.' };
   }
   return { ok: true, folder: subFolder, id: matchedMeta.id, name: String(subFolder.getName() || matchedMeta.name), key: matchedMeta.key };
+}
+
+function handleOdooFinalList_(payload) {
+  const auth = verifyPromptsOwnerAuth_(payload);
+  if (!auth.ok) return auth;
+
+  const requestedSub = String((payload && (payload.subfolderKey || payload.targetSubfolder)) || 'MUEBLES').trim();
+  const dest = resolveOdooFinalDestFolder_(requestedSub);
+  if (!dest.ok) return dest;
+
+  const maxItems = Math.min(Math.max(Number((payload && payload.limit) || 40) || 40, 1), 120);
+  const allFiles = listImagesInFolderById_(dest.folder, { checkMultiParent: false });
+  const sliced = allFiles.slice(0, maxItems);
+  return {
+    ok: true,
+    project: PROMPTS_PROJECT_TAG_,
+    folderKey: dest.key,
+    folderId: dest.id,
+    folderName: dest.name,
+    folderUrl: 'https://drive.google.com/drive/folders/' + dest.id,
+    count: sliced.length,
+    totalCount: allFiles.length,
+    files: sliced,
+    timestamp: new Date().toISOString()
+  };
+}
+
+function handleOdooDirectUploadAndRegister_(payload) {
+  const auth = verifyPromptsOwnerAuth_(payload);
+  if (!auth.ok) return auth;
+
+  const parsed = parseAndValidateImageUpload_(payload, 'odoo-foto');
+  if (!parsed.ok) return parsed;
+
+  const destMode = String((payload && payload.dest) || 'final').trim().toLowerCase();
+  const requestedSub = String((payload && (payload.subfolderKey || payload.targetSubfolder)) || 'MUEBLES').trim();
+
+  let targetFolder = null;
+  let targetFolderId = '';
+  let targetFolderKey = '';
+  let targetFolderName = '';
+
+  if (destMode === 'buzon') {
+    const buzonCheck = getActiveBuzonOdooFolder_('odoo_direct_upload_and_register');
+    if (!buzonCheck.ok) return buzonCheck;
+    targetFolder = buzonCheck.folder;
+    targetFolderId = BUZON_ODOO_FOLDER_ID_;
+    targetFolderKey = 'BUZON';
+    targetFolderName = String(targetFolder.getName() || 'SUBIDA DE FOTOS');
+  } else {
+    const dest = resolveOdooFinalDestFolder_(requestedSub);
+    if (!dest.ok) return dest;
+    targetFolder = dest.folder;
+    targetFolderId = dest.id;
+    targetFolderKey = dest.key;
+    targetFolderName = dest.name;
+  }
+
+  let createdMeta = null;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const created = targetFolder.createFile(parsed.blob);
+    try {
+      created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (eShare) {}
+    createdMeta = formatDriveFileMeta_(created, targetFolderId);
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
+  }
+
+  let sheetRegistration = null;
+  const shouldRegister = !(payload && (payload.registerSheet === false || String(payload.registerSheet).toLowerCase() === 'false'));
+  if (shouldRegister && createdMeta && createdMeta.viewUrl) {
+    const rawTipo = String((payload && payload.tipo) || 'MUEBLE').trim().toUpperCase();
+    const validTipo = Object.prototype.hasOwnProperty.call(FOTOS_NORM_BLOCKS_, rawTipo) ? rawTipo : 'MUEBLE';
+    const stemName = String(createdMeta.name || parsed.fileName || 'foto')
+      .replace(/\.(jpe?g|png|webp|gif|avif|bmp)$/i, '')
+      .trim() || parsed.fileName;
+    const skuClean = String((payload && payload.sku) || '').trim().toUpperCase();
+
+    const regPayload = {
+      ownerEmail: payload && payload.ownerEmail,
+      pin: payload && payload.pin,
+      tipo: validTipo,
+      nombre: stemName,
+      link: createdMeta.viewUrl
+    };
+    if (skuClean) {
+      regPayload.sku = skuClean;
+      regPayload.updateDatosGeneral = true;
+    }
+    sheetRegistration = handleOdooRegisterFoto_(regPayload);
+  }
+
+  return {
+    ok: true,
+    project: PROMPTS_PROJECT_TAG_,
+    destFolderKey: targetFolderKey,
+    folderId: targetFolderId,
+    folderName: targetFolderName,
+    file: createdMeta,
+    sheetRegistration: sheetRegistration,
+    timestamp: new Date().toISOString()
+  };
 }
 
 function handleOdooMoveToFinal_(payload) {
