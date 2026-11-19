@@ -6120,7 +6120,7 @@
             openAuthModalForStartup();
             return;
         }
-        if (isGuestSession()) return;
+        if (isGuestSession() || !isFotosAppOwner()) return;
         window.closeFabMenu();
         closeProductDetail();
         closeCartModal();
@@ -6815,7 +6815,10 @@
         const kevinAdvisorPreview = isKevinAdvisorPreviewActive();
 
         if (headerHistBtn) {
-            headerHistBtn.classList.toggle('hidden', !isAuthed || guestMode);
+            headerHistBtn.classList.toggle('hidden', !isAuthed || guestMode || !isOwnerFotos);
+        }
+        if (!isOwnerFotos && activeInAppModule === 'historial' && typeof window.closeInAppModules === 'function') {
+            window.closeInAppModules();
         }
         if (headerLogoutBtn) {
             headerLogoutBtn.classList.toggle('hidden', !isAuthed || guestMode);
