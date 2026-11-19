@@ -510,7 +510,46 @@
         return fetchSheetViaJsonp(sheetName, rangeStr);
     }
 
-    async function callWebAppPost(action, payloadObj, timeoutMs) {
+    function extractAuthTokenFromLoginRes(cloudRes) {
+        if (!cloudRes || typeof cloudRes !== 'object') return '';
+        const direct = cleanStr(cloudRes.authToken || cloudRes.renewedAuthToken || (cloudRes.user && cloudRes.user.authToken));
+        if (direct) return direct;
+        if (Array.isArray(cloudRes.locations)) {
+            for (let i = 0; i < cloudRes.locations.length; i++) {
+                const loc = cloudRes.locations[i];
+                if (loc && normalizeEmailInput(loc.correo) === OWNER_EMAIL && cleanStr(loc.authToken)) {
+                    return cleanStr(loc.authToken);
+                }
+            }
+        }
+        return '';
+    }
+
+    function persistRefreshedOwnerToken(newToken) {
+        const tok = cleanStr(newToken);
+        if (!tok) return;
+        state.authToken = tok;
+        const keys = [FOTOS_SESSION_KEY, PANEL_SESSION_KEY, HIST_SESSION_KEY];
+        for (let i = 0; i < keys.length; i++) {
+            try {
+                const raw = localStorage.getItem(keys[i]);
+                const prev = raw ? (JSON.parse(raw) || {}) : {};
+                if (prev.correo && normalizeEmailInput(prev.correo) !== OWNER_EMAIL) continue;
+                const nextObj = Object.assign({}, prev, {
+                    correo: OWNER_EMAIL,
+                    nombre: prev.nombre || OWNER_DISPLAY_NAME,
+                    sheetTab: prev.sheetTab || 'PROYECTOS',
+                    authToken: tok,
+                    verifiedAt: Date.now()
+                });
+                localStorage.setItem(keys[i], JSON.stringify(nextObj));
+            } catch (e) {}
+        }
+    }
+
+    let _ownerTokenRenewPromise = null;
+
+    async function sendRawWebAppPost(action, payloadObj, timeoutMs) {
         const cfgUrl = (window.CREATA_CLOUD_CONFIG && typeof window.CREATA_CLOUD_CONFIG.getApiUrl === 'function')
             ? window.CREATA_CLOUD_CONFIG.getApiUrl()
             : '';
@@ -533,11 +572,89 @@
         }
     }
 
+    async function renewOwnerAuthTokenSilently() {
+        const key = cleanStr(state.accessKey);
+        if (!key) return '';
+        if (_ownerTokenRenewPromise) return _ownerTokenRenewPromise;
+        _ownerTokenRenewPromise = (async () => {
+            try {
+                const loginRes = await sendRawWebAppPost('inv_login', {
+                    email: OWNER_EMAIL,
+                    accessKey: key,
+                    sheetTab: 'PROYECTOS'
+                }, 10000);
+                const tok = extractAuthTokenFromLoginRes(loginRes);
+                if (tok) {
+                    persistRefreshedOwnerToken(tok);
+                    return tok;
+                }
+                return '';
+            } catch (e) {
+                return '';
+            } finally {
+                _ownerTokenRenewPromise = null;
+            }
+        })();
+        return _ownerTokenRenewPromise;
+    }
+
+    function isOwnerFotosProtectedAction(action) {
+        return action === 'fotos_subir_list' ||
+            action === 'fotos_subir_upload_inbox' ||
+            action === 'fotos_subir_assign' ||
+            action === 'fotos_delete' ||
+            action === 'fotos_subir_delete' ||
+            action === 'fotos_sync_skus';
+    }
+
+    async function callWebAppPost(action, payloadObj, timeoutMs) {
+        const isFotosAction = isOwnerFotosProtectedAction(action);
+        if (isFotosAction && !cleanStr(state.authToken) && cleanStr(state.accessKey)) {
+            const preRenewed = await renewOwnerAuthTokenSilently();
+            if (preRenewed && payloadObj && typeof payloadObj === 'object') {
+                payloadObj = Object.assign({}, payloadObj, { authToken: preRenewed });
+            }
+        }
+
+        let res = await sendRawWebAppPost(action, payloadObj, timeoutMs);
+        if (res && res.renewedAuthToken) {
+            persistRefreshedOwnerToken(res.renewedAuthToken);
+        }
+
+        if (isFotosAction && res && !res.ok && !res.unavailable && !res.forbidden && !res.forbiddenFolder) {
+            const isSilentGateReject = !cleanStr(res.error) || !!res.authRequired;
+            if (isSilentGateReject) {
+                if (cleanStr(state.accessKey)) {
+                    const freshTok = await renewOwnerAuthTokenSilently();
+                    if (freshTok) {
+                        const retryPayload = Object.assign({}, payloadObj || {}, { authToken: freshTok });
+                        res = await sendRawWebAppPost(action, retryPayload, timeoutMs);
+                        if (res && res.renewedAuthToken) {
+                            persistRefreshedOwnerToken(res.renewedAuthToken);
+                        }
+                    } else if (!cleanStr(res.error)) {
+                        res = Object.assign({}, res, {
+                            authRequired: true,
+                            error: 'Sesión expirada. Ingresa tu contraseña para conectar con SUBIR PREN.'
+                        });
+                    }
+                } else if (!cleanStr(res.error)) {
+                    res = Object.assign({}, res, {
+                        authRequired: true,
+                        error: 'Sesión expirada. Ingresa tu contraseña para conectar con SUBIR PREN.'
+                    });
+                }
+            }
+        }
+        return res;
+    }
+
     function buildOwnerAuthPayload() {
         const payload = {
             authToken: state.authToken || '',
             advisorEmail: OWNER_EMAIL,
-            sheetTab: 'PROYECTOS'
+            sheetTab: 'PROYECTOS',
+            inboxFolderId: SUBIR_FOLDER_ID
         };
         if (state.accessKey) {
             payload.accessKey = state.accessKey;
@@ -1165,9 +1282,7 @@
             }
 
             if (verified) {
-                const issuedToken = cleanStr(
-                    (cloudRes && (cloudRes.authToken || (cloudRes.user && cloudRes.user.authToken))) || ''
-                );
+                const issuedToken = extractAuthTokenFromLoginRes(cloudRes);
                 state.authToken = issuedToken;
                 state.accessKey = typedKey;
                 const payload = JSON.stringify({
@@ -1218,6 +1333,11 @@
         if (!base || !state.productBySku.size) return '';
         const upperBase = base.toUpperCase();
         if (state.productBySku.has(upperBase)) return upperBase;
+
+        const firstWord = cleanStr(upperBase.split(/\s+/)[0]);
+        if (firstWord.length >= 3 && !NON_SKU_GENERIC_WORDS.has(firstWord) && state.productBySku.has(firstWord)) {
+            return firstWord;
+        }
 
         const firstPart = cleanStr(upperBase.split(/[\s_\-]+/)[0]);
         if (firstPart.length >= 3 && !NON_SKU_GENERIC_WORDS.has(firstPart) && state.productBySku.has(firstPart)) {
@@ -3265,6 +3385,281 @@
         return stagedEntries;
     };
 
+    const SUBIR_PREN_WINDOWS_PATH = 'G:\\Mi unidad\\DOC ANIPA\\Fotos general\\Fotos de del proyeto\\SUBIR PREN';
+    const SUBIR_PREN_DIR_IDB_NAME = 'creata_subir_pren_dir_idb_v1';
+    const SUBIR_PREN_DIR_IDB_STORE = 'dir_handles';
+    const SUBIR_PREN_DIR_IDB_KEY = 'subir_pren';
+
+    function openSubirPrenDirHandleDb() {
+        return new Promise((resolve) => {
+            try {
+                if (typeof indexedDB === 'undefined' || !indexedDB || typeof indexedDB.open !== 'function') {
+                    resolve(null);
+                    return;
+                }
+                const req = indexedDB.open(SUBIR_PREN_DIR_IDB_NAME, 1);
+                req.onupgradeneeded = () => {
+                    try {
+                        const db = req.result;
+                        if (db && !db.objectStoreNames.contains(SUBIR_PREN_DIR_IDB_STORE)) {
+                            db.createObjectStore(SUBIR_PREN_DIR_IDB_STORE);
+                        }
+                    } catch (eUp) {}
+                };
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => resolve(null);
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    async function readSavedSubirPrenDirHandle() {
+        const db = await openSubirPrenDirHandleDb();
+        if (!db) return null;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(SUBIR_PREN_DIR_IDB_STORE, 'readonly');
+                const req = tx.objectStore(SUBIR_PREN_DIR_IDB_STORE).get(SUBIR_PREN_DIR_IDB_KEY);
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => resolve(null);
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    async function writeSavedSubirPrenDirHandle(dirHandle) {
+        const db = await openSubirPrenDirHandleDb();
+        if (!db || !dirHandle) return false;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(SUBIR_PREN_DIR_IDB_STORE, 'readwrite');
+                tx.objectStore(SUBIR_PREN_DIR_IDB_STORE).put(dirHandle, SUBIR_PREN_DIR_IDB_KEY);
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => resolve(false);
+            } catch (e) {
+                resolve(false);
+            }
+        });
+    }
+
+    function updateSubirPrenLocalBadgeUi(linkedFolderName) {
+        const badgeEl = document.getElementById('subirPrenLocalPathBadge');
+        const rebindBtn = document.getElementById('btnRebindLocalSubirPrenFolder');
+        const pickBtn = document.getElementById('btnPickLocalSubirPrenFolder');
+        if (linkedFolderName) {
+            if (badgeEl) {
+                badgeEl.textContent = '✓ ' + SUBIR_PREN_WINDOWS_PATH + ' (' + linkedFolderName + ')';
+                badgeEl.classList.add('is-linked');
+            }
+            if (rebindBtn) rebindBtn.classList.remove('hidden');
+            if (pickBtn) pickBtn.textContent = '💻 Subir de SUBIR PREN (PC)';
+        } else {
+            if (badgeEl) {
+                badgeEl.textContent = SUBIR_PREN_WINDOWS_PATH;
+                badgeEl.classList.remove('is-linked');
+            }
+            if (rebindBtn) rebindBtn.classList.add('hidden');
+            if (pickBtn) pickBtn.textContent = '💻 Carpeta PC (SUBIR PREN)';
+        }
+    }
+
+    async function syncLocalSubirPrenFolderBadge() {
+        try {
+            const savedHandle = await readSavedSubirPrenDirHandle();
+            if (savedHandle && savedHandle.name) {
+                updateSubirPrenLocalBadgeUi(String(savedHandle.name));
+            } else {
+                updateSubirPrenLocalBadgeUi('');
+            }
+        } catch (e) {}
+    }
+
+    async function collectImageFilesFromDirHandle(dirHandle, depth) {
+        const out = [];
+        if (!dirHandle || typeof dirHandle.values !== 'function') return out;
+        const curDepth = typeof depth === 'number' ? depth : 0;
+        for await (const entry of dirHandle.values()) {
+            if (!entry) continue;
+            if (entry.kind === 'file' && typeof entry.getFile === 'function') {
+                try {
+                    const file = await entry.getFile();
+                    if (!file) continue;
+                    const mime = String(file.type || '').toLowerCase();
+                    const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(file.name || '');
+                    if (isImg) out.push(file);
+                } catch (eFile) {}
+            } else if (entry.kind === 'directory' && curDepth < 1) {
+                const subFiles = await collectImageFilesFromDirHandle(entry, curDepth + 1);
+                for (let s = 0; s < subFiles.length; s++) out.push(subFiles[s]);
+            }
+        }
+        return out;
+    }
+
+    async function ingestLocalSubirPrenFilesDeduped(files, sourceLabel) {
+        const validFiles = (Array.isArray(files) ? files : []).filter((f) => {
+            if (!f) return false;
+            const mime = String(f.type || '').toLowerCase();
+            return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '');
+        });
+        if (!validFiles.length) {
+            showAssignFeedback('ℹ️ No se encontraron imágenes nuevas en ' + escapeHtml(sourceLabel || 'SUBIR PREN') + '.', false);
+            return [];
+        }
+
+        const existingNameSet = new Set();
+        for (let i = 0; i < state.inboxFiles.length; i++) {
+            const ex = state.inboxFiles[i];
+            if (ex && ex.name) {
+                existingNameSet.add(cleanStr(ex.name).toLowerCase());
+            }
+        }
+
+        const brandNewFiles = [];
+        let firstExistingMatchId = '';
+        for (let j = 0; j < validFiles.length; j++) {
+            const f = validFiles[j];
+            const keyLower = cleanStr(f.name).toLowerCase();
+            if (existingNameSet.has(keyLower)) {
+                if (!firstExistingMatchId) {
+                    const foundEx = state.inboxFiles.find((it) => cleanStr(it && it.name).toLowerCase() === keyLower);
+                    if (foundEx) firstExistingMatchId = foundEx.id;
+                }
+            } else {
+                brandNewFiles.push(f);
+            }
+        }
+
+        state.galleryMode = 'INBOX';
+        window.setGalleryMode('INBOX');
+
+        if (!brandNewFiles.length) {
+            if (firstExistingMatchId && !state.selectedInboxFileId) {
+                window.selectInboxPhoto(firstExistingMatchId);
+            }
+            renderInboxGallery();
+            showAssignFeedback(
+                '✅ Las ' + validFiles.length + ' foto(s) de SUBIR PREN ya están sincronizadas y listas en bandeja.',
+                true
+            );
+            return [];
+        }
+
+        return window.uploadLocalFilesToSubir({ files: brandNewFiles });
+    }
+
+    window.loadFromLocalSubirPrenFolder = async function (forcePickNew) {
+        if (typeof window.showDirectoryPicker !== 'function') {
+            const fallbackInp = document.getElementById('pcUploadFolderToSubirInput');
+            if (fallbackInp && typeof fallbackInp.click === 'function') {
+                fallbackInp.click();
+                return [];
+            }
+            showAssignFeedback('ℹ️ Usa el botón "📁 Carpeta" para seleccionar ' + escapeHtml(SUBIR_PREN_WINDOWS_PATH) + '.', false);
+            return [];
+        }
+
+        try {
+            let dirHandle = forcePickNew ? null : await readSavedSubirPrenDirHandle();
+            if (dirHandle) {
+                let perm = 'granted';
+                if (typeof dirHandle.queryPermission === 'function') {
+                    perm = await dirHandle.queryPermission({ mode: 'read' });
+                }
+                if (perm !== 'granted' && typeof dirHandle.requestPermission === 'function') {
+                    perm = await dirHandle.requestPermission({ mode: 'read' });
+                }
+                if (perm !== 'granted') {
+                    dirHandle = null;
+                }
+            }
+
+            if (!dirHandle) {
+                dirHandle = await window.showDirectoryPicker({ id: 'creata_subir_pren_pc', mode: 'read' });
+                if (!dirHandle) return [];
+                await writeSavedSubirPrenDirHandle(dirHandle);
+            }
+
+            updateSubirPrenLocalBadgeUi(String(dirHandle.name || 'SUBIR PREN'));
+            const collected = await collectImageFilesFromDirHandle(dirHandle, 0);
+            if (!collected.length) {
+                await window.refreshInboxOnly(false);
+                showAssignFeedback('ℹ️ La carpeta local "' + escapeHtml(dirHandle.name || 'SUBIR PREN') + '" está vacía actualmente.', true);
+                return [];
+            }
+            return await ingestLocalSubirPrenFilesDeduped(collected, dirHandle.name || 'SUBIR PREN');
+        } catch (errPick) {
+            if (errPick && (errPick.name === 'AbortError' || /abort/i.test(String(errPick.message || '')))) {
+                return [];
+            }
+            const fallbackInp = document.getElementById('pcUploadFolderToSubirInput');
+            if (fallbackInp && typeof fallbackInp.click === 'function') {
+                fallbackInp.click();
+            }
+            return [];
+        }
+    };
+
+    async function readDroppedEntriesRecursive(entry, depth) {
+        const out = [];
+        if (!entry) return out;
+        const curDepth = typeof depth === 'number' ? depth : 0;
+        if (entry.isFile && typeof entry.file === 'function') {
+            const f = await new Promise((resolve) => entry.file(resolve, () => resolve(null)));
+            if (f) out.push(f);
+        } else if (entry.isDirectory && curDepth < 2 && typeof entry.createReader === 'function') {
+            const reader = entry.createReader();
+            const readBatch = () => new Promise((resolve) => reader.readEntries((arr) => resolve(arr || []), () => resolve([])));
+            let batch = await readBatch();
+            while (batch.length > 0) {
+                for (let i = 0; i < batch.length; i++) {
+                    const nested = await readDroppedEntriesRecursive(batch[i], curDepth + 1);
+                    for (let n = 0; n < nested.length; n++) out.push(nested[n]);
+                }
+                batch = await readBatch();
+            }
+        }
+        return out;
+    }
+
+    function bindSubirPrenDragAndDrop() {
+        const card = document.getElementById('secGalleryInbox');
+        if (!card) return;
+        card.addEventListener('dragover', (ev) => {
+            ev.preventDefault();
+            card.classList.add('is-drop-active');
+        });
+        card.addEventListener('dragleave', (ev) => {
+            if (!ev.relatedTarget || (typeof card.contains === 'function' && !card.contains(ev.relatedTarget))) {
+                card.classList.remove('is-drop-active');
+            }
+        });
+        card.addEventListener('drop', async (ev) => {
+            ev.preventDefault();
+            card.classList.remove('is-drop-active');
+            const dt = ev.dataTransfer;
+            if (!dt) return;
+            const gathered = [];
+            if (dt.items && dt.items.length && typeof dt.items[0].webkitGetAsEntry === 'function') {
+                for (let i = 0; i < dt.items.length; i++) {
+                    const entry = dt.items[i].webkitGetAsEntry();
+                    if (entry) {
+                        const sub = await readDroppedEntriesRecursive(entry, 0);
+                        for (let s = 0; s < sub.length; s++) gathered.push(sub[s]);
+                    }
+                }
+            }
+            if (!gathered.length && dt.files && dt.files.length) {
+                for (let f = 0; f < dt.files.length; f++) gathered.push(dt.files[f]);
+            }
+            if (gathered.length > 0) {
+                await ingestLocalSubirPrenFilesDeduped(gathered, 'SUBIR PREN');
+            }
+        });
+    }
+
     window.uploadDirectToSelectedCategory = async function (inputEl) {
         const rawList = inputEl && inputEl.files ? Array.from(inputEl.files) : [];
         const files = rawList.filter((f) => {
@@ -4817,6 +5212,34 @@
 
     function handleIncomingPeerMessageInFotos(d) {
         if (!d || typeof d !== 'object') return;
+        if (d.type === 'CREATA_SPLIT_PHOTO_SAVED' && d.source !== 'fotos' && d.sku) {
+            const targetSku = cleanStr(d.sku).toUpperCase();
+            if (!targetSku) return;
+            const nextUrl = d.deleted ? '' : cleanPhotoUrl(d.photoUrl);
+            const nextFid = d.deleted ? '' : (cleanStr(d.fileId) || extractDriveFileId(nextUrl));
+            if (!state.productBySku.has(targetSku)) {
+                upsertProductFromCotizadorPeer(targetSku, { f: nextUrl });
+            }
+            const prod = state.productBySku.get(targetSku);
+            if (prod) {
+                prod.photoUrl = nextUrl;
+                prod.photoFileId = nextFid;
+                if (nextUrl) prod.inSheet1 = true;
+            }
+            if (d.fileId) {
+                state.rawInboxFromDrive = state.rawInboxFromDrive.filter((x) => x && x.id !== d.fileId);
+                state.inboxFiles = state.inboxFiles.filter((x) => x && x.id !== d.fileId);
+            }
+            invalidateLoadedPhotosCache();
+            renderSkuCategoryFilterRow();
+            renderSkuLocationFilterRow();
+            applySkuFiltersAndRender();
+            renderInboxGallery();
+            if (state.selectedSku === targetSku) {
+                renderSelectedProductStage();
+            }
+            return;
+        }
         if (d.type === 'CREATA_SPLIT_SELECT_SKU' && d.source !== 'fotos' && d.sku) {
             const targetSku = cleanStr(d.sku).toUpperCase();
             if (!targetSku) return;
@@ -4878,6 +5301,8 @@
         }
 
         populateDestFolderSelect();
+        syncLocalSubirPrenFolderBadge();
+        bindSubirPrenDragAndDrop();
         hydrateSavedOverrides();
         hydrateFromFastCache();
         hydrateFromLocalCompressedBundleIfEmpty();

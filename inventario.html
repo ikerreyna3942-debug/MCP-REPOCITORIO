@@ -24,7 +24,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=7">
-    <link rel="stylesheet" href="./inventario-ui.css?v=13">
+    <link rel="stylesheet" href="./inventario-ui.css?v=14">
 </head>
 <body>
 
@@ -901,6 +901,28 @@
                         <label for="uploadPhotoFilesInput" class="inv-field-label">Fotos *</label>
                         <span id="uploadPhotoCountLabel" class="inv-muted-sm">0 seleccionadas</span>
                     </div>
+
+                    <!-- ACCESO DIRECTO SUBIR PREN: CARPETA PC (G:\Mi unidad\...\SUBIR PREN) + GOOGLE DRIVE (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p) -->
+                    <div id="uploadPhotoSubirPrenSources" class="inv-subir-pren-sources hidden">
+                        <div class="inv-subir-pren-path" id="uploadPhotoSubirPrenPathLabel" title="G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN">
+                            SUBIR PREN: G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN
+                        </div>
+                        <div class="inv-subir-pren-btns">
+                            <button type="button" id="btnInvPickLocalSubirPren" class="inv-subir-chip is-primary" onclick="pickLocalSubirPrenInCotizador(false)">💻 Carpeta PC (SUBIR PREN)</button>
+                            <button type="button" id="btnInvLoadDriveSubirPren" class="inv-subir-chip" onclick="toggleDriveSubirPrenInCotizador()">☁️ Drive SUBIR PREN</button>
+                            <a id="linkInvOpenDriveSubirPren" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener" class="inv-subir-chip">↗ Drive</a>
+                        </div>
+                        <input type="file" id="uploadPhotoFolderInput" accept="image/*" webkitdirectory directory multiple class="hidden" onchange="onUploadPhotoFilesSelected(this.files)">
+                    </div>
+
+                    <div id="uploadPhotoDriveInboxWrap" class="inv-subir-pren-tray hidden">
+                        <div class="inv-subir-pren-tray-head">
+                            <span id="uploadPhotoDriveInboxCount">☁️ Fotos en Drive SUBIR PREN</span>
+                            <button type="button" class="inv-subir-chip" onclick="loadDriveSubirPrenInCotizador(true)">↻ Actualizar</button>
+                        </div>
+                        <div id="uploadPhotoDriveInboxGrid" class="inv-subir-pren-grid"></div>
+                    </div>
+
                     <label id="uploadPhotoDropzone" for="uploadPhotoFilesInput" class="inv-upload-dropzone">
                         <svg class="inv-upload-ico" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
@@ -1154,6 +1176,6 @@
     <script src="./creata-back-nav.js?v=1"></script>
     <script src="./seguimiento-app.js?v=7"></script>
     <script src="./historial-app.js?v=6"></script>
-    <script src="inventario-app.js?v=86"></script>
+    <script src="inventario-app.js?v=87"></script>
 </body>
 </html>

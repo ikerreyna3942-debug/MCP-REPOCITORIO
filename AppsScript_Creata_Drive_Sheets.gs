@@ -1159,30 +1159,41 @@ function doPost(e) {
       if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(hacerPublicasFotosInventario_(body || {}));
     }
-    if (action === 'fotos_subir_list') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
-      return jsonResponse_(handleFotosSubirList_(body));
-    }
-    if (action === 'fotos_subir_upload_inbox') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
-      return jsonResponse_(handleFotosSubirUploadInbox_(body));
-    }
-    if (action === 'fotos_subir_assign') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
-      return jsonResponse_(handleFotosSubirAssign_(body));
-    }
-    if (action === 'fotos_delete' || action === 'fotos_subir_delete') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
-      return jsonResponse_(handleFotosDelete_(body));
-    }
-    if (action === 'fotos_sync_skus') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
-      return jsonResponse_(handleFotosSyncSkus_(body));
+    if (
+      action === 'fotos_subir_list' ||
+      action === 'fotos_subir_upload_inbox' ||
+      action === 'fotos_subir_assign' ||
+      action === 'fotos_delete' ||
+      action === 'fotos_subir_delete' ||
+      action === 'fotos_sync_skus'
+    ) {
+      const fotosMaxHits = action === 'fotos_sync_skus' ? 30 : 45;
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: fotosMaxHits, windowSec: 60 });
+      let shouldMintFreshToken = false;
+      if (!gate.ok) {
+        const reqEmailNorm = String((body && body.advisorEmail) || '').trim().toLowerCase().replace(/,/g, '.');
+        const hasKeyFallback = Boolean(body && String(body.accessKey || '').trim() && reqEmailNorm === OWNER_FOTOS_EMAIL_);
+        if (!hasKeyFallback) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión expirada. Ingresa tu contraseña.' });
+        }
+        if (!checkRateLimitSilent_('post_fotos_key:' + reqEmailNorm, 20, 60)) {
+          return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
+        }
+        shouldMintFreshToken = true;
+      }
+      let fotosRes;
+      if (action === 'fotos_subir_list') fotosRes = handleFotosSubirList_(body);
+      else if (action === 'fotos_subir_upload_inbox') fotosRes = handleFotosSubirUploadInbox_(body);
+      else if (action === 'fotos_subir_assign') fotosRes = handleFotosSubirAssign_(body);
+      else if (action === 'fotos_sync_skus') fotosRes = handleFotosSyncSkus_(body);
+      else fotosRes = handleFotosDelete_(body);
+
+      if (shouldMintFreshToken && fotosRes && fotosRes.ok) {
+        try {
+          fotosRes.renewedAuthToken = issueInvAuthToken_(OWNER_FOTOS_EMAIL_, 'PROYECTOS');
+        } catch (eMint) {}
+      }
+      return jsonResponse_(fotosRes);
     }
     if (action === 'inv_setup_accounts') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_setup', maxHits: 10, windowSec: 60 });

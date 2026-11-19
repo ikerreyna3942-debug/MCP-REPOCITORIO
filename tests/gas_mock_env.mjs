@@ -421,10 +421,15 @@ export function createMockGasEnvironment(options = {}) {
     Utilities: {
       base64Decode: (b64) => Buffer.from(String(b64), 'base64'),
       base64Encode: (bytes) => Buffer.from(bytes).toString('base64'),
+      base64DecodeWebSafe: (b64) => Buffer.from(String(b64).replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
+      base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
+      computeHmacSha256Signature: (val, key) => Array.from(Buffer.from(String(val) + ':' + String(key)).subarray(0, 32)),
+      getUuid: () => 'mock-uuid-1234-5678',
       newBlob: (bytes, contentType, name) => {
-        const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
+        const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(typeof bytes === 'string' ? bytes : (bytes || []));
         return {
           getBytes: () => buf,
+          getDataAsString: () => buf.toString('utf8'),
           getContentType: () => contentType,
           getName: () => name
         };

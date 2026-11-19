@@ -1626,6 +1626,61 @@ input,
     color: var(--ink-primary);
 }
 
+.subir-pren-source-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-hairline);
+}
+
+.subir-pren-source-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 220px;
+}
+
+.subir-pren-source-tag {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--gold-light);
+    white-space: nowrap;
+}
+
+.subir-pren-source-path {
+    font-size: 11px;
+    color: var(--ink-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.subir-pren-source-path.is-linked {
+    color: var(--status-ok-ink);
+    font-weight: 700;
+}
+
+.subir-pren-source-btns {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+#secGalleryInbox.is-drop-active {
+    border-color: var(--gold-accent);
+    box-shadow: 0 0 0 2px var(--brand-gold-tint);
+}
+
 @media (max-width: 1024px) {
     :root {
         --creata-back-toast-bottom: calc(78px + env(safe-area-inset-bottom, 0px));
