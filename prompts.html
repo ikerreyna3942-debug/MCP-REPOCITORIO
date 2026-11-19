@@ -16,7 +16,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Estudio IA · Generador de Prompts | CREATA</title>
-    <link rel="manifest" href="./prompts-manifest.json?v=1">
+    <link rel="manifest" href="./prompts-manifest.json?v=2">
     <link rel="icon" type="image/png" sizes="192x192" href="./prompts-icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="./prompts-icon-512.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./prompts-apple-icon.png">
@@ -24,7 +24,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./prompts-styles.css?v=1">
+    <link rel="stylesheet" href="./prompts-styles.css?v=2">
 </head>
 <body>
 
@@ -44,6 +44,13 @@
             </div>
 
             <div class="topbar-actions">
+                <button
+                    type="button"
+                    id="btnToggleProptDrawer"
+                    class="tb-btn tb-btn-propt"
+                    onclick="toggleProptDrawer()"
+                    title="Abrir bandeja SUBIR PROPT y consulta rápida de SKU"
+                >📁 SUBIR PROPT <span id="proptCountBadge" class="tb-badge hidden">0</span></button>
                 <button
                     type="button"
                     id="btnInstallPromptsApp"
@@ -110,6 +117,172 @@
                     </div>
                 </div>
             </div>
+
+            <!-- PANEL DESLIZABLE: SUBIR PROPT & CONSULTA SKU (PROYECTO B AISLADO) -->
+            <div
+                id="proptDrawerBackdrop"
+                class="drawer-backdrop hidden"
+                onclick="toggleProptDrawer(false)"
+            ></div>
+            <aside
+                id="proptDrawer"
+                class="propt-drawer hidden"
+                role="dialog"
+                aria-label="Bandeja SUBIR PROPT y consulta SKU"
+            >
+                <div class="propt-drawer-head">
+                    <div class="propt-drawer-title-wrap">
+                        <h2 class="propt-drawer-title">📁 SUBIR PROPT &amp; SKU</h2>
+                        <span class="propt-isolation-badge">Solo SUBIR PROPT · Sin mezclar con SUBIR PREN</span>
+                    </div>
+                    <div class="propt-drawer-head-actions">
+                        <button
+                            type="button"
+                            class="tb-btn tb-btn-icon"
+                            onclick="refreshProptDrawerData()"
+                            title="Actualizar lista de SUBIR PROPT"
+                            aria-label="Actualizar"
+                        >↻</button>
+                        <button
+                            type="button"
+                            class="tb-btn tb-btn-icon"
+                            onclick="toggleProptConfigPanel()"
+                            title="Configurar Apps Script Proyecto B"
+                            aria-label="Configurar Apps Script"
+                        >⚙</button>
+                        <button
+                            type="button"
+                            class="tb-btn tb-btn-icon"
+                            onclick="toggleProptDrawer(false)"
+                            title="Cerrar panel"
+                            aria-label="Cerrar panel"
+                        >✕</button>
+                    </div>
+                </div>
+
+                <div class="propt-drawer-body">
+                    <!-- ACCESOS RÁPIDOS PROYECTO B -->
+                    <div class="propt-quick-links">
+                        <a
+                            class="propt-link-pill"
+                            href="https://drive.google.com/drive/folders/1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX"
+                            target="_blank"
+                            rel="noopener"
+                        >📁 SUBIR PROPT</a>
+                        <a
+                            class="propt-link-pill"
+                            href="https://docs.google.com/spreadsheets/d/1ZCLZppO5AH06Wp2gVuxMoaeX3oJwVHgTjRZ7hlqb6eg/edit#gid=876651849"
+                            target="_blank"
+                            rel="noopener"
+                        >📊 Base de Datos</a>
+                        <a
+                            class="propt-link-pill"
+                            href="https://app-1-3y7y.onrender.com/"
+                            target="_blank"
+                            rel="noopener"
+                        >🚀 Alta de Odoo</a>
+                    </div>
+
+                    <!-- AVISO DE SALUD / CARPETAS -->
+                    <div id="proptHealthWarning" class="propt-warning hidden" role="alert"></div>
+
+                    <!-- CONFIGURACIÓN APPS SCRIPT PROYECTO B -->
+                    <section id="proptConfigBox" class="propt-card">
+                        <div class="propt-card-head">
+                            <h3>🔗 Conectar AppsScript_Prompts_Odoo.gs</h3>
+                            <span id="proptConnStatus" class="propt-conn-pill is-idle">Sin configurar</span>
+                        </div>
+                        <p class="propt-help">
+                            Abre <strong>Base de Datos Generales</strong> → <em>Extensiones → Apps Script</em>, pega el archivo
+                            <code>AppsScript_Prompts_Odoo.gs</code>, implementa como <strong>Aplicación web</strong> (acceso: cualquier usuario) y pega la URL <code>/exec</code> abajo (o pásala por <code>?scriptUrl=...</code>).
+                        </p>
+                        <label class="propt-field-label" for="proptScriptUrlInput">URL Web App Proyecto B (/exec)</label>
+                        <input
+                            type="url"
+                            id="proptScriptUrlInput"
+                            class="propt-input"
+                            placeholder="https://script.google.com/macros/s/.../exec"
+                            autocomplete="off"
+                        >
+                        <div class="propt-field-row">
+                            <div>
+                                <label class="propt-field-label" for="proptOwnerEmailInput">Correo titular</label>
+                                <input
+                                    type="email"
+                                    id="proptOwnerEmailInput"
+                                    class="propt-input"
+                                    placeholder="kevin.reyna@grupoanipa.com"
+                                    autocomplete="email"
+                                >
+                            </div>
+                            <div>
+                                <label class="propt-field-label" for="proptPinInput">PIN (opcional)</label>
+                                <input
+                                    type="password"
+                                    id="proptPinInput"
+                                    class="propt-input"
+                                    placeholder="PROMPTS_PIN"
+                                    autocomplete="off"
+                                >
+                            </div>
+                        </div>
+                        <div class="propt-config-actions">
+                            <button type="button" class="btn-primary propt-btn-sm" onclick="saveProptScriptConfig()">Guardar y conectar</button>
+                            <button type="button" class="btn-secondary propt-btn-sm" onclick="clearProptScriptConfig()">Limpiar</button>
+                        </div>
+                    </section>
+
+                    <!-- CONSULTA RÁPIDA DE SKU (BASE DE DATOS GENERALES) -->
+                    <section class="propt-card">
+                        <div class="propt-card-head">
+                            <h3>🔎 Consulta rápida SKU · Base de Datos</h3>
+                        </div>
+                        <div class="propt-sku-row">
+                            <input
+                                type="text"
+                                id="proptSkuInput"
+                                class="propt-input"
+                                placeholder="Ej. HAK1PLUM o prefijo >= 4 letras"
+                                autocomplete="off"
+                                onkeydown="if (event.key === 'Enter') lookupPromptsSku()"
+                            >
+                            <button type="button" class="btn-primary propt-btn-sm" onclick="lookupPromptsSku()">Buscar</button>
+                        </div>
+                        <div id="proptSkuResult" class="propt-sku-result hidden"></div>
+                    </section>
+
+                    <!-- SUBIDA DIRECTA Y GALERÍA SUBIR PROPT -->
+                    <section class="propt-card">
+                        <div class="propt-card-head">
+                            <h3>🖼 Fotos en SUBIR PROPT</h3>
+                            <span id="proptListCountLabel" class="propt-muted-count">0 fotos</span>
+                        </div>
+                        <input
+                            type="file"
+                            id="proptFileInput"
+                            class="hidden"
+                            accept="image/*"
+                            multiple
+                            onchange="uploadFilesToSubirPropt(this)"
+                        >
+                        <div class="propt-upload-row">
+                            <button
+                                type="button"
+                                id="btnUploadSubirPropt"
+                                class="btn-primary propt-btn-upload"
+                                onclick="document.getElementById('proptFileInput').click()"
+                            >📤 Subir foto directa a SUBIR PROPT</button>
+                        </div>
+                        <p class="propt-help propt-help-compact">
+                            Subida directa por Apps Script (sin bloqueos de cookies en celular/iOS).
+                        </p>
+                        <div id="proptFeedback" class="propt-feedback hidden" aria-live="polite"></div>
+                        <div id="proptGalleryGrid" class="propt-gallery-grid">
+                            <div class="propt-empty">Configura la URL de AppsScript_Prompts_Odoo.gs para ver y subir fotos a SUBIR PROPT.</div>
+                        </div>
+                    </section>
+                </div>
+            </aside>
         </main>
     </div>
 
@@ -193,6 +366,6 @@
         </div>
     </div>
 
-    <script src="./prompts-app.js?v=1"></script>
+    <script src="./prompts-app.js?v=2"></script>
 </body>
 </html>

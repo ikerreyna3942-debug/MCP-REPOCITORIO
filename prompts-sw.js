@@ -7,20 +7,21 @@
  *   tráfico hacia Render (https://buena-espero.onrender.com/).
  */
 const CACHE_PREFIX = 'creata-prompts-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v1';
+const CACHE_NAME = CACHE_PREFIX + 'v2';
 const PAGE_URL = './prompts.html';
 const NETWORK_TIMEOUT_MS = 7000;
 
 const SHELL_ASSETS = [
     './prompts.html',
-    './prompts-styles.css?v=1',
-    './prompts-app.js?v=1',
-    './prompts-manifest.json?v=1',
+    './prompts-styles.css?v=2',
+    './prompts-app.js?v=2',
+    './prompts-manifest.json?v=2',
     './prompts-icon-192.png',
     './prompts-icon-512.png',
     './prompts-apple-icon.png'
 ];
 
+// Bypass explícito de buena-espero.onrender.com y script.google.com (solo cachea shell local y Google Fonts)
 function isCacheableHost(url) {
     return url.origin === self.location.origin ||
         url.hostname === 'fonts.googleapis.com' ||
