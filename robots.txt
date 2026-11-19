@@ -76,6 +76,7 @@ Disallow: /seguimiento.html
 Disallow: /historial.html
 Disallow: /panel.html
 Disallow: /fotos-productos.html
+Disallow: /prompts.html
 Disallow: /seguimiento-manual.html
 Disallow: /AppsScript_Creata_Drive_Sheets.gs
 Disallow: /creata-guard.js

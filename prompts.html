@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
+    <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+    <meta name="description" content="Aplicación instalable para celular y PC del Generador de Prompts IA CREATA.">
+    <meta name="theme-color" content="#0F172A">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Prompts IA">
+    <meta name="application-name" content="Prompts IA">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Estudio IA · Generador de Prompts | CREATA</title>
+    <link rel="manifest" href="./prompts-manifest.json?v=1">
+    <link rel="icon" type="image/png" sizes="192x192" href="./prompts-icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="./prompts-icon-512.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./prompts-apple-icon.png">
+    <link rel="preconnect" href="https://buena-espero.onrender.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./prompts-styles.css?v=1">
+</head>
+<body>
+
+    <div id="promptsShell" class="prompts-shell">
+
+        <!-- BARRA SUPERIOR COMPACTA -->
+        <header class="prompts-topbar" aria-label="Barra superior de Prompts IA">
+            <div class="topbar-brand">
+                <img src="./prompts-icon-192.png" alt="Prompts IA" class="topbar-icon">
+                <div class="topbar-title-wrap">
+                    <h1 class="topbar-title">Estudio IA · Prompts</h1>
+                    <span id="promptsStatusPill" class="status-pill is-loading" aria-live="polite">
+                        <span class="status-dot" aria-hidden="true"></span>
+                        <span id="promptsStatusText">Conectando</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="topbar-actions">
+                <button
+                    type="button"
+                    id="btnInstallPromptsApp"
+                    class="tb-btn tb-btn-install"
+                    onclick="triggerPromptsInstall()"
+                    title="Instalar en celular o PC como aplicación"
+                >📲 Descargar App</button>
+                <button
+                    type="button"
+                    class="tb-btn tb-btn-icon"
+                    onclick="reloadPromptsGenerator()"
+                    title="Recargar generador"
+                    aria-label="Recargar generador"
+                >↻</button>
+                <button
+                    type="button"
+                    class="tb-btn hide-xs"
+                    onclick="openPromptsDirectTab()"
+                    title="Abrir en pestaña independiente"
+                >↗ Render</button>
+                <a class="tb-btn hide-xs" href="./panel.html" title="Volver al Panel CREATA">Panel</a>
+                <button
+                    type="button"
+                    class="tb-btn tb-btn-icon"
+                    onclick="togglePromptsTopbar(true)"
+                    title="Ocultar barra superior (pantalla completa)"
+                    aria-label="Ocultar barra superior"
+                >▴</button>
+            </div>
+        </header>
+
+        <!-- BOTÓN FLOTANTE PARA RESTAURAR BARRA SUPERIOR -->
+        <button
+            type="button"
+            id="floatingExpandBarBtn"
+            class="floating-expand-btn hidden"
+            onclick="togglePromptsTopbar(false)"
+            title="Mostrar barra de Prompts IA"
+        >▾ Prompts IA</button>
+
+        <!-- CONTENEDOR DEL GENERADOR DE PROMPTS -->
+        <main class="prompts-stage">
+            <iframe
+                id="promptsAppFrame"
+                class="prompts-iframe"
+                title="CREATA · Generador de Prompts IA"
+                src="about:blank"
+                allow="clipboard-read; clipboard-write; camera; microphone; fullscreen; display-capture"
+                allowfullscreen
+                referrerpolicy="strict-origin-when-cross-origin"
+            ></iframe>
+
+            <!-- OVERLAY DE CARGA / DESPERTAR RENDER / SIN CONEXIÓN -->
+            <div id="promptsLoadingOverlay" class="stage-overlay" role="status" aria-live="polite">
+                <div class="overlay-card">
+                    <img src="./prompts-icon-192.png" alt="Estudio IA" class="overlay-logo">
+                    <div id="overlaySpinner" class="overlay-spinner" aria-hidden="true"></div>
+                    <h2 id="overlayTitle" class="overlay-title">Iniciando Generador de Prompts IA</h2>
+                    <p id="overlaySub" class="overlay-sub">Conectando con Estudio IA en la nube...</p>
+                    <div id="overlayTimer" class="overlay-timer"></div>
+                    <div id="overlayActions" class="overlay-actions hidden">
+                        <button type="button" class="btn-primary" onclick="reloadPromptsGenerator()">↻ Reintentar</button>
+                        <button type="button" class="btn-secondary" onclick="openPromptsDirectTab()">Abrir directo ↗</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL DE INSTALACIÓN (CELULAR ANDROID / IPHONE / PC) -->
+    <div
+        id="promptsInstallModal"
+        class="modal-backdrop hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="installModalHeading"
+        onclick="if (event.target === this) closePromptsInstallModal()"
+    >
+        <div class="install-modal" onclick="event.stopPropagation()">
+            <div class="install-modal-head">
+                <div class="install-head-left">
+                    <img src="./prompts-icon-192.png" alt="Prompts IA" class="install-head-icon">
+                    <div>
+                        <div class="install-eyebrow">APLICACIÓN CELULAR Y ESCRITORIO</div>
+                        <h2 id="installModalHeading">Instalar Generador de Prompts IA</h2>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="tb-btn tb-btn-icon"
+                    onclick="closePromptsInstallModal()"
+                    aria-label="Cerrar ventana"
+                >✕</button>
+            </div>
+
+            <div class="install-modal-body">
+                <p class="install-intro">
+                    Instala <strong>Prompts IA</strong> directamente en tu celular o computadora para abrirla con su propio ícono, en ventana limpia y sin barras del navegador.
+                </p>
+
+                <div id="nativeInstallBanner" class="native-install-banner hidden">
+                    <span>Tu navegador permite instalación directa en 1 clic:</span>
+                    <button type="button" class="btn-primary" onclick="runNativePromptsInstall()">📲 Instalar ahora</button>
+                </div>
+
+                <div class="install-tabs" role="tablist" aria-label="Elegir dispositivo">
+                    <button type="button" class="install-tab" data-install-tab="android" role="tab" aria-selected="false" onclick="selectPromptsInstallTab('android')">📱 Android</button>
+                    <button type="button" class="install-tab" data-install-tab="ios" role="tab" aria-selected="false" onclick="selectPromptsInstallTab('ios')">🍏 iPhone / iPad</button>
+                    <button type="button" class="install-tab" data-install-tab="pc" role="tab" aria-selected="false" onclick="selectPromptsInstallTab('pc')">💻 PC / Mac</button>
+                </div>
+
+                <div class="install-step-panel" data-install-panel="android">
+                    <ol>
+                        <li>Abre esta página en <strong>Google Chrome</strong> o <strong>Edge</strong> desde tu celular.</li>
+                        <li>Toca el menú <strong>(⋮)</strong> arriba a la derecha.</li>
+                        <li>Selecciona <strong>"Instalar aplicación"</strong> o <strong>"Agregar a la pantalla principal"</strong> y confirma.</li>
+                    </ol>
+                    <p class="install-note">Aparecerá el ícono <strong>Prompts IA</strong> junto a tus demás apps.</p>
+                </div>
+
+                <div class="install-step-panel hidden" data-install-panel="ios">
+                    <ol>
+                        <li>Abre esta página en <strong>Safari</strong> (en iPhone o iPad).</li>
+                        <li>Toca el botón <strong>Compartir (□↑)</strong> en la barra inferior.</li>
+                        <li>Desliza hacia abajo, elige <strong>"Agregar a inicio"</strong> y toca <strong>"Agregar"</strong>.</li>
+                    </ol>
+                    <p class="install-note">Se abrirá en pantalla completa como una app nativa de iOS.</p>
+                </div>
+
+                <div class="install-step-panel hidden" data-install-panel="pc">
+                    <ol>
+                        <li>Abre esta página en <strong>Google Chrome</strong> o <strong>Microsoft Edge</strong> en tu PC o Mac.</li>
+                        <li>Haz clic en el ícono de <strong>Instalar app (⊕ / pantalla con flecha)</strong> al final de la barra de direcciones, o abre el menú <strong>(⋮) → Guardar y compartir → Instalar página como aplicación</strong>.</li>
+                        <li>Confirma en <strong>"Instalar"</strong> para fijarla en el Escritorio, Menú Inicio o Dock.</li>
+                    </ol>
+                    <p class="install-note">Se abrirá en su propia ventana independiente de escritorio.</p>
+                </div>
+
+                <div class="install-modal-foot">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <button type="button" class="btn-secondary" onclick="copyPromptsAppUrl()">🔗 Copiar enlace</button>
+                        <span id="copyAppLinkFeedback" class="copy-feedback" aria-live="polite"></span>
+                    </div>
+                    <button type="button" class="btn-primary" onclick="closePromptsInstallModal()">Entendido</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="./prompts-app.js?v=1"></script>
+</body>
+</html>

@@ -20,7 +20,7 @@
         { num: '3', title: 'Catálogo',                  url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/index.html' },
         { num: '4', title: 'Cambios de Precio Web',     url: 'https://creata-control-precios.onrender.com/', render: true },
         { num: '5', title: 'Mapa 3D · Casa CREATA',     url: 'https://ikerreyna3942-debug.github.io/Casa-creata/' },
-        { num: '6', title: 'Creación de Prompts',       url: 'https://buena-espero.onrender.com/', render: true },
+        { num: '6', title: 'Creación de Prompts',       url: './prompts.html', render: true, wakeUrl: 'https://buena-espero.onrender.com/' },
         { num: '7', title: 'Alta de Odoo',              url: 'https://app-1-3y7y.onrender.com/', render: true },
         { num: '8', title: 'Historial de Cotización',   url: './inventario.html', openModule: 'historial' },
         { num: '9', title: 'Subida de Fotos (Hoja 1)',  url: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos.html' }
@@ -212,7 +212,8 @@
     function wakeRenderServersSilently() {
         PROJECTS.forEach((p) => {
             if (p.render) {
-                fetch(p.url, { method: 'GET', mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+                const target = p.wakeUrl || p.url;
+                fetch(target, { method: 'GET', mode: 'no-cors', cache: 'no-store' }).catch(() => {});
             }
         });
     }
