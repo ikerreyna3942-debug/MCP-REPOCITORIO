@@ -1,25 +1,46 @@
 {
-  "name": "CREATA · Aplicación de Fotos por Categoría",
+  "name": "CREATA · App de Fotos y Cotizador",
   "short_name": "Fotos CREATA",
-  "description": "Aplicación móvil para subir, organizar y vincular fotos de productos CREATA por categoría.",
+  "description": "Aplicación instalable para subir, organizar y vincular fotos de productos CREATA por categoría con pantalla dividida.",
+  "id": "./fotos-productos.html",
   "start_url": "./fotos-productos.html",
-  "scope": "./",
+  "scope": "./fotos-productos",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#0D1117",
   "theme_color": "#11161D",
+  "lang": "es-MX",
+  "categories": ["business", "productivity"],
   "icons": [
     {
-      "src": "./icon-192.png",
+      "src": "./inventario-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "./icon-512.png",
+      "src": "./inventario-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./inventario-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "./inventario-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./inventario-apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }

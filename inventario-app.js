@@ -3848,6 +3848,9 @@
         if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0);
 
         prepareRelatedInStockSection(it, sameSkuRefresh ? relatedStockExpanded : false);
+        if (typeof notifyInvSplitFotosOfSku === 'function' && it && it.s) {
+            notifyInvSplitFotosOfSku(it.s);
+        }
     }
 
     function buildCleanProductSpecRows(it) {
@@ -4564,7 +4567,7 @@
 
         async function uploadOne(file) {
             try {
-                const dataUrl = await normalizePhotoToSquare1x1DataUrl(file, 1080, 0.86);
+                const dataUrl = await normalizePhotoToSquare1x1DataUrl(file, 1000, 0.80);
                 const res = await callInvWebAppPost('inv_upload_product_photo', {
                     authToken: activeAdvisorSession.authToken || '',
                     sheetTab: activeAdvisorSession.sheetTab || '',
@@ -4615,7 +4618,7 @@
         }
 
         try {
-            const concurrency = Math.min(2, filesSnap.length);
+            const concurrency = Math.min(4, filesSnap.length);
             const workers = [];
             for (let w = 0; w < concurrency; w++) workers.push(worker());
             await Promise.all(workers);
@@ -12417,4 +12420,198 @@
         deferredPwaInstallPrompt = null;
         syncPwaInstallButtonState();
     };
+
+    // =========================================================================
+    // PANTALLA DIVIDIDA REDIMENSIONABLE: COTIZADOR + APP DE SUBIR FOTOS
+    // =========================================================================
+    const INV_SPLIT_PCT_STORAGE = 'creata_unified_split_pct_v1';
+    const INV_SPLIT_AXIS_STORAGE = 'creata_unified_split_axis_v1';
+    let _invSplitActive = false;
+    let _invSplitPct = 50;
+    let _invSplitVertical = false;
+
+    function loadInvSplitPrefs() {
+        try {
+            const savedPct = parseFloat(localStorage.getItem(INV_SPLIT_PCT_STORAGE) || '');
+            if (Number.isFinite(savedPct) && savedPct >= 20 && savedPct <= 80) {
+                _invSplitPct = Math.round(savedPct);
+            } else {
+                _invSplitPct = 50;
+            }
+            const savedAxis = localStorage.getItem(INV_SPLIT_AXIS_STORAGE) || '';
+            if (savedAxis === 'vertical' || savedAxis === 'horizontal') {
+                _invSplitVertical = savedAxis === 'vertical';
+            } else {
+                _invSplitVertical = window.innerWidth < 768;
+            }
+        } catch (e) {
+            _invSplitPct = 50;
+            _invSplitVertical = window.innerWidth < 768;
+        }
+    }
+
+    function applyInvSplitDomState() {
+        const dock = document.getElementById('invSplitFotosDock');
+        const badge = document.getElementById('invSplitRatioBadge');
+        const fabLbl = document.getElementById('fabSplitFotosBtnLabel');
+        const frame = document.getElementById('invSplitFotosFrame');
+
+        document.body.classList.toggle('inv-split-active', _invSplitActive);
+        document.body.classList.toggle('inv-split-vertical', _invSplitActive && _invSplitVertical);
+        document.documentElement.style.setProperty('--inv-split-pct', _invSplitPct + '%');
+        document.body.style.setProperty('--inv-split-pct', _invSplitPct + '%');
+
+        if (dock) dock.classList.toggle('hidden', !_invSplitActive);
+        if (fabLbl) {
+            fabLbl.textContent = _invSplitActive ? 'Cerrar Pantalla Dividida' : 'Dividir: Cotizador + Fotos';
+        }
+        if (badge) {
+            badge.textContent = _invSplitPct + '% / ' + (100 - _invSplitPct) + '%';
+        }
+        if (_invSplitActive && frame && (!frame.getAttribute('src') || frame.getAttribute('src') === 'about:blank')) {
+            frame.setAttribute('src', './fotos-productos.html?embed=1');
+        }
+    }
+
+    function notifyInvSplitFotosOfSku(skuRaw) {
+        if (!_invSplitActive || !skuRaw) return;
+        try {
+            const frame = document.getElementById('invSplitFotosFrame');
+            if (frame && frame.contentWindow) {
+                frame.contentWindow.postMessage({
+                    type: 'CREATA_SPLIT_SELECT_SKU',
+                    sku: cleanStr(skuRaw).toUpperCase(),
+                    source: 'cotizador'
+                }, '*');
+            }
+        } catch (e) {}
+    }
+
+    window.setInvSplitPreset = function (pctVal) {
+        const p = Math.max(20, Math.min(80, Math.round(Number(pctVal) || 50)));
+        _invSplitPct = p;
+        try { localStorage.setItem(INV_SPLIT_PCT_STORAGE, String(p)); } catch (e) {}
+        applyInvSplitDomState();
+    };
+
+    window.toggleInvSplitAxis = function () {
+        _invSplitVertical = !_invSplitVertical;
+        try { localStorage.setItem(INV_SPLIT_AXIS_STORAGE, _invSplitVertical ? 'vertical' : 'horizontal'); } catch (e) {}
+        applyInvSplitDomState();
+    };
+
+    window.closeInvSplitFotosDock = function () {
+        _invSplitActive = false;
+        applyInvSplitDomState();
+    };
+
+    window.toggleInvSplitFotosDock = function () {
+        if (!_invSplitActive) {
+            loadInvSplitPrefs();
+            _invSplitActive = true;
+            applyInvSplitDomState();
+            if (currentDetailItem && currentDetailItem.s) {
+                setTimeout(() => notifyInvSplitFotosOfSku(currentDetailItem.s), 450);
+            }
+        } else {
+            _invSplitActive = false;
+            applyInvSplitDomState();
+        }
+    };
+
+    function bindInvSplitResizerDrag() {
+        const bar = document.getElementById('invSplitResizerBar');
+        if (!bar) return;
+
+        let dragging = false;
+
+        const updateFromPointer = (clientX, clientY) => {
+            if (!dragging || !_invSplitActive) return;
+            const vw = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
+            const vh = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
+            const rawPct = _invSplitVertical ? ((clientY / vh) * 100) : ((clientX / vw) * 100);
+            const clamped = Math.max(20, Math.min(80, Math.round(rawPct)));
+            _invSplitPct = clamped;
+            document.documentElement.style.setProperty('--inv-split-pct', clamped + '%');
+            document.body.style.setProperty('--inv-split-pct', clamped + '%');
+            const badge = document.getElementById('invSplitRatioBadge');
+            if (badge) badge.textContent = clamped + '% / ' + (100 - clamped) + '%';
+        };
+
+        const stopDrag = () => {
+            if (!dragging) return;
+            dragging = false;
+            document.body.classList.remove('inv-split-dragging');
+            try { localStorage.setItem(INV_SPLIT_PCT_STORAGE, String(_invSplitPct)); } catch (e) {}
+        };
+
+        bar.addEventListener('mousedown', (ev) => {
+            if (ev.target && ev.target.closest && ev.target.closest('.inv-split-presets')) return;
+            dragging = true;
+            document.body.classList.add('inv-split-dragging');
+            ev.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (ev) => {
+            if (!dragging) return;
+            updateFromPointer(ev.clientX, ev.clientY);
+        });
+
+        window.addEventListener('mouseup', stopDrag);
+
+        bar.addEventListener('touchstart', (ev) => {
+            if (ev.target && ev.target.closest && ev.target.closest('.inv-split-presets')) return;
+            if (!ev.touches || !ev.touches.length) return;
+            dragging = true;
+            document.body.classList.add('inv-split-dragging');
+        }, { passive: true });
+
+        window.addEventListener('touchmove', (ev) => {
+            if (!dragging || !ev.touches || !ev.touches.length) return;
+            const t = ev.touches[0];
+            updateFromPointer(t.clientX, t.clientY);
+        }, { passive: true });
+
+        window.addEventListener('touchend', stopDrag);
+        window.addEventListener('touchcancel', stopDrag);
+    }
+
+    if (typeof window !== 'undefined') {
+        bindInvSplitResizerDrag();
+
+        window.addEventListener('message', function (ev) {
+            const d = ev && ev.data;
+            if (!d || typeof d !== 'object') return;
+            if (d.type === 'CREATA_SPLIT_TOGGLE_FROM_CHILD') {
+                window.closeInvSplitFotosDock();
+                return;
+            }
+            if (d.type === 'CREATA_SPLIT_PHOTO_SAVED' && d.sku && d.photoUrl) {
+                const targetSku = cleanStr(d.sku).toUpperCase();
+                const it = skuLookupMap.get(targetSku);
+                if (it) {
+                    it.img = d.photoUrl;
+                    it._thumbUrl = '';
+                    it._fullUrl = '';
+                    const grp = it._groupKey ? groupsByKey.get(it._groupKey) : null;
+                    if (grp && !grp.repImg) grp.repImg = d.photoUrl;
+                    if (currentDetailItem && cleanStr(currentDetailItem.s).toUpperCase() === targetSku) {
+                        renderDetailModal(it);
+                    }
+                    if (typeof applyFiltersAndRender === 'function') {
+                        applyFiltersAndRender();
+                    }
+                }
+            }
+        });
+
+        try {
+            const urlParams = new URLSearchParams(window.location.search || '');
+            if (urlParams.get('splitFotos') === '1') {
+                loadInvSplitPrefs();
+                _invSplitActive = true;
+                applyInvSplitDomState();
+            }
+        } catch (eParam) {}
+    }
 })();
