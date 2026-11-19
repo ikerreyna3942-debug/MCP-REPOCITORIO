@@ -139,8 +139,60 @@
         return '';
     }
 
+    const INV_PRODUCT_OVERRIDES_STORAGE = 'creata_inv_product_overrides_v1';
+    let invProductOverridesMap = (function loadInitialProductOverrides() {
+        try {
+            const raw = localStorage.getItem(INV_PRODUCT_OVERRIDES_STORAGE);
+            const parsed = raw ? JSON.parse(raw) : null;
+            return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    })();
+
+    function getProductOverrideForSku(skuRaw) {
+        const key = String(skuRaw || '').trim().toUpperCase();
+        if (!key || !invProductOverridesMap) return null;
+        return invProductOverridesMap[key] || null;
+    }
+
+    function applyProductOverrideToItem(it) {
+        if (!it || !it.s) return it;
+        if (it._origN === undefined) it._origN = it.n;
+        if (it._origC === undefined) it._origC = it.c;
+        if (it._origP === undefined) it._origP = it.p;
+        const ovr = getProductOverrideForSku(it.s);
+        if (!ovr) {
+            it.n = it._origN;
+            it.c = it._origC;
+            it.p = it._origP;
+            return it;
+        }
+        it.n = (ovr.name && String(ovr.name).trim()) ? String(ovr.name).trim() : it._origN;
+        it.c = (ovr.category && String(ovr.category).trim()) ? String(ovr.category).trim() : it._origC;
+        if (ovr.price !== null && ovr.price !== undefined && ovr.price !== '' && isFinite(Number(ovr.price))) {
+            it.p = Number(ovr.price);
+        } else {
+            it.p = it._origP;
+        }
+        return it;
+    }
+
+    function applyAllProductOverridesToCatalog() {
+        if (!Array.isArray(allItems)) return;
+        for (let i = 0; i < allItems.length; i++) {
+            applyProductOverrideToItem(allItems[i]);
+        }
+    }
+
     // El cotizador muestra piezas con stock físico o piezas de LPPT con registro/precio en S Mueblería
+    // (excluyendo SKUs archivados o eliminados por Kevin en _INV_PRODUCT_OVERRIDES)
     function isQuotableItem(it) {
+        if (!it) return false;
+        const ovr = getProductOverrideForSku(it.s);
+        if (ovr && (ovr.status === 'ARCHIVADO' || ovr.status === 'ELIMINADO')) {
+            return false;
+        }
         return getItemAvailabilityKind(it) !== '';
     }
 
@@ -4017,12 +4069,42 @@
     let uploadPhotoObjectUrls = [];
 
     const OWNER_FOTOS_EMAIL = 'kevin.reyna@grupoanipa.com';
+    const KEVIN_ROLE_PREVIEW_KEY = 'creata_inv_kevin_role_preview_v1';
+    const KEVIN_PREVIEW_STORE_KEY = 'creata_inv_kevin_preview_store_v1';
 
-    function isFotosAppOwner() {
+    function isRealKevinOwner() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
         if (typeof isGuestSession === 'function' && isGuestSession()) return false;
         const emailNorm = String(activeAdvisorSession.correo || '').trim().toLowerCase().replace(/,/g, '.');
         return emailNorm === OWNER_FOTOS_EMAIL;
+    }
+
+    function isKevinAdvisorPreviewActive() {
+        if (!isRealKevinOwner()) return false;
+        try {
+            return typeof sessionStorage !== 'undefined' && sessionStorage.getItem(KEVIN_ROLE_PREVIEW_KEY) === 'ASESOR';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function getKevinAdvisorPreviewStore() {
+        try {
+            const s = typeof sessionStorage !== 'undefined' ? String(sessionStorage.getItem(KEVIN_PREVIEW_STORE_KEY) || '').trim() : '';
+            if (s) return s;
+        } catch (e) {}
+        return 'CREATA PUERTO CANCUN';
+    }
+
+    function isEffectiveAdminSession() {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
+        if (typeof isGuestSession === 'function' && isGuestSession()) return false;
+        if (isKevinAdvisorPreviewActive()) return false;
+        return !!activeAdvisorSession.isAdmin;
+    }
+
+    function isFotosAppOwner() {
+        return isRealKevinOwner() && !isKevinAdvisorPreviewActive();
     }
 
     function canManageProductPhotos() {
@@ -5584,7 +5666,7 @@
         const adminAdvEl = document.getElementById('quoteAdminAdvisorSelect');
 
         if (activeAdvisorSession) {
-            if (activeAdvisorSession.isAdmin) {
+            if (isEffectiveAdminSession()) {
                 if (adminStoreEl && adminStoreEl.value) {
                     quoteDraftMeta.erpStore = adminStoreEl.value;
                 } else if (!quoteDraftMeta.erpStore) {
@@ -5599,8 +5681,10 @@
                     quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
                 }
             } else {
-                // Para asesores y gerentes de tienda queda bloqueado exclusivamente a su correo en sesión
-                quoteDraftMeta.erpStore = activeAdvisorSession.erpStore || '';
+                // Para asesores, gerentes y vista previa de Asesor de Kevin queda en la tienda activa
+                quoteDraftMeta.erpStore = isKevinAdvisorPreviewActive()
+                    ? getKevinAdvisorPreviewStore()
+                    : (activeAdvisorSession.erpStore || '');
                 quoteDraftMeta.erpAdvisorLabel = activeAdvisorSession.erpAdvisorLabel || '';
                 quoteDraftMeta.erpAdvisorId = activeAdvisorSession.erpAdvisorId || '';
             }
@@ -5835,6 +5919,20 @@
         return (activeInAppModule && activeInAppModule !== 'home') ? activeInAppModule : 'inventario';
     }
 
+    const INV_SESSION_STARTED_AT_KEY = 'creata_inv_session_started_ms_v1';
+    function getInvSessionStartedMs() {
+        try {
+            let v = Number(localStorage.getItem(INV_SESSION_STARTED_AT_KEY) || 0);
+            if (!v || !isFinite(v)) {
+                v = Date.now();
+                localStorage.setItem(INV_SESSION_STARTED_AT_KEY, String(v));
+            }
+            return v;
+        } catch (e) {
+            return Date.now();
+        }
+    }
+
     function sendInvPresenceHeartbeat(sessObj, forceNow) {
         const s = sessObj || activeAdvisorSession;
         if (!s || s.mustChangeKey || !s.correo || !s.authToken) return;
@@ -5847,6 +5945,7 @@
         lastPresenceHeartbeatMs = now;
         lastPresenceVistaSent = vista;
         const roleInfo = (typeof getAdvisorRoleInfo === 'function') ? getAdvisorRoleInfo(s) : {};
+        const devLabel = (typeof getClientDeviceLabel === 'function') ? getClientDeviceLabel() : 'Navegador';
         callInvWebAppPost('inv_presence_heartbeat', {
             authToken: s.authToken || '',
             correo: s.correo || '',
@@ -5855,15 +5954,21 @@
             sheetTab: s.sheetTab || '',
             branchLabel: s.branchLabel || s.sheetTab || '',
             erpStore: s.erpStore || '',
-            role: s.isGuest ? 'INVITADO' : (roleInfo.roleLabel || (s.isAdmin ? 'ADMIN' : (s.isManager ? 'GERENTE' : 'ASESOR'))),
+            role: s.isGuest ? 'INVITADO' : (roleInfo.roleLabel || (isEffectiveAdminSession() ? 'ADMIN' : (s.isManager ? 'GERENTE' : 'ASESOR'))),
             isGuest: !!s.isGuest,
-            isAdmin: !!s.isAdmin,
+            isAdmin: isEffectiveAdminSession(),
             isManager: !!s.isManager,
             deviceId: getInvPresenceDeviceId(),
+            deviceLabel: devLabel,
+            sessionStartedMs: getInvSessionStartedMs(),
             vista: vista,
             view: vista,
             page: 'inventario'
-        }, 8000, true).catch(() => {});
+        }, 8000, true).then((hbRes) => {
+            if (hbRes && hbRes.sessionRevoked === true && typeof window.logoutAdvisorSession === 'function') {
+                window.logoutAdvisorSession();
+            }
+        }).catch(() => {});
     }
 
     function sendInvPresenceLogout(sessObj) {
@@ -5910,7 +6015,21 @@
     };
 
     function buildInAppModuleContext() {
-        const s = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
+        let s = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
+        if (s && isKevinAdvisorPreviewActive()) {
+            const pStore = getKevinAdvisorPreviewStore();
+            s = Object.assign({}, s, {
+                isAdmin: false,
+                isManager: false,
+                is_master: false,
+                es_admin: false,
+                puesto: 'ASESOR',
+                erpStore: pStore,
+                branchLabel: pStore,
+                sheetTab: pStore,
+                allLocations: [Object.assign({}, s, { isAdmin: false, isManager: false, erpStore: pStore, sheetTab: pStore })]
+            });
+        }
         return {
             session: s,
             apiUrl: (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
@@ -6683,6 +6802,8 @@
         const fabSeguimientoBtn = document.getElementById('fabSeguimientoBtn');
         const fabUploadPhotoBtn = document.getElementById('fabUploadPhotoBtn');
         const fabSplitFotosBtn = document.getElementById('fabSplitFotosBtn');
+        const fabSettingsBtn = document.getElementById('fabSettingsBtn');
+        const headerRoleModePill = document.getElementById('headerRoleModePill');
         const uploadPhotoAppFotosLink = document.getElementById('uploadPhotoAppFotosLink');
         const uploadPhotoSplitBtn = document.getElementById('uploadPhotoSplitBtn');
 
@@ -6690,6 +6811,8 @@
         const guestMode = isGuestSession();
         const canUploadDrivePhotos = canManageProductPhotos();
         const isOwnerFotos = isFotosAppOwner();
+        const effectiveAdmin = isEffectiveAdminSession();
+        const kevinAdvisorPreview = isKevinAdvisorPreviewActive();
 
         if (headerHistBtn) {
             headerHistBtn.classList.toggle('hidden', !isAuthed || guestMode);
@@ -6706,10 +6829,21 @@
         if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', guestMode);
         if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canUploadDrivePhotos);
         if (fabSplitFotosBtn) fabSplitFotosBtn.classList.toggle('hidden', !isOwnerFotos);
+        if (fabSettingsBtn) fabSettingsBtn.classList.toggle('hidden', !isAuthed || guestMode);
         if (uploadPhotoAppFotosLink) uploadPhotoAppFotosLink.classList.toggle('hidden', !isOwnerFotos);
         if (uploadPhotoSplitBtn) uploadPhotoSplitBtn.classList.toggle('hidden', !isOwnerFotos);
         if (!isOwnerFotos && _invSplitActive && typeof window.closeInvSplitFotosDock === 'function') {
             window.closeInvSplitFotosDock();
+        }
+
+        let showRolePill = false;
+        if (headerRoleModePill) {
+            if (isAuthed && kevinAdvisorPreview) {
+                showRolePill = true;
+                headerRoleModePill.classList.remove('hidden');
+            } else {
+                headerRoleModePill.classList.add('hidden');
+            }
         }
 
         let showGuest = false;
@@ -6727,7 +6861,7 @@
             }
         }
 
-        const multiLocs = (isAuthed && !guestMode && !activeAdvisorSession.isAdmin && Array.isArray(activeAdvisorSession.allLocations))
+        const multiLocs = (isAuthed && !guestMode && !effectiveAdmin && !kevinAdvisorPreview && Array.isArray(activeAdvisorSession.allLocations))
             ? activeAdvisorSession.allLocations.filter(l => l && !l.isGuest)
             : [];
         let showSwitch = false;
@@ -6745,7 +6879,7 @@
         }
 
         if (headerExtraWrap) {
-            headerExtraWrap.classList.toggle('hidden', !(showGuest || showSwitch));
+            headerExtraWrap.classList.toggle('hidden', !(showGuest || showSwitch || showRolePill));
         }
 
         updateCartBadge();
@@ -6762,10 +6896,13 @@
 
         if (nameEl) nameEl.textContent = activeAdvisorSession.nombre || activeAdvisorSession.correo;
         if (branchEl) {
-            const prefix = getStoreFolioPrefix(activeAdvisorSession.erpStore, activeAdvisorSession.orderPrefix);
+            const activeStoreEff = kevinAdvisorPreview ? getKevinAdvisorPreviewStore() : activeAdvisorSession.erpStore;
+            const prefix = getStoreFolioPrefix(activeStoreEff, activeAdvisorSession.orderPrefix);
             if (guestMode) {
                 branchEl.textContent = 'INVITADO · SOLO VER';
-            } else if (activeAdvisorSession.isAdmin) {
+            } else if (kevinAdvisorPreview) {
+                branchEl.textContent = 'MODO ASESOR · ' + activeStoreEff + ' · ' + prefix;
+            } else if (effectiveAdmin) {
                 branchEl.textContent = 'ADMINISTRADOR';
             } else if (activeAdvisorSession.isProyecto) {
                 branchEl.textContent = 'PROYECTO · ' + prefix;
@@ -7527,6 +7664,11 @@
         window.closeFabMenu();
         window.closeInAppModules({ skipCheckpoint: true });
         if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
+        if (typeof window.closeSettingsModal === 'function') window.closeSettingsModal();
+        try {
+            if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(KEVIN_ROLE_PREVIEW_KEY);
+            localStorage.removeItem(INV_SESSION_STARTED_AT_KEY);
+        } catch (eClrRole) {}
         saveAdvisorSession(null);
         pendingAuthContext = null;
         pendingQuoteRetrySendToErp = null;
@@ -8236,6 +8378,15 @@
                 isManager: false,
                 isGuest: true,
                 maxPct: 0
+            };
+        }
+        if (isKevinAdvisorPreviewActive()) {
+            return {
+                puesto: 'ASESOR (VISTA PREVIA)',
+                isAdmin: false,
+                isManager: false,
+                isGuest: false,
+                maxPct: getEffectiveAdvisorMaxDiscountPct()
             };
         }
         const puestoRaw = cleanStr(sess && sess.puesto);
@@ -9471,15 +9622,52 @@
         };
     }
 
-    function buildFormalQuotePdfFileName(folio, clientName) {
+    const INV_PDF_DOC_NAME_PREF_KEY = 'creata_inv_pdf_doc_name_v1';
+    const DEFAULT_PDF_DOC_PREFIX = 'CREATA-muebles-cotización';
+
+    function readPdfDocNamePrefs() {
+        const def = {
+            prefix: DEFAULT_PDF_DOC_PREFIX,
+            includeFolio: true,
+            includeClient: true
+        };
+        try {
+            const raw = localStorage.getItem(INV_PDF_DOC_NAME_PREF_KEY);
+            if (!raw) return def;
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') return def;
+            const cleanPfx = sanitizePdfDocPrefix(parsed.prefix);
+            return {
+                prefix: cleanPfx || DEFAULT_PDF_DOC_PREFIX,
+                includeFolio: parsed.includeFolio !== false,
+                includeClient: parsed.includeClient !== false
+            };
+        } catch (e) {
+            return def;
+        }
+    }
+
+    function sanitizePdfDocPrefix(raw) {
+        return String(raw || '')
+            .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ')
+            .replace(/\s+/g, '-')
+            .replace(/\.pdf$/i, '')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 60);
+    }
+
+    function buildFormalQuotePdfFileName(folio, clientName, overridePrefs) {
+        const prefs = overridePrefs || readPdfDocNamePrefs();
+        const basePrefix = sanitizePdfDocPrefix(prefs.prefix) || DEFAULT_PDF_DOC_PREFIX;
         const cleanFolio = cleanStr(folio).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'CREATA';
         const cleanClient = cleanStr(clientName)
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
             .slice(0, 32);
-        return cleanClient
-            ? ('CREATA-muebles-cotización_' + cleanFolio + '_' + cleanClient + '.pdf')
-            : ('CREATA-muebles-cotización_' + cleanFolio + '.pdf');
+        const parts = [basePrefix];
+        if (prefs.includeFolio !== false && cleanFolio) parts.push(cleanFolio);
+        if (prefs.includeClient !== false && cleanClient) parts.push(cleanClient);
+        return parts.join('_') + '.pdf';
     }
 
     function buildFormattedQuoteText(payload) {
@@ -12753,6 +12941,13 @@
                     undo: function () { window.closeInstallAppModal(); },
                     escapeAllowed: true
                 },
+                // Priority 2b: Settings Modal (z-index: 86)
+                {
+                    id: 'settings_modal',
+                    isActive: function () { return isModalOpenById('settingsModal'); },
+                    undo: function () { window.closeSettingsModal(); },
+                    escapeAllowed: true
+                },
                 // Priority 3: Auth Branch Selector or Optional Reauth (z-index: 85)
                 {
                     id: 'auth_branch_or_reauth',
@@ -13087,11 +13282,679 @@
 
         try {
             const urlParams = new URLSearchParams(window.location.search || '');
-            if (urlParams.get('splitFotos') === '1') {
+            if (urlParams.get('splitFotos') === '1' && isFotosAppOwner()) {
                 loadInvSplitPrefs();
                 _invSplitActive = true;
                 applyInvSplitDomState();
             }
         } catch (eParam) {}
     }
+
+    // ========================================================================
+    // MÓDULO DE CONFIGURACIÓN POR ROL (ASESORES Y ADMINISTRADOR KEVIN)
+    // ========================================================================
+    let settingsSelectedProductSku = '';
+    let settingsPassInFlight = false;
+    let settingsProdInFlight = false;
+    let settingsOverridesSyncedOnce = false;
+
+    function setSettingsStatusBox(elId, msg, tone) {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        const clean = cleanStr(msg);
+        if (!clean) {
+            el.textContent = '';
+            el.className = 'inv-settings-status hidden';
+            return;
+        }
+        el.textContent = clean;
+        el.className = 'inv-settings-status ' + (tone === 'ok' ? 'is-ok' : (tone === 'warn' ? 'is-warn' : 'is-err'));
+    }
+
+    function saveLocalProductOverridesMap(mapObj) {
+        invProductOverridesMap = (mapObj && typeof mapObj === 'object' && !Array.isArray(mapObj)) ? mapObj : {};
+        try {
+            localStorage.setItem(INV_PRODUCT_OVERRIDES_STORAGE, JSON.stringify(invProductOverridesMap));
+        } catch (e) {}
+    }
+
+    function rerenderCatalogAfterOverrideChange() {
+        try {
+            applyAllProductOverridesToCatalog();
+            if (typeof renderCategoryBar === 'function') renderCategoryBar();
+            const inp = document.getElementById('invSearchInput');
+            if (typeof applyFilter === 'function') applyFilter(inp ? inp.value : '', true);
+        } catch (e) {}
+    }
+
+    async function syncProductOverridesFromCloud(forceNow) {
+        if (settingsOverridesSyncedOnce && !forceNow) return;
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || !activeAdvisorSession.authToken) return;
+        settingsOverridesSyncedOnce = true;
+        try {
+            const res = await callInvWebAppPost('inv_product_overrides_get', {
+                authToken: activeAdvisorSession.authToken || '',
+                advisorEmail: activeAdvisorSession.correo || ''
+            }, 15000);
+            if (res && res.ok && res.overrides && typeof res.overrides === 'object') {
+                saveLocalProductOverridesMap(res.overrides);
+                rerenderCatalogAfterOverrideChange();
+                renderSettingsProductOverridesList();
+            }
+        } catch (e) {}
+    }
+
+    function getUserMultiStoreList() {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return [];
+        if (isEffectiveAdminSession() || isKevinAdvisorPreviewActive()) return [];
+        const locs = Array.isArray(activeAdvisorSession.allLocations)
+            ? activeAdvisorSession.allLocations.filter(l => l && !l.isGuest)
+            : [];
+        return locs.length > 1 ? locs : [];
+    }
+
+    function renderSettingsRoleAndSections() {
+        const subEl = document.getElementById('settingsUserSubtitle');
+        const roleSec = document.getElementById('settingsRoleSwitchSection');
+        const docSec = document.getElementById('settingsDocNameSection');
+        const branchSec = document.getElementById('settingsBranchSection');
+        const prodSec = document.getElementById('settingsProductsSection');
+
+        const isKevin = isRealKevinOwner();
+        const kevinAdvisor = isKevinAdvisorPreviewActive();
+        const effectiveAdmin = isEffectiveAdminSession();
+        const roleInfo = getAdvisorRoleInfo();
+
+        if (subEl && activeAdvisorSession) {
+            const storeLbl = kevinAdvisor
+                ? getKevinAdvisorPreviewStore()
+                : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab);
+            subEl.textContent = (activeAdvisorSession.nombre || activeAdvisorSession.correo) + ' · ' + roleInfo.puesto + (storeLbl ? (' · ' + storeLbl) : '');
+        }
+
+        // 1) Solo Kevin: interruptor Administrador <-> Asesor (siempre visible para Kevin)
+        if (roleSec) {
+            roleSec.classList.toggle('hidden', !isKevin);
+            if (isKevin) {
+                const badge = document.getElementById('settingsRoleModeBadge');
+                const btnAdm = document.getElementById('btnSettingsRoleAdmin');
+                const btnAdv = document.getElementById('btnSettingsRoleAdvisor');
+                const storeWrap = document.getElementById('settingsAdvisorPreviewStoreWrap');
+                const storeSel = document.getElementById('settingsAdvisorPreviewStoreSelect');
+                if (badge) badge.textContent = kevinAdvisor ? 'Vista Asesor' : 'Administrador';
+                if (btnAdm) btnAdm.classList.toggle('is-active', !kevinAdvisor);
+                if (btnAdv) btnAdv.classList.toggle('is-active', kevinAdvisor);
+                if (storeWrap) storeWrap.classList.toggle('hidden', !kevinAdvisor);
+                if (storeSel) storeSel.value = getKevinAdvisorPreviewStore();
+            }
+        }
+
+        // 2) Nombre del documento PDF: visible para asesores (y para Kevin cuando está en Modo Asesor)
+        if (docSec) {
+            const showDocName = !effectiveAdmin;
+            docSec.classList.toggle('hidden', !showDocName);
+            if (showDocName) {
+                const prefs = readPdfDocNamePrefs();
+                const pfxEl = document.getElementById('settingsDocPrefixInput');
+                const folEl = document.getElementById('settingsDocIncludeFolio');
+                const cliEl = document.getElementById('settingsDocIncludeClient');
+                if (pfxEl) pfxEl.value = prefs.prefix;
+                if (folEl) folEl.checked = prefs.includeFolio !== false;
+                if (cliEl) cliEl.checked = prefs.includeClient !== false;
+                window.updateSettingsDocNamePreview();
+            }
+        }
+
+        // 3) Cambiar de bodega / tienda: SOLO usuarios registrados en más de 1 hoja de tienda
+        if (branchSec) {
+            const multiLocs = getUserMultiStoreList();
+            const showBranch = multiLocs.length > 1;
+            branchSec.classList.toggle('hidden', !showBranch);
+            if (showBranch) {
+                const badge = document.getElementById('settingsBranchCountBadge');
+                const curTxt = document.getElementById('settingsBranchCurrentText');
+                const activeStore = cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab);
+                if (badge) badge.textContent = multiLocs.length + ' tiendas';
+                if (curTxt) curTxt.textContent = 'Tienda / bodega activa: ' + (activeStore || 'Sin asignar') + '.';
+            }
+        }
+
+        // 4) Gestionar productos (Guardar · Archivar · Eliminar): SOLO Kevin en modo Administrador
+        if (prodSec) {
+            const showProds = isKevin && !kevinAdvisor;
+            prodSec.classList.toggle('hidden', !showProds);
+            if (showProds) {
+                renderSettingsProductOverridesList();
+            }
+        }
+    }
+
+    window.openSettingsModal = function () {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return;
+        const modal = document.getElementById('settingsModal');
+        if (!modal) return;
+        setSettingsStatusBox('settingsDocNameStatus', '', 'ok');
+        setSettingsStatusBox('settingsPassStatus', '', 'ok');
+        setSettingsStatusBox('settingsSessionsStatus', '', 'ok');
+        setSettingsStatusBox('settingsProdStatus', '', 'ok');
+        const currEl = document.getElementById('settingsCurrPassInput');
+        const newEl = document.getElementById('settingsNewPassInput');
+        const confEl = document.getElementById('settingsConfPassInput');
+        if (currEl) currEl.value = '';
+        if (newEl) newEl.value = '';
+        if (confEl) confEl.value = '';
+        renderSettingsRoleAndSections();
+        modal.classList.add('open');
+        notifyInvBackStatePush('settings_modal');
+        window.refreshSettingsOpenSessions(false);
+        syncProductOverridesFromCloud(isRealKevinOwner() && !isKevinAdvisorPreviewActive());
+    };
+
+    window.closeSettingsModal = function () {
+        const modal = document.getElementById('settingsModal');
+        if (modal) modal.classList.remove('open');
+    };
+
+    window.setKevinRolePreviewMode = function (mode) {
+        if (!isRealKevinOwner()) return;
+        const target = String(mode || 'ADMIN').toUpperCase() === 'ASESOR' ? 'ASESOR' : 'ADMIN';
+        try {
+            if (typeof sessionStorage !== 'undefined') {
+                if (target === 'ASESOR') {
+                    sessionStorage.setItem(KEVIN_ROLE_PREVIEW_KEY, 'ASESOR');
+                } else {
+                    sessionStorage.removeItem(KEVIN_ROLE_PREVIEW_KEY);
+                }
+            }
+        } catch (e) {}
+        renderAdvisorHeaderBar();
+        if (typeof syncCartQuoteMetaControls === 'function') {
+            try { syncCartQuoteMetaControls(); } catch (eSync) {}
+        }
+        if (typeof renderCartModal === 'function') {
+            const cartM = document.getElementById('cartModal');
+            if (cartM && cartM.classList.contains('open')) {
+                try { renderCartModal(); } catch (eCart) {}
+            }
+        }
+        renderSettingsRoleAndSections();
+        if (typeof showToast === 'function') {
+            showToast(target === 'ASESOR' ? 'Vista cambiada a Asesor (tope de descuento de asesor activo).' : 'Regresaste a modo Administrador.');
+        }
+    };
+
+    window.setKevinAdvisorPreviewStore = function (storeName) {
+        if (!isRealKevinOwner()) return;
+        const clean = cleanStr(storeName) || 'CREATA PUERTO CANCUN';
+        try {
+            if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.setItem(KEVIN_PREVIEW_STORE_KEY, clean);
+            }
+        } catch (e) {}
+        renderAdvisorHeaderBar();
+        renderSettingsRoleAndSections();
+    };
+
+    window.updateSettingsDocNamePreview = function () {
+        const pfxEl = document.getElementById('settingsDocPrefixInput');
+        const folEl = document.getElementById('settingsDocIncludeFolio');
+        const cliEl = document.getElementById('settingsDocIncludeClient');
+        const prevEl = document.getElementById('settingsDocNamePreview');
+        if (!prevEl) return;
+        const sample = buildFormalQuotePdfFileName('PTC32013', 'Juan Perez', {
+            prefix: pfxEl ? pfxEl.value : DEFAULT_PDF_DOC_PREFIX,
+            includeFolio: folEl ? !!folEl.checked : true,
+            includeClient: cliEl ? !!cliEl.checked : true
+        });
+        prevEl.textContent = sample;
+    };
+
+    window.saveSettingsDocNamePrefs = function () {
+        const pfxEl = document.getElementById('settingsDocPrefixInput');
+        const folEl = document.getElementById('settingsDocIncludeFolio');
+        const cliEl = document.getElementById('settingsDocIncludeClient');
+        const cleanPrefix = sanitizePdfDocPrefix(pfxEl ? pfxEl.value : '') || DEFAULT_PDF_DOC_PREFIX;
+        const prefs = {
+            prefix: cleanPrefix,
+            includeFolio: folEl ? !!folEl.checked : true,
+            includeClient: cliEl ? !!cliEl.checked : true
+        };
+        try {
+            localStorage.setItem(INV_PDF_DOC_NAME_PREF_KEY, JSON.stringify(prefs));
+        } catch (e) {}
+        if (pfxEl) pfxEl.value = cleanPrefix;
+        window.updateSettingsDocNamePreview();
+        setSettingsStatusBox('settingsDocNameStatus', 'Nombre del documento PDF guardado.', 'ok');
+    };
+
+    window.resetSettingsDocNamePrefs = function () {
+        try { localStorage.removeItem(INV_PDF_DOC_NAME_PREF_KEY); } catch (e) {}
+        const pfxEl = document.getElementById('settingsDocPrefixInput');
+        const folEl = document.getElementById('settingsDocIncludeFolio');
+        const cliEl = document.getElementById('settingsDocIncludeClient');
+        if (pfxEl) pfxEl.value = DEFAULT_PDF_DOC_PREFIX;
+        if (folEl) folEl.checked = true;
+        if (cliEl) cliEl.checked = true;
+        window.updateSettingsDocNamePreview();
+        setSettingsStatusBox('settingsDocNameStatus', 'Se restauró el nombre predeterminado.', 'ok');
+    };
+
+    window.submitSettingsPasswordChange = async function () {
+        if (settingsPassInFlight || !activeAdvisorSession || isGuestSession()) return;
+        const currEl = document.getElementById('settingsCurrPassInput');
+        const newEl = document.getElementById('settingsNewPassInput');
+        const confEl = document.getElementById('settingsConfPassInput');
+        const btn = document.getElementById('btnSettingsChangePass');
+
+        const currPass = cleanStr(currEl ? currEl.value : '');
+        const newPass = cleanStr(newEl ? newEl.value : '');
+        const confPass = cleanStr(confEl ? confEl.value : '');
+
+        if (!currPass) {
+            setSettingsStatusBox('settingsPassStatus', 'Ingresa tu contraseña actual.', 'err');
+            return;
+        }
+        if (newPass.length < 4) {
+            setSettingsStatusBox('settingsPassStatus', 'La nueva contraseña debe tener al menos 4 caracteres.', 'err');
+            return;
+        }
+        if (newPass !== confPass) {
+            setSettingsStatusBox('settingsPassStatus', 'La nueva contraseña y la confirmación no coinciden.', 'err');
+            return;
+        }
+        if (keysMatchNormalized(currPass, newPass)) {
+            setSettingsStatusBox('settingsPassStatus', 'La nueva contraseña debe ser diferente a la actual.', 'err');
+            return;
+        }
+
+        settingsPassInFlight = true;
+        if (btn) { btn.disabled = true; btn.textContent = 'Actualizando...'; }
+        setSettingsStatusBox('settingsPassStatus', '', 'ok');
+
+        try {
+            // Verificar primero la contraseña actual contra inv_login para garantizar que coincida
+            const verifyRes = await callInvWebAppPost('inv_login', {
+                email: activeAdvisorSession.correo,
+                accessKey: currPass,
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                deviceId: getInvPresenceDeviceId(),
+                deviceLabel: (typeof getClientDeviceLabel === 'function') ? getClientDeviceLabel() : 'Navegador'
+            }, 15000);
+            if (!verifyRes || !verifyRes.ok) {
+                if (verifyRes && verifyRes.unavailable) {
+                    setSettingsStatusBox('settingsPassStatus', 'Sin conexión con el servidor. Intenta de nuevo.', 'err');
+                } else {
+                    setSettingsStatusBox('settingsPassStatus', 'La contraseña actual es incorrecta.', 'err');
+                }
+                return;
+            }
+
+            const freshToken = cleanStr(verifyRes.authToken || (verifyRes.user && verifyRes.user.authToken) || activeAdvisorSession.authToken || '');
+            const res = await callInvWebAppPost('inv_update_key', {
+                email: activeAdvisorSession.correo,
+                currentKey: currPass,
+                newKey: newPass,
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                authToken: freshToken
+            }, 20000);
+
+            if (res && res.ok) {
+                if (res.authToken) {
+                    activeAdvisorSession.authToken = res.authToken;
+                }
+                if (res.tokensByTab && Array.isArray(activeAdvisorSession.allLocations)) {
+                    activeAdvisorSession.allLocations = activeAdvisorSession.allLocations.map(l => {
+                        const t = l && l.sheetTab ? res.tokensByTab[l.sheetTab] : '';
+                        return t ? Object.assign({}, l, { authToken: t }) : l;
+                    });
+                }
+                try {
+                    localStorage.setItem(INV_SESSION_KEY, JSON.stringify(activeAdvisorSession));
+                    const pMap = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}') || {};
+                    pMap[activeAdvisorSession.correo] = { newKey: newPass, updatedAt: Date.now() };
+                    localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(pMap));
+                } catch (eSave) {}
+                if (currEl) currEl.value = '';
+                if (newEl) newEl.value = '';
+                if (confEl) confEl.value = '';
+                setSettingsStatusBox('settingsPassStatus', 'Contraseña actualizada correctamente en todas tus hojas.', 'ok');
+            } else {
+                setSettingsStatusBox('settingsPassStatus', (res && res.error) || 'No se pudo actualizar la contraseña.', 'err');
+            }
+        } catch (err) {
+            setSettingsStatusBox('settingsPassStatus', 'Error de red al actualizar la contraseña.', 'err');
+        } finally {
+            settingsPassInFlight = false;
+            if (btn) { btn.disabled = false; btn.textContent = 'Actualizar contraseña'; }
+        }
+    };
+
+    function formatSettingsSessionTime(tsMs, serverNowMs) {
+        const ts = Number(tsMs || 0);
+        if (!ts) return 'Reciente';
+        const diff = Math.max(0, (Number(serverNowMs) || Date.now()) - ts);
+        if (diff < 60000) return 'Ahora mismo';
+        if (diff < 3600000) return 'Hace ' + Math.max(1, Math.floor(diff / 60000)) + ' min';
+        if (diff < 86400000) return 'Hace ' + Math.max(1, Math.floor(diff / 3600000)) + ' h';
+        return 'Hace ' + Math.max(1, Math.floor(diff / 86400000)) + ' días';
+    }
+
+    function renderSettingsSessionsList(sessions, serverNowMs) {
+        const listEl = document.getElementById('settingsSessionsList');
+        if (!listEl) return;
+        const arr = Array.isArray(sessions) ? sessions : [];
+        if (!arr.length) {
+            listEl.innerHTML = '<div class="inv-settings-section-sub">Solo aparece tu sesión actual en este dispositivo.</div>';
+            return;
+        }
+        listEl.innerHTML = arr.map(s => {
+            const devIdEsc = escapeHtml(String(s.deviceId || ''));
+            const devLblEsc = escapeHtml(String(s.deviceLabel || 'Navegador'));
+            const metaParts = [
+                s.sucursal ? String(s.sucursal) : '',
+                s.vista ? ('Vista: ' + String(s.vista)) : '',
+                formatSettingsSessionTime(s.lastSeenMs, serverNowMs)
+            ].filter(Boolean);
+            let badgeHtml = '<span class="inv-settings-badge">Inactiva</span>';
+            if (s.revoked) {
+                badgeHtml = '<span class="inv-settings-pill-del">Cerrada</span>';
+            } else if (s.online || s.isCurrent) {
+                badgeHtml = '<span class="inv-settings-pill-live">● Activa</span>';
+            }
+            const revokeBtnHtml = (!s.isCurrent && !s.revoked && s.active !== false)
+                ? ('<button type="button" class="inv-btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="revokeSingleSettingsSession(\'' + devIdEsc.replace(/'/g, '&#39;') + '\')">Cerrar</button>')
+                : '';
+            return (
+                '<div class="inv-settings-session-item">' +
+                    '<div class="inv-settings-item-main">' +
+                        '<div class="inv-settings-item-title">' + devLblEsc + (s.isCurrent ? ' (Este dispositivo)' : '') + '</div>' +
+                        '<div class="inv-settings-item-meta">' + escapeHtml(metaParts.join(' · ')) + '</div>' +
+                    '</div>' +
+                    '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">' +
+                        badgeHtml +
+                        revokeBtnHtml +
+                    '</div>' +
+                '</div>'
+            );
+        }).join('');
+    }
+
+    window.refreshSettingsOpenSessions = async function (showFeedback) {
+        if (!activeAdvisorSession || isGuestSession()) return;
+        const curDevId = getInvPresenceDeviceId();
+        const curLabel = (typeof getClientDeviceLabel === 'function') ? getClientDeviceLabel() : 'Este navegador';
+        const fallbackLocal = [{
+            deviceId: curDevId,
+            deviceLabel: curLabel,
+            sucursal: cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab),
+            vista: currentPresenceVista(),
+            lastSeenMs: Date.now(),
+            online: true,
+            active: true,
+            revoked: false,
+            isCurrent: true
+        }];
+
+        if (!activeAdvisorSession.authToken) {
+            renderSettingsSessionsList(fallbackLocal, Date.now());
+            setSettingsStatusBox('settingsSessionsStatus', 'Inicia sesión de nuevo si deseas sincronizar sesiones en otros dispositivos.', 'warn');
+            return;
+        }
+        try {
+            const res = await callInvWebAppPost('inv_my_sessions', {
+                authToken: activeAdvisorSession.authToken || '',
+                advisorEmail: activeAdvisorSession.correo || '',
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                erpStore: activeAdvisorSession.erpStore || '',
+                deviceId: curDevId,
+                deviceLabel: curLabel,
+                sessionStartedMs: getInvSessionStartedMs(),
+                vista: 'configuracion'
+            }, 15000);
+            if (res && res.ok && Array.isArray(res.sessions)) {
+                renderSettingsSessionsList(res.sessions.length ? res.sessions : fallbackLocal, res.serverTimeMs || Date.now());
+                if (showFeedback) {
+                    setSettingsStatusBox('settingsSessionsStatus', 'Sesiones actualizadas (' + res.sessions.length + ').', 'ok');
+                }
+                return;
+            }
+        } catch (e) {}
+        renderSettingsSessionsList(fallbackLocal, Date.now());
+        if (showFeedback) {
+            setSettingsStatusBox('settingsSessionsStatus', 'Mostrando sesión local (actualiza Apps Script de Control de Productos para listar otros dispositivos).', 'warn');
+        }
+    };
+
+    window.revokeSingleSettingsSession = async function (targetDeviceId) {
+        if (!activeAdvisorSession || !activeAdvisorSession.authToken || !targetDeviceId) return;
+        try {
+            const res = await callInvWebAppPost('inv_revoke_session', {
+                authToken: activeAdvisorSession.authToken,
+                advisorEmail: activeAdvisorSession.correo,
+                deviceId: getInvPresenceDeviceId(),
+                targetDeviceId: targetDeviceId
+            }, 15000);
+            if (res && res.ok) {
+                setSettingsStatusBox('settingsSessionsStatus', 'Sesión cerrada remotamente.', 'ok');
+                window.refreshSettingsOpenSessions(false);
+            } else {
+                setSettingsStatusBox('settingsSessionsStatus', 'No se pudo cerrar esa sesión remota.', 'err');
+            }
+        } catch (e) {
+            setSettingsStatusBox('settingsSessionsStatus', 'Error de red al cerrar la sesión remota.', 'err');
+        }
+    };
+
+    window.revokeSettingsOtherSessions = async function () {
+        if (!activeAdvisorSession || !activeAdvisorSession.authToken) return;
+        const btn = document.getElementById('btnSettingsRevokeOthers');
+        if (btn) { btn.disabled = true; btn.textContent = 'Cerrando...'; }
+        try {
+            const res = await callInvWebAppPost('inv_revoke_session', {
+                authToken: activeAdvisorSession.authToken,
+                advisorEmail: activeAdvisorSession.correo,
+                deviceId: getInvPresenceDeviceId(),
+                targetDeviceId: 'ALL_OTHERS'
+            }, 15000);
+            if (res && res.ok) {
+                setSettingsStatusBox('settingsSessionsStatus', 'Se cerraron ' + Number(res.revokedCount || 0) + ' sesiones en otros dispositivos.', 'ok');
+                window.refreshSettingsOpenSessions(false);
+            } else {
+                setSettingsStatusBox('settingsSessionsStatus', 'Actualiza Apps Script para cerrar sesiones en otros dispositivos.', 'warn');
+            }
+        } catch (e) {
+            setSettingsStatusBox('settingsSessionsStatus', 'Error de red al cerrar otras sesiones.', 'err');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Cerrar otras sesiones'; }
+        }
+    };
+
+    window.searchSettingsProductCandidates = function (queryRaw) {
+        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        const listEl = document.getElementById('settingsProdSuggestList');
+        if (!listEl) return;
+        const q = String(queryRaw || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        if (!q || q.length < 2) {
+            listEl.innerHTML = '';
+            listEl.classList.add('hidden');
+            return;
+        }
+        const matches = [];
+        for (let i = 0; i < allItems.length && matches.length < 12; i++) {
+            const it = allItems[i];
+            if (!it || !it.s) continue;
+            const hay = (String(it.s) + ' ' + String(it.n || '') + ' ' + String(it.c || ''))
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            if (hay.indexOf(q) !== -1) {
+                matches.push(it);
+            }
+        }
+        if (!matches.length) {
+            listEl.innerHTML = '<div class="inv-settings-section-sub" style="padding:6px 8px;">Sin coincidencias para "' + escapeHtml(queryRaw) + '".</div>';
+            listEl.classList.remove('hidden');
+            return;
+        }
+        listEl.innerHTML = matches.map(it => {
+            const sku = String(it.s).toUpperCase();
+            const ovr = getProductOverrideForSku(sku);
+            const stTag = ovr && ovr.status !== 'VISIBLE' ? (' [' + ovr.status + ']') : '';
+            return (
+                '<button type="button" class="inv-settings-suggest-btn" onclick="selectSettingsProductForEdit(\'' + escapeHtml(sku).replace(/'/g, '&#39;') + '\')">' +
+                    '<span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(sku + ' · ' + (it.n || '')) + '</span>' +
+                    '<span style="font-size:10px;color:var(--inv-muted);flex-shrink:0;">' + escapeHtml((it.c || '') + stTag) + '</span>' +
+                '</button>'
+            );
+        }).join('');
+        listEl.classList.remove('hidden');
+    };
+
+    window.selectSettingsProductForEdit = function (skuRaw) {
+        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        const sku = String(skuRaw || '').trim().toUpperCase();
+        const it = bySkuMap.get(sku) || null;
+        const ovr = getProductOverrideForSku(sku);
+        if (!it && !ovr) return;
+        settingsSelectedProductSku = sku;
+
+        const suggestEl = document.getElementById('settingsProdSuggestList');
+        const wrap = document.getElementById('settingsProdEditorWrap');
+        const skuLbl = document.getElementById('settingsProdSelectedSkuLabel');
+        const stBadge = document.getElementById('settingsProdSelectedStatusBadge');
+        const nameInp = document.getElementById('settingsProdNameInput');
+        const catInp = document.getElementById('settingsProdCategoryInput');
+        const priceInp = document.getElementById('settingsProdPriceInput');
+        const noteInp = document.getElementById('settingsProdNoteInput');
+        const btnArch = document.getElementById('btnSettingsProdArchive');
+        const btnRest = document.getElementById('btnSettingsProdRestore');
+
+        if (suggestEl) suggestEl.classList.add('hidden');
+        if (wrap) wrap.classList.remove('hidden');
+        const status = (ovr && ovr.status) || 'VISIBLE';
+        if (skuLbl) skuLbl.textContent = 'SKU: ' + sku;
+        if (stBadge) stBadge.textContent = status;
+        if (nameInp) nameInp.value = (ovr && ovr.name) || (it && it.n) || '';
+        if (catInp) catInp.value = (ovr && ovr.category) || (it && it.c) || '';
+        const pVal = (ovr && ovr.price !== null && ovr.price !== undefined) ? ovr.price : (it && isFinite(Number(it.p)) ? Number(it.p) : '');
+        if (priceInp) priceInp.value = pVal !== '' ? String(pVal) : '';
+        if (noteInp) noteInp.value = (ovr && ovr.note) || '';
+        if (btnArch) btnArch.classList.toggle('hidden', status === 'ARCHIVADO');
+        if (btnRest) btnRest.classList.toggle('hidden', status === 'VISIBLE');
+        setSettingsStatusBox('settingsProdStatus', '', 'ok');
+    };
+
+    function renderSettingsProductOverridesList() {
+        const listEl = document.getElementById('settingsProdOverridesList');
+        const cntEl = document.getElementById('settingsProductsOverrideCount');
+        const entries = Object.keys(invProductOverridesMap || {})
+            .map(k => invProductOverridesMap[k])
+            .filter(Boolean);
+        if (cntEl) cntEl.textContent = entries.length + (entries.length === 1 ? ' cambio' : ' cambios');
+        if (!listEl) return;
+        if (!entries.length) {
+            listEl.innerHTML = '<div class="inv-settings-section-sub">Aún no hay productos archivados, editados o eliminados.</div>';
+            return;
+        }
+        listEl.innerHTML = entries.map(e => {
+            const skuEsc = escapeHtml(e.sku);
+            const pillCls = e.status === 'ELIMINADO'
+                ? 'inv-settings-pill-del'
+                : (e.status === 'ARCHIVADO' ? 'inv-settings-pill-arch' : 'inv-settings-pill-live');
+            const subParts = [
+                e.name || '',
+                e.price !== null && e.price !== undefined ? ('$' + Number(e.price).toLocaleString('es-MX')) : '',
+                e.note || ''
+            ].filter(Boolean);
+            return (
+                '<div class="inv-settings-prod-item">' +
+                    '<div class="inv-settings-item-main">' +
+                        '<div class="inv-settings-item-title">' + skuEsc + '</div>' +
+                        '<div class="inv-settings-item-meta">' + escapeHtml(subParts.join(' · ') || 'Sin nota') + '</div>' +
+                    '</div>' +
+                    '<div style="display:flex;align-items:center;gap:5px;flex-shrink:0;">' +
+                        '<span class="' + pillCls + '">' + escapeHtml(e.status) + '</span>' +
+                        '<button type="button" class="inv-btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="selectSettingsProductForEdit(\'' + skuEsc.replace(/'/g, '&#39;') + '\')">Editar</button>' +
+                    '</div>' +
+                '</div>'
+            );
+        }).join('');
+    }
+
+    window.submitSettingsProductAction = async function (opRaw) {
+        if (settingsProdInFlight || !isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        const sku = String(settingsSelectedProductSku || '').trim().toUpperCase();
+        if (!sku) {
+            setSettingsStatusBox('settingsProdStatus', 'Primero selecciona un SKU de la búsqueda.', 'err');
+            return;
+        }
+        const op = String(opRaw || 'SAVE').toUpperCase();
+        if (op === 'DELETE') {
+            if (typeof window.confirm === 'function' && !window.confirm('¿Eliminar ' + sku + ' de la vista del Cotizador? (No borra filas ni fórmulas de INVENTARIO_EN_VIVO y podrás restaurarlo después).')) {
+                return;
+            }
+        }
+        const nameVal = cleanStr((document.getElementById('settingsProdNameInput') || {}).value);
+        const catVal = cleanStr((document.getElementById('settingsProdCategoryInput') || {}).value);
+        const priceRaw = cleanStr((document.getElementById('settingsProdPriceInput') || {}).value);
+        const noteVal = cleanStr((document.getElementById('settingsProdNoteInput') || {}).value);
+
+        settingsProdInFlight = true;
+        setSettingsStatusBox('settingsProdStatus', 'Guardando...', 'warn');
+
+        const localNextStatus = op === 'ARCHIVE' ? 'ARCHIVADO' : (op === 'DELETE' ? 'ELIMINADO' : (op === 'RESTORE' ? 'VISIBLE' : ((getProductOverrideForSku(sku) || {}).status || 'VISIBLE')));
+        const localEntry = {
+            sku: sku,
+            status: localNextStatus,
+            name: nameVal,
+            category: catVal,
+            price: priceRaw !== '' && isFinite(Number(priceRaw)) ? Number(priceRaw) : null,
+            note: noteVal,
+            updatedBy: OWNER_FOTOS_EMAIL,
+            updatedAt: new Date().toLocaleString('es-MX')
+        };
+
+        try {
+            const res = await callInvWebAppPost('inv_product_override_save', {
+                authToken: activeAdvisorSession.authToken || '',
+                advisorEmail: OWNER_FOTOS_EMAIL,
+                sheetTab: activeAdvisorSession.sheetTab || 'PROYECTOS',
+                sku: sku,
+                op: op,
+                name: nameVal,
+                category: catVal,
+                price: priceRaw,
+                note: noteVal
+            }, 20000);
+
+            if (res && res.ok && res.override) {
+                invProductOverridesMap[sku] = res.override;
+                saveLocalProductOverridesMap(invProductOverridesMap);
+                rerenderCatalogAfterOverrideChange();
+                window.selectSettingsProductForEdit(sku);
+                renderSettingsProductOverridesList();
+                const verb = op === 'ARCHIVE' ? 'archivado' : (op === 'DELETE' ? 'eliminado del cotizador' : (op === 'RESTORE' ? 'restaurado a visible' : 'guardado'));
+                setSettingsStatusBox('settingsProdStatus', 'SKU ' + sku + ' ' + verb + ' correctamente en la nube.', 'ok');
+            } else {
+                invProductOverridesMap[sku] = localEntry;
+                saveLocalProductOverridesMap(invProductOverridesMap);
+                rerenderCatalogAfterOverrideChange();
+                window.selectSettingsProductForEdit(sku);
+                renderSettingsProductOverridesList();
+                setSettingsStatusBox('settingsProdStatus', 'Aplicado localmente (' + ((res && res.error) || 'actualiza Apps Script de Control de Productos para sincronizarlo a todos los asesores') + ').', 'warn');
+            }
+        } catch (e) {
+            invProductOverridesMap[sku] = localEntry;
+            saveLocalProductOverridesMap(invProductOverridesMap);
+            rerenderCatalogAfterOverrideChange();
+            window.selectSettingsProductForEdit(sku);
+            renderSettingsProductOverridesList();
+            setSettingsStatusBox('settingsProdStatus', 'Aplicado en este dispositivo; sincroniza Apps Script para replicarlo.', 'warn');
+        } finally {
+            settingsProdInFlight = false;
+        }
+    };
+
+    try {
+        applyAllProductOverridesToCatalog();
+        setTimeout(() => { syncProductOverridesFromCloud(false); }, 1800);
+    } catch (eBootOvr) {}
 })();

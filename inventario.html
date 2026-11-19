@@ -24,7 +24,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=6">
-    <link rel="stylesheet" href="./inventario-ui.css?v=11">
+    <link rel="stylesheet" href="./inventario-ui.css?v=12">
 </head>
 <body>
 
@@ -60,6 +60,11 @@
                             class="hidden inv-hdr-btn inv-hdr-btn-store"
                             title="Cambiar tienda">
                         <span id="headerSwitchStoreBtnText">Tienda ▾</span>
+                    </button>
+                    <button type="button" onclick="setKevinRolePreviewMode('ADMIN')" id="headerRoleModePill"
+                            class="hidden inv-hdr-btn inv-hdr-btn-role-preview"
+                            title="Regresar a Administrador">
+                        <span id="headerRoleModePillText">Modo Asesor · Volver a Admin</span>
                     </button>
                     <div id="headerGuestBadgeWrap" class="hidden inv-guest-badge">
                         <span id="headerGuestBadgeText">SOLO VER</span>
@@ -109,7 +114,7 @@
         <div id="inAppHistorialRoot"></div>
     </section>
 
-    <!-- Backdrop y Botón Flotante Único Desplegable (4 Acciones) -->
+    <!-- Backdrop y Botón Flotante Único Desplegable -->
     <div id="invFabBackdrop" class="inv-fab-backdrop hidden" onclick="closeFabMenu()" aria-hidden="true"></div>
 
     <div id="invFabRoot" class="inv-fab-root">
@@ -148,6 +153,13 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 4H5a2 2 0 00-2 2v12a2 2 0 002 2h4m6-16h4a2 2 0 012 2v12a2 2 0 01-2 2h-4m-3-16v16"></path></svg>
                 </span>
                 <span id="fabSplitFotosBtnLabel" class="inv-fab-item-label">Dividir: Cotizador + Fotos</span>
+            </button>
+
+            <button type="button" id="fabSettingsBtn" class="inv-fab-item hidden" role="menuitem" onclick="closeFabMenu(); openSettingsModal();">
+                <span class="inv-fab-item-ico" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </span>
+                <span class="inv-fab-item-label">Configuración</span>
             </button>
 
             <button type="button" id="fabInstallAppBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openInstallAppModal();">
@@ -934,6 +946,178 @@
         </div>
     </div>
 
+    <!-- MODAL DE CONFIGURACIÓN POR ROL (ASESORES Y ADMINISTRADOR KEVIN) -->
+    <div id="settingsModal" class="modal-backdrop" style="z-index:86;" onclick="if(event.target===this) closeSettingsModal()">
+        <div class="inv-modal-card inv-modal-card-flex inv-settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+            <div class="inv-modal-head inv-modal-head-dark">
+                <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+                    <h3 id="settingsModalTitle" class="inv-modal-title">Configuración</h3>
+                    <span id="settingsUserSubtitle" style="font-size:11px;color:rgba(248,246,242,0.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">—</span>
+                </div>
+                <button type="button" id="settingsModalCloseBtn" onclick="closeSettingsModal()" class="inv-modal-close-dark" aria-label="Cerrar">✕</button>
+            </div>
+
+            <div class="inv-modal-body inv-settings-stack" style="background:var(--inv-bg);overflow-y:auto;">
+
+                <!-- SOLO KEVIN: CAMBIAR DE ADMINISTRADOR A ASESOR -->
+                <section id="settingsRoleSwitchSection" class="inv-settings-section hidden" aria-label="Cambiar rol">
+                    <div class="inv-settings-section-head">
+                        <h4 class="inv-settings-section-title">Modo de perfil</h4>
+                        <span id="settingsRoleModeBadge" class="inv-settings-badge">Administrador</span>
+                    </div>
+                    <p class="inv-settings-section-sub">Cambia entre vista de Administrador y vista de Asesor (con tope de descuento de asesor y controles de asesor). Puedes regresar a Administrador en cualquier momento.</p>
+                    <div class="inv-settings-role-toggle">
+                        <button type="button" id="btnSettingsRoleAdmin" class="inv-role-chip-btn is-active" onclick="setKevinRolePreviewMode('ADMIN')">Administrador</button>
+                        <button type="button" id="btnSettingsRoleAdvisor" class="inv-role-chip-btn" onclick="setKevinRolePreviewMode('ASESOR')">Asesor</button>
+                    </div>
+                    <div id="settingsAdvisorPreviewStoreWrap" class="inv-field hidden">
+                        <label for="settingsAdvisorPreviewStoreSelect" class="inv-field-label">Tienda para vista de Asesor</label>
+                        <select id="settingsAdvisorPreviewStoreSelect" class="inv-input" onchange="setKevinAdvisorPreviewStore(this.value)">
+                            <option value="CREATA PUERTO CANCUN">CREATA PUERTO CANCUN</option>
+                            <option value="CREATA COLOSIO">CREATA COLOSIO</option>
+                            <option value="CREATA PLAYA DEL CARMEN">CREATA PLAYA DEL CARMEN</option>
+                            <option value="CASA CREATA">CASA CREATA</option>
+                            <option value="PROYECTOS">PROYECTOS</option>
+                        </select>
+                    </div>
+                </section>
+
+                <!-- ASESORES (Y KEVIN EN MODO ASESOR): NOMBRE DEL DOCUMENTO PDF -->
+                <section id="settingsDocNameSection" class="inv-settings-section hidden" aria-label="Nombre del documento">
+                    <div class="inv-settings-section-head">
+                        <h4 class="inv-settings-section-title">Nombre del documento PDF</h4>
+                        <span class="inv-settings-badge">Cotización</span>
+                    </div>
+                    <p class="inv-settings-section-sub">Personaliza cómo se nombran los archivos PDF de tus cotizaciones al descargar o compartir.</p>
+                    <div class="inv-field">
+                        <label for="settingsDocPrefixInput" class="inv-field-label">Prefijo / nombre base</label>
+                        <input id="settingsDocPrefixInput" type="text" maxlength="60" class="inv-input"
+                               placeholder="CREATA-muebles-cotización"
+                               oninput="updateSettingsDocNamePreview()">
+                    </div>
+                    <div class="inv-settings-checks">
+                        <label><input type="checkbox" id="settingsDocIncludeFolio" checked onchange="updateSettingsDocNamePreview()"> Incluir folio</label>
+                        <label><input type="checkbox" id="settingsDocIncludeClient" checked onchange="updateSettingsDocNamePreview()"> Incluir nombre del cliente</label>
+                    </div>
+                    <div id="settingsDocNamePreview" class="inv-settings-preview-box">CREATA-muebles-cotización_PTC32013_Juan_Perez.pdf</div>
+                    <div class="inv-settings-row">
+                        <button type="button" class="inv-btn-primary" onclick="saveSettingsDocNamePrefs()">Guardar nombre</button>
+                        <button type="button" class="inv-btn-secondary" onclick="resetSettingsDocNamePrefs()">Predeterminado</button>
+                    </div>
+                    <div id="settingsDocNameStatus" class="inv-settings-status hidden"></div>
+                </section>
+
+                <!-- SOLO USUARIOS EN MÁS DE 1 HOJA DE TIENDA: CAMBIAR DE BODEGA / TIENDA -->
+                <section id="settingsBranchSection" class="inv-settings-section hidden" aria-label="Cambiar de bodega">
+                    <div class="inv-settings-section-head">
+                        <h4 class="inv-settings-section-title">Bodega / Tienda activa</h4>
+                        <span id="settingsBranchCountBadge" class="inv-settings-badge">Multi-tienda</span>
+                    </div>
+                    <p id="settingsBranchCurrentText" class="inv-settings-section-sub">—</p>
+                    <div class="inv-settings-row">
+                        <button type="button" class="inv-btn-primary" onclick="closeSettingsModal(); openSwitchBranchSelector();">Cambiar de bodega / tienda</button>
+                    </div>
+                </section>
+
+                <!-- SOLO KEVIN (EN MODO ADMIN): GUARDAR, ARCHIVAR O ELIMINAR PRODUCTOS DEL COTIZADOR -->
+                <section id="settingsProductsSection" class="inv-settings-section hidden" aria-label="Gestionar productos del cotizador">
+                    <div class="inv-settings-section-head">
+                        <h4 class="inv-settings-section-title">Gestionar productos (Cotizador)</h4>
+                        <span id="settingsProductsOverrideCount" class="inv-settings-badge">0 cambios</span>
+                    </div>
+                    <p class="inv-settings-section-sub">Guarda cambios, archiva u oculta/elimina SKUs del Cotizador sin romper las fórmulas de <code>INVENTARIO_EN_VIVO</code> ni el Catálogo Público.</p>
+                    <div class="inv-field">
+                        <label for="settingsProdSearchInput" class="inv-field-label">Buscar SKU o modelo</label>
+                        <input id="settingsProdSearchInput" type="search" autocomplete="off" class="inv-input"
+                               placeholder="Escribe SKU o nombre del producto..."
+                               oninput="searchSettingsProductCandidates(this.value)">
+                    </div>
+                    <div id="settingsProdSuggestList" class="inv-settings-suggest-list hidden"></div>
+
+                    <div id="settingsProdEditorWrap" class="hidden" style="display:flex;flex-direction:column;gap:8px;padding-top:4px;border-top:1px solid var(--inv-border-subtle);">
+                        <div class="inv-settings-section-head">
+                            <strong id="settingsProdSelectedSkuLabel" style="font-size:12px;font-family:var(--inv-font-mono);color:var(--inv-ink);">—</strong>
+                            <span id="settingsProdSelectedStatusBadge" class="inv-settings-badge">VISIBLE</span>
+                        </div>
+                        <div class="inv-field">
+                            <label for="settingsProdNameInput" class="inv-field-label">Nombre visible</label>
+                            <input id="settingsProdNameInput" type="text" maxlength="140" class="inv-input" placeholder="Nombre del producto">
+                        </div>
+                        <div class="inv-settings-grid-2">
+                            <div class="inv-field">
+                                <label for="settingsProdCategoryInput" class="inv-field-label">Categoría</label>
+                                <input id="settingsProdCategoryInput" type="text" maxlength="80" class="inv-input" placeholder="Categoría">
+                            </div>
+                            <div class="inv-field">
+                                <label for="settingsProdPriceInput" class="inv-field-label">Precio (MXN)</label>
+                                <input id="settingsProdPriceInput" type="number" min="0" step="1" class="inv-input" placeholder="Ej. 14900">
+                            </div>
+                        </div>
+                        <div class="inv-field">
+                            <label for="settingsProdNoteInput" class="inv-field-label">Nota interna (opcional)</label>
+                            <input id="settingsProdNoteInput" type="text" maxlength="220" class="inv-input" placeholder="Motivo de edición, archivo o baja...">
+                        </div>
+                        <div class="inv-settings-row">
+                            <button type="button" id="btnSettingsProdSave" class="inv-btn-primary" onclick="submitSettingsProductAction('SAVE')">Guardar cambios</button>
+                            <button type="button" id="btnSettingsProdArchive" class="inv-btn-warn-soft" onclick="submitSettingsProductAction('ARCHIVE')">Archivar</button>
+                            <button type="button" id="btnSettingsProdRestore" class="inv-btn-secondary hidden" onclick="submitSettingsProductAction('RESTORE')">Restaurar</button>
+                            <button type="button" id="btnSettingsProdDelete" class="inv-btn-danger-soft" onclick="submitSettingsProductAction('DELETE')">Eliminar</button>
+                        </div>
+                    </div>
+                    <div id="settingsProdStatus" class="inv-settings-status hidden"></div>
+                    <div id="settingsProdOverridesList" class="inv-settings-prod-list"></div>
+                </section>
+
+                <!-- TODOS (ASESORES Y KEVIN): CAMBIAR CONTRASEÑA -->
+                <section id="settingsPasswordSection" class="inv-settings-section" aria-label="Cambiar contraseña">
+                    <div class="inv-settings-section-head">
+                        <h4 class="inv-settings-section-title">Cambiar contraseña</h4>
+                        <span class="inv-settings-badge">Seguridad</span>
+                    </div>
+                    <div class="inv-field">
+                        <label for="settingsCurrPassInput" class="inv-field-label">Contraseña actual</label>
+                        <input id="settingsCurrPassInput" type="password" autocomplete="current-password" class="inv-input" placeholder="Tu contraseña actual">
+                    </div>
+                    <div class="inv-settings-grid-2">
+                        <div class="inv-field">
+                            <label for="settingsNewPassInput" class="inv-field-label">Nueva contraseña (mín. 4)</label>
+                            <input id="settingsNewPassInput" type="password" autocomplete="new-password" class="inv-input" placeholder="Nueva contraseña">
+                        </div>
+                        <div class="inv-field">
+                            <label for="settingsConfPassInput" class="inv-field-label">Confirmar nueva</label>
+                            <input id="settingsConfPassInput" type="password" autocomplete="new-password" class="inv-input" placeholder="Repite la nueva">
+                        </div>
+                    </div>
+                    <div class="inv-settings-row">
+                        <button type="button" id="btnSettingsChangePass" class="inv-btn-primary" onclick="submitSettingsPasswordChange()">Actualizar contraseña</button>
+                    </div>
+                    <div id="settingsPassStatus" class="inv-settings-status hidden"></div>
+                </section>
+
+                <!-- TODOS (ASESORES Y KEVIN): MIS SESIONES ABIERTAS -->
+                <section id="settingsSessionsSection" class="inv-settings-section" aria-label="Mis sesiones abiertas">
+                    <div class="inv-settings-section-head">
+                        <h4 class="inv-settings-section-title">Mis sesiones abiertas</h4>
+                        <button type="button" class="inv-btn-secondary" style="padding:4px 9px;font-size:11px;" onclick="refreshSettingsOpenSessions(true)">↻ Actualizar</button>
+                    </div>
+                    <p class="inv-settings-section-sub">Dispositivos donde tu cuenta ha iniciado sesión recientemente.</p>
+                    <div id="settingsSessionsList" class="inv-settings-session-list">
+                        <div class="inv-settings-section-sub">Cargando sesiones...</div>
+                    </div>
+                    <div class="inv-settings-row">
+                        <button type="button" id="btnSettingsRevokeOthers" class="inv-btn-warn-soft" onclick="revokeSettingsOtherSessions()">Cerrar otras sesiones</button>
+                        <button type="button" class="inv-btn-danger-soft" onclick="closeSettingsModal(); logoutAdvisorSession();">Cerrar esta sesión</button>
+                    </div>
+                    <div id="settingsSessionsStatus" class="inv-settings-status hidden"></div>
+                </section>
+            </div>
+
+            <div class="inv-modal-foot">
+                <button type="button" onclick="closeSettingsModal()" class="inv-btn-secondary">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="creata-finishes.js?v=33"></script>
     <script src="creata-img.js?v=33"></script>
     <script src="creata-cloud.js?v=33"></script>
@@ -943,6 +1127,6 @@
     <script src="./creata-back-nav.js?v=1"></script>
     <script src="./seguimiento-app.js?v=6"></script>
     <script src="./historial-app.js?v=5"></script>
-    <script src="inventario-app.js?v=80"></script>
+    <script src="inventario-app.js?v=81"></script>
 </body>
 </html>
