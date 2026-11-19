@@ -9106,6 +9106,10 @@ function resolveSubirInboxFolders_() {
     const baseSubir = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
     addFolderSafe(baseSubir);
     try {
+      const proptSubir = DriveApp.getFolderById('1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX');
+      if (proptSubir && !proptSubir.isTrashed()) addFolderSafe(proptSubir);
+    } catch (ePropt) {}
+    try {
       const pIt = baseSubir.getParents();
       while (pIt.hasNext()) {
         const parentF = pIt.next();
@@ -9114,7 +9118,7 @@ function resolveSubirInboxFolders_() {
           const sib = sibIt.next();
           if (sib.isTrashed()) continue;
           const sName = normPlainFotoCat_(sib.getName());
-          if (sName === 'SUBIR COTIZACION' || sName === 'SUBIR') {
+          if (sName === 'SUBIR COTIZACION' || sName === 'SUBIR' || sName === 'SUBIR PREN' || sName === 'SUBIR PROPT') {
             addFolderSafe(sib);
             if (sName === 'SUBIR COTIZACION') primaryFolder = sib;
           }
@@ -9317,17 +9321,30 @@ function handleFotosSubirList_(body) {
 
   let pendingDeletesProcessed = false;
   if (body && body.pendingDeletes && typeof body.pendingDeletes === 'object') {
+    const startPendMs = Date.now();
+    const MAX_PEND_MS = 8000;
     try {
       const pd = body.pendingDeletes;
       const pSkus = Array.isArray(pd.skus) ? pd.skus : [];
       const pFiles = Array.isArray(pd.fileIds) ? pd.fileIds : [];
+      let allCompleted = true;
       for (let i = 0; i < pSkus.length; i++) {
+        if ((Date.now() - startPendMs) > MAX_PEND_MS) { allCompleted = false; break; }
         if (pSkus[i]) handleFotosDelete_(Object.assign({}, body, { sku: pSkus[i], skipListReturn: true }));
       }
       for (let j = 0; j < pFiles.length; j++) {
-        if (pFiles[j]) handleFotosDelete_(Object.assign({}, body, { driveFileId: pFiles[j], source: 'INBOX', skipListReturn: true }));
+        if ((Date.now() - startPendMs) > MAX_PEND_MS) { allCompleted = false; break; }
+        const pfid = String(pFiles[j] || '').trim();
+        if (!pfid) continue;
+        try {
+          const checkF = DriveApp.getFileById(pfid);
+          if (!checkF || checkF.isTrashed()) continue;
+        } catch (eMissF) {
+          continue;
+        }
+        handleFotosDelete_(Object.assign({}, body, { driveFileId: pfid, source: 'INBOX', skipListReturn: true }));
       }
-      pendingDeletesProcessed = true;
+      pendingDeletesProcessed = allCompleted;
     } catch (ePend) {}
   }
 

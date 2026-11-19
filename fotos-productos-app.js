@@ -165,10 +165,17 @@
         if (!imgEl) return;
         const fid = imgEl.getAttribute('data-drive-id') || '';
         const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
-        if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid) && step === 0) {
-            imgEl.setAttribute('data-fb-step', '1');
-            imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w400';
-            return;
+        if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid)) {
+            if (step === 0) {
+                imgEl.setAttribute('data-fb-step', '1');
+                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w400';
+                return;
+            }
+            if (step === 1) {
+                imgEl.setAttribute('data-fb-step', '2');
+                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w480';
+                return;
+            }
         }
         imgEl.onerror = null;
         imgEl.style.display = 'none';
@@ -430,6 +437,9 @@
         return payload;
     }
 
+    const DELETED_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
+    let _drainingDeletedQueue = false;
+
     function readDeletedQueue() {
         if (state.deletedQueue) return state.deletedQueue;
         try {
@@ -439,10 +449,28 @@
                 return state.deletedQueue;
             }
             const parsed = JSON.parse(raw);
+            const rawFileIds = (parsed && typeof parsed.fileIds === 'object' && parsed.fileIds) ? parsed.fileIds : {};
+            const rawSkus = (parsed && typeof parsed.skus === 'object' && parsed.skus) ? parsed.skus : {};
+            const now = Date.now();
+            const cleanFileIds = {};
+            let pruned = false;
+            Object.keys(rawFileIds).forEach((fid) => {
+                const ts = Number(rawFileIds[fid] || 0);
+                if (ts > 0 && (now - ts) > DELETED_QUEUE_TTL_MS) {
+                    pruned = true;
+                    return;
+                }
+                cleanFileIds[fid] = ts || now;
+            });
             state.deletedQueue = {
-                fileIds: (parsed && typeof parsed.fileIds === 'object' && parsed.fileIds) ? parsed.fileIds : {},
-                skus: (parsed && typeof parsed.skus === 'object' && parsed.skus) ? parsed.skus : {}
+                fileIds: cleanFileIds,
+                skus: rawSkus
             };
+            if (pruned) {
+                try {
+                    localStorage.setItem(DELETED_QUEUE_STORAGE, JSON.stringify(state.deletedQueue));
+                } catch (eSavePrune) {}
+            }
             return state.deletedQueue;
         } catch (e) {
             state.deletedQueue = { fileIds: {}, skus: {} };
@@ -486,6 +514,82 @@
         if (changed) {
             writeDeletedQueue(q);
             invalidateLoadedPhotosCache();
+        }
+    }
+
+    function reconcileDeletedQueueWithLiveState(liveDriveFiles) {
+        const q = readDeletedQueue();
+        let changed = false;
+        if (Array.isArray(liveDriveFiles)) {
+            const liveIds = new Set();
+            for (let i = 0; i < liveDriveFiles.length; i++) {
+                const fid = cleanStr(liveDriveFiles[i] && liveDriveFiles[i].id);
+                if (fid) liveIds.add(fid);
+            }
+            Object.keys(q.fileIds || {}).forEach((fid) => {
+                if (!liveIds.has(fid)) {
+                    delete q.fileIds[fid];
+                    changed = true;
+                }
+            });
+        }
+        if (state.productBySku && state.productBySku.size > 0) {
+            Object.keys(q.skus || {}).forEach((sku) => {
+                const prod = state.productBySku.get(sku);
+                if (!prod || !cleanStr(prod.photoUrl)) {
+                    delete q.skus[sku];
+                    changed = true;
+                }
+            });
+        }
+        if (changed) {
+            writeDeletedQueue(q);
+            invalidateLoadedPhotosCache();
+        }
+    }
+
+    async function drainPendingDeletedQueueAsync() {
+        if (_drainingDeletedQueue) return;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        const q = readDeletedQueue();
+        const pendingSkus = Object.keys(q.skus || {});
+        const pendingFileIds = Object.keys(q.fileIds || {});
+        if (!pendingSkus.length && !pendingFileIds.length) return;
+
+        _drainingDeletedQueue = true;
+        try {
+            for (let i = 0; i < pendingSkus.length; i++) {
+                const sku = pendingSkus[i];
+                const fid = cleanStr(q.skus[sku] === '1' ? '' : q.skus[sku]);
+                const res = await callWebAppPost('fotos_delete', Object.assign({
+                    sku: sku,
+                    driveFileId: fid,
+                    source: 'LOADED',
+                    skipListReturn: true
+                }, buildOwnerAuthPayload()), 25000);
+                if (res && res.ok) {
+                    unmarkSkuDeletedInQueue(sku, fid);
+                } else if (res && res.authRequired) {
+                    break;
+                }
+            }
+            for (let j = 0; j < pendingFileIds.length; j++) {
+                const fid = pendingFileIds[j];
+                if (!readDeletedQueue().fileIds[fid]) continue;
+                const res = await callWebAppPost('fotos_delete', Object.assign({
+                    driveFileId: fid,
+                    source: 'INBOX',
+                    skipListReturn: true
+                }, buildOwnerAuthPayload()), 25000);
+                if (res && res.ok) {
+                    unmarkSkuDeletedInQueue('', fid);
+                } else if (res && res.authRequired) {
+                    break;
+                }
+            }
+        } catch (eDrain) {
+        } finally {
+            _drainingDeletedQueue = false;
         }
     }
 
@@ -1847,26 +1951,19 @@
             container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">Cargando...</div>';
         }
 
-        const delQueue = readDeletedQueue();
-        const pendingFileIds = Object.keys(delQueue.fileIds || {});
-        const pendingSkus = Object.keys(delQueue.skus || {});
-
         let res = null;
         try {
-            res = await callWebAppPost('fotos_subir_list', Object.assign({
-                pendingDeletes: (pendingFileIds.length || pendingSkus.length)
-                    ? { fileIds: pendingFileIds, skus: pendingSkus }
-                    : undefined
-            }, buildOwnerAuthPayload()), 18000);
+            res = await callWebAppPost('fotos_subir_list', buildOwnerAuthPayload(), 30000);
+            if ((!res || res.unavailable) && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+                res = await callWebAppPost('fotos_subir_list', buildOwnerAuthPayload(), 30000);
+            }
         } finally {
             state.inboxLoading = false;
             if (btnInb) { btnInb.disabled = false; btnInb.textContent = '↻'; }
         }
 
         if (res && res.ok && Array.isArray(res.files)) {
-            if (res.pendingDeletesProcessed === true && (pendingFileIds.length || pendingSkus.length)) {
-                writeDeletedQueue({ fileIds: {}, skus: {} });
-            }
+            reconcileDeletedQueueWithLiveState(res.files);
             state.rawInboxFromDrive = res.files;
             state.inboxFiles = filterAndMergeInboxFiles(res.files);
             scheduleSaveFastCache();
@@ -1879,8 +1976,9 @@
             renderInboxGallery();
             renderSelectedProductStage();
             updateAssignButtonState();
+            drainPendingDeletedQueueAsync();
             if (manualRefresh) {
-                showAssignFeedback('✅ SUBIR COTIZACION actualizada (' + state.inboxFiles.length + ').', true);
+                showAssignFeedback('✅ Carpeta actualizada (' + state.inboxFiles.length + ').', true);
             }
             return;
         }
@@ -1899,7 +1997,9 @@
         }
 
         if (container && state.galleryMode === 'INBOX' && !state.inboxFiles.length) {
-            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' + escapeHtml(errMsg || '↻') + '</div>';
+            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' +
+                escapeHtml(errMsg || 'No se pudo cargar la carpeta de Drive. Toca ↻ para reintentar.') +
+                '</div>';
         }
     };
 
