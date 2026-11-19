@@ -8982,7 +8982,7 @@ function handleInvUploadProductPhoto_(body) {
 // Bandeja Drive "SUBIR" -> mueve a CATEGORIAS MUEBLES Y ACCESORIOS y quita de SUBIR
 // ============================================================================
 const OWNER_FOTOS_EMAIL_ = 'kevin.reyna@grupoanipa.com';
-const SUBIR_INBOX_FOLDER_ID_ = '11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p';
+const SUBIR_INBOX_FOLDER_ID_ = '11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p'; // SUBIR PREN — exclusivo Proyecto A / App #9
 const CATEGORIAS_DEST_ROOT_FOLDER_ID_ = '1KZh-AzOejRbz9TdHYF52yaiuejPtT-sN';
 const CATEGORIAS_DEST_FOLDERS_ = [
   { key: 'SALAS',        id: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', name: 'FOTOS SALAS' },
@@ -8996,6 +8996,163 @@ const CATEGORIAS_DEST_FOLDERS_ = [
   { key: 'ACCESORIOS',   id: '13mOw-BpuZSYpD55qPangEEXWuWW-1OL9', name: 'FOTOS ACCESORIOS Y ESPEJOS' },
   { key: 'INTERIOR',     id: '1mo5gn59M0m-psn0f6o9B1OtUHeCpz3S9', name: 'FOTOS INTERIOR' }
 ];
+const FORBIDDEN_PROJECT_B_FOLDER_IDS_ = {
+  '1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX': 'SUBIR PROPT',
+  '1rwRk-bZtb8m4Hso9pCJE1A0_QiS-rqUQ': 'SUBIDA DE FOTOS',
+  '1lfq8VBF1q-Kg9m6_qd2GU5zxwEywYw_B': 'fotos odoo',
+  '10UIhDWLKL0ySmzdcMemA5K5831YozuBa': 'fotos odoo / FOTOS MUEBLES',
+  '1z-Ne0hBzXIi1dTfJOxtz1kUUPYQQNpTR': 'fotos odoo / FOTOS ACCESORIOS Y ESPEJOS',
+  '12gsKZVs6rFonOO8CIxokuE73bxhq8tS9': 'fotos odoo / FOTOS TELAS',
+  '13inkyy1ZfGn7yD0ceSr6RSMquaA3OBO1': 'fotos odoo / OTROS',
+  '1JKJPXcnPFPeoUOo_mBIUyl_KXM0Fn3Ul': 'TELAS',
+  '1Jq2u1A6-xKi1YigUYSIzLauUww_RJ5Lx': 'MADERAS'
+};
+
+function isForbiddenProjectBFolderId_(folderId) {
+  const fid = String(folderId || '').trim();
+  return !!(fid && Object.prototype.hasOwnProperty.call(FORBIDDEN_PROJECT_B_FOLDER_IDS_, fid));
+}
+
+function isDestCategoryFolderId_(folderId) {
+  const fid = String(folderId || '').trim();
+  if (!fid) return false;
+  if (fid === CATEGORIAS_DEST_ROOT_FOLDER_ID_) return true;
+  for (let i = 0; i < CATEGORIAS_DEST_FOLDERS_.length; i++) {
+    if (CATEGORIAS_DEST_FOLDERS_[i].id === fid) return true;
+  }
+  return false;
+}
+
+function isFolderOrAncestorForbiddenProjectB_(folderObj, maxDepth) {
+  if (!folderObj) return false;
+  const limit = (typeof maxDepth === 'number' && maxDepth > 0) ? Math.floor(maxDepth) : 8;
+  const visited = {};
+  const queue = [{ folder: folderObj, depth: 0 }];
+  while (queue.length > 0) {
+    const item = queue.shift();
+    const cur = item.folder;
+    const depth = item.depth;
+    if (!cur) continue;
+    let fid = '';
+    try {
+      fid = String((cur.getId && cur.getId()) || '').trim();
+    } catch (eId) {
+      return true; // Fail closed
+    }
+    if (isForbiddenProjectBFolderId_(fid)) return true;
+    if (fid) {
+      if (visited[fid]) continue;
+      visited[fid] = true;
+    }
+    if (depth >= limit) continue;
+    try {
+      const pIt = cur.getParents && cur.getParents();
+      while (pIt && pIt.hasNext()) {
+        const pf = pIt.next();
+        if (pf) queue.push({ folder: pf, depth: depth + 1 });
+      }
+    } catch (eParWalk) {
+      return true; // Fail closed if getParents() throws
+    }
+  }
+  return false;
+}
+
+function isFileInForbiddenProjectBFolder_(file) {
+  if (!file) return false;
+  try {
+    const selfId = String((file.getId && file.getId()) || '').trim();
+    if (isForbiddenProjectBFolderId_(selfId)) return true;
+    const pIt = file.getParents();
+    while (pIt && pIt.hasNext()) {
+      const pf = pIt.next();
+      if (isFolderOrAncestorForbiddenProjectB_(pf, 8)) return true;
+    }
+  } catch (ePar) {
+    return true; // Fail closed if getParents() throws
+  }
+  return false;
+}
+
+function isFileInProjectAAllowedFolders_(file, precomputedInboxMap) {
+  if (!file) return false;
+  if (isFileInForbiddenProjectBFolder_(file)) return false;
+  try {
+    const inboxMap = precomputedInboxMap || ((resolveSubirInboxFolders_() || {}).folderIdsMap) || {};
+    const pIt = file.getParents();
+    let hasAllowedParent = false;
+    while (pIt && pIt.hasNext()) {
+      const pf = pIt.next();
+      const pid = String((pf && pf.getId && pf.getId()) || '').trim();
+      if (!pid) continue;
+      if (isFolderOrAncestorForbiddenProjectB_(pf, 8)) return false;
+      if (
+        pid === SUBIR_INBOX_FOLDER_ID_ ||
+        inboxMap[pid] ||
+        isDestCategoryFolderId_(pid) ||
+        pid === FOTOS_NUEVAS_CARGADO_FOLDER_ID_
+      ) {
+        hasAllowedParent = true;
+      }
+    }
+    return hasAllowedParent;
+  } catch (eAllow) {
+    return false; // Fail closed if getParents() throws
+  }
+}
+
+function validateProjectASourceFile_(srcFile, contextLabel) {
+  if (!srcFile) {
+    return { ok: false, error: 'Archivo no encontrado.' };
+  }
+  const errForbiddenB = 'Aislamiento Proyecto A/B: no se permite operar sobre archivos pertenecientes a carpetas exclusivas de Prompts/Odoo (SUBIR PROPT / SUBIDA DE FOTOS / fotos odoo / TELAS / MADERAS).';
+  const errOutsideA = 'Aislamiento Proyecto A: el archivo no pertenece a carpetas permitidas de App #9 (SUBIR PREN, CATEGORIAS MUEBLES Y ACCESORIOS o FOTOS NUEVAS CARGADO).';
+
+  if (isFileInForbiddenProjectBFolder_(srcFile)) {
+    return { ok: false, forbiddenFolder: true, error: errForbiddenB };
+  }
+  if (!isFileInProjectAAllowedFolders_(srcFile)) {
+    return { ok: false, forbiddenFolder: true, error: errOutsideA };
+  }
+
+  let mimeLower = '';
+  try {
+    mimeLower = String((srcFile.getMimeType && srcFile.getMimeType()) || '').toLowerCase();
+  } catch (eMime) {
+    return { ok: false, forbiddenFolder: true, error: 'No se pudo validar el tipo MIME del archivo (' + String(contextLabel || 'Proyecto A') + ').' };
+  }
+
+  if (mimeLower === 'application/vnd.google-apps.shortcut') {
+    let targetFile = null;
+    try {
+      const targetId = String((srcFile.getTargetId && srcFile.getTargetId()) || '').trim();
+      if (!targetId) {
+        return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: acceso directo sin destino válido bloqueado.' };
+      }
+      if (isForbiddenProjectBFolderId_(targetId)) {
+        return { ok: false, forbiddenFolder: true, error: errForbiddenB };
+      }
+      targetFile = DriveApp.getFileById(targetId);
+    } catch (eScTarget) {
+      return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: acceso directo roto o inaccesible bloqueado.' };
+    }
+    if (!targetFile || (targetFile.isTrashed && targetFile.isTrashed())) {
+      return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: el destino del acceso directo está en papelera o no es válido.' };
+    }
+    const targetMime = String((targetFile.getMimeType && targetFile.getMimeType()) || '').toLowerCase();
+    if (targetMime === 'application/vnd.google-apps.shortcut') {
+      return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: accesos directos encadenados no están permitidos.' };
+    }
+    if (isFileInForbiddenProjectBFolder_(targetFile)) {
+      return { ok: false, forbiddenFolder: true, error: errForbiddenB };
+    }
+    if (!isFileInProjectAAllowedFolders_(targetFile)) {
+      return { ok: false, forbiddenFolder: true, error: errOutsideA };
+    }
+  }
+
+  return { ok: true };
+}
 
 function verifyExclusiveKevinOwner_(ss, body) {
   const erpMeta = readErpAdvisorsFromPlantilla_(ss);
@@ -9094,8 +9251,11 @@ function resolveSubirInboxFolders_() {
   function addFolderSafe(folderObj) {
     if (!folderObj) return;
     try {
+      if (folderObj.isTrashed && folderObj.isTrashed()) return;
       const fid = String(folderObj.getId() || '').trim();
       if (!fid || folderIdsMap[fid]) return;
+      if (isForbiddenProjectBFolderId_(fid) || isFolderOrAncestorForbiddenProjectB_(folderObj, 8)) return;
+      if (isDestCategoryFolderId_(fid)) return;
       folderIdsMap[fid] = true;
       folders.push(folderObj);
       if (!primaryFolder) primaryFolder = folderObj;
@@ -9103,62 +9263,14 @@ function resolveSubirInboxFolders_() {
   }
 
   try {
-    const baseSubir = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
+    const baseSubir = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_); // SUBIR PREN (exclusivo Proyecto A)
     addFolderSafe(baseSubir);
-    try {
-      const proptSubir = DriveApp.getFolderById('1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX');
-      if (proptSubir && !proptSubir.isTrashed()) addFolderSafe(proptSubir);
-    } catch (ePropt) {}
-    try {
-      const pIt = baseSubir.getParents();
-      while (pIt.hasNext()) {
-        const parentF = pIt.next();
-        const sibIt = parentF.getFolders();
-        while (sibIt.hasNext()) {
-          const sib = sibIt.next();
-          if (sib.isTrashed()) continue;
-          const sName = normPlainFotoCat_(sib.getName());
-          if (sName === 'SUBIR COTIZACION' || sName === 'SUBIR' || sName === 'SUBIR PREN' || sName === 'SUBIR PROPT') {
-            addFolderSafe(sib);
-            if (sName === 'SUBIR COTIZACION') primaryFolder = sib;
-          }
-        }
-      }
-    } catch (eParents) {}
+    if (baseSubir && !baseSubir.isTrashed() && folderIdsMap[SUBIR_INBOX_FOLDER_ID_]) {
+      primaryFolder = baseSubir;
+    }
   } catch (eBase) {}
 
-  try {
-    const props = PropertiesService.getScriptProperties();
-    const cachedCotId = String((props && props.getProperty('SUBIR_COTIZACION_FOLDER_ID_V1')) || '').trim();
-    let foundCached = false;
-    if (cachedCotId) {
-      try {
-        const cf = DriveApp.getFolderById(cachedCotId);
-        if (cf && !cf.isTrashed()) {
-          addFolderSafe(cf);
-          primaryFolder = cf;
-          foundCached = true;
-        }
-      } catch (eCacheMiss) {}
-    }
-    if (!foundCached) {
-      const searchNames = ['SUBIR COTIZACION', 'SUBIR COTIZACIÓN'];
-      for (let s = 0; s < searchNames.length; s++) {
-        const fIt = DriveApp.getFoldersByName(searchNames[s]);
-        while (fIt.hasNext()) {
-          const cand = fIt.next();
-          if (cand.isTrashed()) continue;
-          addFolderSafe(cand);
-          primaryFolder = cand;
-          try {
-            if (props) props.setProperty('SUBIR_COTIZACION_FOLDER_ID_V1', cand.getId());
-          } catch (eSaveProp) {}
-          break;
-        }
-      }
-    }
-  } catch (eSearchCot) {}
-
+  // Solo subcarpetas directas dentro de SUBIR PREN (protegidas contra IDs prohibidos de Proyecto B y categorías destino)
   const rootCount = folders.length;
   for (let i = 0; i < rootCount; i++) {
     try {
@@ -9181,6 +9293,7 @@ function listSubirInboxFilesInternal_(opts) {
   const includeThumbs = !!(opts && opts.includeThumbs);
   const resolved = resolveSubirInboxFolders_();
   const inboxFolders = resolved.folders || [];
+  const inboxMap = resolved.folderIdsMap || {};
   const seenFileIds = {};
   const rawItems = [];
 
@@ -9198,19 +9311,23 @@ function listSubirInboxFilesInternal_(opts) {
         if (!f || f.isTrashed()) continue;
         let mime = String(f.getMimeType() || '').toLowerCase();
         if (mime === 'application/vnd.google-apps.shortcut') {
+          let targetFile = null;
           try {
-            const targetId = f.getTargetId && f.getTargetId();
-            if (targetId) {
-              const targetFile = DriveApp.getFileById(targetId);
-              if (targetFile && !targetFile.isTrashed()) {
-                f = targetFile;
-                mime = String(f.getMimeType() || '').toLowerCase();
-              }
-            }
-          } catch (eSc) {}
+            const targetId = String((f.getTargetId && f.getTargetId()) || '').trim();
+            if (!targetId || isForbiddenProjectBFolderId_(targetId)) continue;
+            targetFile = DriveApp.getFileById(targetId);
+          } catch (eSc) {
+            continue;
+          }
+          if (!targetFile || (targetFile.isTrashed && targetFile.isTrashed())) continue;
+          f = targetFile;
+          mime = String(f.getMimeType() || '').toLowerCase();
+          if (mime === 'application/vnd.google-apps.shortcut') continue;
         }
         const fid = String(f.getId() || '').trim();
         if (!fid || seenFileIds[fid]) continue;
+        if (isFileInForbiddenProjectBFolder_(f)) continue;
+        if (!isFileInProjectAAllowedFolders_(f, inboxMap)) continue;
         const name = String(f.getName() || '').trim();
         const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif|tiff?)$/i.test(name);
         if (!isImg) continue;
@@ -9517,7 +9634,16 @@ function handleFotosSubirAssign_(body) {
     }
 
     const reqFolderId = String((body && body.targetFolderId) || '').trim();
-    let destMeta = CATEGORIAS_DEST_FOLDERS_.find((f) => f.id === reqFolderId) || null;
+    let destMeta = reqFolderId
+      ? (CATEGORIAS_DEST_FOLDERS_.find((f) => f.id === reqFolderId) || null)
+      : null;
+    if (reqFolderId && (isForbiddenProjectBFolderId_(reqFolderId) || !destMeta)) {
+      return {
+        ok: false,
+        forbiddenFolder: true,
+        error: 'Carpeta destino inválida o fuera de CATEGORIAS MUEBLES Y ACCESORIOS.'
+      };
+    }
     const providedName = String((body && body.productName) || '').trim();
 
     let invMeta = {
@@ -9582,7 +9708,18 @@ function handleFotosSubirAssign_(body) {
 
     const effectiveName = sheetProductName || invMeta.nombre || providedName || skuUpper;
 
+    if (isForbiddenProjectBFolderId_(driveFileId)) {
+      return {
+        ok: false,
+        forbiddenFolder: true,
+        error: 'Aislamiento Proyecto A/B: no se permite mover ni asignar recursos de carpetas de Prompts/Odoo.'
+      };
+    }
     const srcFile = DriveApp.getFileById(driveFileId);
+    const srcCheck = validateProjectASourceFile_(srcFile, 'fotos_subir_assign');
+    if (!srcCheck.ok) {
+      return srcCheck;
+    }
     const origName = String(srcFile.getName() || '').trim();
     const extMatch = origName.match(/(\.[a-zA-Z0-9]{2,5})$/);
     const mimeLower = String(srcFile.getMimeType() || '').toLowerCase();
@@ -9611,7 +9748,7 @@ function handleFotosSubirAssign_(body) {
       }
     } else {
       file.setName(newFileName);
-      file.moveTo(destFolder); // Saca la foto de SUBIR COTIZACION y la coloca en su carpeta de categoría
+      file.moveTo(destFolder); // Saca la foto de SUBIR PREN y la coloca en su carpeta de categoría
       try {
         const resolvedInbox = resolveSubirInboxFolders_();
         const inboxMap = resolvedInbox.folderIdsMap || {};
@@ -9677,12 +9814,12 @@ function handleFotosSubirAssign_(body) {
         modulo: 'AppsScript · Gestor Fotos Hoja "1"',
         evento: reuseFromLoaded
           ? 'FOTO TOMADA DE CARGADAS Y ASIGNADA EN HOJA "1"'
-          : (wasAppended ? 'NUEVO SKU + FOTO ASIGNADA DESDE SUBIR' : 'FOTO ACTUALIZADA EN HOJA "1" DESDE SUBIR'),
+          : (wasAppended ? 'NUEVO SKU + FOTO ASIGNADA DESDE SUBIR PREN' : 'FOTO ACTUALIZADA EN HOJA "1" DESDE SUBIR PREN'),
         estado: '✅ OK',
         usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
         sucursal: 'ADMINISTRACIÓN GENERAL',
         referencia: skuUpper + ' · Fila ' + primaryRowNumber,
-        detalle: (reuseFromLoaded ? 'Tomada de fotos cargadas hacia "' : 'Movida de SUBIR COTIZACION a "') + destMeta.name + '" como "' + newFileName + '" · Guardada en Hoja "1"!D' + primaryRowNumber + ': ' + driveViewUrl,
+        detalle: (reuseFromLoaded ? 'Tomada de fotos cargadas hacia "' : 'Movida de SUBIR PREN a "') + destMeta.name + '" como "' + newFileName + '" · Guardada en Hoja "1"!D' + primaryRowNumber + ': ' + driveViewUrl,
         analisis: previousUrl ? ('Reemplazó link anterior: ' + previousUrl) : 'Producto previamente sin foto en Columna D.'
       });
     } catch (eHist) {}
@@ -9748,36 +9885,34 @@ function handleFotosDelete_(body) {
     }
 
     const sh1 = ss.getSheetByName('1');
+    const rowsToClear = [];
     const clearedRows = [];
     let previousUrl = '';
     let usedByOtherSku = false;
+    let vals1 = null;
 
     if (sh1 && sh1.getLastRow() >= 3) {
       const maxScanRows = Math.max(sh1.getLastRow(), 3);
-      const vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
+      vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
 
-      // Primera pasada: limpiar Columna D del SKU indicado (jamás tocar filas 1 y 2)
+      // Primera pasada (solo lectura): localizar filas del SKU y resolver driveFileId antes de mutar Drive/Sheets
       if (skuUpper) {
         for (let i = 2; i < vals1.length; i++) {
           const rowNum = i + 1;
           const cellSku = String(vals1[i][0] || '').trim().toUpperCase();
           const cellUrl = String(vals1[i][3] || '').trim();
-          if (cellSku === skuUpper) {
-            if (cellUrl) {
-              if (!previousUrl) previousUrl = cellUrl;
-              if (!driveFileId) {
-                const mId = cellUrl.match(/\/d\/([a-zA-Z0-9_-]{15,})/) || cellUrl.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
-                if (mId && mId[1]) driveFileId = mId[1];
-              }
-              sh1.getRange(rowNum, 4).clearContent();
-              clearedRows.push(rowNum);
-              vals1[i][3] = '';
+          if (cellSku === skuUpper && cellUrl) {
+            if (!previousUrl) previousUrl = cellUrl;
+            if (!driveFileId) {
+              const mId = cellUrl.match(/\/d\/([a-zA-Z0-9_-]{15,})/) || cellUrl.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+              if (mId && mId[1]) driveFileId = mId[1];
             }
+            rowsToClear.push(rowNum);
           }
         }
       }
 
-      // Segunda pasada: verificar si otro SKU en Hoja "1" sigue usando ese driveFileId
+      // Segunda pasada (solo lectura): verificar si otro SKU en Hoja "1" sigue usando ese driveFileId
       if (driveFileId) {
         for (let j = 2; j < vals1.length; j++) {
           const otherSku = String(vals1[j][0] || '').trim().toUpperCase();
@@ -9790,26 +9925,56 @@ function handleFotosDelete_(body) {
       }
     }
 
-    if (clearedRows.length > 0) {
+    // Guardia de aislamiento Proyecto A/B ANTES de modificar Drive o Hoja "1"
+    const willTrashDrive = !!(driveFileId && !keepDriveFile && (source === 'INBOX' || forceTrash || !usedByOtherSku));
+    let targetFile = null;
+    if (driveFileId) {
+      if (isForbiddenProjectBFolderId_(driveFileId)) {
+        return {
+          ok: false,
+          forbiddenFolder: true,
+          error: 'Aislamiento Proyecto A/B: no se permite eliminar recursos pertenecientes a carpetas exclusivas de Prompts/Odoo.'
+        };
+      }
+      try {
+        targetFile = DriveApp.getFileById(driveFileId);
+      } catch (eLookupDel) {
+        targetFile = null;
+      }
+      if (targetFile) {
+        const delCheck = validateProjectASourceFile_(targetFile, 'fotos_delete');
+        if (!delCheck.ok) {
+          return delCheck;
+        }
+      }
+    }
+
+    if (sh1 && rowsToClear.length > 0) {
+      for (let r = 0; r < rowsToClear.length; r++) {
+        sh1.getRange(rowsToClear[r], 4).clearContent();
+        clearedRows.push(rowsToClear[r]);
+      }
       SpreadsheetApp.flush();
     }
 
     let driveTrashed = false;
     let deletedFileName = '';
-    if (driveFileId && !keepDriveFile && (source === 'INBOX' || forceTrash || !usedByOtherSku)) {
+    if (willTrashDrive && targetFile) {
       try {
-        const f = DriveApp.getFileById(driveFileId);
-        deletedFileName = String(f.getName() || '');
+        deletedFileName = String(targetFile.getName() || '');
         try {
-          f.setTrashed(true);
+          targetFile.setTrashed(true);
           driveTrashed = true;
         } catch (eTrash) {
-          // Si el archivo pertenece a otro propietario en carpeta compartida, quitarlo de las carpetas padre
-          const pIt = f.getParents();
+          // Si el archivo pertenece a otro propietario en carpeta compartida, quitarlo solo de carpetas permitidas
+          const pIt = targetFile.getParents();
           while (pIt.hasNext()) {
             try {
-              pIt.next().removeFile(f);
-              driveTrashed = true;
+              const pf = pIt.next();
+              if (!isForbiddenProjectBFolderId_(pf.getId()) && !isFolderOrAncestorForbiddenProjectB_(pf, 8)) {
+                pf.removeFile(targetFile);
+                driveTrashed = true;
+              }
             } catch (eRemP) {}
           }
         }
@@ -9820,7 +9985,7 @@ function handleFotosDelete_(body) {
       registrarEventoHistorial_(ss, {
         clasificacion: 'MOVIMIENTO',
         modulo: 'AppsScript · Gestor Fotos Hoja "1"',
-        evento: skuUpper ? 'FOTO BORRADA DE HOJA "1" (COLUMNA D)' : 'FOTO BORRADA DE SUBIR COTIZACION',
+        evento: skuUpper ? 'FOTO BORRADA DE HOJA "1" (COLUMNA D)' : 'FOTO BORRADA DE SUBIR PREN',
         estado: '✅ OK',
         usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
         sucursal: 'ADMINISTRACIÓN GENERAL',

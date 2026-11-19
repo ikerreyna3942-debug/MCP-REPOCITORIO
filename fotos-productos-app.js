@@ -1867,7 +1867,7 @@
             if (stageTitle) {
                 stageTitle.textContent = selPhoto.fromLoaded
                     ? ('Tomada (' + (selPhoto.skuOrigin || 'Cargada') + ')')
-                    : 'SUBIR COTIZACION';
+                    : 'SUBIR PREN';
             }
             if (clearBtn) clearBtn.classList.remove('hidden');
             if (delBtn) delBtn.classList.remove('hidden');
@@ -2061,7 +2061,7 @@
         }
 
         if (!state.inboxFiles.length) {
-            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">SUBIR COTIZACION vacía</div>';
+            container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">SUBIR PREN vacía</div>';
             return;
         }
 
@@ -2253,7 +2253,7 @@
         renderSelectedProductStage();
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
-        showAssignFeedback('🗑 Foto borrada de SUBIR COTIZACION.', true);
+        showAssignFeedback('🗑 Foto borrada de SUBIR PREN.', true);
 
         if (fid.indexOf('local_inb_') === 0) {
             removeOutboxEntriesForLocalFileId(fid);
@@ -2659,7 +2659,7 @@
         } else if (queuedOfflineCount > 0) {
             showAssignFeedback('✅ Subidas: ' + uploadedCount + ' · En cola local: ' + queuedOfflineCount + '.', true);
         } else if (uploadedCount > 0) {
-            showAssignFeedback('✅ ' + uploadedCount + ' foto(s) lista(s) en SUBIR COTIZACION.', true);
+            showAssignFeedback('✅ ' + uploadedCount + ' foto(s) lista(s) en SUBIR PREN.', true);
         }
         return stagedEntries;
     };
@@ -2728,7 +2728,7 @@
 
     window.autoAssignMatchedInboxByCategory = async function (silentIfNone) {
         if (!state.inboxFiles.length) {
-            if (!silentIfNone) showAssignFeedback('ℹ️ No hay fotos pendientes en SUBIR COTIZACION.', true);
+            if (!silentIfNone) showAssignFeedback('ℹ️ No hay fotos pendientes en SUBIR PREN.', true);
             return;
         }
         const candidates = [];
@@ -2852,12 +2852,12 @@
         const selPhoto = getActiveSelectedPhotoObject();
         if (!prod || !selPhoto) return;
 
+        const autoDestMeta = resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
         const destSelect = document.getElementById('destFolderSelect');
-        const targetFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId) || prod.destFolderId;
-        const targetDestMeta = DEST_FOLDER_BY_ID.get(targetFolderId) || {
-            id: targetFolderId,
-            name: prod.destFolderName || 'FOTOS INTERIOR'
-        };
+        const requestedFolderId = cleanStr(destSelect ? destSelect.value : '') || cleanStr(prod.destFolderId);
+        const targetDestMeta = (requestedFolderId && DEST_FOLDER_BY_ID.get(requestedFolderId)) || autoDestMeta;
+        const targetFolderId = targetDestMeta.id;
+        if (destSelect && targetFolderId) destSelect.value = targetFolderId;
 
         let activeFileId = selPhoto.id;
         const isLocalPendingPhoto = String(activeFileId || '').indexOf('local_inb_') === 0;
@@ -3164,7 +3164,7 @@
                 showAssignFeedback(
                     '✅ Actualizado (' + state.products.length.toLocaleString('es-MX') + ' SKUs · ' +
                     loadedCount.toLocaleString('es-MX') + ' fotos cargadas · ' +
-                    state.inboxFiles.length + ' en SUBIR COTIZACION).',
+                    state.inboxFiles.length + ' en SUBIR PREN).',
                     true
                 );
             }
