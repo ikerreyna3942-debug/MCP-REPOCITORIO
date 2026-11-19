@@ -34,6 +34,88 @@
         'PROYECTOS': '461542063'
     };
 
+    const LPPT_SHEET_ID = '1t78KDg_DMbGfauNWRrjUc3ULh-SzrxO9XwOHPrtJtWE';
+    const LPPT_GID = '1025729459';
+    const SUPPLIER_COMMITMENT_BUFFER_DAYS = 14;
+    const SYNC_BROADCAST_CHANNEL_NAME = 'creata_fotos_cotizador_sync_v1';
+    let _fotosSyncChannel = null;
+
+    // Las 11 ubicaciones oficiales del ecosistema CREATA (idénticas a inventario.html / ESTRUCTURA_Y_BASE_BLOQUEADA_PROYECTO.txt)
+    const FOTOS_WAREHOUSES = [
+        { idx: 0,  key: 'WH_0',  label: 'LPPT',                    short: 'LPPT',             colNames: ['LPPT', 'LLPT'],                                  defaultCol: 15, isLppt: true },
+        { idx: 1,  key: 'WH_1',  label: 'CEDIS (BODEGA)',          short: 'CEDIS Bod.',       colNames: ['CEDIS BODEGA', 'CEDIS (BODEGA)'],                defaultCol: 20 },
+        { idx: 2,  key: 'WH_2',  label: 'CEDIS (PISO)',            short: 'CEDIS Piso',       colNames: ['CEDIS PISO', 'CEDIS (PISO)'],                    defaultCol: 21 },
+        { idx: 3,  key: 'WH_3',  label: 'CASA CREATA (BODEGA)',    short: 'Casa Creata Bod.', colNames: ['CASA CREATA BODEGA', 'CASA CREATA (BODEGA)'],    defaultCol: 22 },
+        { idx: 4,  key: 'WH_4',  label: 'CASA CREATA (PISO)',      short: 'Casa Creata Piso', colNames: ['CASA CREATA PISO', 'CASA CREATA (PISO)'],        defaultCol: 23 },
+        { idx: 5,  key: 'WH_5',  label: 'PUERTO CANCUN (BODEGA)',  short: 'Pto. Cancún Bod.', colNames: ['PUERTO CANCUN BODEGA', 'PUERTO CANCUN (BODEGA)'], defaultCol: 24 },
+        { idx: 6,  key: 'WH_6',  label: 'PUERTO CANCUN (PISO)',    short: 'Pto. Cancún Piso', colNames: ['PUERTO CANCUN PISO', 'PUERTO CANCUN (PISO)'],    defaultCol: 25 },
+        { idx: 7,  key: 'WH_7',  label: 'COLOSIO (BODEGA)',        short: 'Colosio Bod.',     colNames: ['COLOSIO BODEGA', 'COLOSIO (BODEGA)'],            defaultCol: 26 },
+        { idx: 8,  key: 'WH_8',  label: 'COLOSIO (PISO)',          short: 'Colosio Piso',     colNames: ['COLOSIO PISO', 'COLOSIO (PISO)'],                defaultCol: 27 },
+        { idx: 9,  key: 'WH_9',  label: 'PLAYA (BODEGA)',          short: 'Playa Bod.',       colNames: ['PLAYA BODEGA', 'PLAYA (BODEGA)'],                defaultCol: 28 },
+        { idx: 10, key: 'WH_10', label: 'PLAYA (PISO)',            short: 'Playa Piso',       colNames: ['PLAYA PISO', 'PLAYA (PISO)'],                    defaultCol: 29 }
+    ];
+    const FOTOS_WAREHOUSE_BY_KEY = new Map(FOTOS_WAREHOUSES.map((w) => [w.key, w]));
+
+    function emptyFotosStocks() {
+        return new Array(FOTOS_WAREHOUSES.length).fill(0);
+    }
+
+    function normalizeStocksArray(arr) {
+        const out = emptyFotosStocks();
+        if (!Array.isArray(arr)) return out;
+        const lim = Math.min(out.length, arr.length);
+        for (let i = 0; i < lim; i++) {
+            const n = Number(arr[i]);
+            out[i] = (!isNaN(n) && isFinite(n) && n > 0) ? Math.round(n) : 0;
+        }
+        return out;
+    }
+
+    function computeStockTotals(stArr) {
+        const st = Array.isArray(stArr) ? stArr : emptyFotosStocks();
+        const lpptStock = Math.max(0, Number(st[0]) || 0);
+        let totalBodegaPiso = 0;
+        for (let i = 1; i < FOTOS_WAREHOUSES.length; i++) {
+            totalBodegaPiso += Math.max(0, Number(st[i]) || 0);
+        }
+        return {
+            totalBodegaPiso: totalBodegaPiso,
+            lpptStock: lpptStock,
+            isQuotable: (totalBodegaPiso >= 1 || lpptStock >= 1)
+        };
+    }
+
+    function buildActiveLocationsMeta(stArr) {
+        const st = Array.isArray(stArr) ? stArr : [];
+        const shortParts = [];
+        const searchParts = [];
+        for (let i = 1; i < FOTOS_WAREHOUSES.length; i++) {
+            const q = Math.max(0, Number(st[i]) || 0);
+            if (q > 0) {
+                shortParts.push(FOTOS_WAREHOUSES[i].short + ': ' + q);
+                searchParts.push(FOTOS_WAREHOUSES[i].label + ' ' + FOTOS_WAREHOUSES[i].short);
+            }
+        }
+        const lpptQ = Math.max(0, Number(st[0]) || 0);
+        if (lpptQ > 0) {
+            shortParts.unshift('LPPT: ' + lpptQ);
+            searchParts.push('LPPT');
+        }
+        return {
+            locSummary: shortParts.slice(0, 3).join(' · ') + (shortParts.length > 3 ? (' +' + (shortParts.length - 3)) : ''),
+            locSearchTokens: searchParts.join(' ')
+        };
+    }
+
+    function formatListPriceText(raw) {
+        if (raw === null || raw === undefined) return '';
+        const cleaned = String(raw).replace(/[^0-9.-]/g, '');
+        if (!cleaned) return '';
+        const n = Number(cleaned);
+        if (isNaN(n) || !isFinite(n) || n <= 0) return '';
+        return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
     const CATEGORIAS_DEST_FOLDERS = [
         { key: 'SALAS',        id: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', name: 'FOTOS SALAS',                  short: 'Salas' },
         { key: 'SILLONES',     id: '1zqGnweu7T5-9f6dQoVXuT9MZTBPefSNm', name: 'FOTOS SILLONES',               short: 'Sillones' },
@@ -61,6 +143,7 @@
         filteredProducts: [],
         skuFilterMode: 'ALL',
         skuCategoryFilter: 'ALL',
+        skuLocationFilter: 'ALL',
         skuSearchQuery: '',
         selectedSku: '',
         galleryMode: 'INBOX',
@@ -620,18 +703,31 @@
 
     function saveSavedOverridesNow() {
         try {
-            const list = state.sessionSavedLogs.slice(0, 120).map((it) => ({
-                sku: it.sku,
-                productName: it.productName || '',
-                rowNumber: it.rowNumber || '',
-                previousUrl: it.previousUrl || '',
-                newUrl: it.newUrl || '',
-                fileId: it.fileId || '',
-                fileName: it.fileName || '',
-                destFolderName: it.destFolderName || '',
-                destFolderUrl: it.destFolderUrl || '',
-                ts: it.ts || Date.now()
-            }));
+            const list = [];
+            const slice = state.sessionSavedLogs.slice(0, 120);
+            for (let i = 0; i < slice.length; i++) {
+                const it = slice[i];
+                if (!it || !it.sku) continue;
+                let persistUrl = cleanStr(it.newUrl);
+                if (persistUrl.indexOf('blob:') === 0) {
+                    persistUrl = (it.localDataUrl && String(it.localDataUrl).indexOf('data:image/') === 0)
+                        ? String(it.localDataUrl)
+                        : '';
+                }
+                if (!persistUrl) continue;
+                list.push({
+                    sku: it.sku,
+                    productName: it.productName || '',
+                    rowNumber: it.rowNumber || '',
+                    previousUrl: it.previousUrl || '',
+                    newUrl: persistUrl,
+                    fileId: it.fileId || '',
+                    fileName: it.fileName || '',
+                    destFolderName: it.destFolderName || '',
+                    destFolderUrl: it.destFolderUrl || '',
+                    ts: it.ts || Date.now()
+                });
+            }
             localStorage.setItem(SAVED_OVERRIDES_STORAGE, JSON.stringify(list));
         } catch (e) {}
     }
@@ -652,8 +748,10 @@
             for (let i = 0; i < list.length; i++) {
                 const it = list[i];
                 if (!it || !it.sku || !it.newUrl) continue;
+                const cleanUrl = cleanStr(it.newUrl);
+                if (!cleanUrl || cleanUrl.indexOf('blob:') === 0) continue;
                 const sku = cleanStr(it.sku).toUpperCase();
-                const fid = cleanStr(it.fileId || extractDriveFileId(it.newUrl));
+                const fid = cleanStr(it.fileId || extractDriveFileId(cleanUrl));
                 if (delSkus[sku] || (fid && delFiles[fid])) continue;
                 if (it.ts && (now - Number(it.ts)) > maxAgeMs) continue;
                 if (bySku.has(sku)) continue;
@@ -662,12 +760,12 @@
                     productName: cleanStr(it.productName),
                     rowNumber: it.rowNumber || '',
                     previousUrl: cleanStr(it.previousUrl),
-                    newUrl: cleanStr(it.newUrl),
+                    newUrl: cleanUrl,
                     fileId: fid,
                     fileName: cleanStr(it.fileName),
                     destFolderName: cleanStr(it.destFolderName),
                     destFolderUrl: cleanStr(it.destFolderUrl),
-                    localDataUrl: '',
+                    localDataUrl: cleanUrl.indexOf('data:image/') === 0 ? cleanUrl : '',
                     ts: Number(it.ts) || now
                 };
                 bySku.set(sku, entry);
@@ -714,11 +812,12 @@
             const compactProducts = new Array(state.products.length);
             for (let i = 0; i < state.products.length; i++) {
                 const p = state.products[i];
+                const persistPhotoUrl = (p.photoUrl && String(p.photoUrl).indexOf('blob:') === 0) ? '' : (p.photoUrl || '');
                 compactProducts[i] = [
                     p.sku,
                     p.colBName,
                     p.displayName,
-                    p.photoUrl,
+                    persistPhotoUrl,
                     p.rowNumber || 0,
                     p.inSheet1 ? 1 : 0,
                     p.inInv ? 1 : 0,
@@ -728,7 +827,10 @@
                     p.modelo || '',
                     p.variante || '',
                     p.medidas || '',
-                    p.acabado || ''
+                    p.acabado || '',
+                    Array.isArray(p.st) ? p.st : emptyFotosStocks(),
+                    p.precio || '',
+                    p.fe || ''
                 ];
             }
             const compactInbox = state.rawInboxFromDrive.slice(0, 220).map((f) => ({
@@ -801,12 +903,18 @@
                 const variante = String(r[11] || '');
                 const medidas = String(r[12] || '');
                 const acabado = String(r[13] || '');
+                const hasStocksTuple = Array.isArray(r[14]);
+                const st = normalizeStocksArray(r[14]);
+                const totals = computeStockTotals(st);
+                const locMeta = buildActiveLocationsMeta(st);
+                const precio = formatListPriceText(r[15]);
+                const fe = cleanStr(r[16]);
                 const searchSkuNorm = normalizeSearchText(sku);
                 const dispNorm = normalizeSearchText(displayName);
                 const cleanCat = cleanCategoryForPhotoSearch(r[7] || '', r[8] || '', displayName + ' ' + colBName);
                 const searchNameNorm = normalizeSearchText(
                     displayName + ' ' + colBName + ' ' + cleanCat + ' ' + (r[8] || '') + ' ' +
-                    modelo + ' ' + variante + ' ' + medidas + ' ' + acabado + ' ' + destMeta.name
+                    modelo + ' ' + variante + ' ' + medidas + ' ' + acabado + ' ' + destMeta.name + ' ' + locMeta.locSearchTokens
                 );
                 const item = {
                     sku: sku,
@@ -823,6 +931,13 @@
                     variante: variante,
                     medidas: medidas,
                     acabado: acabado,
+                    st: st,
+                    hasStocksLoaded: hasStocksTuple,
+                    totalBodegaPiso: totals.totalBodegaPiso,
+                    lpptStock: totals.lpptStock,
+                    locSummary: locMeta.locSummary,
+                    precio: precio,
+                    fe: fe,
                     destFolderId: destMeta.id,
                     destFolderName: destMeta.name,
                     searchSkuNorm: searchSkuNorm,
@@ -1263,6 +1378,123 @@
         return items;
     }
 
+    function parseFotosDateSimple(rawStr) {
+        const s = cleanStr(rawStr);
+        if (!s) return null;
+        const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if (m1) {
+            const d = parseInt(m1[1], 10);
+            const m = parseInt(m1[2], 10) - 1;
+            let y = parseInt(m1[3], 10);
+            if (y < 100) y += 2000;
+            const dt = new Date(y, m, d);
+            dt.setHours(0, 0, 0, 0);
+            return isNaN(dt.getTime()) ? null : dt;
+        }
+        const m2 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+        if (m2) {
+            const dt = new Date(parseInt(m2[1], 10), parseInt(m2[2], 10) - 1, parseInt(m2[3], 10));
+            dt.setHours(0, 0, 0, 0);
+            return isNaN(dt.getTime()) ? null : dt;
+        }
+        return null;
+    }
+
+    function formatFotosDateDMY(dt) {
+        if (!dt || isNaN(dt.getTime())) return '';
+        const dd = String(dt.getDate()).padStart(2, '0');
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        return dd + '/' + mm + '/' + dt.getFullYear();
+    }
+
+    // Lectura ESTRICTAMENTE EN SOLO LECTURA de LPPT Proveedores ([BLOQUEADO-4])
+    async function fetchLiveLpptSummaryReadOnly() {
+        const lpptUrl = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(LPPT_SHEET_ID) +
+            '/gviz/tq?tqx=out:csv&headers=0&gid=' + encodeURIComponent(LPPT_GID) + '&_t=' + Date.now();
+        try {
+            const resp = await fetch(lpptUrl, { cache: 'no-store' });
+            if (!resp || !resp.ok) return null;
+            const txt = await resp.text();
+            if (!txt || txt.trimStart().startsWith('<!DOCTYPE') || txt.trimStart().startsWith('<html')) return null;
+            const rows = parseCsvText(txt);
+            if (!Array.isArray(rows) || rows.length < 3) return null;
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const map = new Map();
+
+            for (let i = 2; i < rows.length; i++) {
+                const r = rows[i];
+                if (!r || r.length <= 9) continue;
+                const sku = cleanStr(r[9]).toUpperCase();
+                const oc = cleanStr(r[3]);
+                if (!sku || !oc || sku === 'CLA00E') continue;
+
+                const folio = r.length > 12 ? cleanStr(r[12]) : '';
+                const cliente = r.length > 15 ? cleanStr(r[15]) : '';
+                const estatus = r.length > 16 ? normPlainCat(r[16]) : '';
+                const garantia = r.length > 17 ? normPlainCat(r[17]) : '';
+                const comComp = r.length > 18 ? normPlainCat(r[18]) : '';
+                const comAsesRaw = r.length > 19 ? String(r[19] || '') : '';
+                const comAsesNorm = normPlainCat(comAsesRaw);
+
+                if (
+                    folio ||
+                    cliente ||
+                    /CANCEL|RECIBID|ENTREGAD|BAJA/.test(estatus) ||
+                    /NO DISPONIBLE|GARANTIA|APARTAD|ASIGNAD/.test(comComp) ||
+                    /GARANTIA|NO DISPONIBLE/.test(garantia)
+                ) {
+                    continue;
+                }
+
+                const rawCant = r.length > 6 ? String(r[6] || '').replace(/,/g, '') : '0';
+                const cant = Math.max(0, Math.floor(Number(rawCant) || 0));
+                let reserved = 0;
+                const matches = comAsesRaw.match(/\((\d+)\)/g);
+                if (matches) {
+                    for (let m = 0; m < matches.length; m++) {
+                        reserved += parseInt(matches[m].slice(1, -1), 10) || 0;
+                    }
+                } else if (
+                    comAsesNorm &&
+                    (/APARTAD|VENDID|NO DISPONIBLE|GARANTIA/.test(comAsesNorm) || /\b(?:PTC|CCB|DTC|PL|PRO|OUT|CED|ADM)\s*\d{2,7}\b/.test(comAsesNorm))
+                ) {
+                    continue;
+                }
+
+                const freeQty = Math.max(0, cant - reserved);
+                if (freeQty <= 0) continue;
+
+                const rawFcomp = r.length > 5 ? parseFotosDateSimple(r[5]) : null;
+                let bufferedDate = null;
+                if (rawFcomp) {
+                    bufferedDate = new Date(rawFcomp.getTime());
+                    bufferedDate.setDate(bufferedDate.getDate() + SUPPLIER_COMMITMENT_BUFFER_DAYS);
+                }
+
+                let cur = map.get(sku);
+                if (!cur) {
+                    cur = { qty: 0, bestDate: null, nom: r.length > 8 ? cleanStr(r[8]) : '' };
+                    map.set(sku, cur);
+                }
+                cur.qty += freeQty;
+                if (bufferedDate) {
+                    if (
+                        !cur.bestDate ||
+                        (bufferedDate >= today && (cur.bestDate < today || bufferedDate < cur.bestDate)) ||
+                        (bufferedDate < today && cur.bestDate < today && bufferedDate > cur.bestDate)
+                    ) {
+                        cur.bestDate = bufferedDate;
+                    }
+                }
+            }
+            return map;
+        } catch (eLppt) {
+            return null;
+        }
+    }
+
     async function loadSheetsCatalog() {
         if (state.sheetsPromise) return state.sheetsPromise;
         state.sheetsLoading = true;
@@ -1273,9 +1505,10 @@
 
         state.sheetsPromise = (async () => {
             try {
-                const [rows1, rowsInv] = await Promise.all([
+                const [rows1, rowsInv, lpptMap] = await Promise.all([
                     fetchSheetRows('1', 'A1:D9500'),
-                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:N5500')
+                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:AX5500'),
+                    fetchLiveLpptSummaryReadOnly()
                 ]);
 
                 if ((!rows1 || !rows1.length) && (!rowsInv || !rowsInv.length) && state.products.length > 0) {
@@ -1297,12 +1530,36 @@
                     return parts.join(' · ');
                 };
 
+                // Resolver índices de columnas de las 11 ubicaciones, fecha LPPT y precio en INVENTARIO_EN_VIVO
+                let whColIndices = FOTOS_WAREHOUSES.map((w) => w.defaultCol);
+                let colFeIdx = 16;
+                let colPrecioIdx = 48;
+                let hasStockColsInInv = false;
+
+                if (Array.isArray(rowsInv) && rowsInv.length > 0) {
+                    const hdrRow = (rowsInv[0] || []).map((h) => normPlainCat(String(h || '').replace(/[()]/g, ' ')));
+                    const findHdrCol = (candidates, fallbackIdx) => {
+                        for (let c = 0; c < candidates.length; c++) {
+                            const normC = normPlainCat(String(candidates[c]).replace(/[()]/g, ' '));
+                            const found = hdrRow.indexOf(normC);
+                            if (found !== -1) return found;
+                        }
+                        return hdrRow.length > fallbackIdx ? fallbackIdx : -1;
+                    };
+                    whColIndices = FOTOS_WAREHOUSES.map((w) => findHdrCol(w.colNames, w.defaultCol));
+                    colFeIdx = findHdrCol(['FECHA ESTIMADA DE LLEGADA', 'FECHA ESTIMADA'], 16);
+                    colPrecioIdx = findHdrCol(['PRECIO DE LISTA', 'PRECIO LISTA', 'PRECIO'], 48);
+                    hasStockColsInInv = whColIndices.some((idx, w) => w > 0 && idx !== -1 && hdrRow.length > idx);
+                }
+
                 const invMap = new Map();
                 if (Array.isArray(rowsInv)) {
                     for (let i = 1; i < rowsInv.length; i++) {
                         const r = rowsInv[i] || [];
                         const sku = cleanStr(r[0]).toUpperCase();
                         if (!sku || sku === 'SKU') continue;
+                        if (!r[1] && !r[3] && /^=SUM/i.test(String(r[18] || ''))) continue;
+
                         const photoInvRaw = cleanPhotoUrl(r[5]);
                         const tl = cleanStr(r[7]);
                         const ct = cleanStr(r[8]);
@@ -1311,6 +1568,31 @@
                         const mt = cleanStr(r[11]);
                         const med = cleanStr(r[12]);
                         const acabado = buildAcabadoSummary(tl, ct, md, cm, mt);
+
+                        const st = emptyFotosStocks();
+                        for (let w = 0; w < FOTOS_WAREHOUSES.length; w++) {
+                            const cIdx = whColIndices[w];
+                            if (cIdx !== -1 && cIdx < r.length) {
+                                const rawVal = String(r[cIdx] === null || r[cIdx] === undefined ? '' : r[cIdx]).replace(/,/g, '').trim();
+                                const numVal = Number(rawVal);
+                                st[w] = (!isNaN(numVal) && isFinite(numVal) && numVal > 0) ? Math.round(numVal) : 0;
+                            }
+                        }
+
+                        let feText = (colFeIdx !== -1 && colFeIdx < r.length) ? cleanStr(r[colFeIdx]) : '';
+                        if (feText === 'Sin piezas solicitadas') feText = '';
+                        const liveLppt = lpptMap ? lpptMap.get(sku) : null;
+                        if (liveLppt && liveLppt.qty > 0) {
+                            st[0] = liveLppt.qty;
+                            if (liveLppt.bestDate) {
+                                feText = formatFotosDateDMY(liveLppt.bestDate);
+                            }
+                        }
+
+                        const precioFmt = (colPrecioIdx !== -1 && colPrecioIdx < r.length)
+                            ? formatListPriceText(r[colPrecioIdx])
+                            : '';
+
                         if (!invMap.has(sku)) {
                             invMap.set(sku, {
                                 sku: sku,
@@ -1321,12 +1603,42 @@
                                 photoInv: photoInvRaw,
                                 categoria: cleanStr(r[6]),
                                 medidas: med,
-                                acabado: acabado
+                                acabado: acabado,
+                                st: st,
+                                hasStocksLoaded: hasStockColsInInv || !!(liveLppt && liveLppt.qty > 0),
+                                fe: feText,
+                                precio: precioFmt
                             });
-                        } else if (photoInvRaw && !invMap.get(sku).photoInv) {
-                            invMap.get(sku).photoInv = photoInvRaw;
+                        } else {
+                            const prevInv = invMap.get(sku);
+                            if (photoInvRaw && !prevInv.photoInv) prevInv.photoInv = photoInvRaw;
+                            if (!prevInv.precio && precioFmt) prevInv.precio = precioFmt;
                         }
                     }
+                }
+
+                // Incluir piezas que vengan únicamente en LPPT Proveedores aunque aún no estén en INVENTARIO_EN_VIVO
+                if (lpptMap && lpptMap.size > 0) {
+                    lpptMap.forEach((lpInfo, sku) => {
+                        if (invMap.has(sku) || !lpInfo || lpInfo.qty <= 0) return;
+                        const st = emptyFotosStocks();
+                        st[0] = lpInfo.qty;
+                        invMap.set(sku, {
+                            sku: sku,
+                            tipo: '',
+                            modelo: '',
+                            nombreInv: lpInfo.nom || sku,
+                            variante: '',
+                            photoInv: '',
+                            categoria: '',
+                            medidas: '',
+                            acabado: '',
+                            st: st,
+                            hasStocksLoaded: true,
+                            fe: lpInfo.bestDate ? formatFotosDateDMY(lpInfo.bestDate) : '',
+                            precio: ''
+                        });
+                    });
                 }
 
                 const mergedMap = new Map();
@@ -1353,6 +1665,12 @@
                                 inv ? inv.tipo : '',
                                 displayName
                             );
+                            const prevCached = state.productBySku.get(sku) || null;
+                            const stArr = inv
+                                ? inv.st
+                                : (prevCached && prevCached.hasStocksLoaded ? normalizeStocksArray(prevCached.st) : emptyFotosStocks());
+                            const totals = computeStockTotals(stArr);
+                            const locMeta = buildActiveLocationsMeta(stArr);
                             mergedMap.set(sku, {
                                 sku: sku,
                                 colBName: colBName,
@@ -1368,6 +1686,14 @@
                                 variante: inv ? inv.variante : '',
                                 medidas: inv ? inv.medidas : '',
                                 acabado: inv ? inv.acabado : '',
+                                st: stArr,
+                                hasStocksLoaded: inv ? !!inv.hasStocksLoaded : !!(prevCached && prevCached.hasStocksLoaded),
+                                totalBodegaPiso: totals.totalBodegaPiso,
+                                lpptStock: totals.lpptStock,
+                                locSummary: locMeta.locSummary,
+                                locSearchTokens: locMeta.locSearchTokens,
+                                precio: inv ? (inv.precio || '') : ((prevCached && prevCached.precio) || ''),
+                                fe: inv ? (inv.fe || '') : ((prevCached && prevCached.fe) || ''),
                                 destFolderId: dest.id,
                                 destFolderName: dest.name,
                                 searchSkuNorm: '',
@@ -1398,6 +1724,8 @@
                         invPhotoUrl = '';
                         invPhotoFid = '';
                     }
+                    const totals = computeStockTotals(inv.st);
+                    const locMeta = buildActiveLocationsMeta(inv.st);
                     mergedMap.set(sku, {
                         sku: sku,
                         colBName: '',
@@ -1413,6 +1741,14 @@
                         variante: inv.variante || '',
                         medidas: inv.medidas || '',
                         acabado: inv.acabado || '',
+                        st: inv.st,
+                        hasStocksLoaded: !!inv.hasStocksLoaded,
+                        totalBodegaPiso: totals.totalBodegaPiso,
+                        lpptStock: totals.lpptStock,
+                        locSummary: locMeta.locSummary,
+                        locSearchTokens: locMeta.locSearchTokens,
+                        precio: inv.precio || '',
+                        fe: inv.fe || '',
                         destFolderId: dest.id,
                         destFolderName: dest.name,
                         searchSkuNorm: '',
@@ -1459,12 +1795,16 @@
                     const cleanCat = cleanCategoryForPhotoSearch(p.categoria, p.tipo, p.displayName + ' ' + p.colBName);
                     p.searchNameNorm = normalizeSearchText(
                         p.displayName + ' ' + p.colBName + ' ' + cleanCat + ' ' + p.tipo + ' ' +
-                        (p.modelo || '') + ' ' + (p.variante || '') + ' ' + (p.medidas || '') + ' ' + (p.acabado || '') + ' ' + (p.destFolderName || '')
+                        (p.modelo || '') + ' ' + (p.variante || '') + ' ' + (p.medidas || '') + ' ' + (p.acabado || '') + ' ' +
+                        (p.destFolderName || '') + ' ' + (p.locSearchTokens || '')
                     );
                     p.searchNorm = (p.searchSkuNorm + ' ' + p.searchNameNorm).trim();
                 }
 
                 list.sort((a, b) => {
+                    const aQuot = (a.totalBodegaPiso > 0 || a.lpptStock > 0) ? 1 : 0;
+                    const bQuot = (b.totalBodegaPiso > 0 || b.lpptStock > 0) ? 1 : 0;
+                    if (aQuot !== bQuot) return bQuot - aQuot;
                     if (a.inInv !== b.inInv) return a.inInv ? -1 : 1;
                     return a.displayName.localeCompare(b.displayName, 'es') || a.sku.localeCompare(b.sku, 'es');
                 });
@@ -1482,6 +1822,7 @@
                         restoreFotosUiCheckpointOnce();
                     } else {
                         renderSkuCategoryFilterRow();
+                        renderSkuLocationFilterRow();
                         applySkuFiltersAndRender();
                         renderInboxGallery();
                         if (state.selectedSku) renderSelectedProductStage();
@@ -1500,17 +1841,32 @@
         return cleanStr(s).toUpperCase();
     }
 
+    function matchesLocationFilter(p, locKey) {
+        const key = locKey || 'ALL';
+        if (key === 'ALL') return true;
+        if (!p) return false;
+        if (key === 'QUOTABLE') {
+            return (Number(p.totalBodegaPiso) || 0) >= 1 || (Number(p.lpptStock) || 0) >= 1;
+        }
+        const whMeta = FOTOS_WAREHOUSE_BY_KEY.get(key);
+        if (!whMeta) return true;
+        const st = Array.isArray(p.st) ? p.st : [];
+        return (Number(st[whMeta.idx]) || 0) >= 1;
+    }
+
     function renderSkuCategoryFilterRow() {
         const wrap = document.getElementById('skuCategoryFilterRow');
         if (!wrap) return;
 
         const countsByFolderId = new Map();
         const mode = state.skuFilterMode;
+        const locKey = state.skuLocationFilter || 'ALL';
         for (let i = 0; i < state.products.length; i++) {
             const p = state.products[i];
             if (mode === 'NO_PHOTO' && p.photoUrl) continue;
             if (mode === 'HAS_PHOTO' && !p.photoUrl) continue;
             if (mode === 'IN_INV' && !p.inInv) continue;
+            if (!matchesLocationFilter(p, locKey)) continue;
             const fid = p.destFolderId || CATEGORIAS_DEST_FOLDERS[9].id;
             countsByFolderId.set(fid, (countsByFolderId.get(fid) || 0) + 1);
         }
@@ -1535,9 +1891,64 @@
         wrap.innerHTML = pills.join('');
     }
 
+    function renderSkuLocationFilterRow() {
+        const wrap = document.getElementById('skuLocationFilterRow');
+        if (!wrap) return;
+
+        const mode = state.skuFilterMode;
+        const catFilterMeta = (state.skuCategoryFilter && state.skuCategoryFilter !== 'ALL')
+            ? DEST_FOLDER_BY_KEY.get(state.skuCategoryFilter)
+            : null;
+        const requiredFolderId = catFilterMeta ? catFilterMeta.id : '';
+
+        let quotableCount = 0;
+        const countsByWh = new Array(FOTOS_WAREHOUSES.length).fill(0);
+
+        for (let i = 0; i < state.products.length; i++) {
+            const p = state.products[i];
+            if (mode === 'NO_PHOTO' && p.photoUrl) continue;
+            if (mode === 'HAS_PHOTO' && !p.photoUrl) continue;
+            if (mode === 'IN_INV' && !p.inInv) continue;
+            if (requiredFolderId && p.destFolderId !== requiredFolderId) continue;
+
+            if ((Number(p.totalBodegaPiso) || 0) >= 1 || (Number(p.lpptStock) || 0) >= 1) {
+                quotableCount++;
+            }
+            const st = Array.isArray(p.st) ? p.st : [];
+            for (let w = 0; w < FOTOS_WAREHOUSES.length; w++) {
+                if ((Number(st[w]) || 0) >= 1) countsByWh[w]++;
+            }
+        }
+
+        const activeLocKey = state.skuLocationFilter || 'ALL';
+        const pills = [
+            '<button type="button" class="cat-filter-pill' + (activeLocKey === 'ALL' ? ' active' : '') + '" data-loc-key="ALL" onclick="setSkuLocationFilter(\'ALL\')">' +
+                '<span>Todas ubic.</span>' +
+            '</button>',
+            '<button type="button" class="cat-filter-pill' + (activeLocKey === 'QUOTABLE' ? ' active' : '') + '" data-loc-key="QUOTABLE" onclick="setSkuLocationFilter(\'QUOTABLE\')" title="Piezas visibles en el Cotizador (>= 1 en Bodega/Piso o LPPT)">' +
+                '<span>En Cotizador</span>' +
+                '<span class="cat-cnt">' + quotableCount + '</span>' +
+            '</button>'
+        ];
+
+        for (let w = 0; w < FOTOS_WAREHOUSES.length; w++) {
+            const wh = FOTOS_WAREHOUSES[w];
+            const cnt = countsByWh[w] || 0;
+            const isAct = activeLocKey === wh.key;
+            pills.push(
+                '<button type="button" class="cat-filter-pill' + (isAct ? ' active' : '') + '" data-loc-key="' + escapeHtml(wh.key) + '" onclick="setSkuLocationFilter(\'' + escapeHtml(wh.key) + '\')" title="' + escapeHtml(wh.label) + '">' +
+                    '<span>' + escapeHtml(wh.short) + '</span>' +
+                    '<span class="cat-cnt">' + cnt + '</span>' +
+                '</button>'
+            );
+        }
+        wrap.innerHTML = pills.join('');
+    }
+
     window.setSkuCategoryFilter = function (catKey) {
         state.skuCategoryFilter = catKey || 'ALL';
         renderSkuCategoryFilterRow();
+        renderSkuLocationFilterRow();
         if (state.skuCategoryFilter !== 'ALL') {
             const fMeta = DEST_FOLDER_BY_KEY.get(state.skuCategoryFilter);
             const destSel = document.getElementById('destFolderSelect');
@@ -1552,6 +1963,17 @@
         saveFotosUiCheckpointNow();
         if (state.skuCategoryFilter !== 'ALL') {
             syncFotosBackNav('sku_category');
+        }
+    };
+
+    window.setSkuLocationFilter = function (locKey) {
+        state.skuLocationFilter = locKey || 'ALL';
+        renderSkuLocationFilterRow();
+        renderSkuCategoryFilterRow();
+        applySkuFiltersAndRender();
+        saveFotosUiCheckpointNow();
+        if (state.skuLocationFilter !== 'ALL') {
+            syncFotosBackNav('sku_location');
         }
     };
 
@@ -1578,6 +2000,7 @@
             b.classList.toggle('active', b.getAttribute('data-filter') === state.skuFilterMode);
         });
         renderSkuCategoryFilterRow();
+        renderSkuLocationFilterRow();
         applySkuFiltersAndRender();
         saveFotosUiCheckpointNow();
         if (state.skuFilterMode !== 'ALL') {
@@ -1589,6 +2012,7 @@
         const q = normalizeSearchText(state.skuSearchQuery);
         const tokens = q ? q.split(' ').filter(Boolean) : [];
         const mode = state.skuFilterMode;
+        const locKey = state.skuLocationFilter || 'ALL';
         const catFilterMeta = (state.skuCategoryFilter && state.skuCategoryFilter !== 'ALL')
             ? DEST_FOLDER_BY_KEY.get(state.skuCategoryFilter)
             : null;
@@ -1605,6 +2029,7 @@
             if (mode === 'HAS_PHOTO' && !p.photoUrl) continue;
             if (mode === 'IN_INV' && !p.inInv) continue;
             if (requiredFolderId && p.destFolderId !== requiredFolderId) continue;
+            if (!matchesLocationFilter(p, locKey)) continue;
 
             if (tLen > 0) {
                 let ok = true;
@@ -1636,6 +2061,9 @@
                 const aExact = a.searchSkuNorm === q ? 0 : (a.searchSkuNorm.indexOf(q) === 0 ? 1 : (a.searchNameNorm.indexOf(q) === 0 ? 2 : 3));
                 const bExact = b.searchSkuNorm === q ? 0 : (b.searchSkuNorm.indexOf(q) === 0 ? 1 : (b.searchNameNorm.indexOf(q) === 0 ? 2 : 3));
                 if (aExact !== bExact) return aExact - bExact;
+                const aQuot = (a.totalBodegaPiso > 0 || a.lpptStock > 0) ? 1 : 0;
+                const bQuot = (b.totalBodegaPiso > 0 || b.lpptStock > 0) ? 1 : 0;
+                if (aQuot !== bQuot) return bQuot - aQuot;
                 if (a.inInv !== b.inInv) return a.inInv ? -1 : 1;
                 return a.sku.localeCompare(b.sku, 'es');
             });
@@ -1681,10 +2109,22 @@
             const safeFid = escapeHtml(fid.replace(/'/g, "\\'"));
             const destMeta = DEST_FOLDER_BY_ID.get(p.destFolderId);
             const catShort = destMeta ? (destMeta.short || destMeta.name.replace(/^FOTOS\s+(DE\s+)?/i, '')) : (p.destFolderName || '').replace(/^FOTOS\s+(DE\s+)?/i, '');
+            const bodPiso = Number(p.totalBodegaPiso) || 0;
+            const lpptQ = Number(p.lpptStock) || 0;
+            let stockBadgeHtml = '';
+            if (bodPiso > 0) {
+                stockBadgeHtml = '<span class="sku-stock-badge in-stock" title="Existencia física total en Bodega/Piso">Stock ' + bodPiso + (lpptQ > 0 ? (' + LPPT ' + lpptQ) : '') + '</span>';
+            } else if (lpptQ > 0) {
+                stockBadgeHtml = '<span class="sku-stock-badge in-lppt" title="Piezas libres entrantes en LPPT">LPPT ' + lpptQ + '</span>';
+            } else if (p.hasStocksLoaded && p.inInv) {
+                stockBadgeHtml = '<span class="sku-stock-badge zero-stock">0 pz</span>';
+            }
+
             const subParts = [];
             if (p.modelo) subParts.push(p.modelo);
             if (p.variante && p.variante !== 'ESTÁNDAR' && normPlainCat(p.variante) !== normPlainCat(p.modelo)) subParts.push(p.variante);
             if (p.medidas) subParts.push(p.medidas);
+            if (p.locSummary) subParts.push(p.locSummary);
 
             htmlParts[i] =
                 '<div class="sku-item' + (isSel ? ' selected' : '') + '" data-sku="' + escapeHtml(p.sku) + '" onclick="selectSkuProduct(\'' + safeSku + '\')">' +
@@ -1700,6 +2140,7 @@
                                 (p.photoUrl ? 'Foto' : 'Sin foto') +
                             '</span>' +
                             (catShort ? ('<span class="sku-cat-chip">' + escapeHtml(catShort) + '</span>') : '') +
+                            stockBadgeHtml +
                             (p.photoUrl
                                 ? ('<span class="sku-quick-actions">' +
                                     '<button type="button" class="sku-quick-btn is-take" onclick="takePhotoFromSkuRow(\'' + safeSku + '\', event)">Tomar</button>' +
@@ -1746,6 +2187,12 @@
         if (!(opts && opts.skipBackSync)) {
             syncFotosBackNav('selected_sku');
         }
+        if (!(opts && opts.fromPeerSync) && !_fotosRestoringCheckpoint) {
+            const isEmbedded = !!(window.parent && window.parent !== window);
+            if (_fotosSplitActive || isEmbedded) {
+                notifySplitPeerOfSkuSelect(sku, false);
+            }
+        }
     };
 
     window.clearSelectedSku = function () {
@@ -1783,11 +2230,15 @@
     function renderSelectedProductStage() {
         const prod = state.selectedSku ? state.productBySku.get(state.selectedSku) : null;
         const rowBadge = document.getElementById('selectedRowBadge');
+        const btnOpenCotizador = document.getElementById('btnOpenInCotizadorStage');
         const colASku = document.getElementById('selColASku');
         const colBName = document.getElementById('selColBName');
         const catLabel = document.getElementById('selCategoryLabel');
         const moVarVal = document.getElementById('selModelVariantVal');
         const dimsFinVal = document.getElementById('selDimsFinishVal');
+        const locWrap = document.getElementById('selLocationsWrap');
+        const locSummaryBadge = document.getElementById('selLocationsSummaryBadge');
+        const locGrid = document.getElementById('selLocationsGrid');
         const sibWrap = document.getElementById('selSiblingVariantsWrap');
         const sibList = document.getElementById('selSiblingVariantsList');
 
@@ -1798,11 +2249,14 @@
 
         if (!prod) {
             if (rowBadge) rowBadge.textContent = '—';
+            if (btnOpenCotizador) btnOpenCotizador.classList.add('hidden');
             if (colASku) colASku.textContent = '—';
             if (colBName) colBName.textContent = '—';
             if (catLabel) catLabel.textContent = '—';
             if (moVarVal) moVarVal.textContent = '—';
             if (dimsFinVal) dimsFinVal.textContent = '—';
+            if (locWrap) locWrap.classList.add('hidden');
+            if (locGrid) locGrid.innerHTML = '';
             if (sibWrap) sibWrap.classList.add('hidden');
             if (sibList) sibList.innerHTML = '';
             if (curOpenLink) curOpenLink.classList.add('hidden');
@@ -1813,6 +2267,7 @@
             return;
         }
 
+        if (btnOpenCotizador) btnOpenCotizador.classList.remove('hidden');
         if (rowBadge) {
             rowBadge.textContent = prod.inSheet1 ? (prod.rowNumber ? ('Fila ' + prod.rowNumber) : 'Hoja 1') : 'Nuevo';
         }
@@ -1836,6 +2291,36 @@
             if (prod.medidas) dfParts.push(prod.medidas);
             if (prod.acabado) dfParts.push(prod.acabado);
             dimsFinVal.textContent = dfParts.length ? dfParts.join(' · ') : (prod.categoria || '—');
+        }
+
+        // Renderizar las 11 ubicaciones oficiales (LPPT + 10 posiciones Bodega/Piso)
+        if (locWrap && locGrid) {
+            const st = Array.isArray(prod.st) ? prod.st : emptyFotosStocks();
+            const bodPiso = Number(prod.totalBodegaPiso) || 0;
+            const lpptQ = Number(prod.lpptStock) || 0;
+            const summaryParts = ['Bodega/Piso: ' + bodPiso];
+            if (lpptQ > 0) summaryParts.push('LPPT: ' + lpptQ);
+            if (prod.precio) summaryParts.push(prod.precio);
+            if (locSummaryBadge) locSummaryBadge.textContent = summaryParts.join(' · ');
+
+            const chipsHtml = [];
+            for (let w = 0; w < FOTOS_WAREHOUSES.length; w++) {
+                const wh = FOTOS_WAREHOUSES[w];
+                const qty = Math.max(0, Number(st[w]) || 0);
+                const semClass = qty <= 0 ? 'sem-red' : (qty <= 2 ? 'sem-yellow' : 'sem-green');
+                const lpptClass = wh.isLppt ? ' is-lppt' : '';
+                const labelText = (wh.isLppt && qty > 0)
+                    ? ('LPPT: ' + qty + (qty === 1 ? ' disponible' : ' disponibles') + (prod.fe ? (' · Entrega est. ' + prod.fe) : ''))
+                    : wh.label;
+                chipsHtml.push(
+                    '<div class="loc-stock-chip ' + semClass + lpptClass + '">' +
+                        '<span class="loc-stock-lbl"><span class="loc-stock-dot"></span><span>' + escapeHtml(labelText) + '</span></span>' +
+                        '<span class="loc-stock-val">' + qty + '</span>' +
+                    '</div>'
+                );
+            }
+            locGrid.innerHTML = chipsHtml.join('');
+            locWrap.classList.remove('hidden');
         }
 
         if (sibWrap && sibList) {
@@ -2405,12 +2890,17 @@
 
         invalidateLoadedPhotosCache();
         scheduleSaveFastCache();
+        renderSkuCategoryFilterRow();
+        renderSkuLocationFilterRow();
         applySkuFiltersAndRender();
         renderInboxGallery();
         renderSelectedProductStage();
         renderSessionHistoryLog();
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
+        if (sku) {
+            notifySplitPeerOfPhotoUpdate(sku, '', '', '');
+        }
         showAssignFeedback('🗑 Foto borrada' + (sku ? (' de ' + escapeHtml(sku)) : '') + '.', true);
 
         const res = await callWebAppPost('fotos_delete', Object.assign({
@@ -2484,43 +2974,57 @@
     const pendingUploadPromises = new Map();
 
     function notifySplitPeerOfPhotoUpdate(sku, photoUrl, fileId, destFolderName) {
+        const cleanUrl = cleanStr(photoUrl);
         const msg = {
             type: 'CREATA_SPLIT_PHOTO_SAVED',
             sku: cleanStr(sku).toUpperCase(),
-            photoUrl: cleanStr(photoUrl),
+            photoUrl: cleanUrl,
+            deleted: !cleanUrl,
             fileId: cleanStr(fileId),
-            destFolderName: cleanStr(destFolderName)
-        };
-        try {
-            if (window.parent && window.parent !== window) {
-                window.parent.postMessage(msg, '*');
-            }
-        } catch (e) {}
-        try {
-            const splitFrame = document.getElementById('fotosSplitCotizadorFrame');
-            if (splitFrame && splitFrame.contentWindow) {
-                splitFrame.contentWindow.postMessage(msg, '*');
-            }
-        } catch (e2) {}
-    }
-
-    function notifySplitPeerOfSkuSelect(sku) {
-        const msg = {
-            type: 'CREATA_SPLIT_SELECT_SKU',
-            sku: cleanStr(sku).toUpperCase(),
+            destFolderName: cleanStr(destFolderName),
             source: 'fotos'
         };
         try {
-            if (window.parent && window.parent !== window) {
+            if (window.parent && window.parent !== window && typeof window.parent.postMessage === 'function') {
                 window.parent.postMessage(msg, '*');
             }
         } catch (e) {}
         try {
             const splitFrame = document.getElementById('fotosSplitCotizadorFrame');
-            if (splitFrame && splitFrame.contentWindow) {
+            if (splitFrame && splitFrame.contentWindow && typeof splitFrame.contentWindow.postMessage === 'function') {
                 splitFrame.contentWindow.postMessage(msg, '*');
             }
         } catch (e2) {}
+        try {
+            if (_fotosSyncChannel && cleanUrl.indexOf('blob:') !== 0) {
+                _fotosSyncChannel.postMessage(msg);
+            }
+        } catch (e3) {}
+    }
+
+    function notifySplitPeerOfSkuSelect(sku, openDetail) {
+        const msg = {
+            type: 'CREATA_SPLIT_SELECT_SKU',
+            sku: cleanStr(sku).toUpperCase(),
+            openDetail: !!openDetail,
+            source: 'fotos'
+        };
+        try {
+            if (window.parent && window.parent !== window && typeof window.parent.postMessage === 'function') {
+                window.parent.postMessage(msg, '*');
+            }
+        } catch (e) {}
+        try {
+            const splitFrame = document.getElementById('fotosSplitCotizadorFrame');
+            if (splitFrame && splitFrame.contentWindow && typeof splitFrame.contentWindow.postMessage === 'function') {
+                splitFrame.contentWindow.postMessage(msg, '*');
+            }
+        } catch (e2) {}
+        try {
+            if (_fotosSyncChannel && openDetail) {
+                _fotosSyncChannel.postMessage(msg);
+            }
+        } catch (e3) {}
     }
 
     async function readFileAsOptimizedDataUrl(file) {
@@ -3018,6 +3522,8 @@
 
         invalidateLoadedPhotosCache();
         scheduleSaveFastCache();
+        renderSkuCategoryFilterRow();
+        renderSkuLocationFilterRow();
         applySkuFiltersAndRender();
         renderInboxGallery();
         renderSelectedProductStage();
@@ -3112,10 +3618,13 @@
                 state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it !== logEntry);
                 saveSavedOverridesNow();
                 invalidateLoadedPhotosCache();
+                renderSkuCategoryFilterRow();
+                renderSkuLocationFilterRow();
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
                 renderSessionHistoryLog();
+                notifySplitPeerOfPhotoUpdate(prod.sku, prevUrlBeforeSave, prevFidBeforeSave, targetDestMeta.name);
                 showAssignFeedback('❌ ' + escapeHtml(cleanStr(res && res.error) || 'Error al guardar.'), false);
                 return;
             }
@@ -3185,32 +3694,90 @@
         }).join('');
     }
 
+    function upsertProductFromCotizadorPeer(skuRaw, meta) {
+        const sku = cleanStr(skuRaw).toUpperCase().replace(/\s+/g, '');
+        if (!sku) return null;
+        const m = (meta && typeof meta === 'object') ? meta : null;
+        const existing = state.productBySku.get(sku);
+
+        if (existing) {
+            if (m && Array.isArray(m.st)) {
+                const stArr = normalizeStocksArray(m.st);
+                const totals = computeStockTotals(stArr);
+                const locMeta = buildActiveLocationsMeta(stArr);
+                existing.st = stArr;
+                existing.hasStocksLoaded = true;
+                existing.totalBodegaPiso = totals.totalBodegaPiso;
+                existing.lpptStock = totals.lpptStock;
+                existing.locSummary = locMeta.locSummary;
+                existing.locSearchTokens = locMeta.locSearchTokens;
+                existing.inInv = true;
+                if (m.pr) existing.precio = formatListPriceText(m.pr) || existing.precio;
+                if (m.fe && m.fe !== 'Sin piezas solicitadas') existing.fe = cleanStr(m.fe);
+            }
+            return existing;
+        }
+
+        const displayName = (m && cleanStr(m.n)) || sku;
+        const categoria = (m && cleanStr(m.c)) || '';
+        const tipo = (m && cleanStr(m.tp)) || '';
+        const modelo = (m && cleanStr(m.mo)) || '';
+        const variante = (m && cleanStr(m.vr)) || '';
+        const medidas = (m && cleanStr(m.m)) || '';
+        const acabado = (m && cleanStr(m.acabado)) || '';
+        const photoUrl = m ? cleanPhotoUrl(m.f) : '';
+        const photoFid = extractDriveFileId(photoUrl);
+        const dest = resolveCategoryDestFolderForProduct(categoria, tipo, displayName);
+        const stArr = (m && Array.isArray(m.st)) ? normalizeStocksArray(m.st) : emptyFotosStocks();
+        const totals = computeStockTotals(stArr);
+        const locMeta = buildActiveLocationsMeta(stArr);
+        const searchSkuNorm = normalizeSearchText(sku);
+        const searchNameNorm = normalizeSearchText(
+            displayName + ' ' + categoria + ' ' + tipo + ' ' + modelo + ' ' + variante + ' ' +
+            medidas + ' ' + acabado + ' ' + dest.name + ' ' + locMeta.locSearchTokens
+        );
+        const item = {
+            sku: sku,
+            colBName: displayName === sku ? '' : displayName,
+            displayName: displayName,
+            photoUrl: photoUrl,
+            photoFileId: photoFid,
+            rowNumber: null,
+            inSheet1: !!photoUrl,
+            inInv: !!(m && Array.isArray(m.st)),
+            categoria: categoria,
+            tipo: tipo,
+            modelo: modelo,
+            variante: variante,
+            medidas: medidas,
+            acabado: acabado,
+            st: stArr,
+            hasStocksLoaded: !!(m && Array.isArray(m.st)),
+            totalBodegaPiso: totals.totalBodegaPiso,
+            lpptStock: totals.lpptStock,
+            locSummary: locMeta.locSummary,
+            locSearchTokens: locMeta.locSearchTokens,
+            precio: m ? formatListPriceText(m.pr) : '',
+            fe: (m && m.fe && m.fe !== 'Sin piezas solicitadas') ? cleanStr(m.fe) : '',
+            destFolderId: dest.id,
+            destFolderName: dest.name,
+            searchSkuNorm: searchSkuNorm,
+            searchNameNorm: searchNameNorm,
+            searchNorm: (searchSkuNorm + ' ' + searchNameNorm).trim()
+        };
+        state.products.unshift(item);
+        state.productBySku.set(sku, item);
+        return item;
+    }
+
     window.useNewManualSku = function (skuRaw) {
         const sku = cleanStr(skuRaw).toUpperCase().replace(/\s+/g, '');
         if (!sku) return;
         if (!state.productBySku.has(sku)) {
-            const dest = resolveCategoryDestFolderForProduct('', '', sku);
-            const norm = normalizeSearchText(sku);
-            const item = {
-                sku: sku,
-                colBName: '',
-                displayName: sku,
-                photoUrl: '',
-                photoFileId: '',
-                rowNumber: null,
-                inSheet1: false,
-                inInv: false,
-                categoria: '',
-                tipo: '',
-                destFolderId: dest.id,
-                destFolderName: dest.name,
-                searchSkuNorm: norm,
-                searchNameNorm: norm,
-                searchNorm: norm
-            };
-            state.products.unshift(item);
-            state.productBySku.set(sku, item);
+            upsertProductFromCotizadorPeer(sku, null);
         }
+        renderSkuCategoryFilterRow();
+        renderSkuLocationFilterRow();
         applySkuFiltersAndRender();
         window.selectSkuProduct(sku);
     };
@@ -3595,6 +4162,14 @@
                             if (res.fileId) saved.fileId = res.fileId;
                             if (res.rowNumber) saved.rowNumber = res.rowNumber;
                         }
+                        if (entry.sku && (res.newUrl || (prod && prod.photoUrl))) {
+                            notifySplitPeerOfPhotoUpdate(
+                                entry.sku,
+                                res.newUrl || (prod && prod.photoUrl) || '',
+                                res.fileId || (prod && prod.photoFileId) || '',
+                                (prod && prod.destFolderName) || ''
+                            );
+                        }
                     } else if (res && res.unavailable) {
                         entry.driveFileId = resolvedFid;
                         remaining.push(...queue.slice(i));
@@ -3608,6 +4183,8 @@
                 saveSavedOverridesNow();
                 invalidateLoadedPhotosCache();
                 scheduleSaveFastCache();
+                renderSkuCategoryFilterRow();
+                renderSkuLocationFilterRow();
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
@@ -3642,6 +4219,7 @@
                 skuSearchQuery: state.skuSearchQuery || '',
                 skuFilterMode: state.skuFilterMode || 'ALL',
                 skuCategoryFilter: state.skuCategoryFilter || 'ALL',
+                skuLocationFilter: state.skuLocationFilter || 'ALL',
                 selectedSku: state.selectedSku || '',
                 destFolderId: destSel ? (destSel.value || '') : '',
                 galleryMode: state.galleryMode || 'INBOX',
@@ -3663,6 +4241,8 @@
         try {
             const raw = localStorage.getItem(FOTOS_UI_CHECKPOINT_STORAGE);
             if (!raw) {
+                renderSkuCategoryFilterRow();
+                renderSkuLocationFilterRow();
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
@@ -3671,6 +4251,8 @@
             }
             const cp = JSON.parse(raw);
             if (!cp || typeof cp !== 'object') {
+                renderSkuCategoryFilterRow();
+                renderSkuLocationFilterRow();
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
@@ -3695,6 +4277,10 @@
 
             if (typeof cp.skuCategoryFilter === 'string' && cp.skuCategoryFilter) {
                 state.skuCategoryFilter = cp.skuCategoryFilter;
+            }
+
+            if (typeof cp.skuLocationFilter === 'string' && cp.skuLocationFilter) {
+                state.skuLocationFilter = cp.skuLocationFilter;
             }
 
             if (typeof cp.inboxSearchQuery === 'string') {
@@ -3730,6 +4316,7 @@
             }
 
             renderSkuCategoryFilterRow();
+            renderSkuLocationFilterRow();
             applySkuFiltersAndRender();
             renderInboxGallery();
 
@@ -3774,6 +4361,7 @@
         } catch (e) {
             _fotosRestoringCheckpoint = false;
             renderSkuCategoryFilterRow();
+            renderSkuLocationFilterRow();
             applySkuFiltersAndRender();
             renderInboxGallery();
             renderSelectedProductStage();
@@ -3792,7 +4380,37 @@
             const stream = new Blob([bytes]).stream().pipeThrough(ds);
             const jsonText = await new Response(stream).text();
             const parsed = JSON.parse(jsonText);
-            const rawItems = (parsed && Array.isArray(parsed.items)) ? parsed.items : (Array.isArray(parsed) ? parsed : []);
+            if (!parsed || state.products.length > 0) return;
+
+            // Soportar tanto la matriz columnar real de inventario-data-1/2/3.js (cols[0..20]) como arreglos de objetos
+            let rawItems = [];
+            const colsMatrix = (parsed && Array.isArray(parsed.cols)) ? parsed.cols : parsed;
+            if (Array.isArray(colsMatrix) && colsMatrix.length >= 16 && Array.isArray(colsMatrix[0])) {
+                const colLen = colsMatrix[0].length;
+                rawItems = new Array(colLen);
+                for (let c = 0; c < colLen; c++) {
+                    rawItems[c] = {
+                        s: colsMatrix[0][c],
+                        tp: colsMatrix[1][c],
+                        mo: colsMatrix[2][c],
+                        n: colsMatrix[3][c],
+                        vr: colsMatrix[4][c],
+                        f: colsMatrix[5][c],
+                        c: colsMatrix[6][c],
+                        tl: colsMatrix[7][c],
+                        ct: colsMatrix[8][c],
+                        md: colsMatrix[9][c],
+                        cm: colsMatrix[10][c],
+                        mt: colsMatrix[11][c],
+                        m: colsMatrix[12][c],
+                        st: Array.isArray(colsMatrix[15] && colsMatrix[15][c]) ? colsMatrix[15][c] : null,
+                        pr: colsMatrix.length > 16 && colsMatrix[16] ? colsMatrix[16][c] : '',
+                        fe: colsMatrix.length > 17 && colsMatrix[17] ? colsMatrix[17][c] : ''
+                    };
+                }
+            } else {
+                rawItems = (parsed && Array.isArray(parsed.items)) ? parsed.items : (Array.isArray(parsed) ? parsed : []);
+            }
             if (!rawItems.length || state.products.length > 0) return;
 
             const delQueue = readDeletedQueue();
@@ -3820,7 +4438,7 @@
                 const categoria = cleanStr(it.c);
                 const tipo = cleanStr(it.tp);
                 const dest = resolveCategoryDestFolderForProduct(categoria, tipo, displayName);
-                let photoUrl = cleanPhotoUrl(it.img);
+                let photoUrl = cleanPhotoUrl(it.f || it.img);
                 let photoFid = extractDriveFileId(photoUrl);
                 if (delSkus[sku] || (photoFid && delFiles[photoFid])) {
                     photoUrl = '';
@@ -3831,6 +4449,10 @@
                     photoUrl = savedMeta.newUrl;
                     photoFid = savedMeta.fileId || extractDriveFileId(photoUrl);
                 }
+                const stArr = normalizeStocksArray(it.st);
+                const totals = computeStockTotals(stArr);
+                const locMeta = buildActiveLocationsMeta(stArr);
+                const feRaw = cleanStr(it.fe);
                 const acabado = buildAcabadoSummary(cleanStr(it.tl), cleanStr(it.ct), cleanStr(it.md), cleanStr(it.cm), cleanStr(it.mt));
                 const p = {
                     sku: sku,
@@ -3847,6 +4469,14 @@
                     variante: cleanStr(it.vr),
                     medidas: cleanStr(it.m),
                     acabado: acabado,
+                    st: stArr,
+                    hasStocksLoaded: Array.isArray(it.st),
+                    totalBodegaPiso: totals.totalBodegaPiso,
+                    lpptStock: totals.lpptStock,
+                    locSummary: locMeta.locSummary,
+                    locSearchTokens: locMeta.locSearchTokens,
+                    precio: formatListPriceText(it.pr),
+                    fe: feRaw === 'Sin piezas solicitadas' ? '' : feRaw,
                     destFolderId: dest.id,
                     destFolderName: dest.name,
                     searchSkuNorm: normalizeSearchText(sku),
@@ -3855,7 +4485,8 @@
                 };
                 const cleanCat = cleanCategoryForPhotoSearch(p.categoria, p.tipo, p.displayName);
                 p.searchNameNorm = normalizeSearchText(
-                    p.displayName + ' ' + cleanCat + ' ' + p.tipo + ' ' + p.modelo + ' ' + p.variante + ' ' + p.medidas + ' ' + p.acabado + ' ' + p.destFolderName
+                    p.displayName + ' ' + cleanCat + ' ' + p.tipo + ' ' + p.modelo + ' ' + p.variante + ' ' +
+                    p.medidas + ' ' + p.acabado + ' ' + p.destFolderName + ' ' + p.locSearchTokens
                 );
                 p.searchNorm = (p.searchSkuNorm + ' ' + p.searchNameNorm).trim();
                 const dispNorm = normalizeSearchText(p.displayName);
@@ -3866,7 +4497,12 @@
             }
 
             const list = Array.from(mergedMap.values());
-            list.sort((a, b) => a.displayName.localeCompare(b.displayName, 'es') || a.sku.localeCompare(b.sku, 'es'));
+            list.sort((a, b) => {
+                const aQuot = (a.totalBodegaPiso > 0 || a.lpptStock > 0) ? 1 : 0;
+                const bQuot = (b.totalBodegaPiso > 0 || b.lpptStock > 0) ? 1 : 0;
+                if (aQuot !== bQuot) return bQuot - aQuot;
+                return a.displayName.localeCompare(b.displayName, 'es') || a.sku.localeCompare(b.sku, 'es');
+            });
             state.products = list;
             state.productBySku = mergedMap;
             state.productByNormName = byNormName;
@@ -3874,6 +4510,7 @@
             invalidateLoadedPhotosCache();
             if (state.unlocked) {
                 renderSkuCategoryFilterRow();
+                renderSkuLocationFilterRow();
                 applySkuFiltersAndRender();
                 if (state.selectedSku) renderSelectedProductStage();
             }
@@ -3968,7 +4605,9 @@
         const isEmbedded = (window.parent && window.parent !== window);
         if (isEmbedded) {
             try {
-                window.parent.postMessage({ type: 'CREATA_SPLIT_TOGGLE_FROM_CHILD' }, '*');
+                if (typeof window.parent.postMessage === 'function') {
+                    window.parent.postMessage({ type: 'CREATA_SPLIT_TOGGLE_FROM_CHILD' }, '*');
+                }
                 return;
             } catch (e) {}
         }
@@ -3981,6 +4620,28 @@
         applyFotosSplitDomState();
         if (_fotosSplitActive) {
             syncFotosBackNav('split_cotizador');
+            if (state.selectedSku) {
+                setTimeout(() => notifySplitPeerOfSkuSelect(state.selectedSku, true), 450);
+            }
+        }
+    };
+
+    window.openSelectedSkuInCotizador = function () {
+        if (!state.selectedSku) return;
+        const targetSku = state.selectedSku;
+        const isEmbedded = !!(window.parent && window.parent !== window);
+        if (isEmbedded) {
+            notifySplitPeerOfSkuSelect(targetSku, true);
+            return;
+        }
+        if (!_fotosSplitActive) {
+            loadFotosSplitPrefs();
+            _fotosSplitActive = true;
+            applyFotosSplitDomState();
+            syncFotosBackNav('split_cotizador');
+            setTimeout(() => notifySplitPeerOfSkuSelect(targetSku, true), 500);
+        } else {
+            notifySplitPeerOfSkuSelect(targetSku, true);
         }
     };
 
@@ -4123,6 +4784,13 @@
                     toast: 'Búsqueda limpiada'
                 },
                 {
+                    id: 'sku_location',
+                    isActive: () => Boolean(state.skuLocationFilter && state.skuLocationFilter !== 'ALL'),
+                    undo: () => window.setSkuLocationFilter('ALL'),
+                    escapeAllowed: false,
+                    toast: 'Ubicación: Todas'
+                },
+                {
                     id: 'sku_category',
                     isActive: () => Boolean(state.skuCategoryFilter && state.skuCategoryFilter !== 'ALL'),
                     undo: () => window.setSkuCategoryFilter('ALL'),
@@ -4147,6 +4815,25 @@
         };
     }
 
+    function handleIncomingPeerMessageInFotos(d) {
+        if (!d || typeof d !== 'object') return;
+        if (d.type === 'CREATA_SPLIT_SELECT_SKU' && d.source !== 'fotos' && d.sku) {
+            const targetSku = cleanStr(d.sku).toUpperCase();
+            if (!targetSku) return;
+            if (!state.productBySku.has(targetSku) || (d.meta && Array.isArray(d.meta.st))) {
+                upsertProductFromCotizadorPeer(targetSku, d.meta || null);
+                renderSkuCategoryFilterRow();
+                renderSkuLocationFilterRow();
+                applySkuFiltersAndRender();
+            }
+            if (state.selectedSku !== targetSku) {
+                window.selectSkuProduct(targetSku, { skipBackSync: true, fromPeerSync: true });
+            } else if (d.meta && Array.isArray(d.meta.st)) {
+                renderSelectedProductStage();
+            }
+        }
+    }
+
     function initFotosApp() {
         try {
             if ('serviceWorker' in navigator && /^https?:$/i.test(window.location.protocol)) {
@@ -4169,17 +4856,20 @@
         bindFotosSplitResizerDrag();
         initFotosBackNav();
 
-        // Sincronización en vivo con el Cotizador cuando están en Pantalla Dividida
+        // Sincronización en vivo con el Cotizador (Pantalla Dividida y Pestañas Hermanas)
         window.addEventListener('message', (ev) => {
-            const d = ev && ev.data;
-            if (!d || typeof d !== 'object') return;
-            if (d.type === 'CREATA_SPLIT_SELECT_SKU' && d.source !== 'fotos' && d.sku) {
-                const targetSku = cleanStr(d.sku).toUpperCase();
-                if (targetSku && state.productBySku.has(targetSku) && state.selectedSku !== targetSku) {
-                    window.selectSkuProduct(targetSku, { skipBackSync: true });
-                }
-            }
+            handleIncomingPeerMessageInFotos(ev && ev.data);
         });
+        try {
+            if (typeof BroadcastChannel === 'function') {
+                _fotosSyncChannel = new BroadcastChannel(SYNC_BROADCAST_CHANNEL_NAME);
+                _fotosSyncChannel.onmessage = (ev) => {
+                    handleIncomingPeerMessageInFotos(ev && ev.data);
+                };
+            }
+        } catch (eBc) {
+            _fotosSyncChannel = null;
+        }
 
         if (window.CREATA_LOGO_B64) {
             document.querySelectorAll('[data-creata-logo]').forEach((img) => {
@@ -4192,6 +4882,7 @@
         hydrateFromFastCache();
         hydrateFromLocalCompressedBundleIfEmpty();
         renderSkuCategoryFilterRow();
+        renderSkuLocationFilterRow();
         loadSheetsCatalog();
 
         const skuInp = document.getElementById('skuSearchInput');
@@ -4323,6 +5014,13 @@
                 loadFotosSplitPrefs();
                 _fotosSplitActive = true;
                 applyFotosSplitDomState();
+            }
+            const initialSkuParam = cleanStr(urlParams.get('sku')).toUpperCase();
+            if (initialSkuParam) {
+                if (!state.productBySku.has(initialSkuParam)) {
+                    upsertProductFromCotizadorPeer(initialSkuParam, null);
+                }
+                window.selectSkuProduct(initialSkuParam, { skipBackSync: true, fromPeerSync: true });
             }
         } catch (eParam) {}
     }

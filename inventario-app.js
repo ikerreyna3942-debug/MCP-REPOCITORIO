@@ -2257,7 +2257,101 @@
         };
     }
 
+    const FOTOS_SAVED_OVERRIDES_STORAGE_KEY = 'creata_fotos_saved_overrides_v1';
+    const FOTOS_DELETED_QUEUE_STORAGE_KEY = 'creata_fotos_deleted_queue_v1';
+    const FOTOS_SYNC_BROADCAST_CHANNEL = 'creata_fotos_cotizador_sync_v1';
+
+    function applyStoredFotosOverridesToItems(itemsArr) {
+        if (!Array.isArray(itemsArr) || !itemsArr.length) return false;
+        let savedBySku = null;
+        let delSkus = null;
+        let delFiles = null;
+        const now = Date.now();
+        const maxSavedAgeMs = 7 * 24 * 60 * 60 * 1000;
+        const maxDelAgeMs = 24 * 60 * 60 * 1000;
+
+        try {
+            const rawDel = localStorage.getItem(FOTOS_DELETED_QUEUE_STORAGE_KEY);
+            if (rawDel) {
+                const parsedDel = JSON.parse(rawDel);
+                if (parsedDel && typeof parsedDel === 'object') {
+                    if (parsedDel.skus && typeof parsedDel.skus === 'object') {
+                        delSkus = parsedDel.skus;
+                    }
+                    if (parsedDel.fileIds && typeof parsedDel.fileIds === 'object') {
+                        delFiles = {};
+                        Object.keys(parsedDel.fileIds).forEach(function (fid) {
+                            const ts = Number(parsedDel.fileIds[fid] || 0);
+                            if (!ts || (now - ts) <= maxDelAgeMs) {
+                                delFiles[fid] = 1;
+                            }
+                        });
+                    }
+                }
+            }
+        } catch (eDel) {}
+
+        try {
+            const rawSaved = localStorage.getItem(FOTOS_SAVED_OVERRIDES_STORAGE_KEY);
+            if (rawSaved) {
+                const list = JSON.parse(rawSaved);
+                if (Array.isArray(list) && list.length > 0) {
+                    savedBySku = new Map();
+                    for (let i = 0; i < list.length; i++) {
+                        const ov = list[i];
+                        if (!ov || !ov.sku || !ov.newUrl) continue;
+                        const cleanUrl = cleanStr(ov.newUrl);
+                        if (!cleanUrl || cleanUrl.indexOf('blob:') === 0) continue;
+                        if (ov.ts && (now - Number(ov.ts)) > maxSavedAgeMs) continue;
+                        const sk = cleanStr(ov.sku).toUpperCase();
+                        if (!sk || savedBySku.has(sk)) continue;
+                        const fid = cleanStr(ov.fileId || extractDriveFileId(cleanUrl));
+                        if ((delSkus && delSkus[sk]) || (fid && delFiles && delFiles[fid])) continue;
+                        savedBySku.set(sk, {
+                            newUrl: cleanUrl,
+                            fileId: fid,
+                            previousUrl: cleanStr(ov.previousUrl)
+                        });
+                    }
+                }
+            }
+        } catch (eSaved) {}
+
+        if (!savedBySku && !delSkus && !delFiles) return false;
+
+        let mutated = false;
+        for (let i = 0; i < itemsArr.length; i++) {
+            const it = itemsArr[i];
+            if (!it || !it.s) continue;
+            const skuKey = String(it.s).trim().toUpperCase();
+            const curFid = extractDriveFileId(it.f);
+
+            if ((delSkus && delSkus[skuKey]) || (curFid && delFiles && delFiles[curFid])) {
+                if (it.f) {
+                    it.f = '';
+                    mutated = true;
+                }
+                continue;
+            }
+
+            if (savedBySku && savedBySku.has(skuKey)) {
+                const ov = savedBySku.get(skuKey);
+                const savedFid = ov.fileId;
+                const prevFid = extractDriveFileId(ov.previousUrl);
+                if (!curFid || curFid === savedFid || (prevFid && curFid === prevFid)) {
+                    if (it.f !== ov.newUrl) {
+                        it.f = ov.newUrl;
+                        if (savedFid) failedDrivePhotoIds.delete(savedFid);
+                        mutated = true;
+                    }
+                }
+            }
+        }
+        return mutated;
+    }
+
     function indexItemsAndGroups() {
+        applyStoredFotosOverridesToItems(allItems);
         rebuildLiveAutoVocab(allItems);
         allItems.sort((a, b) =>
             compareAlphaEs(a && (a.n || a.s), b && (b.n || b.s)) ||
@@ -4478,6 +4572,10 @@
         const badge = document.getElementById('uploadPhotoMatchedBadge');
         const dd = document.getElementById('uploadPhotoModelDropdown');
         const catSel = document.getElementById('uploadPhotoCategorySelect');
+        const appFotosLinkEl = document.getElementById('uploadPhotoAppFotosLink');
+        if (appFotosLinkEl) {
+            appFotosLinkEl.setAttribute('href', sku ? ('./fotos-productos.html?sku=' + encodeURIComponent(sku)) : './fotos-productos.html');
+        }
         if (it) {
             const cleanName = stripDimensionsFromProductText(it.n) || it.mo || it.s;
             const catFolder = resolvePhotoDestCategoryFolder(it);
@@ -4554,6 +4652,9 @@
 
     window.openUploadPhotoModal = function (prefillItem) {
         if (!canManageProductPhotos()) return;
+        const resolvedItem = typeof prefillItem === 'string'
+            ? (bySkuMap.get(cleanStr(prefillItem).toUpperCase()) || (cleanStr(prefillItem) ? { s: cleanStr(prefillItem).toUpperCase(), n: cleanStr(prefillItem).toUpperCase() } : null))
+            : prefillItem;
         const modal = document.getElementById('uploadPhotoModal');
         const inp = document.getElementById('uploadPhotoModelInput');
         const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
@@ -4575,22 +4676,25 @@
         }
         if (dd) dd.classList.add('hidden');
 
-        if (prefillItem && prefillItem.s) {
-            const sku = String(prefillItem.s).trim().toUpperCase();
-            const nm = stripDimensionsFromProductText(prefillItem.n) || prefillItem.mo || sku;
-            const catFolder = resolvePhotoDestCategoryFolder(prefillItem);
+        const appFotosLinkEl = document.getElementById('uploadPhotoAppFotosLink');
+        if (resolvedItem && resolvedItem.s) {
+            const sku = String(resolvedItem.s).trim().toUpperCase();
+            const nm = stripDimensionsFromProductText(resolvedItem.n) || resolvedItem.mo || sku;
+            const catFolder = resolvePhotoDestCategoryFolder(resolvedItem);
             if (inp) inp.value = nm;
             if (hiddenSku) hiddenSku.value = sku;
             if (catSel && catFolder) catSel.value = catFolder.id;
+            if (appFotosLinkEl) appFotosLinkEl.setAttribute('href', './fotos-productos.html?sku=' + encodeURIComponent(sku));
             if (badge) {
                 badge.textContent = sku + ' · ' + nm + ' · ' + catFolder.name;
                 badge.classList.remove('hidden');
             }
-            renderUploadPhotoProductInfoCard(prefillItem);
+            renderUploadPhotoProductInfoCard(resolvedItem);
         } else {
             if (inp) inp.value = '';
             if (hiddenSku) hiddenSku.value = '';
             if (catSel) catSel.value = 'AUTO';
+            if (appFotosLinkEl) appFotosLinkEl.setAttribute('href', './fotos-productos.html');
             if (badge) badge.classList.add('hidden');
             renderUploadPhotoProductInfoCard(null);
         }
@@ -12796,18 +12900,51 @@
         }
     }
 
+    let _suppressInvPeerSkuNotifyOnce = false;
+
     function notifyInvSplitFotosOfSku(skuRaw) {
-        if (!_invSplitActive || !skuRaw) return;
+        if (_suppressInvPeerSkuNotifyOnce) {
+            _suppressInvPeerSkuNotifyOnce = false;
+            return;
+        }
+        if (!skuRaw) return;
+        const isEmbeddedInParent = !!(typeof window !== 'undefined' && window.parent && window.parent !== window);
+        if (!_invSplitActive && !isEmbeddedInParent) return;
+
+        const targetSku = cleanStr(skuRaw).toUpperCase();
+        const it = bySkuMap.get(targetSku) || null;
+        const msg = {
+            type: 'CREATA_SPLIT_SELECT_SKU',
+            sku: targetSku,
+            source: 'cotizador',
+            meta: it ? {
+                n: it.n || '',
+                c: it.c || it._cat || '',
+                tp: it.tp || '',
+                mo: it.mo || '',
+                vr: it.vr || '',
+                m: it.m || '',
+                st: Array.isArray(it.st) ? it.st.slice() : null,
+                pr: it.pr || '',
+                fe: it.fe || '',
+                f: it.f || ''
+            } : null
+        };
+
         try {
-            const frame = document.getElementById('invSplitFotosFrame');
-            if (frame && frame.contentWindow) {
-                frame.contentWindow.postMessage({
-                    type: 'CREATA_SPLIT_SELECT_SKU',
-                    sku: cleanStr(skuRaw).toUpperCase(),
-                    source: 'cotizador'
-                }, '*');
+            if (_invSplitActive) {
+                const frame = document.getElementById('invSplitFotosFrame');
+                if (frame && frame.contentWindow && typeof frame.contentWindow.postMessage === 'function') {
+                    frame.contentWindow.postMessage(msg, '*');
+                }
             }
         } catch (e) {}
+
+        try {
+            if (isEmbeddedInParent && typeof window.parent.postMessage === 'function') {
+                window.parent.postMessage(msg, '*');
+            }
+        } catch (e2) {}
     }
 
     window.setInvSplitPreset = function (pctVal) {
@@ -13254,31 +13391,117 @@
         window.addEventListener('touchcancel', stopDrag);
     }
 
+    function applyRealtimePhotoUpdateInCotizador(skuRaw, rawPhotoUrl, rawFileId) {
+        const targetSku = cleanStr(skuRaw).toUpperCase();
+        if (!targetSku) return false;
+        const it = bySkuMap.get(targetSku);
+        if (!it) return false;
+
+        const cleanNewUrl = cleanStr(rawPhotoUrl);
+        // Ignorar blob: efímeros de otra ventana porque el canvas protegido usa crossOrigin=anonymous;
+        // milisegundos después llega data:image/ o https://drive.google.com/... permanente.
+        if (cleanNewUrl.indexOf('blob:') === 0) return false;
+
+        const newFid = cleanStr(rawFileId) || extractDriveFileId(cleanNewUrl);
+        if (newFid) {
+            failedDrivePhotoIds.delete(newFid);
+        }
+
+        it.f = cleanNewUrl;
+        it._hasPhoto = photoUrlForItem(it) ? 1 : 0;
+
+        const singleGrp = singleBySkuMap.get(targetSku);
+        if (singleGrp) {
+            singleGrp._hasPhoto = it._hasPhoto;
+        }
+        const grp = it._groupKey ? groupsByKey.get(it._groupKey) : null;
+        if (grp && Array.isArray(grp.items)) {
+            grp._hasPhoto = firstPhotoItem(grp.items) ? 1 : 0;
+        }
+
+        const inp = document.getElementById('invSearchInput');
+        if (typeof applyFilter === 'function') {
+            applyFilter(inp ? inp.value : '', true);
+        }
+
+        const detailModal = document.getElementById('productDetailModal');
+        const isModalOpen = !!(detailModal && detailModal.classList.contains('open'));
+        if (isModalOpen) {
+            if (currentDetailItem && cleanStr(currentDetailItem.s).toUpperCase() === targetSku) {
+                const crumbEl = document.getElementById('detGroupCrumb');
+                const crumbVisible = !!(crumbEl && !crumbEl.classList.contains('hidden'));
+                _suppressInvPeerSkuNotifyOnce = true;
+                renderDetailModal(currentDetailItem, crumbVisible && !!currentGroup);
+                _suppressInvPeerSkuNotifyOnce = false;
+            } else if (currentGroup && Array.isArray(currentGroup.items) && currentGroup.items.some(function (x) { return cleanStr(x && x.s).toUpperCase() === targetSku; })) {
+                const varStep = document.getElementById('detVariantsStep');
+                if (varStep && !varStep.classList.contains('hidden') && typeof renderGroupVariantsStep === 'function') {
+                    renderGroupVariantsStep(currentGroup);
+                }
+            }
+        }
+        return true;
+    }
+
+    function handleIncomingFotosPeerMessageInCotizador(d) {
+        if (!d || typeof d !== 'object') return;
+        if (d.type === 'CREATA_SPLIT_TOGGLE_FROM_CHILD') {
+            window.closeInvSplitFotosDock();
+            return;
+        }
+        if (d.type === 'CREATA_SPLIT_PHOTO_SAVED' && d.sku) {
+            const nextUrl = d.deleted ? '' : (d.photoUrl || '');
+            applyRealtimePhotoUpdateInCotizador(d.sku, nextUrl, d.fileId || '');
+            return;
+        }
+        if (d.type === 'CREATA_SPLIT_SELECT_SKU' && d.source === 'fotos' && d.sku) {
+            const targetSku = cleanStr(d.sku).toUpperCase();
+            if (!targetSku || !bySkuMap.has(targetSku)) return;
+            const detailModal = document.getElementById('productDetailModal');
+            const detailAlreadyOpen = !!(detailModal && detailModal.classList.contains('open'));
+            if (d.openDetail || detailAlreadyOpen) {
+                if (!currentDetailItem || cleanStr(currentDetailItem.s).toUpperCase() !== targetSku) {
+                    _suppressInvPeerSkuNotifyOnce = true;
+                    window.openProductDetail(targetSku, false, true);
+                    _suppressInvPeerSkuNotifyOnce = false;
+                }
+            }
+        }
+    }
+
     if (typeof window !== 'undefined') {
         bindInvSplitResizerDrag();
 
         window.addEventListener('message', function (ev) {
-            const d = ev && ev.data;
-            if (!d || typeof d !== 'object') return;
-            if (d.type === 'CREATA_SPLIT_TOGGLE_FROM_CHILD') {
-                window.closeInvSplitFotosDock();
+            handleIncomingFotosPeerMessageInCotizador(ev && ev.data);
+        });
+
+        try {
+            if (typeof BroadcastChannel === 'function') {
+                const invSyncChannel = new BroadcastChannel(FOTOS_SYNC_BROADCAST_CHANNEL);
+                invSyncChannel.onmessage = function (ev) {
+                    handleIncomingFotosPeerMessageInCotizador(ev && ev.data);
+                };
+            }
+        } catch (eBc) {}
+
+        window.addEventListener('storage', function (ev) {
+            if (!ev || (ev.key !== FOTOS_SAVED_OVERRIDES_STORAGE_KEY && ev.key !== FOTOS_DELETED_QUEUE_STORAGE_KEY)) {
                 return;
             }
-            if (d.type === 'CREATA_SPLIT_PHOTO_SAVED' && d.sku && d.photoUrl) {
-                const targetSku = cleanStr(d.sku).toUpperCase();
-                const it = skuLookupMap.get(targetSku);
-                if (it) {
-                    it.img = d.photoUrl;
-                    it._thumbUrl = '';
-                    it._fullUrl = '';
-                    const grp = it._groupKey ? groupsByKey.get(it._groupKey) : null;
-                    if (grp && !grp.repImg) grp.repImg = d.photoUrl;
-                    if (currentDetailItem && cleanStr(currentDetailItem.s).toUpperCase() === targetSku) {
-                        renderDetailModal(it);
-                    }
-                    if (typeof applyFiltersAndRender === 'function') {
-                        applyFiltersAndRender();
-                    }
+            if (Array.isArray(allItems) && allItems.length > 0 && applyStoredFotosOverridesToItems(allItems)) {
+                indexItemsAndGroups();
+                const inp = document.getElementById('invSearchInput');
+                if (typeof applyFilter === 'function') {
+                    applyFilter(inp ? inp.value : '', true);
+                }
+                const detailModal = document.getElementById('productDetailModal');
+                if (detailModal && detailModal.classList.contains('open') && currentDetailItem) {
+                    const crumbEl = document.getElementById('detGroupCrumb');
+                    const crumbVisible = !!(crumbEl && !crumbEl.classList.contains('hidden'));
+                    _suppressInvPeerSkuNotifyOnce = true;
+                    renderDetailModal(currentDetailItem, crumbVisible && !!currentGroup);
+                    _suppressInvPeerSkuNotifyOnce = false;
                 }
             }
         });
