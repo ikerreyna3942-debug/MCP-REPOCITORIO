@@ -13389,9 +13389,9 @@
             }
         }
 
-        // 2) Nombre del documento PDF: visible para asesores (y para Kevin cuando está en Modo Asesor)
+        // 2) Nombre del documento PDF: visible para asesores y también para Kevin (todas las configuraciones)
         if (docSec) {
-            const showDocName = !effectiveAdmin;
+            const showDocName = Boolean(activeAdvisorSession && !activeAdvisorSession.mustChangeKey && !isGuestSession());
             docSec.classList.toggle('hidden', !showDocName);
             if (showDocName) {
                 const prefs = readPdfDocNamePrefs();
@@ -13405,17 +13405,38 @@
             }
         }
 
-        // 3) Cambiar de bodega / tienda: SOLO usuarios registrados en más de 1 hoja de tienda
+        // 3) Cambiar de bodega / tienda: SOLO usuarios en más de 1 hoja de tienda (y en Vista Asesor de Kevin para previsualizar)
         if (branchSec) {
             const multiLocs = getUserMultiStoreList();
-            const showBranch = multiLocs.length > 1;
+            const showBranch = multiLocs.length > 1 || kevinAdvisor;
             branchSec.classList.toggle('hidden', !showBranch);
             if (showBranch) {
                 const badge = document.getElementById('settingsBranchCountBadge');
                 const curTxt = document.getElementById('settingsBranchCurrentText');
-                const activeStore = cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab);
-                if (badge) badge.textContent = multiLocs.length + ' tiendas';
-                if (curTxt) curTxt.textContent = 'Tienda / bodega activa: ' + (activeStore || 'Sin asignar') + '.';
+                const branchBtn = branchSec.querySelector('button');
+                if (kevinAdvisor) {
+                    const previewStore = getKevinAdvisorPreviewStore();
+                    if (badge) badge.textContent = 'Vista Asesor · 5 tiendas';
+                    if (curTxt) curTxt.textContent = 'Tienda / bodega simulada: ' + previewStore + ' (cámbiala arriba en "Tienda para vista de Asesor").';
+                    if (branchBtn) {
+                        branchBtn.textContent = 'Elegir tienda simulada';
+                        branchBtn.onclick = function () {
+                            const sel = document.getElementById('settingsAdvisorPreviewStoreSelect');
+                            if (sel) { sel.scrollIntoView({ behavior: 'smooth', block: 'center' }); sel.focus(); }
+                        };
+                    }
+                } else {
+                    const activeStore = cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab);
+                    if (badge) badge.textContent = multiLocs.length + ' tiendas';
+                    if (curTxt) curTxt.textContent = 'Tienda / bodega activa: ' + (activeStore || 'Sin asignar') + '.';
+                    if (branchBtn) {
+                        branchBtn.textContent = 'Cambiar de bodega / tienda';
+                        branchBtn.onclick = function () {
+                            window.closeSettingsModal();
+                            window.openSwitchBranchSelector();
+                        };
+                    }
+                }
             }
         }
 

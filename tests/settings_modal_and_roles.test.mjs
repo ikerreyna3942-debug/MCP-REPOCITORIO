@@ -16,7 +16,7 @@ test('Settings UI & cache versions exist in inventario.html and inventario-ui.cs
   assert(html.includes('id="settingsPasswordSection"'), 'Missing password change section');
   assert(html.includes('id="settingsSessionsSection"'), 'Missing open sessions section');
   assert(html.includes('./inventario-ui.css?v=12'), 'inventario.html must load inventario-ui.css?v=12');
-  assert(html.includes('inventario-app.js?v=81'), 'inventario.html must load inventario-app.js?v=81');
+  assert(html.includes('inventario-app.js?v=82'), 'inventario.html must load inventario-app.js?v=82');
 
   const css = fs.readFileSync('inventario-ui.css', 'utf8');
   let depth = 0;
