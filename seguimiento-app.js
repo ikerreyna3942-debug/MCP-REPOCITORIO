@@ -401,14 +401,21 @@
     const correo = normalizeEmail(s.correo);
     const puesto = cleanStr(s.puesto) || 'Asesor Interiorista';
     const rawBranch = cleanStr(s.sheetTab || s.erpStore || s.branchKey || s.sucursal);
-    const isMaster = Boolean(s.isAdmin || s.is_master || s.es_admin || isMasterExecutive(correo, puesto, rawBranch));
-    const allBranches = Array.isArray(s.allLocations) && s.allLocations.length
-      ? Array.from(new Set(s.allLocations.map(l => mapTabToBranchKey((l && (l.sheetTab || l.erpStore)) || '')).filter(b => b && b !== 'TODAS')))
-      : (Array.isArray(s.all_branches) && s.all_branches.length
-        ? s.all_branches.map(mapTabToBranchKey).filter(b => b && b !== 'TODAS')
-        : (isMaster ? [] : [mapTabToBranchKey(rawBranch)]));
+    const forcedAdvisor = Boolean(s.forceAdvisorPreview === true);
+    const isMaster = forcedAdvisor
+      ? false
+      : Boolean(s.isAdmin || s.is_master || s.es_admin || isMasterExecutive(correo, puesto, rawBranch));
+    const allBranches = forcedAdvisor
+      ? [mapTabToBranchKey(rawBranch)]
+      : (Array.isArray(s.allLocations) && s.allLocations.length
+        ? Array.from(new Set(s.allLocations.map(l => mapTabToBranchKey((l && (l.sheetTab || l.erpStore)) || '')).filter(b => b && b !== 'TODAS')))
+        : (Array.isArray(s.all_branches) && s.all_branches.length
+          ? s.all_branches.map(mapTabToBranchKey).filter(b => b && b !== 'TODAS')
+          : (isMaster ? [] : [mapTabToBranchKey(rawBranch)])));
     const primaryBranch = isMaster ? 'TODAS' : (mapTabToBranchKey(rawBranch) || allBranches[0] || 'PROYECTOS');
-    const esGerente = Boolean(s.isManager || s.es_gerente || isMaster || allBranches.length > 1 || isGerenteRole(puesto, isMaster));
+    const esGerente = forcedAdvisor
+      ? false
+      : Boolean(s.isManager || s.es_gerente || isMaster || allBranches.length > 1 || isGerenteRole(puesto, isMaster));
 
     return {
       nombre: cleanStr(s.nombre) || correo,
@@ -424,6 +431,7 @@
       es_gerente: esGerente,
       es_admin: isMaster,
       is_master: isMaster,
+      force_advisor_preview: forcedAdvisor,
       authToken: cleanStr(s.authToken || ''),
       debe_cambiar_password: false
     };
@@ -1677,7 +1685,6 @@
           </div>
           <div class="cm-topbar-right">
             <span id="seg_lastSyncLabel" class="cm-subtitle-chip cm-mono"></span>
-            <button type="button" id="seg_btnKevinAuditHeader" class="cm-btn cm-hidden" data-seg-action="open-kevin-audit" title="Historial y Movimientos">🛡️ Historial y Movimientos</button>
             <button type="button" id="seg_btnManualSync" class="cm-btn cm-btn-icon" data-seg-action="manual-sync" aria-label="Actualizar ERP">
               <span id="seg_syncIcon">🔄</span>
               <span id="seg_syncText">Actualizar ERP</span>
@@ -1687,7 +1694,15 @@
       </header>
 
       <main class="cm-main">
-        <section id="seg_filtersGridContainer" class="cm-seg-filters" aria-label="Filtros">
+        <section id="seg_filtersGridContainer" class="cm-seg-filters" aria-label="Filtros y búsqueda">
+          <div class="cm-seg-search-field">
+            <label class="cm-field-label" for="seg_filterSearch">🔍 Buscar Folio, Cliente, Teléfono o Mueble</label>
+            <div class="cm-seg-search-wrap">
+              <input id="seg_filterSearch" type="search" class="cm-input" placeholder="Ej. Mariana, PTC32001, 9981234567, Sofá..." autocomplete="off" data-seg-input="search">
+              <button type="button" id="seg_btnClearSearch" class="cm-seg-clear-btn cm-hidden" data-seg-action="clear-search" aria-label="Limpiar">✕</button>
+            </div>
+          </div>
+
           <div>
             <label class="cm-field-label" for="seg_filterSucursal">📍 Sucursal / Tienda</label>
             <select id="seg_filterSucursal" class="cm-select" data-seg-change="sucursal">
@@ -1715,14 +1730,6 @@
               <option value="SEGUIMIENTO_DIAS">📅 Seguimiento (3+ días)</option>
               <option value="ESTABLE">🟢 Disponible / Estable</option>
             </select>
-          </div>
-
-          <div>
-            <label class="cm-field-label" for="seg_filterSearch">🔍 Buscar Folio, Cliente o Mueble</label>
-            <div class="cm-seg-search-wrap">
-              <input id="seg_filterSearch" type="search" class="cm-input" placeholder="Ej. Mariana, PTC32001, Sofá..." autocomplete="off" data-seg-input="search">
-              <button type="button" id="seg_btnClearSearch" class="cm-seg-clear-btn cm-hidden" data-seg-action="clear-search" aria-label="Limpiar">✕</button>
-            </div>
           </div>
         </section>
 
@@ -2064,9 +2071,11 @@
     if (!mounted) return;
     const quotes = APP_STATE.quotes || [];
     const filterSucursal = cleanStr($('seg_filterSucursal')?.value || 'TODAS').toUpperCase();
+    const filterSucursalKey = filterSucursal !== 'TODAS' ? mapTabToBranchKey(filterSucursal) : 'TODAS';
     const filterAsesor = cleanStr($('seg_filterAsesor')?.value || 'TODOS');
     const filterUrgencia = cleanStr($('seg_filterUrgencia')?.value || 'TODOS');
-    const search = cleanStr($('seg_filterSearch')?.value || '').toLowerCase();
+    const rawSearch = cleanStr($('seg_filterSearch')?.value || '');
+    const search = rawSearch.toLowerCase();
 
     const clearBtn = $('seg_btnClearSearch');
     if (clearBtn) clearBtn.classList.toggle('cm-hidden', !search);
@@ -2077,7 +2086,7 @@
 
     const filtered = quotes.filter(q => {
       if (q.Cerrada && !search) return false;
-      if (filterSucursal !== 'TODAS' && q.Sucursal !== filterSucursal) return false;
+      if (filterSucursalKey !== 'TODAS' && mapTabToBranchKey(q.Sucursal) !== filterSucursalKey) return false;
       if ((isMasterUser || isGerenteUser) && filterAsesor !== 'TODOS') {
         if (normalizeText(q.Asesor) !== normalizeText(filterAsesor)) return false;
       }
@@ -2087,22 +2096,30 @@
         const normSearch = search.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const tokens = normSearch.split(/\s+/).filter(Boolean);
         const itemsText = (q.items || []).map(it =>
-          `${it.Nombre_Producto || ''} ${it.Clave_Producto || ''} ${it.Modelo || ''}`
+          `${it.Nombre_Producto || ''} ${it.Clave_Producto || ''} ${it.SKU || ''} ${it.Modelo || ''}`
         ).join(' ');
         const fullHaystack = `
           ${q.Folio_ERP || ''} ${q.Cliente || ''} ${q.WhatsApp_Cliente || ''}
           ${q.Asesor || ''} ${q.Correo_Asesor || ''} ${q.Sucursal || ''}
-          ${q.Sucursal_Label || ''} ${q.Estatus_ERP || ''} ${q.Motivo_Urgencia || ''}
-          ${itemsText}
+          ${q.Sucursal_Label || ''} ${q.Estatus_ERP || ''} ${q.Estatus_Cierre || ''}
+          ${q.Motivo_Urgencia || ''} ${q.Fecha_Cotizacion || ''} ${itemsText}
         `.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        if (!tokens.every(tok => fullHaystack.includes(tok))) return false;
+        const compactHaystack = fullHaystack.replace(/[^a-z0-9]+/g, '');
+        const allMatched = tokens.every(tok => {
+          if (fullHaystack.includes(tok)) return true;
+          const compactTok = tok.replace(/[^a-z0-9]+/g, '');
+          return compactTok.length >= 2 && compactHaystack.includes(compactTok);
+        });
+        if (!allMatched) return false;
       }
       return true;
     });
 
     const statsEl = $('seg_statsSummary');
     if (statsEl) {
-      statsEl.innerHTML = `<strong>${filtered.length}</strong> cotizaciones activas`;
+      statsEl.innerHTML = search
+        ? `<strong>${filtered.length}</strong> resultados para “${escapeHtml(rawSearch)}”`
+        : `<strong>${filtered.length}</strong> cotizaciones activas`;
     }
 
     const closuresElem = $('seg_closuresMetricsSummary');

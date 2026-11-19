@@ -6023,6 +6023,7 @@
                 isManager: false,
                 is_master: false,
                 es_admin: false,
+                forceAdvisorPreview: true,
                 puesto: 'ASESOR',
                 erpStore: pStore,
                 branchLabel: pStore,
