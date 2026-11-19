@@ -13583,6 +13583,7 @@
     function renderSettingsRoleAndSections() {
         const subEl = document.getElementById('settingsUserSubtitle');
         const roleSec = document.getElementById('settingsRoleSwitchSection');
+        const teamPresenceSec = document.getElementById('settingsTeamPresenceSection');
         const docSec = document.getElementById('settingsDocNameSection');
         const branchSec = document.getElementById('settingsBranchSection');
         const prodSec = document.getElementById('settingsProductsSection');
@@ -13613,6 +13614,15 @@
                 if (btnAdv) btnAdv.classList.toggle('is-active', kevinAdvisor);
                 if (storeWrap) storeWrap.classList.toggle('hidden', !kevinAdvisor);
                 if (storeSel) storeSel.value = getKevinAdvisorPreviewStore();
+            }
+        }
+
+        // 1b) Solo Kevin (Administrador): Equipo conectado en vivo (quién y dónde está conectado)
+        if (teamPresenceSec) {
+            const showTeamPresence = isKevin && !kevinAdvisor;
+            teamPresenceSec.classList.toggle('hidden', !showTeamPresence);
+            if (showTeamPresence && typeof window.renderSettingsTeamPresenceList === 'function') {
+                window.renderSettingsTeamPresenceList();
             }
         }
 
@@ -13685,17 +13695,24 @@
         setSettingsStatusBox('settingsPassStatus', '', 'ok');
         setSettingsStatusBox('settingsSessionsStatus', '', 'ok');
         setSettingsStatusBox('settingsProdStatus', '', 'ok');
+        setSettingsStatusBox('settingsTeamPresenceStatus', '', 'ok');
         const currEl = document.getElementById('settingsCurrPassInput');
         const newEl = document.getElementById('settingsNewPassInput');
         const confEl = document.getElementById('settingsConfPassInput');
+        const teamSearchEl = document.getElementById('settingsTeamSearchInput');
         if (currEl) currEl.value = '';
         if (newEl) newEl.value = '';
         if (confEl) confEl.value = '';
+        if (teamSearchEl) teamSearchEl.value = '';
         renderSettingsRoleAndSections();
         modal.classList.add('open');
         notifyInvBackStatePush('settings_modal');
         window.refreshSettingsOpenSessions(false);
-        syncProductOverridesFromCloud(isRealKevinOwner() && !isKevinAdvisorPreviewActive());
+        const isKevinAdminNow = isRealKevinOwner() && !isKevinAdvisorPreviewActive();
+        if (isKevinAdminNow && typeof window.refreshSettingsTeamPresence === 'function') {
+            window.refreshSettingsTeamPresence(false);
+        }
+        syncProductOverridesFromCloud(isKevinAdminNow);
     };
 
     window.closeSettingsModal = function () {
@@ -13726,6 +13743,12 @@
             }
         }
         renderSettingsRoleAndSections();
+        if (target === 'ADMIN') {
+            const modal = document.getElementById('settingsModal');
+            if (modal && modal.classList.contains('open') && typeof window.refreshSettingsTeamPresence === 'function') {
+                window.refreshSettingsTeamPresence(false);
+            }
+        }
         if (typeof showToast === 'function') {
             showToast(target === 'ASESOR' ? 'Vista cambiada a Asesor (tope de descuento de asesor activo).' : 'Regresaste a modo Administrador.');
         }
@@ -13970,6 +13993,202 @@
         renderSettingsSessionsList(fallbackLocal, Date.now());
         if (showFeedback) {
             setSettingsStatusBox('settingsSessionsStatus', 'Mostrando sesión local (actualiza Apps Script de Control de Productos para listar otros dispositivos).', 'warn');
+        }
+    };
+
+    const settingsTeamPresenceState = {
+        users: [],
+        onlineCount: 0,
+        offlineCount: 0,
+        serverTimeMs: 0,
+        filter: 'ALL',
+        loading: false,
+        error: ''
+    };
+
+    function formatInvPresenceVistaLabel(vista) {
+        const v = cleanStr(vista).toLowerCase();
+        if (!v) return '';
+        if (v === 'inventario' || v === 'home' || v === 'catalogo') return 'Inventario / Cotizador';
+        if (v === 'seguimiento') return 'Seguimiento';
+        if (v === 'historial') return 'Historial';
+        if (v === 'configuracion') return 'Configuración';
+        if (v === 'cotizador' || v === 'carrito') return 'Cotizador';
+        return cleanStr(vista);
+    }
+
+    window.setSettingsTeamPresenceFilter = function (mode) {
+        const next = (mode === 'ONLINE' || mode === 'OFFLINE') ? mode : 'ALL';
+        settingsTeamPresenceState.filter = next;
+        window.renderSettingsTeamPresenceList();
+    };
+
+    window.renderSettingsTeamPresenceList = function () {
+        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        const badgeEl = document.getElementById('settingsTeamOnlineBadge');
+        const listEl = document.getElementById('settingsTeamPresenceList');
+        const btnAll = document.getElementById('settingsTeamFilterAll');
+        const btnOn = document.getElementById('settingsTeamFilterOnline');
+        const btnOff = document.getElementById('settingsTeamFilterOffline');
+        const searchEl = document.getElementById('settingsTeamSearchInput');
+
+        const total = settingsTeamPresenceState.users.length;
+        const onCount = settingsTeamPresenceState.onlineCount;
+        const offCount = settingsTeamPresenceState.offlineCount;
+
+        if (badgeEl) badgeEl.textContent = '● ' + onCount + ' conectado' + (onCount === 1 ? '' : 's');
+        if (btnAll) {
+            btnAll.textContent = 'Todos' + (total ? (' (' + total + ')') : '');
+            btnAll.classList.toggle('is-active', settingsTeamPresenceState.filter === 'ALL');
+        }
+        if (btnOn) {
+            btnOn.textContent = 'Conectados' + (total ? (' (' + onCount + ')') : '');
+            btnOn.classList.toggle('is-active', settingsTeamPresenceState.filter === 'ONLINE');
+        }
+        if (btnOff) {
+            btnOff.textContent = 'Desconectados' + (total ? (' (' + offCount + ')') : '');
+            btnOff.classList.toggle('is-active', settingsTeamPresenceState.filter === 'OFFLINE');
+        }
+        if (!listEl) return;
+
+        if (settingsTeamPresenceState.loading && !total) {
+            listEl.innerHTML = '<div class="inv-settings-section-sub">Consultando quién está conectado…</div>';
+            return;
+        }
+
+        const q = cleanStr(searchEl ? searchEl.value : '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const filtered = settingsTeamPresenceState.users.filter(function (u) {
+            if (settingsTeamPresenceState.filter === 'ONLINE' && !u.online) return false;
+            if (settingsTeamPresenceState.filter === 'OFFLINE' && u.online) return false;
+            if (q) {
+                const hay = [u.nombre, u.sucursal, u.rol, u.vista, formatInvPresenceVistaLabel(u.vista)]
+                    .join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+
+        if (!filtered.length) {
+            let emptyMsg = 'Sin registros.';
+            if (!total) {
+                if (settingsTeamPresenceState.error === 'no_token' || settingsTeamPresenceState.error === 'auth_failed') {
+                    emptyMsg = 'Tu sesión actual no tiene token de presencia. Toca Salir arriba y vuelve a iniciar sesión.';
+                } else if (settingsTeamPresenceState.error === 'unavailable') {
+                    emptyMsg = 'No se pudo consultar el equipo en vivo. Toca ↻ Actualizar para reintentar.';
+                }
+            } else if (settingsTeamPresenceState.filter === 'ONLINE') {
+                emptyMsg = 'Nadie conectado en los últimos 3 minutos.';
+            } else if (q) {
+                emptyMsg = 'Sin coincidencias para esa búsqueda.';
+            }
+            listEl.innerHTML = '<div class="inv-settings-section-sub">' + escapeHtml(emptyMsg) + '</div>';
+            return;
+        }
+
+        const refNow = settingsTeamPresenceState.serverTimeMs || Date.now();
+        listEl.innerHTML = filtered.map(function (u) {
+            const vistaLbl = formatInvPresenceVistaLabel(u.vista);
+            const whereParts = [
+                u.sucursal ? ('📍 ' + u.sucursal) : '',
+                vistaLbl ? (u.online ? ('En: ' + vistaLbl) : ('Última vista: ' + vistaLbl)) : ''
+            ].filter(Boolean);
+            const subLine = [u.rol || '', whereParts.join(' · ')].filter(Boolean).join(' · ') || '—';
+            const timeLbl = u.lastSeenMs ? formatSettingsSessionTime(u.lastSeenMs, refNow) : 'Sin registro';
+            const cls = u.online ? 'is-online' : 'is-offline';
+            const badgeHtml = u.online
+                ? '<span class="inv-settings-pill-live">● Conectado</span>'
+                : '<span class="inv-settings-badge">Desconectado</span>';
+            return (
+                '<div class="inv-team-presence-row ' + cls + '">' +
+                    '<div class="inv-team-presence-left">' +
+                        '<span class="inv-team-dot ' + cls + '" aria-hidden="true"></span>' +
+                        '<div class="inv-settings-item-main">' +
+                            '<div class="inv-settings-item-title">' + escapeHtml(u.nombre || 'Usuario') + '</div>' +
+                            '<div class="inv-settings-item-meta">' + escapeHtml(subLine) + '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="inv-team-presence-right">' +
+                        badgeHtml +
+                        '<span class="inv-team-time">' + escapeHtml(timeLbl) + '</span>' +
+                    '</div>' +
+                '</div>'
+            );
+        }).join('');
+    };
+
+    window.refreshSettingsTeamPresence = async function (showFeedback) {
+        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        let token = cleanStr(activeAdvisorSession && activeAdvisorSession.authToken);
+        if (!token) {
+            try {
+                const raw = localStorage.getItem('creata_inv_advisor_session_v2');
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (parsed && parsed.authToken) token = cleanStr(parsed.authToken);
+            } catch (e) {}
+        }
+        if (!token) {
+            settingsTeamPresenceState.error = 'no_token';
+            settingsTeamPresenceState.users = [];
+            settingsTeamPresenceState.onlineCount = 0;
+            settingsTeamPresenceState.offlineCount = 0;
+            window.renderSettingsTeamPresenceList();
+            return;
+        }
+        settingsTeamPresenceState.loading = true;
+        settingsTeamPresenceState.error = '';
+        window.renderSettingsTeamPresenceList();
+        const payload = {
+            authToken: token,
+            advisorEmail: cleanStr(activeAdvisorSession && activeAdvisorSession.correo),
+            sheetTab: cleanStr(activeAdvisorSession && activeAdvisorSession.sheetTab)
+        };
+        try {
+            let res = await callInvWebAppPost('inv_presence_list', payload, 22000);
+            if (!res || res.unavailable) {
+                res = await callInvWebAppPost('inv_presence_list', payload, 22000);
+            }
+            if (res && res.ok && Array.isArray(res.users)) {
+                const serverNow = Number(res.serverTimeMs) > 0 ? Number(res.serverTimeMs) : Date.now();
+                const thresholdMs = Number(res.thresholdMs) > 0 ? Number(res.thresholdMs) : 180000;
+                const list = res.users.filter(Boolean).map(function (raw) {
+                    const lastSeenMs = Number(raw.lastSeenMs) > 0 ? Number(raw.lastSeenMs) : 0;
+                    const online = typeof raw.online === 'boolean'
+                        ? raw.online
+                        : Boolean(lastSeenMs > 0 && (serverNow - lastSeenMs) <= thresholdMs);
+                    return {
+                        nombre: cleanStr(raw.nombre) || 'Usuario',
+                        sucursal: cleanStr(raw.sucursal),
+                        rol: cleanStr(raw.rol),
+                        vista: cleanStr(raw.vista),
+                        online: online,
+                        lastSeenMs: lastSeenMs
+                    };
+                });
+                list.sort(function (a, b) {
+                    if (a.online !== b.online) return a.online ? -1 : 1;
+                    if (b.lastSeenMs !== a.lastSeenMs) return b.lastSeenMs - a.lastSeenMs;
+                    return a.nombre.localeCompare(b.nombre, 'es');
+                });
+                settingsTeamPresenceState.users = list;
+                settingsTeamPresenceState.onlineCount = list.filter(function (u) { return u.online; }).length;
+                settingsTeamPresenceState.offlineCount = list.length - settingsTeamPresenceState.onlineCount;
+                settingsTeamPresenceState.serverTimeMs = serverNow;
+                settingsTeamPresenceState.error = '';
+                settingsTeamPresenceState.loading = false;
+                window.renderSettingsTeamPresenceList();
+                if (showFeedback) {
+                    setSettingsStatusBox('settingsTeamPresenceStatus', 'Equipo actualizado: ' + settingsTeamPresenceState.onlineCount + ' conectados de ' + list.length + '.', 'ok');
+                }
+                return;
+            }
+            settingsTeamPresenceState.error = (res && res.unavailable) ? 'unavailable' : 'auth_failed';
+        } catch (e) {
+            settingsTeamPresenceState.error = 'unavailable';
+        }
+        settingsTeamPresenceState.loading = false;
+        window.renderSettingsTeamPresenceList();
+        if (showFeedback) {
+            setSettingsStatusBox('settingsTeamPresenceStatus', 'No se pudo consultar el equipo en vivo. Intenta de nuevo.', 'warn');
         }
     };
 

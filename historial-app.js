@@ -1580,6 +1580,17 @@
     });
   }
 
+  function formatPresenceVistaLabel(vista) {
+    const v = cleanStr(vista).toLowerCase();
+    if (!v) return '';
+    if (v === 'inventario' || v === 'home' || v === 'catalogo') return 'Inventario / Cotizador';
+    if (v === 'seguimiento') return 'Seguimiento';
+    if (v === 'historial') return 'Historial';
+    if (v === 'configuracion') return 'Configuración';
+    if (v === 'cotizador' || v === 'carrito') return 'Cotizador';
+    return cleanStr(vista);
+  }
+
   function renderPresencePanel() {
     const onlineEl = $('hist_presenceOnlineCount');
     const offlineEl = $('hist_presenceOfflineCount');
@@ -1609,7 +1620,9 @@
     }
 
     listEl.innerHTML = list.map(u => {
-      const meta = [u.sucursal, u.rol].filter(Boolean).join(' · ') || '—';
+      const vistaLabel = formatPresenceVistaLabel(u.vista);
+      const vistaPart = vistaLabel ? (u.online ? `En: ${vistaLabel}` : `Última vista: ${vistaLabel}`) : '';
+      const meta = [u.sucursal, u.rol, vistaPart].filter(Boolean).join(' · ') || '—';
       const lastSeenLabel = formatPresenceLastSeen(u.lastSeenMs, u.online);
       const cls = u.online ? 'is-online' : 'is-offline';
       return `

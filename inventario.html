@@ -24,7 +24,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=7">
-    <link rel="stylesheet" href="./inventario-ui.css?v=12">
+    <link rel="stylesheet" href="./inventario-ui.css?v=13">
 </head>
 <body>
 
@@ -982,6 +982,33 @@
                     </div>
                 </section>
 
+                <!-- SOLO KEVIN (ADMIN): EQUIPO EN VIVO (QUIÉN Y DÓNDE ESTÁ CONECTADO) -->
+                <section id="settingsTeamPresenceSection" class="inv-settings-section hidden" aria-label="Equipo conectado en vivo">
+                    <div class="inv-settings-section-head">
+                        <h4 class="inv-settings-section-title">Equipo conectado en vivo</h4>
+                        <span id="settingsTeamOnlineBadge" class="inv-settings-pill-live">● 0 conectados</span>
+                    </div>
+                    <p class="inv-settings-section-sub">Consulta quién está conectado, su sucursal y en qué sección de la app se encuentra.</p>
+                    <div class="inv-team-presence-toolbar">
+                        <div class="inv-team-presence-pills" role="group" aria-label="Filtrar conectados">
+                            <button type="button" id="settingsTeamFilterAll" class="inv-team-filter-btn is-active" onclick="setSettingsTeamPresenceFilter('ALL')">Todos</button>
+                            <button type="button" id="settingsTeamFilterOnline" class="inv-team-filter-btn" onclick="setSettingsTeamPresenceFilter('ONLINE')">Conectados</button>
+                            <button type="button" id="settingsTeamFilterOffline" class="inv-team-filter-btn" onclick="setSettingsTeamPresenceFilter('OFFLINE')">Desconectados</button>
+                        </div>
+                        <button type="button" class="inv-btn-secondary" style="padding:5px 9px;font-size:11px;" onclick="refreshSettingsTeamPresence(true)">↻ Actualizar</button>
+                    </div>
+                    <div class="inv-field" style="margin:0;">
+                        <input id="settingsTeamSearchInput" type="search" class="inv-input" placeholder="Buscar asesor, sucursal o vista..." autocomplete="off" oninput="renderSettingsTeamPresenceList()">
+                    </div>
+                    <div id="settingsTeamPresenceStatus" class="inv-settings-status hidden"></div>
+                    <div id="settingsTeamPresenceList" class="inv-team-presence-list">
+                        <div class="inv-settings-section-sub">Cargando equipo en vivo…</div>
+                    </div>
+                    <div class="inv-settings-actions-row">
+                        <button type="button" class="inv-btn-secondary" onclick="closeSettingsModal(); openInAppHistorial();">Abrir Historial completo ↗</button>
+                    </div>
+                </section>
+
                 <!-- ASESORES (Y KEVIN EN MODO ASESOR): NOMBRE DEL DOCUMENTO PDF -->
                 <section id="settingsDocNameSection" class="inv-settings-section hidden" aria-label="Nombre del documento">
                     <div class="inv-settings-section-head">
@@ -1126,7 +1153,7 @@
     <script src="inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
     <script src="./seguimiento-app.js?v=7"></script>
-    <script src="./historial-app.js?v=5"></script>
-    <script src="inventario-app.js?v=85"></script>
+    <script src="./historial-app.js?v=6"></script>
+    <script src="inventario-app.js?v=86"></script>
 </body>
 </html>

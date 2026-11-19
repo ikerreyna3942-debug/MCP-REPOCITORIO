@@ -10,17 +10,23 @@ test('Settings UI & cache versions exist in inventario.html and inventario-ui.cs
   assert(html.includes('id="settingsModal"'), 'Missing #settingsModal');
   assert(html.includes('id="headerRoleModePill"'), 'Missing #headerRoleModePill');
   assert(html.includes('id="settingsRoleSwitchSection"'), 'Missing Kevin role switch section');
+  assert(html.includes('id="settingsTeamPresenceSection"'), 'Missing Kevin live team presence section');
   assert(html.includes('id="settingsDocNameSection"'), 'Missing PDF doc name section');
   assert(html.includes('id="settingsBranchSection"'), 'Missing multi-store branch section');
   assert(html.includes('id="settingsProductsSection"'), 'Missing Kevin product manager section');
   assert(html.includes('id="settingsPasswordSection"'), 'Missing password change section');
   assert(html.includes('id="settingsSessionsSection"'), 'Missing open sessions section');
-  assert(html.includes('./inventario-ui.css?v=12'), 'inventario.html must load inventario-ui.css?v=12');
-  assert(html.includes('inventario-app.js?v=85'), 'inventario.html must load inventario-app.js?v=85');
+  assert(html.includes('./inventario-ui.css?v=13'), 'inventario.html must load inventario-ui.css?v=13');
+  assert(html.includes('./historial-app.js?v=6'), 'inventario.html must load historial-app.js?v=6');
+  assert(html.includes('inventario-app.js?v=86'), 'inventario.html must load inventario-app.js?v=86');
   const segJs = fs.readFileSync('seguimiento-app.js', 'utf8');
   assert(!segJs.includes('id="seg_btnKevinAuditHeader"'), 'Historial y Movimientos button must be removed from Seguimiento header');
   assert(segJs.includes('class="cm-seg-search-field"'), 'Seguimiento search bar must use full-width top field class');
   assert(segJs.includes('compactHaystack'), 'Seguimiento search must support compact folio/phone matching');
+  const histJs = fs.readFileSync('historial-app.js', 'utf8');
+  assert(histJs.includes('function formatPresenceVistaLabel'), 'Historial presence panel must display formatted app view (where user is connected)');
+  const invJs = fs.readFileSync('inventario-app.js', 'utf8');
+  assert(invJs.includes('window.refreshSettingsTeamPresence'), 'inventario-app.js must expose Kevin-only refreshSettingsTeamPresence');
 
   const css = fs.readFileSync('inventario-ui.css', 'utf8');
   let depth = 0;
