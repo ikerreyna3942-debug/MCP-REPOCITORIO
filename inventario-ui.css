@@ -2666,3 +2666,97 @@ body.inv-split-dragging .inv-split-iframe {
   overflow: hidden;
   word-break: break-word;
 }
+
+/* Kevin Admin: Equipo en vivo (Quién y dónde está conectado) */
+.inv-team-presence-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.inv-team-presence-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.inv-team-filter-btn {
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--inv-border);
+  background: var(--inv-surface-subtle);
+  color: var(--inv-ink-2);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.inv-team-filter-btn.is-active {
+  background: var(--inv-ink);
+  border-color: var(--inv-ink);
+  color: #FFFFFF;
+}
+
+.inv-team-presence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.inv-team-presence-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--inv-border);
+  background: var(--inv-surface-subtle);
+}
+
+.inv-team-presence-row.is-online {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.inv-team-presence-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inv-team-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+  background: #9CA3AF;
+}
+
+.inv-team-dot.is-online {
+  background: #10B981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+}
+
+.inv-team-presence-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.inv-team-time {
+  font-size: 10.5px;
+  color: var(--inv-muted);
+  font-variant-numeric: tabular-nums;
+}
+
