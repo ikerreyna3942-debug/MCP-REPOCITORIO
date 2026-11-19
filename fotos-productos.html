@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=15">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=16">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -135,6 +135,9 @@
                         <!-- FILTRO POR CATEGORÍA DE FOTOS -->
                         <div id="skuCategoryFilterRow" class="category-pills-scroll" aria-label="Filtrar por categoría"></div>
 
+                        <!-- FILTRO POR UBICACIÓN DE INVENTARIO (11 UBICACIONES OFICIALES + EN COTIZADOR) -->
+                        <div id="skuLocationFilterRow" class="category-pills-scroll location-pills-scroll" aria-label="Filtrar por ubicación"></div>
+
                         <div id="skuResultsList" class="sku-list"></div>
                     </div>
                 </div>
@@ -146,6 +149,7 @@
                         <div class="panel-header">
                             <h2>2. Ficha del Producto y Categoría</h2>
                             <div class="panel-header-actions">
+                                <button type="button" id="btnOpenInCotizadorStage" class="hdr-btn is-compact-btn hidden" onclick="openSelectedSkuInCotizador()" title="Ver este SKU en el Cotizador">↗ Cotizador</button>
                                 <label id="btnDirectUploadLabel" class="hdr-btn is-accent is-compact-btn is-upload-lbl">
                                     📷 Subir foto a categoría
                                     <input type="file" id="directCategoryPhotoInput" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
@@ -177,6 +181,15 @@
                                     <div class="sheet-col-tag">Medidas · Acabado</div>
                                     <div id="selDimsFinishVal" class="sheet-col-val">—</div>
                                 </div>
+                            </div>
+
+                            <!-- UBICACIONES EN VIVO (11 POSICIONES OFICIALES: LPPT + 10 BODEGA/PISO) -->
+                            <div id="selLocationsWrap" class="product-locations-strip hidden">
+                                <div class="product-locations-head">
+                                    <span class="sibling-variants-label">Ubicaciones y Existencias:</span>
+                                    <span id="selLocationsSummaryBadge" class="product-locations-total mono">Stock: 0</span>
+                                </div>
+                                <div id="selLocationsGrid" class="product-locations-grid"></div>
                             </div>
 
                             <!-- TIRILLA DE VARIANTES HERMANAS DEL MISMO MODELO -->
@@ -386,6 +399,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=16"></script>
+    <script src="./fotos-productos-app.js?v=17"></script>
 </body>
 </html>

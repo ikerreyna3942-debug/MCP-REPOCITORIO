@@ -487,6 +487,7 @@ function createFotosAppHarness(opts = {}) {
   addEl('skuSearchInput', 'INPUT', false);
   addEl('skuSearchClearBtn', 'BUTTON', true);
   addEl('skuCategoryFilterRow', 'DIV', false);
+  addEl('skuLocationFilterRow', 'DIV', false);
   addEl('skuResultsList', 'DIV', false);
   addEl('secSkuFinder', 'DIV', false);
   addEl('secProductStage', 'DIV', false);
@@ -494,12 +495,16 @@ function createFotosAppHarness(opts = {}) {
   addEl('sessionHistoryPanel', 'DIV', true);
   addEl('sessionSavedCountBadge', 'SPAN', false);
   addEl('sessionSavedList', 'DIV', false);
+  addEl('btnOpenInCotizadorStage', 'BUTTON', false);
   addEl('selectedRowBadge', 'SPAN', false);
   addEl('selColASku', 'DIV', false);
   addEl('selCategoryLabel', 'DIV', false);
   addEl('selColBName', 'DIV', false);
   addEl('selModelVariantVal', 'DIV', false);
   addEl('selDimsFinishVal', 'DIV', false);
+  addEl('selLocationsWrap', 'DIV', false);
+  addEl('selLocationsSummaryBadge', 'SPAN', false);
+  addEl('selLocationsGrid', 'DIV', false);
   addEl('selSiblingVariantsWrap', 'DIV', true);
   addEl('selSiblingVariantsList', 'DIV', false);
   addEl('curPhotoTakeBtn', 'BUTTON', true);
@@ -1616,13 +1621,13 @@ test('UX-5: Mobile inputs & selects enforce font-size: 16px (anti-iOS auto-zoom)
   assert.ok(!/<(?:input|select)\b[^>]*style=["'][^"']*font-size/i.test(FOTOS_HTML_SRC));
 });
 
-test('UX-6: Cache version consistency (v5/img-v5, CSS?v=15, JS?v=16, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
+test('UX-6: Cache version consistency (v6/img-v6, CSS?v=16, JS?v=17, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
   assert.match(FOTOS_HTML_SRC, /fotos-manifest\.json\?v=3/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=15/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=16/);
   assert.match(FOTOS_HTML_SRC, /creata-back-nav\.js\?v=1/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=16/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v5['"]/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v5['"]/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=17/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v6['"]/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v6['"]/);
   assert.match(FOTOS_APP_SRC, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
 
   // Execute fotos-sw.js inside node:vm
@@ -1634,6 +1639,8 @@ test('UX-6: Cache version consistency (v5/img-v5, CSS?v=15, JS?v=16, manifest?v=
     'creata-fotos-app-img-v4',
     'creata-fotos-app-v5',
     'creata-fotos-app-img-v5',
+    'creata-fotos-app-v6',
+    'creata-fotos-app-img-v6',
     'creata-prompts-app-v3',
     'creata-inventario-v1'
   ];
@@ -1672,11 +1679,16 @@ test('UX-6: Cache version consistency (v5/img-v5, CSS?v=15, JS?v=16, manifest?v=
   };
   vm.runInNewContext(FOTOS_SW_SRC, swSandbox, { filename: 'fotos-sw.js' });
 
-  // Activate evicts v4 and img-v4 while preserving v5, img-v5, and sibling app caches
+  // Activate evicts v4 and v5 while preserving v6, img-v6, and sibling app caches
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys.sort(), ['creata-fotos-app-img-v4', 'creata-fotos-app-v4']);
+  assert.deepEqual(deletedKeys.sort(), [
+    'creata-fotos-app-img-v4',
+    'creata-fotos-app-img-v5',
+    'creata-fotos-app-v4',
+    'creata-fotos-app-v5'
+  ]);
 
   // Fetch handler checks
   const checkFetch = async (url, method = 'GET') => {
@@ -1695,11 +1707,11 @@ test('UX-6: Cache version consistency (v5/img-v5, CSS?v=15, JS?v=16, manifest?v=
 
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
-  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=16', 'POST'), false);
+  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=17', 'POST'), false);
   assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
   assert.equal(await checkFetch('https://lh3.googleusercontent.com/d/abc12345=w400', 'GET'), true);
-  assert.ok(openedCaches.includes('creata-fotos-app-img-v5'));
-  assert.ok(openedCaches.includes('creata-fotos-app-v5'));
+  assert.ok(openedCaches.includes('creata-fotos-app-img-v6'));
+  assert.ok(openedCaches.includes('creata-fotos-app-v6'));
 });
 
 test('UX-7: Preserved Kevin exclusive auth, Project A (SUBIR PREN) isolation, F8 removal, and pendingDeletes reliability', () => {
