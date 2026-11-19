@@ -3096,12 +3096,14 @@
         activeCategory = next;
         const inp = document.getElementById('invSearchInput');
         applyFilter(inp ? inp.value : '');
+        if (activeCategory !== 'ALL') notifyInvBackStatePush('inv_category');
     };
 
     window.setInvSubCategory = function (sub) {
         activeSubCategory = sub || 'ALL';
         const inp = document.getElementById('invSearchInput');
         applyFilter(inp ? inp.value : '');
+        if (activeSubCategory !== 'ALL') notifyInvBackStatePush('inv_subcategory');
     };
 
     function buildCardCartControlHtml(skuKey) {
@@ -3242,6 +3244,7 @@
         if (inp) {
             inp.value = '';
         }
+        _invPrevSearchNonEmpty = false;
         applyFilter('');
         scheduleSaveInvWorkspaceCheckpoint();
     };
@@ -3308,6 +3311,7 @@
         if (!modal) return;
         scanHandled = false;
         modal.classList.add('open');
+        notifyInvBackStatePush('scan_modal');
         if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             // Navegadores dentro de apps (WhatsApp, Facebook...) no dan video en vivo: usar "Tomar foto del código"
             setScanStatus('Este navegador no permite video en vivo. Usa el botón "Tomar foto del código".', true);
@@ -3547,6 +3551,7 @@
 
         const modal = document.getElementById('productDetailModal');
         if (modal) modal.classList.add('open');
+        if (!invWorkspaceRestoring) notifyInvBackStatePush('product_group_modal');
         if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
             scheduleSaveInvWorkspaceCheckpoint();
         }
@@ -3586,6 +3591,7 @@
 
         const modal = document.getElementById('productDetailModal');
         if (modal) modal.classList.add('open');
+        if (!invWorkspaceRestoring) notifyInvBackStatePush('product_detail_modal');
         if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
             scheduleSaveInvWorkspaceCheckpoint();
         }
@@ -3650,6 +3656,9 @@
         if (modal) modal.classList.remove('open');
         currentDetailItem = null;
         currentGroup = null;
+        relatedStockExpanded = false;
+        const relPanel = document.getElementById('detRelatedStockPanel');
+        if (relPanel) relPanel.classList.add('hidden');
         visualDiscActiveSku = '';
         if (!invWorkspaceRestoring) {
             pendingWorkspaceDetailRestore = null;
@@ -4451,7 +4460,9 @@
                 '<span class="inv-combo-opt-name">' + escapeHtml(nm + vrTxt) + ' <strong style="color:#8C6D3F;font-size:10px;">[' + escapeHtml(catMeta.short) + ']</strong></span>' +
             '</button>';
         }).join('');
+        const ddWasHidden = dd.classList.contains('hidden');
         dd.classList.remove('hidden');
+        if (ddWasHidden) notifyInvBackStatePush('upload_photo_dropdown');
     };
 
     window.openUploadPhotoModelDropdown = function () {
@@ -4502,7 +4513,10 @@
             renderUploadPhotoProductInfoCard(null);
         }
 
-        if (modal) modal.classList.add('open');
+        if (modal) {
+            modal.classList.add('open');
+            notifyInvBackStatePush('upload_photo_modal');
+        }
     };
 
     window.openUploadPhotoModalFromDetail = function () {
@@ -4869,6 +4883,7 @@
         relatedStockExpanded = !relatedStockExpanded;
         prepareRelatedInStockSection(relatedStockRefItem, relatedStockExpanded);
         if (relatedStockExpanded) {
+            notifyInvBackStatePush('detail_related_stock');
             const secEl = document.getElementById('detRelatedStockSection');
             if (secEl && secEl.scrollIntoView) {
                 setTimeout(() => secEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
@@ -5886,22 +5901,13 @@
         if (menu) menu.classList.remove('hidden');
         if (backdrop) backdrop.classList.remove('hidden');
         if (toggle) toggle.setAttribute('aria-expanded', 'true');
+        notifyInvBackStatePush('fab_menu');
     };
 
     window.toggleFabMenu = function () {
         if (invFabIsOpen) window.closeFabMenu();
         else window.openFabMenu();
     };
-
-    document.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Escape') {
-            if (invFabIsOpen) window.closeFabMenu();
-            const upModal = document.getElementById('uploadPhotoModal');
-            if (upModal && upModal.classList.contains('open')) {
-                window.closeUploadPhotoModal();
-            }
-        }
-    });
 
     function buildInAppModuleContext() {
         const s = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
@@ -5911,7 +5917,9 @@
                 ? (window.CREATA_CLOUD_CONFIG.getApiUrl() || CANONICAL_WEBAPP_URL)
                 : CANONICAL_WEBAPP_URL,
             onClose: function () { window.closeInAppModules(); },
-            onGoHome: function () { window.goHomeFromLogo(); }
+            onGoHome: function () { window.goHomeFromLogo(); },
+            onBackStatePush: notifyInvBackStatePush,
+            backNavManaged: Boolean(_invBackNav)
         };
     }
 
@@ -5981,6 +5989,7 @@
         } else {
             segRoot.innerHTML = '<div style="padding:24px;text-align:center;font-size:13px;font-weight:700;">Cargando Seguimiento...</div>';
         }
+        if (!invWorkspaceRestoring) notifyInvBackStatePush('seguimiento_module');
         window.scrollTo({ top: 0, behavior: 'auto' });
         sendInvPresenceHeartbeat(activeAdvisorSession, false);
         if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') scheduleSaveInvWorkspaceCheckpoint();
@@ -6020,6 +6029,7 @@
         } else {
             histRoot.innerHTML = '<div style="padding:24px;text-align:center;font-size:13px;font-weight:700;">Cargando Historial...</div>';
         }
+        if (!invWorkspaceRestoring) notifyInvBackStatePush('historial_module');
         window.scrollTo({ top: 0, behavior: 'auto' });
         sendInvPresenceHeartbeat(activeAdvisorSession, false);
         if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') scheduleSaveInvWorkspaceCheckpoint();
@@ -6042,6 +6052,7 @@
         activeSubCategory = 'ALL';
         const inp = document.getElementById('invSearchInput');
         if (inp) inp.value = '';
+        _invPrevSearchNonEmpty = false;
         if (searchDebounceTimer) {
             clearTimeout(searchDebounceTimer);
             searchDebounceTimer = null;
@@ -6088,7 +6099,7 @@
                 if (u.searchParams.has('openModule') || u.searchParams.has('module')) {
                     u.searchParams.delete('openModule');
                     u.searchParams.delete('module');
-                    window.history.replaceState({}, '', u.pathname + (u.search || '') + (u.hash || ''));
+                    window.history.replaceState(window.history.state || {}, '', u.pathname + (u.search || '') + (u.hash || ''));
                 }
             } catch (e) {}
         }
@@ -6836,7 +6847,12 @@
         if (keyInp) keyInp.value = '';
         setAuthStepVisible('login');
         showAuthBanner('authLoginMsg', reasonMsg || 'Confirma tu contraseña personal para emitir la cotización con tu usuario exclusivo.', 'warn');
-        if (modal) modal.classList.add('open');
+        if (modal) {
+            modal.classList.add('open');
+            if (activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
+                notifyInvBackStatePush('auth_reauth');
+            }
+        }
         if (keyInp) setTimeout(() => keyInp.focus(), 60);
     }
 
@@ -7384,6 +7400,7 @@
             activeAdvisorSession.allLocations,
             'Selecciona la tienda o bodega autorizada de tu cuenta a la que vas a cotizar:'
         );
+        notifyInvBackStatePush('auth_branch');
     };
 
     window.onMultiStoreUserSelectChange = function (targetSheetTab) {
@@ -7523,6 +7540,11 @@
         const keyInp = document.getElementById('authKeyInput');
         if (keyInp) keyInp.value = '';
         closeCartModal();
+        try {
+            if (_invBackNav && typeof _invBackNav.resetToBase === 'function') {
+                _invBackNav.resetToBase();
+            }
+        } catch (e) {}
         openAuthModalForStartup();
     };
 
@@ -8922,6 +8944,7 @@
             msg.classList.add('hidden');
         }
         if (nextOpen) {
+            notifyInvBackStatePush('cart_new_client_form');
             const searchInp = document.getElementById('quoteErpClientSearchInput');
             const nomInp = document.getElementById('newCliNombre');
             if (nomInp && !cleanStr(nomInp.value) && searchInp && cleanStr(searchInp.value) && !/\d{4,}/.test(searchInp.value)) {
@@ -9196,6 +9219,7 @@
         applyQuoteCompletedLockUI();
         renderMyRecentQuotes(myRecentQuotesList);
         document.getElementById('cartModal').classList.add('open');
+        notifyInvBackStatePush('cart_modal');
         if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
             scheduleSaveInvWorkspaceCheckpoint();
         }
@@ -10213,6 +10237,9 @@
             '<div>Sucursal: <strong>' + escapeHtml((payload && payload.erpStore) || '') + '</strong> · Piezas: <strong>' + totalQty + '</strong> · Total: <strong>' + escapeHtml(formatPrice(bd && bd.totalWithIva) || '$0.00') + '</strong></div>';
 
         modalEl.classList.add('open');
+        if (!invWorkspaceRestoring) {
+            notifyInvBackStatePush('quote_accepted_modal');
+        }
         if (!invWorkspaceRestoring && window.CreataLiveAlerts && typeof window.CreataLiveAlerts.notifyQuoteCreated === 'function') {
             const alertPayload = {
                 folio: folioTxt || ('ID-' + qidTxt),
@@ -10668,24 +10695,79 @@
     let lastKeyTime = 0;
 
     document.addEventListener('keydown', function (ev) {
-        const authModalEl = document.getElementById('authModal');
-        if (authModalEl && authModalEl.classList.contains('open')) {
-            return;
-        }
-
         if (ev.key === 'Escape') {
             const confirmCreateEl = document.getElementById('quoteConfirmCreateModal');
             if (confirmCreateEl && confirmCreateEl.classList.contains('open')) {
                 window.closeQuoteConfirmCreateModal();
                 return;
             }
-            const acceptedModalEl = document.getElementById('quoteAcceptedModal');
-            if (acceptedModalEl && acceptedModalEl.classList.contains('open')) {
-                acceptGeneratedQuoteAndReset();
+            if (_invBackNav && typeof window.handleInventarioBackAction === 'function') {
+                window.handleInventarioBackAction({ source: 'escape' });
                 return;
             }
-            closeProductDetail();
-            closeCartModal();
+            // Offline fallback when creata-back-nav.js is unavailable
+            if (isMandatoryAuthGateActive()) { ev.__creataEscapeHandled = true; return; }
+            if (isModalOpenById('scanModal')) { ev.__creataEscapeHandled = true; window.closeBarcodeScanner(); return; }
+            if (isModalOpenById('installAppModal')) { ev.__creataEscapeHandled = true; window.closeInstallAppModal(); return; }
+            if (isOptionalAuthModalActive()) {
+                ev.__creataEscapeHandled = true;
+                if (isElVisibleById('authStepBranch')) window.cancelBranchSelection();
+                else {
+                    pendingQuoteRetrySendToErp = null;
+                    const m = document.getElementById('authModal');
+                    if (m) m.classList.remove('open');
+                }
+                return;
+            }
+            if (isModalOpenById('uploadPhotoModal') && isElVisibleById('uploadPhotoModelDropdown')) {
+                ev.__creataEscapeHandled = true;
+                const dd = document.getElementById('uploadPhotoModelDropdown');
+                if (dd) dd.classList.add('hidden');
+                return;
+            }
+            if (isModalOpenById('uploadPhotoModal')) {
+                ev.__creataEscapeHandled = true;
+                if (!managerPhotoUploadInFlight) window.closeUploadPhotoModal();
+                return;
+            }
+            if (activeInAppModule === 'seguimiento' && window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.handleBackAction === 'function') {
+                const segRes = window.CreataSeguimientoModule.handleBackAction({ phase: 'overlay', source: 'escape' });
+                if (segRes && segRes.handled) { ev.__creataEscapeHandled = true; return; }
+            }
+            if (activeInAppModule === 'historial' && window.CreataHistorialModule && typeof window.CreataHistorialModule.handleBackAction === 'function') {
+                const histRes = window.CreataHistorialModule.handleBackAction({ phase: 'overlay', source: 'escape' });
+                if (histRes && histRes.handled) { ev.__creataEscapeHandled = true; return; }
+            }
+            if (isModalOpenById('quoteAcceptedModal')) { ev.__creataEscapeHandled = true; acceptGeneratedQuoteAndReset(); return; }
+            if (invFabIsOpen) { ev.__creataEscapeHandled = true; window.closeFabMenu(); return; }
+            if (isModalOpenById('cartModal') && isElVisibleById('quoteNewErpClientPanel')) {
+                ev.__creataEscapeHandled = true;
+                window.toggleNewErpClientForm(false);
+                return;
+            }
+            if (isModalOpenById('cartModal')) { ev.__creataEscapeHandled = true; closeCartModal(); return; }
+            if (isModalOpenById('productDetailModal') && (relatedStockExpanded || isElVisibleById('detRelatedStockPanel'))) {
+                ev.__creataEscapeHandled = true;
+                if (relatedStockRefItem && relatedStockExpanded && typeof window.toggleRelatedInStockProducts === 'function') {
+                    window.toggleRelatedInStockProducts();
+                } else {
+                    relatedStockExpanded = false;
+                    const panel = document.getElementById('detRelatedStockPanel');
+                    if (panel) panel.classList.add('hidden');
+                }
+                return;
+            }
+            if (isModalOpenById('productDetailModal') && isElVisibleById('detSingleStep') && isElVisibleById('detGroupCrumb') && currentGroup && Array.isArray(currentGroup.items) && currentGroup.items.length > 1) {
+                ev.__creataEscapeHandled = true;
+                window.backToCurrentGroupVariants();
+                return;
+            }
+            if (isModalOpenById('productDetailModal')) { ev.__creataEscapeHandled = true; closeProductDetail(); return; }
+            if (_invSplitActive) { ev.__creataEscapeHandled = true; window.closeInvSplitFotosDock(); return; }
+            return;
+        }
+        const authModalEl = document.getElementById('authModal');
+        if (authModalEl && authModalEl.classList.contains('open')) {
             return;
         }
         const activeTag = document.activeElement ? document.activeElement.tagName : '';
@@ -12239,8 +12321,14 @@
         updateCartBadge();
         const inp = document.getElementById('invSearchInput');
         if (inp) {
+            _invPrevSearchNonEmpty = Boolean(cleanStr(inp.value));
             inp.addEventListener('input', function () {
                 const val = this.value;
+                const nowNonEmpty = Boolean(cleanStr(val));
+                if (!_invPrevSearchNonEmpty && nowNonEmpty) {
+                    notifyInvBackStatePush('inv_search');
+                }
+                _invPrevSearchNonEmpty = nowNonEmpty;
                 const clearBtn = document.getElementById('invClearBtn');
                 if (clearBtn) clearBtn.classList.toggle('hidden', !val);
                 if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
@@ -12265,6 +12353,8 @@
                 pendingPostAuthModuleIntent = bootModuleIntent;
             }
         }
+        if (inp) _invPrevSearchNonEmpty = Boolean(cleanStr(inp.value));
+        initInventarioBackNav();
 
         const loadMoreSentinel = document.getElementById('invLoadMoreWrap');
         if (loadMoreSentinel && typeof IntersectionObserver !== 'undefined') {
@@ -12419,7 +12509,10 @@
     window.openInstallAppModal = function () {
         syncPwaInstallButtonState();
         const modal = document.getElementById('installAppModal');
-        if (modal) modal.classList.add('open');
+        if (modal) {
+            modal.classList.add('open');
+            notifyInvBackStatePush('install_modal');
+        }
     };
 
     window.closeInstallAppModal = function () {
@@ -12488,8 +12581,27 @@
         if (badge) {
             badge.textContent = _invSplitPct + '% / ' + (100 - _invSplitPct) + '%';
         }
-        if (_invSplitActive && frame && (!frame.getAttribute('src') || frame.getAttribute('src') === 'about:blank')) {
-            frame.setAttribute('src', './fotos-productos.html?embed=1');
+        if (_invSplitActive && frame) {
+            const loadedSrc = (frame.dataset && frame.dataset.loadedSrc) || frame.getAttribute('src') || '';
+            if (!loadedSrc || loadedSrc === 'about:blank') {
+                const targetUrl = './fotos-productos.html?embed=1';
+                if (window.CreataBackNav && typeof window.CreataBackNav.replaceIframeUrl === 'function') {
+                    window.CreataBackNav.replaceIframeUrl(frame, targetUrl);
+                } else {
+                    try {
+                        if (frame.contentWindow && frame.contentWindow.location && typeof frame.contentWindow.location.replace === 'function') {
+                            frame.contentWindow.location.replace(targetUrl);
+                        } else {
+                            frame.setAttribute('src', targetUrl);
+                        }
+                    } catch (eFrame) {
+                        frame.setAttribute('src', targetUrl);
+                    }
+                }
+                try {
+                    if (frame.dataset) frame.dataset.loadedSrc = targetUrl;
+                } catch (eDs) {}
+            }
         }
     }
 
@@ -12535,6 +12647,7 @@
             loadInvSplitPrefs();
             _invSplitActive = true;
             applyInvSplitDomState();
+            notifyInvBackStatePush('split_fotos_dock');
             if (currentDetailItem && currentDetailItem.s) {
                 setTimeout(() => notifyInvSplitFotosOfSku(currentDetailItem.s), 450);
             }
@@ -12542,6 +12655,348 @@
             _invSplitActive = false;
             applyInvSplitDomState();
         }
+    };
+
+    // =========================================================================
+    // NAVEGACIÓN BOTÓN ATRÁS DEL TELÉFONO (popstate / History API — 17 NIVELES)
+    // =========================================================================
+    let _invBackNav = null;
+    let _invPrevSearchNonEmpty = false;
+
+    function notifyInvBackStatePush(reason) {
+        try {
+            if (_invBackNav && typeof _invBackNav.syncDepthOnUserAction === 'function') {
+                _invBackNav.syncDepthOnUserAction(reason || 'inv_action');
+            }
+        } catch (e) {}
+    }
+
+    function isModalOpenById(id) {
+        const el = document.getElementById(id);
+        return Boolean(el && el.classList.contains('open'));
+    }
+
+    function isElVisibleById(id) {
+        const el = document.getElementById(id);
+        return Boolean(el && !el.classList.contains('hidden'));
+    }
+
+    function isMandatoryAuthGateActive() {
+        if (!isModalOpenById('authModal')) return false;
+        const loginVisible = isElVisibleById('authStepLogin');
+        const newKeyVisible = isElVisibleById('authStepNewKey');
+        if ((loginVisible || newKeyVisible) && (!activeAdvisorSession || activeAdvisorSession.mustChangeKey)) {
+            return true;
+        }
+        return false;
+    }
+
+    function isOptionalAuthModalActive() {
+        if (!isModalOpenById('authModal')) return false;
+        if (isElVisibleById('authStepBranch')) return true;
+        if (isElVisibleById('authStepLogin') && activeAdvisorSession && !activeAdvisorSession.mustChangeKey) {
+            return true;
+        }
+        return false;
+    }
+
+    function hasDomSegOverlayOpen() {
+        const ids = ['seg_previewModal', 'seg_modalCerrarCotizacion', 'seg_modalKevinAudit'];
+        for (let i = 0; i < ids.length; i++) {
+            const el = document.getElementById(ids[i]);
+            if (el && !el.classList.contains('cm-hidden')) return true;
+        }
+        return false;
+    }
+
+    function hasDomHistOverlayOpen() {
+        const ids = ['hist_photoPreviewModal', 'hist_quoteInspectModal'];
+        for (let i = 0; i < ids.length; i++) {
+            const el = document.getElementById(ids[i]);
+            if (el && !el.classList.contains('cm-hidden')) return true;
+        }
+        return false;
+    }
+
+    function initInventarioBackNav() {
+        if (_invBackNav) return _invBackNav;
+        if (typeof window.createCreataBackNavController !== 'function') return null;
+
+        _invBackNav = window.createCreataBackNavController({
+            appId: 'inventario',
+            toastId: 'creataBackNavToast',
+            maxDepth: 12,
+            exitGuardMs: 2500,
+            exitMessage: 'Presiona Atrás otra vez para salir',
+            isEnabled: function () {
+                return !isMandatoryAuthGateActive();
+            },
+            steps: [
+                // Priority 0: Mandatory Auth Gate — never bypass or leak Escape
+                {
+                    id: 'auth_gate_locked',
+                    isActive: function () { return isMandatoryAuthGateActive(); },
+                    undo: function () { return { handled: true, blocked: true, toast: '' }; },
+                    escapeAllowed: true
+                },
+                // Priority 1: Barcode/QR Scanner Modal (z-index: 90)
+                {
+                    id: 'scan_modal',
+                    isActive: function () { return isModalOpenById('scanModal'); },
+                    undo: function () { window.closeBarcodeScanner(); },
+                    escapeAllowed: true
+                },
+                // Priority 2: Install App Modal (z-index: 88)
+                {
+                    id: 'install_modal',
+                    isActive: function () { return isModalOpenById('installAppModal'); },
+                    undo: function () { window.closeInstallAppModal(); },
+                    escapeAllowed: true
+                },
+                // Priority 3: Auth Branch Selector or Optional Reauth (z-index: 85)
+                {
+                    id: 'auth_branch_or_reauth',
+                    isActive: function () { return isOptionalAuthModalActive(); },
+                    undo: function () {
+                        if (isElVisibleById('authStepBranch')) {
+                            window.cancelBranchSelection();
+                            return;
+                        }
+                        pendingQuoteRetrySendToErp = null;
+                        const m = document.getElementById('authModal');
+                        if (m) m.classList.remove('open');
+                    },
+                    escapeAllowed: true
+                },
+                // Priority 4: Upload Photo Model Dropdown (z-index: 82)
+                {
+                    id: 'upload_photo_dropdown',
+                    isActive: function () {
+                        return isModalOpenById('uploadPhotoModal') && isElVisibleById('uploadPhotoModelDropdown');
+                    },
+                    undo: function () {
+                        const dd = document.getElementById('uploadPhotoModelDropdown');
+                        if (dd) dd.classList.add('hidden');
+                    },
+                    escapeAllowed: true
+                },
+                // Priority 5: Upload Photo Modal (z-index: 82) — preserves in-flight upload lock
+                {
+                    id: 'upload_photo_modal',
+                    isActive: function () { return isModalOpenById('uploadPhotoModal'); },
+                    undo: function () {
+                        if (managerPhotoUploadInFlight) {
+                            return { handled: true, blocked: true, toast: 'Subida en curso...' };
+                        }
+                        window.closeUploadPhotoModal();
+                    },
+                    escapeAllowed: true
+                },
+                // Priority 6: Seguimiento In-App Overlays (z-index: 80)
+                {
+                    id: 'seg_overlay',
+                    isActive: function () {
+                        if (activeInAppModule !== 'seguimiento') return false;
+                        if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.hasActiveOverlay === 'function') {
+                            return window.CreataSeguimientoModule.hasActiveOverlay();
+                        }
+                        return hasDomSegOverlayOpen();
+                    },
+                    undo: function (ctx) {
+                        if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.handleBackAction === 'function') {
+                            return window.CreataSeguimientoModule.handleBackAction({ phase: 'overlay', source: ctx && ctx.source });
+                        }
+                        return false;
+                    },
+                    escapeAllowed: true
+                },
+                // Priority 7: Historial In-App Overlays (z-index: 80)
+                {
+                    id: 'hist_overlay',
+                    isActive: function () {
+                        if (activeInAppModule !== 'historial') return false;
+                        if (window.CreataHistorialModule && typeof window.CreataHistorialModule.hasActiveOverlay === 'function') {
+                            return window.CreataHistorialModule.hasActiveOverlay();
+                        }
+                        return hasDomHistOverlayOpen();
+                    },
+                    undo: function (ctx) {
+                        if (window.CreataHistorialModule && typeof window.CreataHistorialModule.handleBackAction === 'function') {
+                            return window.CreataHistorialModule.handleBackAction({ phase: 'overlay', source: ctx && ctx.source });
+                        }
+                        return false;
+                    },
+                    escapeAllowed: true
+                },
+                // Priority 8: Quote Accepted Confirmation Modal (z-index: 75)
+                {
+                    id: 'quote_accepted_modal',
+                    isActive: function () { return isModalOpenById('quoteAcceptedModal'); },
+                    undo: function () { window.acceptGeneratedQuoteAndReset(); },
+                    escapeAllowed: true
+                },
+                // Priority 9: Floating Action Button Menu (z-index: 40)
+                {
+                    id: 'fab_menu',
+                    isActive: function () {
+                        const root = document.getElementById('invFabRoot');
+                        return Boolean(invFabIsOpen || (root && root.classList.contains('is-open')));
+                    },
+                    undo: function () { window.closeFabMenu(); },
+                    escapeAllowed: true
+                },
+                // Priority 10: Cart Modal -> New ERP Client Inline Form (z-index: 60)
+                {
+                    id: 'cart_new_client_form',
+                    isActive: function () {
+                        return isModalOpenById('cartModal') && isElVisibleById('quoteNewErpClientPanel');
+                    },
+                    undo: function () { window.toggleNewErpClientForm(false); },
+                    escapeAllowed: true
+                },
+                // Priority 11: Cart Modal (z-index: 60)
+                {
+                    id: 'cart_modal',
+                    isActive: function () { return isModalOpenById('cartModal'); },
+                    undo: function () { window.closeCartModal(); },
+                    escapeAllowed: true
+                },
+                // Priority 12a: Product Detail -> Related In-Stock Panel
+                {
+                    id: 'detail_related_stock',
+                    isActive: function () {
+                        return isModalOpenById('productDetailModal') &&
+                            Boolean(relatedStockExpanded || isElVisibleById('detRelatedStockPanel'));
+                    },
+                    undo: function () {
+                        if (relatedStockRefItem && relatedStockExpanded && typeof window.toggleRelatedInStockProducts === 'function') {
+                            window.toggleRelatedInStockProducts();
+                            return;
+                        }
+                        relatedStockExpanded = false;
+                        const panel = document.getElementById('detRelatedStockPanel');
+                        if (panel) panel.classList.add('hidden');
+                    },
+                    escapeAllowed: true
+                },
+                // Priority 12b: Product Detail -> Single Variant Back to Group Variants
+                {
+                    id: 'detail_back_to_variants',
+                    isActive: function () {
+                        return isModalOpenById('productDetailModal') &&
+                            isElVisibleById('detSingleStep') &&
+                            isElVisibleById('detGroupCrumb') &&
+                            Boolean(currentGroup && Array.isArray(currentGroup.items) && currentGroup.items.length > 1);
+                    },
+                    undo: function () { window.backToCurrentGroupVariants(); },
+                    escapeAllowed: true,
+                    toast: 'Volviendo a variantes'
+                },
+                // Priority 12c: Product Detail Modal Close
+                {
+                    id: 'product_detail_modal',
+                    isActive: function () { return isModalOpenById('productDetailModal'); },
+                    undo: function () { window.closeProductDetail(); },
+                    escapeAllowed: true
+                },
+                // Priority 13: Split-Screen Fotos Dock (z-index: 65)
+                {
+                    id: 'split_fotos_dock',
+                    isActive: function () {
+                        return Boolean(_invSplitActive || isElVisibleById('invSplitFotosDock'));
+                    },
+                    undo: function () { window.closeInvSplitFotosDock(); },
+                    escapeAllowed: true,
+                    toast: 'Pantalla dividida cerrada'
+                },
+                // Priority 14: Seguimiento Module View Unwind (search -> filters -> close module)
+                {
+                    id: 'seg_view',
+                    isActive: function () { return activeInAppModule === 'seguimiento'; },
+                    depthWeight: function () {
+                        if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.getBackDepthWeight === 'function') {
+                            return window.CreataSeguimientoModule.getBackDepthWeight();
+                        }
+                        return 1;
+                    },
+                    undo: function (ctx) {
+                        if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.handleBackAction === 'function') {
+                            return window.CreataSeguimientoModule.handleBackAction({ phase: 'view', source: ctx && ctx.source });
+                        }
+                        window.closeInAppModules();
+                        return { handled: true, toast: 'Volviendo al inventario' };
+                    },
+                    escapeAllowed: false
+                },
+                // Priority 15: Historial Module View Unwind (search -> filters -> tab -> close module)
+                {
+                    id: 'hist_view',
+                    isActive: function () { return activeInAppModule === 'historial'; },
+                    depthWeight: function () {
+                        if (window.CreataHistorialModule && typeof window.CreataHistorialModule.getBackDepthWeight === 'function') {
+                            return window.CreataHistorialModule.getBackDepthWeight();
+                        }
+                        return 1;
+                    },
+                    undo: function (ctx) {
+                        if (window.CreataHistorialModule && typeof window.CreataHistorialModule.handleBackAction === 'function') {
+                            return window.CreataHistorialModule.handleBackAction({ phase: 'view', source: ctx && ctx.source });
+                        }
+                        window.closeInAppModules();
+                        return { handled: true, toast: 'Volviendo al inventario' };
+                    },
+                    escapeAllowed: false
+                },
+                // Priority 16a: Home View Search
+                {
+                    id: 'inv_search',
+                    isActive: function () {
+                        if (activeInAppModule !== 'home') return false;
+                        const inp = document.getElementById('invSearchInput');
+                        return Boolean(inp && cleanStr(inp.value));
+                    },
+                    undo: function () { window.clearInvSearch(); },
+                    escapeAllowed: false,
+                    toast: 'Búsqueda limpiada'
+                },
+                // Priority 16b: Home View Subcategory Filter
+                {
+                    id: 'inv_subcategory',
+                    isActive: function () {
+                        return activeInAppModule === 'home' && Boolean(activeSubCategory && activeSubCategory !== 'ALL');
+                    },
+                    undo: function () { window.setInvSubCategory('ALL'); },
+                    escapeAllowed: false,
+                    toast: 'Subcategoría: Todas'
+                },
+                // Priority 16c: Home View Category Filter
+                {
+                    id: 'inv_category',
+                    isActive: function () {
+                        return activeInAppModule === 'home' && Boolean(activeCategory && activeCategory !== 'ALL');
+                    },
+                    undo: function () { window.setInvCategory('ALL'); },
+                    escapeAllowed: false,
+                    toast: 'Categoría: Todas'
+                }
+                // Priority 17: Clean-root 2.5s double-back exit guard handled automatically by creata-back-nav.js
+            ]
+        });
+
+        _invBackNav.init();
+        window.__CREATA_INV_BACK_NAV__ = _invBackNav;
+        return _invBackNav;
+    }
+
+    window.handleInventarioBackAction = function (opts) {
+        const o = opts && typeof opts === 'object' ? opts : {};
+        if (_invBackNav) {
+            if (o.source === 'escape') {
+                return _invBackNav.handleEscape();
+            }
+            return _invBackNav.stepBackOnce(o);
+        }
+        return { handled: false, blocked: false, stepId: null, toast: '', source: o.source || 'manual' };
     };
 
     function bindInvSplitResizerDrag() {

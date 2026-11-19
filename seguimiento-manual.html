@@ -127,9 +127,29 @@
   <!-- CONTENEDOR DE IMPRESIÓN PDF -->
   <div id="print-container" class="hidden"></div>
 
+  <script src="./creata-back-nav.js?v=1"></script>
   <script>
     let isEditMode = false;
     let currentSlideIndex = 0;
+    const slideHistory = [];
+    const MAX_SLIDE_HISTORY = 20;
+    let manualBackNav = null;
+
+    function pushSlideHistory(prevIndex) {
+      if (typeof prevIndex !== 'number' || Number.isNaN(prevIndex)) return;
+      if (prevIndex < 0 || prevIndex >= slides.length) return;
+      if (slideHistory.length > 0 && slideHistory[slideHistory.length - 1] === prevIndex) return;
+      slideHistory.push(prevIndex);
+      if (slideHistory.length > MAX_SLIDE_HISTORY) {
+        slideHistory.shift();
+      }
+    }
+
+    function syncManualBackDepth(reason) {
+      if (manualBackNav && typeof manualBackNav.syncDepthOnUserAction === 'function') {
+        manualBackNav.syncDepthOnUserAction(reason);
+      }
+    }
 
     // =========================================================================
     // DIAPOSITIVAS ENFOCADAS 100% EN CÓMO SE USA PARA ASESORES Y GERENTES
@@ -813,6 +833,9 @@
         viewport.classList.remove('editing-active');
       }
       updateView();
+      if (isEditMode) {
+        syncManualBackDepth('edit_mode');
+      }
     }
 
     function deleteCurrentSlide() {
@@ -824,32 +847,67 @@
       if (confirm(`¿Seguro que deseas borrar la diapositiva "${current.id} - ${current.title}"?`)) {
         slides.splice(currentSlideIndex, 1);
         if (currentSlideIndex >= slides.length) currentSlideIndex = slides.length - 1;
+        for (let i = slideHistory.length - 1; i >= 0; i--) {
+          if (slideHistory[i] >= slides.length) slideHistory.splice(i, 1);
+        }
         updateView();
       }
     }
 
     function nextSlide() {
       if (isEditMode) return;
-      currentSlideIndex = (currentSlideIndex + 1) % slides.length;
+      const prevIdx = currentSlideIndex;
+      const nextIdx = (currentSlideIndex + 1) % slides.length;
+      if (nextIdx !== prevIdx) {
+        pushSlideHistory(prevIdx);
+      }
+      currentSlideIndex = nextIdx;
       updateView();
+      syncManualBackDepth('slide');
     }
 
     function prevSlide() {
       if (isEditMode) return;
-      currentSlideIndex = (currentSlideIndex - 1 + slides.length) % slides.length;
+      const prevIdx = currentSlideIndex;
+      const nextIdx = (currentSlideIndex - 1 + slides.length) % slides.length;
+      if (nextIdx !== prevIdx) {
+        pushSlideHistory(prevIdx);
+      }
+      currentSlideIndex = nextIdx;
       updateView();
+      syncManualBackDepth('slide');
     }
 
-    function goToSlide(index) {
-      currentSlideIndex = index;
+    function goToSlide(index, opts) {
+      const target = Number(index);
+      if (Number.isNaN(target)) return;
+      const clamped = Math.max(0, Math.min(slides.length - 1, target));
+      const fromBack = Boolean(opts && opts.fromBack);
+      if (!fromBack && clamped !== currentSlideIndex) {
+        pushSlideHistory(currentSlideIndex);
+      }
+      currentSlideIndex = clamped;
       updateView();
+      if (!fromBack) {
+        syncManualBackDepth('slide');
+      }
     }
 
     function toggleFullScreen() {
       if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen();
+        if (document.documentElement && typeof document.documentElement.requestFullscreen === 'function') {
+          const req = document.documentElement.requestFullscreen();
+          if (req && typeof req.then === 'function') {
+            req.then(() => syncManualBackDepth('fullscreen')).catch(() => {});
+          } else {
+            syncManualBackDepth('fullscreen');
+          }
+        }
       } else {
-        document.exitFullscreen();
+        if (typeof document.exitFullscreen === 'function') {
+          const ex = document.exitFullscreen();
+          if (ex && typeof ex.catch === 'function') ex.catch(() => {});
+        }
       }
     }
 
@@ -942,9 +1000,80 @@
       }
     }
 
+    function initManualBackNav() {
+      if (!window.CreataBackNav || typeof window.CreataBackNav.createController !== 'function') {
+        return;
+      }
+      manualBackNav = window.CreataBackNav.createController({
+        appId: 'seguimiento_manual',
+        exitGuardMs: 2500,
+        exitMessage: 'Presiona Atrás otra vez para salir',
+        steps: [
+          {
+            id: 'fullscreen',
+            isActive: () => Boolean(document.fullscreenElement),
+            undo: () => {
+              if (typeof document.exitFullscreen === 'function') {
+                const res = document.exitFullscreen();
+                if (res && typeof res.catch === 'function') res.catch(() => {});
+              }
+            },
+            escapeAllowed: false
+          },
+          {
+            id: 'edit_mode',
+            isActive: () => isEditMode === true,
+            undo: () => {
+              if (isEditMode) toggleEditMode();
+            },
+            escapeAllowed: true,
+            toast: 'Modo edición desactivado'
+          },
+          {
+            id: 'prev_slide',
+            isActive: () => slideHistory.length > 0 || currentSlideIndex > 0,
+            depthWeight: () => Math.max(slideHistory.length, currentSlideIndex),
+            undo: () => {
+              let target = null;
+              while (slideHistory.length > 0) {
+                const candidate = slideHistory.pop();
+                if (candidate >= 0 && candidate < slides.length && candidate !== currentSlideIndex) {
+                  target = candidate;
+                  break;
+                }
+              }
+              if (target === null) {
+                if (currentSlideIndex <= 0) return false;
+                target = Math.max(0, currentSlideIndex - 1);
+              }
+              goToSlide(target, { fromBack: true });
+            },
+            escapeAllowed: false,
+            toast: () => 'Diapositiva ' + (currentSlideIndex + 1) + ' / ' + slides.length
+          }
+        ]
+      });
+      manualBackNav.init();
+      window.__CREATA_MANUAL_BACK_NAV__ = manualBackNav;
+      window.handleManualBackAction = function (opts) {
+        return manualBackNav
+          ? manualBackNav.stepBackOnce(opts)
+          : { handled: false, blocked: false, stepId: null, toast: '', source: 'manual' };
+      };
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       updateView();
+      initManualBackNav();
       window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          if (manualBackNav) {
+            manualBackNav.handleEscape();
+          } else if (isEditMode) {
+            toggleEditMode();
+          }
+          return;
+        }
         if (isEditMode) return;
         if (e.key === 'ArrowRight' || e.key === ' ') {
           e.preventDefault();

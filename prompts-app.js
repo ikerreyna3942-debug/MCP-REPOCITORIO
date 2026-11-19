@@ -9,12 +9,26 @@
 
     let deferredInstallPrompt = null;
     let frameLoaded = false;
+    let frameNavigationRequested = false;
     let loadStartedAt = 0;
     let loadTimerInterval = null;
     let wakeProbeDone = false;
+    let promptsBackNav = null;
+    let skuInputHadValue = false;
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function isElHidden(id) {
+        const el = byId(id);
+        return !el || el.classList.contains('hidden');
+    }
+
+    function syncPromptsBackDepth(reason) {
+        if (promptsBackNav && typeof promptsBackNav.syncDepthOnUserAction === 'function') {
+            promptsBackNav.syncDepthOnUserAction(reason);
+        }
     }
 
     function isStandaloneMode() {
@@ -130,6 +144,20 @@
         } catch (e) {}
     }
 
+    function onGeneratorFrameLoad() {
+        const currentFrame = byId('promptsAppFrame');
+        const currentSrc = currentFrame ? String(currentFrame.src || '') : '';
+        if (!frameNavigationRequested && (!currentSrc || currentSrc === 'about:blank')) return;
+        frameLoaded = true;
+        setConnectionStatus('online', 'En línea');
+        hideLoadingOverlay();
+    }
+
+    function onGeneratorFrameError() {
+        frameLoaded = false;
+        showLoadingOverlay(typeof navigator !== 'undefined' && navigator.onLine === false);
+    }
+
     function loadGeneratorFrame(forceBust) {
         const frame = byId('promptsAppFrame');
         if (!frame) return;
@@ -147,7 +175,16 @@
         const targetUrl = forceBust
             ? RENDER_EMBED_URL + '&_r=' + Date.now()
             : RENDER_EMBED_URL;
-        frame.src = targetUrl;
+        frameNavigationRequested = true;
+        if (window.CreataBackNav && typeof window.CreataBackNav.replaceIframeUrl === 'function') {
+            window.CreataBackNav.replaceIframeUrl(frame, targetUrl, {
+                forceReload: true,
+                onLoad: onGeneratorFrameLoad,
+                onError: onGeneratorFrameError
+            });
+        } else {
+            frame.src = targetUrl;
+        }
     }
 
     function syncInstallControls() {
@@ -189,7 +226,11 @@
     }
 
     window.togglePromptsTopbar = function (collapse) {
-        applyCollapsedBarState(!!collapse);
+        const nextCollapsed = !!collapse;
+        applyCollapsedBarState(nextCollapsed);
+        if (nextCollapsed) {
+            syncPromptsBackDepth('collapsed_topbar');
+        }
     };
 
     window.reloadPromptsGenerator = function () {
@@ -218,6 +259,7 @@
         const fb = byId('copyAppLinkFeedback');
         if (fb) fb.textContent = '';
         modal.classList.remove('hidden');
+        syncPromptsBackDepth('install_modal');
     };
 
     window.runNativePromptsInstall = async function () {
@@ -472,7 +514,12 @@
         if (!box) return;
         const shouldShow = typeof forceShow === 'boolean' ? forceShow : box.classList.contains('hidden');
         box.classList.toggle('hidden', !shouldShow);
-        if (shouldShow) syncProptConfigInputs();
+        if (shouldShow) {
+            syncProptConfigInputs();
+            if (proptDrawerOpen && isValidAppsScriptUrl(getProptConfig().scriptUrl) && !pendingSuggestedScriptUrl) {
+                syncPromptsBackDepth('propt_config');
+            }
+        }
     };
 
     window.toggleProptDrawer = function (forceOpen) {
@@ -497,6 +544,7 @@
                 window.toggleProptConfigPanel(true);
                 setProptConnPill('idle', 'Sin configurar');
             }
+            syncPromptsBackDepth('propt_drawer');
         }
     };
 
@@ -673,6 +721,23 @@
         }
     };
 
+    window.clearPromptsSkuSearch = function (opts) {
+        lastSkuMatch = null;
+        skuInputHadValue = false;
+        const input = byId('proptSkuInput');
+        const box = byId('proptSkuResult');
+        if (input) {
+            input.value = '';
+            if ((!opts || opts.focus !== true) && typeof input.blur === 'function') {
+                try { input.blur(); } catch (e) {}
+            }
+        }
+        if (box) {
+            box.classList.add('hidden');
+            box.innerHTML = '';
+        }
+    };
+
     window.lookupPromptsSku = async function () {
         const input = byId('proptSkuInput');
         const box = byId('proptSkuResult');
@@ -681,10 +746,12 @@
         if (query.length < 3) {
             box.classList.remove('hidden');
             box.innerHTML = '<div class="propt-sku-meta">Escribe al menos 3 caracteres del SKU.</div>';
+            syncPromptsBackDepth('propt_sku_search');
             return;
         }
         box.classList.remove('hidden');
         box.innerHTML = '<div class="propt-sku-meta">Consultando Base de Datos Generales...</div>';
+        syncPromptsBackDepth('propt_sku_search');
         try {
             const res = await callPromptsAppsScript('prompts_sku_lookup', { sku: query });
             if (!res || !res.ok) {
@@ -794,10 +861,86 @@
         } catch (e) {}
     }
 
+    function fallbackSingleStepEscape() {
+        if (!isElHidden('promptsInstallModal')) {
+            window.closePromptsInstallModal();
+            return;
+        }
+        if (proptDrawerOpen && !isElHidden('proptConfigBox') && isValidAppsScriptUrl(getProptConfig().scriptUrl) && !pendingSuggestedScriptUrl) {
+            window.toggleProptConfigPanel(false);
+            return;
+        }
+        if (
+            proptDrawerOpen &&
+            (Boolean(lastSkuMatch) || !isElHidden('proptSkuResult') || Boolean(String((byId('proptSkuInput') && byId('proptSkuInput').value) || '').trim()))
+        ) {
+            window.clearPromptsSkuSearch({ focus: false });
+            return;
+        }
+        if (proptDrawerOpen || !isElHidden('proptDrawer')) {
+            window.toggleProptDrawer(false);
+        }
+    }
+
+    function initPromptsBackNav() {
+        if (!window.CreataBackNav || typeof window.CreataBackNav.createController !== 'function') {
+            return;
+        }
+        promptsBackNav = window.CreataBackNav.createController({
+            appId: 'prompts',
+            exitGuardMs: 2500,
+            exitMessage: 'Presiona Atrás otra vez para salir',
+            steps: [
+                {
+                    id: 'install_modal',
+                    isActive: () => !isElHidden('promptsInstallModal'),
+                    undo: () => { window.closePromptsInstallModal(); },
+                    escapeAllowed: true
+                },
+                {
+                    id: 'propt_config',
+                    isActive: () => proptDrawerOpen && !isElHidden('proptConfigBox') && isValidAppsScriptUrl(getProptConfig().scriptUrl) && !pendingSuggestedScriptUrl,
+                    undo: () => { window.toggleProptConfigPanel(false); },
+                    escapeAllowed: true,
+                    toast: 'Configuración cerrada'
+                },
+                {
+                    id: 'propt_sku_search',
+                    isActive: () => proptDrawerOpen && (Boolean(lastSkuMatch) || !isElHidden('proptSkuResult') || Boolean(String((byId('proptSkuInput') && byId('proptSkuInput').value) || '').trim())),
+                    undo: () => { window.clearPromptsSkuSearch({ focus: false }); },
+                    escapeAllowed: true,
+                    toast: 'Consulta SKU limpiada'
+                },
+                {
+                    id: 'propt_drawer',
+                    isActive: () => proptDrawerOpen || !isElHidden('proptDrawer'),
+                    undo: () => { window.toggleProptDrawer(false); },
+                    escapeAllowed: true,
+                    toast: 'Panel SUBIR PROPT cerrado'
+                },
+                {
+                    id: 'collapsed_topbar',
+                    isActive: () => Boolean(byId('promptsShell') && byId('promptsShell').classList.contains('is-bar-collapsed')),
+                    undo: () => { window.togglePromptsTopbar(false); },
+                    escapeAllowed: false,
+                    toast: 'Barra superior restaurada'
+                }
+            ]
+        });
+        promptsBackNav.init();
+        window.__CREATA_PROMPTS_BACK_NAV__ = promptsBackNav;
+        window.handlePromptsBackAction = function (opts) {
+            return promptsBackNav
+                ? promptsBackNav.stepBackOnce(opts)
+                : { handled: false, blocked: false, stepId: null, toast: '', source: 'manual' };
+        };
+    }
+
     function initPromptsApp() {
         registerPromptsServiceWorker();
         syncProptConfigInputs();
         ingestQueryScriptUrl();
+        initPromptsBackNav();
 
         const pinEl = byId('proptPinInput');
         if (pinEl) {
@@ -814,6 +957,17 @@
                     pinEl.value = '';
                     pinInputManuallyEdited = false;
                 }
+            });
+        }
+        const skuEl = byId('proptSkuInput');
+        if (skuEl) {
+            skuInputHadValue = Boolean(String(skuEl.value || '').trim());
+            skuEl.addEventListener('input', () => {
+                const hasValue = Boolean(String(skuEl.value || '').trim());
+                if (!skuInputHadValue && hasValue) {
+                    syncPromptsBackDepth('propt_sku_search');
+                }
+                skuInputHadValue = hasValue;
             });
         }
 
@@ -850,27 +1004,22 @@
             }
         });
 
-        // Tecla Escape para cerrar modal o panel SUBIR PROPT
+        // Tecla Escape para cerrar solo 1 capa superior a la vez
         document.addEventListener('keydown', (ev) => {
             if (ev.key === 'Escape') {
-                window.closePromptsInstallModal();
-                if (proptDrawerOpen) window.toggleProptDrawer(false);
+                if (promptsBackNav) {
+                    promptsBackNav.handleEscape();
+                } else {
+                    fallbackSingleStepEscape();
+                }
             }
         });
 
         // Seguimiento de carga del iframe
         const frame = byId('promptsAppFrame');
         if (frame) {
-            frame.addEventListener('load', () => {
-                if (!frame.src || frame.src === 'about:blank') return;
-                frameLoaded = true;
-                setConnectionStatus('online', 'En línea');
-                hideLoadingOverlay();
-            });
-            frame.addEventListener('error', () => {
-                frameLoaded = false;
-                showLoadingOverlay(navigator.onLine === false);
-            });
+            frame.addEventListener('load', onGeneratorFrameLoad);
+            frame.addEventListener('error', onGeneratorFrameError);
         }
 
         syncInstallControls();

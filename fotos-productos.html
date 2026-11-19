@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
     <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
     <meta name="theme-color" content="#11161D">
@@ -14,7 +14,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>App Fotos por Categoría | CREATA</title>
-    <link rel="manifest" href="./fotos-manifest.json?v=2">
+    <link rel="manifest" href="./fotos-manifest.json?v=3">
     <link rel="icon" type="image/png" sizes="192x192" href="./inventario-icon-192.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./inventario-apple-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=14">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=15">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -93,13 +93,6 @@
                     <button type="button" class="hdr-btn" onclick="lockFotosPortal()">Salir</button>
                 </div>
             </div>
-
-            <!-- BARRA DE NAVEGACIÓN RÁPIDA EN CELULAR -->
-            <nav id="mobileFotosJumpBar" class="mobile-jump-bar" aria-label="Secciones de la aplicación">
-                <button type="button" class="mobile-jump-btn active" data-jump="secSkuFinder" onclick="jumpToFotosSection('secSkuFinder', this)">1. SKU / Categoría</button>
-                <button type="button" class="mobile-jump-btn" data-jump="secProductStage" onclick="jumpToFotosSection('secProductStage', this)">2. Producto y Foto</button>
-                <button type="button" class="mobile-jump-btn" data-jump="secGalleryInbox" onclick="jumpToFotosSection('secGalleryInbox', this)">3. Bandeja / Galería</button>
-            </nav>
         </header>
 
         <main class="workspace-shell">
@@ -111,8 +104,8 @@
                 <div id="secSkuFinder" class="panel-card">
                     <div class="panel-header">
                         <h2>1. Buscar SKU o Categoría</h2>
-                        <div style="display:flex;align-items:center;gap:6px;">
-                            <button type="button" id="btnSyncSkusCard" class="hdr-btn is-accent" style="height:24px;padding:0 9px;font-size:10.5px;" onclick="syncSkusNow()">↻ SKUs</button>
+                        <div class="panel-header-actions">
+                            <button type="button" id="btnSyncSkusCard" class="hdr-btn is-accent is-compact-btn" onclick="syncSkusNow()">↻ SKUs</button>
                             <span id="skuListCountBadge" class="panel-badge">0</span>
                         </div>
                     </div>
@@ -129,7 +122,7 @@
                                 placeholder="Buscar SKU, modelo, variante o categoría..."
                                 autocomplete="off"
                             >
-                            <button type="button" id="skuSearchClearBtn" class="search-clear-btn hidden" onclick="clearSkuSearch()">✕</button>
+                            <button type="button" id="skuSearchClearBtn" class="search-clear-btn hidden" aria-label="Limpiar búsqueda de SKU" onclick="clearSkuSearch()">✕</button>
                         </div>
 
                         <div class="filter-pills-row" style="margin-bottom:8px;">
@@ -152,8 +145,8 @@
                     <div id="secProductStage" class="panel-card">
                         <div class="panel-header">
                             <h2>2. Ficha del Producto y Categoría</h2>
-                            <div style="display:flex;align-items:center;gap:6px;">
-                                <label id="btnDirectUploadLabel" class="hdr-btn is-accent" style="cursor:pointer;height:26px;padding:0 10px;font-size:10.5px;">
+                            <div class="panel-header-actions">
+                                <label id="btnDirectUploadLabel" class="hdr-btn is-accent is-compact-btn is-upload-lbl">
                                     📷 Subir foto a categoría
                                     <input type="file" id="directCategoryPhotoInput" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
                                 </label>
@@ -198,9 +191,9 @@
                                     <div class="photo-stage-head">
                                         <span class="photo-stage-title">Cargada (Col D)</span>
                                         <div class="stage-head-actions">
-                                            <button type="button" id="curPhotoTakeBtn" class="hdr-btn is-accent hidden" style="height:24px; padding:0 8px; font-size:9.5px;" onclick="takeCurrentProductPhoto()">Tomar</button>
-                                            <button type="button" id="curPhotoDeleteBtn" class="hdr-btn is-danger hidden" style="height:24px; padding:0 8px; font-size:9.5px;" onclick="deleteCurrentProductPhoto()">🗑 Borrar</button>
-                                            <a id="curPhotoOpenLink" href="#" target="_blank" rel="noopener" class="hdr-btn hidden" style="height:24px; padding:0 8px; font-size:9.5px; background:#252C32; color:#FFF;">↗</a>
+                                            <button type="button" id="curPhotoTakeBtn" class="hdr-btn is-accent stage-action-btn hidden" onclick="takeCurrentProductPhoto()">Tomar</button>
+                                            <button type="button" id="curPhotoDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteCurrentProductPhoto()">🗑 Borrar</button>
+                                            <a id="curPhotoOpenLink" href="#" target="_blank" rel="noopener" class="hdr-btn is-neutral stage-action-btn hidden">↗</a>
                                         </div>
                                     </div>
                                     <div id="curPhotoCanvas" class="photo-stage-canvas">
@@ -213,8 +206,8 @@
                                     <div class="photo-stage-head">
                                         <span id="newPhotoStageTitle" class="photo-stage-title">Seleccionada</span>
                                         <div class="stage-head-actions">
-                                            <button type="button" id="deleteSelectedPhotoBtn" class="hdr-btn is-danger hidden" style="height:24px; padding:0 8px; font-size:9.5px;" onclick="deleteSelectedStagePhoto()">🗑 Borrar</button>
-                                            <button type="button" id="clearSelectedInboxBtn" class="hdr-btn hidden" style="height:24px; padding:0 8px; font-size:9.5px; background:#252C32; color:#FFF;" onclick="clearSelectedInboxPhoto()">Quitar</button>
+                                            <button type="button" id="deleteSelectedPhotoBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteSelectedStagePhoto()">🗑 Borrar</button>
+                                            <button type="button" id="clearSelectedInboxBtn" class="hdr-btn is-neutral stage-action-btn hidden" onclick="clearSelectedInboxPhoto()">Quitar</button>
                                         </div>
                                     </div>
                                     <div id="newPhotoCanvas" class="photo-stage-canvas">
@@ -241,7 +234,6 @@
                                         type="button"
                                         id="btnAssignPhotoNow"
                                         class="btn-primary-gold"
-                                        style="padding: 0 18px;"
                                         onclick="assignSelectedPhotoToProduct()"
                                         disabled
                                     >
@@ -256,7 +248,7 @@
 
                     <!-- GALERÍA: SUBIR PREN / CARGADAS POR CATEGORÍA -->
                     <div id="secGalleryInbox" class="panel-card">
-                        <div class="panel-header" style="flex-wrap:wrap; gap:8px;">
+                        <div class="panel-header">
                             <div class="gallery-mode-tabs">
                                 <button type="button" id="tabGalleryInbox" class="gallery-tab-btn active" onclick="setGalleryMode('INBOX')">
                                     <span>SUBIR PREN</span>
@@ -270,7 +262,7 @@
                         </div>
                         <div class="panel-body">
                             <div class="inbox-toolbar">
-                                <div class="search-box-wrap" style="flex:1 1 180px; max-width:300px;">
+                                <div class="search-box-wrap inbox-search-wrap">
                                     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                                         <circle cx="11" cy="11" r="7"></circle>
                                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -278,23 +270,23 @@
                                     <input
                                         type="search"
                                         id="inboxSearchInput"
-                                        class="search-input"
-                                        style="height:34px; font-size:12px;"
+                                        class="search-input inbox-search-input"
                                         placeholder="Filtrar por SKU, nombre o categoría..."
                                         autocomplete="off"
                                     >
+                                    <button type="button" id="inboxSearchClearBtn" class="search-clear-btn hidden" aria-label="Limpiar filtro de galería" onclick="clearInboxSearch()">✕</button>
                                 </div>
 
-                                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                                    <label class="hdr-btn is-accent" style="cursor:pointer;">
+                                <div class="inbox-toolbar-actions">
+                                    <label class="hdr-btn is-accent is-upload-lbl">
                                         + Foto
                                         <input type="file" id="pcUploadToSubirInput" accept="image/*" multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
                                     </label>
-                                    <label class="hdr-btn" style="cursor:pointer;">
+                                    <label class="hdr-btn is-upload-lbl">
                                         📁 Carpeta
                                         <input type="file" id="pcUploadFolderToSubirInput" accept="image/*" webkitdirectory directory multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
                                     </label>
-                                    <button type="button" id="btnRefreshInbox" class="hdr-btn" style="background:#252C32; color:#FFF;" onclick="refreshInboxOnly(true)">↻</button>
+                                    <button type="button" id="btnRefreshInbox" class="hdr-btn is-neutral" onclick="refreshInboxOnly(true)">↻</button>
                                 </div>
                             </div>
 
@@ -316,6 +308,22 @@
                 </div>
             </section>
         </main>
+
+        <!-- BARRA CONTEXTUAL DE GUARDADO RÁPIDO EN CELULAR -->
+        <div id="mobileQuickSaveBar" class="mobile-quick-save-bar hidden" role="region" aria-label="Guardar foto seleccionada">
+            <div class="mobile-quick-save-info">
+                <span class="mobile-quick-save-tag">Listo para guardar</span>
+                <strong id="mobileQuickSaveSku" class="mobile-quick-save-sku mono">—</strong>
+            </div>
+            <button type="button" id="btnMobileQuickSaveNow" class="btn-primary-gold mobile-quick-save-btn" onclick="assignSelectedPhotoToProduct()">Guardar</button>
+        </div>
+
+        <!-- BARRA DE NAVEGACIÓN RÁPIDA EN ZONA DE PULGAR (CELULAR) -->
+        <nav id="mobileFotosJumpBar" class="mobile-jump-bar" aria-label="Secciones de la aplicación">
+            <button type="button" class="mobile-jump-btn active" data-jump="secSkuFinder" onclick="jumpToFotosSection('secSkuFinder', this)">1. SKU / Categoría</button>
+            <button type="button" class="mobile-jump-btn" data-jump="secProductStage" onclick="jumpToFotosSection('secProductStage', this)">2. Producto y Foto</button>
+            <button type="button" class="mobile-jump-btn" data-jump="secGalleryInbox" onclick="jumpToFotosSection('secGalleryInbox', this)">3. Bandeja / Galería</button>
+        </nav>
     </div>
 
     <!-- PANEL DIVIDIDO REDIMENSIONABLE: COTIZADOR + APP DE FOTOS EN UNA SOLA APLICACIÓN -->
@@ -346,7 +354,7 @@
                     <div class="fotos-install-eyebrow">APLICACIÓN MÓVIL Y ESCRITORIO</div>
                     <h3>📲 Descargar App Fotos CREATA</h3>
                 </div>
-                <button type="button" class="hdr-btn" onclick="closeFotosInstallModal()">✕</button>
+                <button type="button" id="btnCloseFotosInstallModal" class="hdr-btn modal-close-btn" aria-label="Cerrar" onclick="closeFotosInstallModal()">✕</button>
             </div>
             <div class="fotos-install-body">
                 <p>Instala la aplicación en tu celular o computadora para abrirla directo desde tu pantalla de inicio y usar la pantalla dividida con el Cotizador:</p>
@@ -368,7 +376,8 @@
     </div>
 
     <div id="photoLightbox" class="lightbox-backdrop hidden" onclick="closePhotoLightbox()">
-        <img id="photoLightboxImg" src="" alt="Vista" referrerpolicy="no-referrer" draggable="false">
+        <button type="button" id="btnClosePhotoLightbox" class="lightbox-close-btn" aria-label="Cerrar vista previa" onclick="event.stopPropagation(); closePhotoLightbox()">✕ Cerrar</button>
+        <img id="photoLightboxImg" src="" alt="Vista" referrerpolicy="no-referrer" draggable="false" onclick="event.stopPropagation()">
     </div>
 
     <script src="./creata-logo.js?v=33"></script>
@@ -376,6 +385,7 @@
     <script src="./inventario-data-1.js?v=45"></script>
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
-    <script src="./fotos-productos-app.js?v=15"></script>
+    <script src="./creata-back-nav.js?v=1"></script>
+    <script src="./fotos-productos-app.js?v=16"></script>
 </body>
 </html>

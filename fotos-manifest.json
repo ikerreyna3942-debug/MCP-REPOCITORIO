@@ -6,6 +6,7 @@
   "start_url": "./fotos-productos.html",
   "scope": "./fotos-productos",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "any",
   "background_color": "#0D1117",
   "theme_color": "#11161D",
