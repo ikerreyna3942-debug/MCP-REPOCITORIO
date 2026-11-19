@@ -103,6 +103,10 @@ button, input, select, textarea {
   top: 0;
   z-index: 45;
   width: 100%;
+  padding-top: constant(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
   background-color: var(--inv-header-bg);
   color: var(--inv-header-ink);
   border-bottom: 1px solid rgba(158, 123, 79, 0.42);
@@ -177,13 +181,13 @@ button, input, select, textarea {
   filter: brightness(0) invert(1);
 }
 
-/* Barra de búsqueda más pequeña y compacta a un costado del logotipo */
+/* Barra de búsqueda compacta y cómoda en móvil a un costado del logotipo */
 #invHeader .inv-search-cell {
   grid-area: search;
-  justify-self: start;
+  justify-self: stretch;
   min-width: 0;
   width: 100%;
-  max-width: 190px;
+  max-width: 240px;
 }
 
 #invHeader .inv-search-box {
@@ -191,7 +195,7 @@ button, input, select, textarea {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 26px;
+  height: 32px;
   background-color: var(--inv-surface);
   border: 1px solid rgba(158, 123, 79, 0.55);
   border-radius: var(--inv-radius-pill);
@@ -528,12 +532,12 @@ body.inv-module-open #invHeader .inv-header-extra {
 }
 
 body.inv-module-open .creata-module-view {
-  min-height: calc(100dvh - var(--inv-module-header-h));
+  min-height: calc(100dvh - var(--inv-module-header-h) - env(safe-area-inset-top, 0px));
 }
 
 body.inv-module-open #inAppSeguimientoRoot .cm-topbar,
 body.inv-module-open #inAppHistorialRoot .cm-topbar {
-  top: var(--inv-module-header-h);
+  top: calc(var(--inv-module-header-h) + env(safe-area-inset-top, 0px));
   z-index: 38;
 }
 
@@ -1202,7 +1206,11 @@ main#invMainView.inv-main {
   display: none;
   align-items: center;
   justify-content: center;
-  padding: 12px;
+  padding:
+    calc(12px + env(safe-area-inset-top, 0px))
+    calc(12px + env(safe-area-inset-right, 0px))
+    calc(12px + env(safe-area-inset-bottom, 0px))
+    calc(12px + env(safe-area-inset-left, 0px));
   overflow-y: auto;
 }
 
@@ -1212,7 +1220,7 @@ main#invMainView.inv-main {
 
 .modal-backdrop .inv-modal-card {
   width: 100%;
-  max-height: 92dvh;
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   background-color: var(--inv-surface);
   border: 1px solid var(--inv-border);
