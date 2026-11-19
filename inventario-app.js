@@ -3459,10 +3459,10 @@
                 return '<div class="inv-row" data-var-sku="' + escapeHtml(skuKey) + '">' +
                     buildThumbHtml(it, { compact: true }) +
                     '<div class="min-w-0 flex-1 pr-2">' +
-                        '<div class="text-sm font-bold uppercase leading-snug" style="color:#1A1816;">' +
+                        '<div class="inv-det-uniform-text font-bold uppercase leading-snug" style="color:#1A1816;">' +
                             formatTitleWithPriceHtml(varLabel, it.pr) +
                         '</div>' +
-                        '<div class="text-xs font-semibold tracking-wider mt-0.5" style="color:#9E7B4F;">' + escapeHtml(it.s) + '</div>' +
+                        '<div class="inv-det-uniform-text font-semibold tracking-wider mt-0.5" style="color:#9E7B4F;">' + escapeHtml(it.s) + '</div>' +
                     '</div>' +
                     buildCardCartControlHtml(skuKey) +
                 '</div>';
@@ -3765,38 +3765,21 @@
                 dotColor = '#F59E0B';
             }
 
-            const spanClass = (i === 0 && WAREHOUSES.length % 2 === 1 && isLppt)
-                ? ' sm:col-span-2'
-                : '';
+            const spanClass = isLppt ? ' inv-det-info-btn-span' : '';
 
-            if (isLppt) {
-                if (qty > 0) {
-                    const lpptMsg = formatLpptArrivalText(it, qty);
-                    whHtml.push(
-                        '<div class="rounded-xl border px-3.5 py-3 flex items-center gap-2.5 ' + semClass + spanClass + '">' +
-                            '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
-                            '<span class="text-xs font-extrabold leading-snug">' + escapeHtml(lpptMsg) + '</span>' +
-                        '</div>'
-                    );
-                } else {
-                    whHtml.push(
-                        '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between ' + semClass + spanClass + '">' +
-                            '<div class="flex items-center gap-2 min-w-0 pr-2">' +
-                                '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
-                                '<span class="text-xs font-extrabold uppercase tracking-wide truncate">' + escapeHtml(whName) + '</span>' +
-                            '</div>' +
-                            '<span class="text-lg font-black shrink-0">0</span>' +
-                        '</div>'
-                    );
-                }
+            if (isLppt && qty > 0) {
+                const lpptMsg = formatLpptArrivalText(it, qty);
+                whHtml.push(
+                    '<div class="inv-det-info-btn ' + semClass + spanClass + '">' +
+                        '<span class="inv-det-info-lbl"><span class="inv-det-dot" style="background:' + dotColor + ';"></span><span>' + escapeHtml(lpptMsg) + '</span></span>' +
+                        '<span class="inv-det-info-val">' + qty + '</span>' +
+                    '</div>'
+                );
             } else {
                 whHtml.push(
-                    '<div class="rounded-xl border px-3.5 py-3 flex items-center justify-between ' + semClass + spanClass + '">' +
-                        '<div class="flex items-center gap-2 min-w-0 pr-2">' +
-                            '<span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:' + dotColor + ';"></span>' +
-                            '<span class="text-xs font-extrabold uppercase tracking-wide truncate">' + escapeHtml(whName) + '</span>' +
-                        '</div>' +
-                        '<span class="text-lg font-black shrink-0">' + qty + '</span>' +
+                    '<div class="inv-det-info-btn ' + semClass + spanClass + '">' +
+                        '<span class="inv-det-info-lbl"><span class="inv-det-dot" style="background:' + dotColor + ';"></span><span>' + escapeHtml(whName) + '</span></span>' +
+                        '<span class="inv-det-info-val">' + qty + '</span>' +
                     '</div>'
                 );
             }
@@ -3805,15 +3788,15 @@
         document.getElementById('detTotalStock').textContent = String(totalBodegaPiso);
         document.getElementById('detWarehousesGrid').innerHTML = whHtml.join('');
 
-        // Ficha de información limpia sin datos repetidos (Variante / Tela / Color de tela / Madera / Materiales)
+        // Ficha de información limpia con botones informativos del mismo tamaño
         const specsWrap = document.getElementById('detSpecsWrap');
         const specsGrid = document.getElementById('detSpecsGrid');
         const specRows = buildCleanProductSpecRows(it);
         if (specsGrid) {
             specsGrid.innerHTML = specRows.map(r =>
-                '<div class="rounded-lg border px-3 py-2" style="border-color:#E8E4DE;">' +
-                    '<div class="text-[10px] font-extrabold uppercase tracking-wider opacity-60" style="color:#252C32;">' + escapeHtml(r[0]) + '</div>' +
-                    '<div class="text-xs font-bold uppercase mt-0.5 break-words" style="color:#252C32;">' + escapeHtml(r[1]) + '</div>' +
+                '<div class="inv-det-info-btn" style="border-color:#E8E4DE; background:#FAF9F6; color:#252C32;">' +
+                    '<span class="inv-det-info-lbl" style="opacity:0.75;">' + escapeHtml(r[0]) + ':</span>' +
+                    '<span class="inv-det-info-val">' + escapeHtml(r[1]) + '</span>' +
                 '</div>'
             ).join('');
         }
@@ -4644,13 +4627,13 @@
             return '<div class="inv-row" data-rel-sku="' + escapeHtml(skuKey) + '" style="background:#FFFFFF;">' +
                 buildThumbHtml(it, { compact: true }) +
                 '<div class="min-w-0 flex-1 pr-2">' +
-                    '<div class="text-xs sm:text-sm font-bold uppercase leading-snug" style="color:#1A1816;">' +
+                    '<div class="inv-det-uniform-text font-bold uppercase leading-snug" style="color:#1A1816;">' +
                         formatTitleWithPriceHtml(titleTxt, it.pr) +
                     '</div>' +
-                    '<div class="text-[11px] font-semibold tracking-wider mt-0.5 flex flex-wrap items-center gap-1.5">' +
+                    '<div class="inv-det-uniform-text font-semibold tracking-wider mt-0.5 flex flex-wrap items-center gap-1.5">' +
                         '<span style="color:#9E7B4F;">' + escapeHtml(it.s) + '</span>' +
-                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold sem-green">' + escapeHtml(dispTxt) + '</span>' +
-                        (locSummary ? ('<span class="text-[10px] font-bold opacity-75" style="color:#1A1816;">(' + escapeHtml(locSummary) + ')</span>') : '') +
+                        '<span class="px-1.5 py-0.5 rounded-full inv-det-uniform-text font-extrabold sem-green">' + escapeHtml(dispTxt) + '</span>' +
+                        (locSummary ? ('<span class="inv-det-uniform-text font-bold opacity-75" style="color:#1A1816;">(' + escapeHtml(locSummary) + ')</span>') : '') +
                     '</div>' +
                 '</div>' +
                 buildCardCartControlHtml(skuKey) +
@@ -9146,33 +9129,33 @@
         wrap.innerHTML = bd.lines.map((ln, idx) => {
             const unitStr = ln.unitList > 0 ? formatPrice(ln.unitList) : 'Sin precio';
             const lineSubStr = ln.lineSubtotal > 0 ? formatPrice(ln.lineSubtotal) : '$0.00';
-            return '<div class="rounded-xl border p-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5" style="border-color:#E6E1D8; background:#FFFFFF;">' +
+            return '<div class="rounded-xl border p-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2" style="border-color:#E6E1D8; background:#FFFFFF;">' +
                 (function () { const liveIt = bySkuMap.get(ln.key); return liveIt ? buildThumbHtml(liveIt, { compact: true }) : ''; })() +
                 '<div class="min-w-0 flex-1 cursor-pointer" onclick="closeCartModal(); openProductDetail(\'' + escapeHtml(ln.key) + '\', false, true)">' +
-                    '<div class="text-xs font-extrabold uppercase leading-snug" style="color:#1A1816;">' +
+                    '<div class="text-[11px] font-extrabold uppercase leading-snug" style="color:#1A1816;">' +
                         '<span class="opacity-50 mr-1">' + (idx + 1) + '.</span>' +
                         escapeHtml(ln.name) +
                     '</div>' +
-                    '<div class="text-[11px] font-bold mt-0.5 flex flex-wrap items-center gap-2" style="color:#9E7B4F;">' +
+                    '<div class="text-[10.5px] font-bold mt-0.5 flex flex-wrap items-center gap-1.5" style="color:#9E7B4F;">' +
                         '<span>P. Lista: ' + escapeHtml(unitStr) + '</span>' +
                         '<span style="color:#1A1816;">· Importe: ' + escapeHtml(lineSubStr) + '</span>' +
                     '</div>' +
                 '</div>' +
-                '<div class="flex flex-wrap items-center gap-2 shrink-0 ml-auto">' +
+                '<div class="flex flex-wrap items-center gap-1.5 shrink-0 ml-auto">' +
                     '<div class="flex items-center gap-1" title="Descuento">' +
-                        '<span class="text-[10px] font-bold uppercase opacity-70">Desc% (máx ' + bd.maxPct + ')</span>' +
+                        '<span class="text-[9.5px] font-bold uppercase opacity-70">Desc% (máx ' + bd.maxPct + ')</span>' +
                         '<input type="number" min="0" max="' + bd.maxPct + '" step="0.5" value="' + (ln.discountPct || 0) + '"' + disAttr + ' ' +
                                'onchange="setCartItemDiscount(\'' + escapeHtml(ln.key) + '\', this.value)" ' +
-                               'class="w-14 rounded-lg border px-1.5 py-1 text-center text-xs font-bold outline-none" ' +
+                               'class="w-12 rounded-lg border px-1 py-0.5 text-center text-[11px] font-bold outline-none" ' +
                                'style="border-color:#E6E1D8; color:#1A1816;">' +
                     '</div>' +
                     (locked
-                        ? ('<span class="px-2.5 py-1 rounded-full text-xs font-extrabold border" style="border-color:#E6E1D8; color:#1A1816;">Cant: ' + ln.qty + '</span>')
+                        ? ('<span class="px-2 py-0.5 rounded-full text-[10.5px] font-extrabold border" style="border-color:#E6E1D8; color:#1A1816;">Cant: ' + ln.qty + '</span>')
                         : ('<div class="flex items-center gap-1">' +
-                            '<button type="button" title="Restar 1" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-8 h-8 rounded-full border text-sm font-bold hover:bg-red-50" style="border-color:#E6E1D8;">−</button>' +
-                            '<span class="w-6 text-center text-xs font-extrabold">' + ln.qty + '</span>' +
-                            '<button type="button" title="Sumar 1" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-8 h-8 rounded-full border text-sm font-bold" style="border-color:#9E7B4F; background:#9E7B4F; color:#FFF;">+</button>' +
-                            '<button type="button" title="Quitar" onclick="removeFromCart(\'' + escapeHtml(ln.key) + '\')" class="ml-1 px-2.5 h-8 rounded-full border text-[10px] font-extrabold uppercase tracking-wider transition" style="border-color:#F5BCBC; background:#FEF1F1; color:#9E1F1F;">✕</button>' +
+                            '<button type="button" title="Restar 1" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-7 h-7 rounded-full border text-xs font-bold hover:bg-red-50" style="border-color:#E6E1D8;">−</button>' +
+                            '<span class="w-5 text-center text-[11px] font-extrabold">' + ln.qty + '</span>' +
+                            '<button type="button" title="Sumar 1" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-7 h-7 rounded-full border text-xs font-bold" style="border-color:#9E7B4F; background:#9E7B4F; color:#FFF;">+</button>' +
+                            '<button type="button" title="Quitar" onclick="removeFromCart(\'' + escapeHtml(ln.key) + '\')" class="ml-0.5 px-2 h-7 rounded-full border text-[9.5px] font-extrabold uppercase tracking-wider transition" style="border-color:#F5BCBC; background:#FEF1F1; color:#9E1F1F;">✕</button>' +
                         '</div>')) +
                 '</div>' +
             '</div>';

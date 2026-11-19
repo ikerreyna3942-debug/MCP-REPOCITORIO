@@ -604,38 +604,37 @@ main#invMainView.inv-main {
   color: #C7BFB2;
 }
 
-/* Top-Right Floating Action Overlay on Card (+ Circle or Variant Badge) */
+/* Top-Right Floating Action Overlay on Card ("+" only or Variant Badge, 15% smaller & tight to corner) */
 #invListContainer .inv-row .inv-card-top-right {
   position: absolute;
-  top: 7px;
-  right: 7px;
+  top: 2px;
+  right: 3px;
   z-index: 6;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-  max-width: calc(100% - 14px);
+  gap: 3px;
+  max-width: calc(100% - 6px);
 }
 
 #invListContainer .inv-row .inv-card-variant-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 24px;
-  padding: 2px 9px;
+  min-height: 19px;
+  padding: 1px 6px;
   border-radius: var(--inv-radius-pill);
   background-color: rgba(255, 255, 255, 0.94);
   border: 1px solid var(--inv-accent);
   color: var(--inv-ink);
   font-family: var(--inv-font-sans);
-  font-size: 10px;
+  font-size: 8.5px;
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  line-height: 1.2;
+  line-height: 1.15;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(26, 24, 22, 0.14);
-  backdrop-filter: blur(4px);
+  box-shadow: 0 1px 4px rgba(26, 24, 22, 0.12);
 }
 
 #invListContainer .inv-row .inv-thumb-stage {
@@ -798,7 +797,7 @@ main#invMainView.inv-main {
 }
 
 /* ============================================================================
- * Card & Modal Cart Controls — Strict Circle for "+" Button
+ * Card & Modal Cart Controls — Pure "+" Symbol Only (No Circle) & 15% Smaller
  * ============================================================================ */
 .cart-ctrl-wrap {
   display: inline-flex;
@@ -809,57 +808,56 @@ main#invMainView.inv-main {
 }
 
 .cart-plus-btn {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  max-width: 34px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  max-width: 24px;
   padding: 0;
-  aspect-ratio: 1 / 1;
-  border-radius: 9999px;
-  border: 1.5px solid var(--inv-accent);
-  background-color: rgba(255, 255, 255, 0.95);
-  color: var(--inv-ink);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--inv-accent);
   font-size: 19px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(26, 24, 22, 0.16);
-  transition: background-color 140ms ease, color 140ms ease, transform 120ms ease;
+  transition: color 140ms ease, transform 120ms ease;
 }
 
 .cart-plus-btn:hover,
 .cart-plus-btn.in-cart {
-  background-color: var(--inv-accent);
-  border-color: var(--inv-accent);
-  color: #FFFFFF;
+  background: transparent;
+  border: none;
+  color: var(--inv-ink);
 }
 
 .cart-plus-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.92);
 }
 
 .cart-qty-pill {
   display: inline-flex;
   align-items: center;
-  height: 32px;
+  height: 24px;
   border-radius: var(--inv-radius-pill);
   background-color: rgba(255, 255, 255, 0.96);
   color: var(--inv-ink);
-  border: 1.5px solid var(--inv-accent);
+  border: 1px solid var(--inv-accent);
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(26, 24, 22, 0.16);
+  box-shadow: 0 1px 5px rgba(26, 24, 22, 0.14);
 }
 
 .cart-qty-step {
-  width: 26px;
+  width: 20px;
   height: 100%;
   border: none;
   background: transparent;
   color: var(--inv-ink);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 800;
   display: inline-flex;
   align-items: center;
@@ -884,11 +882,11 @@ main#invMainView.inv-main {
 }
 
 .cart-qty-num {
-  min-width: 20px;
-  padding: 0 3px;
+  min-width: 16px;
+  padding: 0 2px;
   text-align: center;
   font-family: var(--inv-font-mono);
-  font-size: 11px;
+  font-size: 9.5px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -935,13 +933,13 @@ main#invMainView.inv-main {
 
 #invFabRoot.inv-fab-root {
   position: fixed;
-  right: max(16px, env(safe-area-inset-right, 0px));
-  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  right: max(10px, env(safe-area-inset-right, 0px));
+  bottom: max(10px, env(safe-area-inset-bottom, 0px));
   z-index: 40;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
 }
 
 #invFabRoot.inv-fab-root.hidden {
@@ -951,14 +949,14 @@ main#invMainView.inv-main {
 #invFabRoot #invFabMenu.inv-fab-menu {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   width: max-content;
-  min-width: 240px;
-  max-width: calc(100vw - 24px);
-  padding: 6px;
+  min-width: 220px;
+  max-width: calc(100vw - 20px);
+  padding: 5px;
   background-color: var(--inv-surface);
   border: 1px solid var(--inv-border);
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow: 0 14px 36px rgba(26, 24, 22, 0.2);
   transform-origin: bottom right;
   animation: invFabPop 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -982,15 +980,15 @@ main#invMainView.inv-main {
 #invFabRoot .inv-fab-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 42px;
-  padding: 6px 12px;
+  min-height: 36px;
+  padding: 5px 10px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 9px;
   background-color: transparent;
   color: var(--inv-ink);
-  font-size: 12.5px;
+  font-size: 11px;
   font-weight: 700;
   text-align: left;
   cursor: pointer;
@@ -1015,9 +1013,9 @@ main#invMainView.inv-main {
 }
 
 #invFabRoot .inv-fab-item-ico {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
   background-color: var(--inv-surface-subtle);
   color: var(--inv-accent);
   display: inline-flex;
@@ -1032,8 +1030,8 @@ main#invMainView.inv-main {
 }
 
 #invFabRoot .inv-fab-item-ico svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 #invFabRoot .inv-fab-item-label {
@@ -1045,14 +1043,14 @@ main#invMainView.inv-main {
 }
 
 #invFabRoot .inv-fab-item-badge {
-  min-width: 24px;
-  height: 22px;
-  padding: 0 7px;
+  min-width: 20px;
+  height: 19px;
+  padding: 0 6px;
   border-radius: var(--inv-radius-pill);
   background-color: var(--inv-ink);
   color: #FFFFFF;
   font-family: var(--inv-font-mono);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   display: inline-flex;
   align-items: center;
@@ -1062,13 +1060,13 @@ main#invMainView.inv-main {
 
 #invFabRoot #invFabToggleBtn.inv-fab-btn {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--inv-radius-pill);
   background-color: var(--inv-ink);
   color: #FFFFFF;
   border: 1.5px solid var(--inv-accent);
-  box-shadow: 0 8px 24px rgba(26, 24, 22, 0.28);
+  box-shadow: 0 6px 20px rgba(26, 24, 22, 0.26);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1079,7 +1077,7 @@ main#invMainView.inv-main {
 
 #invFabRoot #invFabToggleBtn.inv-fab-btn:hover {
   background-color: #2B2723;
-  box-shadow: 0 10px 28px rgba(26, 24, 22, 0.34);
+  box-shadow: 0 8px 24px rgba(26, 24, 22, 0.32);
 }
 
 #invFabRoot #invFabToggleBtn.inv-fab-btn:active {
@@ -1087,8 +1085,8 @@ main#invMainView.inv-main {
 }
 
 #invFabRoot .inv-fab-plus-ico {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   transition: transform 180ms ease;
 }
 
@@ -1237,77 +1235,116 @@ main#invMainView.inv-main {
 }
 
 /* ============================================================================
- * Product Detail Modal (#productDetailModal) — Mobile Stacking & Canvas Stage
+ * Product Detail Modal (#productDetailModal) — Uniform Text & Informative Buttons
  * ============================================================================ */
-#productDetailModal .inv-det-head {
-  position: sticky;
-  top: 0;
-  z-index: 12;
-  background-color: var(--inv-surface);
-  border-bottom: 1px solid var(--inv-border);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+#productDetailModal .inv-det-uniform-text {
+  font-size: 10.5px;
+  line-height: 1.25;
 }
 
-#productDetailModal .inv-det-head-text {
-  min-width: 0;
-  padding-right: 44px;
+#productDetailModal .inv-det-title-above {
+  font-size: 12px;
+  line-height: 1.25;
 }
 
-#productDetailModal .inv-det-head-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-#productDetailModal .inv-det-close-btn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  border-radius: var(--inv-radius-pill);
-  border: 1px solid var(--inv-border);
-  background-color: var(--inv-surface);
-  color: var(--inv-ink);
-  font-size: 16px;
+#productDetailModal .inv-det-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
+  min-height: 26px;
+  height: 26px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1.1;
   cursor: pointer;
 }
 
-#productDetailModal .inv-det-close-btn:hover {
-  background-color: var(--inv-surface-subtle);
+#productDetailModal .inv-det-top-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
 }
 
-#productDetailModal #detAddCartBtn,
-#productDetailModal #detRemoveAllCartBtn {
-  min-height: 36px;
+@media (min-width: 640px) {
+  #productDetailModal .inv-det-top-info-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
-#productDetailModal #detSubCartBtn {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
+#productDetailModal .inv-det-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
 }
 
-#detPhotoWrap.inv-det-photo-stage {
-  width: 100%;
-  height: 260px;
-  border-radius: var(--inv-radius);
-  border: 1px solid var(--inv-border);
-  background-color: #FFFFFF;
-  padding: 5%;
-  position: relative;
-  overflow: hidden;
+@media (min-width: 640px) {
+  #productDetailModal .inv-det-info-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+#productDetailModal .inv-det-info-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 27px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  border: 1px solid #E1DBC5;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+#productDetailModal .inv-det-info-btn-span {
+  grid-column: 1 / -1;
+}
+
+#productDetailModal .inv-det-info-lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  min-width: 0;
+  word-break: break-word;
+  line-height: 1.15;
+}
+
+#productDetailModal .inv-det-info-val {
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  line-height: 1.15;
+}
+
+#productDetailModal .inv-det-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+#productDetailModal .inv-det-disc-input {
+  width: 34px;
+  height: 19px;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 800;
+  border-radius: 4px;
+  border: 1px solid #E1DBC5;
+  background: #FFFFFF;
+  color: #252C32;
+  padding: 0 2px;
+  outline: none;
 }
 
 #detPhotoCanvasStage.inv-det-canvas-stage {
@@ -1329,31 +1366,6 @@ main#invMainView.inv-main {
   max-height: 100%;
   object-fit: contain;
   display: block;
-}
-
-#detManagerPhotoWrap {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  z-index: 10;
-}
-
-#detManagerPhotoWrap #detUploadPhotoLabel {
-  min-height: 36px;
-  padding: 0 13px;
-  border-radius: var(--inv-radius-pill);
-  background-color: var(--inv-ink);
-  border: 1px solid var(--inv-accent);
-  color: #FFFFFF;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  box-shadow: var(--inv-shadow-sm);
 }
 
 /* ============================================================================

@@ -23,8 +23,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="./creata-modules.css?v=3">
-    <link rel="stylesheet" href="./inventario-ui.css?v=3">
+    <link rel="stylesheet" href="./creata-modules.css?v=4">
+    <link rel="stylesheet" href="./inventario-ui.css?v=4">
 </head>
 <body>
 
@@ -161,172 +161,180 @@
 
     <!-- MODAL DE VARIANTES Y DETALLE DE PRODUCTO -->
     <div id="productDetailModal" class="modal-backdrop" onclick="if(event.target===this) closeProductDetail()">
-        <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl border" style="border-color:#E1DBC5;">
-            <div class="sticky top-0 z-10 bg-white px-5 py-3.5 border-b flex items-center justify-between" style="border-color:#E8E4DE;">
-                <div class="min-w-0 pr-3">
-                    <div id="detGroupCrumb" onclick="backToCurrentGroupVariants()"
-                         class="hidden text-[11px] font-extrabold tracking-wider uppercase cursor-pointer mb-0.5 break-words"
-                         style="color:#A38251;"></div>
-                    <div id="detSku" class="text-[11px] font-extrabold tracking-widest uppercase break-words" style="color:#A38251;"></div>
-                    <h2 id="detName" class="text-base sm:text-lg font-extrabold uppercase leading-snug break-words" style="color:#252C32;"></h2>
+        <div class="inv-det-modal-card bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl border" style="border-color:#E1DBC5;">
+            <div class="inv-det-sticky-head sticky top-0 z-10 bg-white px-3.5 py-2 border-b" style="border-color:#E8E4DE;">
+                <!-- FILA 1: TÍTULO DEL PRODUCTO POR ARRIBA DEL BOTÓN DE COTIZACIÓN -->
+                <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span id="detGroupCrumb" onclick="backToCurrentGroupVariants()"
+                                  class="hidden inv-det-uniform-text font-extrabold tracking-wider uppercase cursor-pointer break-words"
+                                  style="color:#A38251;"></span>
+                            <span id="detSku" class="inv-det-uniform-text font-extrabold tracking-widest uppercase break-words" style="color:#A38251;"></span>
+                        </div>
+                        <h2 id="detName" class="inv-det-title-above font-extrabold uppercase leading-tight break-words mt-0.5" style="color:#252C32;"></h2>
+                    </div>
+                    <button type="button" onclick="closeProductDetail()"
+                            class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold border shrink-0"
+                            style="border-color:#E8E4DE; color:#252C32;" aria-label="Cerrar">✕</button>
                 </div>
-                <div class="flex items-center gap-1.5 shrink-0">
+                <!-- FILA 2: BOTÓN DE COTIZACIÓN DEBAJO DEL TÍTULO -->
+                <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
                     <button type="button" id="detSubCartBtn" onclick="subtractCurrentDetailFromCart()"
                             title="Restar 1 unidad de la cotización"
-                            class="hidden w-8 h-8 rounded-full text-sm font-black border flex items-center justify-center transition"
-                            style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
+                            class="hidden inv-det-action-btn border flex items-center justify-center transition"
+                            style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32; min-width:26px; padding:0 7px;">
                         −
                     </button>
                     <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
-                            class="px-3.5 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition"
-                            style="background:#A38251; color:#FFFFFF;">
+                            class="inv-det-action-btn uppercase tracking-wider transition"
+                            style="background:#A38251; border:1px solid #A38251; color:#FFFFFF;">
                         + Cotización
                     </button>
                     <button type="button" id="detRemoveAllCartBtn" onclick="removeCurrentDetailFromCart()"
                             title="Quitar producto de la cotización"
-                            class="hidden px-2.5 py-2 rounded-full text-[11px] font-extrabold uppercase tracking-wider border transition"
+                            class="hidden inv-det-action-btn uppercase tracking-wider border transition"
                             style="border-color:#FECACA; background:#FEF2F2; color:#991B1B;">
                         Quitar
                     </button>
-                    <button type="button" onclick="closeProductDetail()"
-                            class="w-9 h-9 rounded-full flex items-center justify-center text-lg font-light border"
-                            style="border-color:#E8E4DE; color:#252C32;" aria-label="Cerrar">✕</button>
                 </div>
             </div>
 
             <!-- PASO 1 (SOLO CUANDO EL MODELO TIENE VARIANTES): LISTADO DE VARIANTES DISPONIBLES -->
-            <div id="detVariantsStep" class="p-5 space-y-2 hidden">
-                <div id="detVariantsList" class="space-y-2"></div>
+            <div id="detVariantsStep" class="p-3 space-y-1.5 hidden">
+                <div id="detVariantsList" class="space-y-1.5"></div>
             </div>
 
-            <!-- PASO 2: VISTA DEL PRODUCTO / VARIANTE SELECCIONADA -->
-            <div id="detSingleStep" class="p-5 space-y-5">
-                <div id="detPhotoWrap" class="w-full h-60 sm:h-72 rounded-xl border flex items-center justify-center overflow-hidden relative"
+            <!-- PASO 2: VISTA DEL PRODUCTO / VARIANTE SELECCIONADA (COMPACTA SIN DESLIZAR) -->
+            <div id="detSingleStep" class="p-2.5 sm:p-3 space-y-2">
+                <div id="detPhotoWrap" class="w-full h-32 sm:h-40 rounded-xl border flex items-center justify-center overflow-hidden relative"
                      style="background:#FFFFFF; border-color:#E1DBC5;">
                     <div id="detPhotoCanvasStage" class="inv-det-canvas-stage hidden"></div>
                     <img id="detPhotoImg" src="" alt="" draggable="false" referrerpolicy="no-referrer" class="w-full h-full object-contain hidden">
                     <div id="detPhotoEmpty" class="flex items-center justify-center select-none">
-                        <div class="w-12 h-12 rounded-full flex items-center justify-center border"
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center border"
                              style="border-color:#E1DBC5; background:#E8E4DE; color:#A38251;">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                             </svg>
                         </div>
                     </div>
-                    <div id="detManagerPhotoWrap" class="hidden absolute bottom-2.5 right-2.5 z-10">
+                    <div id="detManagerPhotoWrap" class="hidden absolute bottom-1.5 right-1.5 z-10">
                         <button type="button" id="detUploadPhotoLabel" onclick="openUploadPhotoModalFromDetail()"
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-extrabold uppercase tracking-wider border shadow cursor-pointer transition"
+                                class="inv-det-action-btn uppercase tracking-wider border shadow cursor-pointer transition"
                                 style="background:#252C32; border-color:#A38251; color:#FFFFFF;">
                             <span id="detUploadPhotoBtnText">📷 Subir foto a Drive</span>
                         </button>
                         <input type="file" id="detUploadPhotoInput" accept="image/*" multiple class="hidden" onchange="uploadManagerProductPhoto(this)">
                     </div>
                 </div>
-                <div id="detUploadPhotoStatus" class="hidden rounded-xl border px-3.5 py-2 text-xs font-bold"></div>
+                <div id="detUploadPhotoStatus" class="hidden rounded-lg border px-2.5 py-1.5 inv-det-uniform-text font-bold"></div>
 
-                <div class="rounded-xl border p-4 space-y-3" style="border-color:#E1DBC5; background:#FFFFFF;">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                        <div id="detPriceWrap" class="hidden flex flex-wrap items-center gap-2">
-                            <div class="inline-flex items-center gap-1.5">
-                                <span class="text-xs font-bold uppercase" style="color:#252C32;">Precio:</span>
-                                <span id="detPrice" class="px-3 py-1 rounded-lg text-sm font-black" style="background:#A38251; color:#FFFFFF;"></span>
+                <!-- BOTONES INFORMATIVOS UNIFORMES (PRECIO, DESCUENTO, STOCK TOTAL Y UBICACIONES DEL MISMO TAMAÑO) -->
+                <div class="rounded-xl border p-2 space-y-1.5" style="border-color:#E1DBC5; background:#FFFFFF;">
+                    <div class="inv-det-top-info-grid">
+                        <div id="detPriceWrap" class="hidden contents">
+                            <div class="inv-det-info-btn" style="border-color:#A38251; background:#A38251; color:#FFFFFF;">
+                                <span class="inv-det-info-lbl" style="color:#FFFFFF;">Precio:</span>
+                                <span id="detPrice" class="inv-det-info-val" style="color:#FFFFFF;"></span>
                             </div>
-                            <div id="detVisualDiscBox" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border" style="border-color:#A38251; background:#FAF9F6;" title="Calculadora visual rápida (no modifica la cotización)">
-                                <label for="detVisualDiscInput" class="text-[11px] font-extrabold uppercase tracking-wide select-none" style="color:#252C32;">Descuento:</label>
-                                <input
-                                    type="number"
-                                    id="detVisualDiscInput"
-                                    min="0"
-                                    max="100"
-                                    step="any"
-                                    inputmode="decimal"
-                                    placeholder="0"
-                                    oninput="updateDetailVisualDiscount()"
-                                    onclick="this.select()"
-                                    aria-label="Porcentaje de descuento visual"
-                                    class="w-12 text-center text-xs font-black rounded border px-1 py-0.5 outline-none"
-                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;"
-                                >
-                                <span class="text-xs font-black" style="color:#A38251;">%</span>
+                            <div id="detVisualDiscBox" class="inv-det-info-btn" style="border-color:#A38251; background:#FAF9F6; color:#252C32;" title="Calculadora visual rápida (no modifica la cotización)">
+                                <label for="detVisualDiscInput" class="inv-det-info-lbl select-none">Descuento:</label>
+                                <div class="inline-flex items-center gap-0.5">
+                                    <input
+                                        type="number"
+                                        id="detVisualDiscInput"
+                                        min="0"
+                                        max="100"
+                                        step="any"
+                                        inputmode="decimal"
+                                        placeholder="0"
+                                        oninput="updateDetailVisualDiscount()"
+                                        onclick="this.select()"
+                                        aria-label="Porcentaje de descuento visual"
+                                        class="inv-det-disc-input"
+                                    >
+                                    <span class="inv-det-info-val" style="color:#A38251;">%</span>
+                                </div>
                             </div>
-                            <div id="detVisualFinalBox" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition" style="border-color:#E1DBC5; background:#FAF9F6;">
-                                <span id="detVisualFinalLabel" class="text-[11px] font-extrabold uppercase tracking-wide" style="color:#252C32;">Con descuento:</span>
-                                <span id="detVisualFinalPrice" class="text-sm font-black" style="color:#252C32;"></span>
+                            <div id="detVisualFinalBox" class="inv-det-info-btn transition" style="border-color:#E1DBC5; background:#FAF9F6; color:#252C32;">
+                                <span id="detVisualFinalLabel" class="inv-det-info-lbl">Con desc.:</span>
+                                <span id="detVisualFinalPrice" class="inv-det-info-val"></span>
                             </div>
                         </div>
-                        <div class="flex items-center gap-2 ml-auto">
-                            <span class="text-xs font-bold uppercase" style="color:#252C32;">Stock Total:</span>
-                            <span id="detTotalStock" class="px-3 py-1 rounded-full text-sm font-black" style="background:#252C32; color:#FFFFFF;">0</span>
+                        <div class="inv-det-info-btn" style="border-color:#252C32; background:#252C32; color:#FFFFFF;">
+                            <span class="inv-det-info-lbl" style="color:#FFFFFF;">Stock Total:</span>
+                            <span id="detTotalStock" class="inv-det-info-val" style="color:#FFFFFF;">0</span>
                         </div>
                     </div>
 
-                    <div id="detWarehousesGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
+                    <div id="detWarehousesGrid" class="inv-det-info-grid"></div>
                 </div>
 
-                <div id="detSpecsWrap" class="rounded-xl border p-4 space-y-2.5 hidden" style="border-color:#E8E4DE; background:#FFFFFF;">
-                    <div class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">Información del producto</div>
-                    <div id="detSpecsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs"></div>
+                <div id="detSpecsWrap" class="rounded-xl border p-2 space-y-1 hidden" style="border-color:#E8E4DE; background:#FFFFFF;">
+                    <div class="inv-det-uniform-text font-extrabold uppercase tracking-wider" style="color:#A38251;">Información del producto</div>
+                    <div id="detSpecsGrid" class="inv-det-info-grid"></div>
                 </div>
             </div>
 
             <!-- BOTÓN INFERIOR: VER TODOS LOS PRODUCTOS CON STOCK PARA ENTREGA RELACIONADOS CON SU TIPO DE PRODUCTO -->
-            <div id="detRelatedStockSection" class="px-5 pb-5 pt-1 space-y-3 hidden">
+            <div id="detRelatedStockSection" class="px-2.5 sm:px-3 pb-2.5 pt-0.5 space-y-1.5 hidden">
                 <button type="button" id="detRelatedStockBtn" onclick="toggleRelatedInStockProducts()"
-                        class="w-full py-3 px-4 rounded-xl text-xs font-extrabold uppercase tracking-wider border flex items-center justify-center gap-2 transition shadow-sm"
+                        class="inv-det-info-btn w-full justify-center uppercase tracking-wider transition shadow-sm"
                         style="background:#252C32; border-color:#A38251; color:#FFFFFF;">
-                    <span id="detRelatedStockBtnLabel">Ver productos con stock para entrega</span>
+                    <span id="detRelatedStockBtnLabel" class="inv-det-info-val" style="color:#FFFFFF;">Ver productos con stock para entrega</span>
                 </button>
-                <div id="detRelatedStockPanel" class="hidden rounded-xl border p-3.5 space-y-2.5" style="border-color:#E1DBC5; background:#FAF9F6;">
-                    <div id="detRelatedStockSubhead" class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;"></div>
-                    <div id="detRelatedStockList" class="space-y-2 max-h-96 overflow-y-auto pr-0.5"></div>
+                <div id="detRelatedStockPanel" class="hidden rounded-xl border p-2.5 space-y-1.5" style="border-color:#E1DBC5; background:#FAF9F6;">
+                    <div id="detRelatedStockSubhead" class="inv-det-uniform-text font-extrabold uppercase tracking-wider" style="color:#A38251;"></div>
+                    <div id="detRelatedStockList" class="space-y-1.5 max-h-64 overflow-y-auto pr-0.5"></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- MODAL DE PLANTILLA DE COTIZACIÓN (TAMAÑO Y TEXTOS ORIGINALES) -->
+    <!-- MODAL DE PLANTILLA DE COTIZACIÓN (TAMAÑO UNIFICADO CON SEGUIMIENTO A COTIZACIÓN) -->
     <div id="cartModal" class="modal-backdrop" onclick="if(event.target===this) closeCartModal()">
-        <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
-            <div class="px-5 py-4 border-b flex items-center justify-between gap-3" style="background:#252C32; color:#FFFFFF;">
+        <div class="inv-quote-modal-card bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
+            <div class="px-3.5 py-2.5 border-b flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
                 <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
-                        <h2 id="quoteModalTitle" class="text-sm sm:text-base font-extrabold uppercase tracking-wider break-words">Plantilla de Cotización</h2>
+                        <h2 id="quoteModalTitle" class="text-xs sm:text-sm font-extrabold uppercase tracking-wider break-words">Plantilla de Cotización</h2>
                     </div>
-                    <div id="quoteHeaderAdvisorInfo" class="text-[11px] font-semibold break-words leading-snug mt-0.5" style="color:#E1DBC5;"></div>
+                    <div id="quoteHeaderAdvisorInfo" class="text-[10.5px] font-semibold break-words leading-snug mt-0.5" style="color:#E1DBC5;"></div>
                 </div>
-                <button type="button" onclick="closeCartModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0" aria-label="Cerrar">✕</button>
+                <button type="button" onclick="closeCartModal()" class="w-7 h-7 rounded-full flex items-center justify-center text-white/80 hover:text-white text-base shrink-0" aria-label="Cerrar">✕</button>
             </div>
 
             <!-- BARRA DE MÚLTIPLES COTIZACIONES ABIERTAS SIN GUARDAR (VIGENCIA MÁXIMA: 3 HORAS) -->
-            <div id="quoteDraftsBar" class="px-4 py-2.5 border-b flex flex-wrap items-center justify-between gap-2"
+            <div id="quoteDraftsBar" class="px-3 py-1.5 border-b flex flex-wrap items-center justify-between gap-1.5"
                  style="background:#FAF9F6; border-color:#E1DBC5;">
-                <div id="quoteDraftsTabsList" class="flex flex-wrap items-center gap-1.5 min-w-0"></div>
-                <div class="flex items-center gap-2 shrink-0 ml-auto">
+                <div id="quoteDraftsTabsList" class="flex flex-wrap items-center gap-1 min-w-0"></div>
+                <div class="flex items-center gap-1.5 shrink-0 ml-auto">
                     <span class="text-[10px] font-bold opacity-75 hidden sm:inline" style="color:#252C32;">Tiempo máx. sin guardar: 3 h</span>
                     <button type="button" id="quoteJumpToPdfsBtn" onclick="scrollToGeneratedQuotePdfs()"
-                            class="hidden px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
+                            class="hidden px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
                             style="border-color:#252C32; background:#252C32; color:#FFFFFF;"
                             title="Ver PDFs de cotizaciones generadas">
                         📄 PDFs (<span id="quoteJumpToPdfsCount">0</span>)
                     </button>
                     <button type="button" onclick="createNewQuoteDraft(true)"
-                            class="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
+                            class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
                             style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
                         + Nueva cotización
                     </button>
                 </div>
             </div>
 
-            <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+            <div class="flex-1 overflow-y-auto p-3 sm:p-3.5 space-y-2.5">
                 <!-- AVISO DE COTIZACIÓN TERMINADA (BLOQUEADA · AL CERRAR SE INICIA UNA NUEVA) -->
-                <div id="quoteCompletedBanner" class="hidden rounded-xl border p-3.5 text-xs space-y-2 sem-green">
+                <div id="quoteCompletedBanner" class="hidden rounded-xl border p-2.5 text-[11px] space-y-1.5 sem-green">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <div class="font-extrabold uppercase">✓ Cotización terminada y registrada</div>
                             <div>Esta cotización quedó cerrada. Al cerrar esta ventana solo se abrirá una cotización nueva en blanco.</div>
                         </div>
                         <button type="button" onclick="startFreshQuoteAfterCompleted()"
-                                class="px-3.5 py-2 rounded-full text-[11px] font-extrabold uppercase tracking-wider shadow-sm"
+                                class="px-3 py-1.5 rounded-full text-[10.5px] font-extrabold uppercase tracking-wider shadow-sm"
                                 style="background:#252C32; color:#FFFFFF;">
                             + Agregar nueva cotización
                         </button>
@@ -334,55 +342,55 @@
                 </div>
 
                 <!-- SECCIÓN 1: CUENTA Y FOLIO OFICIAL DE S MUEBLERÍA SEGÚN TIENDA / BODEGA -->
-                <div class="rounded-xl border p-3.5 space-y-3" style="border-color:#E1DBC5; background:#FAF9F6;">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                        <span id="quoteSection1Title" class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">
+                <div class="rounded-xl border p-2.5 space-y-2" style="border-color:#E1DBC5; background:#FAF9F6;">
+                    <div class="flex flex-wrap items-center justify-between gap-1.5">
+                        <span id="quoteSection1Title" class="text-[10.5px] font-extrabold uppercase tracking-wider" style="color:#A38251;">
                             1. Cuenta y Folio S Mueblería (Según Tienda / Bodega)
                         </span>
-                        <div class="flex flex-wrap items-center gap-1.5">
-                            <span id="quoteOriginTypeBadge" class="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full"
+                        <div class="flex flex-wrap items-center gap-1">
+                            <span id="quoteOriginTypeBadge" class="text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded-full"
                                   style="background:#A38251; color:#FFFFFF;">SUCURSAL</span>
-                            <span id="quoteNextOrderBadge" class="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border"
+                            <span id="quoteNextOrderBadge" class="text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded-full border"
                                   style="border-color:#A38251; background:#FFFFFF; color:#252C32;">Folio S Mueblería: ---</span>
-                            <span id="quoteErpUserIdBadge" class="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full"
+                            <span id="quoteErpUserIdBadge" class="text-[9.5px] font-extrabold px-2 py-0.5 rounded-full"
                                   style="background:#252C32; color:#FFFFFF;"></span>
                         </div>
                     </div>
 
-                    <div id="quoteLockedInfoGrid" class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        <div class="rounded-lg border px-3 py-2" style="border-color:#E1DBC5; background:#FFFFFF;">
-                            <div id="quoteLockedStoreLabel" class="text-[10px] font-extrabold uppercase opacity-70" style="color:#252C32;">Tienda / Bodega S Mueblería</div>
-                            <div id="quoteLockedStoreText" class="text-xs font-extrabold uppercase mt-0.5 break-words leading-snug" style="color:#252C32;">—</div>
+                    <div id="quoteLockedInfoGrid" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div class="rounded-lg border px-2.5 py-1.5" style="border-color:#E1DBC5; background:#FFFFFF;">
+                            <div id="quoteLockedStoreLabel" class="text-[9.5px] font-extrabold uppercase opacity-70" style="color:#252C32;">Tienda / Bodega S Mueblería</div>
+                            <div id="quoteLockedStoreText" class="text-[11px] font-extrabold uppercase mt-0.5 break-words leading-snug" style="color:#252C32;">—</div>
                             <select id="quoteMultiStoreSelect" onchange="onMultiStoreUserSelectChange(this.value)"
-                                    class="hidden w-full rounded-lg border px-2.5 py-1.5 mt-1 text-xs font-extrabold uppercase outline-none cursor-pointer"
+                                    class="hidden w-full rounded-lg border px-2 py-1 mt-1 text-[11px] font-extrabold uppercase outline-none cursor-pointer"
                                     style="border-color:#A38251; background:#FAF9F6; color:#252C32;"></select>
                         </div>
-                        <div class="sm:col-span-2 rounded-lg border px-3 py-2" style="border-color:#E1DBC5; background:#FFFFFF;">
-                            <div class="text-[10px] font-extrabold uppercase opacity-70" style="color:#252C32;">Usuario Exclusivo en S Mueblería</div>
-                            <div id="quoteLockedAdvisorText" class="text-xs font-extrabold mt-0.5 break-words leading-snug" style="color:#252C32;">—</div>
+                        <div class="sm:col-span-2 rounded-lg border px-2.5 py-1.5" style="border-color:#E1DBC5; background:#FFFFFF;">
+                            <div class="text-[9.5px] font-extrabold uppercase opacity-70" style="color:#252C32;">Usuario Exclusivo en S Mueblería</div>
+                            <div id="quoteLockedAdvisorText" class="text-[11px] font-extrabold mt-0.5 break-words leading-snug" style="color:#252C32;">—</div>
                         </div>
                     </div>
 
                     <!-- CONTROLES EXCLUSIVOS DE ADMINISTRADOR (VER Y OPERAR TODAS LAS TIENDAS Y BODEGAS) -->
-                    <div id="quoteAdminSelectorsWrap" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                    <div id="quoteAdminSelectorsWrap" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
                         <div>
-                            <label for="quoteAdminStoreSelect" class="block text-[10px] font-extrabold uppercase mb-1" style="color:#252C32;">Tienda / Bodega (Modo Administrador)</label>
+                            <label for="quoteAdminStoreSelect" class="block text-[9.5px] font-extrabold uppercase mb-0.5" style="color:#252C32;">Tienda / Bodega (Modo Administrador)</label>
                             <select id="quoteAdminStoreSelect" onchange="onAdminStoreChange()"
-                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-extrabold outline-none"
+                                    class="w-full rounded-lg border px-2 py-1.5 text-[11px] font-extrabold outline-none"
                                     style="border-color:#A38251; background:#FFFFFF; color:#252C32;"></select>
                         </div>
                         <div>
-                            <label for="quoteAdminAdvisorSelect" class="block text-[10px] font-extrabold uppercase mb-1" style="color:#252C32;">Usuario / Asesor en S Mueblería</label>
+                            <label for="quoteAdminAdvisorSelect" class="block text-[9.5px] font-extrabold uppercase mb-0.5" style="color:#252C32;">Usuario / Asesor en S Mueblería</label>
                             <select id="quoteAdminAdvisorSelect" onchange="onAdminAdvisorChange()"
-                                    class="w-full rounded-lg border px-2.5 py-2 text-xs font-extrabold outline-none"
+                                    class="w-full rounded-lg border px-2 py-1.5 text-[11px] font-extrabold outline-none"
                                     style="border-color:#A38251; background:#FFFFFF; color:#252C32;"></select>
                         </div>
                     </div>
 
-                    <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold pt-0.5" style="color:#252C32;">
+                    <div class="flex flex-wrap items-center justify-between gap-1.5 text-[10.5px] font-semibold" style="color:#252C32;">
                         <span id="quoteLockedEmailText" class="break-words opacity-85"></span>
                         <button type="button" id="quoteSwitchLocationBtn" onclick="openSwitchBranchSelector()"
-                                class="hidden px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border"
+                                class="hidden px-2 py-0.5 rounded-full text-[9.5px] font-extrabold uppercase border"
                                 style="border-color:#A38251; color:#A38251; background:#FFFFFF;">
                             Cambiar ubicación
                         </button>
@@ -390,223 +398,223 @@
                 </div>
 
                 <!-- SECCIÓN 2: BUSCADOR / ALTA DE CLIENTES EN S MUEBLERÍA + CONDICIONES -->
-                <div id="quoteSection2Fieldset" class="rounded-xl border p-3.5 space-y-3" style="border-color:#E8E4DE; background:#FFFFFF;">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                        <div class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">2. Cliente en S Mueblería y Datos de la Cotización</div>
+                <div id="quoteSection2Fieldset" class="rounded-xl border p-2.5 space-y-2" style="border-color:#E8E4DE; background:#FFFFFF;">
+                    <div class="flex flex-wrap items-center justify-between gap-1.5">
+                        <div class="text-[10.5px] font-extrabold uppercase tracking-wider" style="color:#A38251;">2. Cliente en S Mueblería y Datos de la Cotización</div>
                         <button type="button" id="btnToggleNewErpClient" onclick="toggleNewErpClientForm()"
-                                class="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
+                                class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
                                 style="border-color:#A38251; background:#FAF9F6; color:#252C32;">
                             + Nuevo cliente en S Mueblería
                         </button>
                     </div>
 
                     <!-- BUSCADOR DE CLIENTES REGISTRADOS -->
-                    <div class="rounded-xl border p-2.5 space-y-2" style="border-color:#E1DBC5; background:#FAF9F6;">
-                        <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                    <div class="rounded-xl border p-2 space-y-1.5" style="border-color:#E1DBC5; background:#FAF9F6;">
+                        <div class="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
                             <input id="quoteErpClientSearchInput" type="search"
                                    onkeydown="if(event.key==='Enter'){event.preventDefault();searchErpClientsLive();}"
                                    placeholder="Buscar cliente en S Mueblería (nombre, teléfono, correo o No. cliente)..."
-                                   class="flex-1 min-w-0 rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
+                                   class="flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
                             <button type="button" id="btnSearchErpClients" onclick="searchErpClientsLive()"
-                                    class="px-3.5 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-wider shrink-0 transition"
+                                    class="px-3 py-1.5 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider shrink-0 transition"
                                     style="background:#252C32; color:#FFFFFF;">
                                 Buscar cliente
                             </button>
                         </div>
-                        <div id="quoteSelectedErpClientBadge" class="hidden rounded-lg border px-3 py-2 text-xs font-bold flex items-center justify-between gap-2 sem-green"></div>
-                        <div id="quoteErpClientResults" class="hidden space-y-1.5 max-h-48 overflow-y-auto pt-1"></div>
+                        <div id="quoteSelectedErpClientBadge" class="hidden rounded-lg border px-2.5 py-1.5 text-[11px] font-bold flex items-center justify-between gap-2 sem-green"></div>
+                        <div id="quoteErpClientResults" class="hidden space-y-1 max-h-40 overflow-y-auto pt-1"></div>
                     </div>
 
                     <!-- FORMULARIO PARA AGREGAR NUEVO CLIENTE DIRECTO EN S MUEBLERÍA -->
-                    <div id="quoteNewErpClientPanel" class="hidden rounded-xl border p-3 space-y-2.5" style="border-color:#A38251; background:#FAF9F6;">
+                    <div id="quoteNewErpClientPanel" class="hidden rounded-xl border p-2.5 space-y-2" style="border-color:#A38251; background:#FAF9F6;">
                         <div class="flex items-center justify-between">
-                            <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">Alta de Nuevo Cliente en S Mueblería</span>
-                            <button type="button" onclick="toggleNewErpClientForm(false)" class="text-xs font-extrabold opacity-70 hover:opacity-100" style="color:#252C32;">✕ Cerrar</button>
+                            <span class="text-[10.5px] font-extrabold uppercase tracking-wider" style="color:#252C32;">Alta de Nuevo Cliente en S Mueblería</span>
+                            <button type="button" onclick="toggleNewErpClientForm(false)" class="text-[11px] font-extrabold opacity-70 hover:opacity-100" style="color:#252C32;">✕ Cerrar</button>
                         </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Nombre(s) *</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Nombre(s) *</label>
                                 <input id="newCliNombre" type="text" placeholder="Ej. María Fernanda"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Apellido Paterno</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Apellido Paterno</label>
                                 <input id="newCliPaterno" type="text" placeholder="Ej. López"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Apellido Materno</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Apellido Materno</label>
                                 <input id="newCliMaterno" type="text" placeholder="Ej. García"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Teléfono / Celular *</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Teléfono / Celular *</label>
                                 <input id="newCliTelefono" type="tel" placeholder="998 000 0000"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Correo electrónico</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Correo electrónico</label>
                                 <input id="newCliCorreo" type="email" placeholder="cliente@correo.com"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Empresa / Razón Social</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Empresa / Razón Social</label>
                                 <input id="newCliEmpresa" type="text" placeholder="Opcional"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">RFC (Opcional)</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">RFC (Opcional)</label>
                                 <input id="newCliRfc" type="text" placeholder="XAXX010101000"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold uppercase outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold uppercase outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Calle y Número</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Calle y Número</label>
                                 <input id="newCliCalle" type="text" placeholder="Calle / Av. y número"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Colonia y C.P.</label>
-                                <div class="grid grid-cols-3 gap-1.5">
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Colonia y C.P.</label>
+                                <div class="grid grid-cols-3 gap-1">
                                     <input id="newCliColonia" type="text" placeholder="Colonia"
-                                           class="col-span-2 w-full rounded-lg border px-2 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                           class="col-span-2 w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                                     <input id="newCliCp" type="text" placeholder="C.P."
-                                           class="w-full rounded-lg border px-2 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                           class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                                 </div>
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Ciudad</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Ciudad</label>
                                 <input id="newCliCiudad" type="text" placeholder="Cancún / Playa del Carmen"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div>
-                                <label class="block text-[10px] font-bold uppercase mb-0.5">Estado</label>
+                                <label class="block text-[9.5px] font-bold uppercase mb-0.5">Estado</label>
                                 <input id="newCliEstado" type="text" value="QUINTANA ROO"
-                                       class="w-full rounded-lg border px-2.5 py-1.5 text-xs font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
+                                       class="w-full rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none bg-white" style="border-color:#E1DBC5;">
                             </div>
                             <div class="flex items-end">
                                 <button type="button" id="btnSaveNewErpClient" onclick="submitNewErpClientLive()"
-                                        class="w-full py-2 px-3 rounded-lg text-[11px] font-extrabold uppercase tracking-wider transition shadow-sm"
+                                        class="w-full py-1.5 px-2.5 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider transition shadow-sm"
                                         style="background:#A38251; color:#FFFFFF;">
                                     Guardar cliente en S Mueblería
                                 </button>
                             </div>
                         </div>
-                        <div id="newErpClientMsg" class="hidden rounded-lg border px-3 py-2 text-xs font-bold"></div>
+                        <div id="newErpClientMsg" class="hidden rounded-lg border px-2.5 py-1.5 text-[11px] font-bold"></div>
                     </div>
 
                     <input type="hidden" id="quoteClientModeSelect" value="PROSPECTO PROVISIONAL (SOLO NOMBRE - MODIFICABLE AL CERRAR)">
                     <input type="hidden" id="quoteCategorySelect" value="COTIZACIONES [ID: 2]">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
-                            <label id="quoteClientNameLabel" class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Nombre del Cliente / Prospecto *</label>
+                            <label id="quoteClientNameLabel" class="block text-[10px] font-bold uppercase mb-0.5" style="color:#252C32;">Nombre del Cliente / Prospecto *</label>
                             <input id="quoteClientNameInput" type="text" oninput="saveQuoteDraftMeta()"
                                    placeholder="Nombre completo o proyecto..."
-                                   class="w-full rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
+                                   class="w-full rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
                                    style="border-color:#E1DBC5; color:#252C32;">
                         </div>
-                        <div class="grid grid-cols-2 gap-2">
+                        <div class="grid grid-cols-2 gap-1.5">
                             <div>
-                                <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Teléfono (Opcional)</label>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5" style="color:#252C32;">Teléfono (Opcional)</label>
                                 <input id="quoteClientPhoneInput" type="tel" oninput="saveQuoteDraftMeta()"
                                        placeholder="998 000 0000"
-                                       class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                       class="w-full rounded-lg border px-2 py-1.5 text-[11px] font-semibold outline-none"
                                        style="border-color:#E1DBC5; color:#252C32;">
                             </div>
                             <div>
-                                <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Entrega Tentativa</label>
+                                <label class="block text-[10px] font-bold uppercase mb-0.5" style="color:#252C32;">Entrega Tentativa</label>
                                 <input id="quoteDeliveryDateInput" type="date" onchange="saveQuoteDraftMeta()"
-                                       class="w-full rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none"
+                                       class="w-full rounded-lg border px-2 py-1.5 text-[11px] font-semibold outline-none"
                                        style="border-color:#E1DBC5; color:#252C32;">
                             </div>
                         </div>
                         <div>
-                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Correo del Cliente (Opcional)</label>
+                            <label class="block text-[10px] font-bold uppercase mb-0.5" style="color:#252C32;">Correo del Cliente (Opcional)</label>
                             <input id="quoteClientEmailInput" type="email" oninput="saveQuoteDraftMeta()"
                                    placeholder="cliente@correo.com"
-                                   class="w-full rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
+                                   class="w-full rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
                                    style="border-color:#E1DBC5; color:#252C32;">
                         </div>
                         <div>
-                            <label class="block text-[11px] font-bold uppercase mb-1" style="color:#252C32;">Notas / Observaciones</label>
+                            <label class="block text-[10px] font-bold uppercase mb-0.5" style="color:#252C32;">Notas / Observaciones</label>
                             <input id="quoteNotesInput" type="text" oninput="saveQuoteDraftMeta()"
                                    placeholder="Acabados especiales, comentarios de entrega o referencias..."
-                                   class="w-full rounded-lg border px-3 py-2 text-xs font-semibold outline-none"
+                                   class="w-full rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
                                    style="border-color:#E1DBC5; color:#252C32;">
                         </div>
                     </div>
                 </div>
 
                 <!-- SECCIÓN 3: PARTIDAS SELECCIONADAS -->
-                <div class="space-y-2">
+                <div class="space-y-1.5">
                     <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#A38251;">3. Productos en la Cotización (Máx. 15 partidas)</span>
-                        <span id="quoteItemsCountLabel" class="text-[11px] font-bold" style="color:#252C32;">0 partidas</span>
+                        <span class="text-[10.5px] font-extrabold uppercase tracking-wider" style="color:#A38251;">3. Productos en la Cotización (Máx. 15 partidas)</span>
+                        <span id="quoteItemsCountLabel" class="text-[10.5px] font-bold" style="color:#252C32;">0 partidas</span>
                     </div>
-                    <div id="cartItemsContainer" class="space-y-2"></div>
+                    <div id="cartItemsContainer" class="space-y-1.5"></div>
                 </div>
 
                 <!-- SECCIÓN 4: TOTALES Y DESCUENTO EXTRA -->
-                <div id="cartTotalBar" class="rounded-xl border p-3.5 space-y-2 hidden" style="border-color:#E1DBC5; background:#FAF9F6; color:#252C32;">
-                    <div id="quoteDiscountLimitInfo" class="text-[11px] font-bold rounded-lg px-2.5 py-1.5" style="background:#FFFFFF; border:1px solid #E1DBC5; color:#252C32;"></div>
-                    <div class="flex items-center justify-between gap-2 text-xs">
+                <div id="cartTotalBar" class="rounded-xl border p-2.5 space-y-1.5 hidden" style="border-color:#E1DBC5; background:#FAF9F6; color:#252C32;">
+                    <div id="quoteDiscountLimitInfo" class="text-[10.5px] font-bold rounded-lg px-2 py-1" style="background:#FFFFFF; border:1px solid #E1DBC5; color:#252C32;"></div>
+                    <div class="flex items-center justify-between gap-2 text-[11px]">
                         <label for="quoteExtraDiscountInput" class="font-bold uppercase">Descuento Extra ($):</label>
                         <input id="quoteExtraDiscountInput" type="number" min="0" step="1" value="0" oninput="onExtraDiscountChange()"
-                               class="w-32 rounded-lg border px-2.5 py-1 text-right text-xs font-extrabold outline-none"
+                               class="w-28 rounded-lg border px-2 py-1 text-right text-[11px] font-extrabold outline-none"
                                style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
                     </div>
-                    <div class="flex items-center justify-between text-xs font-semibold">
+                    <div class="flex items-center justify-between text-[11px] font-semibold">
                         <span>Subtotal (sin IVA):</span>
                         <span id="quoteSubtotalNoIva">$0.00</span>
                     </div>
-                    <div class="flex items-center justify-between text-xs font-semibold">
+                    <div class="flex items-center justify-between text-[11px] font-semibold">
                         <span>IVA (16%):</span>
                         <span id="quoteIvaAmount">$0.00</span>
                     </div>
-                    <div class="pt-2 border-t flex items-center justify-between text-xs sm:text-sm font-extrabold uppercase" style="border-color:#E1DBC5;">
+                    <div class="pt-1.5 border-t flex items-center justify-between text-xs font-extrabold uppercase" style="border-color:#E1DBC5;">
                         <span>Total Cotización:</span>
-                        <span id="cartTotalAmount" class="text-base font-black" style="color:#A38251;">$0.00</span>
+                        <span id="cartTotalAmount" class="text-sm font-black" style="color:#A38251;">$0.00</span>
                     </div>
                 </div>
 
                 <!-- ESTADO DE ENVÍO DE LA COTIZACIÓN -->
-                <div id="quoteSystemStatusBox" class="hidden rounded-xl border p-3.5 text-xs space-y-1.5"></div>
+                <div id="quoteSystemStatusBox" class="hidden rounded-xl border p-2.5 text-[11px] space-y-1"></div>
 
                 <!-- SECCIÓN DE PDFs DE COTIZACIONES GENERADAS -->
-                <div id="quoteGeneratedPdfsSection" class="hidden rounded-xl border p-3.5 space-y-2.5" style="border-color:#A38251; background:#FAF9F6;">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
+                <div id="quoteGeneratedPdfsSection" class="hidden rounded-xl border p-2.5 space-y-2" style="border-color:#A38251; background:#FAF9F6;">
+                    <div class="flex flex-wrap items-center justify-between gap-1.5">
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-1.5">
-                                <span id="quoteGeneratedPdfsTitle" class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">PDFs de Cotización Generados</span>
-                                <span id="quoteGeneratedPdfsCountBadge" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:#A38251; color:#FFFFFF;">0</span>
+                                <span id="quoteGeneratedPdfsTitle" class="text-[10.5px] font-extrabold uppercase tracking-wider" style="color:#252C32;">PDFs de Cotización Generados</span>
+                                <span id="quoteGeneratedPdfsCountBadge" class="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold uppercase" style="background:#A38251; color:#FFFFFF;">0</span>
                             </div>
-                            <div id="quoteGeneratedPdfsRuleHint" class="text-[10px] font-semibold opacity-80 mt-0.5" style="color:#252C32;"></div>
+                            <div id="quoteGeneratedPdfsRuleHint" class="text-[9.5px] font-semibold opacity-80 mt-0.5" style="color:#252C32;"></div>
                         </div>
                     </div>
-                    <div id="quoteGeneratedPdfsList" class="space-y-2 max-h-64 overflow-y-auto pr-0.5"></div>
+                    <div id="quoteGeneratedPdfsList" class="space-y-1.5 max-h-56 overflow-y-auto pr-0.5"></div>
                 </div>
             </div>
 
-            <div class="p-4 border-t flex flex-wrap items-center justify-between gap-2" style="border-color:#E8E4DE; background:#FFFFFF;">
-                <div class="flex items-center gap-2">
-                    <button type="button" onclick="clearCart()" class="px-3 py-2 rounded-lg text-xs font-bold border" style="border-color:#E1DBC5; color:#252C32;">
+            <div class="px-3 py-2.5 border-t flex flex-wrap items-center justify-between gap-1.5" style="border-color:#E8E4DE; background:#FFFFFF;">
+                <div class="flex items-center gap-1.5">
+                    <button type="button" onclick="clearCart()" class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border" style="border-color:#E1DBC5; color:#252C32;">
                         Vaciar
                     </button>
-                    <button type="button" onclick="printQuoteTemplate()" class="px-3 py-2 rounded-lg text-xs font-bold border" style="border-color:#A38251; color:#252C32;">
+                    <button type="button" onclick="printQuoteTemplate()" class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border" style="border-color:#A38251; color:#252C32;">
                         Vista / PDF
                     </button>
-                    <button type="button" onclick="copyCartSummary()" id="copyCartBtn" class="px-3 py-2 rounded-lg text-xs font-bold border" style="border-color:#E1DBC5; color:#252C32;">
+                    <button type="button" onclick="copyCartSummary()" id="copyCartBtn" class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border" style="border-color:#E1DBC5; color:#252C32;">
                         Copiar
                     </button>
                 </div>
-                <div class="flex flex-wrap items-center gap-2 ml-auto">
+                <div class="flex flex-wrap items-center gap-1.5 ml-auto">
                     <button type="button" id="btnLoadPlantillaReview" onclick="submitQuoteToSystem(false)"
-                            class="px-3 py-2 rounded-lg text-xs font-bold border transition"
+                            class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border transition"
                             style="border-color:#252C32; background:#FFFFFF; color:#252C32;">
                         Solo Revisar en Hoja
                     </button>
                     <button type="button" id="btnSendQuoteErp" onclick="submitQuoteToSystem(true)"
-                            class="px-4 py-2.5 rounded-lg text-xs font-extrabold uppercase tracking-wider transition shadow-sm"
+                            class="px-3.5 py-1.5 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider transition shadow-sm"
                             style="background:#A38251; color:#FFFFFF;">
                         Crear Cotización
                     </button>
@@ -615,42 +623,42 @@
         </div>
     </div>
 
-    <!-- MODAL DE CONFIRMACIÓN AL GENERAR COTIZACIÓN (TAMAÑO Y TEXTOS ORIGINALES) -->
+    <!-- MODAL DE CONFIRMACIÓN AL GENERAR COTIZACIÓN (TAMAÑO UNIFICADO CON SEGUIMIENTO) -->
     <div id="quoteAcceptedModal" class="modal-backdrop" style="z-index:75;">
         <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
-            <div class="px-5 py-4 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
-                <div class="flex items-center gap-2.5 min-w-0">
-                    <span class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-black shrink-0" style="background:#10B981; color:#FFFFFF;">✓</span>
-                    <h3 id="quoteAcceptedTitle" class="text-sm font-extrabold uppercase tracking-wider break-words">Cotización Creada en S Mueblería</h3>
+            <div class="px-4 py-3 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0" style="background:#10B981; color:#FFFFFF;">✓</span>
+                    <h3 id="quoteAcceptedTitle" class="text-xs font-extrabold uppercase tracking-wider break-words">Cotización Creada en S Mueblería</h3>
                 </div>
-                <button type="button" onclick="acceptGeneratedQuoteAndReset()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0" title="Confirmar y continuar">✕</button>
+                <button type="button" onclick="acceptGeneratedQuoteAndReset()" class="w-7 h-7 rounded-full flex items-center justify-center text-white/80 hover:text-white text-base shrink-0" title="Confirmar y continuar">✕</button>
             </div>
-            <div class="p-5 space-y-3.5 text-xs" style="color:#252C32;">
-                <div id="quoteAcceptedSummary" class="rounded-xl border p-3.5 space-y-1.5" style="border-color:#A7F3D0; background:#ECFDF5; color:#065F46;"></div>
-                <div id="quoteAcceptedPdfStatus" class="hidden rounded-xl border px-3.5 py-2.5 text-[11px] font-bold"></div>
+            <div class="p-3.5 space-y-2.5 text-[11px]" style="color:#252C32;">
+                <div id="quoteAcceptedSummary" class="rounded-xl border p-2.5 space-y-1" style="border-color:#A7F3D0; background:#ECFDF5; color:#065F46;"></div>
+                <div id="quoteAcceptedPdfStatus" class="hidden rounded-xl border px-2.5 py-2 text-[10.5px] font-bold"></div>
                 <button type="button" id="btnDownloadErpPdfModal" onclick="downloadAcceptedQuoteOriginalPdf(this)"
-                        class="w-full py-2.5 px-4 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition flex items-center justify-center gap-1.5"
+                        class="w-full py-2 px-3 rounded-full text-[10.5px] font-extrabold uppercase tracking-wider shadow-sm transition flex items-center justify-center gap-1.5"
                         style="background:#252C32; color:#FFFFFF;">
                     ⬇ Descargar PDF Original S Mueblería
                 </button>
-                <p class="text-[11px] font-semibold leading-relaxed opacity-85">
+                <p class="text-[10.5px] font-semibold leading-snug opacity-85">
                     Al presionar <strong>Confirmar y nueva plantilla</strong> se abrirá una plantilla vacía para tu siguiente cotización, evitando que esta cotización se vuelva a generar por error.
                 </p>
-                <div class="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 pt-1">
+                <div class="flex flex-wrap sm:flex-nowrap items-center justify-end gap-1.5 pt-0.5">
                     <button type="button" onclick="printAcceptedQuoteSnapshot()"
-                            class="px-3.5 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider border transition whitespace-nowrap"
+                            class="px-3 py-1.5 rounded-full text-[10.5px] font-bold uppercase tracking-wider border transition whitespace-nowrap"
                             style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
                         Vista CREATA
                     </button>
                     <button type="button" id="btnSendAcceptedQuoteWhatsApp" onclick="sendAcceptedQuoteToClientWhatsApp(this)"
-                            class="px-4 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
+                            class="px-3.5 py-1.5 rounded-full text-[10.5px] font-extrabold uppercase tracking-wider shadow-sm transition inline-flex items-center justify-center gap-1 whitespace-nowrap"
                             style="background:#10B981; color:#FFFFFF;"
                             title="Enviar cotización al WhatsApp del cliente con el documento adjunto">
                         <span>📲</span>
                         <span>Enviar</span>
                     </button>
                     <button type="button" id="btnAcceptGeneratedQuote" onclick="acceptGeneratedQuoteAndReset()"
-                            class="px-4 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider shadow-sm transition whitespace-nowrap"
+                            class="px-3.5 py-1.5 rounded-full text-[10.5px] font-extrabold uppercase tracking-wider shadow-sm transition whitespace-nowrap"
                             style="background:#A38251; color:#FFFFFF;">
                         ✓ Confirmar y nueva plantilla
                     </button>
@@ -870,8 +878,8 @@
     <script src="inventario-data-1.js?v=43"></script>
     <script src="inventario-data-2.js?v=43"></script>
     <script src="inventario-data-3.js?v=43"></script>
-    <script src="./seguimiento-app.js?v=3"></script>
+    <script src="./seguimiento-app.js?v=4"></script>
     <script src="./historial-app.js?v=3"></script>
-    <script src="inventario-app.js?v=72"></script>
+    <script src="inventario-app.js?v=73"></script>
 </body>
 </html>

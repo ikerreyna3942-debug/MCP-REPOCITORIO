@@ -777,6 +777,16 @@
     return new Date().toISOString().slice(0, 10);
   }
 
+  function cleanAvisoDate(raw) {
+    const s = cleanStr(raw);
+    if (!s) return '';
+    const low = s.toLowerCase();
+    if (low === 'true' || low === 'false' || low === '1' || low === '0' || low === 'null' || low === 'undefined' || low === 'app_cotizacion' || low === 'cotizado' || low === 'erp') {
+      return '';
+    }
+    return s;
+  }
+
   function groupQuotesByFolio(itemsList, closuresMap, appCreatedFoliosSet) {
     const priorityOrder = { 'CRITICO': 5, 'SOLO_PISO': 4, 'BAJADA': 3, 'SEGUIMIENTO_DIAS': 2, 'ESTABLE': 1 };
     const grouped = new Map();
@@ -785,6 +795,10 @@
     for (const it of itemsList) {
       const folio = cleanStr(it.Folio_ERP).toUpperCase();
       if (!folio) continue;
+      if (cleanStr(it.Fecha_Ultimo_Aviso).toLowerCase() === 'true') {
+        verifiedAppSet.add(folio);
+      }
+      it.Fecha_Ultimo_Aviso = cleanAvisoDate(it.Fecha_Ultimo_Aviso);
       const isAppVerified = verifiedAppSet.has(folio);
       it.Creada_En_App = isAppVerified;
 
@@ -1415,7 +1429,7 @@
         const liveSt = calculateStockForBranch(sku, sucKey);
         const prod = APP_STATE.inventoryBySku[sku];
 
-        if (cleanStr(r[26]).toUpperCase() === 'APP_COTIZACION') {
+        if (cleanStr(r[26]).toUpperCase() === 'APP_COTIZACION' || cleanStr(r[25]).toLowerCase() === 'true') {
           appCreatedFolios.add(folio);
         }
 
@@ -1441,7 +1455,7 @@
           Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : (cleanStr(r[18]) || '0'),
           Stock_Actual_Total: liveSt ? String(liveSt.total_disponible) : (cleanStr(r[19]) || '0'),
           Estatus_ERP: cleanStr(r[24]) || 'Cotizado',
-          Fecha_Ultimo_Aviso: contactedByFolio[folio] || cleanStr(r[25]),
+          Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || r[25]),
           Foto_Url: (prod && prod.fotoUrl) || '',
           Foto_Thumb: (prod && prod.fotoThumb) || '',
           Foto_Drive_Id: (prod && prod.fotoId) || '',
