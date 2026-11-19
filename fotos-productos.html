@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=16">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=17">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -274,6 +274,20 @@
                             </div>
                         </div>
                         <div class="panel-body">
+                            <!-- ORIGEN VINCULADO: CARPETA LOCAL G:\...\SUBIR PREN + GOOGLE DRIVE SUBIR PREN -->
+                            <div id="subirPrenSourceBar" class="subir-pren-source-bar">
+                                <div class="subir-pren-source-info">
+                                    <span class="subir-pren-source-tag">Origen SUBIR PREN:</span>
+                                    <span id="subirPrenLocalPathBadge" class="subir-pren-source-path mono" title="G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN">G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN</span>
+                                </div>
+                                <div class="subir-pren-source-btns">
+                                    <button type="button" id="btnPickLocalSubirPrenFolder" class="hdr-btn is-accent is-compact-btn" onclick="loadFromLocalSubirPrenFolder(false)" title="Leer y subir fotos desde G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN">💻 Carpeta PC (SUBIR PREN)</button>
+                                    <button type="button" id="btnRebindLocalSubirPrenFolder" class="hdr-btn is-neutral is-compact-btn hidden" onclick="loadFromLocalSubirPrenFolder(true)" title="Elegir otra carpeta local">📂 Cambiar</button>
+                                    <button type="button" id="btnSyncDriveSubirPren" class="hdr-btn is-neutral is-compact-btn" onclick="refreshInboxOnly(true)" title="Cargar fotos pendientes desde Google Drive SUBIR PREN">☁️ Traer de Drive</button>
+                                    <a id="linkOpenDriveSubirPren" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener" class="hdr-btn is-neutral is-compact-btn" title="Abrir carpeta SUBIR PREN en Google Drive">☁️ Drive ↗</a>
+                                </div>
+                            </div>
+
                             <div class="inbox-toolbar">
                                 <div class="search-box-wrap inbox-search-wrap">
                                     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -399,6 +413,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=17"></script>
+    <script src="./fotos-productos-app.js?v=18"></script>
 </body>
 </html>

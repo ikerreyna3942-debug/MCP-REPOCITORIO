@@ -1109,3 +1109,201 @@ test('LINK-4: Bidirectional SKU selection works in BOTH split-screen directions 
     'Cross-tab storage event must hydrate saved photo override into standalone Cotizador immediately'
   );
 });
+
+test('LINK-5: App de Fotos auto-renews expired authToken to load Drive SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p) AND reads local PC folder (G:\\Mi unidad\\...\\SUBIR PREN) with deduplication', async () => {
+  const clock = createFakeClock();
+  const sharedStorage = createSharedStorage();
+
+  // Simulate expired authToken in localStorage + stored accessKey (previously caused silent { ok: false } failure!)
+  sharedStorage.map.set('creata_private_kevin_fotos_v1', JSON.stringify({
+    correo: 'kevin.reyna@grupoanipa.com',
+    nombre: 'Kevin Reyna',
+    authToken: 'stale_expired_token',
+    accessKey: 'KEVIN2026',
+    verifiedAt: clock.now()
+  }));
+
+  const driveSubirPrenFiles = [
+    {
+      id: '16MjrOynaZahLUKU86UHPDxKX60YEaepH',
+      name: 'ATXSILENLBPED SILLA ENNA PINO LACA BELLOTA G2 PEARL DRILL.jpg',
+      viewUrl: 'https://drive.google.com/file/d/16MjrOynaZahLUKU86UHPDxKX60YEaepH/view?usp=sharing',
+      sizeBytes: 405289
+    }
+  ];
+  const uploadedToDriveInbox = [];
+  let loginRenewCalls = 0;
+
+  const fotosVm = createFotosVm({
+    clock,
+    sharedStorage,
+    unlocked: false, // use the custom session seeded above
+    fetch: async (_url, init) => {
+      if (init && init.method === 'POST') {
+        const body = JSON.parse(init.body || '{}');
+        if (body.action === 'inv_login' && body.accessKey === 'KEVIN2026') {
+          loginRenewCalls++;
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              locations: [{ correo: 'kevin.reyna@grupoanipa.com', authToken: 'fresh_hmac_token_999' }]
+            })
+          };
+        }
+        if (body.action === 'fotos_subir_list') {
+          // Simulate legacy deployed authorizePrivateTokenOrPin_ returning silent { ok: false } on stale token!
+          if (body.authToken !== 'fresh_hmac_token_999') {
+            return { ok: true, json: async () => ({ ok: false }) };
+          }
+          return { ok: true, json: async () => ({ ok: true, inboxFolderId: '11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p', files: driveSubirPrenFiles }) };
+        }
+        if (body.action === 'fotos_subir_upload_inbox') {
+          uploadedToDriveInbox.push(body.fileName);
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              file: {
+                id: 'UploadedFromLocalGDriveDesktop_001',
+                name: body.fileName,
+                viewUrl: 'https://drive.google.com/file/d/UploadedFromLocalGDriveDesktop_001/view?usp=sharing'
+              }
+            })
+          };
+        }
+      }
+      return { ok: true, json: async () => ({ ok: true, files: [] }), text: async () => '' };
+    }
+  });
+
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  clock.advanceTime(200);
+
+  // 1) Silent token renewal succeeded and loaded the photo from Drive SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p)
+  assert.equal(loginRenewCalls, 1, 'Must silently renew expired authToken via inv_login');
+  assert.equal(fotosVm.doc.getElementById('inboxHeaderBadge').textContent, '1');
+  assert.match(fotosVm.doc.getElementById('inboxGalleryContainer').innerHTML, /16MjrOynaZahLUKU86UHPDxKX60YEaepH/);
+  assert.equal(
+    fotosVm.doc.getElementById('linkOpenDriveSubirPren').getAttribute('href'),
+    'https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p'
+  );
+
+  // 2) Mock window.showDirectoryPicker for G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN
+  //    containing 1 file already in Drive (must NOT duplicate) + 1 brand-new file (must stage & upload)
+  fotosVm.win.FileReader = class MockFileReader {
+    readAsDataURL(file) {
+      this.result = 'data:image/jpeg;base64,dGVzdA==';
+      if (typeof this.onload === 'function') this.onload();
+    }
+  };
+  fotosVm.win.showDirectoryPicker = async () => ({
+    name: 'SUBIR PREN',
+    queryPermission: async () => 'granted',
+    async *values() {
+      yield {
+        kind: 'file',
+        getFile: async () => ({ name: 'ATXSILENLBPED SILLA ENNA PINO LACA BELLOTA G2 PEARL DRILL.jpg', type: 'image/jpeg', size: 12000 })
+      };
+      yield {
+        kind: 'file',
+        getFile: async () => ({ name: 'SKU-SALA-01 SALA MILAN NUEVA.jpg', type: 'image/jpeg', size: 15000 })
+      };
+    }
+  });
+
+  await fotosVm.win.loadFromLocalSubirPrenFolder(false);
+  await new Promise((r) => setImmediate(r));
+  clock.advanceTime(200);
+
+  assert.deepEqual(uploadedToDriveInbox, ['SKU-SALA-01 SALA MILAN NUEVA.jpg'], 'Must upload only brand-new file and deduplicate already-synced SUBIR PREN file');
+  assert.equal(fotosVm.doc.getElementById('inboxHeaderBadge').textContent, '2');
+  assert.match(fotosVm.doc.getElementById('subirPrenLocalPathBadge').textContent, /SUBIR PREN/);
+});
+
+test('LINK-6: Cotizador (#uploadPhotoModal) loads Drive SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p) and assigns photo directly to Hoja 1 + live Cotizador & App de Fotos', async () => {
+  const clock = createFakeClock();
+  const sharedStorage = createSharedStorage();
+  const BroadcastChannel = createSharedBroadcastBus();
+
+  sharedStorage.map.set('creata_fotos_fast_cache_v6', JSON.stringify({
+    ts: clock.now(),
+    p: [
+      ['SKU-SALA-01', 'SALA MILAN 3P LINO BEIGE', 'SALA MILAN 3P LINO BEIGE', '', 2, 1, 1, 'SALAS', 'SALA', '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', 'MILAN', '3P', '220x95x80', 'LINO', [2, 3, 1, 0, 0, 0, 2, 0, 0, 4, 1], '$24,900.00', '']
+    ],
+    inb: [],
+    fn: []
+  }));
+
+  const fotosPeer = createFotosVm({
+    clock,
+    sharedStorage,
+    BroadcastChannel
+  });
+  fotosPeer.win.selectSkuProduct('SKU-SALA-01');
+
+  let assignPayloadReceived = null;
+  const cotizadorVm = await createCotizadorVm({
+    clock,
+    sharedStorage,
+    BroadcastChannel,
+    fetch: async (_url, init) => {
+      if (init && init.method === 'POST') {
+        const body = JSON.parse(init.body || '{}');
+        if (body.action === 'fotos_subir_list') {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              inboxFolderId: '11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p',
+              files: [
+                {
+                  id: 'DriveSubirPrenSala01_ID',
+                  name: 'SKU-SALA-01 SALA MILAN LINO BEIGE.jpg',
+                  thumbUrl: 'https://lh3.googleusercontent.com/d/DriveSubirPrenSala01_ID=w320'
+                }
+              ]
+            })
+          };
+        }
+        if (body.action === 'fotos_subir_assign') {
+          assignPayloadReceived = body;
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              fileId: 'DriveSubirPrenSala01_ID',
+              photoUrl: 'https://drive.google.com/file/d/DriveSubirPrenSala01_ID/view?usp=sharing'
+            })
+          };
+        }
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    }
+  });
+
+  // Open detail modal & upload modal for SKU-SALA-01 in Cotizador
+  assert.equal(cotizadorVm.win.openProductDetail('SKU-SALA-01', false, true), true);
+  assert.equal(cotizadorVm.doc.getElementById('detPhotoEmpty').classList.contains('hidden'), false);
+
+  cotizadorVm.win.openUploadPhotoModal('SKU-SALA-01');
+  assert.equal(cotizadorVm.doc.getElementById('uploadPhotoSubirPrenSources').classList.contains('hidden'), false, 'Kevin must see SUBIR PREN PC & Drive sources in Cotizador upload modal');
+
+  // Load Drive SUBIR PREN inside Cotizador upload modal -> auto-selects matching SKU-SALA-01 photo!
+  await cotizadorVm.win.loadDriveSubirPrenInCotizador(true);
+  assert.match(cotizadorVm.doc.getElementById('uploadPhotoDriveInboxGrid').innerHTML, /DriveSubirPrenSala01_ID/);
+  assert.equal(cotizadorVm.doc.getElementById('uploadPhotoCountLabel').textContent, '1 de Drive SUBIR PREN');
+
+  // Click Subir a categoría -> assigns Drive SUBIR PREN photo to SKU-SALA-01, updates Cotizador AND syncs to App de Fotos!
+  await cotizadorVm.win.submitMultiProductPhotos();
+  clock.advanceTime(100);
+
+  assert.ok(assignPayloadReceived, 'Must call fotos_subir_assign for selected Drive SUBIR PREN file');
+  assert.equal(assignPayloadReceived.sku, 'SKU-SALA-01');
+  assert.equal(assignPayloadReceived.driveFileId, 'DriveSubirPrenSala01_ID');
+  assert.equal(cotizadorVm.doc.getElementById('detPhotoEmpty').classList.contains('hidden'), true, 'Cotizador detail photo must update immediately');
+  assert.match(fotosPeer.doc.getElementById('curPhotoCanvas').innerHTML, /DriveSubirPrenSala01_ID/, 'App de Fotos must also receive real-time photo update via BroadcastChannel');
+});
+

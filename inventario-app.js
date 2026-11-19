@@ -4650,6 +4650,352 @@
         window.filterUploadPhotoModelOptions(inp ? inp.value : '');
     };
 
+    const SUBIR_PREN_FOLDER_ID_INV = '11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p';
+    const SUBIR_PREN_WIN_PATH_INV = 'G:\\Mi unidad\\DOC ANIPA\\Fotos general\\Fotos de del proyeto\\SUBIR PREN';
+    const SUBIR_PREN_DIR_IDB_NAME_INV = 'creata_subir_pren_dir_idb_v1';
+    const SUBIR_PREN_DIR_IDB_STORE_INV = 'dir_handles';
+    const SUBIR_PREN_DIR_IDB_KEY_INV = 'subir_pren';
+
+    let uploadPhotoDriveFilesCache = [];
+    let uploadPhotoSelectedDriveFileId = '';
+    let uploadPhotoDriveLoading = false;
+
+    function openInvSubirPrenDirDb() {
+        return new Promise(function (resolve) {
+            try {
+                if (typeof indexedDB === 'undefined' || !indexedDB || typeof indexedDB.open !== 'function') {
+                    resolve(null);
+                    return;
+                }
+                const req = indexedDB.open(SUBIR_PREN_DIR_IDB_NAME_INV, 1);
+                req.onupgradeneeded = function () {
+                    try {
+                        const db = req.result;
+                        if (db && !db.objectStoreNames.contains(SUBIR_PREN_DIR_IDB_STORE_INV)) {
+                            db.createObjectStore(SUBIR_PREN_DIR_IDB_STORE_INV);
+                        }
+                    } catch (eUp) {}
+                };
+                req.onsuccess = function () { resolve(req.result || null); };
+                req.onerror = function () { resolve(null); };
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    async function readInvSavedSubirPrenDirHandle() {
+        const db = await openInvSubirPrenDirDb();
+        if (!db) return null;
+        return new Promise(function (resolve) {
+            try {
+                const tx = db.transaction(SUBIR_PREN_DIR_IDB_STORE_INV, 'readonly');
+                const req = tx.objectStore(SUBIR_PREN_DIR_IDB_STORE_INV).get(SUBIR_PREN_DIR_IDB_KEY_INV);
+                req.onsuccess = function () { resolve(req.result || null); };
+                req.onerror = function () { resolve(null); };
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    async function writeInvSavedSubirPrenDirHandle(handle) {
+        const db = await openInvSubirPrenDirDb();
+        if (!db || !handle) return false;
+        return new Promise(function (resolve) {
+            try {
+                const tx = db.transaction(SUBIR_PREN_DIR_IDB_STORE_INV, 'readwrite');
+                tx.objectStore(SUBIR_PREN_DIR_IDB_STORE_INV).put(handle, SUBIR_PREN_DIR_IDB_KEY_INV);
+                tx.oncomplete = function () { resolve(true); };
+                tx.onerror = function () { resolve(false); };
+            } catch (e) {
+                resolve(false);
+            }
+        });
+    }
+
+    async function collectInvImagesFromDirHandle(dirHandle, depth) {
+        const out = [];
+        if (!dirHandle || typeof dirHandle.values !== 'function') return out;
+        const curDepth = typeof depth === 'number' ? depth : 0;
+        for await (const entry of dirHandle.values()) {
+            if (!entry) continue;
+            if (entry.kind === 'file' && typeof entry.getFile === 'function') {
+                try {
+                    const f = await entry.getFile();
+                    if (!f) continue;
+                    const mime = String(f.type || '').toLowerCase();
+                    if (mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '')) {
+                        out.push(f);
+                    }
+                } catch (eF) {}
+            } else if (entry.kind === 'directory' && curDepth < 1) {
+                const sub = await collectInvImagesFromDirHandle(entry, curDepth + 1);
+                for (let s = 0; s < sub.length; s++) out.push(sub[s]);
+            }
+        }
+        return out;
+    }
+
+    function detectSkuFromSubirPrenFilename(fileName) {
+        const base = cleanStr(fileName).replace(/\.[a-zA-Z0-9]{2,5}$/, '').trim().toUpperCase();
+        if (!base) return '';
+        if (bySkuMap.has(base)) return base;
+        const firstWord = cleanStr(base.split(/\s+/)[0]);
+        if (firstWord.length >= 4 && bySkuMap.has(firstWord)) return firstWord;
+        const firstPart = cleanStr(base.split(/[\s_\-]+/)[0]);
+        if (firstPart.length >= 4 && bySkuMap.has(firstPart)) return firstPart;
+        const tokens = base.split(/[^A-Z0-9\-]+/);
+        for (let i = 0; i < tokens.length; i++) {
+            if (tokens[i].length >= 5 && bySkuMap.has(tokens[i])) return tokens[i];
+        }
+        return '';
+    }
+
+    function persistFotosSavedOverrideFromCotizador(sku, newUrl, fileId, productName, destFolderName) {
+        try {
+            const cleanUrl = cleanStr(newUrl);
+            if (!cleanUrl || cleanUrl.indexOf('blob:') === 0) return;
+            const raw = localStorage.getItem(FOTOS_SAVED_OVERRIDES_STORAGE_KEY);
+            const prev = raw ? (JSON.parse(raw) || []) : [];
+            const list = Array.isArray(prev) ? prev.filter(function (x) { return cleanStr(x && x.sku).toUpperCase() !== sku; }) : [];
+            list.unshift({
+                sku: sku,
+                productName: productName || sku,
+                newUrl: cleanUrl,
+                fileId: cleanStr(fileId) || extractDriveFileId(cleanUrl),
+                destFolderName: destFolderName || '',
+                ts: Date.now()
+            });
+            localStorage.setItem(FOTOS_SAVED_OVERRIDES_STORAGE_KEY, JSON.stringify(list.slice(0, 120)));
+        } catch (eOv) {}
+
+        const msg = {
+            type: 'CREATA_SPLIT_PHOTO_SAVED',
+            sku: sku,
+            photoUrl: cleanStr(newUrl),
+            deleted: false,
+            fileId: cleanStr(fileId) || extractDriveFileId(newUrl),
+            destFolderName: destFolderName || '',
+            source: 'cotizador'
+        };
+        try {
+            if (_invSplitActive) {
+                const frame = document.getElementById('invSplitFotosFrame');
+                if (frame && frame.contentWindow && typeof frame.contentWindow.postMessage === 'function') {
+                    frame.contentWindow.postMessage(msg, '*');
+                }
+            }
+            if (window.parent && window.parent !== window && typeof window.parent.postMessage === 'function') {
+                window.parent.postMessage(msg, '*');
+            }
+        } catch (ePm) {}
+        try {
+            if (typeof BroadcastChannel === 'function') {
+                const ch = new BroadcastChannel(FOTOS_SYNC_BROADCAST_CHANNEL);
+                ch.postMessage(msg);
+                ch.close();
+            }
+        } catch (eBc) {}
+    }
+
+    function readKevinFotosAccessKeyFallback() {
+        try {
+            if (typeof sessionStorage !== 'undefined') {
+                const sec = cleanStr(sessionStorage.getItem('creata_private_kevin_fotos_sec_v1'));
+                if (sec) return sec;
+            }
+            const secLocal = cleanStr(localStorage.getItem('creata_private_kevin_fotos_sec_v1'));
+            if (secLocal) return secLocal;
+            const fotosSess = JSON.parse(localStorage.getItem('creata_private_kevin_fotos_v1') || 'null');
+            if (fotosSess && cleanStr(fotosSess.accessKey)) return cleanStr(fotosSess.accessKey);
+        } catch (e) {}
+        return '';
+    }
+
+    async function callOwnerFotosEndpointFromCotizador(action, extraPayload, timeoutMs) {
+        const basePayload = Object.assign({
+            authToken: (activeAdvisorSession && activeAdvisorSession.authToken) || '',
+            advisorEmail: (activeAdvisorSession && activeAdvisorSession.correo) || '',
+            sheetTab: (activeAdvisorSession && activeAdvisorSession.sheetTab) || 'PROYECTOS',
+            inboxFolderId: SUBIR_PREN_FOLDER_ID_INV
+        }, extraPayload || {});
+        const fallbackKey = readKevinFotosAccessKeyFallback();
+        if (fallbackKey && !basePayload.accessKey) {
+            basePayload.accessKey = fallbackKey;
+        }
+        let res = await callInvWebAppPost(action, basePayload, timeoutMs || 30000, true);
+        if (res && res.renewedAuthToken && activeAdvisorSession) {
+            activeAdvisorSession.authToken = cleanStr(res.renewedAuthToken);
+        }
+        if (res && !res.ok && !res.unavailable && !cleanStr(res.error) && fallbackKey) {
+            const loginRes = await callInvWebAppPost('inv_login', {
+                email: (activeAdvisorSession && activeAdvisorSession.correo) || 'kevin.reyna@grupoanipa.com',
+                accessKey: fallbackKey,
+                sheetTab: 'PROYECTOS'
+            }, 10000, true);
+            const freshTok = cleanStr(loginRes && (loginRes.authToken || (loginRes.user && loginRes.user.authToken)));
+            if (freshTok) {
+                if (activeAdvisorSession) activeAdvisorSession.authToken = freshTok;
+                res = await callInvWebAppPost(action, Object.assign({}, basePayload, { authToken: freshTok }), timeoutMs || 30000, true);
+            }
+        }
+        return res;
+    }
+
+    function renderDriveSubirPrenGridInCotizador() {
+        const gridEl = document.getElementById('uploadPhotoDriveInboxGrid');
+        const countEl = document.getElementById('uploadPhotoDriveInboxCount');
+        if (!gridEl) return;
+        if (uploadPhotoDriveLoading) {
+            gridEl.innerHTML = '<div class="inv-muted-sm" style="grid-column:1/-1;padding:8px;">Cargando SUBIR PREN de Drive...</div>';
+            return;
+        }
+        if (!uploadPhotoDriveFilesCache.length) {
+            if (countEl) countEl.textContent = '☁️ Drive SUBIR PREN (0 fotos)';
+            gridEl.innerHTML = '<div class="inv-muted-sm" style="grid-column:1/-1;padding:8px;">No hay fotos pendientes en Drive SUBIR PREN.</div>';
+            return;
+        }
+        if (countEl) countEl.textContent = '☁️ Drive SUBIR PREN (' + uploadPhotoDriveFilesCache.length + ')';
+        gridEl.innerHTML = uploadPhotoDriveFilesCache.slice(0, 60).map(function (f) {
+            const fid = cleanStr(f && f.id);
+            const isSel = fid && fid === uploadPhotoSelectedDriveFileId;
+            const thumb = cleanStr(f.thumbDataUrl || f.thumbUrl) || ('https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w320');
+            const safeFid = escapeHtml(fid.replace(/'/g, "\\'"));
+            return '<button type="button" class="inv-subir-pren-item' + (isSel ? ' is-selected' : '') + '" onclick="selectDriveSubirPrenPhotoInCotizador(\'' + safeFid + '\')">' +
+                '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' +
+                '<span class="inv-subir-pren-item-name">' + escapeHtml(f.name || fid) + '</span>' +
+            '</button>';
+        }).join('');
+    }
+
+    window.selectDriveSubirPrenPhotoInCotizador = function (fileId) {
+        const fid = cleanStr(fileId);
+        if (!fid) return;
+        if (uploadPhotoSelectedDriveFileId === fid) {
+            uploadPhotoSelectedDriveFileId = '';
+        } else {
+            uploadPhotoSelectedDriveFileId = fid;
+            uploadPhotoPendingFiles = [];
+            renderUploadPhotoPreviewGrid();
+            const found = uploadPhotoDriveFilesCache.find(function (x) { return cleanStr(x && x.id) === fid; });
+            if (found) {
+                const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+                if (hiddenSku && !cleanStr(hiddenSku.value)) {
+                    const sug = detectSkuFromSubirPrenFilename(found.name);
+                    if (sug) window.selectUploadPhotoModelOption(sug);
+                }
+            }
+        }
+        const cntLbl = document.getElementById('uploadPhotoCountLabel');
+        if (cntLbl) {
+            cntLbl.textContent = uploadPhotoSelectedDriveFileId
+                ? '1 de Drive SUBIR PREN'
+                : (uploadPhotoPendingFiles.length + ' seleccionadas');
+        }
+        renderDriveSubirPrenGridInCotizador();
+    };
+
+    window.loadDriveSubirPrenInCotizador = async function (forceReload) {
+        if (!isFotosAppOwner()) return [];
+        const wrap = document.getElementById('uploadPhotoDriveInboxWrap');
+        if (wrap) wrap.classList.remove('hidden');
+        if (uploadPhotoDriveLoading) return uploadPhotoDriveFilesCache;
+        if (!forceReload && uploadPhotoDriveFilesCache.length > 0) {
+            renderDriveSubirPrenGridInCotizador();
+            return uploadPhotoDriveFilesCache;
+        }
+        uploadPhotoDriveLoading = true;
+        renderDriveSubirPrenGridInCotizador();
+        try {
+            const res = await callOwnerFotosEndpointFromCotizador('fotos_subir_list', {}, 30000);
+            if (res && res.ok && Array.isArray(res.files)) {
+                uploadPhotoDriveFilesCache = res.files;
+                const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+                const curSku = cleanStr(hiddenSku ? hiddenSku.value : '').toUpperCase();
+                if (curSku && !uploadPhotoSelectedDriveFileId && !uploadPhotoPendingFiles.length) {
+                    const autoMatch = res.files.find(function (f) {
+                        return detectSkuFromSubirPrenFilename(f && f.name) === curSku;
+                    });
+                    if (autoMatch && autoMatch.id) {
+                        uploadPhotoSelectedDriveFileId = cleanStr(autoMatch.id);
+                        const cntLbl = document.getElementById('uploadPhotoCountLabel');
+                        if (cntLbl) cntLbl.textContent = '1 de Drive SUBIR PREN';
+                    }
+                }
+            } else if (res && res.authRequired) {
+                setUploadPhotoModalStatus(res.error || 'Confirma tu contraseña para leer Drive SUBIR PREN.', 'warn');
+            }
+        } finally {
+            uploadPhotoDriveLoading = false;
+            renderDriveSubirPrenGridInCotizador();
+        }
+        return uploadPhotoDriveFilesCache;
+    };
+
+    window.toggleDriveSubirPrenInCotizador = function () {
+        const wrap = document.getElementById('uploadPhotoDriveInboxWrap');
+        if (!wrap) return;
+        const willOpen = wrap.classList.contains('hidden');
+        if (willOpen) {
+            wrap.classList.remove('hidden');
+            window.loadDriveSubirPrenInCotizador(true);
+        } else {
+            wrap.classList.add('hidden');
+        }
+    };
+
+    window.pickLocalSubirPrenInCotizador = async function (forcePickNew) {
+        if (typeof window.showDirectoryPicker !== 'function') {
+            const folderInp = document.getElementById('uploadPhotoFolderInput');
+            if (folderInp && typeof folderInp.click === 'function') folderInp.click();
+            return;
+        }
+        try {
+            let dirHandle = forcePickNew ? null : await readInvSavedSubirPrenDirHandle();
+            if (dirHandle) {
+                let perm = 'granted';
+                if (typeof dirHandle.queryPermission === 'function') perm = await dirHandle.queryPermission({ mode: 'read' });
+                if (perm !== 'granted' && typeof dirHandle.requestPermission === 'function') perm = await dirHandle.requestPermission({ mode: 'read' });
+                if (perm !== 'granted') dirHandle = null;
+            }
+            if (!dirHandle) {
+                dirHandle = await window.showDirectoryPicker({ id: 'creata_subir_pren_pc', mode: 'read' });
+                if (!dirHandle) return;
+                await writeInvSavedSubirPrenDirHandle(dirHandle);
+            }
+            const pathLbl = document.getElementById('uploadPhotoSubirPrenPathLabel');
+            if (pathLbl) {
+                pathLbl.textContent = '✓ ' + SUBIR_PREN_WIN_PATH_INV + ' (' + String(dirHandle.name || 'SUBIR PREN') + ')';
+            }
+            const files = await collectInvImagesFromDirHandle(dirHandle, 0);
+            if (!files.length) {
+                setUploadPhotoModalStatus('La carpeta local SUBIR PREN no contiene imágenes actualmente.', 'warn');
+                return;
+            }
+            const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
+            const curSku = cleanStr(hiddenSku ? hiddenSku.value : '').toUpperCase();
+            let toSelect = files;
+            if (curSku) {
+                const matchedSkuFiles = files.filter(function (f) {
+                    return detectSkuFromSubirPrenFilename(f.name) === curSku || cleanStr(f.name).toUpperCase().indexOf(curSku) !== -1;
+                });
+                if (matchedSkuFiles.length > 0) toSelect = matchedSkuFiles;
+            } else if (files.length === 1) {
+                const sugSku = detectSkuFromSubirPrenFilename(files[0].name);
+                if (sugSku) window.selectUploadPhotoModelOption(sugSku);
+            }
+            uploadPhotoSelectedDriveFileId = '';
+            renderDriveSubirPrenGridInCotizador();
+            window.onUploadPhotoFilesSelected(toSelect);
+            setUploadPhotoModalStatus('✓ ' + toSelect.length + ' foto(s) leída(s) de SUBIR PREN (PC).', 'ok');
+        } catch (errDir) {
+            if (errDir && (errDir.name === 'AbortError' || /abort/i.test(String(errDir.message || '')))) return;
+            const folderInp = document.getElementById('uploadPhotoFolderInput');
+            if (folderInp && typeof folderInp.click === 'function') folderInp.click();
+        }
+    };
+
     window.openUploadPhotoModal = function (prefillItem) {
         if (!canManageProductPhotos()) return;
         const resolvedItem = typeof prefillItem === 'string'
@@ -4664,8 +5010,11 @@
         const progWrap = document.getElementById('uploadPhotoProgressWrap');
         const progBar = document.getElementById('uploadPhotoProgressBar');
         const subBtn = document.getElementById('uploadPhotoSubmitBtn');
+        const subirSourcesEl = document.getElementById('uploadPhotoSubirPrenSources');
+        const driveTrayEl = document.getElementById('uploadPhotoDriveInboxWrap');
 
         uploadPhotoPendingFiles = [];
+        uploadPhotoSelectedDriveFileId = '';
         renderUploadPhotoPreviewGrid();
         setUploadPhotoModalStatus('', '');
         if (progWrap) progWrap.classList.add('hidden');
@@ -4675,6 +5024,12 @@
             subBtn.textContent = 'Subir a categoría';
         }
         if (dd) dd.classList.add('hidden');
+        if (subirSourcesEl) {
+            subirSourcesEl.classList.toggle('hidden', !isFotosAppOwner());
+        }
+        if (driveTrayEl) {
+            driveTrayEl.classList.add('hidden');
+        }
 
         const appFotosLinkEl = document.getElementById('uploadPhotoAppFotosLink');
         if (resolvedItem && resolvedItem.s) {
@@ -4714,9 +5069,12 @@
         if (managerPhotoUploadInFlight) return;
         const modal = document.getElementById('uploadPhotoModal');
         const dd = document.getElementById('uploadPhotoModelDropdown');
+        const driveTrayEl = document.getElementById('uploadPhotoDriveInboxWrap');
         if (dd) dd.classList.add('hidden');
+        if (driveTrayEl) driveTrayEl.classList.add('hidden');
         if (modal) modal.classList.remove('open');
         uploadPhotoPendingFiles = [];
+        uploadPhotoSelectedDriveFileId = '';
         renderUploadPhotoPreviewGrid();
         setUploadPhotoModalStatus('', '');
     };
@@ -4747,8 +5105,59 @@
             if (inp) inp.focus();
             return;
         }
+
+        // Flujo directo desde Google Drive SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p) -> Categoría + Hoja '1'!D
+        if (isFotosAppOwner() && uploadPhotoSelectedDriveFileId && !uploadPhotoPendingFiles.length) {
+            const progWrap = document.getElementById('uploadPhotoProgressWrap');
+            const progBar = document.getElementById('uploadPhotoProgressBar');
+            const subBtn = document.getElementById('uploadPhotoSubmitBtn');
+            const driveFid = uploadPhotoSelectedDriveFileId;
+
+            managerPhotoUploadInFlight = true;
+            if (subBtn) { subBtn.disabled = true; subBtn.textContent = 'Asignando...'; }
+            if (progWrap) progWrap.classList.remove('hidden');
+            if (progBar) progBar.style.width = '40%';
+            setUploadPhotoModalStatus('Asignando foto de SUBIR PREN a ' + targetSku + '...', 'warn');
+
+            try {
+                const assignRes = await callOwnerFotosEndpointFromCotizador('fotos_subir_assign', {
+                    sku: targetSku,
+                    productName: targetName,
+                    driveFileId: driveFid,
+                    targetFolderId: chosenCatFolderMeta.id
+                }, 35000);
+
+                if (assignRes && assignRes.authRequired) {
+                    setUploadPhotoModalStatus(assignRes.error || 'Confirma tu contraseña para continuar.', 'warn');
+                    promptSessionReauth(assignRes.error || 'Confirma tu contraseña para continuar.', null);
+                    return;
+                }
+                if (assignRes && assignRes.ok) {
+                    const finalFid = cleanStr(assignRes.fileId) || driveFid;
+                    const finalUrl = cleanStr(assignRes.photoUrl) || ('https://drive.google.com/file/d/' + finalFid + '/view?usp=sharing');
+                    uploadPhotoDriveFilesCache = uploadPhotoDriveFilesCache.filter(function (x) { return cleanStr(x && x.id) !== driveFid; });
+                    uploadPhotoSelectedDriveFileId = '';
+                    renderDriveSubirPrenGridInCotizador();
+                    applyRealtimePhotoUpdateInCotizador(targetSku, finalUrl, finalFid);
+                    persistFotosSavedOverrideFromCotizador(targetSku, finalUrl, finalFid, targetName, chosenCatFolderMeta.name);
+                    if (progBar) progBar.style.width = '100%';
+                    const okMsg = '✓ Foto de SUBIR PREN asignada a ' + targetSku + ' (' + chosenCatFolderMeta.name + ').';
+                    setUploadPhotoModalStatus(okMsg, 'ok');
+                    if (currentDetailItem && String(currentDetailItem.s || '').toUpperCase() === targetSku) {
+                        setDetailUploadPhotoStatus(okMsg, 'ok');
+                    }
+                } else {
+                    setUploadPhotoModalStatus((assignRes && assignRes.error) || 'No se pudo asignar la foto desde SUBIR PREN.', 'err');
+                }
+            } finally {
+                managerPhotoUploadInFlight = false;
+                if (subBtn) { subBtn.disabled = false; subBtn.textContent = 'Subir a categoría'; }
+            }
+            return;
+        }
+
         if (!uploadPhotoPendingFiles.length) {
-            setUploadPhotoModalStatus('Selecciona al menos una foto.', 'warn');
+            setUploadPhotoModalStatus('Selecciona al menos una foto (o elígela de SUBIR PREN).', 'warn');
             return;
         }
 
@@ -4773,10 +5182,37 @@
         let lastErrMsg = '';
         let cursor = 0;
         const filesSnap = uploadPhotoPendingFiles.slice();
+        const ownerModeAssign = isFotosAppOwner();
 
-        async function uploadOne(file) {
+        async function uploadOne(file, idx) {
             try {
                 const dataUrl = await normalizePhotoToSquare1x1DataUrl(file, 1000, 0.80);
+
+                // Para el titular (Kevin), subir por SUBIR PREN -> Categoría y registrar en Hoja '1'!D la foto principal
+                if (ownerModeAssign && idx === 0) {
+                    const upInb = await callOwnerFotosEndpointFromCotizador('fotos_subir_upload_inbox', {
+                        fileName: file.name || (targetSku + '.jpg'),
+                        dataUrl: dataUrl
+                    }, 35000);
+                    const upFid = cleanStr(upInb && upInb.ok && upInb.file && upInb.file.id);
+                    if (upFid) {
+                        const assignRes = await callOwnerFotosEndpointFromCotizador('fotos_subir_assign', {
+                            sku: targetSku,
+                            productName: targetName,
+                            driveFileId: upFid,
+                            targetFolderId: chosenCatFolderMeta.id
+                        }, 35000);
+                        if (assignRes && assignRes.ok) {
+                            const finalFid = cleanStr(assignRes.fileId) || upFid;
+                            const finalUrl = cleanStr(assignRes.photoUrl) || ('https://drive.google.com/file/d/' + finalFid + '/view?usp=sharing');
+                            applyRealtimePhotoUpdateInCotizador(targetSku, finalUrl, finalFid);
+                            persistFotosSavedOverrideFromCotizador(targetSku, finalUrl, finalFid, targetName, chosenCatFolderMeta.name);
+                            okCount++;
+                            return;
+                        }
+                    }
+                }
+
                 const res = await callInvWebAppPost('inv_upload_product_photo', {
                     authToken: activeAdvisorSession.authToken || '',
                     sheetTab: activeAdvisorSession.sheetTab || '',
@@ -4800,6 +5236,11 @@
                     return;
                 }
                 if (res && res.ok) {
+                    if (ownerModeAssign && idx === 0 && cleanStr(res.driveUrl || res.fileId)) {
+                        const fbFid = cleanStr(res.fileId) || extractDriveFileId(res.driveUrl);
+                        const fbUrl = cleanStr(res.driveUrl) || ('https://drive.google.com/file/d/' + fbFid + '/view?usp=sharing');
+                        applyRealtimePhotoUpdateInCotizador(targetSku, fbUrl, fbFid);
+                    }
                     okCount++;
                 } else {
                     failCount++;
@@ -4822,7 +5263,7 @@
         async function worker() {
             while (cursor < filesSnap.length && !authStopped) {
                 const idx = cursor++;
-                await uploadOne(filesSnap[idx]);
+                await uploadOne(filesSnap[idx], idx);
             }
         }
 
