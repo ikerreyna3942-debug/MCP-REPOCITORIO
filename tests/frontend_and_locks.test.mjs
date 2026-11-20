@@ -56,8 +56,8 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   assert.match(promptsSwSrc, /creata-back-nav\.js\?v=1/);
   assert.match(promptsSwSrc, /prompts-styles\.css\?v=5/);
   assert.match(promptsSwSrc, /prompts-app\.js\?v=7/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v11['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v11['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v12['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v12['"]/);
   assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v1['"]/);
   assert.match(panelSwSrc, /panel-styles\.css\?v=4/);
   assert.match(panelSwSrc, /panel-app\.js\?v=9/);

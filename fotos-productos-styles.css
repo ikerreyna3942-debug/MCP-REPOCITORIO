@@ -2178,12 +2178,36 @@ body.fotos-split-active:not(.fotos-split-vertical) #privateAppShell {
     border-right: 1px solid var(--border-strong);
 }
 
+body.fotos-split-active:not(.fotos-split-vertical) .exec-header-inner {
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    gap: 6px;
+}
+
+body.fotos-split-active:not(.fotos-split-vertical) .header-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 5px;
+}
+
 body.fotos-split-active:not(.fotos-split-vertical) .workspace-shell {
     padding: 8px !important;
 }
 
 body.fotos-split-active:not(.fotos-split-vertical) .workbench-grid {
     grid-template-columns: 1fr !important;
+}
+
+body.fotos-split-active:not(.fotos-split-vertical) .lightbox-backdrop {
+    left: 0;
+    right: auto;
+    width: var(--fotos-split-pct, 50%);
+    padding: 12px;
+}
+
+body.fotos-split-active:not(.fotos-split-vertical) .fotos-install-card {
+    width: 100%;
+    max-width: 100%;
 }
 
 body.fotos-split-active.fotos-split-vertical #privateAppShell {
@@ -2193,6 +2217,49 @@ body.fotos-split-active.fotos-split-vertical #privateAppShell {
     overflow-x: hidden;
 }
 
+body.fotos-split-active.fotos-split-vertical .lightbox-backdrop {
+    top: 0;
+    bottom: auto;
+    left: 0;
+    right: 0;
+    height: var(--fotos-split-pct, 50%);
+    padding: 10px;
+}
+
+/* Barras de scroll oscuras y delgadas en filas de filtros para evitar barras grises gruesas en Windows/dividido */
+.category-pills-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(204, 166, 107, 0.45) transparent;
+}
+
+.category-pills-scroll::-webkit-scrollbar {
+    height: 4px;
+}
+
+.category-pills-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.category-pills-scroll::-webkit-scrollbar-thumb {
+    background: rgba(204, 166, 107, 0.42);
+    border-radius: 999px;
+}
+
+@media (max-width: 960px) {
+    .exec-header-inner {
+        flex-wrap: wrap;
+    }
+    .panel-card,
+    .panel-body,
+    .workbench-grid,
+    .right-column-stack,
+    .sku-item,
+    .sku-item-info {
+        min-width: 0;
+        max-width: 100%;
+    }
+}
+
 .fotos-split-dock {
     position: fixed;
     z-index: 900;
@@ -2200,6 +2267,7 @@ body.fotos-split-active.fotos-split-vertical #privateAppShell {
     display: flex;
     flex-direction: column;
     box-shadow: -4px 0 24px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
 }
 
 .fotos-split-dock.hidden {
@@ -2230,8 +2298,9 @@ body.fotos-split-active.fotos-split-vertical .fotos-split-dock {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: 4px 10px;
+    flex-wrap: wrap;
+    gap: 5px 8px;
+    padding: 5px 8px;
     min-height: 36px;
     background: #1A212B;
     border-top: 2px solid var(--gold-accent);
@@ -2254,6 +2323,7 @@ body.fotos-split-active.fotos-split-vertical .fotos-split-resizer {
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 0.03em;
+    flex-shrink: 0;
 }
 
 .fotos-split-grip-dots {
@@ -2279,7 +2349,8 @@ body.fotos-split-active.fotos-split-vertical .fotos-split-resizer {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    min-width: 0;
 }
 
 .fotos-split-chip {
@@ -2292,6 +2363,7 @@ body.fotos-split-active.fotos-split-vertical .fotos-split-resizer {
     font-size: 10px;
     font-weight: 800;
     cursor: pointer;
+    white-space: nowrap;
     transition: all 0.14s ease;
 }
 
@@ -2329,10 +2401,12 @@ body.fotos-split-active.fotos-split-vertical .fotos-split-resizer {
 
 .fotos-split-frame-wrap {
     flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
     height: 100%;
     position: relative;
     background: #FFFFFF;
+    overflow: hidden;
 }
 
 .fotos-split-iframe {
