@@ -24,6 +24,7 @@
 
     let _fotosUiCheckpointRestoredOnce = false;
     let _fotosRestoringCheckpoint = false;
+    let _fotosUserHasScrolled = false;
     let _fotosFlushingOutbox = false;
     let _deferredFotosInstallPrompt = null;
     let _fotosBackNav = null;
@@ -2388,7 +2389,9 @@
                     '</div>' +
                 '</div>';
         }
+        const prevScrollTop = Number(listEl.scrollTop) || 0;
         listEl.innerHTML = htmlParts.join('');
+        if (prevScrollTop > 0) listEl.scrollTop = prevScrollTop;
     }
 
     function updateSkuListSelectionInDom(prevSku, nextSku) {
@@ -2491,7 +2494,7 @@
             if (colASku) colASku.textContent = '—';
             if (colBName) colBName.textContent = '—';
             if (catLabel) catLabel.textContent = '—';
-            if (quickNameEl) quickNameEl.textContent = 'Elige un SKU de la lista';
+            if (quickNameEl) quickNameEl.textContent = 'Elige un SKU';
             if (quickSkuEl) quickSkuEl.textContent = '—';
             if (quickCatEl) quickCatEl.textContent = '—';
             if (moVarVal) moVarVal.textContent = '—';
@@ -2689,11 +2692,11 @@
             return;
         }
 
-        if (stageTitle) stageTitle.textContent = 'Seleccionada';
+        if (stageTitle) stageTitle.textContent = 'Nueva';
         if (clearBtn) clearBtn.classList.add('hidden');
         if (delBtn) delBtn.classList.add('hidden');
         if (footWrap) footWrap.classList.add('hidden');
-        canvas.innerHTML = '<div class="photo-empty-placeholder">—</div>';
+        canvas.innerHTML = '<div class="photo-empty-placeholder">Sube o arrastra</div>';
     }
 
     function updateAssignButtonState() {
@@ -2702,7 +2705,7 @@
         const canAssign = !!(state.selectedSku && selPhoto);
         if (btn) {
             btn.disabled = !canAssign;
-            btn.textContent = state.selectedSku ? ('Guardar en ' + state.selectedSku) : 'Guardar';
+            btn.textContent = 'Guardar';
         }
         const quickBar = document.getElementById('mobileQuickSaveBar');
         const quickSku = document.getElementById('mobileQuickSaveSku');
@@ -5131,16 +5134,11 @@
 
             const finishRestore = () => {
                 try {
-                    const skuListEl = document.getElementById('skuResultsList');
-                    if (skuListEl && typeof cp.skuListScrollTop === 'number' && cp.skuListScrollTop > 0) {
-                        skuListEl.scrollTop = cp.skuListScrollTop;
-                    }
-                    const galEl = document.getElementById('inboxGalleryContainer');
-                    if (galEl && typeof cp.galleryScrollTop === 'number' && cp.galleryScrollTop > 0) {
-                        galEl.scrollTop = cp.galleryScrollTop;
-                    }
-                    if (typeof cp.windowScrollY === 'number' && cp.windowScrollY > 0) {
-                        window.scrollTo({ top: cp.windowScrollY, behavior: 'auto' });
+                    if (!_fotosUserHasScrolled) {
+                        const skuListEl = document.getElementById('skuResultsList');
+                        if (skuListEl && skuListEl.scrollTop === 0 && typeof cp.skuListScrollTop === 'number' && cp.skuListScrollTop > 0) {
+                            skuListEl.scrollTop = cp.skuListScrollTop;
+                        }
                     }
                     if (typeof cp.lightboxUrl === 'string' && /^https?:\/\//i.test(cp.lightboxUrl)) {
                         window.openPhotoLightbox(cp.lightboxUrl);
@@ -5368,7 +5366,7 @@
         if (dock) dock.classList.toggle('hidden', !_fotosSplitActive);
         if (btn) {
             btn.classList.toggle('active', _fotosSplitActive);
-            btn.textContent = _fotosSplitActive ? '⬛⬜ Cerrar División' : '⬛⬜ Dividir con Cotizador';
+            btn.textContent = _fotosSplitActive ? '✕ Dividir' : '⬛⬜ Dividir';
         }
         if (badge) {
             badge.textContent = _fotosSplitPct + '% / ' + (100 - _fotosSplitPct) + '%';
@@ -5802,10 +5800,15 @@
             destSel.addEventListener('change', () => saveFotosUiCheckpointNow());
         }
 
+        const markManualScroll = () => { _fotosUserHasScrolled = true; };
+        window.addEventListener('touchstart', markManualScroll, { passive: true, once: true });
+        window.addEventListener('wheel', markManualScroll, { passive: true, once: true });
+
         const skuListEl = document.getElementById('skuResultsList');
         let skuScrollTimer = null;
         if (skuListEl) {
             skuListEl.addEventListener('scroll', () => {
+                if (!_fotosRestoringCheckpoint) _fotosUserHasScrolled = true;
                 if (skuScrollTimer) clearTimeout(skuScrollTimer);
                 skuScrollTimer = setTimeout(() => saveFotosUiCheckpointNow(), 250);
             }, { passive: true });
@@ -5815,6 +5818,7 @@
         let galScrollTimer = null;
         if (galEl) {
             galEl.addEventListener('scroll', () => {
+                if (!_fotosRestoringCheckpoint) _fotosUserHasScrolled = true;
                 if (galScrollTimer) clearTimeout(galScrollTimer);
                 galScrollTimer = setTimeout(() => saveFotosUiCheckpointNow(), 250);
             }, { passive: true });
@@ -5822,6 +5826,9 @@
 
         let winScrollTimer = null;
         window.addEventListener('scroll', () => {
+            if (!_fotosRestoringCheckpoint && (window.scrollY || 0) > 8) {
+                _fotosUserHasScrolled = true;
+            }
             if (winScrollTimer) clearTimeout(winScrollTimer);
             winScrollTimer = setTimeout(() => saveFotosUiCheckpointNow(), 250);
         }, { passive: true });
@@ -6349,32 +6356,26 @@
 
         if (finderTitle) {
             finderTitle.textContent = nextMode === 'COVER'
-                ? 'Portadas de Inicio'
-                : (nextMode === 'FABRIC' ? 'Telas y Colores' : 'Buscar SKU');
+                ? 'Portadas'
+                : (nextMode === 'FABRIC' ? 'Telas' : 'Buscar SKU');
         }
         if (stageTitle) {
             stageTitle.textContent = nextMode === 'COVER'
-                ? 'Portada Visual'
-                : (nextMode === 'FABRIC' ? 'Foto de Tela' : 'Producto');
+                ? 'Portada'
+                : (nextMode === 'FABRIC' ? 'Tela' : 'Producto');
         }
         if (modeHint) {
-            modeHint.textContent = nextMode === 'COVER'
-                ? '1) Elige el modelo · 2) Sube o arrastra la portada visual · Solo aparece en la tarjeta inicial (no toca SKUs).'
-                : (nextMode === 'FABRIC'
-                    ? '1) Elige el color / tela · 2) Sube o arrastra la muestra de tela · Aparece automáticamente en todos los modelos con esa tela.'
-                    : '1) Elige un producto · 2) Sube o arrastra su foto (se encuadra sola) · 3) Listo.');
+            modeHint.textContent = '';
+            modeHint.classList.add('hidden');
         }
         if (galHint) {
-            galHint.textContent = nextMode === 'COVER'
-                ? '💡 Toca cualquier foto abajo para usarla como portada visual, o arrastra una imagen arriba.'
-                : (nextMode === 'FABRIC'
-                    ? '💡 Toca cualquier foto abajo para usarla como muestra de esta tela/color, o arrastra arriba.'
-                    : '💡 Toca cualquier foto abajo para asignarla al SKU, o arrastra una imagen arriba.');
+            galHint.textContent = '';
+            galHint.classList.add('hidden');
         }
         if (visSearchInp) {
             visSearchInp.placeholder = nextMode === 'COVER'
-                ? 'Buscar modelo (ej. Aspen, Ario, Verona)...'
-                : 'Buscar tela / color (ej. Lillie Snow, Silver)...';
+                ? 'Buscar modelo...'
+                : 'Buscar tela...';
         }
 
         if (isSku) {
@@ -6409,7 +6410,7 @@
                     return true;
                 }
             }
-            showAssignFeedback('🎉 Todos los productos filtrados ya tienen foto.', true);
+            showAssignFeedback('✅ Todo con foto.', true);
             return false;
         }
 
@@ -6424,7 +6425,7 @@
                 return true;
             }
         }
-        showVisualStageFeedback('🎉 Todos los elementos de esta lista ya tienen foto asignada.', true);
+        showVisualStageFeedback('✅ Todo con foto.', true);
         return false;
     };
 
@@ -6474,10 +6475,11 @@
         }
 
         if (!filtered.length) {
-            listEl.innerHTML = '<div class="empty-list-msg">No se encontraron elementos con ese filtro.</div>';
+            listEl.innerHTML = '<div class="empty-list-msg">Sin resultados</div>';
             return;
         }
 
+        const prevScrollTop = Number(listEl.scrollTop) || 0;
         const selKey = String(visualState.selectedOverrideKey || '').toUpperCase();
         listEl.innerHTML = filtered.slice(0, 220).map((item) => {
             const ovKey = String(item.overrideKey || '').toUpperCase();
@@ -6486,8 +6488,8 @@
             const thumbSrc = photoUrl ? resolveVisualThumbSrcInFotos(photoUrl, 160) : '';
             const title = isFabric ? (item.label || item.fabricKey) : (item.title || item.groupKey);
             const sub = isFabric
-                ? ((item.colorHint ? (item.colorHint + ' · ') : '') + item.moduleCount + ' mód. · ' + item.modelCount + (item.modelCount === 1 ? ' modelo' : ' modelos'))
-                : ((item.subCat ? (item.subCat + ' · ') : '') + item.itemCount + ' pzas' + (item.fabricCount > 0 ? (' · ' + item.fabricCount + ' telas') : ''));
+                ? ((item.colorHint ? (item.colorHint + ' · ') : '') + item.moduleCount + ' mód.')
+                : ((item.subCat ? (item.subCat + ' · ') : '') + item.itemCount + ' pzas');
 
             const thumbInner = thumbSrc
                 ? ('<img src="' + escapeHtml(thumbSrc) + '" alt="' + escapeHtml(title) + '" loading="lazy" referrerpolicy="no-referrer">')
@@ -6500,10 +6502,11 @@
                         '<div class="visual-target-title">' + escapeHtml(title) + '</div>' +
                         '<div class="visual-target-sub">' + escapeHtml(sub) + '</div>' +
                     '</div>' +
-                    '<span class="visual-target-pill ' + (photoUrl ? 'has-photo' : 'no-photo') + '">' + (photoUrl ? 'Con foto' : 'Sin foto') + '</span>' +
+                    '<span class="visual-target-pill ' + (photoUrl ? 'has-photo' : 'no-photo') + '">' + (photoUrl ? 'Foto' : 'Sin foto') + '</span>' +
                 '</button>'
             );
         }).join('');
+        if (prevScrollTop > 0) listEl.scrollTop = prevScrollTop;
     }
 
     function syncVisualStageSelectedGalleryPreview() {
@@ -6523,10 +6526,10 @@
 
         if (canAssignGallery && curCanvas) {
             const previewSrc = selPhoto.localDataUrl || selPhoto.thumbDataUrl || buildPhotoThumbUrl(selPhoto.id || selPhoto.viewUrl, 700);
-            if (badgeEl) badgeEl.textContent = 'Vista previa de galería · lista para guardar';
+            if (badgeEl) badgeEl.textContent = 'Lista';
             curCanvas.onclick = null;
             curCanvas.innerHTML =
-                '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Vista previa') + '" referrerpolicy="no-referrer" ' +
+                '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Vista') + '" referrerpolicy="no-referrer" ' +
                 'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '">';
         } else if (!canAssignGallery) {
             renderVisualTargetStage(true);
@@ -6545,13 +6548,13 @@
         const target = getSelectedVisualTargetObj();
 
         if (!target) {
-            if (eyebrow) eyebrow.textContent = isFabric ? 'FOTO DE TELA / COLOR · GLOBAL' : 'PORTADA VISUAL · SOLO INICIO';
-            if (titleEl) titleEl.textContent = isFabric ? 'Selecciona un color / tela' : 'Selecciona un modelo';
-            if (subEl) subEl.textContent = 'Solo visual en el Cotizador · nunca modifica SKUs ni Hoja 1.';
-            if (badgeEl) badgeEl.textContent = 'Vista previa';
+            if (eyebrow) eyebrow.textContent = isFabric ? 'Tela' : 'Portada';
+            if (titleEl) titleEl.textContent = isFabric ? 'Elige tela' : 'Elige modelo';
+            if (subEl) subEl.textContent = isFabric ? 'Muestra de tela' : 'Solo inicio';
+            if (badgeEl) badgeEl.textContent = 'Foto';
             if (curCanvas) {
                 curCanvas.onclick = null;
-                curCanvas.innerHTML = '<div class="photo-empty-placeholder">Selecciona un elemento en la lista</div>';
+                curCanvas.innerHTML = '<div class="photo-empty-placeholder">Toca o arrastra</div>';
             }
             if (delBtn) delBtn.classList.add('hidden');
             if (urlInp) urlInp.value = '';
@@ -6564,32 +6567,27 @@
         const curThumb = curUrl ? resolveVisualThumbSrcInFotos(curUrl, 700) : '';
 
         if (eyebrow) {
-            eyebrow.textContent = isFabric
-                ? 'FOTO DE TELA / COLOR · APARECE EN CLICK 2 (COTIZADOR)'
-                : 'PORTADA VISUAL · SOLO TARJETA DE INICIO (COTIZADOR)';
+            eyebrow.textContent = isFabric ? 'Tela' : 'Portada';
         }
         if (titleEl) titleEl.textContent = label;
         if (subEl) {
             if (isFabric) {
-                const modelsPreview = Array.isArray(target.sampleModels) && target.sampleModels.length
-                    ? (' · Modelos: ' + target.sampleModels.join(', '))
-                    : '';
-                subEl.textContent = target.moduleCount + ' módulos en ' + target.modelCount + (target.modelCount === 1 ? ' modelo' : ' modelos') + modelsPreview;
+                subEl.textContent = target.moduleCount + ' mód. · ' + target.modelCount + (target.modelCount === 1 ? ' modelo' : ' modelos');
             } else {
-                subEl.textContent = (target.subCat ? (target.subCat + ' · ') : '') + target.itemCount + ' piezas · Solo visual en portada, no altera SKUs.';
+                subEl.textContent = (target.subCat ? (target.subCat + ' · ') : '') + target.itemCount + ' pzas';
             }
         }
         if (curCanvas) {
             if (curThumb) {
-                if (badgeEl) badgeEl.textContent = 'Foto actual';
+                if (badgeEl) badgeEl.textContent = 'Foto';
                 curCanvas.onclick = null;
                 curCanvas.innerHTML =
                     '<img src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
                     'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
                     'onclick="openPhotoLightbox(\'' + escapeHtml(curThumb.replace(/'/g, "\\'")) + '\')">';
             } else {
-                if (badgeEl) badgeEl.textContent = 'Sin foto · arrastra o toca para subir';
-                curCanvas.innerHTML = '<div class="photo-empty-placeholder">📤 Toca aquí o arrastra una foto</div>';
+                if (badgeEl) badgeEl.textContent = 'Sin foto';
+                curCanvas.innerHTML = '<div class="photo-empty-placeholder">Toca o arrastra</div>';
                 curCanvas.onclick = function () {
                     const inp = document.getElementById('visualTargetFileInput');
                     if (inp) inp.click();
@@ -6606,11 +6604,6 @@
         showVisualStageFeedback('', true);
         renderVisualTargetsList();
         renderVisualTargetStage();
-        try {
-            if (typeof window !== 'undefined' && window.innerWidth <= 1024 && typeof window.jumpToFotosSection === 'function') {
-                window.jumpToFotosSection('secProductStage');
-            }
-        } catch (eMob) {}
     };
 
     function optimizeVisualFileForMode(file, isFabric) {
@@ -6655,7 +6648,7 @@
     }
 
     async function persistVisualPhotoOverrideFromFotos(target, photoUrl, opMode) {
-        if (!target || !target.overrideKey) return { ok: false, error: 'Selecciona un destino primero.' };
+        if (!target || !target.overrideKey) return { ok: false, error: 'Elige primero.' };
         const isFabric = visualState.workMode === 'FABRIC';
         const ovKey = String(target.overrideKey).trim().toUpperCase();
         const op = opMode === 'DELETE' ? 'DELETE' : 'SAVE';
@@ -6705,9 +6698,9 @@
                 }
                 return { ok: true };
             }
-            return { ok: false, error: (res && res.error) || 'Guardado localmente.' };
+            return { ok: false, error: (res && res.error) || 'Guardado local.' };
         } catch (err) {
-            return { ok: false, error: (err && err.message) || 'Guardado localmente.' };
+            return { ok: false, error: (err && err.message) || 'Guardado local.' };
         }
     }
 
@@ -6716,14 +6709,14 @@
         if (!file || visualState.busy) return;
         const target = getSelectedVisualTargetObj();
         if (!target) {
-            showVisualStageFeedback('Primero selecciona un modelo o tela en la lista izquierda.', false);
+            showVisualStageFeedback('Elige primero de la lista.', false);
             if (inputEl) inputEl.value = '';
             return;
         }
         const isFabric = visualState.workMode === 'FABRIC';
         const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
         visualState.busy = true;
-        showVisualStageFeedback('Optimizando y subiendo a Drive...', true);
+        showVisualStageFeedback('Subiendo...', true);
         syncVisualStageSelectedGalleryPreview();
 
         try {
@@ -6747,17 +6740,17 @@
             const fid = cleanStr((res && res.fileId) || (res && res.driveUrl && extractDriveFileId(res.driveUrl)));
             const driveUrl = cleanStr(res && res.driveUrl) || (fid ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
             if (!res || !res.ok || !driveUrl) {
-                showVisualStageFeedback((res && res.error) || 'No se pudo subir la imagen a Drive.', false);
+                showVisualStageFeedback((res && res.error) || 'Error al subir.', false);
                 return;
             }
             const saveRes = await persistVisualPhotoOverrideFromFotos(target, driveUrl, 'SAVE');
             if (saveRes.ok) {
-                showVisualStageFeedback('✓ ' + (isFabric ? 'Foto de tela' : 'Portada visual') + ' guardada y sincronizada con el Cotizador.', true);
+                showVisualStageFeedback('✅ Guardada.', true);
             } else {
-                showVisualStageFeedback('Subida a Drive (' + saveRes.error + ')', true);
+                showVisualStageFeedback('Subida (' + saveRes.error + ')', true);
             }
         } catch (err) {
-            showVisualStageFeedback((err && err.message) || 'Error al subir la foto.', false);
+            showVisualStageFeedback((err && err.message) || 'Error al subir.', false);
         } finally {
             visualState.busy = false;
             if (inputEl) {
@@ -6776,7 +6769,7 @@
         const isFabric = visualState.workMode === 'FABRIC';
         const directUrl = cleanStr(selPhoto.viewUrl) || (selPhoto.id && !/^local_/i.test(selPhoto.id) ? ('https://drive.google.com/file/d/' + selPhoto.id + '/view?usp=sharing') : '');
         visualState.busy = true;
-        showVisualStageFeedback('Guardando foto de la galería...', true);
+        showVisualStageFeedback('Guardando...', true);
         syncVisualStageSelectedGalleryPreview();
 
         try {
@@ -6802,17 +6795,17 @@
                 finalUrl = cleanStr(upRes && upRes.driveUrl) || (fid ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
             }
             if (!finalUrl) {
-                showVisualStageFeedback('No se obtuvo enlace válido de Drive para esa foto.', false);
+                showVisualStageFeedback('Sin enlace Drive.', false);
                 return;
             }
             const saveRes = await persistVisualPhotoOverrideFromFotos(target, finalUrl, 'SAVE');
             if (saveRes.ok) {
-                showVisualStageFeedback('✓ ' + (isFabric ? 'Foto de tela' : 'Portada visual') + ' aplicada al Cotizador.', true);
+                showVisualStageFeedback('✅ Guardada.', true);
             } else {
-                showVisualStageFeedback(saveRes.error || 'Aplicada localmente.', true);
+                showVisualStageFeedback(saveRes.error || 'Guardada local.', true);
             }
         } catch (err) {
-            showVisualStageFeedback((err && err.message) || 'Error al guardar.', false);
+            showVisualStageFeedback((err && err.message) || 'Error.', false);
         } finally {
             visualState.busy = false;
             syncVisualStageSelectedGalleryPreview();
@@ -6825,18 +6818,18 @@
         const urlInp = document.getElementById('visualTargetUrlInput');
         const url = cleanStr(urlInp && urlInp.value);
         if (!target) {
-            showVisualStageFeedback('Selecciona un elemento primero.', false);
+            showVisualStageFeedback('Elige primero.', false);
             return;
         }
         if (!/^https?:\/\//i.test(url)) {
-            showVisualStageFeedback('Pega un enlace válido que empiece con https://', false);
+            showVisualStageFeedback('Link inválido.', false);
             return;
         }
         visualState.busy = true;
-        showVisualStageFeedback('Guardando enlace...', true);
+        showVisualStageFeedback('Guardando...', true);
         try {
             const saveRes = await persistVisualPhotoOverrideFromFotos(target, url, 'SAVE');
-            showVisualStageFeedback(saveRes.ok ? '✓ Enlace guardado y sincronizado.' : (saveRes.error || 'Guardado localmente.'), true);
+            showVisualStageFeedback(saveRes.ok ? '✅ Guardado.' : (saveRes.error || 'Guardado local.'), true);
         } finally {
             visualState.busy = false;
             syncVisualStageSelectedGalleryPreview();
@@ -6848,10 +6841,10 @@
         const target = getSelectedVisualTargetObj();
         if (!target) return;
         visualState.busy = true;
-        showVisualStageFeedback('Quitando foto...', true);
+        showVisualStageFeedback('Quitando...', true);
         try {
             const saveRes = await persistVisualPhotoOverrideFromFotos(target, '', 'DELETE');
-            showVisualStageFeedback(saveRes.ok ? '✓ Foto visual eliminada del Cotizador.' : (saveRes.error || 'Eliminada localmente.'), true);
+            showVisualStageFeedback(saveRes.ok ? '✅ Eliminada.' : (saveRes.error || 'Eliminada local.'), true);
         } finally {
             visualState.busy = false;
             syncVisualStageSelectedGalleryPreview();

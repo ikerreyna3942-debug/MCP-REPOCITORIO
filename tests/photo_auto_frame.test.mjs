@@ -250,4 +250,39 @@ test('Streamlined practical Fotos App UX: top 3-mode bar, collapsible filters & 
   assert.match(js, /function syncSkuExtraFiltersBadge\(/);
 });
 
+test('Fotos App: fixes scroll-down-then-scroll-up pull-down bug and uses ultra-simplified labels', () => {
+  const css = fs.readFileSync('fotos-productos-styles.css', 'utf8');
+  const html = fs.readFileSync('fotos-productos.html', 'utf8');
+  const js = fs.readFileSync('fotos-productos-app.js', 'utf8');
+
+  // 1) No content-visibility/contain-intrinsic-size height-mismatch jumps + overflow-anchor disabled
+  assert.ok(!css.includes('content-visibility: auto'), 'content-visibility: auto must be removed from SKU/gallery cards to prevent Chrome upward-scroll jump-down bug');
+  assert.ok(!css.includes('contain-intrinsic-size'), 'contain-intrinsic-size must be removed to avoid anchor height shifts');
+  assert.match(css, /html\s*\{[^}]*overflow-anchor:\s*none/);
+  assert.match(css, /body\s*\{[^}]*overflow-anchor:\s*none/);
+  assert.match(css, /\.sku-list\s*\{[^}]*overflow-anchor:\s*none/);
+  assert.match(css, /\.inbox-grid\s*\{[^}]*overflow-anchor:\s*none/);
+
+  // 2) Mobile .sku-list uses stable svh height (never resizes on URL-bar toggle) and natural scroll chaining
+  assert.ok(!css.includes('max-height: min(46dvh, 380px)'), 'Mobile .sku-list must not resize dynamically with 46dvh on scroll reversal');
+  assert.match(css, /max-height:\s*min\(44svh,\s*340px\)/);
+  assert.ok(!css.includes('overscroll-behavior-y: contain'), '.sku-list must allow smooth scroll chaining back up');
+
+  // 3) Checkpoint restore must never yank window.scrollTo downward and tracks manual scroll
+  assert.match(js, /let _fotosUserHasScrolled = false;/);
+  assert.ok(!js.includes('window.scrollTo({ top: cp.windowScrollY'), 'Checkpoint restore must never force window.scrollTo downward');
+  assert.match(js, /const prevScrollTop = Number\(listEl\.scrollTop\) \|\| 0;/);
+
+  // 4) Ultra-simplified labels & hidden instructional hint noise
+  assert.match(html, /data-work-mode="SKU"[^>]*>📦 SKUs<\/button>/);
+  assert.match(html, /data-work-mode="COVER"[^>]*>🖼️ Portadas<\/button>/);
+  assert.match(html, /data-work-mode="FABRIC"[^>]*>🧵 Telas<\/button>/);
+  assert.match(html, /id="fotosWorkModeHint"[^>]*class="[^"]*hidden/);
+  assert.match(html, /id="galleryQuickHint"[^>]*class="[^"]*hidden/);
+  assert.match(html, /<span>Filtros<\/span>/);
+  assert.match(html, /<span>Ficha y stock<\/span>/);
+  assert.match(html, /id="btnNextMissingPhoto"[^>]*>Siguiente →<\/button>/);
+});
+
+
 
