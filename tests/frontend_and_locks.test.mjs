@@ -24,7 +24,8 @@ test('Syntax check (node --check) passes for all Apps Script (.gs) and frontend 
     'prompts-app.js',
     'prompts-sw.js',
     'panel-app.js',
-    'panel-sw.js'
+    'panel-sw.js',
+    'suite/sw.js'
   ];
   for (const rel of filesToCheck) {
     const abs = path.join(REPO_ROOT, rel);
@@ -37,10 +38,14 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   const promptsManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'prompts-manifest.json'), 'utf8'));
   const fotosManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'fotos-manifest.json'), 'utf8'));
   const panelManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'panel-manifest.json'), 'utf8'));
+  const suiteManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'suite/manifest.json'), 'utf8'));
 
   assert.equal(promptsManifest.scope, './prompts');
   assert.equal(fotosManifest.scope, './fotos-productos');
   assert.equal(panelManifest.scope, './panel');
+  assert.equal(suiteManifest.scope, './');
+  assert.equal(suiteManifest.start_url, './?source=pwa');
+  assert.equal(suiteManifest.display, 'standalone');
 
   const promptsAppSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-app.js'), 'utf8');
   const fotosAppSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos-app.js'), 'utf8');
@@ -48,19 +53,24 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   assert.match(promptsAppSrc, /register\(['"]\.\/prompts-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/prompts['"]\s*\}/);
   assert.match(fotosAppSrc, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
   assert.match(panelAppSrc, /register\(['"]\.\/panel-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/panel['"]\s*\}/);
+  assert.match(panelAppSrc, /register\(['"]\.\/sw\.js['"],\s*\{\s*scope:\s*['"]\.\/['"]\s*\}/);
 
   const promptsSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
   const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
+  const suiteSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'suite/sw.js'), 'utf8');
   assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v9['"]/);
   assert.match(promptsSwSrc, /creata-back-nav\.js\?v=1/);
   assert.match(promptsSwSrc, /prompts-styles\.css\?v=7/);
   assert.match(promptsSwSrc, /prompts-app\.js\?v=9/);
   assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v13['"]/);
   assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v13['"]/);
-  assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v2['"]/);
-  assert.match(panelSwSrc, /panel-styles\.css\?v=5/);
-  assert.match(panelSwSrc, /panel-app\.js\?v=10/);
+  assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v3['"]/);
+  assert.match(panelSwSrc, /panel-styles\.css\?v=6/);
+  assert.match(panelSwSrc, /panel-app\.js\?v=11/);
+  assert.match(suiteSwSrc, /CACHE_PREFIX\s*\+\s*['"]v1['"]/);
+  assert.match(suiteSwSrc, /\.\.\/panel-styles\.css\?v=6/);
+  assert.match(suiteSwSrc, /\.\.\/panel-app\.js\?v=11/);
 
   const promptsHtmlSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts.html'), 'utf8');
   assert.match(promptsHtmlSrc, /prompts-manifest\.json\?v=3/);
@@ -73,7 +83,11 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   assert.match(promptsCssSrc, /@media\s*\(\s*max-width:\s*440px\s*\)/);
 
   const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  for (const iconRel of ['prompts-icon-192.png', 'prompts-icon-512.png', 'prompts-apple-icon.png', 'inventario-icon-192.png', 'inventario-icon-512.png', 'inventario-apple-icon.png']) {
+  for (const iconRel of [
+    'prompts-icon-192.png', 'prompts-icon-512.png', 'prompts-apple-icon.png',
+    'inventario-icon-192.png', 'inventario-icon-512.png', 'inventario-apple-icon.png',
+    'suite/icon-192.png', 'suite/icon-512.png', 'suite/apple-icon.png'
+  ]) {
     const abs = path.join(REPO_ROOT, iconRel);
     assert.ok(fs.existsSync(abs), `Missing icon: ${iconRel}`);
     const header = fs.readFileSync(abs).subarray(0, 8);

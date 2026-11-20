@@ -15,11 +15,14 @@
     const MANUAL_LOCK_FLAG = 'creata_private_panel_manual_lock';
     const SUITE_LAYOUT_KEY = 'creata_kevin_suite_layout_v1';
 
-    // Exclusivo Kevin: solo las 3 apps unificadas en el menú "+ Agregar" (Arriba / Abajo)
+    const IS_SUITE_DIR = (typeof location !== 'undefined' && /\/suite(?:\/(?:index\.html)?)?$/i.test(location.pathname || ''));
+    const ASSET_BASE = IS_SUITE_DIR ? '../' : './';
+
+    // Exclusivo Kevin: solo las 3 apps unificadas en el menú "+ Agregar" (Arriba / Abajo / Izquierda / Derecha)
     const SUITE_APPS = [
-        { id: 'cotizador', icon: '📋', title: 'Cotizador',      url: './inventario.html?embed=1',      openModule: 'inventario' },
-        { id: 'fotos',     icon: '📷', title: 'Carga de Fotos', url: './fotos-productos.html?embed=1' },
-        { id: 'prompts',   icon: '✨', title: 'Prompts IA',     url: './prompts.html?embed=1',         wakeUrl: 'https://buena-espero.onrender.com/' }
+        { id: 'cotizador', icon: '📋', title: 'Cotizador',      url: ASSET_BASE + 'inventario.html?embed=1',      openModule: 'inventario' },
+        { id: 'fotos',     icon: '📷', title: 'Carga de Fotos', url: ASSET_BASE + 'fotos-productos.html?embed=1' },
+        { id: 'prompts',   icon: '✨', title: 'Prompts IA',     url: ASSET_BASE + 'prompts.html?embed=1',         wakeUrl: 'https://buena-espero.onrender.com/' }
     ];
     const SUITE_APPS_BY_ID = {};
     SUITE_APPS.forEach((a) => { SUITE_APPS_BY_ID[a.id] = a; });
@@ -27,7 +30,7 @@
     let unlocked = false;
     let panelBackNav = null;
     let deferredPanelInstallPrompt = null;
-    let suiteLayout = { top: 'cotizador', bottom: '', splitPct: 50 };
+    let suiteLayout = { top: 'cotizador', bottom: '', splitPct: 50, orientation: 'vertical' };
     const liveFramesById = {};
 
     function cleanStr(v) {
@@ -283,23 +286,46 @@
     }
 
     // =========================================================================
-    // SUITE 3 EN 1: "+ AGREGAR" (ARRIBA / ABAJO) + PANELES VIVOS + REDIMENSIONAR
+    // SUITE 3 EN 1: "+ AGREGAR" (ARRIBA / ABAJO / IZQUIERDA / DERECHA) + PANELES VIVOS + REDIMENSIONAR
     // =========================================================================
+    function getRequestedQueryAppId() {
+        try {
+            if (typeof location === 'undefined' || !location.search) return '';
+            const m = String(location.search).match(/[?&]app=([a-z0-9_-]+)/i);
+            const id = m ? cleanStr(m[1]).toLowerCase() : '';
+            return SUITE_APPS_BY_ID[id] ? id : '';
+        } catch (e) {
+            return '';
+        }
+    }
+
     function loadSavedSuiteLayout() {
         try {
             const raw = localStorage.getItem(SUITE_LAYOUT_KEY);
-            if (!raw) return;
-            const parsed = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object') return;
-            const top = SUITE_APPS_BY_ID[parsed.top] ? parsed.top : '';
-            const bottom = SUITE_APPS_BY_ID[parsed.bottom] && parsed.bottom !== top ? parsed.bottom : '';
-            const pct = Number(parsed.splitPct);
-            suiteLayout = {
-                top: top || bottom || 'cotizador',
-                bottom: top ? bottom : '',
-                splitPct: isFinite(pct) ? Math.max(20, Math.min(80, Math.round(pct))) : 50
-            };
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object') {
+                    const top = SUITE_APPS_BY_ID[parsed.top] ? parsed.top : '';
+                    const bottom = SUITE_APPS_BY_ID[parsed.bottom] && parsed.bottom !== top ? parsed.bottom : '';
+                    const pct = Number(parsed.splitPct);
+                    const orient = parsed.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+                    suiteLayout = {
+                        top: top || bottom || 'cotizador',
+                        bottom: top ? bottom : '',
+                        splitPct: isFinite(pct) ? Math.max(20, Math.min(80, Math.round(pct))) : 50,
+                        orientation: orient
+                    };
+                }
+            }
         } catch (e) {}
+
+        const reqApp = getRequestedQueryAppId();
+        if (reqApp) {
+            if (suiteLayout.bottom === reqApp) {
+                suiteLayout.bottom = suiteLayout.top && suiteLayout.top !== reqApp ? suiteLayout.top : '';
+            }
+            suiteLayout.top = reqApp;
+        }
     }
 
     function persistSuiteLayout() {
@@ -361,10 +387,18 @@
     function renderSuiteAddList() {
         const listEl = document.getElementById('suiteGridContainer');
         if (!listEl) return;
+        const isHoriz = suiteLayout.orientation === 'horizontal';
+        const hasBoth = Boolean(suiteLayout.top && suiteLayout.bottom);
         listEl.innerHTML = SUITE_APPS.map((app) => {
-            const isTop = suiteLayout.top === app.id;
-            const isBottom = suiteLayout.bottom === app.id;
-            const badge = isTop ? 'Arriba' : (isBottom ? 'Abajo' : '');
+            const isSlot1 = suiteLayout.top === app.id;
+            const isSlot2 = suiteLayout.bottom === app.id;
+            const isTopCur = isSlot1 && (!hasBoth || !isHoriz);
+            const isBottomCur = isSlot2 && !isHoriz;
+            const isLeftCur = isSlot1 && hasBoth && isHoriz;
+            const isRightCur = isSlot2 && isHoriz;
+            let badge = '';
+            if (isSlot1) badge = hasBoth ? (isHoriz ? 'Izquierda' : 'Arriba') : 'Activa';
+            else if (isSlot2) badge = isHoriz ? 'Derecha' : 'Abajo';
             return (
                 '<div class="suite-add-row' + (badge ? ' is-active' : '') + '" data-suite-id="' + escapeHtml(app.id) + '">' +
                     '<div class="suite-add-row-head">' +
@@ -372,8 +406,10 @@
                         (badge ? '<span class="suite-add-state">' + badge + '</span>' : '') +
                     '</div>' +
                     '<div class="suite-add-actions">' +
-                        '<button type="button" class="suite-place-btn' + (isTop ? ' is-current' : '') + '" data-app-id="' + escapeHtml(app.id) + '" data-pos="top" onclick="placeSuiteApp(\'' + escapeHtml(app.id) + '\', \'top\')">⬆ Arriba</button>' +
-                        '<button type="button" class="suite-place-btn' + (isBottom ? ' is-current' : '') + '" data-app-id="' + escapeHtml(app.id) + '" data-pos="bottom" onclick="placeSuiteApp(\'' + escapeHtml(app.id) + '\', \'bottom\')">⬇ Abajo</button>' +
+                        '<button type="button" class="suite-place-btn' + (isTopCur ? ' is-current' : '') + '" data-app-id="' + escapeHtml(app.id) + '" data-pos="top" onclick="placeSuiteApp(\'' + escapeHtml(app.id) + '\', \'top\')">⬆ Arriba</button>' +
+                        '<button type="button" class="suite-place-btn' + (isBottomCur ? ' is-current' : '') + '" data-app-id="' + escapeHtml(app.id) + '" data-pos="bottom" onclick="placeSuiteApp(\'' + escapeHtml(app.id) + '\', \'bottom\')">⬇ Abajo</button>' +
+                        '<button type="button" class="suite-place-btn' + (isLeftCur ? ' is-current' : '') + '" data-app-id="' + escapeHtml(app.id) + '" data-pos="left" onclick="placeSuiteApp(\'' + escapeHtml(app.id) + '\', \'left\')">⬅ Izquierda</button>' +
+                        '<button type="button" class="suite-place-btn' + (isRightCur ? ' is-current' : '') + '" data-app-id="' + escapeHtml(app.id) + '" data-pos="right" onclick="placeSuiteApp(\'' + escapeHtml(app.id) + '\', \'right\')">➡ Derecha</button>' +
                     '</div>' +
                 '</div>'
             );
@@ -383,18 +419,36 @@
     function renderSuiteActiveChips() {
         const chipsEl = document.getElementById('suiteActiveChips');
         const swapBtn = document.getElementById('btnSuiteSwap');
+        const orientBtn = document.getElementById('btnSuiteOrientation');
         const hasBoth = Boolean(suiteLayout.top && suiteLayout.bottom);
-        if (swapBtn) swapBtn.classList.toggle('hidden', !hasBoth);
+        const isHoriz = suiteLayout.orientation === 'horizontal';
+
+        if (swapBtn) {
+            swapBtn.classList.toggle('hidden', !hasBoth);
+            swapBtn.textContent = isHoriz ? '⇄' : '⇅';
+            const swapTitle = isHoriz ? 'Intercambiar izquierda y derecha' : 'Intercambiar arriba y abajo';
+            swapBtn.setAttribute('title', swapTitle);
+            swapBtn.setAttribute('aria-label', swapTitle);
+        }
+        if (orientBtn) {
+            orientBtn.classList.toggle('hidden', !hasBoth);
+            orientBtn.textContent = isHoriz ? '⬓' : '◫';
+            const orientTitle = isHoriz ? 'Cambiar a arriba y abajo' : 'Cambiar a lado a lado';
+            orientBtn.setAttribute('title', orientTitle);
+            orientBtn.setAttribute('aria-label', orientTitle);
+        }
         if (!chipsEl) return;
 
+        const pos1Ico = isHoriz ? '⬅' : '⬆';
+        const pos2Ico = isHoriz ? '➡' : '⬇';
         const parts = [];
         if (suiteLayout.top && SUITE_APPS_BY_ID[suiteLayout.top]) {
             const a = SUITE_APPS_BY_ID[suiteLayout.top];
             parts.push(
                 '<span class="suite-slot-chip">' +
-                    (hasBoth ? '<span class="suite-slot-pos">⬆</span>' : '') +
+                    (hasBoth ? '<span class="suite-slot-pos">' + pos1Ico + '</span>' : '') +
                     '<span>' + a.icon + ' ' + escapeHtml(a.title) + '</span>' +
-                    (hasBoth ? '<button type="button" class="suite-chip-close" title="Cerrar panel superior" aria-label="Cerrar ' + escapeHtml(a.title) + '" onclick="removeSuiteSlot(\'top\')">✕</button>' : '') +
+                    (hasBoth ? '<button type="button" class="suite-chip-close" title="Cerrar panel" aria-label="Cerrar ' + escapeHtml(a.title) + '" onclick="removeSuiteSlot(\'top\')">✕</button>' : '') +
                 '</span>'
             );
         }
@@ -402,9 +456,9 @@
             const b = SUITE_APPS_BY_ID[suiteLayout.bottom];
             parts.push(
                 '<span class="suite-slot-chip">' +
-                    '<span class="suite-slot-pos">⬇</span>' +
+                    '<span class="suite-slot-pos">' + pos2Ico + '</span>' +
                     '<span>' + b.icon + ' ' + escapeHtml(b.title) + '</span>' +
-                    '<button type="button" class="suite-chip-close" title="Cerrar panel inferior" aria-label="Cerrar ' + escapeHtml(b.title) + '" onclick="removeSuiteSlot(\'bottom\')">✕</button>' +
+                    '<button type="button" class="suite-chip-close" title="Cerrar panel" aria-label="Cerrar ' + escapeHtml(b.title) + '" onclick="removeSuiteSlot(\'bottom\')">✕</button>' +
                 '</span>'
             );
         }
@@ -419,19 +473,33 @@
         if (!suiteLayout.top) {
             suiteLayout.top = 'cotizador';
         }
+        if (suiteLayout.orientation !== 'horizontal' && suiteLayout.orientation !== 'vertical') {
+            suiteLayout.orientation = 'vertical';
+        }
         const ws = document.getElementById('suiteWorkspace');
         const topEl = document.getElementById('suiteSlotTop');
         const botEl = document.getElementById('suiteSlotBottom');
         const splitBar = document.getElementById('suiteSplitBar');
+        const splitDots = document.getElementById('suiteSplitDots');
         const hasBoth = Boolean(suiteLayout.top && suiteLayout.bottom);
+        const isHoriz = hasBoth && suiteLayout.orientation === 'horizontal';
 
-        if (ws) ws.classList.toggle('is-split', hasBoth);
-        if (splitBar) splitBar.classList.toggle('hidden', !hasBoth);
+        if (ws) {
+            ws.classList.toggle('is-split', hasBoth);
+            ws.classList.toggle('is-horizontal', isHoriz);
+        }
+        if (splitBar) {
+            splitBar.classList.toggle('hidden', !hasBoth);
+            splitBar.setAttribute('aria-orientation', isHoriz ? 'vertical' : 'horizontal');
+        }
+        if (splitDots) {
+            splitDots.textContent = isHoriz ? '║' : '══';
+        }
 
         const topLbl = document.getElementById('suiteSplitTopName');
         const botLbl = document.getElementById('suiteSplitBottomName');
-        if (topLbl) topLbl.textContent = suiteLayout.top && SUITE_APPS_BY_ID[suiteLayout.top] ? '⬆ ' + SUITE_APPS_BY_ID[suiteLayout.top].title : '';
-        if (botLbl) botLbl.textContent = suiteLayout.bottom && SUITE_APPS_BY_ID[suiteLayout.bottom] ? '⬇ ' + SUITE_APPS_BY_ID[suiteLayout.bottom].title : '';
+        if (topLbl) topLbl.textContent = suiteLayout.top && SUITE_APPS_BY_ID[suiteLayout.top] ? (isHoriz ? '⬅ ' : '⬆ ') + SUITE_APPS_BY_ID[suiteLayout.top].title : '';
+        if (botLbl) botLbl.textContent = suiteLayout.bottom && SUITE_APPS_BY_ID[suiteLayout.bottom] ? (isHoriz ? '➡ ' : '⬇ ') + SUITE_APPS_BY_ID[suiteLayout.bottom].title : '';
 
         applySplitPct(suiteLayout.splitPct);
         mountAppInSlot(topEl, suiteLayout.top);
@@ -464,16 +532,18 @@
     window.placeSuiteApp = function (appId, position) {
         const id = cleanStr(appId).toLowerCase();
         if (!SUITE_APPS_BY_ID[id]) return false;
-        const pos = position === 'bottom' ? 'bottom' : 'top';
-        if (pos === 'top') {
+        const rawPos = cleanStr(position).toLowerCase();
+        const isHorizPos = rawPos === 'left' || rawPos === 'right';
+        suiteLayout.orientation = isHorizPos ? 'horizontal' : 'vertical';
+        const isFirstSlot = rawPos === 'top' || rawPos === 'left' || (!isHorizPos && rawPos !== 'bottom');
+
+        if (isFirstSlot) {
             if (suiteLayout.bottom === id) {
-                // Si ya estaba abajo, intercambiar o subirla
                 suiteLayout.bottom = suiteLayout.top && suiteLayout.top !== id ? suiteLayout.top : '';
             }
             suiteLayout.top = id;
         } else {
             if (suiteLayout.top === id) {
-                // Si ya estaba arriba, pasarla abajo (si había otra abajo, sube esa; si no, queda única)
                 if (suiteLayout.bottom && suiteLayout.bottom !== id) {
                     suiteLayout.top = suiteLayout.bottom;
                     suiteLayout.bottom = id;
@@ -490,10 +560,20 @@
         return true;
     };
 
+    window.toggleSuiteOrientation = function (explicitOrientation) {
+        if (explicitOrientation === 'horizontal' || explicitOrientation === 'vertical') {
+            suiteLayout.orientation = explicitOrientation;
+        } else {
+            suiteLayout.orientation = suiteLayout.orientation === 'horizontal' ? 'vertical' : 'horizontal';
+        }
+        renderSuiteWorkspace();
+        return suiteLayout.orientation;
+    };
+
     window.removeSuiteSlot = function (position) {
-        if (position === 'bottom') {
+        if (position === 'bottom' || position === 'right') {
             suiteLayout.bottom = '';
-        } else if (position === 'top' && suiteLayout.bottom) {
+        } else if ((position === 'top' || position === 'left') && suiteLayout.bottom) {
             suiteLayout.top = suiteLayout.bottom;
             suiteLayout.bottom = '';
         }
@@ -520,12 +600,17 @@
         bar.dataset.boundDrag = '1';
 
         let dragging = false;
-        const updateFromY = (clientY) => {
+        const updateFromPointer = (clientX, clientY) => {
             if (!ws.getBoundingClientRect) return;
             const rect = ws.getBoundingClientRect();
-            if (!rect || rect.height <= 40) return;
-            const pct = ((clientY - rect.top) / rect.height) * 100;
-            applySplitPct(pct);
+            if (!rect) return;
+            if (suiteLayout.orientation === 'horizontal') {
+                if (rect.width <= 40) return;
+                applySplitPct(((clientX - rect.left) / rect.width) * 100);
+            } else {
+                if (rect.height <= 40) return;
+                applySplitPct(((clientY - rect.top) / rect.height) * 100);
+            }
         };
         const stop = () => {
             if (!dragging) return;
@@ -533,18 +618,22 @@
             if (document.body) document.body.classList.remove('suite-dragging');
             persistSuiteLayout();
         };
-        const start = (clientY) => {
+        const start = (clientX, clientY) => {
             dragging = true;
             if (document.body) document.body.classList.add('suite-dragging');
-            updateFromY(clientY);
+            updateFromPointer(clientX, clientY);
         };
 
         bar.addEventListener('pointerdown', (ev) => {
             if (ev.preventDefault) ev.preventDefault();
-            start(ev.clientY);
+            start(ev.clientX, ev.clientY);
+        });
+        bar.addEventListener('dblclick', () => {
+            applySplitPct(50);
+            persistSuiteLayout();
         });
         window.addEventListener('pointermove', (ev) => {
-            if (dragging) updateFromY(ev.clientY);
+            if (dragging) updateFromPointer(ev.clientX, ev.clientY);
         });
         window.addEventListener('pointerup', stop);
         window.addEventListener('pointercancel', stop);
@@ -583,7 +672,7 @@
         return !el || el.classList.contains('hidden');
     }
 
-    function isPanelStandaloneMode() {
+    function isAnyStandaloneDisplay() {
         try {
             if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
             if (typeof navigator !== 'undefined' && navigator.standalone === true) return true;
@@ -591,15 +680,31 @@
         return false;
     }
 
+    function isPanelStandaloneMode() {
+        if (!isAnyStandaloneDisplay()) return false;
+        if (IS_SUITE_DIR) return true;
+        try {
+            if (typeof location !== 'undefined' && /[?&]source=pwa\b/i.test(location.search || '')) return true;
+            const ctrl = typeof navigator !== 'undefined' && navigator.serviceWorker && navigator.serviceWorker.controller;
+            if (ctrl && /(?:\/suite\/sw\.js|\/panel-sw\.js)(?:\?|$)/i.test(String(ctrl.scriptURL || ''))) return true;
+        } catch (e) {}
+        return false;
+    }
+
     function syncPanelInstallControls() {
         const btn = document.getElementById('btnInstallPanelApp');
         const banner = document.getElementById('panelNativeInstallBanner');
-        const standalone = isPanelStandaloneMode();
+        const breakout = document.getElementById('panelStandaloneBreakout');
+        const ownStandalone = isPanelStandaloneMode();
+        const trappedInOtherPwa = isAnyStandaloneDisplay() && !ownStandalone;
         if (btn) {
-            btn.classList.toggle('hidden', standalone);
+            btn.classList.toggle('hidden', ownStandalone);
         }
         if (banner) {
-            banner.classList.toggle('hidden', !deferredPanelInstallPrompt || standalone);
+            banner.classList.toggle('hidden', !deferredPanelInstallPrompt || ownStandalone);
+        }
+        if (breakout) {
+            breakout.classList.toggle('hidden', ownStandalone || (IS_SUITE_DIR && !trappedInOtherPwa));
         }
     }
 
@@ -609,7 +714,11 @@
                 return;
             }
             if (typeof location !== 'undefined' && !/^https?:$/.test(location.protocol || '')) return;
-            navigator.serviceWorker.register('./panel-sw.js', { scope: './panel' }).catch(() => {});
+            if (IS_SUITE_DIR) {
+                navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+            } else {
+                navigator.serviceWorker.register('./panel-sw.js', { scope: './panel' }).catch(() => {});
+            }
         } catch (e) {}
     }
 
@@ -648,9 +757,15 @@
 
     window.copyPanelAppLink = async function () {
         const fb = document.getElementById('panelCopyFeedback');
-        const appUrl = (typeof location !== 'undefined' && location.origin && location.pathname)
-            ? (location.origin + location.pathname)
-            : 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel.html';
+        let appUrl = 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/suite/';
+        try {
+            if (typeof location !== 'undefined' && location.origin && location.pathname) {
+                const baseDir = IS_SUITE_DIR
+                    ? location.pathname.replace(/\/index\.html$/i, '/').replace(/\/?$/, '/')
+                    : location.pathname.replace(/\/[^/]*$/, '/suite/');
+                appUrl = location.origin + baseDir;
+            }
+        } catch (e) {}
         let copied = false;
         try {
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {

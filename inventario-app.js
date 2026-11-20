@@ -14159,7 +14159,8 @@
 
     window.openPanelFromCotizador = function () {
         if (!isFotosAppOwner()) return;
-        window.location.href = './panel.html';
+        const opened = window.open('./suite/', '_blank', 'noopener');
+        if (!opened) window.location.href = './suite/';
     };
 
     window.setInvSplitPreset = function (pctVal) {
