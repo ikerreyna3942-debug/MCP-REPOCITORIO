@@ -2110,11 +2110,43 @@ main#invMainView.inv-main {
 }
 
 /* ============================================================================
- * PANTALLA DIVIDIDA REDIMENSIONABLE: COTIZADOR + APP DE SUBIR FOTOS
+ * PANTALLA DIVIDIDA REDIMENSIONABLE: COTIZADOR + APP DE SUBIR FOTOS / PROMPTS
  * ============================================================================ */
 body.inv-split-active:not(.inv-split-vertical) {
   padding-right: calc(100vw - var(--inv-split-pct, 50%)) !important;
   overflow-x: hidden;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #invHeader .inv-header-inner {
+  padding: 6px 8px;
+  gap: 5px;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #invHeader .inv-top-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "logo util"
+    "search search"
+    "extra extra";
+  column-gap: 6px;
+  row-gap: 5px;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #invHeader #headerLogoImg.logo-img {
+  height: 30px !important;
+  max-width: 118px !important;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #invHeader .inv-search-cell {
+  flex: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #invHeader .inv-header-utils {
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 body.inv-split-active:not(.inv-split-vertical) #invFabRoot.inv-fab-root {
@@ -2122,7 +2154,45 @@ body.inv-split-active:not(.inv-split-vertical) #invFabRoot.inv-fab-root {
 }
 
 body.inv-split-active:not(.inv-split-vertical) #invListContainer.inv-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)) !important;
+  gap: 10px !important;
+}
+
+/* Confinar todos los modales y overlays del Cotizador al área izquierda dividida */
+body.inv-split-active:not(.inv-split-vertical) .modal-backdrop:not(#authModal),
+body.inv-split-active:not(.inv-split-vertical) .cm-modal-backdrop {
+  left: 0 !important;
+  right: auto !important;
+  width: var(--inv-split-pct, 50%) !important;
+  padding: 8px !important;
+}
+
+body.inv-split-active:not(.inv-split-vertical) .modal-backdrop:not(#authModal) .inv-det-modal-card,
+body.inv-split-active:not(.inv-split-vertical) .modal-backdrop:not(#authModal) .inv-modal-card,
+body.inv-split-active:not(.inv-split-vertical) .cm-modal-backdrop .cm-modal-card {
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: calc(100dvh - 16px) !important;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants-grid {
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)) !important;
+  gap: 8px !important;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #productDetailModal .inv-det-top-info-grid,
+body.inv-split-active:not(.inv-split-vertical) #productDetailModal .inv-det-info-grid {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)) !important;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #detPhotoWrap.inv-det-photo-stage {
+  min-height: 165px !important;
+  max-height: 235px !important;
+}
+
+body.inv-split-active:not(.inv-split-vertical) #creataBackNavToast {
+  left: calc(var(--inv-split-pct, 50%) / 2) !important;
+  max-width: calc(var(--inv-split-pct, 50%) - 16px) !important;
 }
 
 body.inv-split-active.inv-split-vertical {
@@ -2133,6 +2203,22 @@ body.inv-split-active.inv-split-vertical #invFabRoot.inv-fab-root {
   bottom: calc(100dvh - var(--inv-split-pct, 50%) + 12px) !important;
 }
 
+body.inv-split-active.inv-split-vertical .modal-backdrop:not(#authModal),
+body.inv-split-active.inv-split-vertical .cm-modal-backdrop {
+  top: 0 !important;
+  bottom: auto !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: var(--inv-split-pct, 50%) !important;
+  padding: 8px !important;
+}
+
+body.inv-split-active.inv-split-vertical .modal-backdrop:not(#authModal) .inv-det-modal-card,
+body.inv-split-active.inv-split-vertical .modal-backdrop:not(#authModal) .inv-modal-card,
+body.inv-split-active.inv-split-vertical .cm-modal-backdrop .cm-modal-card {
+  max-height: calc(100% - 8px) !important;
+}
+
 .inv-split-dock {
   position: fixed;
   z-index: 65;
@@ -2140,6 +2226,7 @@ body.inv-split-active.inv-split-vertical #invFabRoot.inv-fab-root {
   display: flex;
   flex-direction: column;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.38);
+  overflow: hidden;
 }
 
 .inv-split-dock.hidden {
@@ -2167,8 +2254,9 @@ body.inv-split-active.inv-split-vertical .inv-split-dock {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 4px 10px;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  padding: 5px 8px;
   min-height: 36px;
   background: #1A212B;
   border-bottom: 1px solid #2D3748;
@@ -2189,6 +2277,7 @@ body.inv-split-active.inv-split-vertical .inv-split-resizer {
   color: #D9B882;
   font-size: 11px;
   font-weight: 800;
+  flex-shrink: 0;
 }
 
 .inv-split-grip-dots {
@@ -2214,7 +2303,8 @@ body.inv-split-active.inv-split-vertical .inv-split-resizer {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .inv-split-chip {
@@ -2227,6 +2317,7 @@ body.inv-split-active.inv-split-vertical .inv-split-resizer {
   font-size: 10px;
   font-weight: 800;
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.14s ease;
 }
 
@@ -2245,10 +2336,12 @@ body.inv-split-active.inv-split-vertical .inv-split-resizer {
 
 .inv-split-frame-wrap {
   flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
   height: 100%;
   position: relative;
   background: #0D1117;
+  overflow: hidden;
 }
 
 .inv-split-iframe {

@@ -373,3 +373,24 @@ test('Cotizador & Subir Fotos: Kevin-only FAB Prompts/Panel buttons and split-sc
   assert.match(fotosJs, /window\.setFotosSplitTarget = function \(target\)/);
   assert.match(fotosJs, /target === 'prompts' \? '\.\/prompts\.html' : '\.\/inventario\.html\?embed=1'/);
 });
+
+test('Split-screen responsive adaptation: modals stay inside split pane, header/grid adapt, resizer wraps, and dark thin chip scrollbars', () => {
+  const invCss = fs.readFileSync(path.join(REPO_ROOT, 'inventario-ui.css'), 'utf8');
+  const fotosCss = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos-styles.css'), 'utf8');
+
+  // Cotizador split-screen modal containment (prevents product modal from being cut behind right dock)
+  assert.match(invCss, /body\.inv-split-active:not\(\.inv-split-vertical\)\s+\.modal-backdrop:not\(#authModal\)[\s\S]*?width:\s*var\(--inv-split-pct,\s*50%\)\s*!important/);
+  assert.match(invCss, /body\.inv-split-active\.inv-split-vertical\s+\.modal-backdrop:not\(#authModal\)[\s\S]*?height:\s*var\(--inv-split-pct,\s*50%\)\s*!important/);
+  assert.match(invCss, /body\.inv-split-active:not\(\.inv-split-vertical\)\s+#invHeader\s+\.inv-top-row[\s\S]*?"search search"/);
+  assert.match(invCss, /\.inv-split-resizer\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(invCss, /\.inv-split-presets\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(invCss, /\.inv-split-frame-wrap\s*\{[\s\S]*?min-height:\s*0/);
+
+  // Fotos split-screen lightbox/modal containment, resizer wrap, and thin dark scrollbars
+  assert.match(fotosCss, /body\.fotos-split-active:not\(\.fotos-split-vertical\)\s+\.lightbox-backdrop[\s\S]*?width:\s*var\(--fotos-split-pct,\s*50%\)/);
+  assert.match(fotosCss, /body\.fotos-split-active\.fotos-split-vertical\s+\.lightbox-backdrop[\s\S]*?height:\s*var\(--fotos-split-pct,\s*50%\)/);
+  assert.match(fotosCss, /\.fotos-split-resizer\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(fotosCss, /\.fotos-split-presets\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(fotosCss, /\.fotos-split-frame-wrap\s*\{[\s\S]*?min-height:\s*0/);
+  assert.match(fotosCss, /\.category-pills-scroll::-webkit-scrollbar\s*\{[\s\S]*?height:\s*4px/);
+});

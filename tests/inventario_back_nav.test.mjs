@@ -648,7 +648,7 @@ test('inventario-sw.js dynamic discovery regex matches all updated inventario.ht
     '/MCP-REPOCITORIO/seguimiento-app.js?v=8',
     '/MCP-REPOCITORIO/historial-app.js?v=7',
     '/MCP-REPOCITORIO/inventario-app.js?v=89',
-    '/MCP-REPOCITORIO/inventario-ui.css?v=14',
+    '/MCP-REPOCITORIO/inventario-ui.css?v=15',
     '/MCP-REPOCITORIO/creata-modules.css?v=7'
   ];
   for (const asset of requiredAssets) {
