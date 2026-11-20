@@ -761,6 +761,38 @@ main#invMainView.inv-main {
   }
 }
 
+#detVariantsList .inv-module-group-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 12px;
+  margin-top: 4px;
+  border-radius: 10px;
+  background-color: var(--inv-bg-warm, #F6F2EA);
+  border: 1px solid var(--inv-border, #E6E1D8);
+}
+
+#detVariantsList .inv-module-group-header:first-child {
+  margin-top: 0;
+}
+
+#detVariantsList .inv-module-group-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--inv-ink, #1A1816);
+}
+
+#detVariantsList .inv-module-group-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--inv-accent, #9E7B4F);
+  white-space: nowrap;
+}
+
 #detVariantsList .inv-row.inv-variant-card {
   position: relative;
   display: flex;
