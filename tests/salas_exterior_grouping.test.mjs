@@ -52,6 +52,12 @@ function createInventarioAppHarness(items) {
     ' resolveItemModuleBucket,' +
     ' renderGroupVariantsStep,' +
     ' formatGroupBadgeLabel,' +
+    ' buildVisualCoverOverrideKey,' +
+    ' buildFabricSwatchOverrideKey,' +
+    ' getGroupVisualCoverPhotoUrl,' +
+    ' getFabricSwatchPhotoUrl,' +
+    ' saveLocalProductOverridesMap,' +
+    ' renderMoreItems: window.renderMoreItems,' +
     ' setInvCategory: window.setInvCategory,' +
     ' setInvSubCategory: window.setInvSubCategory,' +
     ' getDocEl: (id) => document.getElementById(id)' +
@@ -178,7 +184,8 @@ test('SALAS MODULARES, SALAS EN L, SOFÁ CAMAS, and SOFÁ Y LOVE SEAT stay group
   assert.equal(aspen.title, 'SALA MODULAR ASPEN');
   assert.ok(aspen.items.length >= 10, 'ASPEN should combine all modular SKUs');
   assert.ok(aspen.moduleCount >= 5, 'ASPEN should expose multiple distinct modules');
-  assert.match(API.formatGroupBadgeLabel(aspen), /módulos · \d+ var\./);
+  assert.ok(aspen.variationCount >= 2, 'ASPEN should expose multiple fabric colors');
+  assert.match(API.formatGroupBadgeLabel(aspen), /colores · \d+ mód\./);
 
   const nilo = modGroups.find(g => g.mo === 'NILO');
   assert.ok(nilo, 'Expected grouped SALA MODULAR NILO card');
@@ -199,6 +206,9 @@ test('SALAS MODULARES, SALAS EN L, SOFÁ CAMAS, and SOFÁ Y LOVE SEAT stay group
     assert.equal(grp.title, `SALA EN L ${model}`);
     assert.ok(grp.moduleCount >= 2, `Expected multiple modules for SALA EN L ${model}`);
   }
+  // DOVELLI coordinated fabrics unify cleanly into 1 color ("ISMALIA LINEN")
+  const dovelli = lGroups.find(g => g.mo === 'DOVELLI');
+  assert.equal(dovelli.variationCount, 1, 'DOVELLI ISMALIA LINEN / COORD variants must unify into 1 color');
 
   // 3) FUTONES & SOFÁ CAMAS
   API.setInvSubCategory('FUTONES & SOFÁ CAMAS');
@@ -219,7 +229,7 @@ test('SALAS MODULARES, SALAS EN L, SOFÁ CAMAS, and SOFÁ Y LOVE SEAT stay group
   }
 });
 
-test('EXTERIOR mirrors Salas grouping by Type + Model + Modules + Variations', () => {
+test('EXTERIOR mirrors Salas grouping by Type + Model + Color/Fabric + Modules', () => {
   API.setInvCategory('COMPLEMENTOS');
   API.setInvSubCategory('EXTERIOR');
   const extGroups = API.getFilteredGroups();
@@ -242,6 +252,7 @@ test('EXTERIOR mirrors Salas grouping by Type + Model + Modules + Variations', (
   const santaMonicaSala = extGroups.find(g => g.mo === 'SANTA MONICA' && g.typeKey === 'EXT_SALA');
   assert.ok(santaMonicaSala, 'Expected SALA EXTERIOR SANTA MONICA');
   assert.ok(santaMonicaSala.moduleCount >= 2);
+  assert.equal(santaMonicaSala.variationCount, 2, 'SANTA MONICA should group cleanly into DARK GREY and WHITE');
 
   const nidoSala = extGroups.find(g => g.mo === 'NIDO' && g.typeKey === 'EXT_SALA');
   assert.ok(nidoSala, 'Expected SALA EXTERIOR NIDO');
@@ -259,7 +270,7 @@ test('EXTERIOR mirrors Salas grouping by Type + Model + Modules + Variations', (
   assert.ok(lustroCamastro && lustroCamastro.items.length >= 2, 'CAMASTRO EXTERIOR LUSTRO should group its variations');
 });
 
-test('renderGroupVariantsStep renders full-width module headers and variations cleanly', () => {
+test('renderGroupVariantsStep groups by Color/Fabric first (with swatch) and lists ordered Modules underneath', () => {
   API.setInvCategory('SALAS');
   API.setInvSubCategory('SALAS MODULARES');
   const aspen = API.getFilteredGroups().find(g => g.mo === 'ASPEN');
@@ -267,23 +278,40 @@ test('renderGroupVariantsStep renders full-width module headers and variations c
 
   const html = API.getDocEl('detVariantsList').innerHTML;
   const crumb = API.getDocEl('detGroupCrumb').textContent;
-  assert.match(crumb, /\d+ módulos · \d+ variaciones/);
+  assert.match(crumb, /\d+ colores · \d+ módulos/);
 
-  const headerTitles = [...html.matchAll(/class="inv-module-group-title">([^<]+)<\/span>/g)].map(m => m[1]);
-  assert.ok(headerTitles.includes('ESQUINERO'), 'ASPEN modal should include ESQUINERO module section');
-  assert.ok(headerTitles.includes('SILLÓN BRAZO DERECHO'), 'ASPEN modal should include SILLÓN BRAZO DERECHO section');
-  assert.ok(headerTitles.includes('SILLÓN SIN BRAZOS'), 'ASPEN modal should include SILLÓN SIN BRAZOS section');
-  assert.ok(headerTitles.includes('OTOMÁN'), 'ASPEN modal should include OTOMÁN section');
+  const fabricHeaders = [...html.matchAll(/class="inv-fabric-title">([^<]+)<\/span>/g)].map(m => m[1]);
+  assert.equal(fabricHeaders[0], 'LILLIE SNOW', 'LILLIE SNOW (6 modules) should appear first in ASPEN');
+  assert.equal(fabricHeaders[1], 'LILLIE SILVER', 'LILLIE SILVER (4 modules) should appear second in ASPEN');
 
-  // Verify exterior Sofá y Love Seat modal renders SOFÁ and LOVE SEAT sections too
-  API.setInvCategory('COMPLEMENTOS');
-  API.setInvSubCategory('EXTERIOR');
-  const lumina = API.getFilteredGroups().find(g => g.mo === 'LUMINA' && g.typeKey === 'EXT_SOFA_LOVESEAT');
-  API.renderGroupVariantsStep(lumina);
-  const extHtml = API.getDocEl('detVariantsList').innerHTML;
-  const extHeaders = [...extHtml.matchAll(/class="inv-module-group-title">([^<]+)<\/span>/g)].map(m => m[1]);
-  assert.ok(extHeaders.includes('SOFÁ'), 'LUMINA exterior modal should include SOFÁ module section');
-  assert.ok(extHeaders.includes('LOVE SEAT'), 'LUMINA exterior modal should include LOVE SEAT module section');
+  // Verify modules under LILLIE SNOW appear in HTML between LILLIE SNOW and LILLIE SILVER
+  const idxSnow = html.indexOf('data-fabric-key="LILLIE SNOW"');
+  const idxSilver = html.indexOf('data-fabric-key="LILLIE SILVER"');
+  assert.ok(idxSnow >= 0 && idxSilver > idxSnow);
+  const snowSection = html.slice(idxSnow, idxSilver);
+  assert.match(snowSection, /SILLÓN BRAZO DERECHO/);
+  assert.match(snowSection, /SILLÓN BRAZO IZQUIERDO/);
+  assert.match(snowSection, /SILLÓN SIN BRAZOS/);
+  assert.match(snowSection, /ESQUINERO/);
+  assert.match(snowSection, /CHAISE LONGUE IZQUIERDO/);
+  assert.match(snowSection, /OTOMÁN/);
+
+  const silverSection = html.slice(idxSilver);
+  assert.match(silverSection, /SILLÓN SIN BRAZOS/);
+  assert.match(silverSection, /ESQUINERO/);
+  assert.match(silverSection, /CHAISE LONGUE DERECHO/);
+  assert.match(silverSection, /CHAISE LONGUE IZQUIERDO/);
+
+  // Verify visual cover photo & fabric swatch photo overrides render without modifying individual SKU photos
+  const invJs = fs.readFileSync('inventario-app.js', 'utf8');
+  assert.match(invJs, /function buildVisualCoverOverrideKey\(/);
+  assert.match(invJs, /function buildFabricSwatchOverrideKey\(/);
+  assert.match(invJs, /window\.openVisualPhotoPicker = function/);
+  assert.match(invJs, /window\.openVisualPhotoLightbox = function/);
+  const invHtml = fs.readFileSync('inventario.html', 'utf8');
+  assert.match(invHtml, /id="detGroupCoverBar"/);
+  assert.match(invHtml, /id="visualPhotoPickerModal"/);
+  assert.match(invHtml, /id="visualPhotoLightboxModal"/);
 });
 
 test('Category pill counts match visible card counts for grouped Salas and Exterior subcategories', () => {
@@ -308,9 +336,45 @@ test('Category pill counts match visible card counts for grouped Salas and Exter
   assert.equal(Number(mExt[1]), extCards, 'EXTERIOR pill counter must match rendered card count');
 });
 
-test('inventario-ui.css defines full-width .inv-module-group-header styles', () => {
+test('inventario-ui.css defines full-width fabric group headers, swatches, cover bar, and lightbox styles', () => {
   const css = fs.readFileSync('inventario-ui.css', 'utf8');
-  assert.match(css, /#detVariantsList\s+\.inv-module-group-header\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1/);
-  assert.match(css, /#detVariantsList\s+\.inv-module-group-title\s*\{/);
-  assert.match(css, /#detVariantsList\s+\.inv-module-group-count\s*\{/);
+  assert.match(css, /#detVariantsList\s+\.inv-fabric-group-header\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1/);
+  assert.match(css, /#detVariantsList\s+\.inv-fabric-swatch\s*\{/);
+  assert.match(css, /\.inv-group-cover-bar\s*\{/);
+  assert.match(css, /\.inv-visual-lightbox-card\s*\{/);
+});
+
+test('Visual cover photo (home only) and fabric swatch photo render cleanly without altering any SKU photo', () => {
+  API.setInvCategory('SALAS');
+  API.setInvSubCategory('SALAS MODULARES');
+  const aspen = API.getFilteredGroups().find(g => g.mo === 'ASPEN');
+  const origSkuPhotos = aspen.items.map(it => it.f);
+
+  const covKey = API.buildVisualCoverOverrideKey(aspen.key);
+  const fabKey = API.buildFabricSwatchOverrideKey('LILLIE SNOW');
+  assert.ok(covKey.startsWith('VCOV:') && covKey.length <= 58, 'Cover override key must fit backend 60-char limit');
+  assert.ok(fabKey.startsWith('VFAB:') && fabKey.length <= 58, 'Fabric override key must fit backend 60-char limit');
+
+  const fakeCoverDriveUrl = 'https://drive.google.com/file/d/1VisualCoverAspenId9999/view?usp=sharing';
+  const fakeFabricDriveUrl = 'https://drive.google.com/file/d/1FabricSwatchSnowId8888/view?usp=sharing';
+  API.saveLocalProductOverridesMap({
+    [covKey]: { sku: covKey, status: 'VISIBLE', name: aspen.title, category: 'VISUAL_COVER', note: fakeCoverDriveUrl },
+    [fabKey]: { sku: fabKey, status: 'VISIBLE', name: 'LILLIE SNOW', category: 'FABRIC_SWATCH', note: fakeFabricDriveUrl }
+  });
+
+  assert.equal(API.getGroupVisualCoverPhotoUrl(aspen.key), fakeCoverDriveUrl);
+  assert.equal(API.getFabricSwatchPhotoUrl('LILLIE SNOW'), fakeFabricDriveUrl);
+
+  API.renderGroupVariantsStep(aspen);
+  const coverBarHtml = API.getDocEl('detGroupCoverBar').innerHTML;
+  assert.ok(coverBarHtml.includes('1VisualCoverAspenId9999'), 'Cover bar should display the visual cover Drive image');
+
+  const variantsHtml = API.getDocEl('detVariantsList').innerHTML;
+  assert.ok(variantsHtml.includes('1FabricSwatchSnowId8888'), 'LILLIE SNOW header should display the fabric swatch Drive image');
+
+  // Verify individual SKU photos are 100% untouched
+  assert.deepEqual(aspen.items.map(it => it.f), origSkuPhotos, 'Visual cover and fabric swatch photos must NEVER mutate individual SKU photos');
+
+  // Clean up overrides map for clean state
+  API.saveLocalProductOverridesMap({});
 });
