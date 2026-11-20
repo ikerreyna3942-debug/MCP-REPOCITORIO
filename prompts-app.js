@@ -790,6 +790,132 @@
         }
     };
 
+    // ------------------------------------------------------------------
+    // Fuentes de fotos (solo lectura): SM S Mueblería · Cotización · SUBIR PROPT
+    // ------------------------------------------------------------------
+    const PROMPTS_SOURCE_KEYS = ['SM_MUEBLERIA', 'COTIZACION', 'SUBIR_PROPT'];
+    const PROMPTS_SOURCE_LAST_KEY = 'creata_prompts_source_last_v1';
+    let promptsSourceActive = '';
+    let promptsSourceReqSeq = 0;
+
+    function setPromptsSourcesStatus(msg, kind) {
+        const el = byId('proptSourcesStatus');
+        if (!el) return;
+        if (!msg) {
+            el.classList.add('hidden');
+            el.textContent = '';
+            return;
+        }
+        el.classList.remove('hidden', 'is-ok', 'is-err');
+        el.classList.add(kind === 'ok' ? 'is-ok' : 'is-err');
+        el.textContent = msg;
+    }
+
+    function markPromptsSourceTabs(activeKey) {
+        PROMPTS_SOURCE_KEYS.forEach((k) => {
+            const btn = byId('proptSrcTab_' + k);
+            if (!btn) return;
+            const on = k === activeKey;
+            btn.classList.toggle('is-active', on);
+            if (btn.setAttribute) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
+    function renderPromptsSourcesGrid(files) {
+        const grid = byId('proptSourcesGrid');
+        if (!grid) return;
+        const list = (Array.isArray(files) ? files : []).filter((f) => f && isValidDriveId(f.id));
+        if (!list.length) {
+            grid.innerHTML = '<div class="propt-empty">Sin fotos en esta carpeta.</div>';
+            return;
+        }
+        grid.innerHTML = list.map((f) => {
+            const rawId = String(f.id).trim();
+            const fname = escapeHtml(f.name || 'foto.jpg');
+            const sub = f.subfolder ? '<div class="propt-photo-sub" title="' + escapeHtml(f.subfolder) + '">' + escapeHtml(f.subfolder) + '</div>' : '';
+            const defaultThumb = 'https://lh3.googleusercontent.com/d/' + rawId + '=w800';
+            const defaultFallback = 'https://drive.google.com/thumbnail?id=' + rawId + '&sz=w480';
+            const defaultView = 'https://drive.google.com/file/d/' + rawId + '/view?usp=sharing';
+            const thumb = escapeHtml(sanitizeSafeDriveUrl(f.thumbUrl, defaultThumb));
+            const fallbackThumb = escapeHtml(sanitizeSafeDriveUrl(defaultFallback, defaultThumb));
+            const viewUrl = escapeHtml(sanitizeSafeDriveUrl(f.viewUrl, defaultView));
+            return (
+                '<article class="propt-photo-card" data-file-id="' + escapeHtml(rawId) + '">' +
+                    '<div class="propt-photo-thumb-wrap">' +
+                        '<img class="propt-photo-thumb" src="' + thumb + '" data-fb-src="' + fallbackThumb + '" alt="' + fname + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" ' +
+                        'onerror="if(!this.dataset.fb){this.dataset.fb=\'1\';this.src=this.getAttribute(\'data-fb-src\')||\'\';}">' +
+                    '</div>' +
+                    '<div class="propt-photo-info">' +
+                        '<div class="propt-photo-name" title="' + fname + '">' + fname + '</div>' + sub +
+                        '<div class="propt-photo-foot">' +
+                            '<span class="propt-photo-size">' + escapeHtml(formatBytes(f.sizeBytes)) + '</span>' +
+                            '<div class="propt-photo-actions">' +
+                                '<a class="propt-mini-btn" href="' + viewUrl + '" target="_blank" rel="noopener" title="Abrir en Drive">↗</a>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                '</article>'
+            );
+        }).join('');
+    }
+
+    function formatPromptsSourcesError(rawError) {
+        const msg = String(rawError || '').trim();
+        if (/no reconocida/i.test(msg)) {
+            return 'Falta actualizar AppsScript_Prompts_Odoo.gs en Base de Datos Generales (pegar la versión nueva y redesplegar) para ver estas carpetas.';
+        }
+        return formatProptErrorWithGuidance(msg || 'No se pudo cargar la carpeta.');
+    }
+
+    window.selectPromptsSource = async function (sourceKey) {
+        const key = String(sourceKey || '').trim().toUpperCase();
+        if (PROMPTS_SOURCE_KEYS.indexOf(key) === -1) return false;
+        promptsSourceActive = key;
+        markPromptsSourceTabs(key);
+        try { localStorage.setItem(PROMPTS_SOURCE_LAST_KEY, key); } catch (eLs) {}
+
+        const grid = byId('proptSourcesGrid');
+        if (!ensureProptUploadConfigReady()) {
+            setPromptsSourcesStatus('Configura URL /exec y PIN arriba (⚙) para ver las fotos.', 'err');
+            return false;
+        }
+        const seq = ++promptsSourceReqSeq;
+        setPromptsSourcesStatus('Cargando…', 'ok');
+        if (grid) grid.innerHTML = '<div class="propt-empty">Cargando fotos…</div>';
+        try {
+            const res = await callPromptsAppsScript('prompts_sources_list', { sourceKey: key, limit: 120 });
+            if (seq !== promptsSourceReqSeq) return false; // llegó otra selección después
+            if (!res || !res.ok) {
+                if (grid) grid.innerHTML = '<div class="propt-empty">Sin datos.</div>';
+                setPromptsSourcesStatus(formatPromptsSourcesError(res && res.error), 'err');
+                return false;
+            }
+            if (String(res.sourceKey || '') !== key || (res.folderId && !isValidDriveId(res.folderId))) {
+                setPromptsSourcesStatus('Respuesta inesperada del servidor.', 'err');
+                return false;
+            }
+            renderPromptsSourcesGrid(res.files || []);
+            const shown = Number(res.count || 0);
+            const total = Number(res.total || shown);
+            setPromptsSourcesStatus(
+                (res.folderName ? res.folderName + ': ' : '') + shown + (shown === 1 ? ' foto' : ' fotos') +
+                (total > shown ? ' de ' + total : '') + (res.readOnly ? ' · solo lectura' : ''),
+                'ok'
+            );
+            return true;
+        } catch (err) {
+            if (seq !== promptsSourceReqSeq) return false;
+            if (grid) grid.innerHTML = '<div class="propt-empty">Sin conexión.</div>';
+            setPromptsSourcesStatus(formatPromptsSourcesError((err && err.message) ? err.message : 'Error de red.'), 'err');
+            return false;
+        }
+    };
+
+    window.refreshPromptsSources = function () {
+        return window.selectPromptsSource(promptsSourceActive || 'SM_MUEBLERIA');
+    };
+
+
     function buildSafeUploadFileName(file, tipoChoice, index) {
         const rawName = String((file && file.name) || '').trim();
         if (rawName) return rawName;

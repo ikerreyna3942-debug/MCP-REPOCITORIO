@@ -7,6 +7,8 @@
 //   - Bandeja exclusiva Prompts: SUBIR PROPT (1Xc-gaDUJHNSd_XSTob3b39CNYoC9UreX)
 //   - Buzón / Final Odoo: SUBIDA DE FOTOS (1rwRk...) -> fotos odoo (1lfq8...)
 //   - Muestras solo lectura: TELAS (1JKJP...) y MADERAS (1Jq2u...)
+//   - Fuentes de fotos (solo lectura, acción prompts_sources_list): FOTOS SM S MUEBLERIA,
+//     Cotización (resueltas por ruta de nombres) y SUBIR PROPT.
 //   - PROHIBIDO tocar Proyecto A: SUBIR PREN (11_rR...), CATEGORIAS MUEBLES Y
 //     ACCESORIOS (1KZh-Az...) + 10 subcarpetas, FOTOS NUEVAS CARGADO,
 //     Control de Productos (1xewq...) y LPPT (1t78K...).
@@ -717,6 +719,8 @@ function dispatchPromptsAction_(action, payload) {
       return handlePromptsHealth_(payload);
     case 'prompts_propt_list':
       return handlePromptsProptList_(payload);
+    case 'prompts_sources_list':
+      return handlePromptsSourcesList_(payload);
     case 'prompts_propt_upload':
       return handlePromptsProptUpload_(payload);
     case 'prompts_propt_delete':
@@ -918,6 +922,265 @@ function handlePromptsProptList_(payload) {
     folderUrl: 'https://drive.google.com/drive/folders/' + SUBIR_PROPT_FOLDER_ID_,
     count: files.length,
     files: files,
+    timestamp: new Date().toISOString()
+  };
+}
+
+// ============================================================================
+// 2b. prompts_sources_list — Fuentes de fotos para la App de Prompts (SOLO LECTURA)
+//     1) SM_MUEBLERIA : I:\Mi unidad\PROYECTOS FINALES\PLANTILLAS\PRESENTACION\FOTOS SM S MUEBLERIA
+//     2) COTIZACION   : I:\Mi unidad\DOC ANIPA\Fotos general\Informacion de fotos\Cotización
+//     3) SUBIR_PROPT  : I:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PROPT
+//     Las carpetas 1 y 2 se resuelven por RUTA DE NOMBRES (sin acentos/mayúsculas/typos) y su
+//     ID se cachea. Si la carpeta (o cualquier ancestro) es de Proyecto A => falla cerrado.
+// ============================================================================
+const PROMPTS_SOURCES_ = {
+  SM_MUEBLERIA: {
+    label: 'SM S Mueblería',
+    path: [
+      ['PROYECTOS FINALES'],
+      ['PLANTILLAS'],
+      ['PRESENTACION', 'PRESENTACIÓN'],
+      ['FOTOS SM S MUEBLERIA', 'FOTOS SM´S MUEBLERIA', 'FOTOS SMS MUEBLERIA', 'FOTOS SM S MUEBLERIAS']
+    ],
+    readOnly: true,
+    checkMultiParent: false
+  },
+  COTIZACION: {
+    label: 'Cotización',
+    path: [
+      ['DOC ANIPA'],
+      ['Fotos general', 'Fotos generales'],
+      ['Informacion de fotos', 'Información de fotos'],
+      ['Cotización', 'Cotizacion', 'Cotizacipón', 'Cotizaciones']
+    ],
+    readOnly: true,
+    checkMultiParent: false
+  },
+  SUBIR_PROPT: {
+    label: 'SUBIR PROPT',
+    folderId: SUBIR_PROPT_FOLDER_ID_,
+    readOnly: false,
+    checkMultiParent: true
+  }
+};
+const PROMPTS_SOURCE_CACHE_PREFIX_ = 'PROMPTS_SRC_ID_V1_';
+const PROMPTS_SOURCE_CACHE_TTL_SEC_ = 6 * 60 * 60;
+const PROMPTS_SOURCES_DEFAULT_LIMIT_ = 120;
+const PROMPTS_SOURCES_MAX_LIMIT_ = 400;
+const PROMPTS_SOURCES_MAX_SCAN_ = 2500;
+const PROMPTS_SOURCES_MAX_DEPTH_ = 3;
+
+function normalizeFolderName_(raw) {
+  let s = String(raw || '');
+  try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (eN) {}
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function folderNameMatchesAny_(name, alternatives) {
+  const n = normalizeFolderName_(name);
+  if (!n) return false;
+  for (let i = 0; i < alternatives.length; i++) {
+    if (normalizeFolderName_(alternatives[i]) === n) return true;
+  }
+  return false;
+}
+
+function findFolderCandidatesByNames_(alternatives) {
+  const out = [];
+  const seen = {};
+  function push(f) {
+    try {
+      if (!f || (f.isTrashed && f.isTrashed())) return;
+      const id = String(f.getId() || '').trim();
+      if (!id || seen[id] || isForbiddenProjectAId_(id)) return;
+      seen[id] = true;
+      out.push(f);
+    } catch (e) {}
+  }
+  for (let i = 0; i < alternatives.length; i++) {
+    const variants = [String(alternatives[i]), String(alternatives[i]).toUpperCase()];
+    for (let v = 0; v < variants.length; v++) {
+      try {
+        const it = DriveApp.getFoldersByName(variants[v]);
+        while (it && it.hasNext()) push(it.next());
+      } catch (eByName) {}
+    }
+  }
+  if (out.length === 0) {
+    try {
+      const rootIt = DriveApp.getRootFolder().getFolders();
+      while (rootIt && rootIt.hasNext()) {
+        const f = rootIt.next();
+        if (folderNameMatchesAny_(f.getName(), alternatives)) push(f);
+      }
+    } catch (eRoot) {}
+  }
+  return out;
+}
+
+function walkFolderNamePath_(folder, pathParts, idx) {
+  if (idx >= pathParts.length) return folder;
+  const it = folder.getFolders();
+  while (it && it.hasNext()) {
+    const child = it.next();
+    try {
+      if (child.isTrashed && child.isTrashed()) continue;
+      if (isForbiddenProjectAId_(String(child.getId() || '').trim())) continue;
+      if (!folderNameMatchesAny_(child.getName(), pathParts[idx])) continue;
+      const found = walkFolderNamePath_(child, pathParts, idx + 1);
+      if (found) return found;
+    } catch (eChild) {}
+  }
+  return null;
+}
+
+function resolveFolderByNamePath_(pathParts) {
+  const roots = findFolderCandidatesByNames_(pathParts[0]);
+  for (let i = 0; i < roots.length; i++) {
+    const found = walkFolderNamePath_(roots[i], pathParts, 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function describeSourcePath_(src) {
+  if (src.folderId) return src.label;
+  return src.path.map(function (alts) { return alts[0]; }).join(' \\ ');
+}
+
+function resolvePromptsSourceFolder_(key) {
+  const src = PROMPTS_SOURCES_[key];
+  if (!src) throw new Error('Fuente de fotos no reconocida: "' + key + '".');
+  if (src.folderId) return getSafeFolderById_(src.folderId, 'prompts_sources_list:' + key);
+
+  let cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (eC) {}
+  const cacheKey = PROMPTS_SOURCE_CACHE_PREFIX_ + key;
+  try {
+    const cachedId = cache && cache.get(cacheKey);
+    if (cachedId && !isForbiddenProjectAId_(cachedId)) {
+      const cf = DriveApp.getFolderById(cachedId);
+      if (cf && !(cf.isTrashed && cf.isTrashed())) return cf;
+    }
+  } catch (eCached) {
+    try { if (cache) cache.remove(cacheKey); } catch (eRm) {}
+  }
+
+  const folder = resolveFolderByNamePath_(src.path);
+  if (folder) {
+    try { if (cache) cache.put(cacheKey, String(folder.getId()), PROMPTS_SOURCE_CACHE_TTL_SEC_); } catch (ePut) {}
+  }
+  return folder;
+}
+
+function collectSourceImages_(rootFolder, checkMultiParent, limit) {
+  const rootId = String(rootFolder.getId() || '').trim();
+  const items = [];
+  const seenFiles = {};
+  const seenFolders = {};
+  const queue = [{ folder: rootFolder, depth: 0, rel: '' }];
+  let scanned = 0;
+  let truncated = false;
+  while (queue.length > 0 && !truncated) {
+    const cur = queue.shift();
+    const curId = String(cur.folder.getId() || '').trim();
+    if (!curId || seenFolders[curId] || isForbiddenProjectAId_(curId)) continue;
+    seenFolders[curId] = true;
+    const fIt = cur.folder.getFiles();
+    while (fIt && fIt.hasNext()) {
+      if (++scanned > PROMPTS_SOURCES_MAX_SCAN_) { truncated = true; break; }
+      try {
+        const f = resolveSafeImageFileForProjectB_(fIt.next(), checkMultiParent);
+        if (!f) continue;
+        const fid = String(f.getId() || '').trim();
+        if (!fid || seenFiles[fid]) continue;
+        seenFiles[fid] = true;
+        const meta = formatDriveFileMeta_(f, curId);
+        meta.subfolder = cur.rel;
+        items.push(meta);
+      } catch (eF) {}
+    }
+    if (cur.depth < PROMPTS_SOURCES_MAX_DEPTH_) {
+      try {
+        const dIt = cur.folder.getFolders();
+        while (dIt && dIt.hasNext()) {
+          const sub = dIt.next();
+          if (sub.isTrashed && sub.isTrashed()) continue;
+          const subName = String(sub.getName() || '').trim();
+          queue.push({ folder: sub, depth: cur.depth + 1, rel: cur.rel ? cur.rel + ' / ' + subName : subName });
+        }
+      } catch (eD) {}
+    }
+  }
+  items.sort(function (a, b) {
+    const cmpDate = String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+    if (cmpDate !== 0) return cmpDate;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'es');
+  });
+  return { total: items.length, files: items.slice(0, limit), truncated: truncated || items.length > limit, rootId: rootId };
+}
+
+function handlePromptsSourcesList_(payload) {
+  const auth = verifyPromptsOwnerAuth_(payload);
+  if (!auth.ok) return auth;
+
+  const key = String((payload && payload.sourceKey) || 'SUBIR_PROPT').trim().toUpperCase();
+  const sourcesCatalog = Object.keys(PROMPTS_SOURCES_).map(function (k) {
+    return { key: k, label: PROMPTS_SOURCES_[k].label, readOnly: PROMPTS_SOURCES_[k].readOnly };
+  });
+  const src = PROMPTS_SOURCES_[key];
+  if (!src) {
+    return { ok: false, project: PROMPTS_PROJECT_TAG_, sources: sourcesCatalog, error: 'Fuente no reconocida: "' + key + '".' };
+  }
+
+  let limit = Number(payload && payload.limit);
+  if (!isFinite(limit) || limit <= 0) limit = PROMPTS_SOURCES_DEFAULT_LIMIT_;
+  limit = Math.min(Math.floor(limit), PROMPTS_SOURCES_MAX_LIMIT_);
+
+  let folder = null;
+  try {
+    folder = resolvePromptsSourceFolder_(key);
+  } catch (eRes) {
+    return {
+      ok: false, project: PROMPTS_PROJECT_TAG_, sourceKey: key, label: src.label, sources: sourcesCatalog,
+      error: 'No se pudo abrir la carpeta ' + src.label + ': ' + ((eRes && eRes.message) ? eRes.message : String(eRes))
+    };
+  }
+  if (!folder) {
+    return {
+      ok: false, project: PROMPTS_PROJECT_TAG_, sourceKey: key, label: src.label, found: false, sources: sourcesCatalog,
+      error: 'No encontré la carpeta ' + src.label + ' (ruta: ' + describeSourcePath_(src) +
+        '). Verifica que tu cuenta tenga acceso a "Mi unidad" y que el nombre coincida.'
+    };
+  }
+  if (folder.isTrashed && folder.isTrashed()) {
+    return { ok: false, project: PROMPTS_PROJECT_TAG_, sourceKey: key, label: src.label, folderTrashed: true, sources: sourcesCatalog,
+      error: 'La carpeta ' + src.label + ' está en la Papelera de Google Drive.' };
+  }
+  const folderId = String(folder.getId() || '').trim();
+  // Aislamiento A/B: la carpeta y sus ancestros jamás pueden ser de Proyecto A (fail closed).
+  if (isForbiddenProjectAId_(folderId) || isFolderOrAncestorForbiddenProjectA_(folder, 8)) {
+    return { ok: false, project: PROMPTS_PROJECT_TAG_, sourceKey: key, label: src.label, sources: sourcesCatalog,
+      error: 'Aislamiento Proyecto A/B: la carpeta ' + src.label + ' pertenece a Proyecto A y está bloqueada para Prompts.' };
+  }
+
+  const res = collectSourceImages_(folder, src.checkMultiParent, limit);
+  return {
+    ok: true,
+    project: PROMPTS_PROJECT_TAG_,
+    sourceKey: key,
+    label: src.label,
+    readOnly: src.readOnly,
+    found: true,
+    folderId: folderId,
+    folderName: String(folder.getName() || src.label),
+    folderUrl: 'https://drive.google.com/drive/folders/' + folderId,
+    count: res.files.length,
+    total: res.total,
+    truncated: res.truncated,
+    files: res.files,
+    sources: sourcesCatalog,
     timestamp: new Date().toISOString()
   };
 }

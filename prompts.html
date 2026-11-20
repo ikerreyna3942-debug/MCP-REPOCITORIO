@@ -24,7 +24,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./prompts-styles.css?v=5">
+    <link rel="stylesheet" href="./prompts-styles.css?v=6">
 </head>
 <body>
 
@@ -256,6 +256,23 @@
                         <div id="proptSkuResult" class="propt-sku-result hidden"></div>
                     </section>
 
+                    <!-- FUENTES DE FOTOS (DRIVE · SOLO LECTURA) -->
+                    <section id="proptSourcesCard" class="propt-card">
+                        <div class="propt-card-head">
+                            <h3>📂 Fuentes de fotos</h3>
+                            <button type="button" class="propt-mini-btn" onclick="refreshPromptsSources()" title="Recargar" aria-label="Recargar fuentes">↻</button>
+                        </div>
+                        <div class="propt-src-tabs" role="group" aria-label="Fuentes de fotos">
+                            <button type="button" id="proptSrcTab_SM_MUEBLERIA" class="propt-src-tab" aria-pressed="false" onclick="selectPromptsSource('SM_MUEBLERIA')">SM S Mueblería</button>
+                            <button type="button" id="proptSrcTab_COTIZACION" class="propt-src-tab" aria-pressed="false" onclick="selectPromptsSource('COTIZACION')">Cotización</button>
+                            <button type="button" id="proptSrcTab_SUBIR_PROPT" class="propt-src-tab" aria-pressed="false" onclick="selectPromptsSource('SUBIR_PROPT')">SUBIR PROPT</button>
+                        </div>
+                        <div id="proptSourcesStatus" class="propt-feedback hidden" aria-live="polite"></div>
+                        <div id="proptSourcesGrid" class="propt-gallery-grid">
+                            <div class="propt-empty">Elige una carpeta para ver sus fotos.</div>
+                        </div>
+                    </section>
+
                     <!-- SUBIDA GENÉRICA A ODOO + REGISTRO EN SHEET -->
                     <section class="propt-card">
                         <div class="propt-card-head">
@@ -413,6 +430,6 @@
     </div>
 
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./prompts-app.js?v=7"></script>
+    <script src="./prompts-app.js?v=8"></script>
 </body>
 </html>

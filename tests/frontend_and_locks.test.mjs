@@ -52,10 +52,10 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   const promptsSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
   const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
-  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v7['"]/);
+  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v8['"]/);
   assert.match(promptsSwSrc, /creata-back-nav\.js\?v=1/);
-  assert.match(promptsSwSrc, /prompts-styles\.css\?v=5/);
-  assert.match(promptsSwSrc, /prompts-app\.js\?v=7/);
+  assert.match(promptsSwSrc, /prompts-styles\.css\?v=6/);
+  assert.match(promptsSwSrc, /prompts-app\.js\?v=8/);
   assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v12['"]/);
   assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v12['"]/);
   assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v1['"]/);
@@ -64,9 +64,9 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
 
   const promptsHtmlSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts.html'), 'utf8');
   assert.match(promptsHtmlSrc, /prompts-manifest\.json\?v=3/);
-  assert.match(promptsHtmlSrc, /prompts-styles\.css\?v=5/);
+  assert.match(promptsHtmlSrc, /prompts-styles\.css\?v=6/);
   assert.match(promptsHtmlSrc, /creata-back-nav\.js\?v=1/);
-  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=7/);
+  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=8/);
   assert.match(promptsHtmlSrc, /Configurar PIN/);
 
   const promptsCssSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-styles.css'), 'utf8');
@@ -365,12 +365,12 @@ test('App #9 (Feature F8): Auto-acomodar por categoría button removed from foto
   assert.match(assignFnMatch[0], /DEST_FOLDER_BY_ID\.get\(/, 'Guardar must validate against DEST_FOLDER_BY_ID');
 });
 
-test('Prompts SW (Item 14 / M2C): prompts-sw.js v7 evicts v2..v6, preserves other app caches, and intercepts prompts-app.js?v=7 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
+test('Prompts SW (Item 14 / M2C): prompts-sw.js v8 evicts v2..v7, preserves other app caches, and intercepts prompts-app.js?v=8 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
   const vm = await import('node:vm');
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-fotos-app-v11', 'creata-panel-app-v1', 'creata-inventario-v1'];
+  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-fotos-app-v11', 'creata-panel-app-v1', 'creata-inventario-v1'];
 
   const swSandbox = {
     URL,
@@ -399,7 +399,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v7 evicts v2..v6, preserves othe
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6']);
+  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7']);
 
   // Fetch bypasses script.google.com, buena-espero.onrender.com, and POST requests; intercepts same-origin GET
   const checkIntercept = (url, method = 'GET') => {
@@ -413,7 +413,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v7 evicts v2..v6, preserves othe
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
   assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
-  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=7', 'GET'), true);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=8', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
 });
 
@@ -530,4 +530,92 @@ test('Prompts App: direct camera button (capture="environment"), TELAS<->TELA / 
   storage.set('creata_prompts_pin_v1', '1234');
   assert.equal(sandbox.window.triggerProptUploadInput('proptCameraInput'), true);
   assert.equal(els.get('proptCameraInput')._getClicks(), 1);
+});
+
+test('Prompts App: Fuentes de fotos (SM S Mueblería / Cotización / SUBIR PROPT) tabs call prompts_sources_list, render XSS-safe read-only cards, and explain an outdated Apps Script', async () => {
+  const vm = await import('node:vm');
+  const promptsHtml = fs.readFileSync(path.join(REPO_ROOT, 'prompts.html'), 'utf8');
+  const promptsJs = fs.readFileSync(path.join(REPO_ROOT, 'prompts-app.js'), 'utf8');
+
+  for (const key of ['SM_MUEBLERIA', 'COTIZACION', 'SUBIR_PROPT']) {
+    assert.match(promptsHtml, new RegExp('id="proptSrcTab_' + key + '"[^>]*onclick="selectPromptsSource\\(\'' + key + '\'\\)"'));
+  }
+  assert.match(promptsHtml, /id="proptSourcesGrid"/);
+  assert.match(promptsHtml, /id="proptSourcesStatus"/);
+  // Aislamiento Proyecto A/B: el frontend de Prompts jamás conoce IDs/rutas de Proyecto A
+  assert.ok(!promptsJs.includes('11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p'));
+  assert.ok(!/SUBIR PREN/.test(promptsJs));
+
+  function makeEl(id) {
+    const classes = new Set();
+    return {
+      id, value: '', textContent: '', innerHTML: '',
+      classList: {
+        add: (...c) => c.forEach((x) => classes.add(x)),
+        remove: (...c) => c.forEach((x) => classes.delete(x)),
+        toggle: (c, f) => { if (f) classes.add(c); else classes.delete(c); },
+        contains: (c) => classes.has(c)
+      },
+      click: () => {}, focus: () => {}, setAttribute: () => {}, getAttribute: () => '', addEventListener: () => {}
+    };
+  }
+  const ids = ['proptSourcesGrid', 'proptSourcesStatus', 'proptConfigBox', 'proptConnStatus', 'proptFeedback',
+    'proptScriptUrlInput', 'proptPinInput', 'proptOwnerEmailInput', 'proptSrcTab_SM_MUEBLERIA', 'proptSrcTab_COTIZACION', 'proptSrcTab_SUBIR_PROPT'];
+  const els = new Map(ids.map((i) => [i, makeEl(i)]));
+  const storage = new Map([
+    ['creata_prompts_webapp_url_v1', 'https://script.google.com/macros/s/VALID_DEPLOY_123/exec'],
+    ['creata_prompts_pin_v1', '1234']
+  ]);
+  const calls = [];
+  let nextResponse = null;
+  const sandbox = {
+    console, Date, Math, JSON, RegExp, Array, Object, String, Number, Boolean, Error, Promise, URL, URLSearchParams, AbortController,
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {},
+    localStorage: {
+      getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => storage.set(k, String(v)),
+      removeItem: (k) => storage.delete(k)
+    },
+    navigator: { onLine: true, userAgent: 'Mozilla/5.0', serviceWorker: { register: () => Promise.resolve() } },
+    history: { replaceState: () => {} },
+    location: { protocol: 'https:', pathname: '/MCP-REPOCITORIO/prompts.html', search: '', hash: '', href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts.html' },
+    document: { readyState: 'complete', getElementById: (id) => els.get(id) || null, querySelectorAll: () => [], addEventListener: () => {} },
+    fetch: async (url, opts) => {
+      calls.push(JSON.parse(opts.body));
+      return { text: async () => JSON.stringify(nextResponse) };
+    }
+  };
+  sandbox.window = sandbox;
+  sandbox.window.addEventListener = () => {};
+  sandbox.window.matchMedia = () => ({ matches: false });
+  vm.runInNewContext(promptsJs, sandbox, { filename: 'prompts-app.js' });
+
+  // Clave inválida: no llama al servidor
+  assert.equal(await sandbox.window.selectPromptsSource('SUBIR_PREN'), false);
+  assert.equal(calls.length, 0);
+
+  nextResponse = {
+    ok: true, sourceKey: 'COTIZACION', folderId: 'src_cot', folderName: 'Cotizacipón', readOnly: true, count: 2, total: 2,
+    files: [
+      { id: 'abcDEF1234567890', name: '<img src=x onerror=alert(1)>.jpg', sizeBytes: 2048, thumbUrl: 'javascript:alert(1)', viewUrl: 'javascript:alert(2)', subfolder: 'Lote "A"' },
+      { id: 'bad id!', name: 'ignorada.jpg' }
+    ]
+  };
+  assert.equal(await sandbox.window.selectPromptsSource('cotizacion'), true);
+  assert.equal(calls[0].action, 'prompts_sources_list');
+  assert.equal(calls[0].sourceKey, 'COTIZACION');
+  assert.equal(calls[0].pin, '1234');
+  const html = els.get('proptSourcesGrid').innerHTML;
+  assert.ok(!html.includes('<img src=x'), 'file names must be escaped');
+  assert.ok(!/javascript:/i.test(html), 'unsafe URLs must be replaced');
+  assert.ok(html.includes('https://drive.google.com/file/d/abcDEF1234567890/view'));
+  assert.ok(!html.includes('ignorada.jpg'));
+  assert.ok(!/propt-mini-btn is-danger/.test(html), 'sources are read-only (no delete button)');
+  assert.match(els.get('proptSourcesStatus').textContent, /Cotizacipón: 2 fotos · solo lectura/);
+
+  // Apps Script sin redesplegar => mensaje claro
+  nextResponse = { ok: false, error: 'Acción no reconocida en AppsScript_Prompts_Odoo: "prompts_sources_list".' };
+  assert.equal(await sandbox.window.selectPromptsSource('SM_MUEBLERIA'), false);
+  assert.match(els.get('proptSourcesStatus').textContent, /actualizar AppsScript_Prompts_Odoo\.gs/);
+  assert.equal(els.get('proptSourcesStatus').classList.contains('is-err'), true);
 });
