@@ -24,7 +24,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=7">
-    <link rel="stylesheet" href="./inventario-ui.css?v=16">
+    <link rel="stylesheet" href="./inventario-ui.css?v=17">
 </head>
 <body>
 
@@ -234,8 +234,9 @@
                 </div>
             </div>
 
-            <!-- PASO 1 (SOLO CUANDO EL MODELO TIENE VARIANTES): LISTADO DE VARIANTES CON FOTO DEL TAMAÑO DE LA FICHA -->
+            <!-- PASO 1 (SOLO CUANDO EL MODELO TIENE VARIANTES): PORTADA VISUAL + COLORES/TELAS + MÓDULOS -->
             <div id="detVariantsStep" class="p-3 space-y-2.5 hidden">
+                <div id="detGroupCoverBar" class="inv-group-cover-bar hidden"></div>
                 <div id="detVariantsList" class="inv-det-variants-grid"></div>
             </div>
 
@@ -1183,6 +1184,58 @@
         </div>
     </div>
 
+    <!-- MODAL SOLO KEVIN: FOTO VISUAL DE PORTADA (INICIO) O FOTO DE TELA (COLOR) -->
+    <div id="visualPhotoPickerModal" class="modal-backdrop" style="z-index:90;" onclick="if(event.target===this) closeVisualPhotoPicker()">
+        <div class="inv-modal-card inv-visual-picker-card" role="dialog" aria-modal="true" aria-labelledby="visualPhotoPickerTitle" onclick="event.stopPropagation()">
+            <div class="inv-modal-head">
+                <div class="min-w-0">
+                    <div id="visualPhotoPickerEyebrow" class="text-[10px] font-extrabold uppercase tracking-wider" style="color:#A38251;">Solo visual · No modifica SKUs</div>
+                    <h3 id="visualPhotoPickerTitle" class="inv-modal-title truncate">Foto visual</h3>
+                </div>
+                <button type="button" onclick="closeVisualPhotoPicker()" class="inv-modal-close" aria-label="Cerrar">✕</button>
+            </div>
+            <div class="inv-modal-body space-y-3">
+                <div id="visualPhotoPreviewWrap" class="inv-visual-preview-wrap hidden">
+                    <img id="visualPhotoPreviewImg" src="" alt="" referrerpolicy="no-referrer" crossorigin="anonymous" class="inv-visual-preview-img">
+                </div>
+                <p id="visualPhotoPickerHint" class="text-xs leading-relaxed" style="color:#5B554D;">
+                    Esta imagen es únicamente visual y se sincroniza automáticamente para todo el equipo.
+                </p>
+                <div class="flex flex-col gap-2">
+                    <button type="button" id="visualPhotoUploadBtn" class="inv-btn-primary w-full" onclick="triggerVisualPhotoFileInput()">
+                        📷 Subir foto desde celular / PC
+                    </button>
+                    <input type="file" id="visualPhotoFileInput" accept="image/*" class="hidden" onchange="onVisualPhotoFileSelected(this)">
+                </div>
+                <div class="inv-field">
+                    <label for="visualPhotoUrlInput" class="inv-field-label">O pegar enlace de Google Drive / imagen</label>
+                    <div class="flex gap-2">
+                        <input id="visualPhotoUrlInput" type="url" class="inv-input flex-1" placeholder="https://drive.google.com/file/d/...">
+                        <button type="button" id="visualPhotoSaveUrlBtn" class="inv-btn-secondary" onclick="saveVisualPhotoFromUrl()">Guardar</button>
+                    </div>
+                </div>
+                <div id="visualPhotoStatus" class="inv-settings-status hidden"></div>
+            </div>
+            <div class="inv-modal-foot" style="justify-content:space-between;">
+                <button type="button" id="visualPhotoClearBtn" class="inv-btn-danger-soft hidden" onclick="clearVisualPhotoOverride()">🗑 Quitar foto</button>
+                <button type="button" onclick="closeVisualPhotoPicker()" class="inv-btn-secondary" style="margin-left:auto;">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LIGHTBOX LIGERO PARA VER EN GRANDE FOTO DE PORTADA O FOTO DE TELA -->
+    <div id="visualPhotoLightboxModal" class="modal-backdrop" style="z-index:95;" onclick="closeVisualPhotoLightbox()">
+        <div class="inv-visual-lightbox-card" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+            <div class="inv-visual-lightbox-head">
+                <span id="visualPhotoLightboxCaption" class="inv-visual-lightbox-caption"></span>
+                <button type="button" class="inv-modal-close" onclick="closeVisualPhotoLightbox()" aria-label="Cerrar">✕</button>
+            </div>
+            <div class="inv-visual-lightbox-stage">
+                <img id="visualPhotoLightboxImg" src="" alt="" referrerpolicy="no-referrer" crossorigin="anonymous">
+            </div>
+        </div>
+    </div>
+
     <script src="creata-finishes.js?v=33"></script>
     <script src="creata-img.js?v=33"></script>
     <script src="creata-cloud.js?v=33"></script>
@@ -1192,6 +1245,6 @@
     <script src="./creata-back-nav.js?v=1"></script>
     <script src="./seguimiento-app.js?v=8"></script>
     <script src="./historial-app.js?v=7"></script>
-    <script src="inventario-app.js?v=91"></script>
+    <script src="inventario-app.js?v=92"></script>
 </body>
 </html>
