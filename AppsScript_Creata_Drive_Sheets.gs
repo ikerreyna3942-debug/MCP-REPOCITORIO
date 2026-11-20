@@ -11695,7 +11695,7 @@ function handleInvProductOverrideSave_(body) {
     if (op === 'ARCHIVE') nextStatus = 'ARCHIVADO';
     else if (op === 'DELETE') nextStatus = 'ELIMINADO';
     else if (op === 'RESTORE') nextStatus = 'VISIBLE';
-    else if (op === 'SAVE' && (prevStatus !== 'ARCHIVADO' && prevStatus !== 'ELIMINADO')) nextStatus = 'VISIBLE';
+    else if (op === 'SAVE' && (/^V(?:COV|FAB):/i.test(sku) || (prevStatus !== 'ARCHIVADO' && prevStatus !== 'ELIMINADO'))) nextStatus = 'VISIBLE';
 
     const nextName = (b.name !== undefined)
       ? sanitizeOverrideTextCell_(b.name, 140)

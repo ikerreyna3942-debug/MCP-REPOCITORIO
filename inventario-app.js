@@ -63,6 +63,7 @@
     let isMainCoverActive = true;
 
     let currentGroup = null;
+    let currentGroupFabricKey = '';
     let currentDetailItem = null;
     let cart = loadCart();
     let lastLiveSignature = '';
@@ -2246,8 +2247,9 @@
         '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
 
     const failedDrivePhotoIds = new Set();
-    const OPTFIT_STORAGE_KEY = 'creata_optfit_map_v1';
+    const OPTFIT_STORAGE_KEY = 'creata_optfit_bbox_v2';
     const OPTFIT_MAX_ENTRIES = 800;
+    const OPTFIT_TARGET_FILL = 0.78;
     let optFitMap = null;
     let optFitSaveTimer = null;
     let optFitCanvas = null;
@@ -2286,127 +2288,269 @@
         }, 500);
     }
 
-    function applyOptFitVars(imgEl, fit) {
-        if (!imgEl || !fit || fit === 'skip') return;
-        if (fit.s && fit.s > 1.01) {
+    /**
+     * Detecta la caja de contenido del producto sobre fondo uniforme de estudio
+     * (blanco/transparente/gris claro) muestreando ÚNICAMENTE los píxeles reales
+     * de la imagen (sin franjas letterbox) y filtrando motas aisladas de 1px.
+     */
+    function detectStudioContentBounds(rgba, w, h, naturalWidth, naturalHeight) {
+        if (!rgba || !w || !h || w < 12 || h < 12) return null;
+        const ring = (w < 24 || h < 24) ? 1 : 2;
+        let borderCount = 0;
+        let transCount = 0;
+        let sumR = 0, sumG = 0, sumB = 0;
+        const bSamples = [];
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (x >= ring && x < w - ring && y >= ring && y < h - ring) continue;
+                const idx = (y * w + x) * 4;
+                const a = rgba[idx + 3];
+                borderCount++;
+                if (a < 24) {
+                    transCount++;
+                } else {
+                    sumR += rgba[idx];
+                    sumG += rgba[idx + 1];
+                    sumB += rgba[idx + 2];
+                    bSamples.push(rgba[idx], rgba[idx + 1], rgba[idx + 2]);
+                }
+            }
+        }
+        const transRatio = borderCount > 0 ? (transCount / borderCount) : 0;
+        const useAlpha = transRatio >= 0.08;
+        const opaqueBorder = bSamples.length / 3;
+        const mR = opaqueBorder > 0 ? sumR / opaqueBorder : 255;
+        const mG = opaqueBorder > 0 ? sumG / opaqueBorder : 255;
+        const mB = opaqueBorder > 0 ? sumB / opaqueBorder : 255;
+        let varSum = 0;
+        for (let i = 0; i < bSamples.length; i += 3) {
+            const dr = bSamples[i] - mR;
+            const dg = bSamples[i + 1] - mG;
+            const db = bSamples[i + 2] - mB;
+            varSum += (dr * dr + dg * dg + db * db) / 3;
+        }
+        const borderStdDev = opaqueBorder > 0 ? Math.sqrt(varSum / opaqueBorder) : 0;
+
+        const maxCh = Math.max(mR, mG, mB);
+        const minCh = Math.min(mR, mG, mB);
+        const isPureWhiteBg = useAlpha || (minCh >= 244 && (maxCh - minCh) <= 12);
+        if (!useAlpha) {
+            if (isPureWhiteBg) {
+                if (borderStdDev > 24) return null;
+            } else {
+                // Fondo gris claro uniforme de estudio permitido; fotos ambiente/oscuras se respetan intactas
+                if (borderStdDev > 20 || minCh < 212 || (maxCh - minCh) > 20) return null;
+            }
+        }
+
+        const thresh = Math.max(30, Math.min(64, Math.round(28 + borderStdDev * 2.2)));
+        const mask = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++) {
+            const rowOff = y * w;
+            for (let x = 0; x < w; x++) {
+                const idx = (rowOff + x) * 4;
+                const a = rgba[idx + 3];
+                if (a <= 24) continue;
+                if (useAlpha) {
+                    mask[rowOff + x] = 1;
+                } else {
+                    const dist = Math.abs(rgba[idx] - mR) + Math.abs(rgba[idx + 1] - mG) + Math.abs(rgba[idx + 2] - mB);
+                    if (dist > thresh) mask[rowOff + x] = 1;
+                }
+            }
+        }
+
+        // Filtro 8-vecinos: elimina píxeles aislados de polvo/compresión conservando patas delgadas
+        let minX = w, minY = h, maxX = -1, maxY = -1, fgCount = 0;
+        for (let y = 0; y < h; y++) {
+            const rowOff = y * w;
+            const y0 = y > 0 ? y - 1 : 0;
+            const y1 = y < h - 1 ? y + 1 : h - 1;
+            for (let x = 0; x < w; x++) {
+                if (!mask[rowOff + x]) continue;
+                const x0 = x > 0 ? x - 1 : 0;
+                const x1 = x < w - 1 ? x + 1 : w - 1;
+                let hasNeighbor = false;
+                for (let ny = y0; ny <= y1 && !hasNeighbor; ny++) {
+                    const nRow = ny * w;
+                    for (let nx = x0; nx <= x1; nx++) {
+                        if (nx === x && ny === y) continue;
+                        if (mask[nRow + nx]) {
+                            hasNeighbor = true;
+                            break;
+                        }
+                    }
+                }
+                if (!hasNeighbor) continue;
+                fgCount++;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+
+        const minFg = Math.max(24, Math.floor(w * h * 0.008));
+        if (fgCount < minFg || maxX <= minX || maxY <= minY) return null;
+        const boxW = maxX - minX + 1;
+        const boxH = maxY - minY + 1;
+        if (boxW / w < 0.08 || boxH / h < 0.08) return null;
+
+        return {
+            nw: Number(naturalWidth) || w,
+            nh: Number(naturalHeight) || h,
+            uMin: +(minX / w).toFixed(4),
+            uMax: +((maxX + 1) / w).toFixed(4),
+            vMin: +(minY / h).toFixed(4),
+            vMax: +((maxY + 1) / h).toFixed(4),
+            isWhiteBg: !!isPureWhiteBg
+        };
+    }
+
+    /**
+     * Calcula escala y traslación exactas para CSS `translate(tx%, ty%) scale(s)`
+     * centrando el producto al ~78% parejo del contenedor sin recortar bordes ni mostrar costuras grises.
+     */
+    function computeOpticalFitForBox(bbox, boxRatio, opts) {
+        if (!bbox || bbox === 'skip' || !bbox.nw || !bbox.nh) return { s: 1, tx: 0, ty: 0 };
+        const o = opts || {};
+        const targetFill = Number(o.targetFill) || OPTFIT_TARGET_FILL;
+        const maxScale = Number(o.maxScale) || 1.65;
+        const bRatio = (Number(boxRatio) > 0.1) ? Number(boxRatio) : 1;
+        const imgRatio = bbox.nw / bbox.nh;
+
+        let rw = 1;
+        let rh = 1;
+        if (imgRatio >= bRatio) {
+            rw = 1;
+            rh = bRatio / imgRatio;
+        } else {
+            rw = imgRatio / bRatio;
+            rh = 1;
+        }
+
+        const bw = Math.max(0.01, (bbox.uMax - bbox.uMin) * rw);
+        const bh = Math.max(0.01, (bbox.vMax - bbox.vMin) * rh);
+        const occ = Math.max(bw, bh);
+        if (occ <= 0.05) return { s: 1, tx: 0, ty: 0 };
+
+        const minScale = bbox.isWhiteBg ? 0.76 : 1.0;
+        const rawScale = targetFill / occ;
+        const s = Math.max(minScale, Math.min(maxScale, rawScale));
+
+        const uc = (bbox.uMin + bbox.uMax) / 2;
+        const vc = (bbox.vMin + bbox.vMax) / 2;
+        const ex = (uc - 0.5) * rw;
+        const ey = (vc - 0.5) * rh;
+
+        // Con transform: translate(tx, ty) scale(s) desde el centro,
+        // un punto (ex, ey) termina en (s*ex + tx, s*ey + ty) => tx = -s*ex, ty = -s*ey.
+        // En fondos gris claro no blancos, limitar el desplazamiento al sobrante real para evitar costuras.
+        const maxShiftX = bbox.isWhiteBg ? 0.38 : Math.max(0, Math.min(0.12, (s * rw - 1) / 2));
+        const maxShiftY = bbox.isWhiteBg ? 0.38 : Math.max(0, Math.min(0.12, (s * rh - 1) / 2));
+        const txFrac = Math.max(-maxShiftX, Math.min(maxShiftX, -s * ex));
+        const tyFrac = Math.max(-maxShiftY, Math.min(maxShiftY, -s * ey));
+
+        const finalS = +s.toFixed(3);
+        const finalTx = +(txFrac * 100).toFixed(2);
+        const finalTy = +(tyFrac * 100).toFixed(2);
+
+        if (Math.abs(finalS - 1) < 0.03 && Math.abs(finalTx) < 1.2 && Math.abs(finalTy) < 1.2) {
+            return { s: 1, tx: 0, ty: 0 };
+        }
+        return { s: finalS, tx: finalTx, ty: finalTy };
+    }
+
+    function detectProductStudioBoundsFromSource(sourceEl, maxSampleSide) {
+        if (!sourceEl) return null;
+        const nw = sourceEl.naturalWidth || sourceEl.width || 0;
+        const nh = sourceEl.naturalHeight || sourceEl.height || 0;
+        if (nw < 16 || nh < 16) return null;
+        try {
+            const cap = Number(maxSampleSide) || 96;
+            const ratio = Math.min(1, cap / Math.max(nw, nh));
+            const dw = Math.max(16, Math.round(nw * ratio));
+            const dh = Math.max(16, Math.round(nh * ratio));
+            if (!optFitCanvas) {
+                optFitCanvas = document.createElement('canvas');
+                optFitCtx = optFitCanvas.getContext('2d', { willReadFrequently: true });
+            }
+            if (!optFitCtx) return null;
+            if (optFitCanvas.width !== dw) optFitCanvas.width = dw;
+            if (optFitCanvas.height !== dh) optFitCanvas.height = dh;
+            optFitCtx.clearRect(0, 0, dw, dh);
+            optFitCtx.drawImage(sourceEl, 0, 0, dw, dh);
+            const data = optFitCtx.getImageData(0, 0, dw, dh).data;
+            return detectStudioContentBounds(data, dw, dh, nw, nh);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function resolveImgBoxRatio(imgEl, overrideRatio) {
+        if (Number(overrideRatio) > 0.1) return Number(overrideRatio);
+        if (imgEl) {
+            const attrRatio = Number(imgEl.getAttribute && imgEl.getAttribute('data-box-ratio'));
+            if (attrRatio > 0.1) return attrRatio;
+            const cw = imgEl.clientWidth || 0;
+            const ch = imgEl.clientHeight || 0;
+            if (cw >= 24 && ch >= 24) return cw / ch;
+        }
+        return 1;
+    }
+
+    function applyOptFitVars(imgEl, bboxOrFit, overrideRatio) {
+        if (!imgEl) return;
+        if (!bboxOrFit || bboxOrFit === 'skip') {
+            imgEl.style.removeProperty('--opt-scale');
+            imgEl.style.removeProperty('--opt-tx');
+            imgEl.style.removeProperty('--opt-ty');
+            return;
+        }
+        const fit = (typeof bboxOrFit.uMin === 'number')
+            ? computeOpticalFitForBox(bboxOrFit, resolveImgBoxRatio(imgEl, overrideRatio))
+            : bboxOrFit;
+        if (!fit || fit === 'skip') {
+            imgEl.style.removeProperty('--opt-scale');
+            imgEl.style.removeProperty('--opt-tx');
+            imgEl.style.removeProperty('--opt-ty');
+            return;
+        }
+        if (fit.s && Math.abs(fit.s - 1) > 0.01) {
             imgEl.style.setProperty('--opt-scale', String(fit.s));
+        } else {
+            imgEl.style.removeProperty('--opt-scale');
         }
-        if (fit.tx) {
+        if (fit.tx && Math.abs(fit.tx) >= 0.5) {
             imgEl.style.setProperty('--opt-tx', String(fit.tx) + '%');
+        } else {
+            imgEl.style.removeProperty('--opt-tx');
         }
-        if (fit.ty) {
+        if (fit.ty && Math.abs(fit.ty) >= 0.5) {
             imgEl.style.setProperty('--opt-ty', String(fit.ty) + '%');
+        } else {
+            imgEl.style.removeProperty('--opt-ty');
         }
     }
 
     function analyzeImageOpticalFit(imgEl) {
-        if (!imgEl || !imgEl.naturalWidth || !imgEl.naturalHeight) return 'skip';
-        if (imgEl.naturalWidth < 16 || imgEl.naturalHeight < 16) return 'skip';
-        try {
-            if (!optFitCanvas) {
-                optFitCanvas = document.createElement('canvas');
-                optFitCanvas.width = 64;
-                optFitCanvas.height = 64;
-                optFitCtx = optFitCanvas.getContext('2d', { willReadFrequently: true });
-            }
-            if (!optFitCtx) return 'skip';
-            const size = 64;
-            optFitCtx.clearRect(0, 0, size, size);
-            const nw = imgEl.naturalWidth;
-            const nh = imgEl.naturalHeight;
-            const ratio = Math.min(size / nw, size / nh);
-            const dw = Math.max(1, Math.round(nw * ratio));
-            const dh = Math.max(1, Math.round(nh * ratio));
-            const ox = Math.floor((size - dw) / 2);
-            const oy = Math.floor((size - dh) / 2);
-            optFitCtx.drawImage(imgEl, ox, oy, dw, dh);
-            const data = optFitCtx.getImageData(0, 0, size, size).data;
-
-            let borderCount = 0;
-            let transCount = 0;
-            let sumR = 0, sumG = 0, sumB = 0;
-            const bSamples = [];
-            for (let y = 0; y < size; y++) {
-                for (let x = 0; x < size; x++) {
-                    if (x >= 2 && x < size - 2 && y >= 2 && y < size - 2) continue;
-                    const idx = (y * size + x) * 4;
-                    const a = data[idx + 3];
-                    borderCount++;
-                    if (a < 24) {
-                        transCount++;
-                    } else {
-                        sumR += data[idx];
-                        sumG += data[idx + 1];
-                        sumB += data[idx + 2];
-                        bSamples.push(data[idx], data[idx + 1], data[idx + 2]);
-                    }
-                }
-            }
-            const transRatio = borderCount > 0 ? (transCount / borderCount) : 0;
-            const opaqueBorder = bSamples.length / 3;
-            const mR = opaqueBorder > 0 ? sumR / opaqueBorder : 255;
-            const mG = opaqueBorder > 0 ? sumG / opaqueBorder : 255;
-            const mB = opaqueBorder > 0 ? sumB / opaqueBorder : 255;
-            let varSum = 0;
-            for (let i = 0; i < bSamples.length; i += 3) {
-                const dr = bSamples[i] - mR;
-                const dg = bSamples[i + 1] - mG;
-                const db = bSamples[i + 2] - mB;
-                varSum += (dr * dr + dg * dg + db * db) / 3;
-            }
-            const borderStdDev = opaqueBorder > 0 ? Math.sqrt(varSum / opaqueBorder) : 0;
-            if (transRatio < 0.08 && borderStdDev > 28) {
-                return 'skip';
-            }
-
-            let minX = size, minY = size, maxX = -1, maxY = -1, fgCount = 0;
-            const useAlpha = transRatio >= 0.08;
-            for (let y = 0; y < size; y++) {
-                for (let x = 0; x < size; x++) {
-                    const idx = (y * size + x) * 4;
-                    const a = data[idx + 3];
-                    if (a <= 24) continue;
-                    let isFg = useAlpha;
-                    if (!isFg) {
-                        const dist = Math.abs(data[idx] - mR) + Math.abs(data[idx + 1] - mG) + Math.abs(data[idx + 2] - mB);
-                        isFg = dist > 54;
-                    }
-                    if (isFg) {
-                        fgCount++;
-                        if (x < minX) minX = x;
-                        if (x > maxX) maxX = x;
-                        if (y < minY) minY = y;
-                        if (y > maxY) maxY = y;
-                    }
-                }
-            }
-            if (fgCount < 40 || maxX <= minX || maxY <= minY) return 'skip';
-            const boxW = maxX - minX + 1;
-            const boxH = maxY - minY + 1;
-            if (boxW < 8 || boxH < 8) return 'skip';
-            const occ = Math.max(boxW / size, boxH / size);
-            if (occ > 0.88) return { s: 1, tx: 0, ty: 0 };
-
-            const scale = Math.max(1.0, Math.min(1.55, +(0.84 / Math.max(0.30, occ)).toFixed(3)));
-            const cx = (minX + maxX) / 2;
-            const cy = (minY + maxY) / 2;
-            const tx = Math.max(-12, Math.min(12, +(((size / 2 - cx) / size) * 100).toFixed(2)));
-            const ty = Math.max(-12, Math.min(12, +(((size / 2 - cy) / size) * 100).toFixed(2)));
-            if (scale <= 1.04 && Math.abs(tx) < 2 && Math.abs(ty) < 2) {
-                return { s: 1, tx: 0, ty: 0 };
-            }
-            return { s: scale, tx: tx, ty: ty };
-        } catch (e) {
-            return 'skip';
-        }
+        const bbox = detectProductStudioBoundsFromSource(imgEl, 96);
+        return bbox || 'skip';
     }
+
+    window.__CREATA_OPTFIT_TEST__ = {
+        detectStudioContentBounds: detectStudioContentBounds,
+        computeOpticalFitForBox: computeOpticalFitForBox,
+        OPTFIT_STORAGE_KEY: OPTFIT_STORAGE_KEY,
+        OPTFIT_TARGET_FILL: OPTFIT_TARGET_FILL
+    };
 
     function drainOptFitQueue() {
         optFitScheduled = false;
         const map = loadOptFitMap();
         let processed = 0;
         let dirty = false;
-        while (optFitQueue.length > 0 && processed < 6) {
+        while (optFitQueue.length > 0 && processed < 8) {
             const imgEl = optFitQueue.shift();
             if (!imgEl || !imgEl.isConnected) continue;
             const fid = imgEl.getAttribute('data-fid') || '';
@@ -2414,12 +2558,12 @@
                 applyOptFitVars(imgEl, map[fid]);
                 continue;
             }
-            const fit = analyzeImageOpticalFit(imgEl);
+            const bbox = analyzeImageOpticalFit(imgEl);
             if (fid) {
-                map[fid] = fit;
+                map[fid] = bbox;
                 dirty = true;
             }
-            applyOptFitVars(imgEl, fit);
+            applyOptFitVars(imgEl, bbox);
             processed++;
         }
         if (dirty) scheduleSaveOptFitMap();
@@ -2474,23 +2618,30 @@
             targetUrl = 'https://lh3.googleusercontent.com/d/' + fid + sz;
         }
         const loadingAttr = o.eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
-        const cardAttr = o.card ? ' data-card-img="1"' : '';
+        const enableOptFit = !!(o.card || o.compact);
+        const boxRatio = Number(o.boxRatio) > 0.1 ? Number(o.boxRatio) : 1;
+        const cardAttr = enableOptFit ? (' data-card-img="1" data-box-ratio="' + boxRatio.toFixed(4) + '"') : '';
         let inlineFitStyle = '';
-        if (o.card && fid) {
-            const cachedFit = loadOptFitMap()[fid];
-            if (cachedFit && cachedFit !== 'skip') {
-                const parts = [];
-                if (cachedFit.s && cachedFit.s > 1.01) parts.push('--opt-scale:' + cachedFit.s);
-                if (cachedFit.tx) parts.push('--opt-tx:' + cachedFit.tx + '%');
-                if (cachedFit.ty) parts.push('--opt-ty:' + cachedFit.ty + '%');
-                if (parts.length) inlineFitStyle = ' style="' + parts.join(';') + '"';
+        if (enableOptFit && fid) {
+            const cachedBbox = loadOptFitMap()[fid];
+            if (cachedBbox && cachedBbox !== 'skip') {
+                const cachedFit = (typeof cachedBbox.uMin === 'number')
+                    ? computeOpticalFitForBox(cachedBbox, boxRatio)
+                    : cachedBbox;
+                if (cachedFit && cachedFit !== 'skip') {
+                    const parts = [];
+                    if (cachedFit.s && Math.abs(cachedFit.s - 1) > 0.01) parts.push('--opt-scale:' + cachedFit.s);
+                    if (cachedFit.tx && Math.abs(cachedFit.tx) >= 0.5) parts.push('--opt-tx:' + cachedFit.tx + '%');
+                    if (cachedFit.ty && Math.abs(cachedFit.ty) >= 0.5) parts.push('--opt-ty:' + cachedFit.ty + '%');
+                    if (parts.length) inlineFitStyle = ' style="' + parts.join(';') + '"';
+                }
             }
         }
         return '<div class="inv-thumb"><div class="inv-thumb-stage">' +
             '<img ' + loadingAttr + ' decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" alt=""' +
             cardAttr + (fid ? (' data-fid="' + escapeHtml(fid) + '"') : '') + inlineFitStyle +
             ' src="' + escapeHtml(targetUrl) + '"' +
-            (o.card ? ' onload="window.__invOnCardImgLoad&&window.__invOnCardImgLoad(this)"' : '') +
+            (enableOptFit ? ' onload="window.__invOnCardImgLoad&&window.__invOnCardImgLoad(this)"' : '') +
             ' onerror="window.__invHandleCardImgError&&window.__invHandleCardImgError(this)">' +
             '</div></div>';
     }
@@ -3059,6 +3210,67 @@
 
         allSingleGroups.sort(compareCommercialGroupOrder);
         allGroups.sort(compareCommercialGroupOrder);
+
+        // Publicar índice compacto de modelos (Portadas) y telas/colores (VFAB) para la App de Subida de Fotos
+        try {
+            if (typeof localStorage !== 'undefined') {
+                const coversIdx = [];
+                const fabricsMap = new Map();
+                for (let gIdx = 0; gIdx < allGroups.length; gIdx++) {
+                    const g = allGroups[gIdx];
+                    if (!g || !Array.isArray(g.items) || g.items.length < 2) continue;
+                    const isModType = !!(g.typeKey && MODULE_GROUPABLE_TYPE_KEYS.has(g.typeKey));
+                    const subCat = g.cats && g.cats.size ? Array.from(g.cats)[0] : '';
+                    const mainCat = g.mains && g.mains.size ? Array.from(g.mains)[0] : '';
+                    const samplePhotoIt = firstPhotoItem(g.items);
+                    coversIdx.push({
+                        groupKey: g.key,
+                        overrideKey: buildVisualCoverOverrideKey(g.key),
+                        title: g.displayTitle || g.title,
+                        subCat: subCat,
+                        mainCat: mainCat,
+                        isModular: isModType ? 1 : 0,
+                        itemCount: g.items.length,
+                        fabricCount: g.variationCount || 0,
+                        samplePhoto: samplePhotoIt ? String(samplePhotoIt.f || '') : ''
+                    });
+                    if (isModType) {
+                        const seenFabInModel = new Set();
+                        for (let mIdx = 0; mIdx < g.items.length; mIdx++) {
+                            const fab = resolveItemFabricVariation(g.items[mIdx], g);
+                            if (!fab || !fab.key) continue;
+                            if (!fabricsMap.has(fab.key)) {
+                                fabricsMap.set(fab.key, {
+                                    fabricKey: fab.key,
+                                    overrideKey: buildFabricSwatchOverrideKey(fab.key),
+                                    label: fab.label,
+                                    colorHint: fab.colorHint || '',
+                                    modelCount: 0,
+                                    moduleCount: 0,
+                                    sampleModels: []
+                                });
+                            }
+                            const fEntry = fabricsMap.get(fab.key);
+                            fEntry.moduleCount++;
+                            if (!fEntry.colorHint && fab.colorHint) fEntry.colorHint = fab.colorHint;
+                            if (!seenFabInModel.has(fab.key)) {
+                                seenFabInModel.add(fab.key);
+                                fEntry.modelCount++;
+                                if (fEntry.sampleModels.length < 4) fEntry.sampleModels.push(g.displayTitle || g.title);
+                            }
+                        }
+                    }
+                }
+                const fabricsIdx = Array.from(fabricsMap.values()).sort((a, b) =>
+                    (b.moduleCount - a.moduleCount) || compareAlphaEs(a.label, b.label)
+                );
+                localStorage.setItem('creata_visual_targets_index_v1', JSON.stringify({
+                    ts: Date.now(),
+                    covers: coversIdx,
+                    fabrics: fabricsIdx
+                }));
+            }
+        } catch (eVisIdx) {}
     }
 
     function loadCart() {
@@ -3926,30 +4138,17 @@
 
             if (grp.items.length > 1) {
                 const visualCoverUrl = getGroupVisualCoverPhotoUrl(grp.key);
-                const canEditVisual = isVisualPhotoEditorAllowed();
                 row.onclick = function () {
                     openGroupModal(grp.key);
                 };
                 row.innerHTML =
-                    (canEditVisual
-                        ? '<button type="button" class="inv-card-visual-cover-btn" data-visual-cover-btn="1" title="' + (visualCoverUrl ? 'Cambiar foto visual de portada' : 'Colocar foto visual de portada') + '" aria-label="Foto visual de portada">📷</button>'
-                        : '') +
                     '<div class="inv-card-top-right">' +
                         '<span class="inv-card-variant-badge" data-card-sub="1">' + escapeHtml(formatGroupBadgeLabel(grp)) + '</span>' +
                     '</div>' +
-                    buildThumbHtml(visualCoverUrl ? { f: visualCoverUrl } : firstPhotoItem(grp.items), { card: true, eager: i < eagerCount }) +
+                    buildThumbHtml(visualCoverUrl ? { f: visualCoverUrl } : firstPhotoItem(grp.items), { card: true, eager: i < eagerCount, boxRatio: 1 }) +
                     '<div class="inv-card-body">' +
                         '<div class="inv-card-title" data-card-title="1">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
                     '</div>';
-                if (canEditVisual) {
-                    const covBtn = row.querySelector('[data-visual-cover-btn]');
-                    if (covBtn) {
-                        covBtn.onclick = function (ev) {
-                            if (ev && ev.stopPropagation) ev.stopPropagation();
-                            openVisualPhotoPicker('cover', grp.key, grp.displayTitle || grp.title);
-                        };
-                    }
-                }
             } else {
                 const it = grp.items[0];
                 const skuKey = String(it.s || '').toUpperCase();
@@ -4155,9 +4354,12 @@
     // ------------------------------------------------------------------------
     // PASO 1: MODAL DE VARIANTES DISPONIBLES DEL MODELO (ej. SILLON APIENZO)
     // ------------------------------------------------------------------------
-    function renderGroupVariantsStep(grp) {
+    function renderGroupVariantsStep(grp, forcedFabricKey) {
         currentGroup = grp;
         currentDetailItem = null;
+        if (forcedFabricKey !== undefined) {
+            currentGroupFabricKey = String(forcedFabricKey || '').trim();
+        }
 
         const crumbEl = document.getElementById('detGroupCrumb');
         const skuEl = document.getElementById('detSku');
@@ -4249,7 +4451,7 @@
                 '<div class="inv-card-top-right">' +
                     buildCardCartControlHtml(skuKey) +
                 '</div>' +
-                buildThumbHtml(it, { card: true, eager: true }) +
+                buildThumbHtml(it, { card: true, eager: true, boxRatio: 4 / 3 }) +
                 '<div class="inv-variant-card-body">' +
                     '<div class="inv-det-uniform-text font-bold uppercase leading-snug" style="color:#1A1816;">' +
                         formatTitleWithPriceHtml(varLabel, it.pr) +
@@ -4259,67 +4461,17 @@
             '</div>';
         }
 
+        // Cotizador es vista comercial limpia: la edición de portadas visuales y fotos de tela vive en la App de Subida de Fotos
         const coverBarEl = document.getElementById('detGroupCoverBar');
-        const canEditVisual = isVisualPhotoEditorAllowed();
-        const visualCoverUrl = getGroupVisualCoverPhotoUrl(grp.key);
         if (coverBarEl) {
-            if (visualCoverUrl) {
-                const thumbSrc = resolveVisualImgSrc(visualCoverUrl, 320);
-                coverBarEl.innerHTML =
-                    '<div class="inv-group-cover-left">' +
-                        '<img class="inv-group-cover-thumb" src="' + escapeHtml(thumbSrc) + '" alt="' + escapeHtml(grp.title) + '" referrerpolicy="no-referrer" crossorigin="anonymous" data-visual-zoom="1">' +
-                        '<div class="inv-group-cover-info">' +
-                            '<div class="inv-group-cover-label">Foto visual de portada</div>' +
-                            '<div class="inv-group-cover-sub">Solo visual en inicio · toca para ampliar</div>' +
-                        '</div>' +
-                    '</div>' +
-                    (canEditVisual
-                        ? '<div class="inv-group-cover-actions">' +
-                            '<button type="button" class="inv-visual-action-btn" data-cover-edit="1">📷 Cambiar</button>' +
-                            '<button type="button" class="inv-visual-action-btn is-danger" data-cover-clear="1" title="Quitar foto visual">✕</button>' +
-                        '</div>'
-                        : '');
-                coverBarEl.classList.remove('hidden');
-                const zoomImg = coverBarEl.querySelector('[data-visual-zoom]');
-                if (zoomImg) {
-                    zoomImg.onclick = function () { openVisualPhotoLightbox(visualCoverUrl, 'Portada · ' + grp.title); };
-                }
-                const editBtn = coverBarEl.querySelector('[data-cover-edit]');
-                if (editBtn) {
-                    editBtn.onclick = function () { openVisualPhotoPicker('cover', grp.key, grp.title); };
-                }
-                const clrBtn = coverBarEl.querySelector('[data-cover-clear]');
-                if (clrBtn) {
-                    clrBtn.onclick = function () {
-                        openVisualPhotoPicker('cover', grp.key, grp.title);
-                    };
-                }
-            } else if (canEditVisual) {
-                coverBarEl.innerHTML =
-                    '<div class="inv-group-cover-left">' +
-                        '<div class="inv-group-cover-info">' +
-                            '<div class="inv-group-cover-label">Portada visual en inicio</div>' +
-                            '<div class="inv-group-cover-sub">Coloca una imagen general del modelo (solo visual, sin alterar SKUs).</div>' +
-                        '</div>' +
-                    '</div>' +
-                    '<div class="inv-group-cover-actions">' +
-                        '<button type="button" class="inv-visual-action-btn" data-cover-edit="1">📷 Foto de portada</button>' +
-                    '</div>';
-                coverBarEl.classList.remove('hidden');
-                const editBtn = coverBarEl.querySelector('[data-cover-edit]');
-                if (editBtn) {
-                    editBtn.onclick = function () { openVisualPhotoPicker('cover', grp.key, grp.title); };
-                }
-            } else {
-                coverBarEl.innerHTML = '';
-                coverBarEl.classList.add('hidden');
-            }
+            coverBarEl.innerHTML = '';
+            coverBarEl.classList.add('hidden');
         }
 
         if (varList) {
             const canGroupByFabricModules = !!(grp && grp.typeKey && MODULE_GROUPABLE_TYPE_KEYS.has(grp.typeKey) && grp.items.length >= 2);
             const fabricBucketsByKey = new Map();
-            let distinctModKeys = new Set();
+            const distinctModKeys = new Set();
 
             if (canGroupByFabricModules) {
                 for (let i = 0; i < grp.items.length; i++) {
@@ -4344,54 +4496,89 @@
             const useFabricModuleSections = canGroupByFabricModules && (distinctModKeys.size >= 2 || fabricBucketsByKey.size >= 2);
 
             if (useFabricModuleSections) {
-                if (crumbEl) {
-                    const colTxt = fabricBucketsByKey.size === 1 ? '1 color' : (fabricBucketsByKey.size + ' colores');
-                    const modTxt = grp.items.length === 1 ? '1 módulo' : (grp.items.length + ' módulos');
-                    crumbEl.textContent = colTxt + ' · ' + modTxt;
-                    crumbEl.classList.remove('hidden');
+                if (currentGroupFabricKey && !fabricBucketsByKey.has(currentGroupFabricKey)) {
+                    currentGroupFabricKey = '';
                 }
                 const orderedFabrics = Array.from(fabricBucketsByKey.values()).sort((a, b) =>
                     (b.items.length - a.items.length) || compareAlphaEs(a.label, b.label)
                 );
-                const htmlChunks = [];
-                for (let fIdx = 0; fIdx < orderedFabrics.length; fIdx++) {
-                    const fb = orderedFabrics[fIdx];
-                    const swatchUrl = getFabricSwatchPhotoUrl(fb.key);
+
+                if (!currentGroupFabricKey) {
+                    // CLICK 2: Selector de Color / Tela con foto de la tela
+                    if (crumbEl) {
+                        const colTxt = orderedFabrics.length === 1 ? '1 color / tela' : (orderedFabrics.length + ' colores / telas');
+                        const modTxt = grp.items.length === 1 ? '1 módulo' : (grp.items.length + ' módulos');
+                        crumbEl.textContent = colTxt + ' · ' + modTxt;
+                        crumbEl.style.pointerEvents = 'none';
+                        crumbEl.style.cursor = 'default';
+                        crumbEl.classList.remove('hidden');
+                    }
+                    const choiceHtml = [];
+                    for (let fIdx = 0; fIdx < orderedFabrics.length; fIdx++) {
+                        const fb = orderedFabrics[fIdx];
+                        const swatchUrl = getFabricSwatchPhotoUrl(fb.key);
+                        const swatchSrc = swatchUrl ? resolveVisualImgSrc(swatchUrl, 600) : '';
+                        const modCountTxt = fb.items.length === 1 ? '1 módulo disponible' : (fb.items.length + ' módulos disponibles');
+                        const subMeta = fb.colorHint ? (fb.colorHint + ' · ' + modCountTxt) : modCountTxt;
+
+                        const stageInner = swatchSrc
+                            ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '">' +
+                               '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + fb.label) + '" title="Ampliar foto de tela" aria-label="Ampliar foto de tela">🔍</button>')
+                            : ('<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🧵</span><span>Tela / Color</span></div>');
+
+                        choiceHtml.push(
+                            '<div class="inv-row inv-variant-card inv-fabric-choice-card" data-fabric-select-key="' + escapeHtml(fb.key) + '">' +
+                                '<div class="inv-fabric-choice-stage">' + stageInner + '</div>' +
+                                '<div class="inv-fabric-choice-body">' +
+                                    '<div class="inv-fabric-choice-meta">' +
+                                        '<div class="inv-fabric-choice-title">' + escapeHtml(fb.label) + '</div>' +
+                                        '<div class="inv-fabric-choice-sub">' + escapeHtml(subMeta) + '</div>' +
+                                    '</div>' +
+                                    '<span class="inv-fabric-choice-arrow">Módulos →</span>' +
+                                '</div>' +
+                            '</div>'
+                        );
+                    }
+                    varList.innerHTML = choiceHtml.join('');
+                } else {
+                    // CLICK 3: Módulos disponibles del Color / Tela seleccionado
+                    const selectedFb = fabricBucketsByKey.get(currentGroupFabricKey);
+                    if (nameEl) {
+                        nameEl.textContent = grp.title + ' · ' + selectedFb.label;
+                    }
+                    if (crumbEl) {
+                        crumbEl.textContent = '← Colores / Telas (' + orderedFabrics.length + ')';
+                        crumbEl.style.pointerEvents = 'auto';
+                        crumbEl.style.cursor = 'pointer';
+                        crumbEl.classList.remove('hidden');
+                    }
+
+                    const swatchUrl = getFabricSwatchPhotoUrl(selectedFb.key);
                     const swatchThumb = swatchUrl ? resolveVisualImgSrc(swatchUrl, 160) : '';
-                    const modCountTxt = fb.items.length === 1 ? '1 módulo' : (fb.items.length + ' módulos');
-                    const subMeta = fb.colorHint ? (fb.colorHint + ' · ' + modCountTxt) : modCountTxt;
-
+                    const modCountTxt = selectedFb.items.length === 1 ? '1 módulo disponible' : (selectedFb.items.length + ' módulos disponibles');
+                    const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + modCountTxt) : modCountTxt;
                     const swatchInner = swatchThumb
-                        ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(fb.label) + '" referrerpolicy="no-referrer" crossorigin="anonymous">'
+                        ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer" crossorigin="anonymous">'
                         : '<span aria-hidden="true">🧵</span>';
-                    const swatchClasses = 'inv-fabric-swatch' + (swatchThumb ? '' : ' is-empty') + (!swatchThumb && !canEditVisual ? ' is-readonly' : '');
+                    const swatchClasses = 'inv-fabric-swatch' + (swatchThumb ? '' : ' is-empty is-readonly');
                     const swatchAttrs = swatchUrl
-                        ? (' data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + fb.label) + '" title="Ver foto de la tela"')
-                        : (canEditVisual
-                            ? (' data-fabric-pick-key="' + escapeHtml(fb.key) + '" data-fabric-pick-label="' + escapeHtml(fb.label) + '" title="Colocar foto de la tela"')
-                            : ' disabled');
+                        ? (' data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + selectedFb.label) + '" title="Ver foto de la tela"')
+                        : ' disabled';
 
-                    htmlChunks.push(
-                        '<div class="inv-fabric-group-header" data-fabric-key="' + escapeHtml(fb.key) + '">' +
+                    const htmlChunks = [
+                        '<div class="inv-fabric-selected-bar" data-fabric-key="' + escapeHtml(selectedFb.key) + '">' +
                             '<div class="inv-fabric-head-left">' +
                                 '<button type="button" class="' + swatchClasses + '"' + swatchAttrs + '>' + swatchInner + '</button>' +
                                 '<div class="inv-fabric-meta">' +
-                                    '<span class="inv-fabric-title">' + escapeHtml(fb.label) + '</span>' +
+                                    '<span class="inv-fabric-title">' + escapeHtml(selectedFb.label) + '</span>' +
                                     '<span class="inv-fabric-sub">' + escapeHtml(subMeta) + '</span>' +
                                 '</div>' +
                             '</div>' +
-                            (canEditVisual
-                                ? '<div class="inv-fabric-actions">' +
-                                    '<button type="button" class="inv-visual-action-btn is-ghost" data-fabric-pick-key="' + escapeHtml(fb.key) + '" data-fabric-pick-label="' + escapeHtml(fb.label) + '">' +
-                                        (swatchUrl ? '🧵 Cambiar tela' : '🧵 Foto tela') +
-                                    '</button>' +
-                                '</div>'
-                                : '') +
+                            '<button type="button" class="inv-fabric-back-btn" data-fabric-back="1">← Colores</button>' +
                         '</div>'
-                    );
+                    ];
 
-                    // Ordenar módulos comercialmente dentro de cada color/tela
-                    const sortedMods = fb.items.slice().sort((a, b) =>
+                    const sortedMods = selectedFb.items.slice().sort((a, b) =>
                         (a.mod.rank - b.mod.rank) ||
                         compareAlphaEs(a.mod.label, b.mod.label) ||
                         compareAlphaEs(a.it.n || a.it.s, b.it.n || b.it.s) ||
@@ -4407,15 +4594,16 @@
                         let cardLabel = pair.mod.label;
                         if (modLabelCounts.get(cardLabel) > 1) {
                             const extraDetail = cleanStr(pair.it.m).toUpperCase() || cleanStr(pair.it.md).toUpperCase() || buildVariantLabel(pair.it, grp, pair.mod.stripTokens);
-                            if (extraDetail && plainModelToken(extraDetail) !== plainModelToken(fb.label) && cardLabel.indexOf(extraDetail) === -1) {
+                            if (extraDetail && plainModelToken(extraDetail) !== plainModelToken(selectedFb.label) && cardLabel.indexOf(extraDetail) === -1) {
                                 cardLabel = cardLabel + ' · ' + extraDetail;
                             }
                         }
                         htmlChunks.push(renderVariantCardHtml({ it: pair.it, varLabel: cardLabel }));
                     }
+                    varList.innerHTML = htmlChunks.join('');
                 }
-                varList.innerHTML = htmlChunks.join('');
             } else {
+                currentGroupFabricKey = '';
                 const baseLabels = grp.items.map(it => buildVariantLabel(it, grp, null));
                 const labelCounts = new Map();
                 for (let i = 0; i < baseLabels.length; i++) {
@@ -4440,12 +4628,16 @@
                 varList.innerHTML = variantEntries.map(renderVariantCardHtml).join('');
             }
 
-            varList.querySelectorAll('[data-fabric-pick-key]').forEach(btnEl => {
+            varList.querySelectorAll('[data-fabric-select-key]').forEach(cardEl => {
+                cardEl.onclick = function () {
+                    const fKey = cardEl.getAttribute('data-fabric-select-key') || '';
+                    if (fKey) window.selectGroupFabricStep(fKey);
+                };
+            });
+            varList.querySelectorAll('[data-fabric-back]').forEach(btnEl => {
                 btnEl.onclick = function (ev) {
                     if (ev && ev.stopPropagation) ev.stopPropagation();
-                    const fKey = btnEl.getAttribute('data-fabric-pick-key');
-                    const fLbl = btnEl.getAttribute('data-fabric-pick-label') || fKey;
-                    openVisualPhotoPicker('fabric', fKey, fLbl);
+                    window.backToCurrentGroupVariants();
                 };
             });
             varList.querySelectorAll('[data-fabric-zoom-url]').forEach(btnEl => {
@@ -4474,6 +4666,14 @@
         prepareRelatedInStockSection(grp && grp.items && grp.items.length ? grp.items[0] : null, false);
     }
 
+    window.selectGroupFabricStep = function (fabricKey) {
+        if (!currentGroup || !fabricKey) return false;
+        currentGroupFabricKey = String(fabricKey).trim();
+        renderGroupVariantsStep(currentGroup, currentGroupFabricKey);
+        if (!invWorkspaceRestoring) notifyInvBackStatePush('product_fabric_modules');
+        return true;
+    };
+
     function resolveActiveGroup(groupKey) {
         if (!groupKey) return null;
         if (activeFilteredGroupsByKey.has(groupKey)) {
@@ -4482,18 +4682,22 @@
         return groupsByKey.get(groupKey) || null;
     }
 
-    window.openGroupModal = function (groupKey) {
+    window.openGroupModal = function (groupKey, preserveFabricKey) {
         const grp = resolveActiveGroup(groupKey);
         if (!grp) return false;
         if (grp.items.length === 1) {
+            currentGroupFabricKey = '';
             return openProductDetail(grp.items[0].s, false);
         }
 
+        if (!preserveFabricKey) {
+            currentGroupFabricKey = '';
+        }
         renderGroupVariantsStep(grp);
 
         const modal = document.getElementById('productDetailModal');
         if (modal) modal.classList.add('open');
-        if (!invWorkspaceRestoring) notifyInvBackStatePush('product_group_modal');
+        if (!invWorkspaceRestoring && !preserveFabricKey) notifyInvBackStatePush('product_group_modal');
         if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
             scheduleSaveInvWorkspaceCheckpoint();
         }
@@ -4502,8 +4706,18 @@
     };
 
     window.backToCurrentGroupVariants = function () {
-        if (currentGroup && currentGroup.items.length > 1) {
-            openGroupModal(currentGroup.key);
+        if (!currentGroup || currentGroup.items.length <= 1) return;
+        const singleStep = document.getElementById('detSingleStep');
+        const inSingleDetail = !!(currentDetailItem || (singleStep && !singleStep.classList.contains('hidden')));
+        if (inSingleDetail) {
+            // Desde Detalle de SKU regresar a los Módulos del color seleccionado (o variantes)
+            openGroupModal(currentGroup.key, true);
+            return;
+        }
+        if (currentGroupFabricKey) {
+            // Desde Click 3 (Módulos de un color) regresar a Click 2 (Colores / Telas)
+            currentGroupFabricKey = '';
+            renderGroupVariantsStep(currentGroup, '');
         }
     };
 
@@ -4522,6 +4736,7 @@
         if (!fromGroupList) {
             const grp = resolveActiveGroup(it._groupKey);
             currentGroup = (grp && grp.items.length > 1) ? grp : null;
+            currentGroupFabricKey = '';
         }
 
         renderDetailModal(it, !!fromGroupList);
@@ -4598,6 +4813,7 @@
         if (modal) modal.classList.remove('open');
         currentDetailItem = null;
         currentGroup = null;
+        currentGroupFabricKey = '';
         relatedStockExpanded = false;
         const relPanel = document.getElementById('detRelatedStockPanel');
         if (relPanel) relPanel.classList.add('hidden');
@@ -4627,10 +4843,16 @@
 
         if (crumbEl) {
             if (showGroupBack && currentGroup && currentGroup.items.length > 1) {
-                crumbEl.textContent = '← ' + currentGroup.title;
+                crumbEl.textContent = currentGroupFabricKey
+                    ? ('← ' + currentGroupFabricKey + ' · ' + currentGroup.title)
+                    : ('← ' + currentGroup.title);
+                crumbEl.style.pointerEvents = 'auto';
+                crumbEl.style.cursor = 'pointer';
                 crumbEl.classList.remove('hidden');
             } else {
                 crumbEl.textContent = '';
+                crumbEl.style.pointerEvents = 'none';
+                crumbEl.style.cursor = 'default';
                 crumbEl.classList.add('hidden');
             }
         }
@@ -4684,7 +4906,7 @@
             }
         }
 
-        // Cuadro de foto renderizado en canvas protegido (sin fallback a drive.google.com/thumbnail)
+        // Cuadro de foto renderizado en canvas protegido con auto-encuadre parejo (78%)
         const driveId = extractDriveFileId(it.f);
         const photoUrl = driveId ? ('https://lh3.googleusercontent.com/d/' + driveId + '=w1000') : resolveDriveOrImgUrl(it.f);
         const stageEl = document.getElementById('detPhotoCanvasStage');
@@ -4692,7 +4914,11 @@
         const emptyEl = document.getElementById('detPhotoEmpty');
         if (imgEl) {
             imgEl.onerror = null;
+            imgEl.onload = null;
             imgEl.src = '';
+            imgEl.style.removeProperty('--opt-scale');
+            imgEl.style.removeProperty('--opt-tx');
+            imgEl.style.removeProperty('--opt-ty');
             imgEl.classList.add('hidden');
         }
         if (photoUrl && !(driveId && failedDrivePhotoIds.has(driveId))) {
@@ -4701,13 +4927,14 @@
                 stageEl.innerHTML = '';
                 stageEl.classList.remove('hidden');
                 window.CreataGuard.renderCanvasImage(stageEl, photoUrl, baseTitle, function (reason) {
-                    if (reason === 'image_load_error') {
+                    const reasonMsg = typeof reason === 'string' ? reason : (reason && reason.message ? String(reason.message) : '');
+                    if (reasonMsg === 'image_load_error') {
                         if (driveId) failedDrivePhotoIds.add(driveId);
                         stageEl.innerHTML = '';
                         stageEl.classList.add('hidden');
                         if (emptyEl) emptyEl.classList.remove('hidden');
                     }
-                });
+                }, { autoFrame: true, targetFill: OPTFIT_TARGET_FILL });
             } else if (imgEl) {
                 if (stageEl) {
                     stageEl.innerHTML = '';
@@ -4716,6 +4943,13 @@
                 imgEl.setAttribute('referrerpolicy', 'no-referrer');
                 imgEl.setAttribute('crossorigin', 'anonymous');
                 imgEl.setAttribute('draggable', 'false');
+                imgEl.setAttribute('data-card-img', '1');
+                imgEl.setAttribute('data-box-ratio', (4 / 3).toFixed(4));
+                if (driveId) imgEl.setAttribute('data-fid', driveId);
+                else imgEl.removeAttribute('data-fid');
+                imgEl.onload = function () {
+                    if (typeof window.__invOnCardImgLoad === 'function') window.__invOnCardImgLoad(imgEl);
+                };
                 imgEl.src = photoUrl;
                 imgEl.classList.remove('hidden');
                 imgEl.onerror = function () {
@@ -5048,101 +5282,41 @@
                     try {
                         const nw = img.naturalWidth || img.width || 1;
                         const nh = img.naturalHeight || img.height || 1;
-
-                        // Detectar bordes uniformes en muestreo 64x64 para recortar margen excesivo de estudio
-                        const sSize = 64;
-                        const sCan = document.createElement('canvas');
-                        sCan.width = sSize;
-                        sCan.height = sSize;
-                        const sCtx = sCan.getContext('2d', { willReadFrequently: true });
-                        const sScale = Math.min(sSize / nw, sSize / nh);
-                        const sdw = Math.max(1, Math.round(nw * sScale));
-                        const sdh = Math.max(1, Math.round(nh * sScale));
-                        const sox = Math.floor((sSize - sdw) / 2);
-                        const soy = Math.floor((sSize - sdh) / 2);
-                        sCtx.clearRect(0, 0, sSize, sSize);
-                        sCtx.drawImage(img, sox, soy, sdw, sdh);
-                        const sData = sCtx.getImageData(sox, soy, sdw, sdh).data;
-
-                        let bCount = 0, tCount = 0, rSum = 0, gSum = 0, bSum = 0;
-                        const bRgb = [];
-                        for (let y = 0; y < sdh; y++) {
-                            for (let x = 0; x < sdw; x++) {
-                                if (x >= 2 && x < sdw - 2 && y >= 2 && y < sdh - 2) continue;
-                                const p = (y * sdw + x) * 4;
-                                bCount++;
-                                if (sData[p + 3] < 24) {
-                                    tCount++;
-                                } else {
-                                    rSum += sData[p];
-                                    gSum += sData[p + 1];
-                                    bSum += sData[p + 2];
-                                    bRgb.push(sData[p], sData[p + 1], sData[p + 2]);
-                                }
-                            }
-                        }
-                        const transRatio = bCount > 0 ? (tCount / bCount) : 0;
-                        const opqN = bRgb.length / 3;
-                        const mR = opqN > 0 ? rSum / opqN : 255;
-                        const mG = opqN > 0 ? gSum / opqN : 255;
-                        const mB = opqN > 0 ? bSum / opqN : 255;
-                        let vSum = 0;
-                        for (let i = 0; i < bRgb.length; i += 3) {
-                            const dr = bRgb[i] - mR, dg = bRgb[i + 1] - mG, db = bRgb[i + 2] - mB;
-                            vSum += (dr * dr + dg * dg + db * db) / 3;
-                        }
-                        const stdDev = opqN > 0 ? Math.sqrt(vSum / opqN) : 0;
-
-                        let sx = 0, sy = 0, sw = nw, sh = nh;
-                        if (transRatio >= 0.08 || stdDev <= 26) {
-                            let minX = sdw, minY = sdh, maxX = -1, maxY = -1, fgN = 0;
-                            const useAlpha = transRatio >= 0.08;
-                            for (let y = 0; y < sdh; y++) {
-                                for (let x = 0; x < sdw; x++) {
-                                    const p = (y * sdw + x) * 4;
-                                    if (sData[p + 3] <= 24) continue;
-                                    let isFg = useAlpha;
-                                    if (!isFg) {
-                                        const dist = Math.abs(sData[p] - mR) + Math.abs(sData[p + 1] - mG) + Math.abs(sData[p + 2] - mB);
-                                        isFg = dist > 52;
-                                    }
-                                    if (isFg) {
-                                        fgN++;
-                                        if (x < minX) minX = x;
-                                        if (x > maxX) maxX = x;
-                                        if (y < minY) minY = y;
-                                        if (y > maxY) maxY = y;
-                                    }
-                                }
-                            }
-                            if (fgN > 30 && maxX > minX && maxY > minY) {
-                                const bx = Math.max(0, Math.floor((minX / sdw) * nw) - Math.round(nw * 0.02));
-                                const by = Math.max(0, Math.floor((minY / sdh) * nh) - Math.round(nh * 0.02));
-                                const bx2 = Math.min(nw, Math.ceil(((maxX + 1) / sdw) * nw) + Math.round(nw * 0.02));
-                                const by2 = Math.min(nh, Math.ceil(((maxY + 1) / sdh) * nh) + Math.round(nh * 0.02));
-                                if ((bx2 - bx) >= nw * 0.2 && (by2 - by) >= nh * 0.2) {
-                                    sx = bx;
-                                    sy = by;
-                                    sw = bx2 - bx;
-                                    sh = by2 - by;
-                                }
+                        let sx = 0, sy = 0, sw = nw, sh = nh, isStudio = false;
+                        const bounds = detectProductStudioBoundsFromSource(img, 96);
+                        if (bounds && bounds.isWhiteBg) {
+                            const padSrcX = Math.round(nw * 0.015);
+                            const padSrcY = Math.round(nh * 0.015);
+                            const bx = Math.max(0, Math.floor(bounds.uMin * nw) - padSrcX);
+                            const by = Math.max(0, Math.floor(bounds.vMin * nh) - padSrcY);
+                            const bx2 = Math.min(nw, Math.ceil(bounds.uMax * nw) + padSrcX);
+                            const by2 = Math.min(nh, Math.ceil(bounds.vMax * nh) + padSrcY);
+                            if ((bx2 - bx) >= nw * 0.08 && (by2 - by) >= nh * 0.08) {
+                                sx = bx;
+                                sy = by;
+                                sw = bx2 - bx;
+                                sh = by2 - by;
+                                isStudio = true;
                             }
                         }
 
+                        const isWideStudio = isStudio && (sw > sh * 1.15);
+                        const outW = isWideStudio ? Math.min(1200, Math.round(side * 1.12)) : side;
+                        const outH = isWideStudio ? Math.round(outW * 0.75) : side;
                         const out = document.createElement('canvas');
-                        out.width = side;
-                        out.height = side;
+                        out.width = outW;
+                        out.height = outH;
                         const ctx = out.getContext('2d');
                         ctx.fillStyle = '#FFFFFF';
-                        ctx.fillRect(0, 0, side, side);
+                        ctx.fillRect(0, 0, outW, outH);
 
-                        const pad = Math.round(side * 0.08);
-                        const boxMax = side - pad * 2;
-                        const fitScale = Math.min(boxMax / sw, boxMax / sh);
+                        const padX = Math.round(outW * 0.11);
+                        const padY = Math.round(outH * 0.11);
+                        const fitScale = Math.min((outW - padX * 2) / sw, (outH - padY * 2) / sh);
                         const dw = Math.max(1, Math.round(sw * fitScale));
                         const dh = Math.max(1, Math.round(sh * fitScale));
-                        const dx = Math.round((side - dw) / 2);
-                        const dy = Math.round((side - dh) / 2);
+                        const dx = Math.round((outW - dw) / 2);
+                        const dy = Math.round((outH - dh) / 2);
                         ctx.imageSmoothingEnabled = true;
                         ctx.imageSmoothingQuality = 'high';
                         ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
@@ -12509,6 +12683,11 @@
                 window.backToCurrentGroupVariants();
                 return;
             }
+            if (isModalOpenById('productDetailModal') && isElVisibleById('detVariantsStep') && currentGroup && currentGroupFabricKey) {
+                ev.__creataEscapeHandled = true;
+                window.backToCurrentGroupVariants();
+                return;
+            }
             if (isModalOpenById('productDetailModal')) { ev.__creataEscapeHandled = true; closeProductDetail(); return; }
             if (_invSplitActive) { ev.__creataEscapeHandled = true; window.closeInvSplitFotosDock(); return; }
             return;
@@ -14731,7 +14910,7 @@
                     },
                     escapeAllowed: true
                 },
-                // Priority 12b: Product Detail -> Single Variant Back to Group Variants
+                // Priority 12b: Product Detail -> Single Variant Back to Group Variants / Fabric Modules
                 {
                     id: 'detail_back_to_variants',
                     isActive: function () {
@@ -14742,7 +14921,19 @@
                     },
                     undo: function () { window.backToCurrentGroupVariants(); },
                     escapeAllowed: true,
-                    toast: 'Volviendo a variantes'
+                    toast: 'Volviendo a módulos'
+                },
+                // Priority 12b2: Click 3 (Modules of Selected Color) -> Click 2 (Colors / Fabrics)
+                {
+                    id: 'fabric_back_to_colors',
+                    isActive: function () {
+                        return isModalOpenById('productDetailModal') &&
+                            isElVisibleById('detVariantsStep') &&
+                            Boolean(currentGroup && currentGroupFabricKey);
+                    },
+                    undo: function () { window.backToCurrentGroupVariants(); },
+                    escapeAllowed: true,
+                    toast: 'Volviendo a colores / telas'
                 },
                 // Priority 12c: Product Detail Modal Close
                 {
@@ -14933,7 +15124,7 @@
         }
         const grp = it._groupKey ? groupsByKey.get(it._groupKey) : null;
         if (grp && Array.isArray(grp.items)) {
-            grp._hasPhoto = firstPhotoItem(grp.items) ? 1 : 0;
+            grp._hasPhoto = (getGroupVisualCoverPhotoUrl(grp.key) || firstPhotoItem(grp.items)) ? 1 : 0;
         }
 
         const inp = document.getElementById('invSearchInput');
@@ -14971,6 +15162,19 @@
             applyRealtimePhotoUpdateInCotizador(d.sku, nextUrl, d.fileId || '');
             return;
         }
+        if (d.type === 'CREATA_VISUAL_OVERRIDE_SAVED' && d.overrideKey) {
+            const ovKey = String(d.overrideKey || '').trim().toUpperCase();
+            if (!ovKey) return;
+            const nextMap = Object.assign({}, invProductOverridesMap || {});
+            if (d.deleted || !d.override) {
+                delete nextMap[ovKey];
+            } else {
+                nextMap[ovKey] = d.override;
+            }
+            saveLocalProductOverridesMap(nextMap);
+            rerenderCatalogAfterOverrideChange();
+            return;
+        }
         if (d.type === 'CREATA_SPLIT_SELECT_SKU' && d.source === 'fotos' && d.sku) {
             const targetSku = cleanStr(d.sku).toUpperCase();
             if (!targetSku || !bySkuMap.has(targetSku)) return;
@@ -15003,7 +15207,18 @@
         } catch (eBc) {}
 
         window.addEventListener('storage', function (ev) {
-            if (!ev || (ev.key !== FOTOS_SAVED_OVERRIDES_STORAGE_KEY && ev.key !== FOTOS_DELETED_QUEUE_STORAGE_KEY)) {
+            if (!ev) return;
+            if (ev.key === INV_PRODUCT_OVERRIDES_STORAGE) {
+                try {
+                    const parsedOvr = ev.newValue ? JSON.parse(ev.newValue) : {};
+                    if (parsedOvr && typeof parsedOvr === 'object' && !Array.isArray(parsedOvr)) {
+                        invProductOverridesMap = parsedOvr;
+                        rerenderCatalogAfterOverrideChange();
+                    }
+                } catch (eOvrSync) {}
+                return;
+            }
+            if (ev.key !== FOTOS_SAVED_OVERRIDES_STORAGE_KEY && ev.key !== FOTOS_DELETED_QUEUE_STORAGE_KEY) {
                 return;
             }
             if (Array.isArray(allItems) && allItems.length > 0 && applyStoredFotosOverridesToItems(allItems)) {
@@ -15177,7 +15392,7 @@
             authToken: activeAdvisorSession.authToken || '',
             advisorEmail: activeAdvisorSession.correo || '',
             sku: k,
-            op: op,
+            op: op === 'DELETE' ? 'DELETE' : 'RESTORE',
             name: cleanStr(displayLabel).slice(0, 140),
             category: categoryTag,
             note: nextUrl
