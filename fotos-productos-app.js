@@ -684,7 +684,10 @@
             action === 'fotos_subir_assign' ||
             action === 'fotos_delete' ||
             action === 'fotos_subir_delete' ||
-            action === 'fotos_sync_skus';
+            action === 'fotos_sync_skus' ||
+            action === 'inv_product_overrides_get' ||
+            action === 'inv_product_override_save' ||
+            action === 'inv_upload_product_photo';
     }
 
     async function callWebAppPost(action, payloadObj, timeoutMs) {
@@ -1258,6 +1261,9 @@
 
         sendFotosPresenceHeartbeat(true);
         startFotosPresenceHeartbeatLoop();
+        if (typeof syncVisualOverridesFromCloudInFotos === 'function') {
+            syncVisualOverridesFromCloudInFotos();
+        }
 
         window.refreshAllPhotoWorkspace(false);
     }
@@ -1806,6 +1812,9 @@
                                 variante: cleanStr(r[4]),
                                 photoInv: photoInvRaw,
                                 categoria: cleanStr(r[6]),
+                                tl: tl,
+                                ct: ct,
+                                md: md,
                                 medidas: med,
                                 acabado: acabado,
                                 st: st,
@@ -1835,6 +1844,9 @@
                             variante: '',
                             photoInv: '',
                             categoria: '',
+                            tl: '',
+                            ct: '',
+                            md: '',
                             medidas: '',
                             acabado: '',
                             st: st,
@@ -1888,6 +1900,9 @@
                                 tipo: inv ? inv.tipo : '',
                                 modelo: inv ? inv.modelo : '',
                                 variante: inv ? inv.variante : '',
+                                tl: inv ? (inv.tl || '') : '',
+                                ct: inv ? (inv.ct || '') : '',
+                                md: inv ? (inv.md || '') : '',
                                 medidas: inv ? inv.medidas : '',
                                 acabado: inv ? inv.acabado : '',
                                 st: stArr,
@@ -1943,6 +1958,9 @@
                         tipo: inv.tipo,
                         modelo: inv.modelo || '',
                         variante: inv.variante || '',
+                        tl: inv.tl || '',
+                        ct: inv.ct || '',
+                        md: inv.md || '',
                         medidas: inv.medidas || '',
                         acabado: inv.acabado || '',
                         st: inv.st,
@@ -2017,6 +2035,7 @@
                 state.productBySku = mergedMap;
                 state.productByNormName = byNormName;
                 rebuildSiblingVariantsIndex();
+                if (typeof rebuildVisualTargetsCatalog === 'function') rebuildVisualTargetsCatalog();
                 state.inboxFiles = filterAndMergeInboxFiles(state.rawInboxFromDrive.length ? state.rawInboxFromDrive : state.inboxFiles);
                 invalidateLoadedPhotosCache();
                 scheduleSaveFastCache();
@@ -2673,6 +2692,9 @@
         if (document.body && document.body.classList) {
             document.body.classList.toggle('has-mobile-quick-save', showQuick);
         }
+        if (typeof syncVisualStageSelectedGalleryPreview === 'function') {
+            syncVisualStageSelectedGalleryPreview();
+        }
     }
 
     function showAssignFeedback(msgHtml, isOk) {
@@ -2921,7 +2943,7 @@
                 skuOrigin: cleanStr(fObj.skuOrigin)
             } : null;
 
-            if (fObj) {
+            if (fObj && visualState.workMode === 'SKU') {
                 const sug = fObj._suggestedSku || findSuggestedSkuForFileName(fObj.name) || cleanStr(fObj.skuOrigin);
                 if (sug) {
                     const explicitInName = extractExplicitSkuFromFileName(fObj.name);
@@ -3249,31 +3271,169 @@
         return s;
     }
 
+    function autoFrameStudioProductToDataUrl(source, maxDim, jpegQ) {
+        const nw = (source && (source.naturalWidth || source.width)) || 0;
+        const nh = (source && (source.naturalHeight || source.height)) || 0;
+        if (!nw || !nh) return '';
+
+        // Muestreo compacto (máx 96px) sobre píxeles reales sin letterbox para detectar fondo de estudio
+        let sx = 0, sy = 0, sw = nw, sh = nh, isStudio = false;
+        try {
+            const cap = 96;
+            const sScale = Math.min(1, cap / Math.max(nw, nh));
+            const sdw = Math.max(16, Math.round(nw * sScale));
+            const sdh = Math.max(16, Math.round(nh * sScale));
+            const probe = document.createElement('canvas');
+            probe.width = sdw;
+            probe.height = sdh;
+            const pCtx = probe.getContext('2d', { willReadFrequently: true });
+            if (pCtx) {
+                pCtx.clearRect(0, 0, sdw, sdh);
+                pCtx.drawImage(source, 0, 0, sdw, sdh);
+                const rgba = pCtx.getImageData(0, 0, sdw, sdh).data;
+                const ring = (sdw < 24 || sdh < 24) ? 1 : 2;
+                let bCount = 0, tCount = 0, rSum = 0, gSum = 0, bSum = 0;
+                const bRgb = [];
+                for (let y = 0; y < sdh; y++) {
+                    for (let x = 0; x < sdw; x++) {
+                        if (x >= ring && x < sdw - ring && y >= ring && y < sdh - ring) continue;
+                        const p = (y * sdw + x) * 4;
+                        bCount++;
+                        if (rgba[p + 3] < 24) {
+                            tCount++;
+                        } else {
+                            rSum += rgba[p];
+                            gSum += rgba[p + 1];
+                            bSum += rgba[p + 2];
+                            bRgb.push(rgba[p], rgba[p + 1], rgba[p + 2]);
+                        }
+                    }
+                }
+                const transRatio = bCount > 0 ? (tCount / bCount) : 0;
+                const useAlpha = transRatio >= 0.08;
+                const opqN = bRgb.length / 3;
+                const mR = opqN > 0 ? rSum / opqN : 255;
+                const mG = opqN > 0 ? gSum / opqN : 255;
+                const mB = opqN > 0 ? bSum / opqN : 255;
+                let vSum = 0;
+                for (let i = 0; i < bRgb.length; i += 3) {
+                    const dr = bRgb[i] - mR, dg = bRgb[i + 1] - mG, db = bRgb[i + 2] - mB;
+                    vSum += (dr * dr + dg * dg + db * db) / 3;
+                }
+                const stdDev = opqN > 0 ? Math.sqrt(vSum / opqN) : 0;
+                const maxCh = Math.max(mR, mG, mB);
+                const minCh = Math.min(mR, mG, mB);
+                const isNearWhite = useAlpha || (minCh >= 244 && (maxCh - minCh) <= 12);
+
+                if (useAlpha || (isNearWhite && stdDev <= 24)) {
+                    const thresh = Math.max(30, Math.min(64, Math.round(28 + stdDev * 2.2)));
+                    const mask = new Uint8Array(sdw * sdh);
+                    for (let y = 0; y < sdh; y++) {
+                        const rOff = y * sdw;
+                        for (let x = 0; x < sdw; x++) {
+                            const p = (rOff + x) * 4;
+                            if (rgba[p + 3] <= 24) continue;
+                            if (useAlpha) {
+                                mask[rOff + x] = 1;
+                            } else {
+                                const dist = Math.abs(rgba[p] - mR) + Math.abs(rgba[p + 1] - mG) + Math.abs(rgba[p + 2] - mB);
+                                if (dist > thresh) mask[rOff + x] = 1;
+                            }
+                        }
+                    }
+                    let minX = sdw, minY = sdh, maxX = -1, maxY = -1, fgN = 0;
+                    for (let y = 0; y < sdh; y++) {
+                        const rOff = y * sdw;
+                        const y0 = y > 0 ? y - 1 : 0;
+                        const y1 = y < sdh - 1 ? y + 1 : sdh - 1;
+                        for (let x = 0; x < sdw; x++) {
+                            if (!mask[rOff + x]) continue;
+                            const x0 = x > 0 ? x - 1 : 0;
+                            const x1 = x < sdw - 1 ? x + 1 : sdw - 1;
+                            let hasNb = false;
+                            for (let ny = y0; ny <= y1 && !hasNb; ny++) {
+                                const nRow = ny * sdw;
+                                for (let nx = x0; nx <= x1; nx++) {
+                                    if (nx === x && ny === y) continue;
+                                    if (mask[nRow + nx]) { hasNb = true; break; }
+                                }
+                            }
+                            if (!hasNb) continue;
+                            fgN++;
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                        }
+                    }
+                    if (fgN >= Math.max(24, Math.floor(sdw * sdh * 0.008)) && maxX > minX && maxY > minY) {
+                        const bx = Math.max(0, Math.floor((minX / sdw) * nw) - Math.round(nw * 0.015));
+                        const by = Math.max(0, Math.floor((minY / sdh) * nh) - Math.round(nh * 0.015));
+                        const bx2 = Math.min(nw, Math.ceil(((maxX + 1) / sdw) * nw) + Math.round(nw * 0.015));
+                        const by2 = Math.min(nh, Math.ceil(((maxY + 1) / sdh) * nh) + Math.round(nh * 0.015));
+                        if ((bx2 - bx) >= nw * 0.08 && (by2 - by) >= nh * 0.08) {
+                            sx = bx;
+                            sy = by;
+                            sw = bx2 - bx;
+                            sh = by2 - by;
+                            isStudio = true;
+                        }
+                    }
+                }
+            }
+        } catch (eProbe) {}
+
+        const canvas = document.createElement('canvas');
+        if (isStudio) {
+            const isWide = sw > sh * 1.15;
+            const outW = isWide ? Math.min(1200, maxDim) : Math.min(1080, maxDim);
+            const outH = isWide ? Math.round(outW * 0.75) : outW;
+            canvas.width = outW;
+            canvas.height = outH;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, outW, outH);
+            const padX = Math.round(outW * 0.11);
+            const padY = Math.round(outH * 0.11);
+            const fitScale = Math.min((outW - padX * 2) / sw, (outH - padY * 2) / sh);
+            const dw = Math.max(1, Math.round(sw * fitScale));
+            const dh = Math.max(1, Math.round(sh * fitScale));
+            const dx = Math.round((outW - dw) / 2);
+            const dy = Math.round((outH - dh) / 2);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh);
+            return canvas.toDataURL('image/jpeg', jpegQ);
+        }
+
+        let w = nw;
+        let h = nh;
+        if (w > maxDim || h > maxDim) {
+            const scale = Math.min(maxDim / w, maxDim / h);
+            w = Math.max(1, Math.round(w * scale));
+            h = Math.max(1, Math.round(h * scale));
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, h);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(source, 0, 0, w, h);
+        return canvas.toDataURL('image/jpeg', jpegQ);
+    }
+
     async function readFileAsOptimizedDataUrl(file) {
-        const MAX_DIM = 1150;
-        const JPEG_Q = 0.78;
+        const MAX_DIM = 1200;
+        const JPEG_Q = 0.82;
         const fileName = (file && file.name) || 'foto.jpg';
-        if (typeof createImageBitmap === 'function' && file && file.size > 110000) {
+        if (typeof createImageBitmap === 'function' && file) {
             try {
                 const bmp = await createImageBitmap(file);
-                let w = bmp.width;
-                let h = bmp.height;
-                if (w > MAX_DIM || h > MAX_DIM) {
-                    const scale = Math.min(MAX_DIM / w, MAX_DIM / h);
-                    w = Math.max(1, Math.round(w * scale));
-                    h = Math.max(1, Math.round(h * scale));
-                }
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(0, 0, w, h);
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'high';
-                ctx.drawImage(bmp, 0, 0, w, h);
+                const framed = autoFrameStudioProductToDataUrl(bmp, MAX_DIM, JPEG_Q);
                 if (bmp.close) bmp.close();
-                return canvas.toDataURL('image/jpeg', JPEG_Q);
+                if (framed) return framed;
             } catch (eBmp) {}
         }
 
@@ -3283,8 +3443,7 @@
             reader.onload = () => {
                 const rawDataUrl = String(reader.result || '');
                 const normalized = normalizeImageDataUrl(rawDataUrl, fileName);
-                const needsCanvas = (file && file.size > 140000) || !/^data:image\/(?:jpeg|jpg|png|webp|gif);base64,/i.test(rawDataUrl);
-                if (!needsCanvas || typeof Image === 'undefined') {
+                if (typeof Image === 'undefined') {
                     resolve(normalized);
                     return;
                 }
@@ -3292,23 +3451,8 @@
                 img.onerror = () => resolve(normalized);
                 img.onload = () => {
                     try {
-                        let w = img.naturalWidth || img.width;
-                        let h = img.naturalHeight || img.height;
-                        if (w > MAX_DIM || h > MAX_DIM) {
-                            const scale = Math.min(MAX_DIM / w, MAX_DIM / h);
-                            w = Math.max(1, Math.round(w * scale));
-                            h = Math.max(1, Math.round(h * scale));
-                        }
-                        const canvas = document.createElement('canvas');
-                        canvas.width = w;
-                        canvas.height = h;
-                        const ctx = canvas.getContext('2d');
-                        ctx.fillStyle = '#FFFFFF';
-                        ctx.fillRect(0, 0, w, h);
-                        ctx.imageSmoothingEnabled = true;
-                        ctx.imageSmoothingQuality = 'high';
-                        ctx.drawImage(img, 0, 0, w, h);
-                        resolve(canvas.toDataURL('image/jpeg', JPEG_Q));
+                        const framed = autoFrameStudioProductToDataUrl(img, MAX_DIM, JPEG_Q);
+                        resolve(framed || normalized);
                     } catch (errC) {
                         resolve(normalized);
                     }
@@ -5069,6 +5213,9 @@
                     tipo: tipo,
                     modelo: cleanStr(it.mo),
                     variante: cleanStr(it.vr),
+                    tl: cleanStr(it.tl),
+                    ct: cleanStr(it.ct),
+                    md: cleanStr(it.md),
                     medidas: cleanStr(it.m),
                     acabado: acabado,
                     st: stArr,
@@ -5109,6 +5256,7 @@
             state.productBySku = mergedMap;
             state.productByNormName = byNormName;
             rebuildSiblingVariantsIndex();
+            if (typeof rebuildVisualTargetsCatalog === 'function') rebuildVisualTargetsCatalog();
             invalidateLoadedPhotosCache();
             if (state.unlocked) {
                 renderSkuCategoryFilterRow();
@@ -5699,7 +5847,7 @@
             let scrollRaf = 0;
             const syncMobileTabOnScroll = () => {
                 scrollRaf = 0;
-                const ids = ['secSkuFinder', 'secProductCard', 'secInboxGallery'];
+                const ids = ['secSkuFinder', 'secProductStage', 'secGalleryInbox'];
                 let activeId = ids[0];
                 const threshold = 140;
                 for (let i = 0; i < ids.length; i++) {
@@ -5725,7 +5873,876 @@
                 }
             }, { passive: true });
         }
+
+        const visInp = document.getElementById('visualTargetSearchInput');
+        const visClr = document.getElementById('visualTargetSearchClearBtn');
+        if (visInp) {
+            visInp.addEventListener('input', () => {
+                visualState.searchQuery = visInp.value || '';
+                if (visClr) visClr.classList.toggle('hidden', !visualState.searchQuery.trim());
+                renderVisualTargetsList();
+            });
+        }
+        loadVisualOverridesFromLocalStorage();
+        rebuildVisualTargetsCatalog();
     }
+
+    // ========================================================================
+    // GESTOR DE PORTADAS VISUALES (INICIO) Y FOTOS DE TELAS / COLORES (SOLO APP DE FOTOS)
+    // Persistido en _INV_PRODUCT_OVERRIDES (VCOV:... / VFAB:...) sin tocar SKUs ni Hoja 1
+    // ========================================================================
+    const VISUAL_OVERRIDES_STORAGE_KEY = 'creata_inv_product_overrides_v1';
+    const VISUAL_TARGETS_INDEX_STORAGE_KEY = 'creata_visual_targets_index_v1';
+    const VISUAL_UPLOAD_DRIVE_FOLDER_ID = '1rPFbjvovC5fSDPHS29yYpbLwM90c-5L9';
+
+    const visualState = {
+        workMode: 'SKU', // 'SKU' | 'COVER' | 'FABRIC'
+        filterMode: 'ALL', // 'ALL' | 'NO_PHOTO' | 'HAS_PHOTO'
+        searchQuery: '',
+        overridesMap: {},
+        covers: [],
+        fabrics: [],
+        selectedOverrideKey: '',
+        busy: false
+    };
+
+    function compactVisualOverrideKeyFotos(prefix, rawKey) {
+        const clean = String(rawKey || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9_ -]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (!clean) return '';
+        const full = prefix + clean;
+        if (full.length <= 58) return full;
+        let h = 2166136261;
+        for (let i = 0; i < clean.length; i++) {
+            h ^= clean.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+        }
+        const hash8 = (h >>> 0).toString(36).toUpperCase().padStart(7, '0').slice(0, 7);
+        const maxStem = Math.max(8, 50 - prefix.length);
+        return prefix + clean.slice(0, maxStem).trim() + '_' + hash8;
+    }
+
+    function plainVisToken(raw) {
+        return String(raw || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function normalizePlainLowerVis(raw) {
+        return String(raw || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function cleanFabricVariationNameFotos(rawText) {
+        let s = plainVisToken(String(rawText || '').replace(/\b\d+(?:\.\d+)?\s*(?:X|×)\s*\d+(?:\.\d+)?(?:\s*(?:X|×)\s*\d+(?:\.\d+)?)?\s*(?:CM|MM|M|MTS)?\b/gi, ' '));
+        if (!s) return '';
+        s = s.replace(/\s*(?:\/|\||·)?\s*\bCOORD\.?\b[\s\S]*$/i, '').trim();
+        s = s.replace(/^(?:(?:CON|SIN)\s+BRAZOS?\s+|BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)\s+|(?:DERECHO|DEREHO|IZQUIERDO|DER|IZQ|CENTRAL|MODULAR|IND|INV|TELA|3P|2P|1P)\s+)+/i, '').trim();
+        s = s.replace(/^(?:DE|DEL|EN|CON|LA|EL)\s+/i, '').trim();
+        return s.replace(/\s+/g, ' ').trim();
+    }
+
+    function loadVisualOverridesFromLocalStorage() {
+        try {
+            const raw = localStorage.getItem(VISUAL_OVERRIDES_STORAGE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    visualState.overridesMap = parsed;
+                    return;
+                }
+            }
+        } catch (e) {}
+        visualState.overridesMap = {};
+    }
+
+    function saveVisualOverridesToLocalStorage() {
+        try {
+            localStorage.setItem(VISUAL_OVERRIDES_STORAGE_KEY, JSON.stringify(visualState.overridesMap || {}));
+        } catch (e) {}
+    }
+
+    function getVisualOverridePhotoUrlInFotos(overrideKey) {
+        const k = String(overrideKey || '').trim().toUpperCase();
+        if (!k || !visualState.overridesMap) return '';
+        const ovr = visualState.overridesMap[k];
+        if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') return '';
+        const rawUrl = cleanStr(ovr.note);
+        if (!rawUrl) return '';
+        return (/^https?:\/\//i.test(rawUrl) || /^data:image\//i.test(rawUrl)) ? rawUrl : '';
+    }
+
+    function resolveVisualThumbSrcInFotos(rawUrl, sizePx) {
+        const u = cleanStr(rawUrl);
+        if (!u) return '';
+        if (/^data:image\//i.test(u)) return u;
+        const fid = extractDriveFileId(u);
+        if (fid) return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + (Number(sizePx) || 400);
+        return /^https?:\/\//i.test(u) ? u : '';
+    }
+
+    function broadcastVisualOverrideUpdateToCotizador(overrideKey, overrideObj, deleted) {
+        const msg = {
+            type: 'CREATA_VISUAL_OVERRIDE_SAVED',
+            source: 'fotos',
+            overrideKey: String(overrideKey || '').trim().toUpperCase(),
+            override: deleted ? null : (overrideObj || null),
+            deleted: !!deleted,
+            ts: Date.now()
+        };
+        try {
+            if (window.parent && window.parent !== window && typeof window.parent.postMessage === 'function') {
+                window.parent.postMessage(msg, '*');
+            }
+        } catch (e) {}
+        try {
+            const splitFrame = document.getElementById('fotosSplitCotizadorFrame');
+            if (splitFrame && splitFrame.contentWindow && typeof splitFrame.contentWindow.postMessage === 'function') {
+                splitFrame.contentWindow.postMessage(msg, '*');
+            }
+        } catch (e2) {}
+        try {
+            if (_fotosSyncChannel) _fotosSyncChannel.postMessage(msg);
+        } catch (e3) {}
+    }
+
+    async function syncVisualOverridesFromCloudInFotos() {
+        loadVisualOverridesFromLocalStorage();
+        if (!state.unlocked) return;
+        try {
+            const auth = buildOwnerAuthPayload();
+            const res = await callWebAppPost('inv_product_overrides_get', {
+                authToken: auth.authToken || '',
+                advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                sheetTab: auth.sheetTab || 'PROYECTOS'
+            }, 18000);
+            if (res && res.ok && res.overrides && typeof res.overrides === 'object') {
+                visualState.overridesMap = res.overrides;
+                saveVisualOverridesToLocalStorage();
+                if (visualState.workMode !== 'SKU') {
+                    renderVisualTargetsList();
+                    renderVisualTargetStage();
+                }
+            }
+        } catch (e) {}
+    }
+
+    function buildFallbackVisualTargetsFromProducts() {
+        const coversMap = new Map();
+        const fabricsMap = new Map();
+        const packItems = [];
+        try {
+            if (typeof window !== 'undefined' && Array.isArray(window.CREATA_INV_DATA)) {
+                for (let i = 0; i < window.CREATA_INV_DATA.length; i++) {
+                    const it = window.CREATA_INV_DATA[i];
+                    if (it && it.s) packItems.push(it);
+                }
+            }
+        } catch (e) {}
+
+        const sourceList = [];
+        const seenSkus = new Set();
+        for (let i = 0; i < state.products.length; i++) {
+            const p = state.products[i];
+            if (!p || !p.sku) continue;
+            seenSkus.add(p.sku.toUpperCase());
+            sourceList.push({
+                s: p.sku,
+                n: p.displayName || p.colBName || p.sku,
+                c: p.categoria || '',
+                tp: p.tipo || '',
+                mo: p.modelo || '',
+                vr: p.variante || '',
+                tl: p.tl || '',
+                ct: p.ct || '',
+                md: p.md || '',
+                f: p.photoUrl || ''
+            });
+        }
+        for (let i = 0; i < packItems.length; i++) {
+            const it = packItems[i];
+            const k = String(it.s || '').toUpperCase();
+            if (!k || seenSkus.has(k)) continue;
+            sourceList.push(it);
+        }
+
+        const isPureDirection = (txt) => /^(?:(?:CON|SIN)\s+BRAZOS?|BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)|DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?|CENTRAL|MODULAR|IND|INV|1P|2P|3P|4P|5P|SALA|SOFA|LOVE\s*SEAT|SILLON|ESQUINERO|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|TABURETE|REMATE)$/.test(txt);
+
+        for (let i = 0; i < sourceList.length; i++) {
+            const it = sourceList[i];
+            const mo = cleanStr(it.mo).toUpperCase();
+            if (!mo || mo.length < 2) continue;
+            const catTok = plainVisToken(it.c);
+            const tpTok = plainVisToken(it.tp);
+            const nomTok = plainVisToken(it.n);
+            const fullTok = (catTok + ' ' + tpTok + ' ' + nomTok).trim();
+
+            const isExt = /\bEXTERIOR\b/.test(fullTok);
+            const isSala = /\b(SALA|SOFA|LOVE\s*SEAT|LOVESEAT|ESQUINERO|CHAISE|MODULAR|FUTON|FUTTON|SILLON)\b/.test(fullTok);
+            if (!isSala && !isExt) continue;
+
+            let typeKey = 'SALA_MODULAR';
+            let typeLabel = 'SALA MODULAR';
+            if (isExt) {
+                if (/\bSALAS?\s+EN\s+L\b/.test(fullTok)) { typeKey = 'EXT_SALA_EN_L'; typeLabel = 'SALA EN L EXTERIOR'; }
+                else if (/\bSOFA\s*CAMA\b/.test(fullTok)) { typeKey = 'EXT_SOFA_CAMA'; typeLabel = 'SOFÁ CAMA EXTERIOR'; }
+                else { typeKey = 'EXT_SALA_MODULAR'; typeLabel = 'SALA MODULAR EXTERIOR'; }
+            } else if (/\bSALAS?\s+EN\s+L\b/.test(fullTok)) {
+                typeKey = 'SALA_EN_L'; typeLabel = 'SALA EN L';
+            } else if (/\bSOFA\s*CAMA\b/.test(fullTok)) {
+                typeKey = 'SOFA_CAMA'; typeLabel = 'SOFÁ CAMA';
+            } else if (/\b(FUTON|FUTTON)\b/.test(fullTok)) {
+                typeKey = 'FUTON'; typeLabel = 'FUTÓN';
+            } else if (!/\b(MODULAR|MODULO|ESQUINERO|CHAISE|SIN\s+BRAZOS?|BRAZO\s+(?:DER|IZQ)|DERECHO|IZQUIERDO|REMATE)\b/.test(fullTok)) {
+                if (/^LOVE\s*SEAT\b|^LOVESEAT\b/.test(tpTok)) { typeKey = 'LOVE_SEAT'; typeLabel = 'LOVE SEAT'; }
+                else if (/^SOFA\b/.test(tpTok)) { typeKey = 'SOFA'; typeLabel = 'SOFÁ'; }
+                else continue;
+            }
+
+            const gKey = 'type_' + normalizePlainLowerVis(typeKey) + '__mo_' + normalizePlainLowerVis(mo);
+            const ovKey = compactVisualOverrideKeyFotos('VCOV:', gKey);
+            const title = (typeLabel + ' ' + mo).toUpperCase();
+            if (!coversMap.has(ovKey)) {
+                coversMap.set(ovKey, {
+                    groupKey: gKey,
+                    overrideKey: ovKey,
+                    title: title,
+                    subCat: isExt ? 'EXTERIOR' : typeLabel,
+                    mainCat: isExt ? 'COMPLEMENTOS' : 'SALAS',
+                    isModular: 1,
+                    itemCount: 0,
+                    fabricCount: 0,
+                    samplePhoto: it.f || '',
+                    _fabrics: new Set()
+                });
+            }
+            const cov = coversMap.get(ovKey);
+            cov.itemCount++;
+            if (!cov.samplePhoto && it.f) cov.samplePhoto = it.f;
+
+            let fab = cleanFabricVariationNameFotos(it.tl);
+            if (fab && isPureDirection(fab)) fab = '';
+            if (!fab && cleanStr(it.vr)) {
+                const parts = String(it.vr).split(/\s*[·|\/]\s*/).map(cleanFabricVariationNameFotos).filter(Boolean);
+                for (let pIdx = 0; pIdx < parts.length; pIdx++) {
+                    if (!isPureDirection(parts[pIdx])) { fab = parts[pIdx]; break; }
+                }
+            }
+            if (!fab) {
+                const ctC = cleanFabricVariationNameFotos(it.ct);
+                if (ctC && !isPureDirection(ctC)) fab = ctC;
+            }
+            if (fab) {
+                cov._fabrics.add(fab);
+                const fabOvKey = compactVisualOverrideKeyFotos('VFAB:', fab);
+                if (!fabricsMap.has(fabOvKey)) {
+                    fabricsMap.set(fabOvKey, {
+                        fabricKey: fab,
+                        overrideKey: fabOvKey,
+                        label: fab,
+                        colorHint: cleanStr(it.ct).toUpperCase(),
+                        modelCount: 0,
+                        moduleCount: 0,
+                        sampleModels: [],
+                        _models: new Set()
+                    });
+                }
+                const fRec = fabricsMap.get(fabOvKey);
+                fRec.moduleCount++;
+                if (!fRec._models.has(ovKey)) {
+                    fRec._models.add(ovKey);
+                    fRec.modelCount++;
+                    if (fRec.sampleModels.length < 4) fRec.sampleModels.push(title);
+                }
+            }
+        }
+
+        const covers = Array.from(coversMap.values())
+            .filter((c) => c.itemCount >= 2)
+            .map((c) => ({
+                groupKey: c.groupKey,
+                overrideKey: c.overrideKey,
+                title: c.title,
+                subCat: c.subCat,
+                mainCat: c.mainCat,
+                isModular: c.isModular,
+                itemCount: c.itemCount,
+                fabricCount: c._fabrics.size,
+                samplePhoto: c.samplePhoto
+            }))
+            .sort((a, b) => (b.itemCount - a.itemCount) || a.title.localeCompare(b.title, 'es'));
+
+        const fabrics = Array.from(fabricsMap.values())
+            .map((f) => ({
+                fabricKey: f.fabricKey,
+                overrideKey: f.overrideKey,
+                label: f.label,
+                colorHint: (f.colorHint && plainVisToken(f.colorHint) !== f.fabricKey) ? f.colorHint : '',
+                modelCount: f.modelCount,
+                moduleCount: f.moduleCount,
+                sampleModels: f.sampleModels
+            }))
+            .sort((a, b) => (b.moduleCount - a.moduleCount) || a.label.localeCompare(b.label, 'es'));
+
+        return { covers: covers, fabrics: fabrics };
+    }
+
+    function rebuildVisualTargetsCatalog() {
+        let covers = [];
+        let fabrics = [];
+        try {
+            const raw = localStorage.getItem(VISUAL_TARGETS_INDEX_STORAGE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && Array.isArray(parsed.covers) && parsed.covers.length > 0) {
+                    covers = parsed.covers.slice();
+                }
+                if (parsed && Array.isArray(parsed.fabrics) && parsed.fabrics.length > 0) {
+                    fabrics = parsed.fabrics.slice();
+                }
+            }
+        } catch (e) {}
+
+        if (!covers.length || !fabrics.length) {
+            const fb = buildFallbackVisualTargetsFromProducts();
+            if (!covers.length) covers = fb.covers;
+            if (!fabrics.length) fabrics = fb.fabrics;
+        }
+
+        // Priorizar Salas Modulares, Salas en L, Sofá Camas y Exterior primero en Portadas
+        covers.sort((a, b) =>
+            ((b.isModular || 0) - (a.isModular || 0)) ||
+            ((b.itemCount || 0) - (a.itemCount || 0)) ||
+            String(a.title || '').localeCompare(String(b.title || ''), 'es')
+        );
+
+        visualState.covers = covers;
+        visualState.fabrics = fabrics;
+
+        if (visualState.workMode !== 'SKU') {
+            renderVisualTargetsList();
+            renderVisualTargetStage();
+        }
+    }
+
+    function getActiveVisualTargetsList() {
+        return visualState.workMode === 'FABRIC' ? visualState.fabrics : visualState.covers;
+    }
+
+    function getSelectedVisualTargetObj() {
+        const list = getActiveVisualTargetsList();
+        const key = String(visualState.selectedOverrideKey || '').trim().toUpperCase();
+        if (!key) return null;
+        return list.find((it) => String(it.overrideKey || '').toUpperCase() === key) || null;
+    }
+
+    function showVisualStageFeedback(msg, isOk) {
+        const box = document.getElementById('visualStageFeedbackBox');
+        if (!box) return;
+        const clean = cleanStr(msg);
+        if (!clean) {
+            box.textContent = '';
+            box.className = 'assign-feedback-banner hidden';
+            return;
+        }
+        box.textContent = clean;
+        box.className = 'assign-feedback-banner ' + (isOk ? 'is-ok' : 'is-err');
+    }
+
+    window.setFotosWorkMode = function (modeRaw) {
+        const nextMode = (modeRaw === 'COVER' || modeRaw === 'FABRIC') ? modeRaw : 'SKU';
+        visualState.workMode = nextMode;
+        visualState.selectedOverrideKey = '';
+        showVisualStageFeedback('', true);
+
+        document.querySelectorAll('#fotosWorkModeBar .fotos-work-mode-btn').forEach((btn) => {
+            const active = btn.getAttribute('data-work-mode') === nextMode;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+
+        const isSku = nextMode === 'SKU';
+        const skuControls = document.getElementById('skuFinderSkuControls');
+        const visControls = document.getElementById('visualTargetsFinderWrap');
+        const skuStage = document.getElementById('skuStageContentWrap');
+        const visStage = document.getElementById('visualStageContentWrap');
+        const finderTitle = document.getElementById('skuFinderPanelTitle');
+        const stageTitle = document.getElementById('productStagePanelTitle');
+        const directUploadLbl = document.getElementById('btnDirectUploadLabel');
+        const openCotBtn = document.getElementById('btnOpenInCotizadorStage');
+        const rowBadge = document.getElementById('selectedRowBadge');
+        const visSearchInp = document.getElementById('visualTargetSearchInput');
+
+        if (skuControls) skuControls.classList.toggle('hidden', !isSku);
+        if (visControls) visControls.classList.toggle('hidden', isSku);
+        if (skuStage) skuStage.classList.toggle('hidden', !isSku);
+        if (visStage) visStage.classList.toggle('hidden', isSku);
+        if (directUploadLbl) directUploadLbl.classList.toggle('hidden', !isSku);
+        if (openCotBtn && !isSku) openCotBtn.classList.add('hidden');
+
+        if (finderTitle) {
+            finderTitle.textContent = nextMode === 'COVER'
+                ? 'Portadas de Inicio'
+                : (nextMode === 'FABRIC' ? 'Telas y Colores' : 'Buscar SKU');
+        }
+        if (stageTitle) {
+            stageTitle.textContent = nextMode === 'COVER'
+                ? 'Portada Visual'
+                : (nextMode === 'FABRIC' ? 'Foto de Tela' : 'Producto');
+        }
+        if (visSearchInp) {
+            visSearchInp.placeholder = nextMode === 'COVER'
+                ? 'Buscar modelo (ej. Aspen, Ario, Verona)...'
+                : 'Buscar tela / color (ej. Lillie Snow, Silver)...';
+        }
+
+        if (isSku) {
+            applySkuFiltersAndRender();
+            renderSelectedProductStage();
+        } else {
+            if (rowBadge) rowBadge.textContent = nextMode === 'COVER' ? 'PORTADA' : 'TELA';
+            loadVisualOverridesFromLocalStorage();
+            rebuildVisualTargetsCatalog();
+            const list = getActiveVisualTargetsList();
+            if (list.length > 0) {
+                visualState.selectedOverrideKey = list[0].overrideKey;
+            }
+            renderVisualTargetsList();
+            renderVisualTargetStage();
+        }
+    };
+
+    window.setVisualTargetFilter = function (filterMode) {
+        visualState.filterMode = (filterMode === 'NO_PHOTO' || filterMode === 'HAS_PHOTO') ? filterMode : 'ALL';
+        document.querySelectorAll('#visualTargetsFinderWrap [data-visual-filter]').forEach((btn) => {
+            btn.classList.toggle('active', btn.getAttribute('data-visual-filter') === visualState.filterMode);
+        });
+        renderVisualTargetsList();
+    };
+
+    window.clearVisualTargetSearch = function () {
+        visualState.searchQuery = '';
+        const inp = document.getElementById('visualTargetSearchInput');
+        const clr = document.getElementById('visualTargetSearchClearBtn');
+        if (inp) inp.value = '';
+        if (clr) clr.classList.add('hidden');
+        renderVisualTargetsList();
+    };
+
+    function renderVisualTargetsList() {
+        const listEl = document.getElementById('visualTargetsList');
+        const countBadge = document.getElementById('skuListCountBadge');
+        if (!listEl) return;
+
+        const isFabric = visualState.workMode === 'FABRIC';
+        const rawList = getActiveVisualTargetsList();
+        const qNorm = normalizeSearchText(visualState.searchQuery || '');
+
+        const filtered = rawList.filter((item) => {
+            const hasPhoto = !!getVisualOverridePhotoUrlInFotos(item.overrideKey);
+            if (visualState.filterMode === 'HAS_PHOTO' && !hasPhoto) return false;
+            if (visualState.filterMode === 'NO_PHOTO' && hasPhoto) return false;
+            if (qNorm) {
+                const hay = normalizeSearchText(
+                    (item.title || item.label || '') + ' ' +
+                    (item.subCat || item.colorHint || '') + ' ' +
+                    (Array.isArray(item.sampleModels) ? item.sampleModels.join(' ') : '')
+                );
+                if (hay.indexOf(qNorm) === -1) return false;
+            }
+            return true;
+        });
+
+        if (countBadge && visualState.workMode !== 'SKU') {
+            countBadge.textContent = String(filtered.length);
+        }
+
+        if (!filtered.length) {
+            listEl.innerHTML = '<div class="empty-list-msg">No se encontraron elementos con ese filtro.</div>';
+            return;
+        }
+
+        const selKey = String(visualState.selectedOverrideKey || '').toUpperCase();
+        listEl.innerHTML = filtered.slice(0, 220).map((item) => {
+            const ovKey = String(item.overrideKey || '').toUpperCase();
+            const active = ovKey === selKey;
+            const photoUrl = getVisualOverridePhotoUrlInFotos(ovKey);
+            const thumbSrc = photoUrl ? resolveVisualThumbSrcInFotos(photoUrl, 160) : '';
+            const title = isFabric ? (item.label || item.fabricKey) : (item.title || item.groupKey);
+            const sub = isFabric
+                ? ((item.colorHint ? (item.colorHint + ' · ') : '') + item.moduleCount + ' mód. · ' + item.modelCount + (item.modelCount === 1 ? ' modelo' : ' modelos'))
+                : ((item.subCat ? (item.subCat + ' · ') : '') + item.itemCount + ' pzas' + (item.fabricCount > 0 ? (' · ' + item.fabricCount + ' telas') : ''));
+
+            const thumbInner = thumbSrc
+                ? ('<img src="' + escapeHtml(thumbSrc) + '" alt="' + escapeHtml(title) + '" loading="lazy" referrerpolicy="no-referrer">')
+                : ('<span aria-hidden="true">' + (isFabric ? '🧵' : '🖼️') + '</span>');
+
+            return (
+                '<button type="button" class="visual-target-item' + (active ? ' active' : '') + '" data-visual-key="' + escapeHtml(ovKey) + '" onclick="selectVisualTarget(\'' + escapeHtml(ovKey.replace(/'/g, "\\'")) + '\')">' +
+                    '<div class="visual-target-thumb' + (isFabric ? '' : ' is-cover') + '">' + thumbInner + '</div>' +
+                    '<div class="visual-target-info">' +
+                        '<div class="visual-target-title">' + escapeHtml(title) + '</div>' +
+                        '<div class="visual-target-sub">' + escapeHtml(sub) + '</div>' +
+                    '</div>' +
+                    '<span class="visual-target-pill ' + (photoUrl ? 'has-photo' : 'no-photo') + '">' + (photoUrl ? 'Con foto' : 'Sin foto') + '</span>' +
+                '</button>'
+            );
+        }).join('');
+    }
+
+    function syncVisualStageSelectedGalleryPreview() {
+        if (visualState.workMode === 'SKU') return;
+        const canvas = document.getElementById('visualSelPhotoCanvas');
+        const btn = document.getElementById('btnAssignVisualGalleryPhoto');
+        const selPhoto = getActiveSelectedPhotoObject();
+        const target = getSelectedVisualTargetObj();
+
+        if (btn) {
+            btn.disabled = !(selPhoto && target && !visualState.busy);
+        }
+        if (!canvas) return;
+        if (!selPhoto) {
+            canvas.innerHTML = '<div class="photo-empty-placeholder">Elige en la galería o sube</div>';
+            return;
+        }
+        const previewSrc = selPhoto.localDataUrl || selPhoto.thumbDataUrl || buildPhotoThumbUrl(selPhoto.id || selPhoto.viewUrl, 600);
+        canvas.innerHTML = '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Seleccionada') + '" referrerpolicy="no-referrer">';
+    }
+
+    function renderVisualTargetStage() {
+        const eyebrow = document.getElementById('visualStageEyebrow');
+        const titleEl = document.getElementById('visualStageTitle');
+        const subEl = document.getElementById('visualStageSub');
+        const curCanvas = document.getElementById('visualCurPhotoCanvas');
+        const delBtn = document.getElementById('visualCurDeleteBtn');
+        const urlInp = document.getElementById('visualTargetUrlInput');
+        const isFabric = visualState.workMode === 'FABRIC';
+        const target = getSelectedVisualTargetObj();
+
+        if (!target) {
+            if (eyebrow) eyebrow.textContent = isFabric ? 'FOTO DE TELA / COLOR · GLOBAL' : 'PORTADA VISUAL · SOLO INICIO';
+            if (titleEl) titleEl.textContent = isFabric ? 'Selecciona un color / tela' : 'Selecciona un modelo';
+            if (subEl) subEl.textContent = 'Solo visual en el Cotizador · nunca modifica SKUs ni Hoja 1.';
+            if (curCanvas) curCanvas.innerHTML = '<div class="photo-empty-placeholder">—</div>';
+            if (delBtn) delBtn.classList.add('hidden');
+            if (urlInp) urlInp.value = '';
+            syncVisualStageSelectedGalleryPreview();
+            return;
+        }
+
+        const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+        const curUrl = getVisualOverridePhotoUrlInFotos(target.overrideKey);
+        const curThumb = curUrl ? resolveVisualThumbSrcInFotos(curUrl, 700) : '';
+
+        if (eyebrow) {
+            eyebrow.textContent = isFabric
+                ? 'FOTO DE TELA / COLOR · APARECE EN CLICK 2 (COTIZADOR)'
+                : 'PORTADA VISUAL · SOLO TARJETA DE INICIO (COTIZADOR)';
+        }
+        if (titleEl) titleEl.textContent = label;
+        if (subEl) {
+            if (isFabric) {
+                const modelsPreview = Array.isArray(target.sampleModels) && target.sampleModels.length
+                    ? (' · Modelos: ' + target.sampleModels.join(', '))
+                    : '';
+                subEl.textContent = target.moduleCount + ' módulos en ' + target.modelCount + (target.modelCount === 1 ? ' modelo' : ' modelos') + modelsPreview;
+            } else {
+                subEl.textContent = (target.subCat ? (target.subCat + ' · ') : '') + target.itemCount + ' piezas · Solo visual en portada, no altera SKUs.';
+            }
+        }
+        if (curCanvas) {
+            if (curThumb) {
+                curCanvas.innerHTML =
+                    '<img src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
+                    'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
+                    'onclick="openPhotoLightbox(\'' + escapeHtml(curThumb.replace(/'/g, "\\'")) + '\')">';
+            } else {
+                curCanvas.innerHTML = '<div class="photo-empty-placeholder">Sin foto asignada</div>';
+            }
+        }
+        if (delBtn) delBtn.classList.toggle('hidden', !curUrl);
+        if (urlInp) urlInp.value = curUrl || '';
+        syncVisualStageSelectedGalleryPreview();
+    }
+
+    window.selectVisualTarget = function (overrideKey) {
+        visualState.selectedOverrideKey = String(overrideKey || '').trim().toUpperCase();
+        showVisualStageFeedback('', true);
+        renderVisualTargetsList();
+        renderVisualTargetStage();
+        try {
+            if (typeof window !== 'undefined' && window.innerWidth <= 1024 && typeof window.jumpToFotosSection === 'function') {
+                window.jumpToFotosSection('secProductStage');
+            }
+        } catch (eMob) {}
+    };
+
+    function optimizeVisualFileForMode(file, isFabric) {
+        if (!isFabric) {
+            return readFileAsOptimizedDataUrl(file);
+        }
+        // Tela / Swatch: conservar textura completa (sin recortar bordes blancos) hasta 640px
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+            reader.onload = () => {
+                const rawUrl = normalizeImageDataUrl(String(reader.result || ''), (file && file.name) || 'tela.jpg');
+                if (typeof Image === 'undefined') { resolve(rawUrl); return; }
+                const img = new Image();
+                img.onerror = () => resolve(rawUrl);
+                img.onload = () => {
+                    try {
+                        const nw = img.naturalWidth || img.width || 1;
+                        const nh = img.naturalHeight || img.height || 1;
+                        const cap = 640;
+                        const sc = Math.min(1, cap / Math.max(nw, nh));
+                        const tw = Math.max(1, Math.round(nw * sc));
+                        const th = Math.max(1, Math.round(nh * sc));
+                        const c = document.createElement('canvas');
+                        c.width = tw;
+                        c.height = th;
+                        const ctx = c.getContext('2d');
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, tw, th);
+                        ctx.imageSmoothingEnabled = true;
+                        ctx.imageSmoothingQuality = 'high';
+                        ctx.drawImage(img, 0, 0, tw, th);
+                        resolve(c.toDataURL('image/jpeg', 0.84));
+                    } catch (eC) {
+                        resolve(rawUrl);
+                    }
+                };
+                img.src = rawUrl;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function persistVisualPhotoOverrideFromFotos(target, photoUrl, opMode) {
+        if (!target || !target.overrideKey) return { ok: false, error: 'Selecciona un destino primero.' };
+        const isFabric = visualState.workMode === 'FABRIC';
+        const ovKey = String(target.overrideKey).trim().toUpperCase();
+        const op = opMode === 'DELETE' ? 'DELETE' : 'SAVE';
+        const nextUrl = op === 'DELETE' ? '' : cleanStr(photoUrl);
+        const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+        const categoryTag = isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
+
+        const localEntry = op === 'DELETE' ? null : {
+            sku: ovKey,
+            status: 'VISIBLE',
+            name: cleanStr(label).slice(0, 140),
+            category: categoryTag,
+            price: null,
+            note: nextUrl,
+            updatedBy: OWNER_EMAIL,
+            updatedAt: new Date().toLocaleString('es-MX')
+        };
+
+        if (op === 'DELETE') {
+            delete visualState.overridesMap[ovKey];
+        } else {
+            visualState.overridesMap[ovKey] = localEntry;
+        }
+        saveVisualOverridesToLocalStorage();
+        broadcastVisualOverrideUpdateToCotizador(ovKey, localEntry, op === 'DELETE');
+        renderVisualTargetsList();
+        renderVisualTargetStage();
+
+        try {
+            const auth = buildOwnerAuthPayload();
+            const res = await callWebAppPost('inv_product_override_save', {
+                authToken: auth.authToken || '',
+                advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                sheetTab: auth.sheetTab || 'PROYECTOS',
+                sku: ovKey,
+                op: op === 'DELETE' ? 'DELETE' : 'RESTORE',
+                name: cleanStr(label).slice(0, 140),
+                category: categoryTag,
+                price: '',
+                note: nextUrl
+            }, 22000);
+            if (res && res.ok) {
+                if (op !== 'DELETE' && res.override) {
+                    visualState.overridesMap[ovKey] = res.override;
+                    saveVisualOverridesToLocalStorage();
+                    broadcastVisualOverrideUpdateToCotizador(ovKey, res.override, false);
+                }
+                return { ok: true };
+            }
+            return { ok: false, error: (res && res.error) || 'Guardado localmente.' };
+        } catch (err) {
+            return { ok: false, error: (err && err.message) || 'Guardado localmente.' };
+        }
+    }
+
+    window.uploadVisualTargetPhotoFile = async function (inputEl) {
+        const file = inputEl && inputEl.files && inputEl.files[0];
+        if (!file || visualState.busy) return;
+        const target = getSelectedVisualTargetObj();
+        if (!target) {
+            showVisualStageFeedback('Primero selecciona un modelo o tela en la lista izquierda.', false);
+            if (inputEl) inputEl.value = '';
+            return;
+        }
+        const isFabric = visualState.workMode === 'FABRIC';
+        const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+        visualState.busy = true;
+        showVisualStageFeedback('Optimizando y subiendo a Drive...', true);
+        syncVisualStageSelectedGalleryPreview();
+
+        try {
+            const dataUrl = await optimizeVisualFileForMode(file, isFabric);
+            const auth = buildOwnerAuthPayload();
+            const res = await callWebAppPost('inv_upload_product_photo', {
+                authToken: auth.authToken || '',
+                sheetTab: auth.sheetTab || 'PROYECTOS',
+                advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                advisorName: 'Kevin Reyna',
+                sku: target.overrideKey,
+                productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
+                categoria: isFabric ? 'TELAS' : 'SALAS',
+                tipo: isFabric ? 'TELA' : 'PORTADA',
+                targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
+                driveOnly: true,
+                skipSheetWrite: true,
+                dataUrl: dataUrl
+            }, 40000);
+
+            const fid = cleanStr((res && res.fileId) || (res && res.driveUrl && extractDriveFileId(res.driveUrl)));
+            const driveUrl = cleanStr(res && res.driveUrl) || (fid ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
+            if (!res || !res.ok || !driveUrl) {
+                showVisualStageFeedback((res && res.error) || 'No se pudo subir la imagen a Drive.', false);
+                return;
+            }
+            const saveRes = await persistVisualPhotoOverrideFromFotos(target, driveUrl, 'SAVE');
+            if (saveRes.ok) {
+                showVisualStageFeedback('✓ ' + (isFabric ? 'Foto de tela' : 'Portada visual') + ' guardada y sincronizada con el Cotizador.', true);
+            } else {
+                showVisualStageFeedback('Subida a Drive (' + saveRes.error + ')', true);
+            }
+        } catch (err) {
+            showVisualStageFeedback((err && err.message) || 'Error al subir la foto.', false);
+        } finally {
+            visualState.busy = false;
+            if (inputEl) {
+                try { inputEl.value = ''; } catch (eClr) {}
+            }
+            syncVisualStageSelectedGalleryPreview();
+        }
+    };
+
+    window.assignGalleryPhotoToVisualTarget = async function () {
+        if (visualState.busy) return;
+        const target = getSelectedVisualTargetObj();
+        const selPhoto = getActiveSelectedPhotoObject();
+        if (!target || !selPhoto) return;
+
+        const isFabric = visualState.workMode === 'FABRIC';
+        const directUrl = cleanStr(selPhoto.viewUrl) || (selPhoto.id && !/^local_/i.test(selPhoto.id) ? ('https://drive.google.com/file/d/' + selPhoto.id + '/view?usp=sharing') : '');
+        visualState.busy = true;
+        showVisualStageFeedback('Guardando foto de la galería...', true);
+        syncVisualStageSelectedGalleryPreview();
+
+        try {
+            let finalUrl = directUrl;
+            if (!finalUrl && selPhoto.localDataUrl) {
+                const auth = buildOwnerAuthPayload();
+                const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+                const upRes = await callWebAppPost('inv_upload_product_photo', {
+                    authToken: auth.authToken || '',
+                    sheetTab: auth.sheetTab || 'PROYECTOS',
+                    advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                    advisorName: 'Kevin Reyna',
+                    sku: target.overrideKey,
+                    productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
+                    categoria: isFabric ? 'TELAS' : 'SALAS',
+                    tipo: isFabric ? 'TELA' : 'PORTADA',
+                    targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
+                    driveOnly: true,
+                    skipSheetWrite: true,
+                    dataUrl: selPhoto.localDataUrl
+                }, 40000);
+                const fid = cleanStr((upRes && upRes.fileId) || (upRes && upRes.driveUrl && extractDriveFileId(upRes.driveUrl)));
+                finalUrl = cleanStr(upRes && upRes.driveUrl) || (fid ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
+            }
+            if (!finalUrl) {
+                showVisualStageFeedback('No se obtuvo enlace válido de Drive para esa foto.', false);
+                return;
+            }
+            const saveRes = await persistVisualPhotoOverrideFromFotos(target, finalUrl, 'SAVE');
+            if (saveRes.ok) {
+                showVisualStageFeedback('✓ ' + (isFabric ? 'Foto de tela' : 'Portada visual') + ' aplicada al Cotizador.', true);
+            } else {
+                showVisualStageFeedback(saveRes.error || 'Aplicada localmente.', true);
+            }
+        } catch (err) {
+            showVisualStageFeedback((err && err.message) || 'Error al guardar.', false);
+        } finally {
+            visualState.busy = false;
+            syncVisualStageSelectedGalleryPreview();
+        }
+    };
+
+    window.saveVisualTargetPhotoUrl = async function () {
+        if (visualState.busy) return;
+        const target = getSelectedVisualTargetObj();
+        const urlInp = document.getElementById('visualTargetUrlInput');
+        const url = cleanStr(urlInp && urlInp.value);
+        if (!target) {
+            showVisualStageFeedback('Selecciona un elemento primero.', false);
+            return;
+        }
+        if (!/^https?:\/\//i.test(url)) {
+            showVisualStageFeedback('Pega un enlace válido que empiece con https://', false);
+            return;
+        }
+        visualState.busy = true;
+        showVisualStageFeedback('Guardando enlace...', true);
+        try {
+            const saveRes = await persistVisualPhotoOverrideFromFotos(target, url, 'SAVE');
+            showVisualStageFeedback(saveRes.ok ? '✓ Enlace guardado y sincronizado.' : (saveRes.error || 'Guardado localmente.'), true);
+        } finally {
+            visualState.busy = false;
+            syncVisualStageSelectedGalleryPreview();
+        }
+    };
+
+    window.deleteSelectedVisualPhotoOverride = async function () {
+        if (visualState.busy) return;
+        const target = getSelectedVisualTargetObj();
+        if (!target) return;
+        visualState.busy = true;
+        showVisualStageFeedback('Quitando foto...', true);
+        try {
+            const saveRes = await persistVisualPhotoOverrideFromFotos(target, '', 'DELETE');
+            showVisualStageFeedback(saveRes.ok ? '✓ Foto visual eliminada del Cotizador.' : (saveRes.error || 'Eliminada localmente.'), true);
+        } finally {
+            visualState.busy = false;
+            syncVisualStageSelectedGalleryPreview();
+        }
+    };
+
+    window.__CREATA_FOTOS_VISUAL_TEST__ = {
+        compactVisualOverrideKeyFotos: compactVisualOverrideKeyFotos,
+        cleanFabricVariationNameFotos: cleanFabricVariationNameFotos,
+        buildFallbackVisualTargetsFromProducts: buildFallbackVisualTargetsFromProducts,
+        rebuildVisualTargetsCatalog: rebuildVisualTargetsCatalog,
+        getVisualState: function () { return visualState; }
+    };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initFotosApp);

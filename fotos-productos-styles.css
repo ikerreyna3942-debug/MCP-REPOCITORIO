@@ -2536,3 +2536,195 @@ body.is-suite-embed .header-actions .hdr-btn {
     padding: 0 8px !important;
     font-size: 10.5px !important;
 }
+
+/* Selector de modo (SKUs / Portadas Visuales / Telas y Colores) */
+.fotos-work-mode-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    padding: 4px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-hairline);
+}
+
+.fotos-work-mode-btn {
+    min-height: 34px;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink-secondary);
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: all 0.15s ease;
+}
+
+.fotos-work-mode-btn:hover {
+    color: var(--ink-primary);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.fotos-work-mode-btn.active {
+    background: var(--gold-accent);
+    color: #11161D;
+    border-color: var(--gold-light);
+    box-shadow: 0 2px 8px rgba(163, 130, 81, 0.25);
+}
+
+.visual-target-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border-hairline);
+    background: var(--bg-subtle);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.visual-target-item:hover {
+    border-color: var(--gold-accent);
+}
+
+.visual-target-item.active {
+    border-color: var(--gold-accent);
+    background: rgba(163, 130, 81, 0.16);
+    box-shadow: 0 0 0 1px rgba(163, 130, 81, 0.35);
+}
+
+.visual-target-thumb {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: #FFFFFF;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: #A38251;
+}
+
+.visual-target-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.visual-target-thumb.is-cover img {
+    object-fit: contain;
+    padding: 2px;
+}
+
+.visual-target-info {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.visual-target-title {
+    font-size: 11.5px;
+    font-weight: 800;
+    color: var(--ink-primary);
+    text-transform: uppercase;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.visual-target-sub {
+    margin-top: 2px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--ink-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.visual-target-pill {
+    flex-shrink: 0;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 9.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.visual-target-pill.has-photo {
+    background: rgba(16, 185, 129, 0.18);
+    color: #34D399;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.visual-target-pill.no-photo {
+    background: rgba(245, 158, 11, 0.14);
+    color: #FBBF24;
+    border: 1px solid rgba(245, 158, 11, 0.32);
+}
+
+.visual-stage-summary {
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border-hairline);
+    background: var(--bg-subtle);
+}
+
+.visual-stage-eyebrow {
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--gold-light);
+    text-transform: uppercase;
+}
+
+.visual-stage-title {
+    margin-top: 2px;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--ink-primary);
+    text-transform: uppercase;
+}
+
+.visual-stage-sub {
+    margin-top: 3px;
+    font-size: 11px;
+    color: var(--ink-secondary);
+    line-height: 1.35;
+}
+
+.visual-stage-actions-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.visual-url-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.visual-url-row .search-input {
+    padding-left: 10px;
+    min-height: 36px;
+    font-size: 11.5px;
+}
+

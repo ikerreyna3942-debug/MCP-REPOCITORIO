@@ -270,48 +270,52 @@ test('EXTERIOR mirrors Salas grouping by Type + Model + Color/Fabric + Modules',
   assert.ok(lustroCamastro && lustroCamastro.items.length >= 2, 'CAMASTRO EXTERIOR LUSTRO should group its variations');
 });
 
-test('renderGroupVariantsStep groups by Color/Fabric first (with swatch) and lists ordered Modules underneath', () => {
+test('3-click flow: Click 2 shows Color/Fabric cards with fabric photo, Click 3 shows ordered Modules of chosen Color', () => {
   API.setInvCategory('SALAS');
   API.setInvSubCategory('SALAS MODULARES');
   const aspen = API.getFilteredGroups().find(g => g.mo === 'ASPEN');
-  API.renderGroupVariantsStep(aspen);
+  assert.ok(aspen, 'Expected ASPEN modular group');
 
-  const html = API.getDocEl('detVariantsList').innerHTML;
-  const crumb = API.getDocEl('detGroupCrumb').textContent;
-  assert.match(crumb, /\d+ colores · \d+ módulos/);
+  // CLICK 2: Selecting ASPEN displays Color / Fabric choice cards (no modules dumped yet)
+  API.renderGroupVariantsStep(aspen, '');
+  const click2Html = API.getDocEl('detVariantsList').innerHTML;
+  const crumb2 = API.getDocEl('detGroupCrumb').textContent;
+  assert.match(crumb2, /\d+ colores \/ telas · \d+ módulos/);
 
-  const fabricHeaders = [...html.matchAll(/class="inv-fabric-title">([^<]+)<\/span>/g)].map(m => m[1]);
-  assert.equal(fabricHeaders[0], 'LILLIE SNOW', 'LILLIE SNOW (6 modules) should appear first in ASPEN');
-  assert.equal(fabricHeaders[1], 'LILLIE SILVER', 'LILLIE SILVER (4 modules) should appear second in ASPEN');
+  const fabricCards = [...click2Html.matchAll(/class="inv-fabric-choice-title">([^<]+)<\/div>/g)].map(m => m[1]);
+  assert.equal(fabricCards[0], 'LILLIE SNOW', 'LILLIE SNOW (6 modules) should appear first in ASPEN Click 2');
+  assert.equal(fabricCards[1], 'LILLIE SILVER', 'LILLIE SILVER (4 modules) should appear second in ASPEN Click 2');
+  assert.ok(!click2Html.includes('data-var-sku='), 'Click 2 must show only Color/Fabric cards before choosing a fabric');
+  assert.ok(!click2Html.includes('data-fabric-pick-key='), 'Cotizador must not expose visual edit buttons (managed in Fotos App)');
 
-  // Verify modules under LILLIE SNOW appear in HTML between LILLIE SNOW and LILLIE SILVER
-  const idxSnow = html.indexOf('data-fabric-key="LILLIE SNOW"');
-  const idxSilver = html.indexOf('data-fabric-key="LILLIE SILVER"');
-  assert.ok(idxSnow >= 0 && idxSilver > idxSnow);
-  const snowSection = html.slice(idxSnow, idxSilver);
-  assert.match(snowSection, /SILLÓN BRAZO DERECHO/);
-  assert.match(snowSection, /SILLÓN BRAZO IZQUIERDO/);
-  assert.match(snowSection, /SILLÓN SIN BRAZOS/);
-  assert.match(snowSection, /ESQUINERO/);
-  assert.match(snowSection, /CHAISE LONGUE IZQUIERDO/);
-  assert.match(snowSection, /OTOMÁN/);
+  // CLICK 3 (LILLIE SNOW): Selecting LILLIE SNOW displays ONLY LILLIE SNOW modules in commercial order
+  API.renderGroupVariantsStep(aspen, 'LILLIE SNOW');
+  const snowHtml = API.getDocEl('detVariantsList').innerHTML;
+  const crumb3 = API.getDocEl('detGroupCrumb').textContent;
+  assert.match(crumb3, /← Colores \/ Telas/);
+  assert.match(snowHtml, /SILLÓN BRAZO DERECHO/);
+  assert.match(snowHtml, /SILLÓN BRAZO IZQUIERDO/);
+  assert.match(snowHtml, /SILLÓN SIN BRAZOS/);
+  assert.match(snowHtml, /ESQUINERO/);
+  assert.match(snowHtml, /CHAISE LONGUE IZQUIERDO/);
+  assert.match(snowHtml, /OTOMÁN/);
+  assert.ok(!snowHtml.includes('CHAISE LONGUE DERECHO'), 'LILLIE SNOW step must not mix in LILLIE SILVER modules');
 
-  const silverSection = html.slice(idxSilver);
-  assert.match(silverSection, /SILLÓN SIN BRAZOS/);
-  assert.match(silverSection, /ESQUINERO/);
-  assert.match(silverSection, /CHAISE LONGUE DERECHO/);
-  assert.match(silverSection, /CHAISE LONGUE IZQUIERDO/);
+  // CLICK 3 (LILLIE SILVER): Selecting LILLIE SILVER displays ONLY LILLIE SILVER modules
+  API.renderGroupVariantsStep(aspen, 'LILLIE SILVER');
+  const silverHtml = API.getDocEl('detVariantsList').innerHTML;
+  assert.match(silverHtml, /SILLÓN SIN BRAZOS/);
+  assert.match(silverHtml, /ESQUINERO/);
+  assert.match(silverHtml, /CHAISE LONGUE DERECHO/);
+  assert.match(silverHtml, /CHAISE LONGUE IZQUIERDO/);
+  assert.ok(!silverHtml.includes('OTOMÁN'), 'LILLIE SILVER step must not mix in LILLIE SNOW modules');
 
-  // Verify visual cover photo & fabric swatch photo overrides render without modifying individual SKU photos
-  const invJs = fs.readFileSync('inventario-app.js', 'utf8');
-  assert.match(invJs, /function buildVisualCoverOverrideKey\(/);
-  assert.match(invJs, /function buildFabricSwatchOverrideKey\(/);
-  assert.match(invJs, /window\.openVisualPhotoPicker = function/);
-  assert.match(invJs, /window\.openVisualPhotoLightbox = function/);
-  const invHtml = fs.readFileSync('inventario.html', 'utf8');
-  assert.match(invHtml, /id="detGroupCoverBar"/);
-  assert.match(invHtml, /id="visualPhotoPickerModal"/);
-  assert.match(invHtml, /id="visualPhotoLightboxModal"/);
+  // Verify visual photo editing lives in fotos-productos.html / fotos-productos-app.js
+  const fotosHtml = fs.readFileSync('fotos-productos.html', 'utf8');
+  assert.match(fotosHtml, /id="fotosWorkModeBar"/);
+  assert.match(fotosHtml, /data-work-mode="COVER"/);
+  assert.match(fotosHtml, /data-work-mode="FABRIC"/);
+  assert.match(fotosHtml, /id="visualStageContentWrap"/);
 });
 
 test('Category pill counts match visible card counts for grouped Salas and Exterior subcategories', () => {
@@ -336,15 +340,15 @@ test('Category pill counts match visible card counts for grouped Salas and Exter
   assert.equal(Number(mExt[1]), extCards, 'EXTERIOR pill counter must match rendered card count');
 });
 
-test('inventario-ui.css defines full-width fabric group headers, swatches, cover bar, and lightbox styles', () => {
+test('inventario-ui.css defines 3-click Color/Fabric cards, selected fabric header bar, swatches, and lightbox styles', () => {
   const css = fs.readFileSync('inventario-ui.css', 'utf8');
-  assert.match(css, /#detVariantsList\s+\.inv-fabric-group-header\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1/);
+  assert.match(css, /#detVariantsList\s+\.inv-row\.inv-fabric-choice-card\s*\{/);
+  assert.match(css, /#detVariantsList\s+\.inv-fabric-selected-bar\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1/);
   assert.match(css, /#detVariantsList\s+\.inv-fabric-swatch\s*\{/);
-  assert.match(css, /\.inv-group-cover-bar\s*\{/);
   assert.match(css, /\.inv-visual-lightbox-card\s*\{/);
 });
 
-test('Visual cover photo (home only) and fabric swatch photo render cleanly without altering any SKU photo', () => {
+test('Visual cover photo (home only) and fabric swatch photo (Click 2 & Click 3) render cleanly without altering any SKU photo', () => {
   API.setInvCategory('SALAS');
   API.setInvSubCategory('SALAS MODULARES');
   const aspen = API.getFilteredGroups().find(g => g.mo === 'ASPEN');
@@ -365,12 +369,16 @@ test('Visual cover photo (home only) and fabric swatch photo render cleanly with
   assert.equal(API.getGroupVisualCoverPhotoUrl(aspen.key), fakeCoverDriveUrl);
   assert.equal(API.getFabricSwatchPhotoUrl('LILLIE SNOW'), fakeFabricDriveUrl);
 
-  API.renderGroupVariantsStep(aspen);
-  const coverBarHtml = API.getDocEl('detGroupCoverBar').innerHTML;
-  assert.ok(coverBarHtml.includes('1VisualCoverAspenId9999'), 'Cover bar should display the visual cover Drive image');
+  // Click 2 shows the fabric swatch Drive image on LILLIE SNOW card and keeps detGroupCoverBar hidden (read-only Cotizador)
+  API.renderGroupVariantsStep(aspen, '');
+  const click2Html = API.getDocEl('detVariantsList').innerHTML;
+  assert.ok(click2Html.includes('1FabricSwatchSnowId8888'), 'Click 2 LILLIE SNOW card should display the fabric swatch Drive image');
+  assert.equal(API.getDocEl('detGroupCoverBar').innerHTML, '', 'Cotizador modal must not render visual cover edit bar');
 
-  const variantsHtml = API.getDocEl('detVariantsList').innerHTML;
-  assert.ok(variantsHtml.includes('1FabricSwatchSnowId8888'), 'LILLIE SNOW header should display the fabric swatch Drive image');
+  // Click 3 also shows the fabric swatch thumb in the selected fabric header bar
+  API.renderGroupVariantsStep(aspen, 'LILLIE SNOW');
+  const click3Html = API.getDocEl('detVariantsList').innerHTML;
+  assert.ok(click3Html.includes('1FabricSwatchSnowId8888'), 'Click 3 selected fabric bar should display the fabric swatch thumb');
 
   // Verify individual SKU photos are 100% untouched
   assert.deepEqual(aspen.items.map(it => it.f), origSkuPhotos, 'Visual cover and fabric swatch photos must NEVER mutate individual SKU photos');

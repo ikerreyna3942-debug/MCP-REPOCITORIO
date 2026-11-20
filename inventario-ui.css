@@ -1172,6 +1172,7 @@ main#invMainView.inv-main {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 #detVariantsList .inv-thumb img {
@@ -1190,6 +1191,9 @@ main#invMainView.inv-main {
   height: 100%;
   object-fit: contain;
   display: block;
+  transform: translate(var(--opt-tx, 0%), var(--opt-ty, 0%)) scale(var(--opt-scale, 1));
+  transform-origin: center center;
+  transition: transform 180ms ease;
 }
 
 /* ============================================================================
@@ -1722,6 +1726,25 @@ main#invMainView.inv-main {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+#detPhotoCanvasStage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#detPhotoImg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  transform: translate(var(--opt-tx, 0%), var(--opt-ty, 0%)) scale(var(--opt-scale, 1));
+  transform-origin: center center;
+  transition: transform 180ms ease;
 }
 
 #productDetailModal .inv-det-top-info-grid {
@@ -3167,3 +3190,160 @@ body.inv-split-dragging .inv-split-iframe {
   font-variant-numeric: tabular-nums;
 }
 
+/* ============================================================================
+ * 3-Click Flow: Color / Tela Selection Cards + Selected Fabric Modules Header
+ * ============================================================================ */
+#detVariantsList .inv-row.inv-fabric-choice-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #FFFFFF;
+  border: 1px solid #E1DBC5;
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+#detVariantsList .inv-row.inv-fabric-choice-card:hover {
+  border-color: #A38251;
+  box-shadow: 0 6px 18px rgba(26, 24, 22, 0.08);
+  transform: translateY(-1px);
+}
+
+#detVariantsList .inv-fabric-choice-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 170px;
+  max-height: 250px;
+  background: #F7F5F0;
+  border-bottom: 1px solid var(--inv-border-subtle);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#detVariantsList .inv-fabric-choice-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+#detVariantsList .inv-fabric-choice-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #9E7B4F;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 16px;
+  text-align: center;
+}
+
+#detVariantsList .inv-fabric-choice-empty-ico {
+  font-size: 30px;
+  line-height: 1;
+}
+
+#detVariantsList .inv-fabric-choice-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(163, 130, 81, 0.45);
+  background: rgba(255, 255, 255, 0.92);
+  color: #1A1816;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(26, 24, 22, 0.12);
+}
+
+#detVariantsList .inv-fabric-choice-body {
+  padding: 10px 12px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#detVariantsList .inv-fabric-choice-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#detVariantsList .inv-fabric-choice-title {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #1A1816;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+}
+
+#detVariantsList .inv-fabric-choice-sub {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #9E7B4F;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+#detVariantsList .inv-fabric-choice-arrow {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #A38251;
+  background: #FBF8F1;
+  border: 1px solid #E1DBC5;
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+#detVariantsList .inv-fabric-selected-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #E1DBC5;
+  background: #FBF9F4;
+}
+
+#detVariantsList .inv-fabric-back-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid #C8B794;
+  background: #FFFFFF;
+  color: #1A1816;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+#detVariantsList .inv-fabric-back-btn:hover {
+  background: #F5EFE2;
+  border-color: #A38251;
+}

@@ -300,10 +300,123 @@
     return count;
   }
 
-  function renderCanvasImage(containerEl, imgUrl, altText, onFallback) {
+  function detectCanvasStudioBounds(img) {
+    var nw = img && img.naturalWidth ? img.naturalWidth : 0;
+    var nh = img && img.naturalHeight ? img.naturalHeight : 0;
+    if (nw < 16 || nh < 16) return null;
+    try {
+      var cap = 96;
+      var scale = Math.min(1, cap / Math.max(nw, nh));
+      var dw = Math.max(16, Math.round(nw * scale));
+      var dh = Math.max(16, Math.round(nh * scale));
+      var probe = document.createElement('canvas');
+      probe.width = dw;
+      probe.height = dh;
+      var pCtx = probe.getContext('2d', { willReadFrequently: true });
+      if (!pCtx) return null;
+      pCtx.clearRect(0, 0, dw, dh);
+      pCtx.drawImage(img, 0, 0, dw, dh);
+      var rgba = pCtx.getImageData(0, 0, dw, dh).data;
+
+      var ring = (dw < 24 || dh < 24) ? 1 : 2;
+      var bCount = 0, tCount = 0, sR = 0, sG = 0, sB = 0;
+      var samples = [];
+      for (var y = 0; y < dh; y++) {
+        for (var x = 0; x < dw; x++) {
+          if (x >= ring && x < dw - ring && y >= ring && y < dh - ring) continue;
+          var idx = (y * dw + x) * 4;
+          bCount++;
+          if (rgba[idx + 3] < 24) {
+            tCount++;
+          } else {
+            sR += rgba[idx];
+            sG += rgba[idx + 1];
+            sB += rgba[idx + 2];
+            samples.push(rgba[idx], rgba[idx + 1], rgba[idx + 2]);
+          }
+        }
+      }
+      var transRatio = bCount > 0 ? (tCount / bCount) : 0;
+      var useAlpha = transRatio >= 0.08;
+      var opqN = samples.length / 3;
+      var mR = opqN > 0 ? sR / opqN : 255;
+      var mG = opqN > 0 ? sG / opqN : 255;
+      var mB = opqN > 0 ? sB / opqN : 255;
+      var vSum = 0;
+      for (var i = 0; i < samples.length; i += 3) {
+        var dr = samples[i] - mR, dg = samples[i + 1] - mG, db = samples[i + 2] - mB;
+        vSum += (dr * dr + dg * dg + db * db) / 3;
+      }
+      var stdDev = opqN > 0 ? Math.sqrt(vSum / opqN) : 0;
+      var maxC = Math.max(mR, mG, mB);
+      var minC = Math.min(mR, mG, mB);
+      var isWhiteBg = useAlpha || (minC >= 244 && (maxC - minC) <= 12);
+      if (!useAlpha && (!isWhiteBg || stdDev > 24)) return null;
+
+      var thresh = Math.max(30, Math.min(64, Math.round(28 + stdDev * 2.2)));
+      var mask = new Uint8Array(dw * dh);
+      for (var my = 0; my < dh; my++) {
+        var rOff = my * dw;
+        for (var mx = 0; mx < dw; mx++) {
+          var pIdx = (rOff + mx) * 4;
+          if (rgba[pIdx + 3] <= 24) continue;
+          if (useAlpha) {
+            mask[rOff + mx] = 1;
+          } else {
+            var dist = Math.abs(rgba[pIdx] - mR) + Math.abs(rgba[pIdx + 1] - mG) + Math.abs(rgba[pIdx + 2] - mB);
+            if (dist > thresh) mask[rOff + mx] = 1;
+          }
+        }
+      }
+
+      var minX = dw, minY = dh, maxX = -1, maxY = -1, fgN = 0;
+      for (var fy = 0; fy < dh; fy++) {
+        var fRow = fy * dw;
+        var y0 = fy > 0 ? fy - 1 : 0;
+        var y1 = fy < dh - 1 ? fy + 1 : dh - 1;
+        for (var fx = 0; fx < dw; fx++) {
+          if (!mask[fRow + fx]) continue;
+          var x0 = fx > 0 ? fx - 1 : 0;
+          var x1 = fx < dw - 1 ? fx + 1 : dw - 1;
+          var hasNb = false;
+          for (var ny = y0; ny <= y1 && !hasNb; ny++) {
+            var nRow = ny * dw;
+            for (var nx = x0; nx <= x1; nx++) {
+              if (nx === fx && ny === fy) continue;
+              if (mask[nRow + nx]) { hasNb = true; break; }
+            }
+          }
+          if (!hasNb) continue;
+          fgN++;
+          if (fx < minX) minX = fx;
+          if (fx > maxX) maxX = fx;
+          if (fy < minY) minY = fy;
+          if (fy > maxY) maxY = fy;
+        }
+      }
+      if (fgN < Math.max(24, Math.floor(dw * dh * 0.008)) || maxX <= minX || maxY <= minY) return null;
+      var bw = maxX - minX + 1;
+      var bh = maxY - minY + 1;
+      if (bw / dw < 0.08 || bh / dh < 0.08) return null;
+
+      var padX = Math.round(nw * 0.015);
+      var padY = Math.round(nh * 0.015);
+      var sx = Math.max(0, Math.floor((minX / dw) * nw) - padX);
+      var sy = Math.max(0, Math.floor((minY / dh) * nh) - padY);
+      var sx2 = Math.min(nw, Math.ceil(((maxX + 1) / dw) * nw) + padX);
+      var sy2 = Math.min(nh, Math.ceil(((maxY + 1) / dh) * nh) + padY);
+      if ((sx2 - sx) < 12 || (sy2 - sy) < 12) return null;
+      return { sx: sx, sy: sy, sw: sx2 - sx, sh: sy2 - sy };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function renderCanvasImage(containerEl, imgUrl, altText, onFallback, options) {
     if (isBlocked || !containerEl || containerEl.nodeType !== 1) return;
     injectSilentStyle();
 
+    var opts = (options && typeof options === 'object') ? options : {};
     var url = String(imgUrl || '').trim();
     var alt = String(altText || '').trim();
     var token = ++renderSeq;
@@ -357,17 +470,47 @@
         var rect = containerEl.getBoundingClientRect ? containerEl.getBoundingClientRect() : null;
         var boxW = rect && rect.width > 16 ? rect.width : nw;
         var boxH = rect && rect.height > 16 ? rect.height : nh;
-        var ratio = Math.min(boxW / nw, boxH / nh);
-        var drawW = Math.max(1, Math.round(nw * ratio));
-        var drawH = Math.max(1, Math.round(nh * ratio));
         var dpr = Math.min(window.devicePixelRatio || 1, 2);
         var maxSide = 2400;
-        var pxW = Math.round(drawW * dpr);
-        var pxH = Math.round(drawH * dpr);
-        if (pxW > maxSide || pxH > maxSide) {
-          var clamp = maxSide / Math.max(pxW, pxH);
-          pxW = Math.max(1, Math.round(pxW * clamp));
-          pxH = Math.max(1, Math.round(pxH * clamp));
+
+        var studioBounds = opts.autoFrame ? detectCanvasStudioBounds(img) : null;
+        var pxW, pxH, drawX, drawY, drawW, drawH;
+
+        if (studioBounds) {
+          var targetFill = (typeof opts.targetFill === 'number' && opts.targetFill > 0.5 && opts.targetFill < 0.96)
+            ? opts.targetFill
+            : 0.78;
+          var stageW = rect && rect.width > 16 ? rect.width : Math.max(800, Math.round(studioBounds.sw / targetFill));
+          var stageH = rect && rect.height > 16 ? rect.height : Math.round(stageW * 0.75);
+          pxW = Math.round(stageW * dpr);
+          pxH = Math.round(stageH * dpr);
+          if (pxW > maxSide || pxH > maxSide) {
+            var clampStage = maxSide / Math.max(pxW, pxH);
+            pxW = Math.max(1, Math.round(pxW * clampStage));
+            pxH = Math.max(1, Math.round(pxH * clampStage));
+          }
+          var innerW = pxW * targetFill;
+          var innerH = pxH * targetFill;
+          var fitScale = Math.min(innerW / studioBounds.sw, innerH / studioBounds.sh);
+          drawW = Math.max(1, Math.round(studioBounds.sw * fitScale));
+          drawH = Math.max(1, Math.round(studioBounds.sh * fitScale));
+          drawX = Math.round((pxW - drawW) / 2);
+          drawY = Math.round((pxH - drawH) / 2);
+        } else {
+          var ratio = Math.min(boxW / nw, boxH / nh);
+          var cssW = Math.max(1, Math.round(nw * ratio));
+          var cssH = Math.max(1, Math.round(nh * ratio));
+          pxW = Math.round(cssW * dpr);
+          pxH = Math.round(cssH * dpr);
+          if (pxW > maxSide || pxH > maxSide) {
+            var clamp = maxSide / Math.max(pxW, pxH);
+            pxW = Math.max(1, Math.round(pxW * clamp));
+            pxH = Math.max(1, Math.round(pxH * clamp));
+          }
+          drawX = 0;
+          drawY = 0;
+          drawW = pxW;
+          drawH = pxH;
         }
 
         var canvas = document.createElement('canvas');
@@ -399,7 +542,17 @@
         if ('imageSmoothingQuality' in ctx) {
           ctx.imageSmoothingQuality = 'high';
         }
-        ctx.drawImage(img, 0, 0, pxW, pxH);
+        if (studioBounds) {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, pxW, pxH);
+          ctx.drawImage(
+            img,
+            studioBounds.sx, studioBounds.sy, studioBounds.sw, studioBounds.sh,
+            drawX, drawY, drawW, drawH
+          );
+        } else {
+          ctx.drawImage(img, 0, 0, pxW, pxH);
+        }
         ctx.getImageData(0, 0, 1, 1);
 
         containerEl.textContent = '';
