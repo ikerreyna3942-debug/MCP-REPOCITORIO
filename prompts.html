@@ -24,7 +24,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./prompts-styles.css?v=4">
+    <link rel="stylesheet" href="./prompts-styles.css?v=5">
 </head>
 <body>
 
@@ -263,7 +263,7 @@
                         <div class="propt-field-row">
                             <div>
                                 <label class="propt-field-label" for="proptDestSelect">Destino en Odoo Drive</label>
-                                <select id="proptDestSelect" class="propt-input" onchange="refreshProptDrawerData()">
+                                <select id="proptDestSelect" class="propt-input" onchange="onProptDestChange()">
                                     <option value="MUEBLES">🚀 Fotos Odoo · Muebles</option>
                                     <option value="ACCESORIOS">🚀 Fotos Odoo · Accesorios</option>
                                     <option value="TELAS">🚀 Fotos Odoo · Telas</option>
@@ -287,6 +287,14 @@
                         </label>
                         <input
                             type="file"
+                            id="proptCameraInput"
+                            class="hidden"
+                            accept="image/*"
+                            capture="environment"
+                            onchange="uploadFilesToSubirPropt(this)"
+                        >
+                        <input
+                            type="file"
                             id="proptFileInput"
                             class="hidden"
                             accept="image/*"
@@ -296,13 +304,21 @@
                         <div class="propt-upload-row">
                             <button
                                 type="button"
+                                id="btnCameraSubirPropt"
+                                class="btn-secondary propt-btn-upload propt-btn-camera"
+                                onclick="triggerProptUploadInput('proptCameraInput')"
+                                title="Tomar foto directa con la cámara trasera (ideal para telas)"
+                            >📷 Tomar foto</button>
+                            <button
+                                type="button"
                                 id="btnUploadSubirPropt"
                                 class="btn-primary propt-btn-upload"
-                                onclick="document.getElementById('proptFileInput').click()"
-                            >📤 Elegir foto(s) y subir a Odoo / Sheet</button>
+                                onclick="triggerProptUploadInput('proptFileInput')"
+                                title="Elegir una o varias fotos desde galería o archivos"
+                            >🖼️ Galería / Archivo</button>
                         </div>
                         <p class="propt-help propt-help-compact">
-                            Subida genérica desde celular o PC directo a Odoo y Base de Datos Generales (sin mezclar con otras carpetas).
+                            Toma fotos de telas directo con cámara o elige de tu galería para subirlas a Odoo y Base de Datos Generales (sin mezclar con otras carpetas).
                         </p>
                         <div id="proptFeedback" class="propt-feedback hidden" aria-live="polite"></div>
                         <div id="proptGalleryGrid" class="propt-gallery-grid">
@@ -395,6 +411,6 @@
     </div>
 
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./prompts-app.js?v=5"></script>
+    <script src="./prompts-app.js?v=6"></script>
 </body>
 </html>

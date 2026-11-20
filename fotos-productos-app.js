@@ -551,25 +551,105 @@
 
     async function sendRawWebAppPost(action, payloadObj, timeoutMs) {
         const cfgUrl = (window.CREATA_CLOUD_CONFIG && typeof window.CREATA_CLOUD_CONFIG.getApiUrl === 'function')
-            ? window.CREATA_CLOUD_CONFIG.getApiUrl()
+            ? cleanStr(window.CREATA_CLOUD_CONFIG.getApiUrl())
             : '';
-        const targetUrl = cfgUrl || CANONICAL_WEBAPP_URL;
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 22000) : null;
-        try {
-            const resp = await fetch(targetUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify(Object.assign({}, payloadObj || {}, { action: action })),
-                signal: controller ? controller.signal : undefined
-            });
-            if (!resp.ok) return { ok: false, unavailable: true };
-            return (await resp.json()) || { ok: false, unavailable: true };
-        } catch (err) {
-            return { ok: false, unavailable: true };
-        } finally {
-            if (timer) clearTimeout(timer);
+        const primaryUrl = cfgUrl || CANONICAL_WEBAPP_URL;
+
+        const postOnce = async (targetUrl) => {
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 22000) : null;
+            try {
+                const resp = await fetch(targetUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(Object.assign({}, payloadObj || {}, { action: action })),
+                    signal: controller ? controller.signal : undefined
+                });
+                if (!resp || !resp.ok) return { ok: false, unavailable: true };
+                return (await resp.json()) || { ok: false, unavailable: true };
+            } catch (err) {
+                return { ok: false, unavailable: true };
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        };
+
+        const res = await postOnce(primaryUrl);
+        if (CANONICAL_WEBAPP_URL && primaryUrl !== CANONICAL_WEBAPP_URL && (!res || res.unavailable)) {
+            const fb = await postOnce(CANONICAL_WEBAPP_URL);
+            if (fb && !fb.unavailable) return fb;
         }
+        return res;
+    }
+
+    const FOTOS_PRESENCE_DEVICE_KEY = 'creata_inv_presence_dev_v1';
+    let _fotosLastHeartbeatMs = 0;
+    let _fotosPresenceTimer = null;
+
+    function getFotosPresenceDeviceId() {
+        try {
+            let id = localStorage.getItem(FOTOS_PRESENCE_DEVICE_KEY);
+            if (!id) {
+                id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+                localStorage.setItem(FOTOS_PRESENCE_DEVICE_KEY, id);
+            }
+            return id;
+        } catch (e) {
+            return 'dev_mem_fotos';
+        }
+    }
+
+    function sendFotosPresenceHeartbeat(forceNow, _isRetry) {
+        if (!state.unlocked) return;
+        const now = Date.now();
+        if (!forceNow && (now - _fotosLastHeartbeatMs) < 45000) return;
+        if (!forceNow && typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        const tok = cleanStr(state.authToken);
+        const key = cleanStr(state.accessKey);
+        if (!tok && !key) return;
+        _fotosLastHeartbeatMs = now;
+        const payload = {
+            authToken: tok,
+            advisorEmail: OWNER_EMAIL,
+            correo: OWNER_EMAIL,
+            nombre: OWNER_DISPLAY_NAME,
+            puesto: 'ADMINISTRADOR',
+            sheetTab: 'PROYECTOS',
+            erpStore: 'CEDIS',
+            deviceId: getFotosPresenceDeviceId(),
+            vista: 'fotos',
+            view: 'fotos',
+            page: 'fotos-productos'
+        };
+        if (!tok && key) payload.accessKey = key;
+        sendRawWebAppPost('inv_presence_heartbeat', payload, 8000).then(async (hbRes) => {
+            if (hbRes && hbRes.renewedAuthToken) {
+                persistRefreshedOwnerToken(hbRes.renewedAuthToken);
+            }
+            if (!_isRetry && hbRes && !hbRes.ok && !hbRes.unavailable && (hbRes.authRequired || !hbRes.error) && key) {
+                const freshTok = await renewOwnerAuthTokenSilently();
+                if (freshTok) {
+                    _fotosLastHeartbeatMs = 0;
+                    sendFotosPresenceHeartbeat(true, true);
+                }
+            }
+        }).catch(() => {});
+    }
+
+    function stopFotosPresenceHeartbeatLoop() {
+        if (_fotosPresenceTimer) {
+            clearInterval(_fotosPresenceTimer);
+            _fotosPresenceTimer = null;
+        }
+    }
+
+    function startFotosPresenceHeartbeatLoop() {
+        stopFotosPresenceHeartbeatLoop();
+        _fotosPresenceTimer = setInterval(() => {
+            if (state.unlocked && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
+                sendFotosPresenceHeartbeat(false);
+            }
+        }, 60000);
     }
 
     async function renewOwnerAuthTokenSilently() {
@@ -1176,11 +1256,15 @@
         renderSessionHistoryLog();
         hydrateOfflinePendingPhotos();
 
+        sendFotosPresenceHeartbeat(true);
+        startFotosPresenceHeartbeatLoop();
+
         window.refreshAllPhotoWorkspace(false);
     }
 
     window.lockFotosPortal = function () {
         state.unlocked = false;
+        stopFotosPresenceHeartbeatLoop();
         state.authToken = '';
         state.accessKey = '';
         if (typeof window.closePhotoLightbox === 'function') window.closePhotoLightbox();
@@ -5396,12 +5480,17 @@
         window.addEventListener('beforeunload', () => saveFotosUiCheckpointNow());
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') saveFotosUiCheckpointNow();
+            else if (document.visibilityState === 'visible' && state.unlocked) sendFotosPresenceHeartbeat(false);
+        });
+        window.addEventListener('focus', () => {
+            if (state.unlocked) sendFotosPresenceHeartbeat(false);
         });
 
         window.addEventListener('online', () => {
             if (state.unlocked) {
                 showAssignFeedback('🌐 Conexión restablecida. Sincronizando fotos pendientes...', true);
                 flushFotosOfflineOutbox();
+                sendFotosPresenceHeartbeat(false);
             }
         });
 

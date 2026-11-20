@@ -46,17 +46,18 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
 
   const promptsSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
-  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v5['"]/);
+  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v6['"]/);
   assert.match(promptsSwSrc, /creata-back-nav\.js\?v=1/);
-  assert.match(promptsSwSrc, /prompts-app\.js\?v=5/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v7['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v7['"]/);
+  assert.match(promptsSwSrc, /prompts-styles\.css\?v=5/);
+  assert.match(promptsSwSrc, /prompts-app\.js\?v=6/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v8['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v8['"]/);
 
   const promptsHtmlSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts.html'), 'utf8');
   assert.match(promptsHtmlSrc, /prompts-manifest\.json\?v=3/);
-  assert.match(promptsHtmlSrc, /prompts-styles\.css\?v=4/);
+  assert.match(promptsHtmlSrc, /prompts-styles\.css\?v=5/);
   assert.match(promptsHtmlSrc, /creata-back-nav\.js\?v=1/);
-  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=5/);
+  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=6/);
   assert.match(promptsHtmlSrc, /Configurar PIN/);
 
   const promptsCssSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-styles.css'), 'utf8');
@@ -129,10 +130,10 @@ test('Static cross-project isolation invariants hold across Project A, Project B
   assert.ok(!/SUBIR PREN/i.test(promptsJs), 'prompts-app.js must not reference SUBIR PREN');
   assert.ok(!promptsJs.includes('1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8'), 'prompts-app.js must not reference Control de Productos');
 
-  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=18
+  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=19
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
-  assert.match(fotosHtml, /fotos-productos-app\.js\?v=18/);
+  assert.match(fotosHtml, /fotos-productos-app\.js\?v=19/);
 });
 
 test('Prompts PWA (Items 12-14): blocks DOM XSS & javascript: URIs in renderProptGallery, prevents ?scriptUrl= silent overwrite & PIN exfiltration, and handles clipboard fallback', async () => {
@@ -355,12 +356,12 @@ test('App #9 (Feature F8): Auto-acomodar por categoría button removed from foto
   assert.match(assignFnMatch[0], /DEST_FOLDER_BY_ID\.get\(/, 'Guardar must validate against DEST_FOLDER_BY_ID');
 });
 
-test('Prompts SW (Item 14 / M2C): prompts-sw.js v5 evicts v2..v4, preserves other app caches, and intercepts prompts-app.js?v=5 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
+test('Prompts SW (Item 14 / M2C): prompts-sw.js v6 evicts v2..v5, preserves other app caches, and intercepts prompts-app.js?v=6 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
   const vm = await import('node:vm');
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-fotos-app-v5', 'creata-inventario-v1'];
+  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-fotos-app-v8', 'creata-inventario-v1'];
 
   const swSandbox = {
     URL,
@@ -389,7 +390,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v5 evicts v2..v4, preserves othe
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4']);
+  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5']);
 
   // Fetch bypasses script.google.com, buena-espero.onrender.com, and POST requests; intercepts same-origin GET
   const checkIntercept = (url, method = 'GET') => {
@@ -403,6 +404,121 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v5 evicts v2..v4, preserves othe
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
   assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
-  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=5', 'GET'), true);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=6', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
+});
+
+test('Prompts App: direct camera button (capture="environment"), TELAS<->TELA / MUEBLES<->MUEBLE sync, and URL/PIN preflight status', async () => {
+  const vm = await import('node:vm');
+  const promptsHtml = fs.readFileSync(path.join(REPO_ROOT, 'prompts.html'), 'utf8');
+  const promptsJs = fs.readFileSync(path.join(REPO_ROOT, 'prompts-app.js'), 'utf8');
+
+  assert.match(promptsHtml, /id="proptCameraInput"[\s\S]*?capture="environment"/);
+  assert.match(promptsHtml, /id="btnCameraSubirPropt"[\s\S]*?onclick="triggerProptUploadInput\('proptCameraInput'\)"/);
+  assert.match(promptsHtml, /id="btnUploadSubirPropt"[\s\S]*?onclick="triggerProptUploadInput\('proptFileInput'\)"/);
+  assert.match(promptsHtml, /id="proptDestSelect"[^>]*onchange="onProptDestChange\(\)"/);
+
+  function makeEl(id, initialVal = '') {
+    const classes = new Set();
+    let clicked = 0;
+    return {
+      id,
+      value: initialVal,
+      textContent: '',
+      innerHTML: '',
+      disabled: false,
+      classList: {
+        add: (...c) => c.forEach((x) => classes.add(x)),
+        remove: (...c) => c.forEach((x) => classes.delete(x)),
+        toggle: (c, force) => {
+          if (typeof force === 'boolean') {
+            if (force) classes.add(c);
+            else classes.delete(c);
+          } else if (classes.has(c)) classes.delete(c);
+          else classes.add(c);
+        },
+        contains: (c) => classes.has(c)
+      },
+      click: () => { clicked++; },
+      _getClicks: () => clicked,
+      focus: () => {},
+      setAttribute: () => {},
+      getAttribute: () => '',
+      addEventListener: () => {}
+    };
+  }
+
+  const els = new Map([
+    ['proptDestSelect', makeEl('proptDestSelect', 'MUEBLES')],
+    ['proptTipoSelect', makeEl('proptTipoSelect', 'MUEBLE')],
+    ['proptCameraInput', makeEl('proptCameraInput')],
+    ['proptFileInput', makeEl('proptFileInput')],
+    ['btnCameraSubirPropt', makeEl('btnCameraSubirPropt')],
+    ['btnUploadSubirPropt', makeEl('btnUploadSubirPropt')],
+    ['proptConfigBox', makeEl('proptConfigBox')],
+    ['proptConnStatus', makeEl('proptConnStatus')],
+    ['proptFeedback', makeEl('proptFeedback')],
+    ['proptScriptUrlInput', makeEl('proptScriptUrlInput')],
+    ['proptPinInput', makeEl('proptPinInput')],
+    ['proptOwnerEmailInput', makeEl('proptOwnerEmailInput')],
+    ['proptHealthWarning', makeEl('proptHealthWarning')],
+    ['proptGalleryGrid', makeEl('proptGalleryGrid')],
+    ['proptCountBadge', makeEl('proptCountBadge')],
+    ['proptListCountLabel', makeEl('proptListCountLabel')]
+  ]);
+  els.get('proptConfigBox').classList.add('hidden');
+
+  const storage = new Map();
+  const sandbox = {
+    console, Date, Math, JSON, RegExp, Array, Object, String, Number, Boolean, Error, Promise, URL, URLSearchParams, AbortController,
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {},
+    localStorage: {
+      getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => storage.set(k, String(v)),
+      removeItem: (k) => storage.delete(k)
+    },
+    navigator: { onLine: true, userAgent: 'Mozilla/5.0', serviceWorker: { register: () => Promise.resolve() } },
+    history: { replaceState: () => {} },
+    location: { protocol: 'https:', pathname: '/MCP-REPOCITORIO/prompts.html', search: '', hash: '', href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts.html' },
+    document: {
+      readyState: 'complete',
+      getElementById: (id) => els.get(id) || null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    },
+    fetch: async () => ({ text: async () => JSON.stringify({ ok: true, files: [] }) })
+  };
+  sandbox.window = sandbox;
+  sandbox.window.addEventListener = () => {};
+  sandbox.window.matchMedia = () => ({ matches: false });
+
+  vm.runInNewContext(promptsJs, sandbox, { filename: 'prompts-app.js' });
+
+  // 1) TELAS -> TELA and MUEBLES -> MUEBLE automatic sync
+  els.get('proptDestSelect').value = 'TELAS';
+  sandbox.window.onProptDestChange();
+  assert.equal(els.get('proptTipoSelect').value, 'TELA');
+
+  els.get('proptDestSelect').value = 'MUEBLES';
+  sandbox.window.onProptDestChange();
+  assert.equal(els.get('proptTipoSelect').value, 'MUEBLE');
+
+  // 2) Missing URL /exec blocks picker, opens config box, and sets clear feedback
+  assert.equal(sandbox.window.triggerProptUploadInput('proptCameraInput'), false);
+  assert.equal(els.get('proptCameraInput')._getClicks(), 0);
+  assert.equal(els.get('proptConfigBox').classList.contains('hidden'), false);
+  assert.match(els.get('proptFeedback').textContent, /URL \/exec/i);
+
+  // 3) Valid URL but missing PROMPTS_PIN blocks picker and asks for PROMPTS_PIN
+  storage.set('creata_prompts_webapp_url_v1', 'https://script.google.com/macros/s/VALID_DEPLOY_123/exec');
+  els.get('proptConfigBox').classList.add('hidden');
+  assert.equal(sandbox.window.triggerProptUploadInput('proptCameraInput'), false);
+  assert.equal(els.get('proptCameraInput')._getClicks(), 0);
+  assert.equal(els.get('proptConfigBox').classList.contains('hidden'), false);
+  assert.match(els.get('proptFeedback').textContent, /PROMPTS_PIN/i);
+
+  // 4) Both URL and PIN configured allows opening direct camera picker
+  storage.set('creata_prompts_pin_v1', '1234');
+  assert.equal(sandbox.window.triggerProptUploadInput('proptCameraInput'), true);
+  assert.equal(els.get('proptCameraInput')._getClicks(), 1);
 });

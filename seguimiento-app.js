@@ -303,9 +303,40 @@
     } catch (e) {}
   }
 
+  const SEG_PRESENCE_DEVICE_KEY = 'creata_inv_presence_dev_v1';
+  let _segLastHeartbeatMs = 0;
+
+  function getSegPresenceDeviceId() {
+    try {
+      let id = localStorage.getItem(SEG_PRESENCE_DEVICE_KEY);
+      if (!id) {
+        id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem(SEG_PRESENCE_DEVICE_KEY, id);
+      }
+      return id;
+    } catch (e) {
+      return 'dev_mem_seg';
+    }
+  }
+
+  function persistSegRenewedToken(newToken) {
+    const tok = cleanStr(newToken);
+    if (!tok) return;
+    if (APP_STATE.user) APP_STATE.user.authToken = tok;
+    const targetEmail = normalizeEmail((APP_STATE.user && APP_STATE.user.correo) || '');
+    if (!targetEmail) return;
+    const keys = [INV_SESSION_KEY, 'creata_private_kevin_panel_v1', 'creata_private_kevin_fotos_v1', 'creata_private_kevin_hist_v1'];
+    for (let i = 0; i < keys.length; i++) {
+      const obj = readJsonStorage(keys[i], null);
+      if (obj && normalizeEmail(obj.correo) === targetEmail) {
+        obj.authToken = tok;
+        writeJsonStorage(keys[i], obj);
+      }
+    }
+  }
+
   async function callWebAppPost(payload, timeoutMs) {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 10000) : null;
+    const primaryUrl = getWebAppUrl();
     const invSess = readJsonStorage(INV_SESSION_KEY, null) || {};
     const token = cleanStr((APP_STATE.user && APP_STATE.user.authToken) || invSess.authToken || '');
     const email = normalizeEmail((APP_STATE.user && APP_STATE.user.correo) || invSess.correo || '');
@@ -313,20 +344,60 @@
       { authToken: token, advisorEmail: email },
       payload || {}
     );
-    try {
-      const resp = await fetch(getWebAppUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(enriched),
-        signal: controller ? controller.signal : undefined
-      });
-      if (!resp || !resp.ok) return { ok: false };
-      return (await resp.json()) || { ok: false };
-    } catch (e) {
-      return { ok: false, error: String(e) };
-    } finally {
-      if (timer) clearTimeout(timer);
+
+    const postOnce = async (targetUrl) => {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 10000) : null;
+      try {
+        const resp = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(enriched),
+          signal: controller ? controller.signal : undefined
+        });
+        if (!resp || !resp.ok) return { ok: false, unavailable: true };
+        const json = await resp.json();
+        if (json && json.renewedAuthToken) persistSegRenewedToken(json.renewedAuthToken);
+        return json || { ok: false, unavailable: true };
+      } catch (e) {
+        return { ok: false, unavailable: true, error: String(e) };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    const res = await postOnce(primaryUrl);
+    if (CANONICAL_WEBAPP_URL && primaryUrl !== CANONICAL_WEBAPP_URL && (!res || res.unavailable)) {
+      const fb = await postOnce(CANONICAL_WEBAPP_URL);
+      if (fb && !fb.unavailable) return fb;
     }
+    return res;
+  }
+
+  function sendSegPresenceHeartbeat(forceNow) {
+    if (!mounted || !APP_STATE.user || !cleanStr(APP_STATE.user.correo)) return;
+    if (global.CreataGuard && (global.CreataGuard.blocked || global.CreataGuard.isBlocked)) return;
+    const now = Date.now();
+    if (!forceNow && (now - _segLastHeartbeatMs) < 45000) return;
+    if (!forceNow && typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const invSess = readJsonStorage(INV_SESSION_KEY, null) || {};
+    const token = cleanStr(APP_STATE.user.authToken || invSess.authToken || '');
+    if (!token) return;
+    _segLastHeartbeatMs = now;
+    callWebAppPost({
+      action: 'inv_presence_heartbeat',
+      authToken: token,
+      advisorEmail: APP_STATE.user.correo,
+      correo: APP_STATE.user.correo,
+      nombre: APP_STATE.user.nombre || APP_STATE.user.correo,
+      puesto: APP_STATE.user.puesto || '',
+      sheetTab: APP_STATE.user.sheetTab || '',
+      erpStore: APP_STATE.user.erpStore || '',
+      deviceId: getSegPresenceDeviceId(),
+      vista: 'seguimiento',
+      view: 'seguimiento',
+      page: 'seguimiento'
+    }, 8000).catch(() => {});
   }
 
   function applySilentImageProtection(target) {
@@ -3514,11 +3585,16 @@
     const onBeforeUnload = () => saveSegUiCheckpointNow();
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') saveSegUiCheckpointNow();
+      else if (document.visibilityState === 'visible') sendSegPresenceHeartbeat(false);
+    };
+    const onWindowFocus = () => {
+      sendSegPresenceHeartbeat(false);
     };
     const onOnline = () => {
       if (!mounted) return;
       flushSegOfflineOutbox();
       fetchLiveState(true);
+      sendSegPresenceHeartbeat(false);
     };
     const onKeyDown = (ev) => {
       if (!mounted || ev.key !== 'Escape' || ev.__creataEscapeHandled) return;
@@ -3535,12 +3611,13 @@
     global.addEventListener('scroll', onScroll, { passive: true });
     global.addEventListener('pagehide', onPageHide);
     global.addEventListener('beforeunload', onBeforeUnload);
+    global.addEventListener('focus', onWindowFocus);
     document.addEventListener('visibilitychange', onVisibilityChange);
     global.addEventListener('online', onOnline);
     document.addEventListener('keydown', onKeyDown);
 
     boundHandlers = {
-      onClick, onChange, onInput, onScroll, onPageHide, onBeforeUnload, onVisibilityChange, onOnline, onKeyDown
+      onClick, onChange, onInput, onScroll, onPageHide, onBeforeUnload, onWindowFocus, onVisibilityChange, onOnline, onKeyDown
     };
   }
 
@@ -3555,6 +3632,7 @@
     global.removeEventListener('scroll', boundHandlers.onScroll);
     global.removeEventListener('pagehide', boundHandlers.onPageHide);
     global.removeEventListener('beforeunload', boundHandlers.onBeforeUnload);
+    global.removeEventListener('focus', boundHandlers.onWindowFocus);
     document.removeEventListener('visibilitychange', boundHandlers.onVisibilityChange);
     global.removeEventListener('online', boundHandlers.onOnline);
     document.removeEventListener('keydown', boundHandlers.onKeyDown);
@@ -3751,12 +3829,14 @@
     }
     _segPrevSearchNonEmpty = Boolean(cleanStr($('seg_filterSearch')?.value || ''));
 
+    sendSegPresenceHeartbeat(true);
     fetchLiveState(false);
     flushSegOfflineOutbox();
 
     if (pollIntervalId) clearInterval(pollIntervalId);
     pollIntervalId = setInterval(() => {
       if (mounted && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
+        sendSegPresenceHeartbeat(false);
         fetchLiveState(true);
       }
     }, POLL_INTERVAL_MS);

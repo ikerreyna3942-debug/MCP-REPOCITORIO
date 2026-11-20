@@ -17,8 +17,8 @@ test('Settings UI & cache versions exist in inventario.html and inventario-ui.cs
   assert(html.includes('id="settingsPasswordSection"'), 'Missing password change section');
   assert(html.includes('id="settingsSessionsSection"'), 'Missing open sessions section');
   assert(html.includes('./inventario-ui.css?v=14'), 'inventario.html must load inventario-ui.css?v=14');
-  assert(html.includes('./historial-app.js?v=6'), 'inventario.html must load historial-app.js?v=6');
-  assert(html.includes('inventario-app.js?v=87'), 'inventario.html must load inventario-app.js?v=87');
+  assert(html.includes('./historial-app.js?v=7'), 'inventario.html must load historial-app.js?v=7');
+  assert(html.includes('inventario-app.js?v=88'), 'inventario.html must load inventario-app.js?v=88');
   const segJs = fs.readFileSync('seguimiento-app.js', 'utf8');
   assert(!segJs.includes('id="seg_btnKevinAuditHeader"'), 'Historial y Movimientos button must be removed from Seguimiento header');
   assert(segJs.includes('class="cm-seg-search-field"'), 'Seguimiento search bar must use full-width top field class');
@@ -249,4 +249,164 @@ test('Frontend inventario-app.js: Back-nav registration, PDF doc name sanitizati
   assert(src.includes("window.setKevinRolePreviewMode = function"), 'Missing window.setKevinRolePreviewMode');
   assert(src.includes("window.submitSettingsPasswordChange = async function"), 'Missing window.submitSettingsPasswordChange');
   assert(src.includes("window.submitSettingsProductAction = async function"), 'Missing window.submitSettingsProductAction');
+  assert(!src.includes('creata_inv_advisor_session_v2'), 'inventario-app.js must NOT reference typo key creata_inv_advisor_session_v2');
+  assert(src.includes('function startSettingsTeamPresenceAutoRefresh()'), 'Missing live Settings modal presence auto-refresh');
+  assert(src.includes('function stopSettingsTeamPresenceAutoRefresh()'), 'Missing stopSettingsTeamPresenceAutoRefresh');
+  assert(src.includes('async function renewInvAuthTokenIfPossible('), 'Missing auto token renewal in inventario-app.js');
+
+  const histJs = fs.readFileSync('historial-app.js', 'utf8');
+  assert(histJs.includes('async function callWebAppGetPresence('), 'historial-app.js must support GET ?action=inv_presence_list fallback');
+  assert(histJs.includes('async function renewSessionAuthToken('), 'historial-app.js must auto-renew expired authToken');
+  assert(histJs.includes('async function sendHistPresenceHeartbeat('), 'historial-app.js must send presence heartbeats');
+
+  const segJs = fs.readFileSync('seguimiento-app.js', 'utf8');
+  assert(segJs.includes('function sendSegPresenceHeartbeat('), 'seguimiento-app.js must send presence heartbeats');
+
+  const fotosJs = fs.readFileSync('fotos-productos-app.js', 'utf8');
+  assert(fotosJs.includes('function sendFotosPresenceHeartbeat('), 'fotos-productos-app.js must send presence heartbeats');
+
+  const panelJs = fs.readFileSync('panel-app.js', 'utf8');
+  assert(panelJs.includes('function sendPanelPresenceHeartbeat('), 'panel-app.js must send presence heartbeats');
+});
+
+test('Apps Script backend: readAllBranchUsers_ 5-min CacheService hit, explicit authRequired, and token renewal on presence endpoints', () => {
+  const gsSrc = fs.readFileSync('AppsScript_Creata_Drive_Sheets.gs', 'utf8');
+  const scriptProps = new Map([['INV_AUTH_SECRET', 'test-secret-key-for-presence-tests-1234567890']]);
+  const scriptCache = new Map();
+  let sheetReads = 0;
+
+  const rowsProyectos = [
+    ['NO', 'SUCURSAL', 'NOMBRE', 'PUESTO', 'CORREO', 'CLAVE TEMPORAL', 'CLAVE DEFINITIVA', 'ASESOR ERP', 'DESCUENTO'],
+    ['1', 'CEDIS', 'Kevin Reyna', 'ADMINISTRADOR', 'kevin.reyna@grupoanipa.com', '', 'Secret123!', '', '100%']
+  ];
+
+  const fakeProyectosSheet = {
+    getName: () => 'PROYECTOS',
+    getLastRow: () => rowsProyectos.length,
+    getMaxColumns: () => 9,
+    getRange: (r, c, nr, nc) => {
+      const slice = () => {
+        sheetReads++;
+        const out = [];
+        for (let i = 0; i < nr; i++) {
+          const row = rowsProyectos[r - 1 + i] || [];
+          out.push(row.slice(c - 1, c - 1 + nc));
+        }
+        return out;
+      };
+      return { getValues: slice, getDisplayValues: slice };
+    }
+  };
+
+  let getSpreadsheetCalls = 0;
+  const fakeSs = {
+    getSheetByName: (name) => (name === 'PROYECTOS' ? fakeProyectosSheet : null),
+    getSheets: () => [fakeProyectosSheet]
+  };
+
+  const crypto = {
+    hmac: (payload, secret) => {
+      // Deterministic lightweight HMAC-like byte array for unit test
+      const combined = String(payload) + '::' + String(secret);
+      const out = [];
+      for (let i = 0; i < 16; i++) {
+        out.push((combined.charCodeAt(i % combined.length) + i * 31) & 0xff);
+      }
+      return out;
+    }
+  };
+
+  const sandbox = {
+    Date, Math, JSON, String, Number, Boolean, Array, Object, RegExp, Error, isFinite, parseInt,
+    CacheService: {
+      getScriptCache: () => ({
+        get: (k) => scriptCache.get(k) ?? null,
+        put: (k, v) => { scriptCache.set(k, String(v)); },
+        remove: (k) => { scriptCache.delete(k); }
+      })
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (k) => scriptProps.get(k) ?? null,
+        setProperty: (k, v) => { scriptProps.set(k, String(v)); }
+      })
+    },
+    LockService: {
+      getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} })
+    },
+    ContentService: {
+      MimeType: { JSON: 'application/json' },
+      createTextOutput: (txt) => ({
+        _text: txt,
+        setMimeType() { return this; }
+      })
+    },
+    Utilities: {
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      computeDigest: (_alg, txt) => Array.from(Buffer.from(String(txt))).slice(0, 16),
+      computeHmacSha256Signature: (payload, secret) => crypto.hmac(payload, secret),
+      base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
+      base64DecodeWebSafe: (str) => Array.from(Buffer.from(String(str).replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
+      newBlob: (data) => ({
+        getBytes: () => Array.from(Buffer.from(String(data), 'utf8')),
+        getDataAsString: () => Buffer.from(data).toString('utf8')
+      })
+    }
+  };
+
+  vm.runInNewContext(gsSrc, sandbox, { filename: 'AppsScript_Creata_Drive_Sheets.gs' });
+  sandbox.getSpreadsheet_ = () => {
+    getSpreadsheetCalls++;
+    return fakeSs;
+  };
+
+  // 1) First call reads sheet and caches for 5 min (300s); second call hits CacheService with 0 spreadsheet opens
+  const users1 = sandbox.readAllBranchUsers_(null, []);
+  assert.equal(users1.length, 1);
+  assert.equal(users1[0].correo, 'kevin.reyna@grupoanipa.com');
+  const readsAfterFirst = sheetReads;
+  const ssCallsAfterFirst = getSpreadsheetCalls;
+  assert.ok(readsAfterFirst > 0);
+
+  const users2 = sandbox.readAllBranchUsers_(null, []);
+  assert.equal(users2.length, 1);
+  assert.equal(sheetReads, readsAfterFirst, 'Second readAllBranchUsers_ call must hit CacheService with 0 sheet reads');
+  assert.equal(getSpreadsheetCalls, ssCallsAfterFirst, 'Cached readAllBranchUsers_ must not call getSpreadsheet_()');
+
+  // 2) doPost inv_presence_list with invalid/missing token returns explicit authRequired (not silent { ok: false })
+  const unauthRes = JSON.parse(sandbox.doPost({
+    postData: { contents: JSON.stringify({ action: 'inv_presence_list', authToken: 'bad.token' }) }
+  })._text);
+  assert.equal(unauthRes.ok, false);
+  assert.equal(unauthRes.authRequired, true);
+  assert.ok(unauthRes.error && unauthRes.error.length > 0, 'Must return explicit error message');
+
+  // 3) doPost inv_presence_heartbeat with expired token + valid accessKey succeeds and mints renewedAuthToken
+  const hbRenewRes = JSON.parse(sandbox.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'inv_presence_heartbeat',
+        authToken: 'expired.bad',
+        advisorEmail: 'kevin.reyna@grupoanipa.com',
+        accessKey: 'Secret123!',
+        vista: 'panel',
+        deviceId: 'dev_test_1'
+      })
+    }
+  })._text);
+  assert.equal(hbRenewRes.ok, true);
+  assert.ok(hbRenewRes.renewedAuthToken && hbRenewRes.renewedAuthToken.includes('.'), 'Heartbeat must mint renewedAuthToken');
+
+  // 4) doGet inv_presence_list with the renewedAuthToken succeeds quickly from cache and shows Kevin online in panel
+  const listGetRes = JSON.parse(sandbox.doGet({
+    parameter: {
+      action: 'inv_presence_list',
+      authToken: hbRenewRes.renewedAuthToken
+    }
+  })._text);
+  assert.equal(listGetRes.ok, true);
+  assert.equal(listGetRes.onlineCount, 1);
+  assert.equal(listGetRes.users[0].correo, 'kevin.reyna@grupoanipa.com');
+  assert.equal(listGetRes.users[0].vista, 'panel');
+  assert.equal(sheetReads, readsAfterFirst, 'Presence heartbeat + list must run entirely from CacheService without sheet reads');
 });

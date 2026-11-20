@@ -844,14 +844,28 @@ function doGet(e) {
 
   if (action === 'inv_presence_list') {
     const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: false, rateBucket: 'pres_list', maxHits: 45, windowSec: 60 });
-    if (!gate.ok) return jsonResponse_({ ok: false });
+    const reqEmailNorm = String((e && e.parameter && (e.parameter.advisorEmail || e.parameter.email)) || '').trim().toLowerCase().replace(/,/g, '.');
+    const reqKeyParam = String((e && e.parameter && e.parameter.accessKey) || '').trim();
+    if (!gate.ok) {
+      const hasKeyFallback = Boolean(reqEmailNorm && reqKeyParam);
+      if (!hasKeyFallback) {
+        return jsonResponse_({ ok: false, authRequired: true, error: 'Token de sesión inválido o expirado.' });
+      }
+      if (!checkRateLimitSilent_('get_pres_key:' + reqEmailNorm, 20, 60)) {
+        return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
+      }
+    }
     try {
       const reqBody = {
-        authToken: extractAuthTokenFromRequest_(e, null)
+        authToken: extractAuthTokenFromRequest_(e, null),
+        advisorEmail: reqEmailNorm,
+        accessKey: reqKeyParam,
+        sheetTab: String((e && e.parameter && e.parameter.sheetTab) || '').trim(),
+        erpStore: String((e && e.parameter && e.parameter.erpStore) || '').trim()
       };
       return jsonResponse_(handleInvPresenceList_(reqBody));
     } catch (err) {
-      return jsonResponse_({ ok: false });
+      return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : String(err) });
     }
   }
 
@@ -1009,32 +1023,56 @@ function doPost(e) {
     }
     if (action === 'inv_presence_heartbeat') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_pres_hb', maxHits: 60, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) {
+        const reqEmailNorm = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
+        const hasKeyFallback = Boolean(reqEmailNorm && body && String(body.accessKey || '').trim());
+        if (!hasKeyFallback) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión expirada o token de presencia inválido.' });
+        }
+        if (!checkRateLimitSilent_('post_pres_hb_key:' + reqEmailNorm, 20, 60)) {
+          return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
+        }
+      }
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvPresenceHeartbeat_(body));
       } catch (err) {
-        return jsonResponse_({ ok: false });
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : String(err) });
       }
     }
     if (action === 'inv_presence_logout') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_pres_out', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) {
+        const reqEmailNorm = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
+        const hasKeyFallback = Boolean(reqEmailNorm && body && String(body.accessKey || '').trim());
+        if (!hasKeyFallback) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión expirada o token inválido.' });
+        }
+      }
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvPresenceLogout_(body));
       } catch (err) {
-        return jsonResponse_({ ok: false });
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : String(err) });
       }
     }
     if (action === 'inv_presence_list') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'pres_list', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) {
+        const reqEmailNorm = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
+        const hasKeyFallback = Boolean(reqEmailNorm && body && String(body.accessKey || '').trim());
+        if (!hasKeyFallback) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión expirada o token de presencia inválido.' });
+        }
+        if (!checkRateLimitSilent_('post_pres_list_key:' + reqEmailNorm, 20, 60)) {
+          return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
+        }
+      }
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvPresenceList_(body));
       } catch (err) {
-        return jsonResponse_({ ok: false });
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : String(err) });
       }
     }
     if (action === 'inv_my_sessions') {
@@ -2755,6 +2793,7 @@ function checkAndRegisterGuestDevice_(ss, guestUser, rawDeviceId, rawDeviceLabel
       sh.getRange(targetRow, 9).setNumberFormat('@').setValue(statusI).setHorizontalAlignment('center').setFontWeight('bold');
       sh.getRange(targetRow, 10).setNumberFormat('@').setValue(detailJ);
       SpreadsheetApp.flush();
+      invalidateBranchUsersCache_();
     } catch (eWriteSh) {}
   }
 
@@ -2944,8 +2983,7 @@ function isTokenUserReadOnlyGuest_(tokenInfo) {
   } catch (eCacheRead) {}
 
   try {
-    const ss = getSpreadsheet_();
-    const allUsers = readAllBranchUsers_(ss, []);
+    const allUsers = readAllBranchUsers_(null, []);
     const matches = allUsers.filter((u) => u && u.correo === cleanEmail);
     let isRoGuest = false;
     if (matches.length > 0) {
@@ -3109,13 +3147,42 @@ function deriveGuestNameFromRow_(r, correo) {
   return prefix.replace(/[._-]+/g, ' ').toUpperCase();
 }
 
-function readAllBranchUsers_(ss, erpAdvisors) {
+const INV_BRANCH_USERS_CACHE_KEY_ = 'INV_BRANCH_USERS_CACHE_V1';
+const INV_BRANCH_USERS_CACHE_TTL_SEC_ = 300; // 5 minutos
+
+function invalidateBranchUsersCache_() {
+  try {
+    if (typeof CacheService !== 'undefined' && CacheService && typeof CacheService.getScriptCache === 'function') {
+      CacheService.getScriptCache().remove(INV_BRANCH_USERS_CACHE_KEY_);
+    }
+  } catch (e) {}
+}
+
+function readAllBranchUsers_(ss, erpAdvisors, opts) {
+  const advisorsList = Array.isArray(erpAdvisors) ? erpAdvisors : [];
+  const canUseCache = advisorsList.length === 0 && !(opts && opts.bypassCache);
+
+  if (canUseCache) {
+    try {
+      if (typeof CacheService !== 'undefined' && CacheService && typeof CacheService.getScriptCache === 'function') {
+        const cachedRaw = CacheService.getScriptCache().get(INV_BRANCH_USERS_CACHE_KEY_);
+        if (cachedRaw) {
+          const parsed = JSON.parse(cachedRaw);
+          if (Array.isArray(parsed)) {
+            return parsed;
+          }
+        }
+      }
+    } catch (eCacheRead) {}
+  }
+
+  const targetSs = ss || getSpreadsheet_();
   const list = [];
   for (let t = 0; t < INV_USER_TABS_.length; t++) {
     const cfg = INV_USER_TABS_[t];
-    let sh = ss.getSheetByName(cfg.tab);
-    if (!sh && cfg.tab === 'COLOCIO') sh = ss.getSheetByName('COLOSIO');
-    if (!sh && cfg.isGuest) sh = findInvitadosSheet_(ss);
+    let sh = targetSs.getSheetByName(cfg.tab);
+    if (!sh && cfg.tab === 'COLOCIO') sh = targetSs.getSheetByName('COLOSIO');
+    if (!sh && cfg.isGuest) sh = findInvitadosSheet_(targetSs);
     if (!sh) continue;
 
     const hdrRow = findUserHeaderRow1Based_(sh);
@@ -3199,16 +3266,16 @@ function readAllBranchUsers_(ss, erpAdvisors) {
       }
 
       let matchedErp = null;
-      if (explicitAdvisorId && erpAdvisors.length > 0) {
-        for (let k = 0; k < erpAdvisors.length; k++) {
-          if (String(erpAdvisors[k].id) === String(explicitAdvisorId)) {
-            matchedErp = erpAdvisors[k];
+      if (explicitAdvisorId && advisorsList.length > 0) {
+        for (let k = 0; k < advisorsList.length; k++) {
+          if (String(advisorsList[k].id) === String(explicitAdvisorId)) {
+            matchedErp = advisorsList[k];
             break;
           }
         }
       }
       if (!matchedErp) {
-        matchedErp = matchBestErpAdvisor_(nombre, cfg.erpStore, erpAdvisors);
+        matchedErp = matchBestErpAdvisor_(nombre, cfg.erpStore, advisorsList);
       }
 
       const resolvedErpLabel = (matchedErp && matchedErp.label) || explicitAdvisorLabel || '';
@@ -3250,6 +3317,16 @@ function readAllBranchUsers_(ss, erpAdvisors) {
       });
     }
   }
+
+  if (canUseCache) {
+    try {
+      const json = JSON.stringify(list);
+      if (json.length <= 95000 && typeof CacheService !== 'undefined' && CacheService && typeof CacheService.getScriptCache === 'function') {
+        CacheService.getScriptCache().put(INV_BRANCH_USERS_CACHE_KEY_, json, INV_BRANCH_USERS_CACHE_TTL_SEC_);
+      }
+    } catch (eCachePut) {}
+  }
+
   return list;
 }
 
@@ -3554,6 +3631,7 @@ function handleInvUpdateKey_(body) {
     detalle: 'Contraseña definitiva guardada en Columna G y clave temporal limpiada en ' + matchedTargets.length + ' hoja(s).',
     analisis: 'Tokens de sesión renovados automáticamente.'
   });
+  invalidateBranchUsersCache_();
 
   return {
     ok: true,
@@ -11063,61 +11141,127 @@ function resolvePresenceActor_(body, allowGuest) {
   const b = body || {};
   const token = String(b.authToken || b.token || '').trim();
   const tokenInfo = verifyInvAuthToken_(token);
-  if (!tokenInfo || !tokenInfo.email) return null;
+  const advisorEmail = String(b.advisorEmail || b.email || b.correo || '').trim().toLowerCase().replace(/,/g, '.');
+  const accessKey = String(b.accessKey || '').trim();
 
-  const ss = getSpreadsheet_();
-  const authBody = {
-    authToken: token,
-    sheetTab: String(b.sheetTab || '').trim(),
-    erpStore: String(b.erpStore || '').trim()
-  };
-  const authCheck = resolveAuthenticatedAdvisor_(ss, [], authBody);
-  if (authCheck && authCheck.ok && authCheck.advisor) {
-    if (!allowGuest && isGuestReadOnlyUser_(authCheck.advisor)) {
-      return null;
-    }
+  if ((!tokenInfo || !tokenInfo.email) && (!advisorEmail || !accessKey)) {
     return {
-      advisor: authCheck.advisor,
-      allUsers: authCheck.allUsers || []
+      ok: false,
+      authRequired: true,
+      error: 'Sesión expirada o token de presencia inválido.'
     };
   }
 
-  if (allowGuest) {
-    const allUsers = readAllBranchUsers_(ss, []);
+  const authBody = {
+    authToken: token,
+    advisorEmail: advisorEmail,
+    accessKey: accessKey,
+    sheetTab: String(b.sheetTab || '').trim(),
+    erpStore: String(b.erpStore || '').trim()
+  };
+  const authCheck = resolveAuthenticatedAdvisor_(null, [], authBody);
+  if (authCheck && authCheck.ok && authCheck.advisor) {
+    if (!allowGuest && isGuestReadOnlyUser_(authCheck.advisor)) {
+      return {
+        ok: false,
+        forbidden: true,
+        error: 'Solo usuarios autorizados pueden consultar el equipo en vivo.'
+      };
+    }
+    let renewedAuthToken = '';
+    const tokenNeedsRenewal = !tokenInfo || !tokenInfo.email || (Date.now() - Number(tokenInfo.issuedMs || 0) > 30 * 24 * 3600 * 1000);
+    if (tokenNeedsRenewal) {
+      try {
+        renewedAuthToken = issueInvAuthToken_(
+          authCheck.advisor.correo,
+          authCheck.advisor.sheetTab || authCheck.advisor.branchKey || 'PTC'
+        );
+      } catch (eMint) {}
+    }
+    return {
+      ok: true,
+      advisor: authCheck.advisor,
+      allUsers: authCheck.allUsers || [],
+      renewedAuthToken: renewedAuthToken
+    };
+  }
+
+  if (allowGuest && tokenInfo && tokenInfo.email) {
+    const allUsers = readAllBranchUsers_(null, []);
     const matches = allUsers.filter((u) => u.correo === tokenInfo.email);
-    if (!matches.length) return null;
+    if (!matches.length) {
+      return {
+        ok: false,
+        authRequired: true,
+        error: 'El correo de la sesión ya no aparece activo en las hojas de usuarios.'
+      };
+    }
     const chosen =
       matches.find((u) => tabsMatchNormalized_(u.sheetTab, tokenInfo.sheetTab) || tabsMatchNormalized_(u.branchKey, tokenInfo.sheetTab)) ||
       matches.find((u) => !u.isGuest) ||
       matches[0];
-    if (!chosen) return null;
-    return { advisor: chosen, allUsers: allUsers };
+    if (!chosen) {
+      return {
+        ok: false,
+        authRequired: true,
+        error: 'Sesión expirada o token de presencia inválido.'
+      };
+    }
+    let renewedAuthToken = '';
+    if (Date.now() - Number(tokenInfo.issuedMs || 0) > 30 * 24 * 3600 * 1000) {
+      try {
+        renewedAuthToken = issueInvAuthToken_(chosen.correo, chosen.sheetTab || chosen.branchKey || 'INVITADOS');
+      } catch (eMintGuest) {}
+    }
+    return {
+      ok: true,
+      advisor: chosen,
+      allUsers: allUsers,
+      renewedAuthToken: renewedAuthToken
+    };
   }
 
-  return null;
+  return {
+    ok: false,
+    authRequired: true,
+    error: (authCheck && authCheck.error) || 'Sesión expirada o token de presencia inválido.'
+  };
 }
 
 function handleInvPresenceHeartbeat_(body) {
   const b = body || {};
   const actor = resolvePresenceActor_(b, true);
-  if (!actor || !actor.advisor) {
-    return { ok: false };
+  if (!actor || actor.ok === false || !actor.advisor) {
+    return {
+      ok: false,
+      authRequired: Boolean(!actor || actor.authRequired !== false),
+      forbidden: Boolean(actor && actor.forbidden),
+      error: (actor && actor.error) || 'Sesión expirada o token de presencia inválido.'
+    };
   }
   const vista = sanitizePresenceVista_(b.vista || 'inventario') || 'inventario';
   const now = recordInvPresence_(actor.advisor, vista, true);
   const devStatus = recordUserDeviceSession_(actor.advisor, b, vista, true);
-  return {
+  const res = {
     ok: true,
     serverTimeMs: now,
     sessionRevoked: Boolean(devStatus && devStatus.revoked)
   };
+  if (actor.renewedAuthToken) {
+    res.renewedAuthToken = actor.renewedAuthToken;
+  }
+  return res;
 }
 
 function handleInvPresenceLogout_(body) {
   const b = body || {};
   const actor = resolvePresenceActor_(b, true);
-  if (!actor || !actor.advisor) {
-    return { ok: false };
+  if (!actor || actor.ok === false || !actor.advisor) {
+    return {
+      ok: false,
+      authRequired: Boolean(!actor || actor.authRequired !== false),
+      error: (actor && actor.error) || 'Sesión expirada o token inválido.'
+    };
   }
   recordInvPresence_(actor.advisor, 'logout', false);
   recordUserDeviceSession_(actor.advisor, b, 'logout', false);
@@ -11127,8 +11271,14 @@ function handleInvPresenceLogout_(body) {
 function handleInvPresenceList_(body) {
   const b = body || {};
   const actor = resolvePresenceActor_(b, false);
-  if (!actor || !actor.advisor || isGuestReadOnlyUser_(actor.advisor)) {
-    return { ok: false };
+  if (!actor || actor.ok === false || !actor.advisor || isGuestReadOnlyUser_(actor.advisor)) {
+    const isGuestBlocked = Boolean(actor && (actor.forbidden || (actor.advisor && isGuestReadOnlyUser_(actor.advisor))));
+    return {
+      ok: false,
+      authRequired: !isGuestBlocked,
+      forbidden: isGuestBlocked,
+      error: (actor && actor.error) || (isGuestBlocked ? 'Solo usuarios autorizados pueden consultar el equipo en vivo.' : 'Sesión expirada o token de presencia inválido.')
+    };
   }
 
   const now = Date.now();
@@ -11247,7 +11397,7 @@ function handleInvPresenceList_(body) {
   }
   const offlineCount = users.length - onlineCount;
 
-  return {
+  const listRes = {
     ok: true,
     serverTimeMs: now,
     thresholdMs: INV_PRESENCE_ONLINE_THRESHOLD_MS_,
@@ -11255,6 +11405,10 @@ function handleInvPresenceList_(body) {
     offlineCount: offlineCount,
     users: users
   };
+  if (actor.renewedAuthToken) {
+    listRes.renewedAuthToken = actor.renewedAuthToken;
+  }
+  return listRes;
 }
 
 // ============================================================================
