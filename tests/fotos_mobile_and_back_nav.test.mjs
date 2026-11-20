@@ -1621,13 +1621,13 @@ test('UX-5: Mobile inputs & selects enforce font-size: 16px (anti-iOS auto-zoom)
   assert.ok(!/<(?:input|select)\b[^>]*style=["'][^"']*font-size/i.test(FOTOS_HTML_SRC));
 });
 
-test('UX-6: Cache version consistency (v8/img-v8, CSS?v=17, JS?v=19, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
+test('UX-6: Cache version consistency (v9/img-v9, CSS?v=18, JS?v=20, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
   assert.match(FOTOS_HTML_SRC, /fotos-manifest\.json\?v=3/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=17/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=18/);
   assert.match(FOTOS_HTML_SRC, /creata-back-nav\.js\?v=1/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=19/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v8['"]/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v8['"]/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=20/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v9['"]/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v9['"]/);
   assert.match(FOTOS_APP_SRC, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
 
   // Execute fotos-sw.js inside node:vm
@@ -1643,6 +1643,8 @@ test('UX-6: Cache version consistency (v8/img-v8, CSS?v=17, JS?v=19, manifest?v=
     'creata-fotos-app-img-v7',
     'creata-fotos-app-v8',
     'creata-fotos-app-img-v8',
+    'creata-fotos-app-v9',
+    'creata-fotos-app-img-v9',
     'creata-prompts-app-v3',
     'creata-inventario-v1'
   ];
@@ -1681,7 +1683,7 @@ test('UX-6: Cache version consistency (v8/img-v8, CSS?v=17, JS?v=19, manifest?v=
   };
   vm.runInNewContext(FOTOS_SW_SRC, swSandbox, { filename: 'fotos-sw.js' });
 
-  // Activate evicts v5, v6, v7 while preserving v8, img-v8, and sibling app caches
+  // Activate evicts v5..v8 while preserving v9, img-v9, and sibling app caches
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
@@ -1689,9 +1691,11 @@ test('UX-6: Cache version consistency (v8/img-v8, CSS?v=17, JS?v=19, manifest?v=
     'creata-fotos-app-img-v5',
     'creata-fotos-app-img-v6',
     'creata-fotos-app-img-v7',
+    'creata-fotos-app-img-v8',
     'creata-fotos-app-v5',
     'creata-fotos-app-v6',
-    'creata-fotos-app-v7'
+    'creata-fotos-app-v7',
+    'creata-fotos-app-v8'
   ]);
 
   // Fetch handler checks
@@ -1711,11 +1715,58 @@ test('UX-6: Cache version consistency (v8/img-v8, CSS?v=17, JS?v=19, manifest?v=
 
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
-  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=19', 'POST'), false);
+  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=20', 'POST'), false);
   assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
   assert.equal(await checkFetch('https://lh3.googleusercontent.com/d/abc12345=w400', 'GET'), true);
-  assert.ok(openedCaches.includes('creata-fotos-app-img-v8'));
-  assert.ok(openedCaches.includes('creata-fotos-app-v8'));
+  assert.ok(openedCaches.includes('creata-fotos-app-img-v9'));
+  assert.ok(openedCaches.includes('creata-fotos-app-v9'));
+});
+
+test('UX-6b: Mobile <=640px compact header/SUBIR PREN bar, 2-3 col gallery, concise labels, and intact product DOM IDs', () => {
+  // Desktop-only controls hidden on mobile <=640px via hide-on-xs
+  assert.match(FOTOS_HTML_SRC, /id="btnSplitWithCotizador"[^>]*class="[^"]*hide-on-xs/);
+  assert.match(FOTOS_HTML_SRC, /class="subir-pren-source-info hide-on-xs"/);
+  assert.match(FOTOS_HTML_SRC, /id="btnPickLocalSubirPrenFolder"[^>]*>💻 PC<\/button>/);
+  assert.match(FOTOS_HTML_SRC, /id="linkOpenDriveSubirPren"[^>]*>☁️ Drive<\/a>/);
+  assert.match(FOTOS_HTML_SRC, /id="btnSyncDriveSubirPren"[^>]*>↻<\/button>/);
+
+  // Concise labels requested by user
+  assert.match(FOTOS_HTML_SRC, /<h1>Fotos<\/h1>/);
+  assert.match(FOTOS_HTML_SRC, /<h2>Buscar SKU<\/h2>/);
+  assert.match(FOTOS_HTML_SRC, /<h2>Producto<\/h2>/);
+  assert.match(FOTOS_HTML_SRC, /<h2>Guardadas hoy<\/h2>/);
+  assert.match(FOTOS_HTML_SRC, /<div class="sheet-col-tag">SKU<\/div>/);
+  assert.match(FOTOS_HTML_SRC, /<div class="sheet-col-tag">Categoría<\/div>/);
+  assert.match(FOTOS_HTML_SRC, /<div class="sheet-col-tag">Producto<\/div>/);
+  assert.match(FOTOS_HTML_SRC, /<span class="photo-stage-title">Actual<\/span>/);
+  assert.match(FOTOS_HTML_SRC, /<label for="destFolderSelect"[^>]*>Destino:<\/label>/);
+  assert.match(FOTOS_HTML_SRC, /id="btnDirectUploadLabel"[^>]*>\s*📷 Subir\s*<input/);
+  assert.ok(!FOTOS_HTML_SRC.includes('App Fotos · Categorías'));
+  assert.ok(!FOTOS_HTML_SRC.includes('1. Buscar SKU o Categoría'));
+  assert.ok(!FOTOS_HTML_SRC.includes('2. Ficha del Producto y Categoría'));
+  assert.ok(!FOTOS_HTML_SRC.includes('SKU (Col A)'));
+  assert.ok(!FOTOS_HTML_SRC.includes('Nombre del producto (Col B)'));
+  assert.ok(!FOTOS_HTML_SRC.includes('Cargada (Col D)'));
+  assert.ok(!FOTOS_APP_SRC.includes('Cargada (Col D)'));
+
+  // All product info DOM IDs preserved
+  for (const id of [
+    'selColASku', 'selCategoryLabel', 'selColBName', 'selModelVariantVal', 'selDimsFinishVal',
+    'selLocationsWrap', 'selLocationsGrid', 'selLocationsSummaryBadge',
+    'selSiblingVariantsWrap', 'selSiblingVariantsList',
+    'destFolderSelect', 'btnAssignPhotoNow', 'subirPrenSourceBar', 'subirPrenLocalPathBadge'
+  ]) {
+    assert.ok(FOTOS_HTML_SRC.includes(`id="${id}"`), `Required product/control DOM ID missing: #${id}`);
+  }
+
+  // <=640px CSS compacts header, hides Windows path, and configures 2-3 column gallery without horizontal scroll
+  const m640Start = FOTOS_CSS_SRC.indexOf('@media (max-width: 640px)');
+  const m480Start = FOTOS_CSS_SRC.indexOf('@media (max-width: 480px)');
+  const m640Css = FOTOS_CSS_SRC.slice(m640Start, m480Start);
+  assert.match(m640Css, /\.subir-pren-source-info\s*\{[^}]*display:\s*none/);
+  assert.match(m640Css, /\.subir-pren-source-btns\s*\{[^}]*grid-template-columns:\s*1fr 1fr auto/);
+  assert.match(m640Css, /\.inbox-grid\s*\{[^}]*repeat\(auto-fill,\s*minmax\(112px,\s*1fr\)\)/);
+  assert.match(m640Css, /\.header-actions\s*\{[^}]*flex-wrap:\s*wrap/);
 });
 
 test('UX-7: Preserved Kevin exclusive auth, Project A (SUBIR PREN) isolation, F8 removal, and pendingDeletes reliability', () => {

@@ -13,7 +13,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>App Fotos por Categoría | CREATA</title>
+    <title>Fotos | CREATA</title>
     <link rel="manifest" href="./fotos-manifest.json?v=3">
     <link rel="icon" type="image/png" sizes="192x192" href="./inventario-icon-192.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./inventario-apple-icon.png">
@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=17">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=18">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -78,14 +78,14 @@
                     <img data-creata-logo alt="CREATA" class="header-logo">
                     <span class="header-divider" aria-hidden="true"></span>
                     <div class="header-titles">
-                        <h1>App Fotos · Categorías</h1>
+                        <h1>Fotos</h1>
                     </div>
                 </div>
 
                 <div class="header-actions">
-                    <button type="button" id="btnInstallFotosApp" class="hdr-btn is-accent hidden" onclick="triggerInstallFotosApp()">📲 Descargar App</button>
-                    <button type="button" id="btnSplitWithCotizador" class="hdr-btn is-split-btn" onclick="toggleSplitCotizadorInFotos()" title="Dividir pantalla con Cotizador y acomodar el espacio entre ambos">⬛⬜ Dividir con Cotizador</button>
-                    <a class="hdr-btn" href="./panel.html">Panel</a>
+                    <button type="button" id="btnInstallFotosApp" class="hdr-btn is-accent hidden" onclick="triggerInstallFotosApp()">📲 App</button>
+                    <button type="button" id="btnSplitWithCotizador" class="hdr-btn is-split-btn hide-on-xs" onclick="toggleSplitCotizadorInFotos()" title="Dividir con Cotizador">⬛⬜ Dividir con Cotizador</button>
+                    <a class="hdr-btn hide-on-xs" href="./panel.html">Panel</a>
                     <a class="hdr-btn" href="./inventario.html">Cotizador</a>
                     <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
                     <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn" onclick="refreshAllPhotoWorkspace(true)">↻ Fotos</button>
@@ -103,7 +103,7 @@
                 <!-- IZQUIERDA: BUSCADOR POR SKU Y CATEGORÍA -->
                 <div id="secSkuFinder" class="panel-card">
                     <div class="panel-header">
-                        <h2>1. Buscar SKU o Categoría</h2>
+                        <h2>Buscar SKU</h2>
                         <div class="panel-header-actions">
                             <button type="button" id="btnSyncSkusCard" class="hdr-btn is-accent is-compact-btn" onclick="syncSkusNow()">↻ SKUs</button>
                             <span id="skuListCountBadge" class="panel-badge">0</span>
@@ -119,10 +119,10 @@
                                 type="search"
                                 id="skuSearchInput"
                                 class="search-input"
-                                placeholder="Buscar SKU, modelo, variante o categoría..."
+                                placeholder="Buscar SKU, modelo o categoría..."
                                 autocomplete="off"
                             >
-                            <button type="button" id="skuSearchClearBtn" class="search-clear-btn hidden" aria-label="Limpiar búsqueda de SKU" onclick="clearSkuSearch()">✕</button>
+                            <button type="button" id="skuSearchClearBtn" class="search-clear-btn hidden" aria-label="Limpiar búsqueda" onclick="clearSkuSearch()">✕</button>
                         </div>
 
                         <div class="filter-pills-row" style="margin-bottom:8px;">
@@ -147,11 +147,11 @@
 
                     <div id="secProductStage" class="panel-card">
                         <div class="panel-header">
-                            <h2>2. Ficha del Producto y Categoría</h2>
+                            <h2>Producto</h2>
                             <div class="panel-header-actions">
-                                <button type="button" id="btnOpenInCotizadorStage" class="hdr-btn is-compact-btn hidden" onclick="openSelectedSkuInCotizador()" title="Ver este SKU en el Cotizador">↗ Cotizador</button>
+                                <button type="button" id="btnOpenInCotizadorStage" class="hdr-btn is-compact-btn hidden" onclick="openSelectedSkuInCotizador()" title="Abrir en Cotizador">↗ Cotizador</button>
                                 <label id="btnDirectUploadLabel" class="hdr-btn is-accent is-compact-btn is-upload-lbl">
-                                    📷 Subir foto a categoría
+                                    📷 Subir
                                     <input type="file" id="directCategoryPhotoInput" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
                                 </label>
                                 <span id="selectedRowBadge" class="panel-badge">—</span>
@@ -162,15 +162,15 @@
                             <!-- INFORMACIÓN DEL PRODUCTO Y VARIANTES ACOMODADA PARA CELULAR -->
                             <div class="selected-sheet-summary">
                                 <div class="sheet-col-box">
-                                    <div class="sheet-col-tag">SKU (Col A)</div>
+                                    <div class="sheet-col-tag">SKU</div>
                                     <div id="selColASku" class="sheet-col-val mono">—</div>
                                 </div>
                                 <div class="sheet-col-box">
-                                    <div class="sheet-col-tag">Categoría Drive</div>
+                                    <div class="sheet-col-tag">Categoría</div>
                                     <div id="selCategoryLabel" class="sheet-col-val is-gold">—</div>
                                 </div>
                                 <div class="sheet-col-box span-full">
-                                    <div class="sheet-col-tag">Nombre del producto (Col B)</div>
+                                    <div class="sheet-col-tag">Producto</div>
                                     <div id="selColBName" class="sheet-col-val">—</div>
                                 </div>
                                 <div class="sheet-col-box">
@@ -186,7 +186,7 @@
                             <!-- UBICACIONES EN VIVO (11 POSICIONES OFICIALES: LPPT + 10 BODEGA/PISO) -->
                             <div id="selLocationsWrap" class="product-locations-strip hidden">
                                 <div class="product-locations-head">
-                                    <span class="sibling-variants-label">Ubicaciones y Existencias:</span>
+                                    <span class="sibling-variants-label">Ubicaciones</span>
                                     <span id="selLocationsSummaryBadge" class="product-locations-total mono">Stock: 0</span>
                                 </div>
                                 <div id="selLocationsGrid" class="product-locations-grid"></div>
@@ -194,7 +194,7 @@
 
                             <!-- TIRILLA DE VARIANTES HERMANAS DEL MISMO MODELO -->
                             <div id="selSiblingVariantsWrap" class="sibling-variants-strip hidden">
-                                <div class="sibling-variants-label">Variantes del modelo:</div>
+                                <div class="sibling-variants-label">Variantes</div>
                                 <div id="selSiblingVariantsList" class="sibling-variants-pills"></div>
                             </div>
 
@@ -202,7 +202,7 @@
                                 <!-- FOTO ACTUAL (CARGADA EN COL D) -->
                                 <div class="photo-stage-card">
                                     <div class="photo-stage-head">
-                                        <span class="photo-stage-title">Cargada (Col D)</span>
+                                        <span class="photo-stage-title">Actual</span>
                                         <div class="stage-head-actions">
                                             <button type="button" id="curPhotoTakeBtn" class="hdr-btn is-accent stage-action-btn hidden" onclick="takeCurrentProductPhoto()">Tomar</button>
                                             <button type="button" id="curPhotoDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteCurrentProductPhoto()">🗑 Borrar</button>
@@ -234,13 +234,13 @@
 
                             <div class="assign-controls-bar">
                                 <div class="dest-folder-picker">
-                                    <label for="destFolderSelect" class="field-label" style="margin:0;">Categoría destino:</label>
+                                    <label for="destFolderSelect" class="field-label" style="margin:0;">Destino:</label>
                                     <select id="destFolderSelect" class="dest-select"></select>
                                 </div>
 
                                 <div class="assign-btns-cluster">
-                                    <label class="btn-secondary-upload" title="Tomar o elegir foto del celular y guardarla directo en su categoría">
-                                        📷 Subir directo
+                                    <label class="btn-secondary-upload" title="Subir foto a esta categoría">
+                                        📷 Subir
                                         <input type="file" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
                                     </label>
                                     <button
@@ -276,15 +276,15 @@
                         <div class="panel-body">
                             <!-- ORIGEN VINCULADO: CARPETA LOCAL G:\...\SUBIR PREN + GOOGLE DRIVE SUBIR PREN -->
                             <div id="subirPrenSourceBar" class="subir-pren-source-bar">
-                                <div class="subir-pren-source-info">
-                                    <span class="subir-pren-source-tag">Origen SUBIR PREN:</span>
+                                <div class="subir-pren-source-info hide-on-xs">
+                                    <span class="subir-pren-source-tag">Origen:</span>
                                     <span id="subirPrenLocalPathBadge" class="subir-pren-source-path mono" title="G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN">G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN</span>
                                 </div>
                                 <div class="subir-pren-source-btns">
-                                    <button type="button" id="btnPickLocalSubirPrenFolder" class="hdr-btn is-accent is-compact-btn" onclick="loadFromLocalSubirPrenFolder(false)" title="Leer y subir fotos desde G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN">💻 Carpeta PC (SUBIR PREN)</button>
-                                    <button type="button" id="btnRebindLocalSubirPrenFolder" class="hdr-btn is-neutral is-compact-btn hidden" onclick="loadFromLocalSubirPrenFolder(true)" title="Elegir otra carpeta local">📂 Cambiar</button>
-                                    <button type="button" id="btnSyncDriveSubirPren" class="hdr-btn is-neutral is-compact-btn" onclick="refreshInboxOnly(true)" title="Cargar fotos pendientes desde Google Drive SUBIR PREN">☁️ Traer de Drive</button>
-                                    <a id="linkOpenDriveSubirPren" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener" class="hdr-btn is-neutral is-compact-btn" title="Abrir carpeta SUBIR PREN en Google Drive">☁️ Drive ↗</a>
+                                    <button type="button" id="btnPickLocalSubirPrenFolder" class="hdr-btn is-accent is-compact-btn" onclick="loadFromLocalSubirPrenFolder(false)" title="Cargar desde carpeta PC">💻 PC</button>
+                                    <button type="button" id="btnRebindLocalSubirPrenFolder" class="hdr-btn is-neutral is-compact-btn hidden hide-on-xs" onclick="loadFromLocalSubirPrenFolder(true)" title="Cambiar carpeta PC">📂</button>
+                                    <a id="linkOpenDriveSubirPren" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener" class="hdr-btn is-neutral is-compact-btn" title="Abrir SUBIR PREN en Drive">☁️ Drive</a>
+                                    <button type="button" id="btnSyncDriveSubirPren" class="hdr-btn is-neutral is-compact-btn" onclick="refreshInboxOnly(true)" title="Actualizar bandeja" aria-label="Actualizar bandeja">↻</button>
                                 </div>
                             </div>
 
@@ -298,10 +298,10 @@
                                         type="search"
                                         id="inboxSearchInput"
                                         class="search-input inbox-search-input"
-                                        placeholder="Filtrar por SKU, nombre o categoría..."
+                                        placeholder="Filtrar fotos..."
                                         autocomplete="off"
                                     >
-                                    <button type="button" id="inboxSearchClearBtn" class="search-clear-btn hidden" aria-label="Limpiar filtro de galería" onclick="clearInboxSearch()">✕</button>
+                                    <button type="button" id="inboxSearchClearBtn" class="search-clear-btn hidden" aria-label="Limpiar filtro" onclick="clearInboxSearch()">✕</button>
                                 </div>
 
                                 <div class="inbox-toolbar-actions">
@@ -313,7 +313,7 @@
                                         📁 Carpeta
                                         <input type="file" id="pcUploadFolderToSubirInput" accept="image/*" webkitdirectory directory multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
                                     </label>
-                                    <button type="button" id="btnRefreshInbox" class="hdr-btn is-neutral" onclick="refreshInboxOnly(true)">↻</button>
+                                    <button type="button" id="btnRefreshInbox" class="hdr-btn is-neutral" onclick="refreshInboxOnly(true)" aria-label="Actualizar galería">↻</button>
                                 </div>
                             </div>
 
@@ -324,7 +324,7 @@
                     <!-- HISTORIAL BREVE DE SESIÓN -->
                     <div id="sessionHistoryPanel" class="panel-card hidden">
                         <div class="panel-header">
-                            <h2>Guardadas hoy por categoría</h2>
+                            <h2>Guardadas hoy</h2>
                             <span id="sessionSavedCountBadge" class="panel-badge">0</span>
                         </div>
                         <div class="panel-body">
@@ -339,7 +339,7 @@
         <!-- BARRA CONTEXTUAL DE GUARDADO RÁPIDO EN CELULAR -->
         <div id="mobileQuickSaveBar" class="mobile-quick-save-bar hidden" role="region" aria-label="Guardar foto seleccionada">
             <div class="mobile-quick-save-info">
-                <span class="mobile-quick-save-tag">Listo para guardar</span>
+                <span class="mobile-quick-save-tag">Guardar</span>
                 <strong id="mobileQuickSaveSku" class="mobile-quick-save-sku mono">—</strong>
             </div>
             <button type="button" id="btnMobileQuickSaveNow" class="btn-primary-gold mobile-quick-save-btn" onclick="assignSelectedPhotoToProduct()">Guardar</button>
@@ -347,9 +347,9 @@
 
         <!-- BARRA DE NAVEGACIÓN RÁPIDA EN ZONA DE PULGAR (CELULAR) -->
         <nav id="mobileFotosJumpBar" class="mobile-jump-bar" aria-label="Secciones de la aplicación">
-            <button type="button" class="mobile-jump-btn active" data-jump="secSkuFinder" onclick="jumpToFotosSection('secSkuFinder', this)">1. SKU / Categoría</button>
-            <button type="button" class="mobile-jump-btn" data-jump="secProductStage" onclick="jumpToFotosSection('secProductStage', this)">2. Producto y Foto</button>
-            <button type="button" class="mobile-jump-btn" data-jump="secGalleryInbox" onclick="jumpToFotosSection('secGalleryInbox', this)">3. Bandeja / Galería</button>
+            <button type="button" class="mobile-jump-btn active" data-jump="secSkuFinder" onclick="jumpToFotosSection('secSkuFinder', this)">1. SKU</button>
+            <button type="button" class="mobile-jump-btn" data-jump="secProductStage" onclick="jumpToFotosSection('secProductStage', this)">2. Producto</button>
+            <button type="button" class="mobile-jump-btn" data-jump="secGalleryInbox" onclick="jumpToFotosSection('secGalleryInbox', this)">3. Galería</button>
         </nav>
     </div>
 
@@ -413,6 +413,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=19"></script>
+    <script src="./fotos-productos-app.js?v=20"></script>
 </body>
 </html>
