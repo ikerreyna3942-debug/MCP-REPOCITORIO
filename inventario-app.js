@@ -1101,9 +1101,9 @@
     }
 
     function isContextuallyValidModel(tok, domName) {
-        if (tok === 'NIDO' && (domName === 'SALAS_TAPIZ' || domName === 'COMEDORES')) return true;
+        if (tok === 'NIDO' && (domName === 'SALAS_TAPIZ' || domName === 'COMEDORES' || domName === 'EXTERIOR')) return true;
         if (tok === 'YUTE' && domName === 'RECAMARAS_MUEBLE') return true;
-        if (tok === 'MARINA' && /^(MESAS_SALA|COMEDORES|SALAS_TAPIZ|RECAMARAS_MUEBLE)$/.test(domName)) return true;
+        if (tok === 'MARINA' && /^(MESAS_SALA|COMEDORES|SALAS_TAPIZ|RECAMARAS_MUEBLE|EXTERIOR)$/.test(domName)) return true;
         return false;
     }
 
@@ -1191,12 +1191,31 @@
         return norm;
     }
 
+    // Conjuntos dinámicos calculados en indexItemsAndGroups() para modelos que combinan Sofá + Love Seat, sets de exterior o Sofá Cama + Chaise
+    let sofaAndLoveseatModels = new Set();
+    let exteriorSofaAndLoveseatModels = new Set();
+    let exteriorSalaSetModels = new Set();
+    let exteriorModularModels = new Set();
+    let dynamicSofaCamaModels = new Set();
+
+    function extractPlainModelKeyForPairing(it) {
+        const rawMo = plainModelToken(it && it.mo);
+        if (!rawMo) return '';
+        let norm = normalizePlain(rawMo);
+        if (Object.prototype.hasOwnProperty.call(MODEL_TYPO_ALIASES, norm)) {
+            norm = MODEL_TYPO_ALIASES[norm];
+        }
+        return norm;
+    }
+
     // Tipo de mueble canónico e independiente de formas/medidas (cuadrado, circular, redondo, rectangular, ovalado, chico, grande)
     function resolveCanonicalFurnitureInfo(it) {
         const subCat = (it && it._cat) || resolveItemSubcategory(it, resolveItemCategory(it));
         const mainCat = (it && it._main) || MAIN_OF_SUB[subCat] || 'ESPEJOS Y ACCESORIOS';
         const tpTok = plainModelToken(stripDimensionsFromProductText(it && it.tp));
         const nomTok = plainModelToken(stripDimensionsFromProductText(it && it.n));
+        const prodTok = (tpTok + ' ' + nomTok).trim();
+        const pairMoKey = extractPlainModelKeyForPairing(it);
 
         if (mainCat === 'SALAS') {
             if (subCat === 'MESAS DE CENTRO') {
@@ -1206,25 +1225,26 @@
                 return { domain: 'MESAS_SALA', typeKey: 'MESA_LATERAL', typeLabel: 'MESA LATERAL', typeRank: 55 };
             }
             if (subCat === 'FUTONES & SOFÁ CAMAS') {
-                if (/\b(FUTTON|FUTON)\b/.test(tpTok + ' ' + nomTok)) {
+                if (/\b(FUTTON|FUTON)\b/.test(prodTok)) {
                     return { domain: 'SALAS_TAPIZ', typeKey: 'FUTON', typeLabel: 'FUTÓN', typeRank: 42 };
                 }
                 return { domain: 'SALAS_TAPIZ', typeKey: 'SOFA_CAMA', typeLabel: 'SOFÁ CAMA', typeRank: 40 };
             }
-            if (subCat === 'SILLONES' || /^SILLON\b/.test(tpTok) || (/\bSILLON(?:ES)?\b/.test(nomTok) && !/\bSILLAS?\b/.test(nomTok) && !/^(?:SALA|SOFA\s+CAMA)\b/.test(nomTok))) {
+            if (subCat === 'SALAS MODULARES') {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'SALA_MODULAR', typeLabel: 'SALA MODULAR', typeRank: 10 };
+            }
+            if (subCat === 'SALAS EN L') {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'SALA_EN_L', typeLabel: 'SALA EN L', typeRank: 14 };
+            }
+            if (subCat === 'SILLONES') {
                 return { domain: 'SALAS_TAPIZ', typeKey: 'SILLON', typeLabel: 'SILLÓN', typeRank: 30 };
+            }
+            // SOFAS & LOVESEATS: si el modelo tiene tanto Sofá como Love Seat, agrupar juntos como "SOFÁ Y LOVE SEAT [MODELO]"
+            if (subCat === 'SOFAS & LOVESEATS' && pairMoKey && sofaAndLoveseatModels.has(pairMoKey)) {
+                return { domain: 'SALAS_TAPIZ', typeKey: 'SOFA_LOVESEAT', typeLabel: 'SOFÁ Y LOVE SEAT', typeRank: 18 };
             }
             if (/^(OTTOMAN|OTOMAN|POUF|PUFF|TABURETE)$/.test(tpTok)) {
                 return { domain: 'SALAS_TAPIZ', typeKey: 'OTTOMAN', typeLabel: 'OTOMÁN', typeRank: 45 };
-            }
-            if (/^ESQUINERO\b/.test(tpTok)) {
-                return { domain: 'SALAS_TAPIZ', typeKey: 'ESQUINERO', typeLabel: 'ESQUINERO', typeRank: 12 };
-            }
-            if (/^CHAISE\b/.test(tpTok)) {
-                return { domain: 'SALAS_TAPIZ', typeKey: 'CHAISE_LONGUE', typeLabel: 'CHAISE LONGUE', typeRank: 14 };
-            }
-            if (/^(REMATE|MODULO)\b/.test(tpTok)) {
-                return { domain: 'SALAS_TAPIZ', typeKey: 'MODULO_SALA', typeLabel: 'MÓDULO DE SALA', typeRank: 16 };
             }
             if (/^(LOVE\s*SEAT|LOVESEAT)\b/.test(tpTok)) {
                 return { domain: 'SALAS_TAPIZ', typeKey: 'LOVE_SEAT', typeLabel: 'LOVE SEAT', typeRank: 25 };
@@ -1232,7 +1252,7 @@
             if (/^SOFA\b/.test(tpTok)) {
                 return { domain: 'SALAS_TAPIZ', typeKey: 'SOFA', typeLabel: 'SOFÁ', typeRank: 20 };
             }
-            return { domain: 'SALAS_TAPIZ', typeKey: 'SALA', typeLabel: 'SALA', typeRank: 10 };
+            return { domain: 'SALAS_TAPIZ', typeKey: 'SALA', typeLabel: 'SALA', typeRank: 16 };
         }
 
         if (mainCat === 'COMEDORES') {
@@ -1301,9 +1321,68 @@
             }
             if (subCat === 'LIBREROS') return { domain: 'OFICINA_ESTUDIO', typeKey: 'LIBRERO', typeLabel: 'LIBRERO', typeRank: 106 };
             if (subCat === 'ESCRITORIOS') return { domain: 'OFICINA_ESTUDIO', typeKey: 'ESCRITORIO', typeLabel: 'ESCRITORIO', typeRank: 108 };
-            if (tpTok === 'CAMASTRO') return { domain: 'EXTERIOR', typeKey: 'CAMASTRO', typeLabel: 'CAMASTRO', typeRank: 110 };
-            if (tpTok === 'COLUMPIO') return { domain: 'EXTERIOR', typeKey: 'COLUMPIO', typeLabel: 'COLUMPIO', typeRank: 111 };
-            return { domain: 'EXTERIOR', typeKey: 'EXT_' + (tpTok || 'MUEBLE'), typeLabel: tpTok || 'MUEBLE EXTERIOR', typeRank: 112 };
+
+            // EXTERIOR: misma lógica que Salas (Tipo de mueble + Modelo + Módulos + Variaciones)
+            if (tpTok === 'CAMASTRO' || /\bCAMASTRO\b/.test(prodTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_CAMASTRO', typeLabel: 'CAMASTRO EXTERIOR', typeRank: 112 };
+            }
+            if (tpTok === 'COLUMPIO' || /\bCOLUMPIO\b/.test(prodTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_COLUMPIO', typeLabel: 'COLUMPIO EXTERIOR', typeRank: 113 };
+            }
+            if (/\bSOMBRILLA\b/.test(prodTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_SOMBRILLA', typeLabel: 'SOMBRILLA EXTERIOR', typeRank: 114 };
+            }
+            if (/^SILLA\b/.test(tpTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_SILLA', typeLabel: 'SILLA EXTERIOR', typeRank: 117 };
+            }
+            if (/^(BANCO|BANCA)\b/.test(tpTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_BANCO', typeLabel: 'BANCO EXTERIOR', typeRank: 117.5 };
+            }
+            const isExtSalaExplicit = /^SALA\b/.test(tpTok) || /^SILLON\b/.test(tpTok);
+            if (!isExtSalaExplicit && /\bMESA\s+(?:DE\s+)?CENTRO\b/.test(prodTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_MESA_CENTRO', typeLabel: 'MESA DE CENTRO EXTERIOR', typeRank: 115 };
+            }
+            if (!isExtSalaExplicit && /\bMESA\s+(?:LATERAL|AUXILIAR)\b/.test(prodTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_MESA_LATERAL', typeLabel: 'MESA LATERAL EXTERIOR', typeRank: 115.5 };
+            }
+            if (!isExtSalaExplicit && /\bMESA\s+(?:DE\s+)?COMEDOR\b/.test(prodTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_MESA_COMEDOR', typeLabel: 'MESA DE COMEDOR EXTERIOR', typeRank: 114.5 };
+            }
+            if (!isExtSalaExplicit && /\bMESA\b/.test(prodTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_MESA', typeLabel: 'MESA EXTERIOR', typeRank: 116 };
+            }
+            if (/\b(SOFAS?\s*CAMAS?|FUTON|FUTTON|DAYBED)\b/.test(prodTok)) {
+                return { domain: 'EXTERIOR', typeKey: 'EXT_SOFA_CAMA', typeLabel: 'SOFÁ CAMA EXTERIOR', typeRank: 110.4 };
+            }
+            const isExtSalaPiece = /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|ESQUINEROS?|CHAISE|OTTOMAN|OTOMAN|MODULAR|MODULO|REMATE|SILLON(?:ES)?)\b/.test(prodTok) && !/\bSILLAS?\b/.test(tpTok);
+            if (isExtSalaPiece) {
+                if (/\b(SALAS?\s+EN\s+L|SECCIONAL(?:ES)?\s+EN\s+L|EN\s+ESCUADRA)\b/.test(prodTok)) {
+                    return { domain: 'EXTERIOR', typeKey: 'EXT_SALA_EN_L', typeLabel: 'SALA EN L EXTERIOR', typeRank: 110.2 };
+                }
+                if (
+                    (pairMoKey && exteriorModularModels.has(pairMoKey)) ||
+                    /\b(MODULAR(?:ES)?|MODULOS?|ESQUINEROS?|REMATES?|SIN\s+BRAZOS?|BRAZO\s+(?:DER|IZQ)|DERECHO|DEREHO|IZQUIERDO)\b/.test(prodTok)
+                ) {
+                    return { domain: 'EXTERIOR', typeKey: 'EXT_SALA_MODULAR', typeLabel: 'SALA MODULAR EXTERIOR', typeRank: 110 };
+                }
+                if (pairMoKey && exteriorSofaAndLoveseatModels.has(pairMoKey)) {
+                    return { domain: 'EXTERIOR', typeKey: 'EXT_SOFA_LOVESEAT', typeLabel: 'SOFÁ Y LOVE SEAT EXTERIOR', typeRank: 110.5 };
+                }
+                if (pairMoKey && exteriorSalaSetModels.has(pairMoKey)) {
+                    return { domain: 'EXTERIOR', typeKey: 'EXT_SALA', typeLabel: 'SALA EXTERIOR', typeRank: 110.6 };
+                }
+                if (/^LOVE\s*SEAT\b|^LOVESEAT\b/.test(tpTok)) {
+                    return { domain: 'EXTERIOR', typeKey: 'EXT_LOVE_SEAT', typeLabel: 'LOVE SEAT EXTERIOR', typeRank: 110.8 };
+                }
+                if (/^SOFA\b/.test(tpTok)) {
+                    return { domain: 'EXTERIOR', typeKey: 'EXT_SOFA', typeLabel: 'SOFÁ EXTERIOR', typeRank: 110.7 };
+                }
+                if (/^SILLON\b/.test(tpTok)) {
+                    return { domain: 'EXTERIOR', typeKey: 'EXT_SILLON', typeLabel: 'SILLÓN EXTERIOR', typeRank: 111 };
+                }
+                return { domain: 'EXTERIOR', typeKey: 'EXT_SALA', typeLabel: 'SALA EXTERIOR', typeRank: 110.5 };
+            }
+            return { domain: 'EXTERIOR', typeKey: 'EXT_' + (tpTok || 'MUEBLE'), typeLabel: (tpTok ? tpTok + ' EXTERIOR' : 'MUEBLE EXTERIOR'), typeRank: 118 };
         }
 
         if (subCat === 'ESPEJOS') {
@@ -1388,12 +1467,32 @@
     }
 
     const TYPE_SYNONYM_TOKENS_BY_KEY = {
+        'SALA_MODULAR': ['SALA', 'SALAS', 'MODULAR', 'MODULARES'],
+        'SALA_EN_L': ['SALA', 'SALAS', 'EN', 'L', 'SECCIONAL', 'ESCUADRA'],
+        'SOFA_LOVESEAT': ['SALA', 'SALAS'],
         'SILLON': ['SILLON', 'SILLONES'],
         'SOFA': ['SOFA', 'SOFAS'],
         'LOVE_SEAT': ['LOVE', 'SEAT', 'LOVESEAT', 'LOVESEATS'],
         'SOFA_CAMA': ['SOFA', 'CAMA'],
         'FUTON': ['FUTTON', 'FUTON'],
         'OTTOMAN': ['OTTOMAN', 'OTOMAN', 'POUF', 'PUFF', 'TABURETE'],
+        'EXT_SALA_MODULAR': ['SALA', 'SALAS', 'MODULAR', 'MODULARES', 'EXTERIOR'],
+        'EXT_SALA_EN_L': ['SALA', 'SALAS', 'EN', 'L', 'EXTERIOR'],
+        'EXT_SOFA_CAMA': ['SOFA', 'CAMA', 'EXTERIOR'],
+        'EXT_SOFA_LOVESEAT': ['SALA', 'EXTERIOR'],
+        'EXT_SALA': ['SALA', 'EXTERIOR'],
+        'EXT_SOFA': ['SOFA', 'EXTERIOR'],
+        'EXT_LOVE_SEAT': ['LOVE', 'SEAT', 'LOVESEAT', 'EXTERIOR'],
+        'EXT_SILLON': ['SILLON', 'SILLONES', 'EXTERIOR'],
+        'EXT_CAMASTRO': ['CAMASTRO', 'EXTERIOR'],
+        'EXT_COLUMPIO': ['COLUMPIO', 'EXTERIOR'],
+        'EXT_SOMBRILLA': ['SOMBRILLA', 'EXTERIOR'],
+        'EXT_MESA_CENTRO': ['MESA', 'MESAS', 'CENTRO', 'CENTRAL', 'EXTERIOR'],
+        'EXT_MESA_LATERAL': ['MESA', 'MESAS', 'LATERAL', 'LATERALES', 'AUXILIAR', 'EXTERIOR'],
+        'EXT_MESA_COMEDOR': ['MESA', 'MESAS', 'COMEDOR', 'EXTERIOR'],
+        'EXT_MESA': ['MESA', 'MESAS', 'EXTERIOR'],
+        'EXT_SILLA': ['SILLA', 'SILLAS', 'COMEDOR', 'EXTERIOR'],
+        'EXT_BANCO': ['BANCO', 'BANCOS', 'BANCA', 'BAR', 'EXTERIOR'],
         'MESA_CENTRO': ['MESA', 'MESAS', 'CENTRO', 'CENTRAL'],
         'MESA_LATERAL': ['MESA', 'MESAS', 'LATERAL', 'LATERALES', 'AUXILIAR'],
         'MESA_COMEDOR': ['MESA', 'MESAS', 'COMEDOR'],
@@ -1558,6 +1657,118 @@
     MAIN_OF_SUB['OTROS'] = 'ESPEJOS Y ACCESORIOS';
     SUB_CAT_RANK['OTROS'] = 999;
 
+    // Subcategorías de Salas y Exterior que permanecen agrupadas por Tipo + Modelo + Módulos + Variaciones
+    const GROUPED_SUBCATEGORIES = new Set([
+        'SALAS MODULARES',
+        'SALAS EN L',
+        'SOFAS & LOVESEATS',
+        'FUTONES & SOFÁ CAMAS',
+        'EXTERIOR'
+    ]);
+
+    const MODULE_GROUPABLE_TYPE_KEYS = new Set([
+        'SALA_MODULAR',
+        'SALA_EN_L',
+        'SOFA_LOVESEAT',
+        'SOFA_CAMA',
+        'FUTON',
+        'SALA',
+        'SOFA',
+        'LOVE_SEAT',
+        'EXT_SALA_MODULAR',
+        'EXT_SALA_EN_L',
+        'EXT_SOFA_LOVESEAT',
+        'EXT_SOFA_CAMA',
+        'EXT_SALA',
+        'EXT_SOFA',
+        'EXT_LOVE_SEAT'
+    ]);
+
+    function resolveItemModuleBucket(it) {
+        if (!it) return null;
+        const tpTok = plainModelToken(stripDimensionsFromProductText(it.tp));
+        const nomTok = plainModelToken(stripDimensionsFromProductText(it.n));
+        const vrTok = plainModelToken(stripDimensionsFromProductText(it.vr));
+        const prodTok = (tpTok + ' ' + nomTok).trim();
+        const fullTok = (prodTok + ' ' + vrTok).trim();
+
+        const hasRight = /\b(BRAZO\s+DER(?:ECHO|EHO)?|CON\s+BRAZO\s+DER(?:ECHO|EHO)?|B\/DER|DERECHO|DEREHO|DERECHA|DER)\b/.test(fullTok);
+        const hasLeft = /\b(BRAZO\s+IZQ(?:UIERDO)?|CON\s+BRAZO\s+IZQ(?:UIERDO)?|B\/IZQ|IZQUIERDO|IZQUIERDA|IZQ)\b/.test(fullTok);
+        const hasArmless = /\b(SIN\s+BRAZOS?|S\/BRAZOS?|CENTRAL)\b/.test(fullTok);
+
+        if (/\b(SOFAS?\s*CAMAS?|SOFA-CAMA)\b/.test(prodTok)) {
+            return { key: 'SOFA_CAMA', label: 'SOFÁ CAMA', rank: 10, stripTokens: ['SOFA', 'SOFAS', 'CAMA', 'CAMAS'] };
+        }
+        if (/\b(FUTON(?:ES)?|FUTTON(?:ES)?|DAYBED)\b/.test(prodTok)) {
+            return { key: 'FUTON', label: 'FUTÓN', rank: 12, stripTokens: ['FUTON', 'FUTTON', 'DAYBED'] };
+        }
+        if (/\b(ESQUINEROS?|ESQUINERAS?|RINCONERAS?)\b/.test(prodTok) && !/\bSALAS?\s+EN\s+L\b/.test(prodTok)) {
+            return { key: 'ESQUINERO', label: 'ESQUINERO', rank: 40, stripTokens: ['ESQUINERO', 'ESQUINERA', 'RINCONERA', 'MODULAR', 'MODULO'] };
+        }
+        if (/\bCHAISE(?:\s+LONGUE)?\b/.test(prodTok)) {
+            if (hasRight && !hasLeft) return { key: 'CHAISE_DER', label: 'CHAISE LONGUE DERECHO', rank: 50, stripTokens: ['CHAISE', 'LONGUE', 'DERECHO', 'DEREHO', 'DER', 'BRAZO', 'CON'] };
+            if (hasLeft && !hasRight) return { key: 'CHAISE_IZQ', label: 'CHAISE LONGUE IZQUIERDO', rank: 51, stripTokens: ['CHAISE', 'LONGUE', 'IZQUIERDO', 'IZQ', 'BRAZO', 'CON'] };
+            return { key: 'CHAISE', label: 'CHAISE LONGUE', rank: 52, stripTokens: ['CHAISE', 'LONGUE'] };
+        }
+        if (/\bREMATES?\b/.test(prodTok)) {
+            if (hasRight && !hasLeft) return { key: 'REMATE_DER', label: 'REMATE DERECHO', rank: 60, stripTokens: ['REMATE', 'DERECHO', 'DEREHO', 'DER', 'BRAZO', 'CON'] };
+            if (hasLeft && !hasRight) return { key: 'REMATE_IZQ', label: 'REMATE IZQUIERDO', rank: 61, stripTokens: ['REMATE', 'IZQUIERDO', 'IZQ', 'BRAZO', 'CON'] };
+            return { key: 'REMATE', label: 'REMATE', rank: 62, stripTokens: ['REMATE'] };
+        }
+        if (/\b(OTTOMAN|OTOMAN|POUF|PUFF?|TABURETE)\b/.test(prodTok)) {
+            return { key: 'OTTOMAN', label: 'OTOMÁN', rank: 70, stripTokens: ['OTTOMAN', 'OTOMAN', 'POUF', 'PUFF', 'TABURETE'] };
+        }
+        if (/\b(LOVE\s*SEATS?|LOVESEATS?|LOVE\s+CON\s+BRAZO|LOVE\s+BRAZO)\b/.test(prodTok) || /^LOVE\b/.test(tpTok)) {
+            if (hasArmless) return { key: 'LOVE_SEAT_SIN_BRAZOS', label: 'LOVE SEAT SIN BRAZOS', rank: 23, stripTokens: ['LOVE', 'SEAT', 'LOVESEAT', 'SIN', 'BRAZO', 'BRAZOS', 'CENTRAL'] };
+            if (hasRight && !hasLeft) return { key: 'LOVE_SEAT_DER', label: 'LOVE SEAT DERECHO', rank: 21, stripTokens: ['LOVE', 'SEAT', 'LOVESEAT', 'CON', 'BRAZO', 'DERECHO', 'DEREHO', 'DER'] };
+            if (hasLeft && !hasRight) return { key: 'LOVE_SEAT_IZQ', label: 'LOVE SEAT IZQUIERDO', rank: 22, stripTokens: ['LOVE', 'SEAT', 'LOVESEAT', 'CON', 'BRAZO', 'IZQUIERDO', 'IZQ'] };
+            return { key: 'LOVE_SEAT', label: 'LOVE SEAT', rank: 20, stripTokens: ['LOVE', 'SEAT', 'LOVESEAT'] };
+        }
+        if (/\bSILLON(?:ES)?\b/.test(prodTok) && !/\bSALAS?\s+EN\s+L\b/.test(prodTok)) {
+            if (hasArmless) return { key: 'SILLON_SIN_BRAZOS', label: 'SILLÓN SIN BRAZOS', rank: 32, stripTokens: ['SILLON', 'SILLONES', 'SIN', 'BRAZO', 'BRAZOS', 'CENTRAL', 'MODULAR'] };
+            if (hasRight && !hasLeft) return { key: 'SILLON_BRAZO_DER', label: 'SILLÓN BRAZO DERECHO', rank: 30, stripTokens: ['SILLON', 'SILLONES', 'CON', 'BRAZO', 'DERECHO', 'DEREHO', 'DER', 'MODULAR'] };
+            if (hasLeft && !hasRight) return { key: 'SILLON_BRAZO_IZQ', label: 'SILLÓN BRAZO IZQUIERDO', rank: 31, stripTokens: ['SILLON', 'SILLONES', 'CON', 'BRAZO', 'IZQUIERDO', 'IZQ', 'MODULAR'] };
+            if (/\bMODULAR\b/.test(prodTok)) return { key: 'SILLON_MODULAR', label: 'SILLÓN MODULAR', rank: 33, stripTokens: ['SILLON', 'SILLONES', 'MODULAR'] };
+            return { key: 'SILLON', label: 'SILLÓN', rank: 34, stripTokens: ['SILLON', 'SILLONES'] };
+        }
+        if (/\bSOFAS?\b/.test(prodTok) && !/\bSALAS?\s+EN\s+L\b/.test(prodTok)) {
+            if (hasArmless) return { key: 'SOFA_SIN_BRAZOS', label: 'SOFÁ SIN BRAZOS', rank: 18, stripTokens: ['SOFA', 'SOFAS', 'SIN', 'BRAZO', 'BRAZOS', 'CENTRAL'] };
+            if (hasRight && !hasLeft) return { key: 'SOFA_DER', label: 'SOFÁ BRAZO DERECHO', rank: 16, stripTokens: ['SOFA', 'SOFAS', 'CON', 'BRAZO', 'DERECHO', 'DEREHO', 'DER'] };
+            if (hasLeft && !hasRight) return { key: 'SOFA_IZQ', label: 'SOFÁ BRAZO IZQUIERDO', rank: 17, stripTokens: ['SOFA', 'SOFAS', 'CON', 'BRAZO', 'IZQUIERDO', 'IZQ'] };
+            return { key: 'SOFA', label: 'SOFÁ', rank: 15, stripTokens: ['SOFA', 'SOFAS'] };
+        }
+        if (/\bMODULOS?\b/.test(prodTok)) {
+            if (hasArmless) return { key: 'MODULO_SIN_BRAZOS', label: 'MÓDULO SIN BRAZOS', rank: 37, stripTokens: ['MODULO', 'MODULOS', 'SIN', 'BRAZO', 'BRAZOS', 'CENTRAL'] };
+            if (hasRight && !hasLeft) return { key: 'MODULO_DER', label: 'MÓDULO DERECHO', rank: 35, stripTokens: ['MODULO', 'MODULOS', 'CON', 'BRAZO', 'DERECHO', 'DEREHO', 'DER'] };
+            if (hasLeft && !hasRight) return { key: 'MODULO_IZQ', label: 'MÓDULO IZQUIERDO', rank: 36, stripTokens: ['MODULO', 'MODULOS', 'CON', 'BRAZO', 'IZQUIERDO', 'IZQ'] };
+            if (/\bCURVO\b/.test(fullTok)) return { key: 'MODULO_CURVO', label: 'MÓDULO CURVO', rank: 38, stripTokens: ['MODULO', 'MODULOS', 'CURVO'] };
+            return { key: 'MODULO', label: 'MÓDULO', rank: 39, stripTokens: ['MODULO', 'MODULOS'] };
+        }
+        if (/\bSALAS?\s+EN\s+L\b/.test(prodTok)) {
+            if (hasRight && !hasLeft) return { key: 'SALA_EN_L_DER', label: 'SALA EN L DERECHA', rank: 5, stripTokens: ['SALA', 'SALAS', 'EN', 'L', 'DERECHA', 'DERECHO', 'DEREHO', 'DER'] };
+            if (hasLeft && !hasRight) return { key: 'SALA_EN_L_IZQ', label: 'SALA EN L IZQUIERDA', rank: 6, stripTokens: ['SALA', 'SALAS', 'EN', 'L', 'IZQUIERDA', 'IZQUIERDO', 'IZQ'] };
+            return { key: 'SALA_COMPLETA', label: 'SALA EN L', rank: 4, stripTokens: ['SALA', 'SALAS', 'EN', 'L'] };
+        }
+        if (/\bSALAS?\b/.test(prodTok)) {
+            if (hasRight && !hasLeft) return { key: 'SALA_DER', label: 'SALA DERECHA', rank: 7, stripTokens: ['SALA', 'SALAS', 'DERECHA', 'DERECHO', 'DER'] };
+            if (hasLeft && !hasRight) return { key: 'SALA_IZQ', label: 'SALA IZQUIERDA', rank: 8, stripTokens: ['SALA', 'SALAS', 'IZQUIERDA', 'IZQUIERDO', 'IZQ'] };
+            return { key: 'SALA_COMPLETA', label: 'SALA COMPLETA', rank: 4, stripTokens: ['SALA', 'SALAS', 'MODULAR'] };
+        }
+        return null;
+    }
+
+    function countDistinctModulesForGroup(typeKey, items) {
+        if (!typeKey || !MODULE_GROUPABLE_TYPE_KEYS.has(typeKey) || !Array.isArray(items) || items.length < 2) {
+            return 0;
+        }
+        const keys = new Set();
+        for (let i = 0; i < items.length; i++) {
+            const b = resolveItemModuleBucket(items[i]);
+            if (b && b.key) keys.add(b.key);
+        }
+        return keys.size;
+    }
+
     function getMainCategoryRank(mainCat) {
         return Object.prototype.hasOwnProperty.call(MAIN_CAT_RANK, mainCat) ? MAIN_CAT_RANK[mainCat] : 99;
     }
@@ -1602,20 +1813,72 @@
 
     const MODULAR_SALA_MODELS = new Set([
         'CARRARA', 'DYLAN', 'LUGANO', 'MONACO', 'SHELBY', 'ARIA', 'LUNNO', 'NILO',
-        'ASPEN', 'AVALANCHE', 'AVENZANO', 'GALARDI', 'KASSIA', 'PONZETTA', 'TRENTO', 'SANTHOMAS'
+        'ASPEN', 'AVALANCHE', 'AVENZANO', 'GALARDI', 'KASSIA', 'PONZETTA', 'TRENTO', 'SANTHOMAS',
+        'ALTEA', 'BAIKAL', 'CALGARY', 'HARRIS', 'MILAN', 'TESSA', 'TORINO', 'VERSELLI', 'WEMBLEY', 'WILLIAMS'
     ]);
 
     const SALA_EN_L_MODELS = new Set([
         'DONATI', 'MATERA', 'AMARETO', 'DOVELLI', 'GALES', 'IBIZA',
         'LEXY', 'MAWI', 'PIERO', 'TEREANI', 'VALENTI', 'VARENA',
-        'CITY', 'LUNA', 'MELODY', 'MEMPHIS', 'PERRY'
+        'LUNA', 'MELODY', 'MEMPHIS', 'PERRY',
+        'CAPRI', 'CHELSEA', 'OXFORD', 'VANCOUVER'
     ]);
+
+    const SOFA_CAMA_MODELS = new Set(['CITY']);
+
+    function isExteriorFurnitureItem(it, allTxt, prodTxt, mo, tp, nom, cat) {
+        if (/\bINTERIOR\b/.test(nom) || /\bCUADRO\b/.test(prodTxt)) return false;
+        const prov = String(cleanStr(it && it.p)).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+        if (/\b(EXTERIOR|CAMASTRO|COLUMPIO|SOMBRILLA|POLYRATAN|POLYRATTAN|TERRAZA|INTEMPERIE|SUNBRELLA|ALBERCA)\b/.test(allTxt)) {
+            return true;
+        }
+        // Proveedores y materiales exclusivos de mobiliario de exterior (HANGKAI Teka/Cuerda y G&C Aluminio/Polvo Alumbre)
+        if (prov === 'HANGKAI' || /^HAK/i.test(cleanStr(it && it.s))) {
+            return true;
+        }
+        if (prov === 'G&C' && !/^(COJIN|MACETA|ACCESORIO)$/.test(tp)) {
+            return true;
+        }
+        if (/\b(POLVO\s+ALUMBRE|TUBO\s+DE\s+ALUMINIO|CUERDA\s+SINTETICA|TELA\s+REPELENTE)\b/.test(prodTxt)) {
+            return true;
+        }
+        // Colecciones de exterior conocidas sin la palabra "EXTERIOR" en el nombre ERP
+        if (mo === 'ALTEA' && /\b(TEKA|TECA|GLACIER\s+ICE|ESQUINERO|OTTOMAN|SILLON|MESA)\b/.test(prodTxt)) {
+            return true;
+        }
+        if (mo === 'SANTHOMAS' && !/\b(BUFETERA|COMODA|SILLA)\b/.test(prodTxt) && /\b(TECA|TEKA|LOVE\s*SEAT|MODULAR|EXTERIOR)\b/.test(prodTxt)) {
+            return true;
+        }
+        if (mo === 'SANTA MONICA' && /^MIN/i.test(cleanStr(it && it.s))) {
+            return true;
+        }
+        if (cat === 'EXTERIOR & TERRAZA') {
+            return true;
+        }
+        return false;
+    }
+
+    function isModularOrSectionalSalaPiece(prodTxt, nomHeadSub, mo, moFirst, tp) {
+        // Sillas de comedor o sillones explícitamente ocasionales/individuales sin brazo direccional ni modularidad NO son módulos
+        if (/\bSILLAS?\b/.test(nomHeadSub) && !/\bSILLON(?:ES)?\b/.test(nomHeadSub)) return false;
+        const isExplicitModularText = /\b(MODULAR(?:ES)?|MODULOS?|ESQUINEROS?|REMATES?|SIN\s+BRAZOS?|CON\s+BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)|BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)|B\/DER|B\/IZQ|(?:SILLON|SOFA|LOVE\s*SEAT|LOVESEAT|LOVE)\s+(?:CURVO\s+)?(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?|CENTRAL|MODULAR))\b/.test(prodTxt);
+        if (isExplicitModularText) return true;
+        // Piezas de modelos modulares conocidos (excepto SILLON OCASIONAL como ARIA SILLON OCASIONAL)
+        const isOccasionalChair = /\b(OCASIONAL|MECEDORA|RECLINABLE|BERGERE|BUTACA)\b/.test(prodTxt);
+        if (!isOccasionalChair && (MODULAR_SALA_MODELS.has(mo) || MODULAR_SALA_MODELS.has(moFirst))) {
+            if (/\b(SILLON(?:ES)?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|ESQUINEROS?|CHAISE|OTTOMAN|OTOMAN|TABURETES?|REMATE)\b/.test(tp + ' ' + nomHeadSub)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     function classifyItemSubcategory(it) {
         const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
         const cat = norm(cleanStr(it && it.c));
         const tp = norm(cleanStr(it && it.tp));
         const mo = norm(cleanStr(it && it.mo));
+        const moFirst = mo.split(/\s+/)[0] || '';
         const nom = norm(cleanStr(it && it.n));
         const prodTxt = (tp + ' ' + nom).trim();
         const allTxt = (tp + ' ' + nom + ' ' + mo + ' ' + cat).trim();
@@ -1629,13 +1892,13 @@
         }
 
         // 1) Exclusión temprana de exterior, iluminación, textiles, colchones y decoración (evita falsos positivos como "LAMPARA DE MESA", "CAMINO MESA", "CHAROLA BAR", etc.)
-        if (/\b(EXTERIOR|CAMASTRO|COLUMPIO|SOMBRILLA)\b/.test(allTxt)) {
+        if (isExteriorFurnitureItem(it, allTxt, prodTxt, mo, tp, nom, cat)) {
             return 'EXTERIOR';
         }
         if (/\b(LAMPARA|CANDIL|ARBOTANTE|LUMINARIA|PLAFON)\b/.test(prodTxt) || cat === 'ILUMINACION') {
             return 'LÁMPARAS';
         }
-        const isFurniturePiece = /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|SILLON(?:ES)?|BUTACAS?|CHAISE|ESQUINEROS?|FUTTON(?:ES)?|FUTON(?:ES)?|OTTOMAN|OTOMAN|POUF|PUFF?|MESAS?\s+(?:DE\s+)?(?:COMEDOR|CENTRO|CENTRAL|LATERAL|AUXILIAR|BAR|TV)|ANTECOMEDOR(?:ES)?|COMEDOR(?:ES)?|SILLAS?|BANCOS?|BANCAS?|TABURETES?|BUFETERAS?|CREDENZAS?|CONSOLAS?|CAVAS?|LIBREROS?|ESCRITORIOS?|CAMAS?|CABECERAS?|BASES?\s+(?:DE\s+)?CAMA|BUROS?|COMODAS?|TOCADOR(?:ES)?|CAJONERAS?|LITERAS?|CUNAS?|COLCHON(?:ES)?|PIE\s+DE\s+CAMA|CAMASTROS?|COLUMPIOS?)\b/.test(tp) ||
+        const isFurniturePiece = /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|LOVE\s+CON\s+BRAZO|SILLON(?:ES)?|BUTACAS?|CHAISE|ESQUINEROS?|FUTTON(?:ES)?|FUTON(?:ES)?|OTTOMAN|OTOMAN|POUF|PUFF?|MESAS?\s+(?:DE\s+)?(?:COMEDOR|CENTRO|CENTRAL|LATERAL|AUXILIAR|BAR|TV)|ANTECOMEDOR(?:ES)?|COMEDOR(?:ES)?|SILLAS?|BANCOS?|BANCAS?|TABURETES?|BUFETERAS?|CREDENZAS?|CONSOLAS?|CAVAS?|LIBREROS?|ESCRITORIOS?|CAMAS?|CABECERAS?|BASES?\s+(?:DE\s+)?CAMA|BUROS?|COMODAS?|TOCADOR(?:ES)?|CAJONERAS?|LITERAS?|CUNAS?|COLCHON(?:ES)?|PIE\s+DE\s+CAMA|CAMASTROS?|COLUMPIOS?)\b/.test(tp + ' ' + nom) ||
             /^(?:SALA|SOFA|LOVE\s*SEAT|LOVESEAT|SILLON|MESA\s+(?:DE\s+)?(?:COMEDOR|CENTRO|CENTRAL|LATERAL|AUXILIAR)|COMEDOR|SILLA|BANCO|BANCA|BUFETERA|CREDENZA|CAMA|BASE\s+(?:DE\s+)?CAMA|CABECERA|BURO|COMODA|COLCHON)\b/.test(nom);
 
         if (
@@ -1658,10 +1921,14 @@
         if (/\b(CUADRO|ARTE\s+OBJETO|DECORATIVO\s+(?:DE\s+)?PARED|PINTURA|LIENZO|GICLEE)\b/.test(prodTxt)) {
             return 'CUADROS';
         }
+        // Pieza de sala mal etiquetada como ACCESORIO DECORATIVO en ERP (ej. HARRIS LOVE CON BRAZO DERECHO)
+        const isMislabelledSalaModule = /\b(LOVE\s+CON\s+BRAZO|BRAZO\s+(?:DER|IZQ))\b/.test(nom) && (MODULAR_SALA_MODELS.has(mo) || SALA_EN_L_MODELS.has(mo));
         if (
-            /^(?:ACCESORIOS?(?:\s+DECORATIVOS?)?|ACCECORIO|FLORERO|JARRON|ESCULTURA|CHAROLA|BANDEJA|FRUTERO|ENSALADERA|CANDELABRO|PORTAVELAS?|PORTARRETRATO|MACETA|PLANTA(?:\s+DECORATIVA)?|FOLLAJE|VELAS?|LIBRO(?:\s+DECORATIVO)?|BOTELLA|BOTELLON|PLATO(?:\s+HONDO)?(?:\s+DECORATIVO)?|PLATON|SET\s+PLATO|TAZON|BATEA|BOLSA|CANAST[OA]|CESTA|LINTERNA|FAROL|CORAL|CONCHA|BOWL|CORDON\s+DECORATIVO|DECORATIVO\s+NAVIDAD|PERCHERO|MAMPARA|BIOMBO|PAPEL\s+TAPIZ|LAMBRIN(?:\s+DECORATIVO)?|LAMINA\s+DE\s+PVC|PISOS?\s+MODULARES?|ARCHIVERO|PEDESTAL|GARANTIA|MAQFOR|PRODUCTO\s+ESPECIAL|BAUL)$/.test(tp) ||
-            /\b(CENTRO\s+DE\s+MESA|RELOJ\s+DE\s+MESA|ADORNO\s+DE\s+MESA|LIBRO\s+DECORATIVO|PLANTA\s+DECORATIVA)\b/.test(prodTxt) ||
-            (tp === 'ESCUADRA' && /\b(PATA|CARPINTERIA)\b/.test(allTxt))
+            !isMislabelledSalaModule && (
+                /^(?:ACCESORIOS?(?:\s+DECORATIVOS?)?|ACCECORIO|FLORERO|JARRON|ESCULTURA|CHAROLA|BANDEJA|FRUTERO|ENSALADERA|CANDELABRO|PORTAVELAS?|PORTARRETRATO|MACETA|PLANTA(?:\s+DECORATIVA)?|FOLLAJE|VELAS?|LIBRO(?:\s+DECORATIVO)?|BOTELLA|BOTELLON|PLATO(?:\s+HONDO)?(?:\s+DECORATIVO)?|PLATON|SET\s+PLATO|TAZON|BATEA|BOLSA|CANAST[OA]|CESTA|LINTERNA|FAROL|CORAL|CONCHA|BOWL|CORDON\s+DECORATIVO|DECORATIVO\s+NAVIDAD|PERCHERO|MAMPARA|BIOMBO|PAPEL\s+TAPIZ|LAMBRIN(?:\s+DECORATIVO)?|LAMINA\s+DE\s+PVC|PISOS?\s+MODULARES?|ARCHIVERO|PEDESTAL|GARANTIA|MAQFOR|PRODUCTO\s+ESPECIAL|BAUL)$/.test(tp) ||
+                /\b(CENTRO\s+DE\s+MESA|RELOJ\s+DE\s+MESA|ADORNO\s+DE\s+MESA|LIBRO\s+DECORATIVO|PLANTA\s+DECORATIVA)\b/.test(prodTxt) ||
+                (tp === 'ESCUADRA' && /\b(PATA|CARPINTERIA)\b/.test(allTxt))
+            )
         ) {
             return 'ACCESORIOS DECORATIVOS';
         }
@@ -1670,7 +1937,11 @@
         if (/\bPIE\s+DE\s+CAMA\b/.test(prodTxt) || (/\bBANCAS?\b/.test(prodTxt) && /\bPIE\s+DE\s+CAMA\b/.test(allTxt))) {
             return 'PIE DE CAMA';
         }
-        if (/\b(BANCOS?|BANCAS?|TABURETES?)\b/.test(prodTxt) && !/\bSALA\b/.test(tp)) {
+        const isSalaModularTaburete = /\bTABURETES?\b/.test(prodTxt) && (
+            MODULAR_SALA_MODELS.has(mo) || MODULAR_SALA_MODELS.has(moFirst) ||
+            SALA_EN_L_MODELS.has(mo) || SALA_EN_L_MODELS.has(moFirst)
+        );
+        if (!isSalaModularTaburete && /\b(BANCOS?|BANCAS?|TABURETES?)\b/.test(prodTxt) && !/\bSALA\b/.test(tp)) {
             return 'BANCOS & BANCAS';
         }
         if (
@@ -1682,7 +1953,10 @@
         if (/\b(ESCRITORIOS?|SECRETAIRES?)\b/.test(prodTxt)) {
             return 'ESCRITORIOS';
         }
-        if (/\b(SOFAS?\s*CAMAS?|SOFA-CAMA|FUTON(?:ES)?|FUTTON(?:ES)?|DAYBED)\b/.test(prodTxt)) {
+        if (
+            /\b(SOFAS?\s*CAMAS?|SOFA-CAMA|FUTON(?:ES)?|FUTTON(?:ES)?|DAYBED)\b/.test(prodTxt) ||
+            ((SOFA_CAMA_MODELS.has(mo) || dynamicSofaCamaModels.has(extractPlainModelKeyForPairing(it))) && /\b(CHAISE|SOFA|LOVE\s*SEAT|SALA|OTTOMAN)\b/.test(prodTxt))
+        ) {
             return 'FUTONES & SOFÁ CAMAS';
         }
         if (/\bCABECERAS?\b/.test(prodTxt) && tp !== 'CAMA') {
@@ -1717,7 +1991,9 @@
             return 'BUFETERAS';
         }
         const nomHeadSub = nom.split(/\b(?:INCLUYE|INCL|CON\s+\d|CON\s+MESAS?\b|CON\s+SILLAS?\b|C\/\s*FUNDAS)\b/)[0].trim();
+        const isModularPiece = isModularOrSectionalSalaPiece(prodTxt, nomHeadSub, mo, moFirst, tp);
         if (
+            !isModularPiece &&
             /\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(nomHeadSub) &&
             !/\bSILLAS?\b/.test(nomHeadSub) &&
             !/^(?:SALA|SOFA\s+CAMA|FUTTON|FUTON)\b/.test(nomHeadSub)
@@ -1756,7 +2032,7 @@
                 if (/\b(CENTRO|CENTRAL|SALA)\b/.test(allTxt)) return 'MESAS DE CENTRO';
                 return 'MESAS';
             }
-            if (/\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(prodTxt)) {
+            if (!isModularPiece && /\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(prodTxt)) {
                 return 'SILLONES';
             }
             if (/\bSILLAS?\b/.test(prodTxt)) {
@@ -1764,13 +2040,19 @@
             }
         }
         if (
+            isModularPiece ||
+            isMislabelledSalaModule ||
             /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|MODULOS?|MODULAR(?:ES)?|ESQUINEROS?|ESQUINERAS?|RINCONERAS?|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|POUF|PUFF?|SECCIONAL(?:ES)?|REMATES?)\b/.test(prodTxt)
         ) {
-            const moFirst = mo.split(/\s+/)[0] || '';
             if (/\b(SALAS?\s+EN\s+L|SECCIONAL(?:ES)?\s+EN\s+L|EN\s+ESCUADRA)\b/.test(prodTxt)) {
                 return 'SALAS EN L';
             }
+            if (SALA_EN_L_MODELS.has(mo) || SALA_EN_L_MODELS.has(moFirst)) {
+                return 'SALAS EN L';
+            }
             if (
+                isModularPiece ||
+                isMislabelledSalaModule ||
                 /\b(MODULAR(?:ES)?|MODULOS?|ESQUINEROS?|REMATES?)\b/.test(prodTxt) ||
                 MODULAR_SALA_MODELS.has(mo) ||
                 MODULAR_SALA_MODELS.has(moFirst)
@@ -1779,9 +2061,7 @@
             }
             if (
                 /\b(CHAISE(?:\s+LONGUE)?|EN\s+L|ESQUINERAS?|SECCIONAL(?:ES)?)\b/.test(prodTxt) ||
-                SALA_EN_L_MODELS.has(mo) ||
-                SALA_EN_L_MODELS.has(moFirst) ||
-                (/\b(SOFAS?|LOVE\s*SEATS?|LOVESEATS?|SALAS?)\b/.test(prodTxt) && /\b(BRAZO\s+DER(?:ECHO)?|BRAZO\s+IZQ(?:UIERDO)?|B\/DER|B\/IZQ|DERECHO|IZQUIERDO|DER|IZQ)\b/.test(prodTxt))
+                (/\b(SOFAS?|LOVE\s*SEATS?|LOVESEATS?|SALAS?)\b/.test(prodTxt) && /\b(BRAZO\s+DER(?:ECHO|EHO)?|BRAZO\s+IZQ(?:UIERDO)?|B\/DER|B\/IZQ|DERECHO|DEREHO|IZQUIERDO|DER|IZQ)\b/.test(prodTxt))
             ) {
                 return 'SALAS EN L';
             }
@@ -2365,15 +2645,95 @@
         allSingleGroups = [];
         allGroups = [];
 
+        sofaAndLoveseatModels = new Set();
+        exteriorSofaAndLoveseatModels = new Set();
+        exteriorSalaSetModels = new Set();
+        exteriorModularModels = new Set();
+        dynamicSofaCamaModels = new Set();
+
+        // Pre-pasada 1: normalizar campos base y detectar modelos con Sofá Cama para agrupar sus módulos hermanos (ej. CITY)
         for (let i = 0; i < allItems.length; i++) {
             const it = allItems[i];
             if (!Array.isArray(it.st)) it.st = emptyStocks();
             it.pr = formatPrice(it.pr);
             const skuKey = String(it.s || '').trim().toUpperCase();
             if (!skuKey) continue;
+            it._avail = getItemAvailabilityKind(it);
+            const pairMoKey = extractPlainModelKeyForPairing(it);
+            if (pairMoKey) {
+                const prodTok = (plainModelToken(stripDimensionsFromProductText(it.tp)) + ' ' + plainModelToken(stripDimensionsFromProductText(it.n))).trim();
+                if (/\b(SOFAS?\s*CAMAS?|SOFA-CAMA)\b/.test(prodTok)) {
+                    dynamicSofaCamaModels.add(pairMoKey);
+                }
+            }
+        }
 
+        // Pre-pasada 2: clasificar subcategorías y detectar pares Sofá + Love Seat y colecciones modulares / sets de Exterior
+        const salaPairFlags = new Map();
+        const extSeatFlags = new Map();
+        for (let i = 0; i < allItems.length; i++) {
+            const it = allItems[i];
+            const skuKey = String(it.s || '').trim().toUpperCase();
+            if (!skuKey) continue;
             it._cat = resolveItemSubcategory(it, resolveItemCategory(it));
             it._main = MAIN_OF_SUB[it._cat] || 'ESPEJOS Y ACCESORIOS';
+            if (!it._avail) continue;
+
+            const pairMoKey = extractPlainModelKeyForPairing(it);
+            if (!pairMoKey) continue;
+            const tpTok = plainModelToken(stripDimensionsFromProductText(it.tp));
+            const nomTok = plainModelToken(stripDimensionsFromProductText(it.n));
+            const prodTok = (tpTok + ' ' + nomTok).trim();
+
+            if (it._cat === 'SOFAS & LOVESEATS') {
+                let f = salaPairFlags.get(pairMoKey);
+                if (!f) { f = { hasSofa: false, hasLoveSeat: false }; salaPairFlags.set(pairMoKey, f); }
+                if (/^(LOVE\s*SEAT|LOVESEAT)\b/.test(tpTok) || /\b(LOVE\s*SEATS?|LOVESEATS?)\b/.test(prodTok)) {
+                    f.hasLoveSeat = true;
+                } else if (/^SOFA\b/.test(tpTok) || /\bSOFAS?\b/.test(prodTok)) {
+                    f.hasSofa = true;
+                }
+            } else if (it._cat === 'EXTERIOR') {
+                const isNonSeatExt = /\b(MESA|COMEDOR|CAMASTRO|COLUMPIO|SOMBRILLA)\b/.test(prodTok) || /^SILLA\b/.test(tpTok);
+                if (!isNonSeatExt && /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|ESQUINEROS?|CHAISE|OTTOMAN|OTOMAN|MODULAR|MODULO|REMATE|SILLON(?:ES)?)\b/.test(prodTok)) {
+                    let f = extSeatFlags.get(pairMoKey);
+                    if (!f) {
+                        f = { hasModular: false, hasSofa: false, hasLoveSeat: false, hasSillon: false, hasOttoman: false };
+                        extSeatFlags.set(pairMoKey, f);
+                    }
+                    if (/\b(MODULAR(?:ES)?|MODULOS?|ESQUINEROS?|REMATES?|SIN\s+BRAZOS?|BRAZO\s+(?:DER|IZQ)|DERECHO|DEREHO|IZQUIERDO)\b/.test(prodTok)) {
+                        f.hasModular = true;
+                    }
+                    if (/^(LOVE\s*SEAT|LOVESEAT)\b/.test(tpTok) || /\b(LOVE\s*SEATS?|LOVESEATS?)\b/.test(prodTok)) {
+                        f.hasLoveSeat = true;
+                    } else if (/^SOFA\b/.test(tpTok) || /\bSOFAS?\b/.test(prodTok)) {
+                        f.hasSofa = true;
+                    } else if (/^SILLON\b/.test(tpTok) || /\bSILLON(?:ES)?\b/.test(prodTok)) {
+                        f.hasSillon = true;
+                    } else if (/\b(OTTOMAN|OTOMAN|POUF|PUFF)\b/.test(prodTok)) {
+                        f.hasOttoman = true;
+                    }
+                }
+            }
+        }
+        salaPairFlags.forEach((f, moKey) => {
+            if (f.hasSofa && f.hasLoveSeat) sofaAndLoveseatModels.add(moKey);
+        });
+        extSeatFlags.forEach((f, moKey) => {
+            if (f.hasModular) {
+                exteriorModularModels.add(moKey);
+            } else if (f.hasSofa && f.hasLoveSeat) {
+                exteriorSofaAndLoveseatModels.add(moKey);
+            } else {
+                const kindCount = (f.hasSofa ? 1 : 0) + (f.hasLoveSeat ? 1 : 0) + (f.hasSillon ? 1 : 0) + (f.hasOttoman ? 1 : 0);
+                if (kindCount >= 2) exteriorSalaSetModels.add(moKey);
+            }
+        });
+
+        for (let i = 0; i < allItems.length; i++) {
+            const it = allItems[i];
+            const skuKey = String(it.s || '').trim().toUpperCase();
+            if (!skuKey) continue;
 
             const grpId = computeCategoryGroupIdentity(it);
             const title = grpId.title;
@@ -2386,7 +2746,6 @@
             it._typeLabel = grpId.typeLabel || '';
             it._typeRank = typeof grpId.typeRank === 'number' ? grpId.typeRank : 999;
 
-            it._avail = getItemAvailabilityKind(it);
             it._lpptBucket = getLpptStock(it) >= 1 ? getItemLpptDaysBucket(it) : '';
             it._hasPhoto = photoUrlForItem(it) ? 1 : 0;
             it._mainRank = getMainCategoryRank(it._main);
@@ -2411,7 +2770,7 @@
             singleBySkuMap.set(skuKey, singleEntry);
             allSingleGroups.push(singleEntry);
 
-            // Vista agrupada por Tipo de Mueble + Modelo en TODOS
+            // Vista agrupada por Tipo de Mueble + Modelo en TODOS y en subcategorías agrupadas (Salas / Exterior)
             let grp = groupsByKey.get(gKey);
             if (!grp) {
                 grp = {
@@ -2524,6 +2883,7 @@
                 ? grp.title
                 : (grp.items[0]._singleTitle || stripDimensionsFromProductText(grp.items[0].n) || grp.title || grp.items[0].s)
             ).toUpperCase();
+            grp.moduleCount = countDistinctModulesForGroup(grp.typeKey, grp.items);
             grp.totalStock = grp.items.reduce((acc, x) => acc + getBodegaPisoStock(x), 0);
             grp.lpptStock = grp.items.reduce((acc, x) => acc + getLpptStock(x), 0);
             grp._hasPhoto = firstPhotoItem(grp.items) ? 1 : 0;
@@ -2607,6 +2967,15 @@
         return true;
     }
 
+    function formatGroupBadgeLabel(grp) {
+        if (!grp || !Array.isArray(grp.items)) return '';
+        const modCnt = Number(grp.moduleCount) || 0;
+        if (modCnt >= 2) {
+            return modCnt + ' módulos · ' + grp.items.length + ' var.';
+        }
+        return grp.items.length + ' variantes';
+    }
+
     function buildFilteredGroupView(baseGrp, matchedItems) {
         if (!baseGrp || !matchedItems || matchedItems.length === 0) return null;
         if (matchedItems.length === baseGrp.items.length) return baseGrp;
@@ -2617,6 +2986,7 @@
         return Object.assign({}, baseGrp, {
             items: matchedItems,
             displayTitle: singleTitle,
+            moduleCount: countDistinctModulesForGroup(baseGrp.typeKey, matchedItems),
             totalStock: matchedItems.reduce((acc, x) => acc + getBodegaPisoStock(x), 0),
             lpptStock: matchedItems.reduce((acc, x) => acc + getLpptStock(x), 0),
             _hasPhoto: firstPhotoItem(matchedItems) ? 1 : 0,
@@ -2765,7 +3135,7 @@
     }
 
     // ------------------------------------------------------------------------
-    // FILTRADO: EN TODOS AGRUPADO POR MISMO MODELO + VARIANTES · EN CATEGORÍAS TODAS LAS PIEZAS SEPARADAS
+    // FILTRADO: EN TODOS Y EN SALAS/EXTERIOR AGRUPADO POR TIPO + MODELO (+ MÓDULOS Y VARIACIONES)
     // (BOTÓN STOCK: PIEZAS CON MAYOR CANTIDAD FÍSICA SIN CONTAR LPPT)
     // ------------------------------------------------------------------------
     let lastRenderedCardKeys = [];
@@ -2806,14 +3176,63 @@
                 filteredGroups = nextFiltered;
             }
         } else if (isMainCatSeparated) {
-            if (!rawTrim) {
-                filteredGroups = allSingleGroups.filter(grp =>
-                    itemMatchesActiveFilter(grp.items[0], activeCategory, activeSubCategory)
-                );
-            } else if (exactHitItem && !isQuotableItem(exactHitItem)) {
+            const subList = SUBCATEGORIES_BY_MAIN[activeCategory] || [];
+            const isExplicitGroupedSub = activeSubCategory !== 'ALL' && GROUPED_SUBCATEGORIES.has(activeSubCategory);
+            const hasAnyGroupedSub = activeSubCategory === 'ALL' && subList.some(sub => GROUPED_SUBCATEGORIES.has(sub));
+
+            if (exactHitItem && !isQuotableItem(exactHitItem)) {
                 filteredGroups = [];
             } else if (isExactSkuHit && singleBySkuMap.has(exactSkuUpper)) {
                 filteredGroups = [singleBySkuMap.get(exactSkuUpper)];
+            } else if (isExplicitGroupedSub || hasAnyGroupedSub) {
+                const catPool = [];
+                for (let i = 0; i < allGroups.length; i++) {
+                    const grp = allGroups[i];
+                    const matchedItems = grp.items.filter(it =>
+                        itemMatchesActiveFilter(it, activeCategory, activeSubCategory) &&
+                        (isExplicitGroupedSub || GROUPED_SUBCATEGORIES.has(it._cat))
+                    );
+                    if (matchedItems.length > 0) {
+                        const viewGrp = buildFilteredGroupView(grp, matchedItems);
+                        if (viewGrp) {
+                            activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
+                            catPool.push(viewGrp);
+                        }
+                    }
+                }
+                if (hasAnyGroupedSub) {
+                    for (let i = 0; i < allSingleGroups.length; i++) {
+                        const sg = allSingleGroups[i];
+                        const it0 = sg.items[0];
+                        if (itemMatchesActiveFilter(it0, activeCategory, activeSubCategory) && !GROUPED_SUBCATEGORIES.has(it0._cat)) {
+                            catPool.push(sg);
+                        }
+                    }
+                }
+                if (!rawTrim) {
+                    filteredGroups = catPool;
+                } else {
+                    const searchedPool = searchGroupCollection(catPool, rawTrim, scoreByKey);
+                    const nextFiltered = [];
+                    for (let i = 0; i < searchedPool.length; i++) {
+                        const grp = searchedPool[i];
+                        if (grp.items.length > 1) {
+                            const matchedItems = filterItemsMatchingSearchIfSubset(grp.items, rawTrim);
+                            const viewGrp = buildFilteredGroupView(grp, matchedItems);
+                            if (viewGrp) {
+                                activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
+                                nextFiltered.push(viewGrp);
+                            }
+                        } else {
+                            nextFiltered.push(grp);
+                        }
+                    }
+                    filteredGroups = nextFiltered;
+                }
+            } else if (!rawTrim) {
+                filteredGroups = allSingleGroups.filter(grp =>
+                    itemMatchesActiveFilter(grp.items[0], activeCategory, activeSubCategory)
+                );
             } else {
                 const catSingles = allSingleGroups.filter(grp =>
                     itemMatchesActiveFilter(grp.items[0], activeCategory, activeSubCategory)
@@ -2942,7 +3361,7 @@
                             if (grp.items.length > 1) {
                                 const nextTitle = grp.displayTitle || grp.title || '';
                                 if (titleEl && titleEl.textContent !== nextTitle) titleEl.textContent = nextTitle;
-                                const nextSub = grp.items.length + ' variantes';
+                                const nextSub = formatGroupBadgeLabel(grp);
                                 if (subEl && subEl.textContent !== nextSub) subEl.textContent = nextSub;
                                 if (stockEl) stockEl.remove();
                             } else {
@@ -3129,13 +3548,19 @@
                 lpptGroupCount++;
             }
             if (Array.isArray(g.items)) {
+                const groupedCatsInGroup = new Set();
                 for (let j = 0; j < g.items.length; j++) {
                     const it = g.items[j];
-                    if (it._main) {
-                        mainCounts.set(it._main, (mainCounts.get(it._main) || 0) + 1);
-                    }
-                    if (SUBCATEGORIES_BY_MAIN[activeCategory] && it._cat && MAIN_OF_SUB[it._cat] === activeCategory) {
-                        subCounts.set(it._cat, (subCounts.get(it._cat) || 0) + 1);
+                    const isGroupedSub = !!(it._cat && GROUPED_SUBCATEGORIES.has(it._cat));
+                    if (isGroupedSub) {
+                        groupedCatsInGroup.add(it._cat);
+                    } else {
+                        if (it._main) {
+                            mainCounts.set(it._main, (mainCounts.get(it._main) || 0) + 1);
+                        }
+                        if (SUBCATEGORIES_BY_MAIN[activeCategory] && it._cat && MAIN_OF_SUB[it._cat] === activeCategory) {
+                            subCounts.set(it._cat, (subCounts.get(it._cat) || 0) + 1);
+                        }
                     }
                     if (getBodegaPisoStock(it) >= 1) {
                         stockPieceCount++;
@@ -3143,6 +3568,19 @@
                             stockMainCounts.set(it._main, (stockMainCounts.get(it._main) || 0) + 1);
                         }
                     }
+                }
+                if (groupedCatsInGroup.size > 0) {
+                    const countedMains = new Set();
+                    groupedCatsInGroup.forEach(catName => {
+                        const mCat = MAIN_OF_SUB[catName];
+                        if (mCat && !countedMains.has(mCat)) {
+                            countedMains.add(mCat);
+                            mainCounts.set(mCat, (mainCounts.get(mCat) || 0) + 1);
+                        }
+                        if (SUBCATEGORIES_BY_MAIN[activeCategory] && mCat === activeCategory) {
+                            subCounts.set(catName, (subCounts.get(catName) || 0) + 1);
+                        }
+                    });
                 }
             }
             if (activeCategory === 'LPPT' && g.lpptBuckets) {
@@ -3334,7 +3772,7 @@
                 };
                 row.innerHTML =
                     '<div class="inv-card-top-right">' +
-                        '<span class="inv-card-variant-badge" data-card-sub="1">' + grp.items.length + ' variantes</span>' +
+                        '<span class="inv-card-variant-badge" data-card-sub="1">' + escapeHtml(formatGroupBadgeLabel(grp)) + '</span>' +
                     '</div>' +
                     buildThumbHtml(firstPhotoItem(grp.items), { card: true, eager: i < eagerCount }) +
                     '<div class="inv-card-body">' +
@@ -3588,7 +4026,7 @@
                 .replace(/[^A-Z0-9]/g, '');
         }
 
-        function buildVariantLabel(it, groupObj) {
+        function buildVariantLabel(it, groupObj, extraSkipTokens) {
             const rawName = stripDimensionsFromProductText(it.n).toUpperCase();
             const vr = cleanStr(it.vr).toUpperCase();
             const titleWords = new Set(
@@ -3598,67 +4036,138 @@
                     .map(normWordForVariant)
                     .filter(Boolean)
             );
+            if (Array.isArray(extraSkipTokens)) {
+                for (let s = 0; s < extraSkipTokens.length; s++) {
+                    const st = normWordForVariant(extraSkipTokens[s]);
+                    if (st) titleWords.add(st);
+                }
+            }
 
             const tokens = rawName.split(/\s+/).filter(Boolean);
             const rem = [];
             for (let i = 0; i < tokens.length; i++) {
                 const nw = normWordForVariant(tokens[i]);
                 if (!nw) continue;
-                if ((nw === 'DE' || nw === 'DEL') && i + 1 < tokens.length && titleWords.has(normWordForVariant(tokens[i + 1]))) {
+                if ((nw === 'DE' || nw === 'DEL' || nw === 'CON' || nw === 'SIN' || nw === 'PARA') && i + 1 < tokens.length && titleWords.has(normWordForVariant(tokens[i + 1]))) {
                     continue;
                 }
                 if (titleWords.has(nw)) continue;
                 rem.push(tokens[i]);
             }
-            while (rem.length > 0 && /^(DE|DEL|LA|EL|LOS|LAS|PARA|-|\/|·)$/.test(normWordForVariant(rem[0]))) rem.shift();
-            while (rem.length > 0 && /^(DE|DEL|LA|EL|LOS|LAS|PARA|-|\/|·)$/.test(normWordForVariant(rem[rem.length - 1]))) rem.pop();
+            while (rem.length > 0 && /^(DE|DEL|LA|EL|LOS|LAS|CON|SIN|PARA|EN|Y|-|\/|·)$/.test(normWordForVariant(rem[0]))) rem.shift();
+            while (rem.length > 0 && /^(DE|DEL|LA|EL|LOS|LAS|CON|SIN|PARA|EN|Y|-|\/|·)$/.test(normWordForVariant(rem[rem.length - 1]))) rem.pop();
 
             let label = rem.join(' ').replace(/\s+/g, ' ').trim();
             if (!label || normWordForVariant(label) === normWordForVariant(it.s)) {
-                label = vr || cleanStr(it.m).toUpperCase() || cleanStr(it.tl).toUpperCase() || cleanStr(it.md).toUpperCase() || rawName || it.s;
+                const fallbackPieces = [
+                    cleanStr(it.tl).toUpperCase(),
+                    cleanStr(it.ct).toUpperCase()
+                ].filter(Boolean);
+                const fabricFallback = fallbackPieces.join(' ').trim();
+                label = vr || fabricFallback || cleanStr(it.md).toUpperCase() || cleanStr(it.m).toUpperCase() || rawName || it.s;
             }
             return label;
         }
 
+        function renderVariantCardHtml(entry) {
+            const it = entry.it;
+            const skuKey = String(it.s || '').toUpperCase();
+            const varLabel = entry.varLabel;
+            return '<div class="inv-row inv-variant-card" data-var-sku="' + escapeHtml(skuKey) + '">' +
+                '<div class="inv-card-top-right">' +
+                    buildCardCartControlHtml(skuKey) +
+                '</div>' +
+                buildThumbHtml(it, { card: true, eager: true }) +
+                '<div class="inv-variant-card-body">' +
+                    '<div class="inv-det-uniform-text font-bold uppercase leading-snug" style="color:#1A1816;">' +
+                        formatTitleWithPriceHtml(varLabel, it.pr) +
+                    '</div>' +
+                    '<div class="inv-det-uniform-text font-semibold tracking-wider mt-0.5" style="color:#9E7B4F;">' + escapeHtml(it.s) + '</div>' +
+                '</div>' +
+            '</div>';
+        }
+
         if (varList) {
-            const baseLabels = grp.items.map(it => buildVariantLabel(it, grp));
-            const labelCounts = new Map();
-            for (let i = 0; i < baseLabels.length; i++) {
-                labelCounts.set(baseLabels[i], (labelCounts.get(baseLabels[i]) || 0) + 1);
-            }
-
-            const variantEntries = grp.items.map((it, idx) => {
-                let varLabel = baseLabels[idx];
-                const medUpper = cleanStr(it.m).toUpperCase();
-                if (medUpper && labelCounts.get(varLabel) > 1 && varLabel.indexOf(medUpper) === -1) {
-                    varLabel = varLabel + ' · ' + medUpper;
+            const canGroupByModule = !!(grp && grp.typeKey && MODULE_GROUPABLE_TYPE_KEYS.has(grp.typeKey));
+            const moduleBucketsByKey = new Map();
+            const itemBuckets = grp.items.map(it => {
+                if (!canGroupByModule) return null;
+                const b = resolveItemModuleBucket(it) || { key: 'OTRO_MODULO', label: 'OTRA PIEZA', rank: 99, stripTokens: [] };
+                if (!moduleBucketsByKey.has(b.key)) {
+                    moduleBucketsByKey.set(b.key, { key: b.key, label: b.label, rank: b.rank, stripTokens: b.stripTokens || [], items: [] });
                 }
-                return { it: it, varLabel: varLabel };
+                moduleBucketsByKey.get(b.key).items.push(it);
+                return b;
             });
+            const useModuleSections = canGroupByModule && moduleBucketsByKey.size >= 2;
 
-            variantEntries.sort((a, b) =>
-                compareAlphaEs(a.varLabel, b.varLabel) ||
-                compareAlphaEs(a.it.n || a.it.s, b.it.n || b.it.s) ||
-                String(a.it.s || '').localeCompare(String(b.it.s || ''))
-            );
+            if (useModuleSections) {
+                if (crumbEl) {
+                    const varTxt = grp.items.length === 1 ? '1 variación' : (grp.items.length + ' variaciones');
+                    crumbEl.textContent = moduleBucketsByKey.size + ' módulos · ' + varTxt;
+                    crumbEl.classList.remove('hidden');
+                }
+                const orderedBuckets = Array.from(moduleBucketsByKey.values()).sort((a, b) =>
+                    (a.rank - b.rank) || compareAlphaEs(a.label, b.label)
+                );
+                const htmlChunks = [];
+                for (let bIdx = 0; bIdx < orderedBuckets.length; bIdx++) {
+                    const bucket = orderedBuckets[bIdx];
+                    const bucketBaseLabels = bucket.items.map(it => buildVariantLabel(it, grp, bucket.stripTokens));
+                    const bucketLabelCounts = new Map();
+                    for (let i = 0; i < bucketBaseLabels.length; i++) {
+                        bucketLabelCounts.set(bucketBaseLabels[i], (bucketLabelCounts.get(bucketBaseLabels[i]) || 0) + 1);
+                    }
+                    const bucketEntries = bucket.items.map((it, idx) => {
+                        let varLabel = bucketBaseLabels[idx];
+                        const medUpper = cleanStr(it.m).toUpperCase();
+                        if (medUpper && bucketLabelCounts.get(varLabel) > 1 && varLabel.indexOf(medUpper) === -1) {
+                            varLabel = varLabel + ' · ' + medUpper;
+                        }
+                        return { it: it, varLabel: varLabel };
+                    });
+                    bucketEntries.sort((a, b) =>
+                        compareAlphaEs(a.varLabel, b.varLabel) ||
+                        compareAlphaEs(a.it.n || a.it.s, b.it.n || b.it.s) ||
+                        String(a.it.s || '').localeCompare(String(b.it.s || ''))
+                    );
+                    const countTxt = bucketEntries.length === 1 ? '1 variación' : (bucketEntries.length + ' variaciones');
+                    htmlChunks.push(
+                        '<div class="inv-module-group-header" data-module-key="' + escapeHtml(bucket.key) + '">' +
+                            '<span class="inv-module-group-title">' + escapeHtml(bucket.label) + '</span>' +
+                            '<span class="inv-module-group-count">' + escapeHtml(countTxt) + '</span>' +
+                        '</div>'
+                    );
+                    for (let eIdx = 0; eIdx < bucketEntries.length; eIdx++) {
+                        htmlChunks.push(renderVariantCardHtml(bucketEntries[eIdx]));
+                    }
+                }
+                varList.innerHTML = htmlChunks.join('');
+            } else {
+                const singleStrip = (canGroupByModule && itemBuckets[0] && itemBuckets[0].stripTokens) ? itemBuckets[0].stripTokens : null;
+                const baseLabels = grp.items.map(it => buildVariantLabel(it, grp, singleStrip));
+                const labelCounts = new Map();
+                for (let i = 0; i < baseLabels.length; i++) {
+                    labelCounts.set(baseLabels[i], (labelCounts.get(baseLabels[i]) || 0) + 1);
+                }
 
-            varList.innerHTML = variantEntries.map(entry => {
-                const it = entry.it;
-                const skuKey = String(it.s || '').toUpperCase();
-                const varLabel = entry.varLabel;
-                return '<div class="inv-row inv-variant-card" data-var-sku="' + escapeHtml(skuKey) + '">' +
-                    '<div class="inv-card-top-right">' +
-                        buildCardCartControlHtml(skuKey) +
-                    '</div>' +
-                    buildThumbHtml(it, { card: true, eager: true }) +
-                    '<div class="inv-variant-card-body">' +
-                        '<div class="inv-det-uniform-text font-bold uppercase leading-snug" style="color:#1A1816;">' +
-                            formatTitleWithPriceHtml(varLabel, it.pr) +
-                        '</div>' +
-                        '<div class="inv-det-uniform-text font-semibold tracking-wider mt-0.5" style="color:#9E7B4F;">' + escapeHtml(it.s) + '</div>' +
-                    '</div>' +
-                '</div>';
-            }).join('');
+                const variantEntries = grp.items.map((it, idx) => {
+                    let varLabel = baseLabels[idx];
+                    const medUpper = cleanStr(it.m).toUpperCase();
+                    if (medUpper && labelCounts.get(varLabel) > 1 && varLabel.indexOf(medUpper) === -1) {
+                        varLabel = varLabel + ' · ' + medUpper;
+                    }
+                    return { it: it, varLabel: varLabel };
+                });
+
+                variantEntries.sort((a, b) =>
+                    compareAlphaEs(a.varLabel, b.varLabel) ||
+                    compareAlphaEs(a.it.n || a.it.s, b.it.n || b.it.s) ||
+                    String(a.it.s || '').localeCompare(String(b.it.s || ''))
+                );
+
+                varList.innerHTML = variantEntries.map(renderVariantCardHtml).join('');
+            }
 
             varList.querySelectorAll('.inv-row[data-var-sku]').forEach(rowEl => {
                 const sku = rowEl.getAttribute('data-var-sku');
