@@ -3231,10 +3231,29 @@
         } catch (e3) {}
     }
 
+    function inferImageMimeFromName(fileName) {
+        const lower = String(fileName || '').toLowerCase();
+        if (/\.png$/.test(lower)) return 'image/png';
+        if (/\.webp$/.test(lower)) return 'image/webp';
+        if (/\.gif$/.test(lower)) return 'image/gif';
+        return 'image/jpeg';
+    }
+
+    function normalizeImageDataUrl(rawDataUrl, fileName) {
+        const s = String(rawDataUrl || '').trim();
+        if (/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(s)) return s;
+        const commaIdx = s.indexOf(',');
+        if (commaIdx > 0 && /^data:[^;]*;base64$/i.test(s.slice(0, commaIdx))) {
+            return 'data:' + inferImageMimeFromName(fileName) + ';base64,' + s.slice(commaIdx + 1);
+        }
+        return s;
+    }
+
     async function readFileAsOptimizedDataUrl(file) {
         const MAX_DIM = 1150;
         const JPEG_Q = 0.78;
-        if (typeof createImageBitmap === 'function' && file.size > 110000) {
+        const fileName = (file && file.name) || 'foto.jpg';
+        if (typeof createImageBitmap === 'function' && file && file.size > 110000) {
             try {
                 const bmp = await createImageBitmap(file);
                 let w = bmp.width;
@@ -3248,6 +3267,8 @@
                 canvas.width = w;
                 canvas.height = h;
                 const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, w, h);
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
                 ctx.drawImage(bmp, 0, 0, w, h);
@@ -3258,15 +3279,17 @@
 
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onerror = () => reject(new Error('Error al leer archivo.'));
+            reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
             reader.onload = () => {
                 const rawDataUrl = String(reader.result || '');
-                if (file.size <= 140000 || typeof Image === 'undefined') {
-                    resolve(rawDataUrl);
+                const normalized = normalizeImageDataUrl(rawDataUrl, fileName);
+                const needsCanvas = (file && file.size > 140000) || !/^data:image\/(?:jpeg|jpg|png|webp|gif);base64,/i.test(rawDataUrl);
+                if (!needsCanvas || typeof Image === 'undefined') {
+                    resolve(normalized);
                     return;
                 }
                 const img = new Image();
-                img.onerror = () => resolve(rawDataUrl);
+                img.onerror = () => resolve(normalized);
                 img.onload = () => {
                     try {
                         let w = img.naturalWidth || img.width;
@@ -3280,35 +3303,48 @@
                         canvas.width = w;
                         canvas.height = h;
                         const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, w, h);
                         ctx.imageSmoothingEnabled = true;
                         ctx.imageSmoothingQuality = 'high';
                         ctx.drawImage(img, 0, 0, w, h);
                         resolve(canvas.toDataURL('image/jpeg', JPEG_Q));
                     } catch (errC) {
-                        resolve(rawDataUrl);
+                        resolve(normalized);
                     }
                 };
-                img.src = rawDataUrl;
+                img.src = normalized;
             };
             reader.readAsDataURL(file);
         });
     }
 
-    window.uploadLocalFilesToSubir = async function (inputEl) {
+    function isAcceptedImageFile(f) {
+        if (!f) return false;
+        const mime = String(f.type || '').toLowerCase();
+        return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i.test(f.name || '');
+    }
+
+    window.uploadLocalFilesToSubir = async function (inputEl, opts) {
+        const uploadOpts = (opts && typeof opts === 'object') ? opts : {};
         const rawList = inputEl && inputEl.files ? Array.from(inputEl.files) : [];
-        const files = rawList.filter((f) => {
-            if (!f) return false;
-            const mime = String(f.type || '').toLowerCase();
-            return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '');
-        });
-        if (!files.length) return [];
-        if (inputEl && typeof inputEl.value === 'string') inputEl.value = '';
+        const files = rawList.filter(isAcceptedImageFile);
+        if (!files.length) {
+            if (rawList.length > 0) {
+                showAssignFeedback('⚠️ Selecciona una imagen válida.', false);
+            }
+            if (inputEl && typeof inputEl.value === 'string') {
+                try { inputEl.value = ''; } catch (eClr) {}
+            }
+            return [];
+        }
 
         // 1) CARGA INSTANTÁNEA EN UI (0ms): Mostrar las fotos al instante con URL.createObjectURL antes de subir a la nube
         const stagedEntries = [];
         const nowTs = Date.now();
         for (let i = 0; i < files.length; i++) {
             const f = files[i];
+            const safeFileName = cleanStr(f.name) || ('foto_' + nowTs + '_' + (i + 1) + '.jpg');
             const localId = 'local_inb_' + nowTs + '_' + i + '_' + Math.floor(Math.random() * 9000 + 1000);
             let blobUrl = '';
             try {
@@ -3319,7 +3355,7 @@
 
             const instantItem = enrichInboxFileItem({
                 id: localId,
-                name: f.name,
+                name: safeFileName,
                 sizeBytes: f.size || 0,
                 updatedAt: new Date().toISOString(),
                 viewUrl: blobUrl,
@@ -3329,7 +3365,7 @@
             });
             state.rawInboxFromDrive.unshift(instantItem);
             state.inboxFiles.unshift(instantItem);
-            stagedEntries.push({ file: f, localId: localId, blobUrl: blobUrl, item: instantItem });
+            stagedEntries.push({ file: f, fileName: safeFileName, localId: localId, blobUrl: blobUrl, item: instantItem });
         }
 
         if (stagedEntries.length > 0) {
@@ -3337,7 +3373,7 @@
             state.selectedInboxFileId = firstEntry.localId;
             state.selectedPhotoItem = {
                 id: firstEntry.localId,
-                name: firstEntry.file.name,
+                name: firstEntry.fileName,
                 viewUrl: firstEntry.blobUrl,
                 thumbDataUrl: firstEntry.blobUrl,
                 localDataUrl: firstEntry.blobUrl,
@@ -3354,78 +3390,118 @@
             syncFotosBackNav('selected_photo');
         }
 
-        showAssignFeedback('⚡ Subiendo ' + files.length + ' foto(s)...', true);
+        if (!uploadOpts.suppressSummaryFeedback) {
+            showAssignFeedback('⚡ Subiendo ' + files.length + ' foto(s)...', true);
+        }
 
-        // 2) SUBIDA EN SEGUNDO PLANO DE ALTA VELOCIDAD (4 WORKERS EN PARALELO + COMPRESIÓN RÁPIDA)
+        // 2) SUBIDA EN SEGUNDO PLANO (2 WORKERS EN PARALELO PARA EVITAR CONGESTIÓN / TIMEOUTS EN GAS)
         let uploadedCount = 0;
         let queuedOfflineCount = 0;
+        let failedCount = 0;
+        let authFailed = false;
+        let lastUploadError = '';
         let completedCount = 0;
-        const CONCURRENCY = 4;
+        const CONCURRENCY = 2;
         let cursor = 0;
+
+        const removeFailedTempEntry = (localId) => {
+            state.rawInboxFromDrive = state.rawInboxFromDrive.filter((it) => it && it.id !== localId);
+            state.inboxFiles = state.inboxFiles.filter((it) => it && it.id !== localId);
+            if (state.selectedInboxFileId === localId) state.selectedInboxFileId = '';
+            if (state.selectedPhotoItem && state.selectedPhotoItem.id === localId) state.selectedPhotoItem = null;
+        };
 
         const uploadSingleEntry = (entry) => {
             const p = (async () => {
                 const f = entry.file;
                 const localId = entry.localId;
-                const dataUrl = await readFileAsOptimizedDataUrl(f);
-
-                // Actualizar localDataUrl con el base64 comprimido para persistencia offline
-                entry.item.localDataUrl = dataUrl;
-                if (!entry.item.viewUrl) entry.item.viewUrl = dataUrl;
-                if (state.selectedPhotoItem && state.selectedPhotoItem.id === localId) {
-                    state.selectedPhotoItem.localDataUrl = dataUrl;
-                    if (!state.selectedPhotoItem.viewUrl) state.selectedPhotoItem.viewUrl = dataUrl;
-                }
-
-                const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
-                const res = isOfflineNow
-                    ? { ok: false, unavailable: true }
-                    : await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
-                        fileName: f.name,
-                        dataUrl: dataUrl,
-                        skipListReturn: true
-                    }, buildOwnerAuthPayload()), 30000);
-
-                completedCount++;
-                if (res && res.ok && res.file && res.file.id) {
-                    uploadedCount++;
-                    const realId = res.file.id;
-                    const newFile = enrichInboxFileItem(Object.assign({}, res.file, {
-                        localDataUrl: entry.blobUrl || dataUrl,
-                        thumbDataUrl: entry.blobUrl || dataUrl
-                    }));
-                    state.rawInboxFromDrive = state.rawInboxFromDrive.map((it) => (it && it.id === localId ? newFile : it));
-                    state.inboxFiles = state.inboxFiles.map((it) => (it && it.id === localId ? newFile : it));
-                    if (state.selectedInboxFileId === localId) {
-                        state.selectedInboxFileId = realId;
+                const uploadName = entry.fileName;
+                try {
+                    const dataUrl = await readFileAsOptimizedDataUrl(f);
+                    if (!/^data:image\/[a-zA-Z0-9.+-]+;base64,.+/.test(String(dataUrl || ''))) {
+                        failedCount++;
+                        lastUploadError = 'Formato de imagen no compatible (' + uploadName + ').';
+                        removeFailedTempEntry(localId);
+                        completedCount++;
+                        return { ok: false, error: lastUploadError };
                     }
+
+                    // Actualizar localDataUrl con el base64 comprimido para persistencia offline
+                    entry.item.localDataUrl = dataUrl;
+                    if (!entry.item.viewUrl) entry.item.viewUrl = dataUrl;
                     if (state.selectedPhotoItem && state.selectedPhotoItem.id === localId) {
-                        state.selectedPhotoItem.id = realId;
-                        state.selectedPhotoItem.viewUrl = newFile.viewUrl || entry.blobUrl || dataUrl;
+                        state.selectedPhotoItem.localDataUrl = dataUrl;
+                        if (!state.selectedPhotoItem.viewUrl) state.selectedPhotoItem.viewUrl = dataUrl;
                     }
-                    return { ok: true, realId: realId, file: newFile, dataUrl: dataUrl, blobUrl: entry.blobUrl };
-                } else if (!res || !res.authRequired) {
-                    queuedOfflineCount++;
-                    await putOfflinePhotoBlobIdb({
-                        id: localId,
-                        fileName: f.name,
-                        dataUrl: dataUrl,
-                        sizeBytes: f.size || 0,
-                        createdAt: Date.now()
-                    });
-                    enqueueFotosOfflineOutbox({
-                        id: 'op_up_' + localId,
-                        type: 'upload_inbox',
-                        localFileId: localId,
-                        fileName: f.name,
-                        sizeBytes: f.size || 0,
-                        queuedAt: Date.now()
-                    });
-                    entry.item.isOfflinePending = true;
-                    entry.item.isUploadingNow = false;
-                    return { ok: false, offlineQueued: true, localId: localId, dataUrl: dataUrl, blobUrl: entry.blobUrl };
+
+                    const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+                    const res = isOfflineNow
+                        ? { ok: false, unavailable: true }
+                        : await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
+                            fileName: uploadName,
+                            dataUrl: dataUrl,
+                            skipListReturn: true
+                        }, buildOwnerAuthPayload()), 45000);
+
+                    completedCount++;
+                    if (res && res.ok && res.file && res.file.id) {
+                        uploadedCount++;
+                        const realId = res.file.id;
+                        const newFile = enrichInboxFileItem(Object.assign({}, res.file, {
+                            localDataUrl: entry.blobUrl || dataUrl,
+                            thumbDataUrl: entry.blobUrl || dataUrl
+                        }));
+                        state.rawInboxFromDrive = state.rawInboxFromDrive.map((it) => (it && it.id === localId ? newFile : it));
+                        state.inboxFiles = state.inboxFiles.map((it) => (it && it.id === localId ? newFile : it));
+                        if (state.selectedInboxFileId === localId) {
+                            state.selectedInboxFileId = realId;
+                        }
+                        if (state.selectedPhotoItem && state.selectedPhotoItem.id === localId) {
+                            state.selectedPhotoItem.id = realId;
+                            state.selectedPhotoItem.viewUrl = newFile.viewUrl || entry.blobUrl || dataUrl;
+                            state.selectedPhotoItem.localDataUrl = dataUrl;
+                        }
+                        return { ok: true, realId: realId, file: newFile, dataUrl: dataUrl, blobUrl: entry.blobUrl };
+                    }
+                    if (res && res.authRequired) {
+                        authFailed = true;
+                        lastUploadError = cleanStr(res.error) || 'Sesión expirada.';
+                        removeFailedTempEntry(localId);
+                        return { ok: false, authRequired: true, error: lastUploadError };
+                    }
+                    if (isOfflineNow || !res || res.unavailable) {
+                        queuedOfflineCount++;
+                        await putOfflinePhotoBlobIdb({
+                            id: localId,
+                            fileName: uploadName,
+                            dataUrl: dataUrl,
+                            sizeBytes: f.size || 0,
+                            createdAt: Date.now()
+                        });
+                        enqueueFotosOfflineOutbox({
+                            id: 'op_up_' + localId,
+                            type: 'upload_inbox',
+                            localFileId: localId,
+                            fileName: uploadName,
+                            sizeBytes: f.size || 0,
+                            queuedAt: Date.now()
+                        });
+                        entry.item.isOfflinePending = true;
+                        entry.item.isUploadingNow = false;
+                        return { ok: false, offlineQueued: true, localId: localId, dataUrl: dataUrl, blobUrl: entry.blobUrl };
+                    }
+
+                    failedCount++;
+                    lastUploadError = cleanStr(res && res.error) || 'Error al subir ' + uploadName + '.';
+                    removeFailedTempEntry(localId);
+                    return { ok: false, error: lastUploadError };
+                } catch (errUp) {
+                    completedCount++;
+                    failedCount++;
+                    lastUploadError = (errUp && errUp.message) ? errUp.message : ('Error al subir ' + uploadName + '.');
+                    removeFailedTempEntry(localId);
+                    return { ok: false, error: lastUploadError };
                 }
-                return { ok: false, error: (res && res.error) || 'Error al subir' };
             })();
             pendingUploadPromises.set(entry.localId, p);
             p.finally(() => {
@@ -3438,17 +3514,23 @@
             while (cursor < stagedEntries.length) {
                 const idx = cursor++;
                 await uploadSingleEntry(stagedEntries[idx]);
-                if (stagedEntries.length > 1 && completedCount < stagedEntries.length) {
+                if (!uploadOpts.suppressSummaryFeedback && stagedEntries.length > 1 && completedCount < stagedEntries.length) {
                     showAssignFeedback('⚡ Subiendo ' + completedCount + '/' + stagedEntries.length + '...', true);
                 }
             }
         };
 
-        const workers = [];
-        for (let w = 0; w < Math.min(CONCURRENCY, stagedEntries.length); w++) {
-            workers.push(worker());
+        try {
+            const workers = [];
+            for (let w = 0; w < Math.min(CONCURRENCY, stagedEntries.length); w++) {
+                workers.push(worker());
+            }
+            await Promise.all(workers);
+        } finally {
+            if (inputEl && typeof inputEl.value === 'string') {
+                try { inputEl.value = ''; } catch (eClr) {}
+            }
         }
-        await Promise.all(workers);
 
         renderInboxGallery();
         renderSelectedProductStage();
@@ -3456,12 +3538,21 @@
         saveFotosUiCheckpointNow();
         updateAssignButtonState();
 
-        if (queuedOfflineCount > 0 && uploadedCount === 0) {
-            showAssignFeedback('⚡ ' + queuedOfflineCount + ' en cola (sin red).', true);
-        } else if (queuedOfflineCount > 0) {
-            showAssignFeedback('✅ Subidas: ' + uploadedCount + ' · Cola: ' + queuedOfflineCount + '.', true);
-        } else if (uploadedCount > 0) {
-            showAssignFeedback('✅ ' + uploadedCount + ' subida(s) a SUBIR PREN.', true);
+        if (authFailed) {
+            showAssignFeedback('❌ ' + escapeHtml(lastUploadError || 'Sesión expirada.'), false);
+            window.lockFotosPortal();
+        } else if (!uploadOpts.suppressSummaryFeedback) {
+            if (failedCount > 0 && uploadedCount === 0 && queuedOfflineCount === 0) {
+                showAssignFeedback('❌ ' + escapeHtml(lastUploadError || 'Error al subir.'), false);
+            } else if (queuedOfflineCount > 0 && uploadedCount === 0) {
+                showAssignFeedback('⚡ ' + queuedOfflineCount + ' en cola (sin red).', true);
+            } else if (queuedOfflineCount > 0) {
+                showAssignFeedback('✅ Subidas: ' + uploadedCount + ' · Cola: ' + queuedOfflineCount + '.', true);
+            } else if (uploadedCount > 0 && failedCount > 0) {
+                showAssignFeedback('⚠️ Subidas: ' + uploadedCount + ' · Error: ' + failedCount + '.', false);
+            } else if (uploadedCount > 0) {
+                showAssignFeedback('✅ ' + uploadedCount + ' subida(s) a SUBIR PREN.', true);
+            }
         }
         return stagedEntries;
     };
@@ -3740,63 +3831,73 @@
 
     window.uploadDirectToSelectedCategory = async function (inputEl) {
         const rawList = inputEl && inputEl.files ? Array.from(inputEl.files) : [];
-        const files = rawList.filter((f) => {
-            if (!f) return false;
-            const mime = String(f.type || '').toLowerCase();
-            return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '');
-        });
-        if (!files.length) return;
-        if (inputEl && typeof inputEl.value === 'string') inputEl.value = '';
-
-        // Si solo se seleccionó 1 archivo y no hay SKU elegido, intentar detectar el SKU por el nombre del archivo
-        if (!state.selectedSku && files.length === 1) {
-            const autoSku = findSuggestedSkuForFileName(files[0].name);
-            if (autoSku && state.productBySku.has(autoSku)) {
-                window.selectSkuProduct(autoSku);
+        const files = rawList.filter(isAcceptedImageFile);
+        if (!files.length) {
+            if (rawList.length > 0) {
+                showAssignFeedback('⚠️ Selecciona una imagen válida.', false);
             }
-        }
-
-        // Si no hay SKU elegido pero las fotos tienen nombre de SKU, cargarlas al instante y auto-acomodar por categoría
-        if (!state.selectedSku) {
-            let anyMatched = false;
-            for (let i = 0; i < files.length; i++) {
-                if (findSuggestedSkuForFileName(files[i].name)) { anyMatched = true; break; }
+            if (inputEl && typeof inputEl.value === 'string') {
+                try { inputEl.value = ''; } catch (eClr) {}
             }
-            if (!anyMatched) {
-                showAssignFeedback('⚠️ Selecciona un SKU primero.', false);
-                window.jumpToFotosSection('secSkuFinder');
-                return;
-            }
-            await window.uploadLocalFilesToSubir({ files: files });
-            await window.autoAssignMatchedInboxByCategory();
             return;
         }
 
-        // CARGA Y ASIGNACIÓN INSTANTÁNEA (0ms en pantalla, subida en paralelo a su carpeta de Categoría)
-        const targetSku = state.selectedSku;
-        const prod = state.productBySku.get(targetSku);
-        if (!prod) return;
+        try {
+            // Si solo se seleccionó 1 archivo y no hay SKU elegido, intentar detectar el SKU por el nombre del archivo
+            if (!state.selectedSku && files.length === 1) {
+                const autoSku = findSuggestedSkuForFileName(files[0].name);
+                if (autoSku && state.productBySku.has(autoSku)) {
+                    window.selectSkuProduct(autoSku);
+                }
+            }
 
-        const destSelect = document.getElementById('destFolderSelect');
-        const chosenFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId) || prod.destFolderId;
-        const chosenFolderMeta = DEST_FOLDER_BY_ID.get(chosenFolderId) || resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
-        if (destSelect && chosenFolderMeta) destSelect.value = chosenFolderMeta.id;
+            // Si no hay SKU elegido pero las fotos tienen nombre de SKU, cargarlas al instante y auto-acomodar por categoría
+            if (!state.selectedSku) {
+                let anyMatched = false;
+                for (let i = 0; i < files.length; i++) {
+                    if (findSuggestedSkuForFileName(files[i].name)) { anyMatched = true; break; }
+                }
+                if (!anyMatched) {
+                    showAssignFeedback('⚠️ Selecciona un SKU primero.', false);
+                    window.jumpToFotosSection('secSkuFinder');
+                    return;
+                }
+                await window.uploadLocalFilesToSubir({ files: files }, { suppressSummaryFeedback: true });
+                await window.autoAssignMatchedInboxByCategory();
+                return;
+            }
 
-        // Disparamos la carga instantánea del primer archivo pero SIN esperar a que termine la red para mostrarlo en el producto
-        const uploadPromise = window.uploadLocalFilesToSubir({ files: [files[0]] });
-        // Como uploadLocalFilesToSubir inserta el archivo de forma síncrona en los primeros milisegundos, ya está seleccionado:
-        if (state.selectedSku === targetSku && getActiveSelectedPhotoObject()) {
-            window.assignSelectedPhotoToProduct();
-        } else {
-            await uploadPromise;
+            // CARGA Y ASIGNACIÓN INSTANTÁNEA (0ms en pantalla, subida en paralelo a su carpeta de Categoría)
+            const targetSku = state.selectedSku;
+            const prod = state.productBySku.get(targetSku);
+            if (!prod) return;
+
+            const destSelect = document.getElementById('destFolderSelect');
+            const chosenFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId) || prod.destFolderId;
+            const chosenFolderMeta = DEST_FOLDER_BY_ID.get(chosenFolderId) || resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
+            if (destSelect && chosenFolderMeta) destSelect.value = chosenFolderMeta.id;
+
+            // Disparamos la carga instantánea del primer archivo con suppressSummaryFeedback para no pisar el estado de Guardar
+            const uploadPromise = window.uploadLocalFilesToSubir({ files: [files[0]] }, { suppressSummaryFeedback: true });
+            // Como uploadLocalFilesToSubir inserta el archivo de forma síncrona en los primeros milisegundos, ya está seleccionado:
             if (state.selectedSku === targetSku && getActiveSelectedPhotoObject()) {
                 await window.assignSelectedPhotoToProduct();
+                await uploadPromise;
+            } else {
+                await uploadPromise;
+                if (state.selectedSku === targetSku && getActiveSelectedPhotoObject()) {
+                    await window.assignSelectedPhotoToProduct();
+                }
             }
-        }
 
-        if (files.length > 1) {
-            await window.uploadLocalFilesToSubir({ files: files.slice(1) });
-            await window.autoAssignMatchedInboxByCategory(true);
+            if (files.length > 1) {
+                await window.uploadLocalFilesToSubir({ files: files.slice(1) }, { suppressSummaryFeedback: true });
+                await window.autoAssignMatchedInboxByCategory(true);
+            }
+        } finally {
+            if (inputEl && typeof inputEl.value === 'string') {
+                try { inputEl.value = ''; } catch (eClr) {}
+            }
         }
     };
 
@@ -4009,16 +4110,53 @@
         );
 
         // Si la foto aún se está subiendo a Drive en segundo plano, esperar su promesa en segundo plano sin bloquear la pantalla
+        let pendingUploadRes = null;
         if (isLocalPendingPhoto && pendingUploadPromises.has(activeFileId)) {
             try {
-                const upRes = await pendingUploadPromises.get(activeFileId);
-                if (upRes && upRes.ok && upRes.realId) {
+                pendingUploadRes = await pendingUploadPromises.get(activeFileId);
+                if (pendingUploadRes && pendingUploadRes.ok && pendingUploadRes.realId) {
                     const oldLocalId = activeFileId;
-                    activeFileId = upRes.realId;
+                    activeFileId = pendingUploadRes.realId;
                     prod.photoFileId = activeFileId;
                     logEntry.fileId = activeFileId;
+                    if (pendingUploadRes.dataUrl) {
+                        logEntry.localDataUrl = pendingUploadRes.dataUrl;
+                    }
+                    if (pendingUploadRes.file && pendingUploadRes.file.viewUrl) {
+                        prod.photoUrl = pendingUploadRes.file.viewUrl;
+                        logEntry.newUrl = pendingUploadRes.file.viewUrl;
+                    } else if (pendingUploadRes.dataUrl) {
+                        prod.photoUrl = pendingUploadRes.dataUrl;
+                        logEntry.newUrl = pendingUploadRes.dataUrl;
+                    }
                     state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== oldLocalId && f.id !== activeFileId);
                     state.inboxFiles = state.inboxFiles.filter((f) => f.id !== oldLocalId && f.id !== activeFileId);
+                } else if (pendingUploadRes && pendingUploadRes.offlineQueued && pendingUploadRes.dataUrl) {
+                    logEntry.localDataUrl = pendingUploadRes.dataUrl;
+                    if (String(prod.photoUrl || '').indexOf('blob:') === 0) {
+                        prod.photoUrl = pendingUploadRes.dataUrl;
+                        logEntry.newUrl = pendingUploadRes.dataUrl;
+                    }
+                } else if (pendingUploadRes && !pendingUploadRes.ok && !pendingUploadRes.offlineQueued) {
+                    prod.photoUrl = prevUrlBeforeSave;
+                    prod.photoFileId = prevFidBeforeSave;
+                    state.sessionSavedBySku.delete(prod.sku);
+                    state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it !== logEntry);
+                    saveSavedOverridesNow();
+                    invalidateLoadedPhotosCache();
+                    renderSkuCategoryFilterRow();
+                    renderSkuLocationFilterRow();
+                    applySkuFiltersAndRender();
+                    renderInboxGallery();
+                    renderSelectedProductStage();
+                    renderSessionHistoryLog();
+                    notifySplitPeerOfPhotoUpdate(prod.sku, prevUrlBeforeSave, prevFidBeforeSave, targetDestMeta.name);
+                    if (pendingUploadRes.authRequired) {
+                        window.lockFotosPortal();
+                    } else {
+                        showAssignFeedback('❌ ' + escapeHtml(cleanStr(pendingUploadRes.error) || 'Error al subir.'), false);
+                    }
+                    return;
                 }
             } catch (eWait) {}
         }

@@ -1621,13 +1621,13 @@ test('UX-5: Mobile inputs & selects enforce font-size: 16px (anti-iOS auto-zoom)
   assert.ok(!/<(?:input|select)\b[^>]*style=["'][^"']*font-size/i.test(FOTOS_HTML_SRC));
 });
 
-test('UX-6: Cache version consistency (v9/img-v9, CSS?v=18, JS?v=20, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
+test('UX-6: Cache version consistency (v10/img-v10, CSS?v=18, JS?v=21, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
   assert.match(FOTOS_HTML_SRC, /fotos-manifest\.json\?v=3/);
   assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=18/);
   assert.match(FOTOS_HTML_SRC, /creata-back-nav\.js\?v=1/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=20/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v9['"]/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v9['"]/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=21/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v10['"]/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v10['"]/);
   assert.match(FOTOS_APP_SRC, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
 
   // Execute fotos-sw.js inside node:vm
@@ -1645,6 +1645,8 @@ test('UX-6: Cache version consistency (v9/img-v9, CSS?v=18, JS?v=20, manifest?v=
     'creata-fotos-app-img-v8',
     'creata-fotos-app-v9',
     'creata-fotos-app-img-v9',
+    'creata-fotos-app-v10',
+    'creata-fotos-app-img-v10',
     'creata-prompts-app-v3',
     'creata-inventario-v1'
   ];
@@ -1683,7 +1685,7 @@ test('UX-6: Cache version consistency (v9/img-v9, CSS?v=18, JS?v=20, manifest?v=
   };
   vm.runInNewContext(FOTOS_SW_SRC, swSandbox, { filename: 'fotos-sw.js' });
 
-  // Activate evicts v5..v8 while preserving v9, img-v9, and sibling app caches
+  // Activate evicts v5..v9 while preserving v10, img-v10, and sibling app caches
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
@@ -1692,10 +1694,12 @@ test('UX-6: Cache version consistency (v9/img-v9, CSS?v=18, JS?v=20, manifest?v=
     'creata-fotos-app-img-v6',
     'creata-fotos-app-img-v7',
     'creata-fotos-app-img-v8',
+    'creata-fotos-app-img-v9',
     'creata-fotos-app-v5',
     'creata-fotos-app-v6',
     'creata-fotos-app-v7',
-    'creata-fotos-app-v8'
+    'creata-fotos-app-v8',
+    'creata-fotos-app-v9'
   ]);
 
   // Fetch handler checks
@@ -1715,11 +1719,11 @@ test('UX-6: Cache version consistency (v9/img-v9, CSS?v=18, JS?v=20, manifest?v=
 
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
-  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=20', 'POST'), false);
+  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=21', 'POST'), false);
   assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
   assert.equal(await checkFetch('https://lh3.googleusercontent.com/d/abc12345=w400', 'GET'), true);
-  assert.ok(openedCaches.includes('creata-fotos-app-img-v9'));
-  assert.ok(openedCaches.includes('creata-fotos-app-v9'));
+  assert.ok(openedCaches.includes('creata-fotos-app-img-v10'));
+  assert.ok(openedCaches.includes('creata-fotos-app-v10'));
 });
 
 test('UX-6b: Mobile <=640px compact header/SUBIR PREN bar, 2-3 col gallery, concise labels, and intact product DOM IDs', () => {
@@ -1767,6 +1771,23 @@ test('UX-6b: Mobile <=640px compact header/SUBIR PREN bar, 2-3 col gallery, conc
   assert.match(m640Css, /\.subir-pren-source-btns\s*\{[^}]*grid-template-columns:\s*1fr 1fr auto/);
   assert.match(m640Css, /\.inbox-grid\s*\{[^}]*repeat\(auto-fill,\s*minmax\(112px,\s*1fr\)\)/);
   assert.match(m640Css, /\.header-actions\s*\{[^}]*flex-wrap:\s*wrap/);
+});
+
+test('UX-6c: Upload reliability fixes (MIME normalization, explicit server/auth error handling, rollback on failed pending upload, and non-blocking Apps Script inbox upload)', () => {
+  assert.match(FOTOS_APP_SRC, /function normalizeImageDataUrl\(/);
+  assert.match(FOTOS_APP_SRC, /function isAcceptedImageFile\(/);
+  assert.match(FOTOS_APP_SRC, /heic\|heif/i);
+  assert.match(FOTOS_APP_SRC, /if \(isOfflineNow \|\| !res \|\| res\.unavailable\)/);
+  assert.match(FOTOS_APP_SRC, /if \(res && res\.authRequired\)/);
+  assert.match(FOTOS_APP_SRC, /suppressSummaryFeedback:\s*true/);
+  assert.match(FOTOS_APP_SRC, /pendingUploadRes && !pendingUploadRes\.ok && !pendingUploadRes\.offlineQueued/);
+  assert.match(FOTOS_APP_SRC, /const CONCURRENCY = 2;/);
+
+  const gsSrc = fs.readFileSync(path.join(REPO_ROOT, 'AppsScript_Creata_Drive_Sheets.gs'), 'utf8');
+  const uploadHandlerMatch = gsSrc.match(/function handleFotosSubirUploadInbox_\(body\)[\s\S]*?\n\}/);
+  assert.ok(uploadHandlerMatch, 'handleFotosSubirUploadInbox_ must exist');
+  assert.ok(!uploadHandlerMatch[0].includes('LockService.getScriptLock'), 'handleFotosSubirUploadInbox_ must not hold global ScriptLock across Drive createFile');
+  assert.match(gsSrc, /function verifyExclusiveKevinOwner_\(ss, body\)\s*\{\s*const authCheck = resolveAuthenticatedAdvisor_\(ss \|\| null, \[\], body \|\| \{\}\);/);
 });
 
 test('UX-7: Preserved Kevin exclusive auth, Project A (SUBIR PREN) isolation, F8 removal, and pendingDeletes reliability', () => {

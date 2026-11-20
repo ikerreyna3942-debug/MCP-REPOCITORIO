@@ -9283,8 +9283,7 @@ function validateProjectASourceFile_(srcFile, contextLabel) {
 }
 
 function verifyExclusiveKevinOwner_(ss, body) {
-  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
-  const authCheck = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, body || {});
+  const authCheck = resolveAuthenticatedAdvisor_(ss || null, [], body || {});
   if (!authCheck || !authCheck.ok || !authCheck.advisor) {
     return {
       ok: false,
@@ -9694,49 +9693,42 @@ function handleFotosSyncSkus_(body) {
 }
 
 function handleFotosSubirUploadInbox_(body) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
-  try {
-    const ss = getSpreadsheet_();
-    const auth = verifyExclusiveKevinOwner_(ss, body);
-    if (!auth.ok) return auth;
+  const auth = verifyExclusiveKevinOwner_(null, body);
+  if (!auth.ok) return auth;
 
-    const dataUrl = String((body && body.dataUrl) || '');
-    const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-    if (!m) {
-      return { ok: false, error: 'Formato de imagen inválido.' };
-    }
-    const mime = m[1];
-    const base64Body = m[2];
-    const ext = mime.indexOf('webp') !== -1 ? 'webp' : (mime.indexOf('png') !== -1 ? 'png' : 'jpg');
-    const rawName = String((body && body.fileName) || ('foto-' + Date.now() + '.' + ext)).replace(/[\\/:*?"<>|]+/g, ' ').trim();
-    const finalName = /\.[a-z0-9]{2,5}$/i.test(rawName) ? rawName : (rawName + '.' + ext);
-    const bytes = Utilities.base64Decode(base64Body);
-    const blob = Utilities.newBlob(bytes, mime, finalName);
-
-    const resolved = resolveSubirInboxFolders_();
-    const inbox = resolved.primaryFolder || DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
-    const created = inbox.createFile(blob);
-    try {
-      created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (eSh) {}
-    const fid = created.getId();
-    return {
-      ok: true,
-      file: {
-        id: fid,
-        name: created.getName(),
-        mimeType: mime,
-        sizeBytes: Number(created.getSize() || 0) || 0,
-        updatedAt: new Date().toISOString(),
-        viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
-        thumbUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=w800'
-      },
-      files: (body && body.skipListReturn) ? undefined : listSubirInboxFilesInternal_()
-    };
-  } finally {
-    try { lock.releaseLock(); } catch (e) {}
+  const dataUrl = String((body && body.dataUrl) || '').trim();
+  const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!m) {
+    return { ok: false, error: 'Formato de imagen inválido.' };
   }
+  const mime = m[1];
+  const base64Body = m[2];
+  const ext = mime.indexOf('webp') !== -1 ? 'webp' : (mime.indexOf('png') !== -1 ? 'png' : 'jpg');
+  const rawName = String((body && body.fileName) || ('foto-' + Date.now() + '.' + ext)).replace(/[\\/:*?"<>|]+/g, ' ').trim();
+  const finalName = /\.[a-z0-9]{2,5}$/i.test(rawName) ? rawName : (rawName + '.' + ext);
+  const bytes = Utilities.base64Decode(base64Body);
+  const blob = Utilities.newBlob(bytes, mime, finalName);
+
+  const resolved = resolveSubirInboxFolders_();
+  const inbox = resolved.primaryFolder || DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
+  const created = inbox.createFile(blob);
+  try {
+    created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (eSh) {}
+  const fid = created.getId();
+  return {
+    ok: true,
+    file: {
+      id: fid,
+      name: created.getName(),
+      mimeType: mime,
+      sizeBytes: Number(created.getSize() || 0) || 0,
+      updatedAt: new Date().toISOString(),
+      viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
+      thumbUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=w800'
+    },
+    files: (body && body.skipListReturn) ? undefined : listSubirInboxFilesInternal_()
+  };
 }
 
 function handleFotosSubirAssign_(body) {
