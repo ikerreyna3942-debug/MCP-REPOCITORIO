@@ -1978,17 +1978,17 @@ input,
     }
     .exec-header-inner {
         flex-wrap: wrap;
-        padding: 6px 10px;
-        gap: 6px;
+        padding: 5px 8px;
+        gap: 5px;
     }
     .brand-cluster {
         gap: 6px;
     }
     .header-logo {
-        height: 22px;
+        height: 20px;
     }
     .header-divider {
-        height: 16px;
+        height: 15px;
     }
     .header-titles h1 {
         font-size: 13px;
@@ -1997,14 +1997,15 @@ input,
         flex-wrap: wrap;
         overflow-x: visible;
         width: 100%;
-        gap: 5px;
+        gap: 4px;
         padding-bottom: 0;
     }
     .header-actions .hdr-btn {
-        flex: 1 1 auto;
-        min-height: 36px;
-        padding: 0 8px;
-        font-size: 11px;
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 32px;
+        padding: 0 5px;
+        font-size: 10px;
         justify-content: center;
         white-space: nowrap;
     }
@@ -2039,12 +2040,27 @@ input,
         grid-template-columns: 1fr 1fr auto;
         gap: 6px;
     }
+    body.no-local-fs .subir-pren-source-btns {
+        grid-template-columns: 1fr auto;
+    }
+    body.no-local-fs #btnPickLocalSubirPrenFolder {
+        display: none !important;
+    }
     .subir-pren-source-btns .hdr-btn {
         width: 100%;
-        min-height: 38px;
+        min-height: 36px;
         padding: 0 10px;
         justify-content: center;
         font-size: 11.5px;
+    }
+    #btnAssignFoto,
+    .assign-actions-row .btn-primary-gold {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11.5px;
+        padding: 0 10px;
     }
     .sku-mini-thumb {
         width: 40px;
@@ -2500,4 +2516,23 @@ body.fotos-split-dragging .fotos-split-iframe {
     margin-top: 12px;
     display: flex;
     justify-content: flex-end;
+}
+
+/* Modo embebido dentro de CREATA Suite 3 en 1: barra mínima sin botones repetidos */
+body.is-suite-embed .suite-hide-in-embed {
+    display: none !important;
+}
+body.is-suite-embed .exec-header-inner {
+    flex-wrap: nowrap !important;
+    padding: 4px 8px !important;
+    gap: 6px !important;
+}
+body.is-suite-embed .header-actions {
+    width: auto !important;
+    flex: 0 0 auto !important;
+}
+body.is-suite-embed .header-actions .hdr-btn {
+    min-height: 30px !important;
+    padding: 0 8px !important;
+    font-size: 10.5px !important;
 }

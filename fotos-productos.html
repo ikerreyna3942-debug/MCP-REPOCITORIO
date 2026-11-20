@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=19">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=20">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -83,15 +83,15 @@
                 </div>
 
                 <div class="header-actions">
-                    <button type="button" id="btnInstallFotosApp" class="hdr-btn is-accent hidden" onclick="triggerInstallFotosApp()">📲 App</button>
-                    <button type="button" id="btnSplitWithCotizador" class="hdr-btn is-split-btn hide-on-xs" onclick="toggleSplitCotizadorInFotos()" title="Dividir con Cotizador">⬛⬜ Dividir con Cotizador</button>
-                    <a class="hdr-btn hide-on-xs" href="./panel.html">Panel</a>
-                    <a class="hdr-btn" href="./inventario.html">Cotizador</a>
-                    <a id="linkHeaderPrompts" class="hdr-btn" href="./prompts.html" title="Abrir Generador de Prompts IA">Prompts</a>
+                    <button type="button" id="btnInstallFotosApp" class="hdr-btn is-accent suite-hide-in-embed hidden" onclick="triggerInstallFotosApp()">📲 App</button>
+                    <button type="button" id="btnSplitWithCotizador" class="hdr-btn is-split-btn hide-on-xs suite-hide-in-embed" onclick="toggleSplitCotizadorInFotos()" title="Dividir con Cotizador">⬛⬜ Dividir con Cotizador</button>
+                    <a class="hdr-btn hide-on-xs suite-hide-in-embed" href="./panel.html">Panel</a>
+                    <a class="hdr-btn suite-hide-in-embed" href="./inventario.html">Cotizador</a>
+                    <a id="linkHeaderPrompts" class="hdr-btn suite-hide-in-embed" href="./prompts.html" title="Abrir Generador de Prompts IA">Prompts</a>
                     <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
                     <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn" onclick="refreshAllPhotoWorkspace(true)">↻ Fotos</button>
-                    <a class="hdr-btn hide-on-xs" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
-                    <button type="button" class="hdr-btn" onclick="lockFotosPortal()">Salir</button>
+                    <a class="hdr-btn hide-on-xs suite-hide-in-embed" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
+                    <button type="button" class="hdr-btn suite-hide-in-embed" onclick="lockFotosPortal()">Salir</button>
                 </div>
             </div>
         </header>
@@ -416,6 +416,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=22"></script>
+    <script src="./fotos-productos-app.js?v=23"></script>
 </body>
 </html>
