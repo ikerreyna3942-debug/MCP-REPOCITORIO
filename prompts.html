@@ -24,7 +24,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./prompts-styles.css?v=6">
+    <link rel="stylesheet" href="./prompts-styles.css?v=7">
 </head>
 <body>
 
@@ -54,7 +54,7 @@
                 <button
                     type="button"
                     id="btnInstallPromptsApp"
-                    class="tb-btn tb-btn-install"
+                    class="tb-btn tb-btn-install suite-hide-in-embed"
                     onclick="triggerPromptsInstall()"
                     title="Instalar en celular o PC como aplicación"
                 >📲 Descargar App</button>
@@ -67,13 +67,13 @@
                 >↻</button>
                 <button
                     type="button"
-                    class="tb-btn"
+                    class="tb-btn hide-xs"
                     onclick="openPromptsDirectTab()"
                     title="Abrir Estudio IA en pestaña directa (sin restricciones de iframe)"
                 >↗ Directo</button>
                 <a id="promptsKevinCotizadorLink" class="tb-btn hidden" href="./inventario.html" title="Ir al Cotizador CREATA">Cotizador</a>
                 <a id="promptsKevinFotosLink" class="tb-btn hidden" href="./fotos-productos.html" title="Ir a Subir Fotos CREATA">Fotos</a>
-                <a class="tb-btn hide-xs" href="./panel.html" title="Volver al Panel CREATA">Panel</a>
+                <a class="tb-btn hide-xs suite-hide-in-embed" href="./panel.html" title="Volver al Panel CREATA">Panel</a>
                 <button
                     type="button"
                     class="tb-btn tb-btn-icon"
@@ -430,6 +430,6 @@
     </div>
 
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./prompts-app.js?v=8"></script>
+    <script src="./prompts-app.js?v=9"></script>
 </body>
 </html>

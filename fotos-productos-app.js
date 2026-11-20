@@ -5675,6 +5675,11 @@
 
         try {
             const urlParams = new URLSearchParams(window.location.search || '');
+            const isInSuiteEmbed = urlParams.get('embed') === '1' || (typeof window !== 'undefined' && window.parent && window.parent !== window);
+            if (document.body) {
+                if (isInSuiteEmbed) document.body.classList.add('is-suite-embed');
+                if (typeof window.showDirectoryPicker !== 'function') document.body.classList.add('no-local-fs');
+            }
             if (urlParams.get('split') === '1') {
                 loadFotosSplitPrefs();
                 _fotosSplitActive = true;
@@ -5688,6 +5693,38 @@
                 window.selectSkuProduct(initialSkuParam, { skipBackSync: true, fromPeerSync: true });
             }
         } catch (eParam) {}
+
+        // Sincronizar pestaña activa inferior (1. SKU / 2. PRODUCTO / 3. GALERÍA) al hacer scroll en celular
+        if (typeof window.addEventListener === 'function' && typeof document.getElementById === 'function') {
+            let scrollRaf = 0;
+            const syncMobileTabOnScroll = () => {
+                scrollRaf = 0;
+                const ids = ['secSkuFinder', 'secProductCard', 'secInboxGallery'];
+                let activeId = ids[0];
+                const threshold = 140;
+                for (let i = 0; i < ids.length; i++) {
+                    const sec = document.getElementById(ids[i]);
+                    if (sec && typeof sec.getBoundingClientRect === 'function') {
+                        const rect = sec.getBoundingClientRect();
+                        if (rect.top <= threshold) activeId = ids[i];
+                    }
+                }
+                if (state.activeMobileSection !== activeId) {
+                    state.activeMobileSection = activeId;
+                    document.querySelectorAll('#mobileFotosJumpBar .mobile-jump-btn').forEach((b) => {
+                        b.classList.toggle('active', b.getAttribute('data-jump') === activeId);
+                    });
+                }
+            };
+            window.addEventListener('scroll', () => {
+                if (scrollRaf) return;
+                if (typeof window.requestAnimationFrame === 'function') {
+                    scrollRaf = window.requestAnimationFrame(syncMobileTabOnScroll);
+                } else {
+                    syncMobileTabOnScroll();
+                }
+            }, { passive: true });
+        }
     }
 
     if (document.readyState === 'loading') {

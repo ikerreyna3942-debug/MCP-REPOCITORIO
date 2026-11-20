@@ -79,11 +79,18 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
 
   const panelHtml = fs.readFileSync(path.join(REPO_ROOT, 'panel.html'), 'utf8');
   assert.match(panelHtml, /rel="manifest"\s+href="\.\/panel-manifest\.json\?v=1"/);
-  assert.match(panelHtml, /panel-styles\.css\?v=4/);
-  assert.match(panelHtml, /panel-app\.js\?v=9/);
+  assert.match(panelHtml, /panel-styles\.css\?v=5/);
+  assert.match(panelHtml, /panel-app\.js\?v=10/);
+  assert.match(panelHtml, /id="btnSuiteAdd"/);
+  assert.match(panelHtml, /id="suiteAddMenu"/);
+  assert.match(panelHtml, /id="suiteSlotTop"/);
+  assert.match(panelHtml, /id="suiteSlotBottom"/);
+  assert.match(panelHtml, /id="suiteSplitBar"/);
   assert.match(panelHtml, /id="btnInstallPanelApp"/);
   assert.match(panelHtml, /id="suiteGridContainer"/);
   assert.match(panelHtml, /id="panelInstallModal"/);
+  assert.ok(!panelHtml.includes('projectsGridContainer'), 'Extra Projects grid buttons must be removed');
+  assert.ok(!panelHtml.includes('sheetsGridContainer'), 'Extra Sheets grid buttons must be removed');
 
   // Brace balance check on panel-styles.css
   const panelCss = fs.readFileSync(path.join(REPO_ROOT, 'panel-styles.css'), 'utf8');
@@ -99,7 +106,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-prompts-app-v7', 'creata-fotos-app-v11', 'creata-inventario-v1'];
+  const existingKeys = ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-prompts-app-v9', 'creata-fotos-app-v13', 'creata-inventario-v1'];
   const swSandbox = {
     URL,
     AbortController,
@@ -126,7 +133,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys, ['creata-panel-app-v0']);
+  assert.deepEqual(deletedKeys, ['creata-panel-app-v0', 'creata-panel-app-v1']);
 
   const checkIntercept = (url, method = 'GET') => {
     let intercepted = false;
@@ -138,11 +145,11 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   };
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
-  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel-app.js?v=9', 'GET'), true);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel-app.js?v=10', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel.html', 'GET'), true);
 });
 
-test('Panel Suite runtime: renders 3-en-1 Suite cards, registers ./panel-sw.js with scope ./panel, and unwinds install_modal cleanly', () => {
+test('Panel Suite runtime: Kevin-only 3-en-1 workspace (+ Agregar Top/Bottom, swap, close, live frames, Back-nav unwind)', () => {
   const panelSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-app.js'), 'utf8');
   const backNavSrc = fs.readFileSync(path.join(REPO_ROOT, 'creata-back-nav.js'), 'utf8');
 
@@ -153,11 +160,13 @@ test('Panel Suite runtime: renders 3-en-1 Suite cards, registers ./panel-sw.js w
   const els = new Map();
   for (const id of [
     'hubGateBackdrop', 'hubMainShell', 'hubGateAlert', 'hubOwnerEmail', 'hubOwnerPassword',
-    'suiteGridContainer', 'projectsGridContainer', 'sheetsGridContainer',
+    'btnSuiteAdd', 'suiteAddMenu', 'suiteAddBackdrop', 'suiteGridContainer', 'suiteActiveChips',
+    'btnSuiteSwap', 'suiteWorkspace', 'suiteSlotTop', 'suiteSlotBottom', 'suiteSplitBar',
+    'suiteSplitTopName', 'suiteSplitBottomName', 'suiteSplitPct',
     'btnInstallPanelApp', 'panelInstallModal', 'panelNativeInstallBanner', 'panelCopyFeedback'
   ]) {
     const el = makeMockEl(id);
-    if (id === 'panelInstallModal' || id === 'panelNativeInstallBanner' || id === 'panelCopyFeedback') {
+    if (['panelInstallModal', 'panelNativeInstallBanner', 'panelCopyFeedback', 'suiteAddMenu', 'suiteAddBackdrop', 'suiteSlotBottom', 'suiteSplitBar', 'btnSuiteSwap'].includes(id)) {
       el.classList.add('hidden');
     }
     els.set(id, el);
@@ -229,12 +238,56 @@ test('Panel Suite runtime: renders 3-en-1 Suite cards, registers ./panel-sw.js w
   assert.equal(swRegistrations[0].url, './panel-sw.js');
   assert.equal(swRegistrations[0].opts.scope, './panel');
 
-  const suiteHtml = els.get('suiteGridContainer').innerHTML;
-  assert.match(suiteHtml, /href="\.\/inventario\.html"/);
-  assert.match(suiteHtml, /href="\.\/fotos-productos\.html"/);
-  assert.match(suiteHtml, /href="\.\/prompts\.html"/);
+  // Default: Cotizador mounted full screen on top slot
+  assert.equal(sandbox.getSuiteLayoutState().top, 'cotizador');
+  assert.equal(sandbox.getSuiteLayoutState().bottom, '');
+  assert.equal(els.get('suiteSlotTop').children.length, 1);
+  assert.equal(els.get('suiteSlotTop').children[0].src, './inventario.html?embed=1');
+  assert.equal(els.get('suiteSlotBottom').classList.contains('hidden'), true);
+  assert.equal(els.get('suiteSplitBar').classList.contains('hidden'), true);
 
-  // Open & close install modal via Back action and lockHubPortal
+  // Open "+ Agregar" menu -> lists ONLY the 3 apps with Arriba / Abajo buttons
+  sandbox.toggleSuiteAddMenu(true);
+  assert.equal(els.get('suiteAddMenu').classList.contains('hidden'), false);
+  const addHtml = els.get('suiteGridContainer').innerHTML;
+  assert.match(addHtml, /Cotizador/);
+  assert.match(addHtml, /Carga de Fotos/);
+  assert.match(addHtml, /Prompts IA/);
+  assert.match(addHtml, /placeSuiteApp\('fotos', 'bottom'\)/);
+  assert.match(addHtml, /placeSuiteApp\('prompts', 'top'\)/);
+
+  // Add Carga de Fotos to bottom -> activates split screen
+  sandbox.placeSuiteApp('fotos', 'bottom');
+  assert.equal(els.get('suiteAddMenu').classList.contains('hidden'), true);
+  assert.equal(sandbox.getSuiteLayoutState().top, 'cotizador');
+  assert.equal(sandbox.getSuiteLayoutState().bottom, 'fotos');
+  assert.equal(els.get('suiteWorkspace').classList.contains('is-split'), true);
+  assert.equal(els.get('suiteSlotBottom').classList.contains('hidden'), false);
+  assert.equal(els.get('suiteSlotBottom').children[0].src, './fotos-productos.html?embed=1');
+
+  // Swap top & bottom preserves live iframe instances without recreating
+  const cotFrame = els.get('suiteSlotTop').children[0];
+  const fotFrame = els.get('suiteSlotBottom').children[0];
+  sandbox.swapSuiteSlots();
+  assert.equal(sandbox.getSuiteLayoutState().top, 'fotos');
+  assert.equal(sandbox.getSuiteLayoutState().bottom, 'cotizador');
+  assert.equal(els.get('suiteSlotTop').children[0], fotFrame);
+  assert.equal(els.get('suiteSlotBottom').children[0], cotFrame);
+
+  // Place Prompts IA on top, then close bottom -> Prompts takes full screen
+  sandbox.placeSuiteApp('prompts', 'top');
+  assert.equal(els.get('suiteSlotTop').children[0].src, './prompts.html?embed=1');
+  sandbox.removeSuiteSlot('bottom');
+  assert.equal(sandbox.getSuiteLayoutState().bottom, '');
+  assert.equal(els.get('suiteWorkspace').classList.contains('is-split'), false);
+
+  // Back action unwinds add_menu & install_modal cleanly
+  sandbox.toggleSuiteAddMenu(true);
+  const backAdd = sandbox.handlePanelBackAction({ source: 'manual' });
+  assert.equal(backAdd.handled, true);
+  assert.equal(backAdd.stepId, 'add_menu');
+  assert.equal(els.get('suiteAddMenu').classList.contains('hidden'), true);
+
   sandbox.openPanelInstallModal();
   assert.equal(els.get('panelInstallModal').classList.contains('hidden'), false);
   const backRes = sandbox.handlePanelBackAction({ source: 'manual' });

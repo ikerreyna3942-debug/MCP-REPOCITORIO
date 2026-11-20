@@ -543,7 +543,7 @@ html, body {
 /* ===== RESPONSIVE CELULAR ===== */
 @media (max-width: 640px) {
     :root {
-        --bar-h: 40px;
+        --bar-h: 44px;
     }
 
     .prompts-topbar {
@@ -560,18 +560,20 @@ html, body {
         font-size: 10px;
     }
 
-    .hide-xs {
+    .hide-xs,
+    #promptsKevinCotizadorLink,
+    #promptsKevinFotosLink {
         display: none !important;
     }
 
     .tb-btn {
-        height: 27px;
-        padding: 0 8px;
+        height: 34px;
+        padding: 0 9px;
         font-size: 11px;
     }
 
     .tb-btn-icon {
-        width: 27px;
+        width: 34px;
         padding: 0;
     }
 
@@ -591,7 +593,7 @@ html, body {
 
 @media (max-width: 440px) {
     .prompts-topbar {
-        padding: 0 5px;
+        padding: 0 6px;
         gap: 4px;
     }
 
@@ -602,8 +604,8 @@ html, body {
     }
 
     .topbar-icon {
-        width: 20px;
-        height: 20px;
+        width: 22px;
+        height: 22px;
     }
 
     .topbar-title-wrap {
@@ -612,8 +614,8 @@ html, body {
     }
 
     .topbar-title {
-        font-size: 11px;
-        max-width: 96px;
+        font-size: 11.5px;
+        max-width: 110px;
     }
 
     .status-pill {
@@ -625,17 +627,17 @@ html, body {
     }
 
     .topbar-actions {
-        gap: 3px;
+        gap: 4px;
     }
 
     .tb-btn {
-        height: 26px;
-        padding: 0 6px;
-        font-size: 10px;
+        height: 32px;
+        padding: 0 8px;
+        font-size: 10.5px;
     }
 
     .tb-btn-icon {
-        width: 25px;
+        width: 32px;
         padding: 0;
     }
 }
@@ -1126,4 +1128,18 @@ html, body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Modo embebido dentro de CREATA Suite 3 en 1: barra mínima sin botones repetidos */
+body.is-suite-embed .suite-hide-in-embed {
+    display: none !important;
+}
+body.is-suite-embed {
+    --bar-h: 36px;
+}
+body.is-suite-embed .tb-btn {
+    height: 28px;
+}
+body.is-suite-embed .tb-btn-icon {
+    width: 28px;
 }

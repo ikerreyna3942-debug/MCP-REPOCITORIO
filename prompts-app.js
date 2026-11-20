@@ -1294,7 +1294,14 @@
     }
 
     function syncKevinSuiteNavLinks() {
-        const isEmbedded = !!(typeof window !== 'undefined' && window.parent && window.parent !== window);
+        let embedParam = false;
+        try {
+            embedParam = new URLSearchParams((typeof location !== 'undefined' && location.search) || '').get('embed') === '1';
+        } catch (e) {}
+        const isEmbedded = embedParam || !!(typeof window !== 'undefined' && window.parent && window.parent !== window);
+        if (typeof document !== 'undefined' && document.body && document.body.classList) {
+            document.body.classList.toggle('is-suite-embed', isEmbedded);
+        }
         const showLinks = !isEmbedded && hasActiveKevinOwnerSession();
         const cotLink = byId('promptsKevinCotizadorLink');
         const fotosLink = byId('promptsKevinFotosLink');
