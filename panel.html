@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./panel-styles.css?v=5">
+    <link rel="stylesheet" href="./panel-styles.css?v=6">
 </head>
 <body>
 
@@ -60,7 +60,7 @@
         </div>
     </section>
 
-    <!-- SUITE 3 EN 1 EXCLUSIVA KEVIN: BARRA MÍNIMA (+ AGREGAR) + PANEL ARRIBA / ABAJO -->
+    <!-- SUITE 3 EN 1 EXCLUSIVA KEVIN: BARRA MÍNIMA (+ AGREGAR) + ARRIBA / ABAJO / IZQUIERDA / DERECHA -->
     <div id="hubMainShell" class="suite-shell hidden">
         <header class="suite-topbar" aria-label="Barra Suite 3 en 1">
             <div class="suite-topbar-left">
@@ -79,18 +79,26 @@
             <div class="suite-topbar-right">
                 <button
                     type="button"
+                    id="btnSuiteOrientation"
+                    class="suite-ico-btn hidden"
+                    onclick="toggleSuiteOrientation()"
+                    title="Cambiar entre arriba/abajo y lado a lado"
+                    aria-label="Cambiar entre arriba/abajo y lado a lado"
+                >◫</button>
+                <button
+                    type="button"
                     id="btnSuiteSwap"
                     class="suite-ico-btn hidden"
                     onclick="swapSuiteSlots()"
-                    title="Intercambiar arriba y abajo"
-                    aria-label="Intercambiar arriba y abajo"
+                    title="Intercambiar paneles"
+                    aria-label="Intercambiar paneles"
                 >⇅</button>
                 <button
                     type="button"
                     id="btnInstallPanelApp"
                     class="suite-ico-btn suite-install-btn"
                     onclick="triggerPanelInstall()"
-                    title="Instalar Suite en celular o PC"
+                    title="Instalar Suite como app independiente"
                     aria-label="Instalar Suite"
                 >📲</button>
                 <button
@@ -104,13 +112,13 @@
             </div>
         </header>
 
-        <!-- MENÚ DESPLEGABLE "+ AGREGAR" (SOLO LAS 3 APPS · ARRIBA / ABAJO) -->
+        <!-- MENÚ DESPLEGABLE "+ AGREGAR" (SOLO LAS 3 APPS · ARRIBA / ABAJO / IZQUIERDA / DERECHA) -->
         <div id="suiteAddBackdrop" class="suite-menu-backdrop hidden" onclick="closeSuiteAddMenu()"></div>
         <div
             id="suiteAddMenu"
             class="suite-add-menu hidden"
             role="dialog"
-            aria-label="Agregar aplicación arriba o abajo"
+            aria-label="Agregar aplicación arriba, abajo, izquierda o derecha"
         >
             <div class="suite-menu-head">
                 <span>Elige app y posición</span>
@@ -119,48 +127,52 @@
             <div id="suiteGridContainer" class="suite-add-list"></div>
         </div>
 
-        <!-- ÁREA DE TRABAJO EN VIVO (1 APP A PANTALLA COMPLETA O 2 APPS ARRIBA / ABAJO) -->
+        <!-- ÁREA DE TRABAJO EN VIVO (1 APP A PANTALLA COMPLETA O 2 APPS ARRIBA/ABAJO O LADO A LADO) -->
         <main id="suiteWorkspace" class="suite-workspace">
-            <section id="suiteSlotTop" class="suite-slot" data-slot="top" aria-label="Panel superior"></section>
+            <section id="suiteSlotTop" class="suite-slot" data-slot="top" aria-label="Panel principal"></section>
 
             <div
                 id="suiteSplitBar"
                 class="suite-split-bar hidden"
                 role="separator"
                 aria-orientation="horizontal"
-                aria-label="Ajustar tamaño arriba y abajo"
+                aria-label="Arrastra para ajustar tamaño (doble toque = 50%)"
+                title="Arrastra para ajustar tamaño (doble toque = 50%)"
             >
                 <span id="suiteSplitTopName" class="suite-split-lbl"></span>
                 <div class="suite-split-handle">
-                    <span class="suite-split-dots" aria-hidden="true">══</span>
+                    <span id="suiteSplitDots" class="suite-split-dots" aria-hidden="true">══</span>
                     <span id="suiteSplitPct" class="suite-split-pct">50%</span>
                 </div>
                 <span id="suiteSplitBottomName" class="suite-split-lbl"></span>
             </div>
 
-            <section id="suiteSlotBottom" class="suite-slot hidden" data-slot="bottom" aria-label="Panel inferior"></section>
+            <section id="suiteSlotBottom" class="suite-slot hidden" data-slot="bottom" aria-label="Panel secundario"></section>
         </main>
     </div>
 
-    <!-- MODAL DE INSTALACIÓN PWA (SUITE CREATA) -->
+    <!-- MODAL DE INSTALACIÓN PWA (SUITE CREATA INDEPENDIENTE) -->
     <div id="panelInstallModal" class="panel-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="panelInstallModalTitle" onclick="if(event.target===this) closePanelInstallModal()">
         <div class="panel-modal-card" onclick="event.stopPropagation()">
             <div class="panel-modal-head">
                 <div>
-                    <div class="panel-modal-eyebrow">SUITE 3 EN 1 · EXCLUSIVA KEVIN</div>
+                    <div class="panel-modal-eyebrow">APP INDEPENDIENTE · SIN BARRA SUPERIOR</div>
                     <h3 id="panelInstallModalTitle">📲 Instalar CREATA Suite</h3>
                 </div>
                 <button type="button" id="btnClosePanelInstallModal" class="panel-modal-close" aria-label="Cerrar" onclick="closePanelInstallModal()">✕</button>
             </div>
             <div class="panel-modal-body">
-                <p>Instala un solo ícono en tu celular o PC con <strong>Cotizador</strong>, <strong>Carga de Fotos</strong> y <strong>Prompts IA</strong>:</p>
+                <p>Instala <strong>CREATA Suite</strong> como aplicación independiente (pantalla completa sin barra superior) con <strong>Cotizador</strong>, <strong>Carga de Fotos</strong> y <strong>Prompts IA</strong>:</p>
                 <div id="panelNativeInstallBanner" class="panel-native-banner hidden">
-                    <button type="button" class="btn-gold" onclick="triggerPanelInstall()">Instalar ahora</button>
+                    <button type="button" class="btn-gold" onclick="triggerPanelInstall()">📲 Instalar ahora</button>
+                </div>
+                <div id="panelStandaloneBreakout" class="panel-native-banner">
+                    <a class="btn-gold panel-breakout-link" href="./suite/" target="_blank" rel="noopener">🚀 Abrir app independiente para instalar</a>
                 </div>
                 <div class="panel-install-steps">
                     <div class="panel-install-step">
                         <strong>📱 Android / Chrome / PC:</strong>
-                        <span>Abre el menú <strong>(⋮)</strong> y toca <strong>"Instalar aplicación"</strong> o <strong>"Agregar a pantalla de inicio"</strong>.</span>
+                        <span>Abre la app independiente en Chrome, toca el menú <strong>(⋮)</strong> y elige <strong>"Instalar aplicación"</strong>.</span>
                     </div>
                     <div class="panel-install-step">
                         <strong>🍏 iPhone / iPad (Safari):</strong>
@@ -179,6 +191,6 @@
     <script src="./creata-logo.js?v=32"></script>
     <script src="./creata-cloud.js?v=32"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./panel-app.js?v=10"></script>
+    <script src="./panel-app.js?v=11"></script>
 </body>
 </html>

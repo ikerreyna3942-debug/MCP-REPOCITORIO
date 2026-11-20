@@ -75,6 +75,7 @@ Disallow: /inventario.html
 Disallow: /seguimiento.html
 Disallow: /historial.html
 Disallow: /panel.html
+Disallow: /suite/
 Disallow: /fotos-productos.html
 Disallow: /prompts.html
 Disallow: /seguimiento-manual.html
