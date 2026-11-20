@@ -87,6 +87,7 @@
                     <button type="button" id="btnSplitWithCotizador" class="hdr-btn is-split-btn hide-on-xs" onclick="toggleSplitCotizadorInFotos()" title="Dividir con Cotizador">⬛⬜ Dividir con Cotizador</button>
                     <a class="hdr-btn hide-on-xs" href="./panel.html">Panel</a>
                     <a class="hdr-btn" href="./inventario.html">Cotizador</a>
+                    <a id="linkHeaderPrompts" class="hdr-btn" href="./prompts.html" title="Abrir Generador de Prompts IA">Prompts</a>
                     <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
                     <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn" onclick="refreshAllPhotoWorkspace(true)">↻ Fotos</button>
                     <a class="hdr-btn hide-on-xs" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja "1"</a>
@@ -361,9 +362,11 @@
                 <span id="fotosSplitRatioBadge" class="fotos-split-ratio-lbl">50% / 50%</span>
             </div>
             <div class="fotos-split-presets" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()">
+                <button type="button" id="btnFotosSplitTargetCotizador" class="fotos-split-chip active" onclick="setFotosSplitTarget('cotizador')" title="Mostrar Cotizador en pantalla dividida">Cotizador</button>
+                <button type="button" id="btnFotosSplitTargetPrompts" class="fotos-split-chip" onclick="setFotosSplitTarget('prompts')" title="Mostrar Prompts IA en pantalla dividida">Prompts</button>
                 <button type="button" class="fotos-split-chip" onclick="setFotosSplitPreset(68)" title="Más espacio para Fotos (68% / 32%)">70/30</button>
                 <button type="button" class="fotos-split-chip" onclick="setFotosSplitPreset(50)" title="Mitad y mitad (50% / 50%)">50/50</button>
-                <button type="button" class="fotos-split-chip" onclick="setFotosSplitPreset(32)" title="Más espacio para Cotizador (32% / 68%)">30/70</button>
+                <button type="button" class="fotos-split-chip" onclick="setFotosSplitPreset(32)" title="Más espacio para el panel derecho (32% / 68%)">30/70</button>
                 <button type="button" id="btnFotosSplitAxis" class="fotos-split-chip" onclick="toggleFotosSplitAxis()" title="Cambiar orientación (Lado a lado / Arriba y abajo)">↔ / ↕</button>
                 <button type="button" class="fotos-split-chip is-close" onclick="closeFotosSplitCotizador()" title="Cerrar pantalla dividida">✕</button>
             </div>
@@ -413,6 +416,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=21"></script>
+    <script src="./fotos-productos-app.js?v=22"></script>
 </body>
 </html>

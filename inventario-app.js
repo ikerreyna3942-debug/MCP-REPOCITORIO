@@ -7558,6 +7558,8 @@
         const fabSeguimientoBtn = document.getElementById('fabSeguimientoBtn');
         const fabUploadPhotoBtn = document.getElementById('fabUploadPhotoBtn');
         const fabSplitFotosBtn = document.getElementById('fabSplitFotosBtn');
+        const fabPromptsBtn = document.getElementById('fabPromptsBtn');
+        const fabPanelSuiteBtn = document.getElementById('fabPanelSuiteBtn');
         const fabSettingsBtn = document.getElementById('fabSettingsBtn');
         const headerRoleModePill = document.getElementById('headerRoleModePill');
         const uploadPhotoAppFotosLink = document.getElementById('uploadPhotoAppFotosLink');
@@ -7588,6 +7590,8 @@
         if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', guestMode);
         if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canUploadDrivePhotos);
         if (fabSplitFotosBtn) fabSplitFotosBtn.classList.toggle('hidden', !isOwnerFotos);
+        if (fabPromptsBtn) fabPromptsBtn.classList.toggle('hidden', !isOwnerFotos);
+        if (fabPanelSuiteBtn) fabPanelSuiteBtn.classList.toggle('hidden', !isOwnerFotos);
         if (fabSettingsBtn) fabSettingsBtn.classList.toggle('hidden', !isAuthed || guestMode);
         if (uploadPhotoAppFotosLink) uploadPhotoAppFotosLink.classList.toggle('hidden', !isOwnerFotos);
         if (uploadPhotoSplitBtn) uploadPhotoSplitBtn.classList.toggle('hidden', !isOwnerFotos);
@@ -13496,6 +13500,11 @@
     let _invSplitActive = false;
     let _invSplitPct = 50;
     let _invSplitVertical = false;
+    let _invSplitTarget = 'fotos';
+
+    function getInvSplitTargetUrl(target) {
+        return target === 'prompts' ? './prompts.html' : './fotos-productos.html?embed=1';
+    }
 
     function loadInvSplitPrefs() {
         try {
@@ -13522,6 +13531,8 @@
         const badge = document.getElementById('invSplitRatioBadge');
         const fabLbl = document.getElementById('fabSplitFotosBtnLabel');
         const frame = document.getElementById('invSplitFotosFrame');
+        const btnFotos = document.getElementById('btnInvSplitTargetFotos');
+        const btnPrompts = document.getElementById('btnInvSplitTargetPrompts');
 
         document.body.classList.toggle('inv-split-active', _invSplitActive);
         document.body.classList.toggle('inv-split-vertical', _invSplitActive && _invSplitVertical);
@@ -13535,10 +13546,15 @@
         if (badge) {
             badge.textContent = _invSplitPct + '% / ' + (100 - _invSplitPct) + '%';
         }
+        if (btnFotos) btnFotos.classList.toggle('active', _invSplitTarget !== 'prompts');
+        if (btnPrompts) btnPrompts.classList.toggle('active', _invSplitTarget === 'prompts');
         if (_invSplitActive && frame) {
+            const targetUrl = getInvSplitTargetUrl(_invSplitTarget);
             const loadedSrc = (frame.dataset && frame.dataset.loadedSrc) || frame.getAttribute('src') || '';
-            if (!loadedSrc || loadedSrc === 'about:blank') {
-                const targetUrl = './fotos-productos.html?embed=1';
+            if (!loadedSrc || loadedSrc === 'about:blank' || loadedSrc !== targetUrl) {
+                if (typeof frame.setAttribute === 'function') {
+                    frame.setAttribute('title', _invSplitTarget === 'prompts' ? 'Generador de Prompts IA' : 'App de Subir Fotos por Categoría');
+                }
                 if (window.CreataBackNav && typeof window.CreataBackNav.replaceIframeUrl === 'function') {
                     window.CreataBackNav.replaceIframeUrl(frame, targetUrl);
                 } else {
@@ -13591,7 +13607,7 @@
         };
 
         try {
-            if (_invSplitActive) {
+            if (_invSplitActive && _invSplitTarget === 'fotos') {
                 const frame = document.getElementById('invSplitFotosFrame');
                 if (frame && frame.contentWindow && typeof frame.contentWindow.postMessage === 'function') {
                     frame.contentWindow.postMessage(msg, '*');
@@ -13605,6 +13621,37 @@
             }
         } catch (e2) {}
     }
+
+    window.setInvSplitTarget = function (target) {
+        if (!isFotosAppOwner()) {
+            _invSplitActive = false;
+            applyInvSplitDomState();
+            return;
+        }
+        const nextTarget = target === 'prompts' ? 'prompts' : 'fotos';
+        _invSplitTarget = nextTarget;
+        if (!_invSplitActive) {
+            loadInvSplitPrefs();
+            _invSplitActive = true;
+            applyInvSplitDomState();
+            notifyInvBackStatePush('split_fotos_dock');
+        } else {
+            applyInvSplitDomState();
+        }
+        if (_invSplitTarget === 'fotos' && currentDetailItem && currentDetailItem.s) {
+            setTimeout(() => notifyInvSplitFotosOfSku(currentDetailItem.s), 450);
+        }
+    };
+
+    window.openPromptsFromCotizador = function () {
+        if (!isFotosAppOwner()) return;
+        window.location.href = './prompts.html';
+    };
+
+    window.openPanelFromCotizador = function () {
+        if (!isFotosAppOwner()) return;
+        window.location.href = './panel.html';
+    };
 
     window.setInvSplitPreset = function (pctVal) {
         const p = Math.max(20, Math.min(80, Math.round(Number(pctVal) || 50)));
@@ -13635,7 +13682,7 @@
             _invSplitActive = true;
             applyInvSplitDomState();
             notifyInvBackStatePush('split_fotos_dock');
-            if (currentDetailItem && currentDetailItem.s) {
+            if (_invSplitTarget === 'fotos' && currentDetailItem && currentDetailItem.s) {
                 setTimeout(() => notifyInvSplitFotosOfSku(currentDetailItem.s), 450);
             }
         } else {

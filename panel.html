@@ -2,14 +2,24 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow, noarchive">
-    <meta name="description" content="Panel de accesos directos CREATA Muebles.">
-    <title>Panel CREATA</title>
+    <meta name="description" content="Suite instalable exclusiva para Kevin: Cotizador, Subir Fotos y Prompts IA en una sola app.">
+    <meta name="theme-color" content="#252C32">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CREATA Suite">
+    <meta name="application-name" content="CREATA Suite">
+    <title>Panel CREATA · Suite</title>
+    <link rel="manifest" href="./panel-manifest.json?v=1">
+    <link rel="icon" type="image/png" sizes="192x192" href="./inventario-icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="./inventario-icon-512.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./inventario-apple-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./panel-styles.css?v=3">
+    <link rel="stylesheet" href="./panel-styles.css?v=4">
 </head>
 <body>
 
@@ -50,7 +60,7 @@
         </div>
     </section>
 
-    <!-- PANEL MINIMALISTA DE BOTONES DIRECTOS -->
+    <!-- PANEL MINIMALISTA DE BOTONES DIRECTOS + SUITE 3 EN 1 -->
     <div id="hubMainShell" class="hidden">
         <header class="top-bar">
             <div class="top-bar-inner">
@@ -58,12 +68,18 @@
                     <img data-creata-logo alt="CREATA" class="brand-logo">
                     <h1>Panel CREATA</h1>
                 </div>
-                <button type="button" class="top-btn" onclick="lockHubPortal()">Salir</button>
+                <div class="top-bar-actions">
+                    <button type="button" id="btnInstallPanelApp" class="top-btn top-btn-install" onclick="triggerPanelInstall()" title="Instalar Suite CREATA en celular o PC">📲 Instalar App</button>
+                    <button type="button" class="top-btn" onclick="lockHubPortal()">Salir</button>
+                </div>
             </div>
         </header>
 
         <main class="hub-container">
-            <h2 class="section-label">Proyectos</h2>
+            <h2 class="section-label section-label-suite">Suite 3 en 1 · Acceso Directo</h2>
+            <nav id="suiteGridContainer" class="suite-grid" aria-label="Suite CREATA 3 en 1"></nav>
+
+            <h2 class="section-label section-label-projects">Proyectos</h2>
             <nav id="projectsGridContainer" class="projects-grid" aria-label="Proyectos"></nav>
 
             <h2 class="section-label section-label-sheets">Google Sheets</h2>
@@ -71,9 +87,43 @@
         </main>
     </div>
 
+    <!-- MODAL DE INSTALACIÓN PWA (SUITE CREATA) -->
+    <div id="panelInstallModal" class="panel-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="panelInstallModalTitle" onclick="if(event.target===this) closePanelInstallModal()">
+        <div class="panel-modal-card" onclick="event.stopPropagation()">
+            <div class="panel-modal-head">
+                <div>
+                    <div class="panel-modal-eyebrow">APP UNIFICADA · EXCLUSIVA KEVIN</div>
+                    <h3 id="panelInstallModalTitle">📲 Instalar Suite CREATA</h3>
+                </div>
+                <button type="button" id="btnClosePanelInstallModal" class="panel-modal-close" aria-label="Cerrar" onclick="closePanelInstallModal()">✕</button>
+            </div>
+            <div class="panel-modal-body">
+                <p>Instala un solo ícono en tu celular o PC para entrar directo al <strong>Cotizador</strong>, <strong>Subir Fotos</strong> y <strong>Prompts IA</strong>:</p>
+                <div id="panelNativeInstallBanner" class="panel-native-banner hidden">
+                    <button type="button" class="btn-gold" onclick="triggerPanelInstall()">Instalar ahora</button>
+                </div>
+                <div class="panel-install-steps">
+                    <div class="panel-install-step">
+                        <strong>📱 Android / Chrome / PC:</strong>
+                        <span>Abre el menú del navegador <strong>(⋮)</strong> y toca <strong>"Instalar aplicación"</strong> o <strong>"Agregar a pantalla de inicio"</strong>.</span>
+                    </div>
+                    <div class="panel-install-step">
+                        <strong>🍏 iPhone / iPad (Safari):</strong>
+                        <span>Toca <strong>Compartir (□↑)</strong> abajo y elige <strong>"Agregar a inicio"</strong>.</span>
+                    </div>
+                </div>
+                <div class="panel-modal-foot">
+                    <button type="button" class="panel-copy-btn" onclick="copyPanelAppLink()">📋 Copiar enlace</button>
+                    <button type="button" class="btn-gold panel-done-btn" onclick="closePanelInstallModal()">Listo</button>
+                </div>
+                <div id="panelCopyFeedback" class="panel-copy-feedback hidden" aria-live="polite"></div>
+            </div>
+        </div>
+    </div>
+
     <script src="./creata-logo.js?v=32"></script>
     <script src="./creata-cloud.js?v=32"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./panel-app.js?v=8"></script>
+    <script src="./panel-app.js?v=9"></script>
 </body>
 </html>

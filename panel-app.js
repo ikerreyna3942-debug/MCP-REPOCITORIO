@@ -35,10 +35,17 @@
         { title: 'Base de Datos Generales',  ref: '#6 · #7',           url: 'https://docs.google.com/spreadsheets/d/1ZCLZppO5AH06Wp2gVuxMoaeX3oJwVHgTjRZ7hlqb6eg/edit' }
     ];
 
+    const SUITE_APPS = [
+        { id: 'cotizador', icon: '📋', title: 'Cotizador',   sub: 'Inventario + Pantalla dividida', url: './inventario.html', openModule: 'inventario' },
+        { id: 'fotos',     icon: '📷', title: 'Subir Fotos', sub: 'Categorías Drive + Hoja 1',      url: './fotos-productos.html' },
+        { id: 'prompts',   icon: '✨', title: 'Prompts IA',  sub: 'Estudio IA + Odoo / Sheet',      url: './prompts.html' }
+    ];
+
     const SHEET_ICON_SVG = '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="2" y1="6.5" x2="14" y2="6.5"/><line x1="2" y1="10.5" x2="14" y2="10.5"/><line x1="6.5" y1="2" x2="6.5" y2="14"/></svg>';
 
     let unlocked = false;
     let panelBackNav = null;
+    let deferredPanelInstallPrompt = null;
 
     function cleanStr(v) {
         return v === null || v === undefined ? '' : String(v).trim();
@@ -293,6 +300,36 @@
     }
 
     function renderButtons() {
+        const suiteGrid = document.getElementById('suiteGridContainer');
+        if (suiteGrid) {
+            suiteGrid.innerHTML = SUITE_APPS.map((app, idx) => (
+                '<div class="suite-card" data-suite-id="' + escapeHtml(app.id) + '">' +
+                    '<a class="suite-card-main" data-suite-idx="' + idx + '" href="' + escapeHtml(app.url) + '">' +
+                        '<span class="suite-card-ico" aria-hidden="true">' + app.icon + '</span>' +
+                        '<span class="suite-card-meta">' +
+                            '<span class="suite-card-title">' + escapeHtml(app.title) + '</span>' +
+                            '<span class="suite-card-sub">' + escapeHtml(app.sub) + '</span>' +
+                        '</span>' +
+                    '</a>' +
+                    '<a class="suite-card-ext" data-suite-idx="' + idx + '" href="' + escapeHtml(app.url) + '" target="_blank" rel="noopener" title="Abrir en pestaña nueva" aria-label="Abrir ' + escapeHtml(app.title) + ' en pestaña nueva">↗</a>' +
+                '</div>'
+            )).join('');
+            if (!suiteGrid.dataset.creataBoundSuite) {
+                suiteGrid.dataset.creataBoundSuite = '1';
+                const onSuiteLaunch = (ev) => {
+                    const link = ev.target && ev.target.closest ? ev.target.closest('a[data-suite-idx]') : null;
+                    if (!link) return;
+                    const idx = parseInt(link.getAttribute('data-suite-idx'), 10);
+                    const app = !isNaN(idx) ? SUITE_APPS[idx] : null;
+                    if (app && app.openModule) {
+                        prepareModuleLaunch(app.openModule);
+                    }
+                };
+                suiteGrid.addEventListener('click', onSuiteLaunch);
+                suiteGrid.addEventListener('auxclick', onSuiteLaunch);
+            }
+        }
+
         const grid = document.getElementById('projectsGridContainer');
         if (grid) {
             grid.innerHTML = PROJECTS.map((p, idx) => (
@@ -364,9 +401,106 @@
         }
     }
 
+    function isPanelElHidden(id) {
+        const el = document.getElementById(id);
+        return !el || el.classList.contains('hidden');
+    }
+
+    function isPanelStandaloneMode() {
+        try {
+            if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+            if (typeof navigator !== 'undefined' && navigator.standalone === true) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function syncPanelInstallControls() {
+        const btn = document.getElementById('btnInstallPanelApp');
+        const banner = document.getElementById('panelNativeInstallBanner');
+        const standalone = isPanelStandaloneMode();
+        if (btn) {
+            btn.classList.toggle('hidden', standalone);
+            btn.textContent = deferredPanelInstallPrompt ? '📲 Instalar App' : '📲 Instalar';
+        }
+        if (banner) {
+            banner.classList.toggle('hidden', !deferredPanelInstallPrompt || standalone);
+        }
+    }
+
+    function registerPanelServiceWorker() {
+        try {
+            if (typeof navigator === 'undefined' || !navigator.serviceWorker || typeof navigator.serviceWorker.register !== 'function') {
+                return;
+            }
+            if (typeof location !== 'undefined' && !/^https?:$/.test(location.protocol || '')) return;
+            navigator.serviceWorker.register('./panel-sw.js', { scope: './panel' }).catch(() => {});
+        } catch (e) {}
+    }
+
+    window.openPanelInstallModal = function () {
+        const modal = document.getElementById('panelInstallModal');
+        const fb = document.getElementById('panelCopyFeedback');
+        if (fb) { fb.textContent = ''; fb.classList.add('hidden'); }
+        syncPanelInstallControls();
+        if (modal) {
+            modal.classList.remove('hidden');
+            if (panelBackNav && typeof panelBackNav.syncDepthOnUserAction === 'function') {
+                panelBackNav.syncDepthOnUserAction('install_modal');
+            }
+        }
+    };
+
+    window.closePanelInstallModal = function () {
+        const modal = document.getElementById('panelInstallModal');
+        if (modal) modal.classList.add('hidden');
+    };
+
+    window.triggerPanelInstall = async function () {
+        if (deferredPanelInstallPrompt && typeof deferredPanelInstallPrompt.prompt === 'function') {
+            try {
+                deferredPanelInstallPrompt.prompt();
+                await deferredPanelInstallPrompt.userChoice;
+            } catch (e) {}
+            deferredPanelInstallPrompt = null;
+            syncPanelInstallControls();
+            window.closePanelInstallModal();
+            return;
+        }
+        window.openPanelInstallModal();
+    };
+
+    window.copyPanelAppLink = async function () {
+        const fb = document.getElementById('panelCopyFeedback');
+        const appUrl = (typeof location !== 'undefined' && location.origin && location.pathname)
+            ? (location.origin + location.pathname)
+            : 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel.html';
+        let copied = false;
+        try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(appUrl);
+                copied = true;
+            }
+        } catch (e) {}
+        if (!copied) {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = appUrl;
+                document.body.appendChild(ta);
+                if (typeof ta.select === 'function') ta.select();
+                copied = document.execCommand ? !!document.execCommand('copy') : false;
+                if (ta.parentNode) ta.parentNode.removeChild(ta);
+            } catch (e2) {}
+        }
+        if (fb) {
+            fb.textContent = copied ? 'Enlace copiado: ' + appUrl : appUrl;
+            fb.classList.remove('hidden');
+        }
+    };
+
     window.lockHubPortal = function () {
         unlocked = false;
         stopPanelPresenceHeartbeatLoop();
+        window.closePanelInstallModal();
         if (panelBackNav && typeof panelBackNav.resetToBase === 'function') {
             panelBackNav.resetToBase();
         }
@@ -481,7 +615,14 @@
             exitGuardMs: 2500,
             exitMessage: 'Presiona Atrás otra vez para salir',
             isEnabled: () => unlocked === true,
-            steps: []
+            steps: [
+                {
+                    id: 'install_modal',
+                    isActive: () => !isPanelElHidden('panelInstallModal'),
+                    undo: () => { window.closePanelInstallModal(); },
+                    escapeAllowed: true
+                }
+            ]
         });
         panelBackNav.init();
         window.__CREATA_PANEL_BACK_NAV__ = panelBackNav;
@@ -493,6 +634,8 @@
     }
 
     function init() {
+        registerPanelServiceWorker();
+
         if (window.CREATA_LOGO_B64) {
             document.querySelectorAll('[data-creata-logo]').forEach((img) => {
                 img.src = window.CREATA_LOGO_B64;
@@ -501,8 +644,29 @@
 
         initPanelBackNav();
 
+        window.addEventListener('beforeinstallprompt', (ev) => {
+            if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+            deferredPanelInstallPrompt = ev;
+            syncPanelInstallControls();
+        });
+        window.addEventListener('appinstalled', () => {
+            deferredPanelInstallPrompt = null;
+            syncPanelInstallControls();
+            window.closePanelInstallModal();
+        });
+        syncPanelInstallControls();
+
         document.addEventListener('keydown', (ev) => {
-            if (!unlocked || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+            if (!unlocked) return;
+            if (ev.key === 'Escape') {
+                if (panelBackNav && typeof panelBackNav.handleEscape === 'function') {
+                    panelBackNav.handleEscape();
+                } else {
+                    window.closePanelInstallModal();
+                }
+                return;
+            }
+            if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
             const tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toUpperCase() : '';
             if (tag === 'INPUT' || tag === 'TEXTAREA') return;
             if (/^[1-9]$/.test(ev.key)) {

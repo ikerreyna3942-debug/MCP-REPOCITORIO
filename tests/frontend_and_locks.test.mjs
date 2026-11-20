@@ -23,7 +23,8 @@ test('Syntax check (node --check) passes for all Apps Script (.gs) and frontend 
     'fotos-sw.js',
     'prompts-app.js',
     'prompts-sw.js',
-    'panel-app.js'
+    'panel-app.js',
+    'panel-sw.js'
   ];
   for (const rel of filesToCheck) {
     const abs = path.join(REPO_ROOT, rel);
@@ -35,36 +36,44 @@ test('Syntax check (node --check) passes for all Apps Script (.gs) and frontend 
 test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon headers', () => {
   const promptsManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'prompts-manifest.json'), 'utf8'));
   const fotosManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'fotos-manifest.json'), 'utf8'));
+  const panelManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'panel-manifest.json'), 'utf8'));
 
   assert.equal(promptsManifest.scope, './prompts');
   assert.equal(fotosManifest.scope, './fotos-productos');
+  assert.equal(panelManifest.scope, './panel');
 
   const promptsAppSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-app.js'), 'utf8');
   const fotosAppSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos-app.js'), 'utf8');
+  const panelAppSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-app.js'), 'utf8');
   assert.match(promptsAppSrc, /register\(['"]\.\/prompts-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/prompts['"]\s*\}/);
   assert.match(fotosAppSrc, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
+  assert.match(panelAppSrc, /register\(['"]\.\/panel-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/panel['"]\s*\}/);
 
   const promptsSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
-  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v6['"]/);
+  const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
+  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v7['"]/);
   assert.match(promptsSwSrc, /creata-back-nav\.js\?v=1/);
   assert.match(promptsSwSrc, /prompts-styles\.css\?v=5/);
-  assert.match(promptsSwSrc, /prompts-app\.js\?v=6/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v10['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v10['"]/);
+  assert.match(promptsSwSrc, /prompts-app\.js\?v=7/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v11['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v11['"]/);
+  assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v1['"]/);
+  assert.match(panelSwSrc, /panel-styles\.css\?v=4/);
+  assert.match(panelSwSrc, /panel-app\.js\?v=9/);
 
   const promptsHtmlSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts.html'), 'utf8');
   assert.match(promptsHtmlSrc, /prompts-manifest\.json\?v=3/);
   assert.match(promptsHtmlSrc, /prompts-styles\.css\?v=5/);
   assert.match(promptsHtmlSrc, /creata-back-nav\.js\?v=1/);
-  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=6/);
+  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=7/);
   assert.match(promptsHtmlSrc, /Configurar PIN/);
 
   const promptsCssSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-styles.css'), 'utf8');
   assert.match(promptsCssSrc, /@media\s*\(\s*max-width:\s*440px\s*\)/);
 
   const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  for (const iconRel of ['prompts-icon-192.png', 'prompts-icon-512.png', 'prompts-apple-icon.png']) {
+  for (const iconRel of ['prompts-icon-192.png', 'prompts-icon-512.png', 'prompts-apple-icon.png', 'inventario-icon-192.png', 'inventario-icon-512.png', 'inventario-apple-icon.png']) {
     const abs = path.join(REPO_ROOT, iconRel);
     assert.ok(fs.existsSync(abs), `Missing icon: ${iconRel}`);
     const header = fs.readFileSync(abs).subarray(0, 8);
@@ -130,10 +139,10 @@ test('Static cross-project isolation invariants hold across Project A, Project B
   assert.ok(!/SUBIR PREN/i.test(promptsJs), 'prompts-app.js must not reference SUBIR PREN');
   assert.ok(!promptsJs.includes('1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8'), 'prompts-app.js must not reference Control de Productos');
 
-  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=21
+  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=22
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
-  assert.match(fotosHtml, /fotos-productos-app\.js\?v=21/);
+  assert.match(fotosHtml, /fotos-productos-app\.js\?v=22/);
 });
 
 test('Prompts PWA (Items 12-14): blocks DOM XSS & javascript: URIs in renderProptGallery, prevents ?scriptUrl= silent overwrite & PIN exfiltration, and handles clipboard fallback', async () => {
@@ -356,12 +365,12 @@ test('App #9 (Feature F8): Auto-acomodar por categoría button removed from foto
   assert.match(assignFnMatch[0], /DEST_FOLDER_BY_ID\.get\(/, 'Guardar must validate against DEST_FOLDER_BY_ID');
 });
 
-test('Prompts SW (Item 14 / M2C): prompts-sw.js v6 evicts v2..v5, preserves other app caches, and intercepts prompts-app.js?v=6 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
+test('Prompts SW (Item 14 / M2C): prompts-sw.js v7 evicts v2..v6, preserves other app caches, and intercepts prompts-app.js?v=7 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
   const vm = await import('node:vm');
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-fotos-app-v8', 'creata-inventario-v1'];
+  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-fotos-app-v11', 'creata-panel-app-v1', 'creata-inventario-v1'];
 
   const swSandbox = {
     URL,
@@ -390,7 +399,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v6 evicts v2..v5, preserves othe
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5']);
+  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6']);
 
   // Fetch bypasses script.google.com, buena-espero.onrender.com, and POST requests; intercepts same-origin GET
   const checkIntercept = (url, method = 'GET') => {
@@ -404,7 +413,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v6 evicts v2..v5, preserves othe
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
   assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
-  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=6', 'GET'), true);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=7', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
 });
 

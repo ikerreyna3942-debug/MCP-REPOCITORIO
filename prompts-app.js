@@ -1139,11 +1139,51 @@
         };
     }
 
+    const KEVIN_OWNER_EMAIL = 'kevin.reyna@grupoanipa.com';
+    const KEVIN_SUITE_SESSION_KEYS = [
+        'creata_private_kevin_panel_v1',
+        'creata_inv_advisor_session_v1',
+        'creata_private_kevin_fotos_v1',
+        'creata_private_kevin_hist_v1'
+    ];
+
+    function hasActiveKevinOwnerSession() {
+        try {
+            if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('creata_inv_kevin_advisor_preview_v1') === '1') {
+                return false;
+            }
+        } catch (e) {}
+        for (let i = 0; i < KEVIN_SUITE_SESSION_KEYS.length; i++) {
+            try {
+                const raw = localStorage.getItem(KEVIN_SUITE_SESSION_KEYS[i]);
+                if (!raw) continue;
+                const obj = JSON.parse(raw);
+                const email = String((obj && obj.correo) || '').trim().toLowerCase().replace(/,/g, '.');
+                if (email === KEVIN_OWNER_EMAIL && !obj.mustChangeKey) {
+                    return true;
+                }
+            } catch (e) {}
+        }
+        return false;
+    }
+
+    function syncKevinSuiteNavLinks() {
+        const isEmbedded = !!(typeof window !== 'undefined' && window.parent && window.parent !== window);
+        const showLinks = !isEmbedded && hasActiveKevinOwnerSession();
+        const cotLink = byId('promptsKevinCotizadorLink');
+        const fotosLink = byId('promptsKevinFotosLink');
+        if (cotLink) cotLink.classList.toggle('hidden', !showLinks);
+        if (fotosLink) fotosLink.classList.toggle('hidden', !showLinks);
+    }
+
+    window.syncPromptsKevinSuiteNav = syncKevinSuiteNavLinks;
+
     function initPromptsApp() {
         registerPromptsServiceWorker();
         syncProptConfigInputs();
         ingestQueryScriptUrl();
         initPromptsBackNav();
+        syncKevinSuiteNavLinks();
 
         const pinEl = byId('proptPinInput');
         if (pinEl) {
@@ -1199,6 +1239,9 @@
             syncInstallControls();
             window.closePromptsInstallModal();
         });
+
+        window.addEventListener('storage', syncKevinSuiteNavLinks);
+        window.addEventListener('focus', syncKevinSuiteNavLinks);
 
         // Estado de red
         window.addEventListener('offline', () => {

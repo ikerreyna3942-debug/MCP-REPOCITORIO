@@ -1,0 +1,88 @@
+{
+  "name": "CREATA · Suite Kevin",
+  "short_name": "CREATA Suite",
+  "description": "Aplicación instalable exclusiva para Kevin con acceso directo a Cotizador, Subir Fotos y Prompts IA desde un solo ícono.",
+  "id": "./panel.html",
+  "start_url": "./panel.html",
+  "scope": "./panel",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#252C32",
+  "theme_color": "#252C32",
+  "lang": "es-MX",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "./inventario-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./inventario-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./inventario-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./inventario-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./inventario-apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Cotizador",
+      "short_name": "Cotizador",
+      "description": "Abrir Cotizador e Inventario CREATA",
+      "url": "./inventario.html",
+      "icons": [
+        {
+          "src": "./inventario-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Subir Fotos",
+      "short_name": "Fotos",
+      "description": "Abrir App de Subir Fotos CREATA",
+      "url": "./fotos-productos.html",
+      "icons": [
+        {
+          "src": "./inventario-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Prompts IA",
+      "short_name": "Prompts IA",
+      "description": "Abrir Generador de Prompts IA CREATA",
+      "url": "./prompts.html",
+      "icons": [
+        {
+          "src": "./prompts-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
