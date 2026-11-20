@@ -2112,6 +2112,17 @@
             );
         }
         wrap.innerHTML = pills.join('');
+        syncSkuExtraFiltersBadge();
+    }
+
+    function syncSkuExtraFiltersBadge() {
+        const badge = document.getElementById('skuExtraFiltersBadge');
+        if (!badge) return;
+        let activeCount = 0;
+        if (state.skuCategoryFilter && state.skuCategoryFilter !== 'ALL') activeCount++;
+        if (state.skuLocationFilter && state.skuLocationFilter !== 'ALL') activeCount++;
+        badge.textContent = String(activeCount);
+        badge.classList.toggle('hidden', activeCount === 0);
     }
 
     function renderSkuLocationFilterRow() {
@@ -2166,6 +2177,7 @@
             );
         }
         wrap.innerHTML = pills.join('');
+        syncSkuExtraFiltersBadge();
     }
 
     window.setSkuCategoryFilter = function (catKey) {
@@ -2469,6 +2481,9 @@
         const curTakeBtn = document.getElementById('curPhotoTakeBtn');
         const curDeleteBtn = document.getElementById('curPhotoDeleteBtn');
         const curCanvas = document.getElementById('curPhotoCanvas');
+        const quickNameEl = document.getElementById('skuQuickName');
+        const quickSkuEl = document.getElementById('skuQuickSku');
+        const quickCatEl = document.getElementById('skuQuickCat');
 
         if (!prod) {
             if (rowBadge) rowBadge.textContent = '—';
@@ -2476,6 +2491,9 @@
             if (colASku) colASku.textContent = '—';
             if (colBName) colBName.textContent = '—';
             if (catLabel) catLabel.textContent = '—';
+            if (quickNameEl) quickNameEl.textContent = 'Elige un SKU de la lista';
+            if (quickSkuEl) quickSkuEl.textContent = '—';
+            if (quickCatEl) quickCatEl.textContent = '—';
             if (moVarVal) moVarVal.textContent = '—';
             if (dimsFinVal) dimsFinVal.textContent = '—';
             if (locWrap) locWrap.classList.add('hidden');
@@ -2485,7 +2503,7 @@
             if (curOpenLink) curOpenLink.classList.add('hidden');
             if (curTakeBtn) curTakeBtn.classList.add('hidden');
             if (curDeleteBtn) curDeleteBtn.classList.add('hidden');
-            if (curCanvas) curCanvas.innerHTML = '<div class="photo-empty-placeholder">—</div>';
+            if (curCanvas) curCanvas.innerHTML = '<div class="photo-empty-placeholder">Sin foto</div>';
             renderNewPhotoStage();
             return;
         }
@@ -2494,9 +2512,13 @@
         if (rowBadge) {
             rowBadge.textContent = prod.inSheet1 ? (prod.rowNumber ? ('Fila ' + prod.rowNumber) : 'Hoja 1') : 'Nuevo';
         }
+        const shortCatName = prod.destFolderName.replace(/^FOTOS\s+(DE\s+)?/i, '');
         if (colASku) colASku.textContent = prod.sku;
         if (colBName) colBName.textContent = prod.colBName || prod.displayName;
-        if (catLabel) catLabel.textContent = prod.destFolderName.replace(/^FOTOS\s+(DE\s+)?/i, '');
+        if (catLabel) catLabel.textContent = shortCatName;
+        if (quickNameEl) quickNameEl.textContent = prod.colBName || prod.displayName || prod.sku;
+        if (quickSkuEl) quickSkuEl.textContent = prod.sku;
+        if (quickCatEl) quickCatEl.textContent = shortCatName;
 
         if (moVarVal) {
             const mvParts = [];
@@ -3971,6 +3993,35 @@
                 await ingestLocalSubirPrenFilesDeduped(gathered, 'SUBIR PREN');
             }
         });
+
+        // Arrastre directo sobre la tarjeta derecha (#secProductStage): sube y guarda al instante
+        const stageCard = document.getElementById('secProductStage');
+        if (stageCard && !stageCard.__creataStageDropBound) {
+            stageCard.__creataStageDropBound = true;
+            stageCard.addEventListener('dragover', (ev) => {
+                ev.preventDefault();
+                stageCard.classList.add('is-stage-drop-active');
+            });
+            stageCard.addEventListener('dragleave', (ev) => {
+                if (!ev.relatedTarget || (typeof stageCard.contains === 'function' && !stageCard.contains(ev.relatedTarget))) {
+                    stageCard.classList.remove('is-stage-drop-active');
+                }
+            });
+            stageCard.addEventListener('drop', async (ev) => {
+                ev.preventDefault();
+                stageCard.classList.remove('is-stage-drop-active');
+                const dt = ev.dataTransfer;
+                const dropped = (dt && dt.files && dt.files.length)
+                    ? Array.from(dt.files).filter(isAcceptedImageFile)
+                    : [];
+                if (!dropped.length) return;
+                if (visualState && visualState.workMode !== 'SKU') {
+                    await window.uploadVisualTargetPhotoFile({ files: [dropped[0]] });
+                } else {
+                    await window.uploadDirectToSelectedCategory({ files: dropped });
+                }
+            });
+        }
     }
 
     window.uploadDirectToSelectedCategory = async function (inputEl) {
@@ -6282,6 +6333,8 @@
         const visStage = document.getElementById('visualStageContentWrap');
         const finderTitle = document.getElementById('skuFinderPanelTitle');
         const stageTitle = document.getElementById('productStagePanelTitle');
+        const modeHint = document.getElementById('fotosWorkModeHint');
+        const galHint = document.getElementById('galleryQuickHint');
         const directUploadLbl = document.getElementById('btnDirectUploadLabel');
         const openCotBtn = document.getElementById('btnOpenInCotizadorStage');
         const rowBadge = document.getElementById('selectedRowBadge');
@@ -6304,6 +6357,20 @@
                 ? 'Portada Visual'
                 : (nextMode === 'FABRIC' ? 'Foto de Tela' : 'Producto');
         }
+        if (modeHint) {
+            modeHint.textContent = nextMode === 'COVER'
+                ? '1) Elige el modelo · 2) Sube o arrastra la portada visual · Solo aparece en la tarjeta inicial (no toca SKUs).'
+                : (nextMode === 'FABRIC'
+                    ? '1) Elige el color / tela · 2) Sube o arrastra la muestra de tela · Aparece automáticamente en todos los modelos con esa tela.'
+                    : '1) Elige un producto · 2) Sube o arrastra su foto (se encuadra sola) · 3) Listo.');
+        }
+        if (galHint) {
+            galHint.textContent = nextMode === 'COVER'
+                ? '💡 Toca cualquier foto abajo para usarla como portada visual, o arrastra una imagen arriba.'
+                : (nextMode === 'FABRIC'
+                    ? '💡 Toca cualquier foto abajo para usarla como muestra de esta tela/color, o arrastra arriba.'
+                    : '💡 Toca cualquier foto abajo para asignarla al SKU, o arrastra una imagen arriba.');
+        }
         if (visSearchInp) {
             visSearchInp.placeholder = nextMode === 'COVER'
                 ? 'Buscar modelo (ej. Aspen, Ario, Verona)...'
@@ -6324,6 +6391,41 @@
             renderVisualTargetsList();
             renderVisualTargetStage();
         }
+    };
+
+    window.selectNextMissingPhotoTarget = function () {
+        if (visualState.workMode === 'SKU') {
+            const pool = (Array.isArray(state.filteredProducts) && state.filteredProducts.length)
+                ? state.filteredProducts
+                : state.products;
+            if (!pool.length) return false;
+            const curIdx = state.selectedSku
+                ? pool.findIndex((p) => p && p.sku === state.selectedSku)
+                : -1;
+            for (let step = 1; step <= pool.length; step++) {
+                const cand = pool[(curIdx + step) % pool.length];
+                if (cand && !cand.photoUrl) {
+                    window.selectSkuProduct(cand.sku);
+                    return true;
+                }
+            }
+            showAssignFeedback('🎉 Todos los productos filtrados ya tienen foto.', true);
+            return false;
+        }
+
+        const list = getActiveVisualTargetsList();
+        if (!list.length) return false;
+        const curKey = String(visualState.selectedOverrideKey || '').toUpperCase();
+        const curIdx = list.findIndex((it) => String(it.overrideKey || '').toUpperCase() === curKey);
+        for (let step = 1; step <= list.length; step++) {
+            const cand = list[(curIdx + step) % list.length];
+            if (cand && !getVisualOverridePhotoUrlInFotos(cand.overrideKey)) {
+                window.selectVisualTarget(cand.overrideKey);
+                return true;
+            }
+        }
+        showVisualStageFeedback('🎉 Todos los elementos de esta lista ya tienen foto asignada.', true);
+        return false;
     };
 
     window.setVisualTargetFilter = function (filterMode) {
@@ -6406,27 +6508,36 @@
 
     function syncVisualStageSelectedGalleryPreview() {
         if (visualState.workMode === 'SKU') return;
-        const canvas = document.getElementById('visualSelPhotoCanvas');
         const btn = document.getElementById('btnAssignVisualGalleryPhoto');
+        const curCanvas = document.getElementById('visualCurPhotoCanvas');
+        const badgeEl = document.getElementById('visualPreviewBadge');
         const selPhoto = getActiveSelectedPhotoObject();
         const target = getSelectedVisualTargetObj();
+        const isFabric = visualState.workMode === 'FABRIC';
 
+        const canAssignGallery = !!(selPhoto && target);
         if (btn) {
-            btn.disabled = !(selPhoto && target && !visualState.busy);
+            btn.classList.toggle('hidden', !canAssignGallery);
+            btn.disabled = !(canAssignGallery && !visualState.busy);
         }
-        if (!canvas) return;
-        if (!selPhoto) {
-            canvas.innerHTML = '<div class="photo-empty-placeholder">Elige en la galería o sube</div>';
-            return;
+
+        if (canAssignGallery && curCanvas) {
+            const previewSrc = selPhoto.localDataUrl || selPhoto.thumbDataUrl || buildPhotoThumbUrl(selPhoto.id || selPhoto.viewUrl, 700);
+            if (badgeEl) badgeEl.textContent = 'Vista previa de galería · lista para guardar';
+            curCanvas.onclick = null;
+            curCanvas.innerHTML =
+                '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Vista previa') + '" referrerpolicy="no-referrer" ' +
+                'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '">';
+        } else if (!canAssignGallery) {
+            renderVisualTargetStage(true);
         }
-        const previewSrc = selPhoto.localDataUrl || selPhoto.thumbDataUrl || buildPhotoThumbUrl(selPhoto.id || selPhoto.viewUrl, 600);
-        canvas.innerHTML = '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Seleccionada') + '" referrerpolicy="no-referrer">';
     }
 
-    function renderVisualTargetStage() {
+    function renderVisualTargetStage(skipGallerySync) {
         const eyebrow = document.getElementById('visualStageEyebrow');
         const titleEl = document.getElementById('visualStageTitle');
         const subEl = document.getElementById('visualStageSub');
+        const badgeEl = document.getElementById('visualPreviewBadge');
         const curCanvas = document.getElementById('visualCurPhotoCanvas');
         const delBtn = document.getElementById('visualCurDeleteBtn');
         const urlInp = document.getElementById('visualTargetUrlInput');
@@ -6437,10 +6548,14 @@
             if (eyebrow) eyebrow.textContent = isFabric ? 'FOTO DE TELA / COLOR · GLOBAL' : 'PORTADA VISUAL · SOLO INICIO';
             if (titleEl) titleEl.textContent = isFabric ? 'Selecciona un color / tela' : 'Selecciona un modelo';
             if (subEl) subEl.textContent = 'Solo visual en el Cotizador · nunca modifica SKUs ni Hoja 1.';
-            if (curCanvas) curCanvas.innerHTML = '<div class="photo-empty-placeholder">—</div>';
+            if (badgeEl) badgeEl.textContent = 'Vista previa';
+            if (curCanvas) {
+                curCanvas.onclick = null;
+                curCanvas.innerHTML = '<div class="photo-empty-placeholder">Selecciona un elemento en la lista</div>';
+            }
             if (delBtn) delBtn.classList.add('hidden');
             if (urlInp) urlInp.value = '';
-            syncVisualStageSelectedGalleryPreview();
+            if (!skipGallerySync) syncVisualStageSelectedGalleryPreview();
             return;
         }
 
@@ -6466,17 +6581,24 @@
         }
         if (curCanvas) {
             if (curThumb) {
+                if (badgeEl) badgeEl.textContent = 'Foto actual';
+                curCanvas.onclick = null;
                 curCanvas.innerHTML =
                     '<img src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
                     'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
                     'onclick="openPhotoLightbox(\'' + escapeHtml(curThumb.replace(/'/g, "\\'")) + '\')">';
             } else {
-                curCanvas.innerHTML = '<div class="photo-empty-placeholder">Sin foto asignada</div>';
+                if (badgeEl) badgeEl.textContent = 'Sin foto · arrastra o toca para subir';
+                curCanvas.innerHTML = '<div class="photo-empty-placeholder">📤 Toca aquí o arrastra una foto</div>';
+                curCanvas.onclick = function () {
+                    const inp = document.getElementById('visualTargetFileInput');
+                    if (inp) inp.click();
+                };
             }
         }
         if (delBtn) delBtn.classList.toggle('hidden', !curUrl);
         if (urlInp) urlInp.value = curUrl || '';
-        syncVisualStageSelectedGalleryPreview();
+        if (!skipGallerySync) syncVisualStageSelectedGalleryPreview();
     }
 
     window.selectVisualTarget = function (overrideKey) {
