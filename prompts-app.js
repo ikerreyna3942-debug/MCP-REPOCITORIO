@@ -627,6 +627,96 @@
         showProptFeedback('Configuración borrada de este navegador.', true);
     };
 
+    function syncProptTipoFromDest(destValue) {
+        const destEl = byId('proptDestSelect');
+        const tipoEl = byId('proptTipoSelect');
+        const destChoice = String(
+            destValue !== undefined ? destValue : ((destEl && destEl.value) || '')
+        ).trim().toUpperCase();
+        if (!tipoEl) return '';
+        if (destChoice === 'TELAS') {
+            tipoEl.value = 'TELA';
+            return 'TELA';
+        }
+        if (destChoice === 'MUEBLES') {
+            tipoEl.value = 'MUEBLE';
+            return 'MUEBLE';
+        }
+        return String(tipoEl.value || '').trim().toUpperCase();
+    }
+
+    window.syncProptTipoFromDest = syncProptTipoFromDest;
+
+    window.onProptDestChange = function () {
+        syncProptTipoFromDest();
+        if (typeof window.refreshProptDrawerData === 'function') {
+            return window.refreshProptDrawerData();
+        }
+        return Promise.resolve(false);
+    };
+
+    function ensureProptUploadConfigReady() {
+        const cfg = getProptConfig();
+        if (!isValidAppsScriptUrl(cfg.scriptUrl)) {
+            window.toggleProptConfigPanel(true);
+            setProptConnPill('err', 'Falta URL /exec');
+            showProptFeedback(
+                'Configura primero la URL /exec de AppsScript_Prompts_Odoo.gs arriba (⚙) y pulsa "Guardar y conectar" para subir fotos.',
+                false
+            );
+            const urlEl = byId('proptScriptUrlInput');
+            if (urlEl && typeof urlEl.focus === 'function') {
+                try { urlEl.focus(); } catch (e) {}
+            }
+            return false;
+        }
+        if (!cfg.pin) {
+            window.toggleProptConfigPanel(true);
+            setProptConnPill('err', 'Falta PIN');
+            showProptFeedback(
+                'Falta configurar tu PROMPTS_PIN arriba (⚙) y pulsar "Guardar y conectar". Si aún no existe, ejecuta CREATA Prompts & Odoo → Configurar PIN en Base de Datos Generales.',
+                false
+            );
+            const pinEl = byId('proptPinInput');
+            if (pinEl && typeof pinEl.focus === 'function') {
+                try { pinEl.focus(); } catch (e) {}
+            }
+            return false;
+        }
+        return true;
+    }
+
+    window.triggerProptUploadInput = function (inputId) {
+        if (!ensureProptUploadConfigReady()) return false;
+        const target = byId(inputId || 'proptFileInput');
+        if (target && typeof target.click === 'function') {
+            target.click();
+            return true;
+        }
+        return false;
+    };
+
+    function formatProptErrorWithGuidance(rawError) {
+        const msg = String(rawError || '').trim();
+        if (!msg) return 'No se pudo completar la operación con AppsScript_Prompts_Odoo.gs.';
+        if (/Configura PROMPTS_PIN/i.test(msg)) {
+            window.toggleProptConfigPanel(true);
+            setProptConnPill('err', 'Configurar PIN');
+            return 'Falta crear PROMPTS_PIN en Apps Script: abre Base de Datos Generales → menú CREATA Prompts & Odoo → Configurar PIN, luego ingrésalo arriba y guarda.';
+        }
+        if (/PIN inv[áa]lido|PROMPTS_PIN|No autorizado|acceso denegado/i.test(msg)) {
+            window.toggleProptConfigPanel(true);
+            setProptConnPill('err', 'Revisar PIN');
+            return 'PROMPTS_PIN inválido o faltante. Verifica tu PIN en Configuración (⚙) y pulsa "Guardar y conectar".';
+        }
+        if (/Respuesta no JSON|despliegue Web App/i.test(msg)) {
+            window.toggleProptConfigPanel(true);
+            setProptConnPill('err', 'Revisar /exec');
+            return 'La URL /exec no devolvió JSON válido. Verifica que AppsScript_Prompts_Odoo.gs esté implementado como Aplicación web con acceso "Cualquier usuario".';
+        }
+        return msg;
+    }
+
     window.refreshProptDrawerData = async function () {
         const cfg = getProptConfig();
         const warnEl = byId('proptHealthWarning');
@@ -658,17 +748,25 @@
                 listRes = await callPromptsAppsScript('odoo_buzon_list');
             }
 
-            if (healthRes && Array.isArray(healthRes.warnings) && healthRes.warnings.length && warnEl) {
-                warnEl.textContent = '⚠️ ' + healthRes.warnings.join(' · ');
+            const healthWarnings = (healthRes && Array.isArray(healthRes.warnings)) ? healthRes.warnings.slice() : [];
+            if (healthRes && healthRes.ok && healthRes.pinConfigured === false) {
+                healthWarnings.unshift('PROMPTS_PIN aún no está configurado en AppsScript_Prompts_Odoo.gs (Base de Datos Generales → CREATA Prompts & Odoo → Configurar PIN).');
+            }
+            if (healthWarnings.length && warnEl) {
+                warnEl.textContent = '⚠️ ' + healthWarnings.join(' · ');
                 warnEl.classList.remove('hidden');
             } else if (warnEl) {
                 warnEl.classList.add('hidden');
             }
 
             if (!listRes || !listRes.ok) {
-                const errMsg = (listRes && listRes.error) || 'No se pudo listar la carpeta de Odoo.';
+                const rawErr = (listRes && listRes.error) || (
+                    !cfg.pin
+                        ? 'Falta configurar PROMPTS_PIN en Configuración (⚙).'
+                        : 'No se pudo listar la carpeta de Odoo.'
+                );
                 setProptConnPill('err', 'Error');
-                showProptFeedback(errMsg, false);
+                showProptFeedback(formatProptErrorWithGuidance(rawErr), false);
                 return false;
             }
 
@@ -684,10 +782,21 @@
             return true;
         } catch (err) {
             setProptConnPill('err', 'Sin conexión');
-            showProptFeedback((err && err.message) ? err.message : 'Error de red al conectar Apps Script.', false);
+            showProptFeedback(
+                formatProptErrorWithGuidance((err && err.message) ? err.message : 'Error de red al conectar Apps Script.'),
+                false
+            );
             return false;
         }
     };
+
+    function buildSafeUploadFileName(file, tipoChoice, index) {
+        const rawName = String((file && file.name) || '').trim();
+        if (rawName) return rawName;
+        const prefix = String(tipoChoice || 'FOTO').toLowerCase().replace(/[^a-z0-9]+/g, '_') || 'foto';
+        const stamp = Date.now().toString(36) + '_' + (index + 1);
+        return prefix + '_' + stamp + '.jpg';
+    }
 
     window.uploadFilesToSubirPropt = async function (inputEl) {
         const rawFiles = inputEl && inputEl.files ? Array.from(inputEl.files) : [];
@@ -695,9 +804,16 @@
         const imageFiles = rawFiles.filter((f) => {
             if (!f) return false;
             const mime = String(f.type || '').toLowerCase();
-            return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '');
+            return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i.test(f.name || '');
         });
-        if (!imageFiles.length) return;
+        if (!imageFiles.length) {
+            if (rawFiles.length > 0) {
+                showProptFeedback('Selecciona una imagen válida (JPG, PNG o WEBP).', false);
+            }
+            return;
+        }
+
+        if (!ensureProptUploadConfigReady()) return;
 
         const destSelectEl = byId('proptDestSelect');
         const tipoSelectEl = byId('proptTipoSelect');
@@ -705,23 +821,27 @@
         const skuInputEl = byId('proptSkuInput');
 
         const destChoice = String((destSelectEl && destSelectEl.value) || 'MUEBLES').trim().toUpperCase();
-        const tipoChoice = String((tipoSelectEl && tipoSelectEl.value) || 'MUEBLE').trim().toUpperCase();
+        const tipoChoice = String((tipoSelectEl && tipoSelectEl.value) || (destChoice === 'TELAS' ? 'TELA' : 'MUEBLE')).trim().toUpperCase();
         const registerSheet = regCheckEl ? Boolean(regCheckEl.checked) : true;
         const activeSku = String((lastSkuMatch && lastSkuMatch.sku) || (skuInputEl && skuInputEl.value) || '').trim().toUpperCase();
 
         const btn = byId('btnUploadSubirPropt');
+        const camBtn = byId('btnCameraSubirPropt');
         if (btn) btn.disabled = true;
+        if (camBtn) camBtn.disabled = true;
         let uploaded = 0;
         let registeredCount = 0;
         let lastErr = '';
+        let abortedForConfig = false;
         try {
             for (let i = 0; i < imageFiles.length; i++) {
                 const file = imageFiles[i];
-                showProptFeedback('Subiendo ' + (i + 1) + '/' + imageFiles.length + ': ' + file.name + '...', true);
+                const uploadName = buildSafeUploadFileName(file, tipoChoice, i);
+                showProptFeedback('Subiendo ' + (i + 1) + '/' + imageFiles.length + ' (' + destChoice + ' · ' + tipoChoice + '): ' + uploadName + '...', true);
                 try {
                     const dataUrl = await readFileAsDataUrl(file);
                     let res = await callPromptsAppsScript('odoo_direct_upload_and_register', {
-                        fileName: file.name,
+                        fileName: uploadName,
                         dataUrl: dataUrl,
                         dest: destChoice === 'BUZON' ? 'buzon' : 'final',
                         subfolderKey: destChoice === 'BUZON' ? '' : destChoice,
@@ -732,11 +852,11 @@
                     if ((!res || !res.ok) && /no reconocida/i.test(String((res && res.error) || ''))) {
                         // Respaldo compatible si el despliegue aún no fue actualizado con odoo_direct_upload_and_register
                         res = await callPromptsAppsScript('odoo_buzon_upload', {
-                            fileName: file.name,
+                            fileName: uploadName,
                             dataUrl: dataUrl
                         });
                         if (res && res.ok && registerSheet && res.file && res.file.viewUrl) {
-                            const stem = String(file.name || 'foto').replace(/\.(jpe?g|png|webp|gif|avif|bmp)$/i, '').trim() || 'foto';
+                            const stem = String(uploadName || 'foto').replace(/\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i, '').trim() || 'foto';
                             const regRes = await callPromptsAppsScript('odoo_register_foto', Object.assign(
                                 { tipo: tipoChoice, nombre: stem, link: res.file.viewUrl },
                                 activeSku ? { sku: activeSku, updateDatosGeneral: true } : {}
@@ -750,23 +870,34 @@
                             registeredCount++;
                         }
                     } else {
-                        lastErr = (res && res.error) || 'No se pudo subir ' + file.name;
+                        const rawErr = (res && res.error) || ('No se pudo subir ' + uploadName);
+                        lastErr = formatProptErrorWithGuidance(rawErr);
+                        if (/PROMPTS_PIN|PIN inv[áa]lido|Configura PROMPTS_PIN|No autorizado|Respuesta no JSON/i.test(String(rawErr))) {
+                            abortedForConfig = true;
+                            break;
+                        }
                     }
                 } catch (eOne) {
-                    lastErr = (eOne && eOne.message) || 'Error al subir ' + file.name;
+                    const rawErr = (eOne && eOne.message) || ('Error al subir ' + uploadName);
+                    lastErr = formatProptErrorWithGuidance(rawErr);
+                    if (/Configura primero|PROMPTS_PIN|Respuesta no JSON/i.test(String(rawErr))) {
+                        abortedForConfig = true;
+                        break;
+                    }
                 }
             }
             if (uploaded > 0) {
                 await window.refreshProptDrawerData();
                 const sheetNote = registeredCount > 0
-                    ? (' · Registrada(s) en Sheet (' + registeredCount + ')')
+                    ? (' · Registrada(s) en Sheet (' + registeredCount + ' · ' + tipoChoice + ')')
                     : '';
-                showProptFeedback('✅ ' + uploaded + ' foto(s) subida(s) a Odoo' + sheetNote + '.' + (lastErr ? (' · Aviso: ' + lastErr) : ''), true);
+                showProptFeedback('✅ ' + uploaded + ' foto(s) subida(s) a ' + destChoice + sheetNote + '.' + (lastErr ? (' · Aviso: ' + lastErr) : ''), true);
             } else {
-                showProptFeedback(lastErr || 'No se pudo subir la imagen.', false);
+                showProptFeedback(lastErr || (abortedForConfig ? 'Revisa la configuración de URL /exec y PROMPTS_PIN.' : 'No se pudo subir la imagen.'), false);
             }
         } finally {
             if (btn) btn.disabled = false;
+            if (camBtn) camBtn.disabled = false;
         }
     };
 
@@ -1029,6 +1160,13 @@
                     pinEl.value = '';
                     pinInputManuallyEdited = false;
                 }
+            });
+        }
+        const destEl = byId('proptDestSelect');
+        if (destEl) {
+            syncProptTipoFromDest(destEl.value);
+            destEl.addEventListener('change', () => {
+                syncProptTipoFromDest(destEl.value);
             });
         }
         const skuEl = byId('proptSkuInput');

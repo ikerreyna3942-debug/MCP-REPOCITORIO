@@ -442,27 +442,102 @@
     return fetchSheetViaJsonp(sheetName, rangeStr, targetSheetId);
   }
 
-  async function callWebAppPost(action, payloadObj, timeoutMs) {
-    const cfgUrl = (global.CREATA_CLOUD_CONFIG && typeof global.CREATA_CLOUD_CONFIG.getApiUrl === 'function')
-      ? global.CREATA_CLOUD_CONFIG.getApiUrl()
-      : '';
-    const targetUrl = cfgUrl || CANONICAL_WEBAPP_URL;
+  async function callWebAppGetPresence(targetUrl, payloadObj, timeoutMs) {
+    const p = payloadObj || {};
+    const qs = new URLSearchParams();
+    qs.set('action', 'inv_presence_list');
+    if (cleanStr(p.authToken)) qs.set('authToken', cleanStr(p.authToken));
+    if (cleanStr(p.advisorEmail)) qs.set('advisorEmail', cleanStr(p.advisorEmail));
+    if (cleanStr(p.sheetTab)) qs.set('sheetTab', cleanStr(p.sheetTab));
+    if (cleanStr(p.accessKey)) qs.set('accessKey', cleanStr(p.accessKey));
+    const sep = targetUrl.indexOf('?') === -1 ? '?' : '&';
+    const fullUrl = targetUrl + sep + qs.toString();
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 15000) : null;
     try {
-      const resp = await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(Object.assign({}, payloadObj || {}, { action })),
+      const resp = await fetch(fullUrl, {
+        method: 'GET',
+        cache: 'no-store',
         signal: controller ? controller.signal : undefined
       });
-      if (!resp.ok) return { ok: false, unavailable: true };
+      if (!resp || !resp.ok) return { ok: false, unavailable: true };
       return (await resp.json()) || { ok: false, unavailable: true };
     } catch (err) {
       return { ok: false, unavailable: true };
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  async function callWebAppPost(action, payloadObj, timeoutMs) {
+    const cfgUrl = (global.CREATA_CLOUD_CONFIG && typeof global.CREATA_CLOUD_CONFIG.getApiUrl === 'function')
+      ? cleanStr(global.CREATA_CLOUD_CONFIG.getApiUrl())
+      : '';
+    const primaryUrl = cfgUrl || CANONICAL_WEBAPP_URL;
+
+    const postOnce = async (targetUrl) => {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
+      try {
+        const resp = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(Object.assign({}, payloadObj || {}, { action })),
+          signal: controller ? controller.signal : undefined
+        });
+        if (!resp || !resp.ok) return { ok: false, unavailable: true };
+        const json = await resp.json();
+        if (json && !json.ok && /PIN de administrador|Acci[óo]n no reconocida/i.test(String(json.error || ''))) {
+          return { ok: false, needsRedeploy: true, error: json.error };
+        }
+        return json || { ok: false, unavailable: true };
+      } catch (err) {
+        return { ok: false, unavailable: true };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    let res = await postOnce(primaryUrl);
+    if (
+      CANONICAL_WEBAPP_URL &&
+      primaryUrl !== CANONICAL_WEBAPP_URL &&
+      (!res || res.unavailable || res.needsRedeploy)
+    ) {
+      const fallbackRes = await postOnce(CANONICAL_WEBAPP_URL);
+      if (fallbackRes && !fallbackRes.unavailable && !fallbackRes.needsRedeploy) {
+        if (fallbackRes.ok) {
+          try {
+            if (global.CREATA_CLOUD_CONFIG && typeof global.CREATA_CLOUD_CONFIG.setApiUrl === 'function') {
+              global.CREATA_CLOUD_CONFIG.setApiUrl('');
+            }
+          } catch (e) {}
+        }
+        return fallbackRes;
+      }
+      res = fallbackRes || res;
+    }
+
+    if (action === 'inv_presence_list' && (!res || res.unavailable || res.needsRedeploy)) {
+      const getUrl = CANONICAL_WEBAPP_URL || primaryUrl;
+      const getRes = await callWebAppGetPresence(getUrl, payloadObj, timeoutMs || 15000);
+      if (getRes && !getRes.unavailable) {
+        if (getRes.ok && primaryUrl !== CANONICAL_WEBAPP_URL) {
+          try {
+            if (global.CREATA_CLOUD_CONFIG && typeof global.CREATA_CLOUD_CONFIG.setApiUrl === 'function') {
+              global.CREATA_CLOUD_CONFIG.setApiUrl('');
+            }
+          } catch (e) {}
+        }
+        return getRes;
+      }
+      if (primaryUrl && primaryUrl !== getUrl) {
+        const getResPrimary = await callWebAppGetPresence(primaryUrl, payloadObj, timeoutMs || 15000);
+        if (getResPrimary && !getResPrimary.unavailable) return getResPrimary;
+      }
+    }
+
+    return res;
   }
 
   // ============================================================================
@@ -973,6 +1048,79 @@
     return list;
   }
 
+  const HIST_PRESENCE_DEVICE_KEY = 'creata_inv_presence_dev_v1';
+  let _histLastHeartbeatMs = 0;
+
+  function getHistPresenceDeviceId() {
+    try {
+      let id = localStorage.getItem(HIST_PRESENCE_DEVICE_KEY);
+      if (!id) {
+        id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem(HIST_PRESENCE_DEVICE_KEY, id);
+      }
+      return id;
+    } catch (e) {
+      return 'dev_mem_hist';
+    }
+  }
+
+  function readStoredAccessKeyFallback(targetEmail) {
+    if (!state.session) return '';
+    if (cleanStr(state.session.accessKey)) return cleanStr(state.session.accessKey);
+    const emailNorm = normalizeEmail(targetEmail || state.session.correo);
+    if (!emailNorm) return '';
+    const candidateKeys = [
+      INV_SESSION_KEY,
+      'creata_private_kevin_panel_v1',
+      'creata_private_kevin_fotos_v1',
+      'creata_private_kevin_hist_v1'
+    ];
+    for (let i = 0; i < candidateKeys.length; i++) {
+      const obj = readJsonStorage(candidateKeys[i], null);
+      if (obj && normalizeEmail(obj.correo) === emailNorm && cleanStr(obj.accessKey)) {
+        return cleanStr(obj.accessKey);
+      }
+    }
+    try {
+      const pendingMap = readJsonStorage('creata_inv_updated_keys_v1', null);
+      if (pendingMap && pendingMap[emailNorm] && cleanStr(pendingMap[emailNorm].newKey)) {
+        return cleanStr(pendingMap[emailNorm].newKey);
+      }
+    } catch (e) {}
+    if (emailNorm === 'kevin.reyna@grupoanipa.com') {
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          const sec = cleanStr(sessionStorage.getItem('creata_private_kevin_fotos_sec_v1'));
+          if (sec) return sec;
+        }
+        const secLocal = cleanStr(localStorage.getItem('creata_private_kevin_fotos_sec_v1'));
+        if (secLocal) return secLocal;
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  function persistRenewedAuthToken(newToken) {
+    const tok = cleanStr(newToken);
+    if (!tok || !state.session) return;
+    state.session.authToken = tok;
+    const targetEmail = normalizeEmail(state.session.correo);
+    if (!targetEmail) return;
+    const candidateKeys = [
+      INV_SESSION_KEY,
+      'creata_private_kevin_panel_v1',
+      'creata_private_kevin_fotos_v1',
+      'creata_private_kevin_hist_v1'
+    ];
+    for (let i = 0; i < candidateKeys.length; i++) {
+      const obj = readJsonStorage(candidateKeys[i], null);
+      if (obj && normalizeEmail(obj.correo) === targetEmail) {
+        obj.authToken = tok;
+        writeJsonStorage(candidateKeys[i], obj);
+      }
+    }
+  }
+
   function tryRecoverSessionAuthToken() {
     if (!state.session) return '';
     if (cleanStr(state.session.authToken)) return cleanStr(state.session.authToken);
@@ -994,36 +1142,131 @@
     return '';
   }
 
-  async function fetchPresenceList() {
-    if (!state.session) return { ok: false, reason: 'no_token' };
-    let token = tryRecoverSessionAuthToken();
-    if (!token && cleanStr(state.session.accessKey) && cleanStr(state.session.correo)) {
-      try {
-        const loginRes = await callWebAppPost('inv_login', {
-          email: state.session.correo,
-          accessKey: state.session.accessKey,
-          sheetTab: state.session.sheetTab || ''
-        }, 15000);
-        const minted = cleanStr(
-          (loginRes && (loginRes.authToken || (loginRes.user && loginRes.user.authToken))) || ''
-        );
-        if (minted) {
-          token = minted;
-          state.session.authToken = minted;
+  async function renewSessionAuthToken(forceMint) {
+    if (!state.session) return '';
+    const currentTok = cleanStr(state.session.authToken);
+    if (!forceMint) {
+      const recovered = tryRecoverSessionAuthToken();
+      if (recovered) return recovered;
+    } else {
+      const targetEmail = normalizeEmail(state.session.correo);
+      const candidateKeys = [
+        INV_SESSION_KEY,
+        'creata_private_kevin_panel_v1',
+        'creata_private_kevin_fotos_v1',
+        'creata_private_kevin_hist_v1'
+      ];
+      for (let i = 0; i < candidateKeys.length; i++) {
+        const obj = readJsonStorage(candidateKeys[i], null);
+        const storedTok = obj && normalizeEmail(obj.correo) === targetEmail ? cleanStr(obj.authToken) : '';
+        if (storedTok && storedTok !== currentTok) {
+          persistRenewedAuthToken(storedTok);
+          return storedTok;
         }
-      } catch (eMint) {}
+      }
     }
-    if (!token) return { ok: false, reason: 'no_token' };
+    const key = readStoredAccessKeyFallback(state.session.correo);
+    if (!key || !cleanStr(state.session.correo)) return '';
+    try {
+      const loginRes = await callWebAppPost('inv_login', {
+        email: state.session.correo,
+        accessKey: key,
+        sheetTab: state.session.sheetTab || ''
+      }, 15000);
+      const minted = cleanStr(
+        (loginRes && (loginRes.authToken || (loginRes.user && loginRes.user.authToken))) || ''
+      );
+      if (minted) {
+        persistRenewedAuthToken(minted);
+        return minted;
+      }
+    } catch (eMint) {}
+    return '';
+  }
 
+  async function sendHistPresenceHeartbeat(forceNow, _isRetry) {
+    if (!mounted || !state.session || !cleanStr(state.session.correo)) return;
+    if (global.CreataGuard && (global.CreataGuard.blocked || global.CreataGuard.isBlocked)) return;
+    const now = Date.now();
+    if (!forceNow && (now - _histLastHeartbeatMs) < 45000) return;
+    if (!forceNow && typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+    let token = tryRecoverSessionAuthToken();
+    const fallbackKey = readStoredAccessKeyFallback(state.session.correo);
+    if (!token && fallbackKey) {
+      token = await renewSessionAuthToken(false);
+    }
+    if (!token && !fallbackKey) return;
+
+    _histLastHeartbeatMs = now;
     const payload = {
       authToken: token,
       advisorEmail: state.session.correo,
-      sheetTab: state.session.sheetTab || ''
+      correo: state.session.correo,
+      nombre: state.session.nombre || state.session.correo,
+      puesto: state.session.puesto || '',
+      sheetTab: state.session.sheetTab || '',
+      erpStore: state.session.erpStore || '',
+      deviceId: getHistPresenceDeviceId(),
+      vista: 'historial',
+      view: 'historial',
+      page: 'historial'
     };
+    if (!token && fallbackKey) payload.accessKey = fallbackKey;
+
     try {
-      let res = await callWebAppPost('inv_presence_list', payload, 22000);
+      const hbRes = await callWebAppPost('inv_presence_heartbeat', payload, 8000);
+      if (hbRes && hbRes.renewedAuthToken) {
+        persistRenewedAuthToken(hbRes.renewedAuthToken);
+      }
+      if (!_isRetry && hbRes && !hbRes.ok && !hbRes.unavailable && (hbRes.authRequired || !hbRes.error)) {
+        const fresh = await renewSessionAuthToken(true);
+        if (fresh) {
+          _histLastHeartbeatMs = 0;
+          sendHistPresenceHeartbeat(true, true);
+        }
+      }
+    } catch (e) {}
+  }
+
+  async function fetchPresenceList() {
+    if (!state.session) return { ok: false, reason: 'no_token' };
+    let token = tryRecoverSessionAuthToken();
+    const fallbackKey = readStoredAccessKeyFallback(state.session.correo);
+    if (!token) {
+      token = await renewSessionAuthToken(false);
+    }
+    if (!token && !fallbackKey) return { ok: false, reason: 'no_token' };
+
+    const buildPayload = (tok, includeKey) => {
+      const p = {
+        authToken: tok || '',
+        advisorEmail: state.session.correo,
+        sheetTab: state.session.sheetTab || ''
+      };
+      if (includeKey && fallbackKey) p.accessKey = fallbackKey;
+      return p;
+    };
+
+    try {
+      let res = await callWebAppPost('inv_presence_list', buildPayload(token, !token), 18000);
+      if (res && res.renewedAuthToken) {
+        persistRenewedAuthToken(res.renewedAuthToken);
+      }
       if (!res || res.unavailable) {
-        res = await callWebAppPost('inv_presence_list', payload, 22000);
+        res = await callWebAppPost('inv_presence_list', buildPayload(token, !token), 18000);
+        if (res && res.renewedAuthToken) {
+          persistRenewedAuthToken(res.renewedAuthToken);
+        }
+      }
+      if (res && !res.ok && !res.unavailable && !res.forbidden) {
+        const renewed = await renewSessionAuthToken(true);
+        if (renewed || fallbackKey) {
+          res = await callWebAppPost('inv_presence_list', buildPayload(renewed || token, true), 18000);
+          if (res && res.renewedAuthToken) {
+            persistRenewedAuthToken(res.renewedAuthToken);
+          }
+        }
       }
       if (res && res.ok && Array.isArray(res.users)) {
         return res;
@@ -1588,6 +1831,8 @@
     if (v === 'historial') return 'Historial';
     if (v === 'configuracion') return 'Configuración';
     if (v === 'cotizador' || v === 'carrito') return 'Cotizador';
+    if (v === 'fotos' || v === 'fotos-productos') return 'Subida de Fotos';
+    if (v === 'panel') return 'Panel CREATA';
     return cleanStr(vista);
   }
 
@@ -2501,6 +2746,10 @@
     const onBeforeUnload = () => saveHistCheckpointNow();
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') saveHistCheckpointNow();
+      else if (document.visibilityState === 'visible') sendHistPresenceHeartbeat(false);
+    };
+    const onWindowFocus = () => {
+      sendHistPresenceHeartbeat(false);
     };
     const onKeyDown = (ev) => {
       if (!mounted || ev.key !== 'Escape' || ev.__creataEscapeHandled) return;
@@ -2516,11 +2765,12 @@
     global.addEventListener('scroll', onScroll, { passive: true });
     global.addEventListener('pagehide', onPageHide);
     global.addEventListener('beforeunload', onBeforeUnload);
+    global.addEventListener('focus', onWindowFocus);
     document.addEventListener('visibilitychange', onVisibilityChange);
     document.addEventListener('keydown', onKeyDown);
 
     boundHandlers = {
-      onClick, onChange, onInput, onScroll, onPageHide, onBeforeUnload, onVisibilityChange, onKeyDown
+      onClick, onChange, onInput, onScroll, onPageHide, onBeforeUnload, onWindowFocus, onVisibilityChange, onKeyDown
     };
   }
 
@@ -2535,6 +2785,7 @@
     global.removeEventListener('scroll', boundHandlers.onScroll);
     global.removeEventListener('pagehide', boundHandlers.onPageHide);
     global.removeEventListener('beforeunload', boundHandlers.onBeforeUnload);
+    global.removeEventListener('focus', boundHandlers.onWindowFocus);
     document.removeEventListener('visibilitychange', boundHandlers.onVisibilityChange);
     document.removeEventListener('keydown', boundHandlers.onKeyDown);
     boundHandlers = null;
@@ -2810,11 +3061,13 @@
     }
     switchHistoryTab(state.activeTab, { silent: true });
 
+    sendHistPresenceHeartbeat(true);
     syncAllProjectHistory(false);
 
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = setInterval(() => {
       if (mounted && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
+        sendHistPresenceHeartbeat(false);
         syncAllProjectHistory(true);
       }
     }, AUTO_REFRESH_MS);

@@ -6478,42 +6478,252 @@
         }
     }
 
-    function sendInvPresenceHeartbeat(sessObj, forceNow) {
+    function recoverStoredInvAuthToken(sessObj) {
         const s = sessObj || activeAdvisorSession;
-        if (!s || s.mustChangeKey || !s.correo || !s.authToken) return;
+        if (!s) return '';
+        if (cleanStr(s.authToken)) return cleanStr(s.authToken);
+        const targetEmail = cleanStr(s.correo).toLowerCase().replace(/,/g, '.');
+        if (!targetEmail) return '';
+        const candidateKeys = [
+            AUTH_SESSION_KEY,
+            'creata_private_kevin_panel_v1',
+            'creata_private_kevin_fotos_v1',
+            'creata_private_kevin_hist_v1'
+        ];
+        for (let i = 0; i < candidateKeys.length; i++) {
+            try {
+                const raw = localStorage.getItem(candidateKeys[i]);
+                const obj = raw ? JSON.parse(raw) : null;
+                const objMail = cleanStr(obj && obj.correo).toLowerCase().replace(/,/g, '.');
+                if (obj && objMail === targetEmail && cleanStr(obj.authToken)) {
+                    s.authToken = cleanStr(obj.authToken);
+                    return s.authToken;
+                }
+            } catch (e) {}
+        }
+        return '';
+    }
+
+    function readStoredInvAccessKeyFallback(sessObj) {
+        const s = sessObj || activeAdvisorSession;
+        if (!s) return '';
+        if (cleanStr(s.accessKey)) return cleanStr(s.accessKey);
+        const targetEmail = cleanStr(s.correo).toLowerCase().replace(/,/g, '.');
+        if (!targetEmail) return '';
+        const candidateKeys = [
+            AUTH_SESSION_KEY,
+            'creata_private_kevin_panel_v1',
+            'creata_private_kevin_fotos_v1',
+            'creata_private_kevin_hist_v1'
+        ];
+        for (let i = 0; i < candidateKeys.length; i++) {
+            try {
+                const raw = localStorage.getItem(candidateKeys[i]);
+                const obj = raw ? JSON.parse(raw) : null;
+                const objMail = cleanStr(obj && obj.correo).toLowerCase().replace(/,/g, '.');
+                if (obj && objMail === targetEmail && cleanStr(obj.accessKey)) {
+                    return cleanStr(obj.accessKey);
+                }
+            } catch (e) {}
+        }
+        try {
+            const pendingMap = loadUpdatedKeysMap();
+            if (pendingMap && pendingMap[targetEmail] && cleanStr(pendingMap[targetEmail].newKey)) {
+                return cleanStr(pendingMap[targetEmail].newKey);
+            }
+        } catch (e) {}
+        if (targetEmail === 'kevin.reyna@grupoanipa.com' && typeof readKevinFotosAccessKeyFallback === 'function') {
+            return readKevinFotosAccessKeyFallback();
+        }
+        return '';
+    }
+
+    function persistRenewedInvAuthToken(sessObj, newToken) {
+        const tok = cleanStr(newToken);
+        if (!tok) return;
+        const s = sessObj || activeAdvisorSession;
+        const targetEmail = cleanStr(s && s.correo).toLowerCase().replace(/,/g, '.');
+        if (s) s.authToken = tok;
+        if (activeAdvisorSession && (!targetEmail || cleanStr(activeAdvisorSession.correo).toLowerCase().replace(/,/g, '.') === targetEmail)) {
+            activeAdvisorSession.authToken = tok;
+            saveAdvisorSession(activeAdvisorSession);
+        }
+        if (!targetEmail) return;
+        const syncKeys = [
+            'creata_private_kevin_panel_v1',
+            'creata_private_kevin_fotos_v1',
+            'creata_private_kevin_hist_v1'
+        ];
+        for (let i = 0; i < syncKeys.length; i++) {
+            try {
+                const raw = localStorage.getItem(syncKeys[i]);
+                if (!raw) continue;
+                const obj = JSON.parse(raw);
+                const objMail = cleanStr(obj && obj.correo).toLowerCase().replace(/,/g, '.');
+                if (obj && objMail === targetEmail) {
+                    obj.authToken = tok;
+                    localStorage.setItem(syncKeys[i], JSON.stringify(obj));
+                }
+            } catch (e) {}
+        }
+    }
+
+    let _invTokenRenewPromise = null;
+    async function renewInvAuthTokenIfPossible(sessObj, forceMint) {
+        const s = sessObj || activeAdvisorSession;
+        if (!s || !cleanStr(s.correo)) return '';
+        const currentTok = cleanStr(s.authToken);
+        if (!forceMint) {
+            const recovered = recoverStoredInvAuthToken(s);
+            if (recovered) {
+                persistRenewedInvAuthToken(s, recovered);
+                return recovered;
+            }
+        } else {
+            const targetEmail = cleanStr(s.correo).toLowerCase().replace(/,/g, '.');
+            const candidateKeys = [
+                AUTH_SESSION_KEY,
+                'creata_private_kevin_panel_v1',
+                'creata_private_kevin_fotos_v1',
+                'creata_private_kevin_hist_v1'
+            ];
+            for (let i = 0; i < candidateKeys.length; i++) {
+                try {
+                    const raw = localStorage.getItem(candidateKeys[i]);
+                    const obj = raw ? JSON.parse(raw) : null;
+                    const objMail = cleanStr(obj && obj.correo).toLowerCase().replace(/,/g, '.');
+                    const storedTok = obj && objMail === targetEmail ? cleanStr(obj.authToken) : '';
+                    if (storedTok && storedTok !== currentTok) {
+                        persistRenewedInvAuthToken(s, storedTok);
+                        return storedTok;
+                    }
+                } catch (e) {}
+            }
+        }
+        const fallbackKey = readStoredInvAccessKeyFallback(s);
+        if (!fallbackKey) return '';
+        if (_invTokenRenewPromise) return _invTokenRenewPromise;
+        _invTokenRenewPromise = (async function () {
+            try {
+                const loginRes = await callInvWebAppPost('inv_login', {
+                    email: cleanStr(s.correo),
+                    accessKey: fallbackKey,
+                    sheetTab: cleanStr(s.sheetTab)
+                }, 12000, true);
+                const freshTok = cleanStr(loginRes && (loginRes.authToken || (loginRes.user && loginRes.user.authToken)));
+                if (freshTok) {
+                    persistRenewedInvAuthToken(s, freshTok);
+                    return freshTok;
+                }
+                return '';
+            } catch (e) {
+                return '';
+            } finally {
+                _invTokenRenewPromise = null;
+            }
+        })();
+        return _invTokenRenewPromise;
+    }
+
+    async function callInvWebAppGetPresence(payloadObj, timeoutMs) {
+        const cfgUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
+            ? cleanStr(window.CREATA_CLOUD_CONFIG.getApiUrl())
+            : '';
+        const urls = [];
+        if (CANONICAL_WEBAPP_URL) urls.push(CANONICAL_WEBAPP_URL);
+        if (cfgUrl && urls.indexOf(cfgUrl) === -1) urls.push(cfgUrl);
+        const p = payloadObj || {};
+        for (let i = 0; i < urls.length; i++) {
+            const baseUrl = urls[i];
+            const qs = new URLSearchParams();
+            qs.set('action', 'inv_presence_list');
+            if (cleanStr(p.authToken)) qs.set('authToken', cleanStr(p.authToken));
+            if (cleanStr(p.advisorEmail)) qs.set('advisorEmail', cleanStr(p.advisorEmail));
+            if (cleanStr(p.sheetTab)) qs.set('sheetTab', cleanStr(p.sheetTab));
+            if (cleanStr(p.accessKey)) qs.set('accessKey', cleanStr(p.accessKey));
+            const sep = baseUrl.indexOf('?') === -1 ? '?' : '&';
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 15000) : null;
+            try {
+                const resp = await fetch(baseUrl + sep + qs.toString(), {
+                    method: 'GET',
+                    cache: 'no-store',
+                    signal: controller ? controller.signal : undefined
+                });
+                if (resp && resp.ok) {
+                    const json = await resp.json();
+                    if (json && !json.unavailable) return json;
+                }
+            } catch (e) {
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        }
+        return { ok: false, unavailable: true };
+    }
+
+    function sendInvPresenceHeartbeat(sessObj, forceNow, _isRetry) {
+        const s = sessObj || activeAdvisorSession;
+        if (!s || s.mustChangeKey || !s.correo) return;
         if (window.CreataGuard && (window.CreataGuard.blocked || window.CreataGuard.isBlocked)) return;
         const now = Date.now();
         const vista = currentPresenceVista();
         const vistaChanged = vista !== lastPresenceVistaSent;
         if (!forceNow && !vistaChanged && (now - lastPresenceHeartbeatMs) < 45000) return;
         if (!forceNow && typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-        lastPresenceHeartbeatMs = now;
-        lastPresenceVistaSent = vista;
-        const roleInfo = (typeof getAdvisorRoleInfo === 'function') ? getAdvisorRoleInfo(s) : {};
-        const devLabel = (typeof getClientDeviceLabel === 'function') ? getClientDeviceLabel() : 'Navegador';
-        callInvWebAppPost('inv_presence_heartbeat', {
-            authToken: s.authToken || '',
-            correo: s.correo || '',
-            nombre: s.nombre || s.correo || '',
-            puesto: s.puesto || '',
-            sheetTab: s.sheetTab || '',
-            branchLabel: s.branchLabel || s.sheetTab || '',
-            erpStore: s.erpStore || '',
-            role: s.isGuest ? 'INVITADO' : (roleInfo.roleLabel || (isEffectiveAdminSession() ? 'ADMIN' : (s.isManager ? 'GERENTE' : 'ASESOR'))),
-            isGuest: !!s.isGuest,
-            isAdmin: isEffectiveAdminSession(),
-            isManager: !!s.isManager,
-            deviceId: getInvPresenceDeviceId(),
-            deviceLabel: devLabel,
-            sessionStartedMs: getInvSessionStartedMs(),
-            vista: vista,
-            view: vista,
-            page: 'inventario'
-        }, 8000, true).then((hbRes) => {
+
+        const dispatchHeartbeat = async function () {
+            let token = recoverStoredInvAuthToken(s);
+            const fallbackKey = readStoredInvAccessKeyFallback(s);
+            if (!token && fallbackKey) {
+                token = await renewInvAuthTokenIfPossible(s, false);
+            }
+            if (!token && !fallbackKey) return;
+
+            lastPresenceHeartbeatMs = Date.now();
+            lastPresenceVistaSent = vista;
+            const roleInfo = (typeof getAdvisorRoleInfo === 'function') ? getAdvisorRoleInfo(s) : {};
+            const devLabel = (typeof getClientDeviceLabel === 'function') ? getClientDeviceLabel() : 'Navegador';
+            const hbPayload = {
+                authToken: token || '',
+                advisorEmail: s.correo || '',
+                correo: s.correo || '',
+                nombre: s.nombre || s.correo || '',
+                puesto: s.puesto || '',
+                sheetTab: s.sheetTab || '',
+                branchLabel: s.branchLabel || s.sheetTab || '',
+                erpStore: s.erpStore || '',
+                role: s.isGuest ? 'INVITADO' : (roleInfo.roleLabel || (isEffectiveAdminSession() ? 'ADMIN' : (s.isManager ? 'GERENTE' : 'ASESOR'))),
+                isGuest: !!s.isGuest,
+                isAdmin: isEffectiveAdminSession(),
+                isManager: !!s.isManager,
+                deviceId: getInvPresenceDeviceId(),
+                deviceLabel: devLabel,
+                sessionStartedMs: getInvSessionStartedMs(),
+                vista: vista,
+                view: vista,
+                page: 'inventario'
+            };
+            if (!token && fallbackKey) hbPayload.accessKey = fallbackKey;
+
+            const hbRes = await callInvWebAppPost('inv_presence_heartbeat', hbPayload, 8000, true);
+            if (hbRes && hbRes.renewedAuthToken) {
+                persistRenewedInvAuthToken(s, hbRes.renewedAuthToken);
+            }
             if (hbRes && hbRes.sessionRevoked === true && typeof window.logoutAdvisorSession === 'function') {
                 window.logoutAdvisorSession();
+                return;
             }
-        }).catch(() => {});
+            if (!_isRetry && hbRes && !hbRes.ok && !hbRes.unavailable && (hbRes.authRequired || !hbRes.error)) {
+                const freshTok = await renewInvAuthTokenIfPossible(s, true);
+                if (freshTok) {
+                    lastPresenceHeartbeatMs = 0;
+                    sendInvPresenceHeartbeat(s, true, true);
+                }
+            }
+        };
+
+        dispatchHeartbeat().catch(() => {});
     }
 
     function sendInvPresenceLogout(sessObj) {
@@ -13113,7 +13323,14 @@
             }
         }
         setInterval(runSmartLivePollTick, 60000);
-        window.addEventListener('focus', function () { refreshLiveSheetNow(false); });
+        window.addEventListener('focus', function () {
+            refreshLiveSheetNow(false);
+            sendInvPresenceHeartbeat(activeAdvisorSession, false);
+            const modal = document.getElementById('settingsModal');
+            if (modal && modal.classList.contains('open') && isRealKevinOwner() && !isKevinAdvisorPreviewActive() && typeof window.refreshSettingsTeamPresence === 'function') {
+                window.refreshSettingsTeamPresence(false);
+            }
+        });
         window.addEventListener('online', function () {
             flushInvOfflineOutbox().catch(() => {});
             refreshLiveSheetNow(true);
@@ -14128,6 +14345,32 @@
         }
     }
 
+    let settingsTeamPresenceTimer = null;
+    let settingsTeamPresenceInFlight = false;
+
+    function stopSettingsTeamPresenceAutoRefresh() {
+        if (settingsTeamPresenceTimer) {
+            clearInterval(settingsTeamPresenceTimer);
+            settingsTeamPresenceTimer = null;
+        }
+    }
+
+    function startSettingsTeamPresenceAutoRefresh() {
+        stopSettingsTeamPresenceAutoRefresh();
+        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        settingsTeamPresenceTimer = setInterval(function () {
+            const modal = document.getElementById('settingsModal');
+            if (!modal || !modal.classList.contains('open')) {
+                stopSettingsTeamPresenceAutoRefresh();
+                return;
+            }
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            if (isRealKevinOwner() && !isKevinAdvisorPreviewActive() && typeof window.refreshSettingsTeamPresence === 'function') {
+                window.refreshSettingsTeamPresence(false);
+            }
+        }, 20000);
+    }
+
     window.openSettingsModal = function () {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return;
         const modal = document.getElementById('settingsModal');
@@ -14152,11 +14395,15 @@
         const isKevinAdminNow = isRealKevinOwner() && !isKevinAdvisorPreviewActive();
         if (isKevinAdminNow && typeof window.refreshSettingsTeamPresence === 'function') {
             window.refreshSettingsTeamPresence(false);
+            startSettingsTeamPresenceAutoRefresh();
+        } else {
+            stopSettingsTeamPresenceAutoRefresh();
         }
         syncProductOverridesFromCloud(isKevinAdminNow);
     };
 
     window.closeSettingsModal = function () {
+        stopSettingsTeamPresenceAutoRefresh();
         const modal = document.getElementById('settingsModal');
         if (modal) modal.classList.remove('open');
     };
@@ -14188,7 +14435,10 @@
             const modal = document.getElementById('settingsModal');
             if (modal && modal.classList.contains('open') && typeof window.refreshSettingsTeamPresence === 'function') {
                 window.refreshSettingsTeamPresence(false);
+                startSettingsTeamPresenceAutoRefresh();
             }
+        } else {
+            stopSettingsTeamPresenceAutoRefresh();
         }
         if (typeof showToast === 'function') {
             showToast(target === 'ASESOR' ? 'Vista cambiada a Asesor (tope de descuento de asesor activo).' : 'Regresaste a modo Administrador.');
@@ -14455,6 +14705,8 @@
         if (v === 'historial') return 'Historial';
         if (v === 'configuracion') return 'Configuración';
         if (v === 'cotizador' || v === 'carrito') return 'Cotizador';
+        if (v === 'fotos' || v === 'fotos-productos') return 'Subida de Fotos';
+        if (v === 'panel') return 'Panel CREATA';
         return cleanStr(vista);
     }
 
@@ -14559,34 +14811,66 @@
 
     window.refreshSettingsTeamPresence = async function (showFeedback) {
         if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
-        let token = cleanStr(activeAdvisorSession && activeAdvisorSession.authToken);
-        if (!token) {
-            try {
-                const raw = localStorage.getItem('creata_inv_advisor_session_v2');
-                const parsed = raw ? JSON.parse(raw) : null;
-                if (parsed && parsed.authToken) token = cleanStr(parsed.authToken);
-            } catch (e) {}
-        }
-        if (!token) {
-            settingsTeamPresenceState.error = 'no_token';
-            settingsTeamPresenceState.users = [];
-            settingsTeamPresenceState.onlineCount = 0;
-            settingsTeamPresenceState.offlineCount = 0;
-            window.renderSettingsTeamPresenceList();
-            return;
-        }
-        settingsTeamPresenceState.loading = true;
-        settingsTeamPresenceState.error = '';
-        window.renderSettingsTeamPresenceList();
-        const payload = {
-            authToken: token,
-            advisorEmail: cleanStr(activeAdvisorSession && activeAdvisorSession.correo),
-            sheetTab: cleanStr(activeAdvisorSession && activeAdvisorSession.sheetTab)
-        };
+        if (settingsTeamPresenceInFlight && !showFeedback) return;
+        settingsTeamPresenceInFlight = true;
+
         try {
-            let res = await callInvWebAppPost('inv_presence_list', payload, 22000);
-            if (!res || res.unavailable) {
-                res = await callInvWebAppPost('inv_presence_list', payload, 22000);
+            let token = recoverStoredInvAuthToken(activeAdvisorSession);
+            if (!token) {
+                try {
+                    const raw = localStorage.getItem('creata_inv_advisor_session_v1');
+                    const parsed = raw ? JSON.parse(raw) : null;
+                    if (parsed && parsed.authToken) token = cleanStr(parsed.authToken);
+                } catch (e) {}
+            }
+            const fallbackKey = readStoredInvAccessKeyFallback(activeAdvisorSession);
+            if (!token && fallbackKey) {
+                token = await renewInvAuthTokenIfPossible(activeAdvisorSession, false);
+            }
+            if (!token && !fallbackKey) {
+                settingsTeamPresenceState.error = 'no_token';
+                settingsTeamPresenceState.users = [];
+                settingsTeamPresenceState.onlineCount = 0;
+                settingsTeamPresenceState.offlineCount = 0;
+                window.renderSettingsTeamPresenceList();
+                return;
+            }
+            settingsTeamPresenceState.loading = true;
+            settingsTeamPresenceState.error = '';
+            window.renderSettingsTeamPresenceList();
+
+            const buildPayload = function (tok, includeKey) {
+                const p = {
+                    authToken: tok || '',
+                    advisorEmail: cleanStr(activeAdvisorSession && activeAdvisorSession.correo),
+                    sheetTab: cleanStr(activeAdvisorSession && activeAdvisorSession.sheetTab)
+                };
+                if (includeKey && fallbackKey) p.accessKey = fallbackKey;
+                return p;
+            };
+
+            let res = await callInvWebAppPost('inv_presence_list', buildPayload(token, !token), 18000, true);
+            if (res && res.renewedAuthToken) {
+                persistRenewedInvAuthToken(activeAdvisorSession, res.renewedAuthToken);
+            }
+            if (!res || res.unavailable || res.needsRedeploy) {
+                res = await callInvWebAppGetPresence(buildPayload(token, !token), 18000);
+                if (res && res.renewedAuthToken) {
+                    persistRenewedInvAuthToken(activeAdvisorSession, res.renewedAuthToken);
+                }
+            }
+            if (res && !res.ok && !res.unavailable && !res.forbidden) {
+                const freshTok = await renewInvAuthTokenIfPossible(activeAdvisorSession, true);
+                if (freshTok || fallbackKey) {
+                    const retryPayload = buildPayload(freshTok || token, true);
+                    res = await callInvWebAppPost('inv_presence_list', retryPayload, 18000, true);
+                    if (!res || res.unavailable || res.needsRedeploy) {
+                        res = await callInvWebAppGetPresence(retryPayload, 18000);
+                    }
+                    if (res && res.renewedAuthToken) {
+                        persistRenewedInvAuthToken(activeAdvisorSession, res.renewedAuthToken);
+                    }
+                }
             }
             if (res && res.ok && Array.isArray(res.users)) {
                 const serverNow = Number(res.serverTimeMs) > 0 ? Number(res.serverTimeMs) : Date.now();
@@ -14625,6 +14909,8 @@
             settingsTeamPresenceState.error = (res && res.unavailable) ? 'unavailable' : 'auth_failed';
         } catch (e) {
             settingsTeamPresenceState.error = 'unavailable';
+        } finally {
+            settingsTeamPresenceInFlight = false;
         }
         settingsTeamPresenceState.loading = false;
         window.renderSettingsTeamPresenceList();

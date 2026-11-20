@@ -95,32 +95,159 @@
         return null;
     }
 
-    async function callWebAppLogin(typedKey) {
+    async function callPanelWebAppPost(action, payloadObj, timeoutMs) {
+        if (typeof fetch !== 'function') return { ok: false, unavailable: true };
         const cfgUrl = (window.CREATA_CLOUD_CONFIG && typeof window.CREATA_CLOUD_CONFIG.getApiUrl === 'function')
-            ? window.CREATA_CLOUD_CONFIG.getApiUrl()
+            ? cleanStr(window.CREATA_CLOUD_CONFIG.getApiUrl())
             : '';
-        const targetUrl = cfgUrl || CANONICAL_WEBAPP_URL;
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), 9000) : null;
-        try {
-            const resp = await fetch(targetUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({
-                    action: 'inv_login',
-                    email: OWNER_EMAIL,
-                    accessKey: typedKey,
-                    sheetTab: 'PROYECTOS'
-                }),
-                signal: controller ? controller.signal : undefined
-            });
-            if (!resp.ok) return { ok: false, unavailable: true };
-            return (await resp.json()) || { ok: false, unavailable: true };
-        } catch (e) {
-            return { ok: false, unavailable: true };
-        } finally {
-            if (timer) clearTimeout(timer);
+        const primaryUrl = cfgUrl || CANONICAL_WEBAPP_URL;
+
+        const postOnce = async (targetUrl) => {
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 9000) : null;
+            try {
+                const resp = await fetch(targetUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(Object.assign({}, payloadObj || {}, { action: action })),
+                    signal: controller ? controller.signal : undefined
+                });
+                if (!resp || !resp.ok) return { ok: false, unavailable: true };
+                return (await resp.json()) || { ok: false, unavailable: true };
+            } catch (e) {
+                return { ok: false, unavailable: true };
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        };
+
+        const res = await postOnce(primaryUrl);
+        if (CANONICAL_WEBAPP_URL && primaryUrl !== CANONICAL_WEBAPP_URL && (!res || res.unavailable)) {
+            const fb = await postOnce(CANONICAL_WEBAPP_URL);
+            if (fb && !fb.unavailable) return fb;
         }
+        return res;
+    }
+
+    async function callWebAppLogin(typedKey) {
+        return callPanelWebAppPost('inv_login', {
+            email: OWNER_EMAIL,
+            accessKey: typedKey,
+            sheetTab: 'PROYECTOS'
+        }, 9000);
+    }
+
+    const PANEL_PRESENCE_DEVICE_KEY = 'creata_inv_presence_dev_v1';
+    let _panelLastHeartbeatMs = 0;
+    let _panelPresenceTimer = null;
+
+    function getPanelPresenceDeviceId() {
+        try {
+            let id = localStorage.getItem(PANEL_PRESENCE_DEVICE_KEY);
+            if (!id) {
+                id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+                localStorage.setItem(PANEL_PRESENCE_DEVICE_KEY, id);
+            }
+            return id;
+        } catch (e) {
+            return 'dev_mem_panel';
+        }
+    }
+
+    function readActiveOwnerPresenceCreds() {
+        const keys = [PANEL_SESSION_KEY, INV_SESSION_KEY, FOTOS_SESSION_KEY, HIST_SESSION_KEY];
+        let token = '';
+        let accessKey = '';
+        for (let i = 0; i < keys.length; i++) {
+            try {
+                const raw = localStorage.getItem(keys[i]);
+                if (!raw) continue;
+                const obj = JSON.parse(raw);
+                if (!obj || normalizeEmail(obj.correo) !== OWNER_EMAIL) continue;
+                if (!token && cleanStr(obj.authToken)) token = cleanStr(obj.authToken);
+                if (!accessKey && cleanStr(obj.accessKey)) accessKey = cleanStr(obj.accessKey);
+            } catch (e) {}
+        }
+        if (!accessKey) {
+            try {
+                if (typeof sessionStorage !== 'undefined') {
+                    accessKey = cleanStr(sessionStorage.getItem(FOTOS_SECRET_SESSION_KEY));
+                }
+                if (!accessKey) accessKey = cleanStr(localStorage.getItem(FOTOS_SECRET_SESSION_KEY));
+            } catch (e) {}
+        }
+        return { authToken: token, accessKey: accessKey };
+    }
+
+    function persistPanelRenewedToken(newToken) {
+        const tok = cleanStr(newToken);
+        if (!tok) return;
+        const keys = [PANEL_SESSION_KEY, INV_SESSION_KEY, FOTOS_SESSION_KEY, HIST_SESSION_KEY];
+        for (let i = 0; i < keys.length; i++) {
+            try {
+                const raw = localStorage.getItem(keys[i]);
+                if (!raw) continue;
+                const obj = JSON.parse(raw);
+                if (obj && normalizeEmail(obj.correo) === OWNER_EMAIL) {
+                    obj.authToken = tok;
+                    localStorage.setItem(keys[i], JSON.stringify(obj));
+                }
+            } catch (e) {}
+        }
+    }
+
+    function sendPanelPresenceHeartbeat(forceNow, _isRetry) {
+        if (!unlocked) return;
+        const now = Date.now();
+        if (!forceNow && (now - _panelLastHeartbeatMs) < 45000) return;
+        if (!forceNow && typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        const creds = readActiveOwnerPresenceCreds();
+        if (!creds.authToken && !creds.accessKey) return;
+        _panelLastHeartbeatMs = now;
+        const payload = {
+            authToken: creds.authToken,
+            advisorEmail: OWNER_EMAIL,
+            correo: OWNER_EMAIL,
+            nombre: OWNER_DISPLAY_NAME,
+            puesto: 'ADMINISTRADOR',
+            sheetTab: 'PROYECTOS',
+            erpStore: 'CEDIS',
+            deviceId: getPanelPresenceDeviceId(),
+            vista: 'panel',
+            view: 'panel',
+            page: 'panel'
+        };
+        if (!creds.authToken && creds.accessKey) payload.accessKey = creds.accessKey;
+        callPanelWebAppPost('inv_presence_heartbeat', payload, 8000).then(async (hbRes) => {
+            if (hbRes && hbRes.renewedAuthToken) {
+                persistPanelRenewedToken(hbRes.renewedAuthToken);
+            }
+            if (!_isRetry && hbRes && !hbRes.ok && !hbRes.unavailable && (hbRes.authRequired || !hbRes.error) && creds.accessKey) {
+                const loginRes = await callWebAppLogin(creds.accessKey);
+                const freshTok = cleanStr((loginRes && (loginRes.authToken || (loginRes.user && loginRes.user.authToken))) || '');
+                if (freshTok) {
+                    persistPanelRenewedToken(freshTok);
+                    _panelLastHeartbeatMs = 0;
+                    sendPanelPresenceHeartbeat(true, true);
+                }
+            }
+        }).catch(() => {});
+    }
+
+    function stopPanelPresenceHeartbeatLoop() {
+        if (_panelPresenceTimer) {
+            clearInterval(_panelPresenceTimer);
+            _panelPresenceTimer = null;
+        }
+    }
+
+    function startPanelPresenceHeartbeatLoop() {
+        stopPanelPresenceHeartbeatLoop();
+        _panelPresenceTimer = setInterval(() => {
+            if (unlocked && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
+                sendPanelPresenceHeartbeat(false);
+            }
+        }, 60000);
     }
 
     function setGateAlert(msg) {
@@ -230,6 +357,8 @@
         if (main) main.classList.remove('hidden');
         renderButtons();
         wakeRenderServersSilently();
+        sendPanelPresenceHeartbeat(true);
+        startPanelPresenceHeartbeatLoop();
         if (fromUserAction && panelBackNav && typeof panelBackNav.syncDepthOnUserAction === 'function') {
             panelBackNav.syncDepthOnUserAction('unlock');
         }
@@ -237,6 +366,7 @@
 
     window.lockHubPortal = function () {
         unlocked = false;
+        stopPanelPresenceHeartbeatLoop();
         if (panelBackNav && typeof panelBackNav.resetToBase === 'function') {
             panelBackNav.resetToBase();
         }
@@ -382,6 +512,15 @@
                     window.open(p.url, '_blank', 'noopener');
                 }
             }
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (unlocked && document.visibilityState === 'visible') {
+                sendPanelPresenceHeartbeat(false);
+            }
+        });
+        window.addEventListener('focus', () => {
+            if (unlocked) sendPanelPresenceHeartbeat(false);
         });
 
         if (checkExistingOwnerSession()) {
