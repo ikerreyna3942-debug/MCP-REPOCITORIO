@@ -58,7 +58,8 @@
 }
 
 html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
+    overflow-anchor: none;
 }
 
 body {
@@ -66,6 +67,7 @@ body {
     min-height: 100vh;
     min-height: 100dvh;
     overflow-x: clip;
+    overflow-anchor: none;
     background-color: var(--bg-canvas);
     background-image: radial-gradient(ellipse 90% 45% at 50% -10%, rgba(204, 166, 107, 0.12), transparent 70%);
     color: var(--ink-primary);
@@ -73,6 +75,13 @@ body {
     line-height: 1.45;
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: rgba(204, 166, 107, 0.22);
+}
+
+#privateAppShell,
+.workspace-shell,
+.workbench-grid,
+.right-column-stack {
+    overflow-anchor: none;
 }
 
 button,
@@ -699,6 +708,7 @@ input,
     gap: 7px;
     max-height: 620px;
     overflow-y: auto;
+    overflow-anchor: none;
     padding-right: 3px;
 }
 
@@ -714,8 +724,6 @@ input,
     cursor: pointer;
     text-align: left;
     transition: border-color 0.1s ease, background-color 0.1s ease;
-    content-visibility: auto;
-    contain-intrinsic-size: 62px;
 }
 
 .sku-item:hover {
@@ -1010,6 +1018,7 @@ input,
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
     gap: 12px;
+    overflow-anchor: none;
 }
 
 .inbox-photo-card {
@@ -1022,8 +1031,6 @@ input,
     display: flex;
     flex-direction: column;
     transition: border-color 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
-    content-visibility: auto;
-    contain-intrinsic-size: 215px;
 }
 
 @media (hover: hover) {
@@ -1704,8 +1711,10 @@ input,
         scroll-margin-top: calc(108px + env(safe-area-inset-top, 0px));
     }
     .sku-list {
-        max-height: min(46dvh, 380px);
-        overscroll-behavior-y: contain;
+        max-height: 340px;
+        max-height: min(44svh, 340px);
+        overscroll-behavior-y: auto;
+        overflow-anchor: none;
         -webkit-overflow-scrolling: touch;
     }
     .mobile-jump-bar {
@@ -1890,9 +1899,11 @@ input,
         font-size: 12px;
     }
     .sku-list {
-        max-height: min(46dvh, 380px);
+        max-height: 340px;
+        max-height: min(44svh, 340px);
         gap: 6px;
-        overscroll-behavior-y: contain;
+        overscroll-behavior-y: auto;
+        overflow-anchor: none;
         -webkit-overflow-scrolling: touch;
     }
     .sku-item {
@@ -2732,14 +2743,14 @@ body.is-suite-embed .header-actions .hdr-btn {
  * UX Práctica: Barra Superior de 3 Modos, Acordeones Plegables, Banner Rápido y Dropzone
  * ============================================================================ */
 .fotos-mode-hero {
-    margin-bottom: 10px;
-    padding: 8px 10px;
+    margin-bottom: 8px;
+    padding: 5px;
     border-radius: 12px;
     background: var(--bg-card);
     border: 1px solid var(--border-hairline);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
 }
 
 .fotos-mode-hero .fotos-work-mode-bar {
