@@ -5127,6 +5127,11 @@
     let _fotosSplitActive = false;
     let _fotosSplitPct = 50;
     let _fotosSplitVertical = false;
+    let _fotosSplitTarget = 'cotizador';
+
+    function getFotosSplitTargetUrl(target) {
+        return target === 'prompts' ? './prompts.html' : './inventario.html?embed=1';
+    }
 
     function loadFotosSplitPrefs() {
         try {
@@ -5153,6 +5158,8 @@
         const btn = document.getElementById('btnSplitWithCotizador');
         const badge = document.getElementById('fotosSplitRatioBadge');
         const frame = document.getElementById('fotosSplitCotizadorFrame');
+        const btnCot = document.getElementById('btnFotosSplitTargetCotizador');
+        const btnPrompts = document.getElementById('btnFotosSplitTargetPrompts');
 
         document.body.classList.toggle('fotos-split-active', _fotosSplitActive);
         document.body.classList.toggle('fotos-split-vertical', _fotosSplitActive && _fotosSplitVertical);
@@ -5167,10 +5174,15 @@
         if (badge) {
             badge.textContent = _fotosSplitPct + '% / ' + (100 - _fotosSplitPct) + '%';
         }
+        if (btnCot) btnCot.classList.toggle('active', _fotosSplitTarget !== 'prompts');
+        if (btnPrompts) btnPrompts.classList.toggle('active', _fotosSplitTarget === 'prompts');
         if (_fotosSplitActive && frame) {
+            const targetUrl = getFotosSplitTargetUrl(_fotosSplitTarget);
             const loadedSrc = (frame.dataset && frame.dataset.loadedSrc) || frame.getAttribute('src') || '';
-            if (!loadedSrc || loadedSrc === 'about:blank') {
-                const targetUrl = './inventario.html?embed=1';
+            if (!loadedSrc || loadedSrc === 'about:blank' || loadedSrc !== targetUrl) {
+                if (typeof frame.setAttribute === 'function') {
+                    frame.setAttribute('title', _fotosSplitTarget === 'prompts' ? 'Generador de Prompts IA' : 'Cotizador CREATA');
+                }
                 if (window.CreataBackNav && typeof window.CreataBackNav.replaceIframeUrl === 'function') {
                     window.CreataBackNav.replaceIframeUrl(frame, targetUrl);
                 } else if (typeof frame.setAttribute === 'function') {
@@ -5183,6 +5195,22 @@
         }
         updateAssignButtonState();
     }
+
+    window.setFotosSplitTarget = function (target) {
+        const nextTarget = target === 'prompts' ? 'prompts' : 'cotizador';
+        _fotosSplitTarget = nextTarget;
+        if (!_fotosSplitActive) {
+            loadFotosSplitPrefs();
+            _fotosSplitActive = true;
+            applyFotosSplitDomState();
+            syncFotosBackNav('split_cotizador');
+        } else {
+            applyFotosSplitDomState();
+        }
+        if (_fotosSplitTarget === 'cotizador' && state.selectedSku) {
+            setTimeout(() => notifySplitPeerOfSkuSelect(state.selectedSku, true), 450);
+        }
+    };
 
     window.setFotosSplitPreset = function (pctVal) {
         const p = Math.max(20, Math.min(80, Math.round(Number(pctVal) || 50)));
