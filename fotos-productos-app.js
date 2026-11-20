@@ -2129,7 +2129,7 @@
             '<button type="button" class="cat-filter-pill' + (activeLocKey === 'ALL' ? ' active' : '') + '" data-loc-key="ALL" onclick="setSkuLocationFilter(\'ALL\')">' +
                 '<span>Todas ubic.</span>' +
             '</button>',
-            '<button type="button" class="cat-filter-pill' + (activeLocKey === 'QUOTABLE' ? ' active' : '') + '" data-loc-key="QUOTABLE" onclick="setSkuLocationFilter(\'QUOTABLE\')" title="Piezas visibles en el Cotizador (>= 1 en Bodega/Piso o LPPT)">' +
+            '<button type="button" class="cat-filter-pill' + (activeLocKey === 'QUOTABLE' ? ' active' : '') + '" data-loc-key="QUOTABLE" onclick="setSkuLocationFilter(\'QUOTABLE\')" title="Visibles en Cotizador">' +
                 '<span>En Cotizador</span>' +
                 '<span class="cat-cnt">' + quotableCount + '</span>' +
             '</button>'
@@ -2317,9 +2317,9 @@
             const lpptQ = Number(p.lpptStock) || 0;
             let stockBadgeHtml = '';
             if (bodPiso > 0) {
-                stockBadgeHtml = '<span class="sku-stock-badge in-stock" title="Existencia física total en Bodega/Piso">Stock ' + bodPiso + (lpptQ > 0 ? (' + LPPT ' + lpptQ) : '') + '</span>';
+                stockBadgeHtml = '<span class="sku-stock-badge in-stock" title="Stock Bodega/Piso">Stock ' + bodPiso + (lpptQ > 0 ? (' + LPPT ' + lpptQ) : '') + '</span>';
             } else if (lpptQ > 0) {
-                stockBadgeHtml = '<span class="sku-stock-badge in-lppt" title="Piezas libres entrantes en LPPT">LPPT ' + lpptQ + '</span>';
+                stockBadgeHtml = '<span class="sku-stock-badge in-lppt" title="Entrantes LPPT">LPPT ' + lpptQ + '</span>';
             } else if (p.hasStocksLoaded && p.inInv) {
                 stockBadgeHtml = '<span class="sku-stock-badge zero-stock">0 pz</span>';
             }
@@ -2559,7 +2559,7 @@
         const leftUrl = showBeforeVsLoaded ? (savedSession.previousUrl || '') : prod.photoUrl;
 
         if (curStageTitle) {
-            curStageTitle.textContent = showBeforeVsLoaded ? 'Anterior (Col D)' : 'Cargada (Col D)';
+            curStageTitle.textContent = showBeforeVsLoaded ? 'Anterior' : 'Actual';
         }
 
         if (leftUrl) {
@@ -3354,10 +3354,7 @@
             syncFotosBackNav('selected_photo');
         }
 
-        showAssignFeedback(
-            '⚡ Foto(s) cargada(s) al instante (' + files.length + '). Sincronizando con Drive en segundo plano...',
-            true
-        );
+        showAssignFeedback('⚡ Subiendo ' + files.length + ' foto(s)...', true);
 
         // 2) SUBIDA EN SEGUNDO PLANO DE ALTA VELOCIDAD (4 WORKERS EN PARALELO + COMPRESIÓN RÁPIDA)
         let uploadedCount = 0;
@@ -3442,7 +3439,7 @@
                 const idx = cursor++;
                 await uploadSingleEntry(stagedEntries[idx]);
                 if (stagedEntries.length > 1 && completedCount < stagedEntries.length) {
-                    showAssignFeedback('⚡ Sincronizando con Drive (' + completedCount + '/' + stagedEntries.length + ')...', true);
+                    showAssignFeedback('⚡ Subiendo ' + completedCount + '/' + stagedEntries.length + '...', true);
                 }
             }
         };
@@ -3460,11 +3457,11 @@
         updateAssignButtonState();
 
         if (queuedOfflineCount > 0 && uploadedCount === 0) {
-            showAssignFeedback('⚡ Lista(s) (' + queuedOfflineCount + '). Se sincronizarán con Drive al recuperar señal.', true);
+            showAssignFeedback('⚡ ' + queuedOfflineCount + ' en cola (sin red).', true);
         } else if (queuedOfflineCount > 0) {
-            showAssignFeedback('✅ Subidas: ' + uploadedCount + ' · En cola local: ' + queuedOfflineCount + '.', true);
+            showAssignFeedback('✅ Subidas: ' + uploadedCount + ' · Cola: ' + queuedOfflineCount + '.', true);
         } else if (uploadedCount > 0) {
-            showAssignFeedback('✅ ' + uploadedCount + ' foto(s) lista(s) en SUBIR PREN.', true);
+            showAssignFeedback('✅ ' + uploadedCount + ' subida(s) a SUBIR PREN.', true);
         }
         return stagedEntries;
     };
@@ -3538,14 +3535,14 @@
                 badgeEl.classList.add('is-linked');
             }
             if (rebindBtn) rebindBtn.classList.remove('hidden');
-            if (pickBtn) pickBtn.textContent = '💻 Subir de SUBIR PREN (PC)';
+            if (pickBtn) pickBtn.textContent = '💻 PC';
         } else {
             if (badgeEl) {
                 badgeEl.textContent = SUBIR_PREN_WINDOWS_PATH;
                 badgeEl.classList.remove('is-linked');
             }
             if (rebindBtn) rebindBtn.classList.add('hidden');
-            if (pickBtn) pickBtn.textContent = '💻 Carpeta PC (SUBIR PREN)';
+            if (pickBtn) pickBtn.textContent = '💻 PC';
         }
     }
 
@@ -3589,7 +3586,7 @@
             return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '');
         });
         if (!validFiles.length) {
-            showAssignFeedback('ℹ️ No se encontraron imágenes nuevas en ' + escapeHtml(sourceLabel || 'SUBIR PREN') + '.', false);
+            showAssignFeedback('ℹ️ Sin imágenes en ' + escapeHtml(sourceLabel || 'SUBIR PREN') + '.', false);
             return [];
         }
 
@@ -3624,10 +3621,7 @@
                 window.selectInboxPhoto(firstExistingMatchId);
             }
             renderInboxGallery();
-            showAssignFeedback(
-                '✅ Las ' + validFiles.length + ' foto(s) de SUBIR PREN ya están sincronizadas y listas en bandeja.',
-                true
-            );
+            showAssignFeedback('✅ ' + validFiles.length + ' foto(s) ya en bandeja.', true);
             return [];
         }
 
@@ -3641,7 +3635,7 @@
                 fallbackInp.click();
                 return [];
             }
-            showAssignFeedback('ℹ️ Usa el botón "📁 Carpeta" para seleccionar ' + escapeHtml(SUBIR_PREN_WINDOWS_PATH) + '.', false);
+            showAssignFeedback('ℹ️ Usa "📁 Carpeta" para elegir SUBIR PREN.', false);
             return [];
         }
 
@@ -3670,7 +3664,7 @@
             const collected = await collectImageFilesFromDirHandle(dirHandle, 0);
             if (!collected.length) {
                 await window.refreshInboxOnly(false);
-                showAssignFeedback('ℹ️ La carpeta local "' + escapeHtml(dirHandle.name || 'SUBIR PREN') + '" está vacía actualmente.', true);
+                showAssignFeedback('ℹ️ Carpeta "' + escapeHtml(dirHandle.name || 'SUBIR PREN') + '" vacía.', true);
                 return [];
             }
             return await ingestLocalSubirPrenFilesDeduped(collected, dirHandle.name || 'SUBIR PREN');
@@ -3769,7 +3763,7 @@
                 if (findSuggestedSkuForFileName(files[i].name)) { anyMatched = true; break; }
             }
             if (!anyMatched) {
-                showAssignFeedback('⚠️ Primero selecciona un SKU en la lista (o sube una foto cuyo nombre contenga el SKU).', false);
+                showAssignFeedback('⚠️ Selecciona un SKU primero.', false);
                 window.jumpToFotosSection('secSkuFinder');
                 return;
             }
@@ -3808,7 +3802,7 @@
 
     window.autoAssignMatchedInboxByCategory = async function (silentIfNone) {
         if (!state.inboxFiles.length) {
-            if (!silentIfNone) showAssignFeedback('ℹ️ No hay fotos pendientes en SUBIR PREN.', true);
+            if (!silentIfNone) showAssignFeedback('ℹ️ Bandeja vacía.', true);
             return;
         }
         const candidates = [];
@@ -3822,7 +3816,7 @@
         }
         if (!candidates.length) {
             if (!silentIfNone) {
-                showAssignFeedback('ℹ️ Selecciona un SKU y toca "Guardar" (ninguna foto en bandeja tiene SKU en el nombre).', false);
+                showAssignFeedback('ℹ️ Selecciona un SKU y toca Guardar.', false);
             }
             return;
         }
@@ -3858,7 +3852,7 @@
 
         if (assignedCount > 0) {
             showAssignFeedback(
-                '✅ ' + assignedCount + ' foto(s) acomodada(s) automáticamente por categoría (' + escapeHtml(lastCategories.slice(0, 3).join(', ')) + ').',
+                '✅ ' + assignedCount + ' guardada(s) (' + escapeHtml(lastCategories.slice(0, 3).join(', ')) + ').',
                 true
             );
         }
@@ -3936,10 +3930,7 @@
             m.classList.remove('hidden');
             syncFotosBackNav('install_modal');
         } else {
-            showAssignFeedback(
-                '📲 Para descargar la aplicación: abre el menú del navegador (⋮ o Compartir en iPhone) y toca <strong>"Instalar aplicación / Agregar a pantalla principal"</strong>.',
-                true
-            );
+            showAssignFeedback('📲 Menú del navegador → Instalar app.', true);
         }
     };
 
@@ -4047,10 +4038,7 @@
                 targetFolderId: targetFolderId,
                 queuedAt: Date.now()
             });
-            showAssignFeedback(
-                '⚡ Guardado en cola local para <strong>' + escapeHtml(prod.sku) + '</strong> (se sincronizará automáticamente al recuperar conexión).',
-                true
-            );
+            showAssignFeedback('⚡ En cola offline: <strong>' + escapeHtml(prod.sku) + '</strong>.', true);
             return;
         }
 
@@ -4085,10 +4073,7 @@
                         targetFolderId: targetFolderId,
                         queuedAt: Date.now()
                     });
-                    showAssignFeedback(
-                        '⚡ Sin conexión: asignación de <strong>' + escapeHtml(prod.sku) + '</strong> guardada localmente para sincronizar al reconectar.',
-                        true
-                    );
+                    showAssignFeedback('⚡ Sin red · en cola: <strong>' + escapeHtml(prod.sku) + '</strong>.', true);
                     return;
                 }
                 prod.photoUrl = prevUrlBeforeSave;
@@ -4321,9 +4306,9 @@
             if (manualRefresh) {
                 const loadedCount = getLoadedPhotosList().length;
                 showAssignFeedback(
-                    '✅ Actualizado (' + state.products.length.toLocaleString('es-MX') + ' SKUs · ' +
-                    loadedCount.toLocaleString('es-MX') + ' fotos cargadas · ' +
-                    state.inboxFiles.length + ' en SUBIR PREN).',
+                    '✅ ' + state.products.length.toLocaleString('es-MX') + ' SKUs · ' +
+                    loadedCount.toLocaleString('es-MX') + ' cargadas · ' +
+                    state.inboxFiles.length + ' bandeja.',
                     true
                 );
             }
@@ -4668,7 +4653,7 @@
                 renderInboxGallery();
                 renderSelectedProductStage();
                 renderSessionHistoryLog();
-                showAssignFeedback('✅ Fotos pendientes sincronizadas con Google Drive y Sheets.', true);
+                showAssignFeedback('✅ Pendientes sincronizadas.', true);
             }
         } catch (e) {
             // Keep remaining queue
@@ -5488,7 +5473,7 @@
 
         window.addEventListener('online', () => {
             if (state.unlocked) {
-                showAssignFeedback('🌐 Conexión restablecida. Sincronizando fotos pendientes...', true);
+                showAssignFeedback('🌐 En línea · sincronizando...', true);
                 flushFotosOfflineOutbox();
                 sendFotosPresenceHeartbeat(false);
             }
