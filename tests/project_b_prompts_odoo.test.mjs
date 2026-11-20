@@ -782,3 +782,80 @@ test('Project B (Generic Odoo + Sheet Upload): odoo_direct_upload_and_register u
   assert.ok(!env.accessedFolderIds.includes(IDS.SUBIR_PREN));
   assert.ok(!env.openedSpreadsheetIds.includes(IDS.SHEET_CONTROL));
 });
+
+function addSourceFolders(env) {
+  // I:\Mi unidad\PROYECTOS FINALES\PLANTILLAS\PRESENTACION\FOTOS SM S MUEBLERIA
+  env.makeFolder('src_pf', 'PROYECTOS FINALES');
+  env.makeFolder('src_pl', 'PLANTILLAS', { parentId: 'src_pf' });
+  env.makeFolder('src_pr', 'PRESENTACION', { parentId: 'src_pl' });
+  env.makeFolder('src_sm', 'FOTOS SM S MUEBLERIA', { parentId: 'src_pr' });
+  env.makeFolder('src_sm_sub', 'Salas', { parentId: 'src_sm' });
+  env.makeFile('sm_a', 'SALA_A.jpg', { parentId: 'src_sm', updatedAt: new Date('2026-11-10T10:00:00Z') });
+  env.makeFile('sm_b', 'SALA_B.png', { parentId: 'src_sm_sub', mimeType: 'image/png', updatedAt: new Date('2026-11-12T10:00:00Z') });
+  env.makeFile('sm_doc', 'notas.pdf', { parentId: 'src_sm', mimeType: 'application/pdf' });
+  // I:\Mi unidad\DOC ANIPA\Fotos general\Informacion de fotos\Cotizacipón (typo del usuario)
+  env.makeFolder('src_da', 'DOC ANIPA');
+  env.makeFolder('src_fg', 'Fotos general', { parentId: 'src_da' });
+  env.makeFolder('src_if', 'Información de fotos', { parentId: 'src_fg' });
+  env.makeFolder('src_cot', 'Cotizacipón', { parentId: 'src_if' });
+  env.makeFile('cot_a', 'COT_1.jpg', { parentId: 'src_cot' });
+}
+
+test('Project B (Fuentes de fotos): prompts_sources_list resolves SM S MUEBLERIA / Cotización(typo) by name path, lists images recursively and read-only, and SUBIR PROPT by ID', () => {
+  const env = setupProjectBEnv();
+  addSourceFolders(env);
+
+  const sm = postAction(env, { action: 'prompts_sources_list', ...OWNER_AUTH, sourceKey: 'SM_MUEBLERIA' });
+  assert.equal(sm.ok, true, JSON.stringify(sm));
+  assert.equal(sm.folderId, 'src_sm');
+  assert.equal(sm.readOnly, true);
+  assert.deepEqual(sm.files.map((f) => f.id), ['sm_b', 'sm_a']); // más reciente primero, sin PDF
+  assert.equal(sm.files[0].subfolder, 'Salas');
+  assert.equal(sm.sources.length, 3);
+
+  const cot = postAction(env, { action: 'prompts_sources_list', ...OWNER_AUTH, sourceKey: 'cotizacion' });
+  assert.equal(cot.ok, true, JSON.stringify(cot));
+  assert.equal(cot.folderId, 'src_cot');
+  assert.equal(cot.count, 1);
+
+  const propt = postAction(env, { action: 'prompts_sources_list', ...OWNER_AUTH, sourceKey: 'SUBIR_PROPT' });
+  assert.equal(propt.ok, true);
+  assert.equal(propt.folderId, IDS.SUBIR_PROPT);
+  assert.ok(propt.files.some((f) => f.id === 'propt_camastro'));
+
+  // Solo lectura: nada se modificó ni se creó
+  assert.equal(env.filesById.get('sm_a')._state.trashed, false);
+  assert.equal(env.foldersById.get('src_sm')._state.fileIds.size, 2 /* sm_a + sm_doc */);
+
+  // Segunda llamada usa el ID cacheado (sin volver a buscar por nombre)
+  const again = postAction(env, { action: 'prompts_sources_list', ...OWNER_AUTH, sourceKey: 'SM_MUEBLERIA' });
+  assert.equal(again.ok, true);
+  assert.equal(again.folderId, 'src_sm');
+});
+
+test('Project B (Fuentes de fotos): rejects unauthorized callers, unknown sources, missing folders (clear message), and any folder inside Project A (fail closed)', () => {
+  const env = setupProjectBEnv();
+
+  const noPin = postAction(env, { action: 'prompts_sources_list', ownerEmail: OWNER_AUTH.ownerEmail, pin: 'bad', sourceKey: 'SM_MUEBLERIA' });
+  assert.equal(noPin.ok, false);
+
+  const unknown = postAction(env, { action: 'prompts_sources_list', ...OWNER_AUTH, sourceKey: 'SUBIR_PREN' });
+  assert.equal(unknown.ok, false);
+
+  const missing = postAction(env, { action: 'prompts_sources_list', ...OWNER_AUTH, sourceKey: 'SM_MUEBLERIA' });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.found, false);
+  assert.match(missing.error, /No encontré la carpeta SM S Mueblería/);
+
+  // Si la carpeta resuelta vive dentro de una carpeta de Proyecto A => bloqueada
+  const envA = setupProjectBEnv();
+  envA.makeFolder('src_pf', 'PROYECTOS FINALES', { parentId: IDS.SUBIR_PREN });
+  envA.makeFolder('src_pl', 'PLANTILLAS', { parentId: 'src_pf' });
+  envA.makeFolder('src_pr', 'PRESENTACION', { parentId: 'src_pl' });
+  envA.makeFolder('src_sm', 'FOTOS SM S MUEBLERIA', { parentId: 'src_pr' });
+  envA.makeFile('sm_a', 'SALA_A.jpg', { parentId: 'src_sm' });
+  const blocked = postAction(envA, { action: 'prompts_sources_list', ...OWNER_AUTH, sourceKey: 'SM_MUEBLERIA' });
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.error, /Proyecto A/);
+  assert.equal(blocked.files, undefined);
+});
