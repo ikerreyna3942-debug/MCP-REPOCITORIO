@@ -568,8 +568,8 @@ test('Cotizador & Subir Fotos: Kevin-only FAB Prompts/Panel buttons and split-sc
   assert.match(invJs, /window\.openPromptsFromCotizador = function \(\)\s*\{\s*if \(!isFotosAppOwner\(\)\) return;/);
   assert.match(invJs, /window\.openPanelFromCotizador = function \(\)\s*\{\s*if \(!isFotosAppOwner\(\)\) return;/);
 
-  // Subir Fotos HTML + JS header link & split switcher
-  assert.match(fotosHtml, /id="linkHeaderPrompts"[^>]*href="\.\/prompts\.html"/);
+  // Subir Fotos HTML + JS streamlined header & split switcher (Prompts accessible via split switcher)
+  assert.match(fotosHtml, /id="btnSplitWithCotizador"/);
   assert.match(fotosHtml, /id="btnFotosSplitTargetCotizador"[^>]*setFotosSplitTarget\('cotizador'\)/);
   assert.match(fotosHtml, /id="btnFotosSplitTargetPrompts"[^>]*setFotosSplitTarget\('prompts'\)/);
   assert.match(fotosJs, /window\.setFotosSplitTarget = function \(target\)/);

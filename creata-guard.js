@@ -430,11 +430,18 @@
       return;
     }
 
+    function extractDriveIdGuard(rawUrl) {
+      var s = String(rawUrl || '');
+      var m1 = s.match(/googleusercontent\.com\/d\/([a-zA-Z0-9_-]{15,})/);
+      if (m1 && m1[1]) return m1[1];
+      var m2 = s.match(/\/d\/([a-zA-Z0-9_-]{15,})/) || s.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+      return (m2 && m2[1]) ? m2[1] : '';
+    }
+
     function applyFallback(err) {
       if (containerEl.__creataCanvasToken !== token) return;
       containerEl.textContent = '';
       var fallbackImg = document.createElement('img');
-      fallbackImg.src = url;
       fallbackImg.alt = alt;
       fallbackImg.draggable = false;
       fallbackImg.setAttribute('draggable', 'false');
@@ -446,6 +453,40 @@
       fallbackImg.style.objectFit = 'contain';
       fallbackImg.style.display = 'block';
       fallbackImg.style.margin = 'auto';
+
+      var errMsg = (err && err.message) ? String(err.message) : String(err || '');
+      var driveId = extractDriveIdGuard(url);
+      var retryStep = 0;
+
+      if (errMsg === 'image_load_error') {
+        fallbackImg.onerror = function () {
+          if (containerEl.__creataCanvasToken !== token) return;
+          if (driveId) {
+            if (retryStep === 0) {
+              retryStep = 1;
+              fallbackImg.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1000';
+              return;
+            }
+            if (retryStep === 1) {
+              retryStep = 2;
+              fallbackImg.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId);
+              return;
+            }
+          }
+          fallbackImg.onerror = null;
+          if (typeof onFallback === 'function') {
+            try { onFallback(new Error('image_load_error')); } catch (_) {}
+          }
+        };
+        fallbackImg.src = driveId
+          ? ('https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId) + '=w1000')
+          : url;
+        containerEl.appendChild(fallbackImg);
+        protectImages(containerEl);
+        return;
+      }
+
+      fallbackImg.src = url;
       containerEl.appendChild(fallbackImg);
       protectImages(containerEl);
       if (typeof onFallback === 'function') {

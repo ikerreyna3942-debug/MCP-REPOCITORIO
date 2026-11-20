@@ -1898,8 +1898,161 @@
         return getVisualOverridePhotoUrl(buildVisualCoverOverrideKey(groupKey));
     }
 
-    function getFabricSwatchPhotoUrl(fabricKey) {
-        return getVisualOverridePhotoUrl(buildFabricSwatchOverrideKey(fabricKey));
+    let _vfabIndexMapRef = null;
+    let _vfabIndexEntries = [];
+    const VFAB_GENERIC_SINGLE_TOKENS = new Set([
+        'TELA', 'COLOR', 'ESTANDAR', 'MODULAR', 'SALA', 'SOFA', 'SILLON', 'SILLA',
+        'DERECHO', 'IZQUIERDO', 'CENTRAL', 'CON', 'SIN', 'BRAZO', 'BRAZOS',
+        'CLARO', 'OSCURO', 'NATURAL', 'MEDIO', 'NUEVO', 'NUEVA', 'LINO', 'PIEL'
+    ]);
+
+    function getUploadedFabricSwatchEntries() {
+        if (!invProductOverridesMap || typeof invProductOverridesMap !== 'object') return [];
+        if (_vfabIndexMapRef === invProductOverridesMap) return _vfabIndexEntries;
+        const entries = [];
+        const keys = Object.keys(invProductOverridesMap);
+        for (let i = 0; i < keys.length; i++) {
+            const k = String(keys[i] || '').trim().toUpperCase();
+            if (k.indexOf('VFAB:') !== 0) continue;
+            const ovr = invProductOverridesMap[k];
+            if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') continue;
+            const url = cleanStr(ovr.note);
+            if (!url || !(/^https?:\/\//i.test(url) || /^data:image\//i.test(url))) continue;
+            const rawLabel = cleanStr(ovr.name) || k.slice(5);
+            const normName = cleanFabricVariationName(rawLabel) || plainModelToken(rawLabel);
+            const tokens = normName.split(/\s+/).filter(t => t.length >= 2);
+            if (!normName || !tokens.length) continue;
+            const sortedSig = tokens.slice().sort().join(' ');
+            entries.push({
+                overrideKey: k,
+                label: rawLabel.toUpperCase(),
+                normName: normName,
+                tokens: tokens,
+                sortedSig: sortedSig,
+                url: url
+            });
+        }
+        // Prefer more specific (more tokens / longer) fabric names first
+        entries.sort((a, b) => (b.tokens.length - a.tokens.length) || (b.normName.length - a.normName.length));
+        _vfabIndexMapRef = invProductOverridesMap;
+        _vfabIndexEntries = entries;
+        return entries;
+    }
+
+    function matchFabricTextAgainstUploadedSwatches(rawCandidateText) {
+        const cleanCand = cleanFabricVariationName(rawCandidateText) || plainModelToken(rawCandidateText);
+        if (!cleanCand || cleanCand === 'ESTANDAR') return null;
+
+        // 1) Exact override key match
+        const exactKey = buildFabricSwatchOverrideKey(cleanCand);
+        const exactUrl = getVisualOverridePhotoUrl(exactKey);
+        if (exactUrl) {
+            const ovr = invProductOverridesMap[exactKey];
+            return {
+                overrideKey: exactKey,
+                label: cleanStr(ovr && ovr.name) ? cleanStr(ovr.name).toUpperCase() : cleanCand,
+                url: exactUrl
+            };
+        }
+
+        const entries = getUploadedFabricSwatchEntries();
+        if (!entries.length) return null;
+
+        const candTokens = cleanCand.split(/\s+/).filter(t => t.length >= 2);
+        if (!candTokens.length) return null;
+        const candSet = new Set(candTokens);
+        const candSortedSig = candTokens.slice().sort().join(' ');
+
+        // 2) Same token set regardless of word order (e.g. "IVORY LUXOR" == "LUXOR IVORY")
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            if (e.normName === cleanCand || e.sortedSig === candSortedSig) {
+                return { overrideKey: e.overrideKey, label: e.label, url: e.url };
+            }
+        }
+
+        // 3) Uploaded fabric tokens appear as a complete whole-word subset inside the candidate text
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            if (e.tokens.length === 1 && VFAB_GENERIC_SINGLE_TOKENS.has(e.tokens[0])) continue;
+            if (e.tokens.every(tok => candSet.has(tok))) {
+                return { overrideKey: e.overrideKey, label: e.label, url: e.url };
+            }
+        }
+
+        // 4) Candidate is a specific multi-word fabric name contained within an uploaded fabric name
+        if (candTokens.length >= 2) {
+            for (let i = 0; i < entries.length; i++) {
+                const e = entries[i];
+                const eSet = new Set(e.tokens);
+                if (candTokens.every(tok => eSet.has(tok))) {
+                    return { overrideKey: e.overrideKey, label: e.label, url: e.url };
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function getFabricSwatchPhotoUrl(fabricKey, itemOpt) {
+        const directUrl = getVisualOverridePhotoUrl(buildFabricSwatchOverrideKey(fabricKey));
+        if (directUrl) return directUrl;
+        const matched = matchFabricTextAgainstUploadedSwatches(fabricKey);
+        if (matched && matched.url) return matched.url;
+        if (itemOpt) {
+            const fromItem = findMatchingFabricSwatchForItem(itemOpt, null);
+            if (fromItem && fromItem.url) return fromItem.url;
+        }
+        return '';
+    }
+
+    function findMatchingFabricSwatchForItem(it, groupObj) {
+        if (!it) return null;
+        const entries = getUploadedFabricSwatchEntries();
+        if (!entries.length) return null;
+
+        const tl = cleanStr(it.tl);
+        const ct = cleanStr(it.ct);
+        const combinedTlCt = (tl && ct && plainModelToken(tl).indexOf(plainModelToken(ct)) === -1)
+            ? (tl + ' ' + ct)
+            : (tl || ct);
+
+        const candidates = [];
+        if (combinedTlCt) candidates.push(combinedTlCt);
+        if (tl && tl !== combinedTlCt) candidates.push(tl);
+        if (cleanStr(it.vr)) {
+            const vrParts = String(it.vr).split(/\s*[·|\/]\s*/).map(cleanStr).filter(Boolean);
+            for (let i = 0; i < vrParts.length; i++) candidates.push(vrParts[i]);
+            candidates.push(cleanStr(it.vr));
+        }
+        if (ct && ct !== combinedTlCt) candidates.push(ct);
+        const resolvedFab = resolveItemFabricVariation(it, groupObj || null);
+        if (resolvedFab && resolvedFab.key && resolvedFab.key !== 'ESTANDAR') {
+            candidates.push(resolvedFab.key);
+        }
+
+        const tried = new Set();
+        for (let i = 0; i < candidates.length; i++) {
+            const c = cleanStr(candidates[i]);
+            if (!c || tried.has(c)) continue;
+            tried.add(c);
+            const hit = matchFabricTextAgainstUploadedSwatches(c);
+            if (hit && hit.url) return hit;
+        }
+
+        // Último respaldo: buscar tela ya subida (de >=2 palabras o nombre específico) dentro del nombre completo del producto
+        const nameNorm = plainModelToken(stripDimensionsFromProductText(it.n));
+        if (nameNorm) {
+            const nameSet = new Set(nameNorm.split(/\s+/).filter(Boolean));
+            for (let i = 0; i < entries.length; i++) {
+                const e = entries[i];
+                if (e.tokens.length < 2 && (e.tokens[0].length < 5 || VFAB_GENERIC_SINGLE_TOKENS.has(e.tokens[0]))) continue;
+                if (e.tokens.every(tok => nameSet.has(tok))) {
+                    return { overrideKey: e.overrideKey, label: e.label, url: e.url };
+                }
+            }
+        }
+        return null;
     }
 
     function resolveVisualImgSrc(rawUrl, sizePx) {
@@ -2595,12 +2748,56 @@
     window.__invHandleCardImgError = function (imgEl) {
         if (!imgEl) return;
         const fid = imgEl.getAttribute('data-fid') || '';
+        const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
+        if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid)) {
+            if (step === 0) {
+                imgEl.setAttribute('data-fb-step', '1');
+                try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
+                imgEl.crossOrigin = null;
+                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w600';
+                return;
+            }
+            if (step === 1) {
+                imgEl.setAttribute('data-fb-step', '2');
+                try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
+                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w800';
+                return;
+            }
+            if (step === 2) {
+                imgEl.setAttribute('data-fb-step', '3');
+                try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
+                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid);
+                return;
+            }
+        }
+        imgEl.onerror = null;
         if (fid) failedDrivePhotoIds.add(fid);
         const stage = imgEl.parentElement;
         if (stage) {
             stage.classList.add('is-empty');
             stage.innerHTML = '<div class="inv-thumb-placeholder">' + THUMB_PLACEHOLDER_SVG + '</div>';
         }
+    };
+
+    window.__invHandleSwatchImgError = function (imgEl) {
+        if (!imgEl) return;
+        const fid = imgEl.getAttribute('data-fid') || '';
+        const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
+        if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid)) {
+            if (step === 0) {
+                imgEl.setAttribute('data-fb-step', '1');
+                try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
+                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w600';
+                return;
+            }
+            if (step === 1) {
+                imgEl.setAttribute('data-fb-step', '2');
+                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid);
+                return;
+            }
+        }
+        imgEl.onerror = null;
+        imgEl.style.display = 'none';
     };
 
     function buildThumbHtml(it, opts) {
@@ -3259,6 +3456,33 @@
                                 if (fEntry.sampleModels.length < 4) fEntry.sampleModels.push(g.displayTitle || g.title);
                             }
                         }
+                    }
+                }
+                // Incluir también telas declaradas en productos no modulares (sillones, sofás, sillas, camas, etc.)
+                for (let iIdx = 0; iIdx < allItems.length; iIdx++) {
+                    const it = allItems[iIdx];
+                    if (!it || !cleanStr(it.tl)) continue;
+                    const grp = it._groupKey ? groupsByKey.get(it._groupKey) : null;
+                    if (grp && grp.items && grp.items.length >= 2 && grp.typeKey && MODULE_GROUPABLE_TYPE_KEYS.has(grp.typeKey)) continue;
+                    const fab = resolveItemFabricVariation(it, grp || null);
+                    if (!fab || !fab.key || fab.key === 'ESTANDAR') continue;
+                    if (!fabricsMap.has(fab.key)) {
+                        fabricsMap.set(fab.key, {
+                            fabricKey: fab.key,
+                            overrideKey: buildFabricSwatchOverrideKey(fab.key),
+                            label: fab.label,
+                            colorHint: fab.colorHint || '',
+                            modelCount: 0,
+                            moduleCount: 0,
+                            sampleModels: []
+                        });
+                    }
+                    const fEntry = fabricsMap.get(fab.key);
+                    fEntry.moduleCount++;
+                    const mTitle = (grp && (grp.displayTitle || grp.title)) || cleanStr(it.mo) || cleanStr(it.n) || it.s;
+                    if (mTitle && fEntry.sampleModels.indexOf(mTitle) === -1) {
+                        fEntry.modelCount++;
+                        if (fEntry.sampleModels.length < 4) fEntry.sampleModels.push(mTitle);
                     }
                 }
                 const fabricsIdx = Array.from(fabricsMap.values()).sort((a, b) =>
@@ -4447,6 +4671,19 @@
             const it = entry.it;
             const skuKey = String(it.s || '').toUpperCase();
             const varLabel = entry.varLabel;
+            const matchedFab = (!currentGroupFabricKey) ? findMatchingFabricSwatchForItem(it, grp) : null;
+            let fabricPillHtml = '';
+            if (matchedFab && matchedFab.url) {
+                const fabThumb = resolveVisualImgSrc(matchedFab.url, 120);
+                const fabFid = extractDriveFileId(matchedFab.url);
+                fabricPillHtml =
+                    '<div class="inv-var-fabric-pill" data-fabric-zoom-url="' + escapeHtml(matchedFab.url) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedFab.label) + '" title="Ver muestra de tela">' +
+                        '<img class="inv-var-fabric-thumb" src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedFab.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
+                        (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
+                        ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
+                        '<span class="inv-var-fabric-lbl">' + escapeHtml(matchedFab.label) + '</span>' +
+                    '</div>';
+            }
             return '<div class="inv-row inv-variant-card" data-var-sku="' + escapeHtml(skuKey) + '">' +
                 '<div class="inv-card-top-right">' +
                     buildCardCartControlHtml(skuKey) +
@@ -4457,6 +4694,7 @@
                         formatTitleWithPriceHtml(varLabel, it.pr) +
                     '</div>' +
                     '<div class="inv-det-uniform-text font-semibold tracking-wider mt-0.5" style="color:#9E7B4F;">' + escapeHtml(it.s) + '</div>' +
+                    fabricPillHtml +
                 '</div>' +
             '</div>';
         }
@@ -4516,13 +4754,17 @@
                     const choiceHtml = [];
                     for (let fIdx = 0; fIdx < orderedFabrics.length; fIdx++) {
                         const fb = orderedFabrics[fIdx];
-                        const swatchUrl = getFabricSwatchPhotoUrl(fb.key);
+                        const sampleIt = (fb.items && fb.items[0] && fb.items[0].it) || null;
+                        const swatchUrl = getFabricSwatchPhotoUrl(fb.key, sampleIt);
                         const swatchSrc = swatchUrl ? resolveVisualImgSrc(swatchUrl, 600) : '';
+                        const swatchFid = swatchUrl ? extractDriveFileId(swatchUrl) : '';
                         const modCountTxt = fb.items.length === 1 ? '1 módulo disponible' : (fb.items.length + ' módulos disponibles');
                         const subMeta = fb.colorHint ? (fb.colorHint + ' · ' + modCountTxt) : modCountTxt;
 
                         const stageInner = swatchSrc
-                            ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '">' +
+                            ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
+                               (swatchFid ? (' data-fid="' + escapeHtml(swatchFid) + '"') : '') +
+                               ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                                '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + fb.label) + '" title="Ampliar foto de tela" aria-label="Ampliar foto de tela">🔍</button>')
                             : ('<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🧵</span><span>Tela / Color</span></div>');
 
@@ -4553,12 +4795,16 @@
                         crumbEl.classList.remove('hidden');
                     }
 
-                    const swatchUrl = getFabricSwatchPhotoUrl(selectedFb.key);
+                    const sampleSelIt = (selectedFb.items && selectedFb.items[0] && selectedFb.items[0].it) || null;
+                    const swatchUrl = getFabricSwatchPhotoUrl(selectedFb.key, sampleSelIt);
                     const swatchThumb = swatchUrl ? resolveVisualImgSrc(swatchUrl, 160) : '';
+                    const swatchSelFid = swatchUrl ? extractDriveFileId(swatchUrl) : '';
                     const modCountTxt = selectedFb.items.length === 1 ? '1 módulo disponible' : (selectedFb.items.length + ' módulos disponibles');
                     const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + modCountTxt) : modCountTxt;
                     const swatchInner = swatchThumb
-                        ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer" crossorigin="anonymous">'
+                        ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
+                          (swatchSelFid ? (' data-fid="' + escapeHtml(swatchSelFid) + '"') : '') +
+                          ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">'
                         : '<span aria-hidden="true">🧵</span>';
                     const swatchClasses = 'inv-fabric-swatch' + (swatchThumb ? '' : ' is-empty is-readonly');
                     const swatchAttrs = swatchUrl
@@ -4953,6 +5199,25 @@
                 imgEl.src = photoUrl;
                 imgEl.classList.remove('hidden');
                 imgEl.onerror = function () {
+                    const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
+                    if (driveId && step === 0) {
+                        imgEl.setAttribute('data-fb-step', '1');
+                        try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
+                        imgEl.crossOrigin = null;
+                        imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId) + '=w1000';
+                        return;
+                    }
+                    if (driveId && step === 1) {
+                        imgEl.setAttribute('data-fb-step', '2');
+                        imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1000';
+                        return;
+                    }
+                    if (driveId && step === 2) {
+                        imgEl.setAttribute('data-fb-step', '3');
+                        imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId);
+                        return;
+                    }
+                    imgEl.onerror = null;
                     if (driveId) failedDrivePhotoIds.add(driveId);
                     imgEl.classList.add('hidden');
                     if (emptyEl) emptyEl.classList.remove('hidden');
@@ -5018,19 +5283,48 @@
         document.getElementById('detTotalStock').textContent = String(totalBodegaPiso);
         document.getElementById('detWarehousesGrid').innerHTML = whHtml.join('');
 
-        // Ficha de información limpia con botones informativos del mismo tamaño
+        // Ficha de información limpia + muestra automática de tela si ya existe subida en Telas (VFAB:)
         const specsWrap = document.getElementById('detSpecsWrap');
         const specsGrid = document.getElementById('detSpecsGrid');
         const specRows = buildCleanProductSpecRows(it);
+        const matchedDetailFabric = findMatchingFabricSwatchForItem(it, currentGroup);
         if (specsGrid) {
-            specsGrid.innerHTML = specRows.map(r =>
+            let fabricCardHtml = '';
+            if (matchedDetailFabric && matchedDetailFabric.url) {
+                const fabThumb = resolveVisualImgSrc(matchedDetailFabric.url, 180);
+                const fabFid = extractDriveFileId(matchedDetailFabric.url);
+                fabricCardHtml =
+                    '<button type="button" class="inv-det-fabric-swatch-card inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailFabric.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedDetailFabric.label) + '" title="Toca para ampliar la muestra de tela">' +
+                        '<span class="inv-det-fabric-swatch-img-wrap">' +
+                            '<img src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedDetailFabric.label) + '" loading="eager" decoding="async" referrerpolicy="no-referrer"' +
+                            (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
+                            ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
+                        '</span>' +
+                        '<span class="inv-det-fabric-swatch-meta">' +
+                            '<span class="inv-det-fabric-swatch-tag">🧵 Muestra de tela</span>' +
+                            '<span class="inv-det-fabric-swatch-name">' + escapeHtml(matchedDetailFabric.label) + '</span>' +
+                        '</span>' +
+                        '<span class="inv-det-fabric-swatch-zoom">🔍 Ver</span>' +
+                    '</button>';
+            }
+            specsGrid.innerHTML = fabricCardHtml + specRows.map(r =>
                 '<div class="inv-det-info-btn" style="border-color:#E8E4DE; background:#FAF9F6; color:#252C32;">' +
                     '<span class="inv-det-info-lbl" style="opacity:0.75;">' + escapeHtml(r[0]) + ':</span>' +
                     '<span class="inv-det-info-val">' + escapeHtml(r[1]) + '</span>' +
                 '</div>'
             ).join('');
+            const fabBtn = specsGrid.querySelector('[data-det-fabric-zoom-url]');
+            if (fabBtn) {
+                fabBtn.onclick = function (ev) {
+                    if (ev && ev.stopPropagation) ev.stopPropagation();
+                    openVisualPhotoLightbox(
+                        fabBtn.getAttribute('data-det-fabric-zoom-url') || '',
+                        fabBtn.getAttribute('data-det-fabric-zoom-label') || 'Muestra de tela'
+                    );
+                };
+            }
         }
-        if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0);
+        if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0 && !matchedDetailFabric);
 
         prepareRelatedInStockSection(it, sameSkuRefresh ? relatedStockExpanded : false);
         if (typeof notifyInvSplitFotosOfSku === 'function' && it && it.s) {
@@ -13498,7 +13792,73 @@
         return false;
     }
 
+    async function syncHoja1PhotoFallbackLive() {
+        if (!META.sheetId || !Array.isArray(allItems) || !allItems.length) return false;
+        try {
+            const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(META.sheetId) +
+                '/gviz/tq?tqx=out:csv&headers=0&sheet=1&range=A1:D9500&_t=' + Date.now();
+            const resp = await fetch(url, { cache: 'no-store' });
+            if (!resp || !resp.ok) return false;
+            const csv = await resp.text();
+            if (!csv || /^\s*</.test(csv)) return false;
+            const lines = csv.split(/\r?\n/);
+            if (lines.length < 3) return false;
+            const photoBySku = new Map();
+            for (let i = 2; i < lines.length; i++) {
+                const ln = lines[i];
+                if (!ln || ln.indexOf('http') === -1) continue;
+                // Parse 4 simple CSV cells (SKU, Nombre, Foto, Link)
+                const cols = [];
+                let cur = '';
+                let inQ = false;
+                for (let c = 0; c < ln.length; c++) {
+                    const ch = ln[c];
+                    if (ch === '"') {
+                        if (inQ && ln[c + 1] === '"') { cur += '"'; c++; }
+                        else inQ = !inQ;
+                    } else if (ch === ',' && !inQ) {
+                        cols.push(cur);
+                        cur = '';
+                    } else {
+                        cur += ch;
+                    }
+                }
+                cols.push(cur);
+                const sk = cleanStr(cols[0]).toUpperCase();
+                const link = cleanStr(cols[3]);
+                if (sk && /^https?:\/\//i.test(link) && !photoBySku.has(sk)) {
+                    photoBySku.set(sk, link);
+                }
+            }
+            if (!photoBySku.size) return false;
+            let changed = false;
+            for (let i = 0; i < allItems.length; i++) {
+                const it = allItems[i];
+                if (!it || !it.s) continue;
+                const sk = cleanStr(it.s).toUpperCase();
+                const liveLink = photoBySku.get(sk);
+                if (!liveLink) continue;
+                const liveFid = extractDriveFileId(liveLink);
+                const curFid = extractDriveFileId(it.f);
+                if (!curFid || (liveFid && curFid !== liveFid)) {
+                    it.f = liveLink;
+                    if (liveFid) failedDrivePhotoIds.delete(liveFid);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                indexItemsAndGroups();
+                const inp = document.getElementById('invSearchInput');
+                if (typeof applyFilter === 'function') applyFilter(inp ? inp.value : '', true);
+            }
+            return changed;
+        } catch (eH1) {
+            return false;
+        }
+    }
+
     let lastLiveSyncCompletedMs = 0;
+    let lastOverridesSyncMs = 0;
     const MIN_LIVE_SYNC_GAP_MS = 30000;
     window.refreshLiveSheetNow = async function (forceNow) {
         if (liveSyncInFlight) return;
@@ -13509,6 +13869,10 @@
             flushInvOfflineOutbox().catch(() => {});
             if (isGuestSession()) {
                 verifyActiveGuestSessionLive().catch(() => {});
+            }
+            if (forceNow === true || (Date.now() - lastOverridesSyncMs) > 45000) {
+                lastOverridesSyncMs = Date.now();
+                syncProductOverridesFromCloud(true).catch(() => {});
             }
             if (Date.now() - lastErpCatalogSyncMs > 60000) {
                 await loadErpCatalogLiveFromSheet().catch(() => {});
@@ -13523,6 +13887,9 @@
             }
             if (!ok) {
                 ok = await tryWebAppLiveSync();
+            }
+            if (ok) {
+                syncHoja1PhotoFallbackLive().catch(() => {});
             }
             setLiveConnectionStatus(!!ok);
         } catch (e) {
@@ -15571,10 +15938,22 @@
     window.openVisualPhotoLightbox = function (rawUrl, caption) {
         const src = resolveVisualImgSrc(rawUrl, 1200);
         if (!src) return;
+        const fid = extractDriveFileId(rawUrl);
         const modal = document.getElementById('visualPhotoLightboxModal');
         const img = document.getElementById('visualPhotoLightboxImg');
         const cap = document.getElementById('visualPhotoLightboxCaption');
-        if (img) img.src = src;
+        if (img) {
+            img.setAttribute('data-fb-step', '0');
+            if (fid) img.setAttribute('data-fid', fid);
+            else img.removeAttribute('data-fid');
+            img.onerror = function () {
+                if (typeof window.__invHandleSwatchImgError === 'function') {
+                    window.__invHandleSwatchImgError(img);
+                }
+            };
+            img.style.display = '';
+            img.src = src;
+        }
         if (cap) cap.textContent = cleanStr(caption || 'Vista previa');
         if (modal) {
             modal.classList.add('open');

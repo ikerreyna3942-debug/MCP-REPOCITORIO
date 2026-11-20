@@ -386,3 +386,36 @@ test('Visual cover photo (home only) and fabric swatch photo (Click 2 & Click 3)
   // Clean up overrides map for clean state
   API.saveLocalProductOverridesMap({});
 });
+
+test('Universal fabric attachment: uploaded VFAB fabric automatically applies to ALL matching products (including non-modular Sillones/Sillas) and non-CORS image recovery avoids false blacklisting', () => {
+  const invJs = fs.readFileSync('inventario-app.js', 'utf8');
+  const guardJs = fs.readFileSync('creata-guard.js', 'utf8');
+
+  // Verify CreataGuard defers onFallback until all non-CORS Drive retries fail
+  assert.match(guardJs, /drive\.google\.com\/thumbnail\?id=/, 'CreataGuard must retry Drive thumbnail endpoint without CORS');
+  assert.match(guardJs, /drive\.google\.com\/uc\?export=view&id=/, 'CreataGuard must retry Drive uc?export=view endpoint without CORS');
+  assert.match(invJs, /window\.__invHandleCardImgError/, 'inventario-app.js must define 4-step __invHandleCardImgError');
+  assert.match(invJs, /function findMatchingFabricSwatchForItem\(/, 'inventario-app.js must define universal findMatchingFabricSwatchForItem');
+  assert.match(invJs, /inv-var-fabric-pill/, 'Variant cards must render matched uploaded fabric pill');
+  assert.match(invJs, /inv-det-fabric-swatch-card/, 'Detail modal must render matched uploaded fabric swatch card');
+
+  // Runtime test: uploading a fabric matches both exact key and flexible word-order / subset fabric names
+  const fabKey = API.buildFabricSwatchOverrideKey('LINO BEIGE');
+  const fakeFabUrl = 'https://drive.google.com/file/d/1UniversalFabricLinoBeige99/view?usp=sharing';
+  API.saveLocalProductOverridesMap({
+    [fabKey]: { sku: fabKey, status: 'VISIBLE', name: 'LINO BEIGE', category: 'FABRIC_SWATCH', note: fakeFabUrl }
+  });
+
+  // Exact match, reversed word order, and product object (non-modular Sillón with tl + ct)
+  assert.equal(API.getFabricSwatchPhotoUrl('LINO BEIGE'), fakeFabUrl);
+  assert.equal(API.getFabricSwatchPhotoUrl('BEIGE LINO'), fakeFabUrl, 'Word-order-independent fabric match must succeed');
+  assert.equal(
+    API.getFabricSwatchPhotoUrl('', { s: 'SIL-TEST-1', n: 'SILLON ANKARA', tl: 'LINO', ct: 'BEIGE', vr: 'ESTÁNDAR' }),
+    fakeFabUrl,
+    'Already-uploaded fabric must automatically match existing non-modular products via tl + ct'
+  );
+
+  // Clean up
+  API.saveLocalProductOverridesMap({});
+});
+

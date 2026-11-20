@@ -932,8 +932,63 @@
         };
     }
 
+    async function handleSuiteCopyImageMessage(ev) {
+        const origin = ev && ev.origin;
+        const isAllowedOrigin = origin === 'https://buena-espero.onrender.com' ||
+            (typeof location !== 'undefined' && location.origin && origin === location.origin);
+        if (!isAllowedOrigin) return;
+        const data = ev.data;
+        if (!data || data.type !== 'CREATA_PROMPTS_COPY_IMAGE') return;
+        const reqId = String(data.requestId || '');
+        const dataUri = typeof data.dataUri === 'string' ? data.dataUri.trim() : '';
+        let ok = false;
+        if (/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(dataUri)) {
+            try {
+                let pngBlob = null;
+                if (dataUri.indexOf('data:image/png;base64,') === 0) {
+                    const bin = atob(dataUri.slice('data:image/png;base64,'.length));
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    pngBlob = new Blob([bytes], { type: 'image/png' });
+                } else if (typeof Image !== 'undefined' && typeof document !== 'undefined') {
+                    pngBlob = await new Promise((resolve, reject) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            try {
+                                const c = document.createElement('canvas');
+                                c.width = img.naturalWidth || img.width || 1;
+                                c.height = img.naturalHeight || img.height || 1;
+                                const ctx = c.getContext('2d');
+                                ctx.drawImage(img, 0, 0);
+                                c.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob'))), 'image/png');
+                            } catch (e) { reject(e); }
+                        };
+                        img.onerror = () => reject(new Error('img'));
+                        img.src = dataUri;
+                    });
+                }
+                if (pngBlob && navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof window.ClipboardItem === 'function') {
+                    await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': pngBlob })]);
+                    ok = true;
+                }
+            } catch (e) {
+                ok = false;
+            }
+        }
+        try {
+            if (ev.source && typeof ev.source.postMessage === 'function') {
+                ev.source.postMessage({
+                    type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT',
+                    requestId: reqId,
+                    ok: ok
+                }, origin);
+            }
+        } catch (eReply) {}
+    }
+
     function init() {
         registerPanelServiceWorker();
+        window.addEventListener('message', handleSuiteCopyImageMessage);
 
         if (window.CREATA_LOGO_B64) {
             document.querySelectorAll('[data-creata-logo]').forEach((img) => {

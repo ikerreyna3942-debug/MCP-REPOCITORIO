@@ -508,6 +508,7 @@
                         '<div class="propt-photo-foot">' +
                             '<span class="propt-photo-size">' + escapeHtml(formatBytes(f.sizeBytes)) + '</span>' +
                             '<div class="propt-photo-actions">' +
+                                '<button type="button" class="propt-mini-btn" data-cp-id="' + fid + '" data-cp-name="' + fname + '" onclick="copyProptDrivePhotoImage(this.getAttribute(\'data-cp-id\'), this.getAttribute(\'data-cp-name\'), this)" title="Copiar foto (imagen PNG, no texto)">🖼️</button>' +
                                 '<a class="propt-mini-btn" href="' + viewUrl + '" target="_blank" rel="noopener" title="Abrir en Drive">↗</a>' +
                                 delBtn +
                             '</div>' +
@@ -850,6 +851,7 @@
                         '<div class="propt-photo-foot">' +
                             '<span class="propt-photo-size">' + escapeHtml(formatBytes(f.sizeBytes)) + '</span>' +
                             '<div class="propt-photo-actions">' +
+                                '<button type="button" class="propt-mini-btn" data-cp-id="' + escapeHtml(rawId) + '" data-cp-name="' + fname + '" onclick="copyProptDrivePhotoImage(this.getAttribute(\'data-cp-id\'), this.getAttribute(\'data-cp-name\'), this)" title="Copiar foto (imagen PNG, no texto)">🖼️</button>' +
                                 '<a class="propt-mini-btn" href="' + viewUrl + '" target="_blank" rel="noopener" title="Abrir en Drive">↗</a>' +
                             '</div>' +
                         '</div>' +
@@ -1311,12 +1313,138 @@
 
     window.syncPromptsKevinSuiteNav = syncKevinSuiteNavLinks;
 
+    function decodePngDataUriSyncHost(dataUri) {
+        try {
+            if (typeof dataUri !== 'string' || dataUri.indexOf('data:image/png;base64,') !== 0) return null;
+            const b64 = dataUri.slice('data:image/png;base64,'.length);
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return new Blob([bytes], { type: 'image/png' });
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function imageUrlOrDataUriToPngBlobHost(srcUrl, useCors) {
+        const directPng = decodePngDataUriSyncHost(srcUrl);
+        if (directPng) return Promise.resolve(directPng);
+        return new Promise((resolve, reject) => {
+            if (typeof Image === 'undefined' || typeof document === 'undefined') {
+                reject(new Error('canvas_unavailable'));
+                return;
+            }
+            const img = new Image();
+            if (useCors) img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                try {
+                    const c = document.createElement('canvas');
+                    c.width = img.naturalWidth || img.width || 1;
+                    c.height = img.naturalHeight || img.height || 1;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    c.toBlob((blob) => {
+                        if (blob) resolve(blob);
+                        else reject(new Error('toBlob_failed'));
+                    }, 'image/png');
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            img.onerror = () => reject(new Error('img_load_failed'));
+            img.src = srcUrl;
+        });
+    }
+
+    async function writePngBlobToClipboardHost(pngBlob) {
+        if (!pngBlob) return false;
+        if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof window.ClipboardItem === 'function') {
+            try {
+                await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': pngBlob })]);
+                return true;
+            } catch (eSelf) {}
+        }
+        try {
+            if (window.parent && window.parent !== window && window.parent.navigator && window.parent.navigator.clipboard && typeof window.parent.navigator.clipboard.write === 'function' && typeof window.parent.ClipboardItem === 'function') {
+                await window.parent.navigator.clipboard.write([new window.parent.ClipboardItem({ 'image/png': pngBlob })]);
+                return true;
+            }
+        } catch (ePar) {}
+        return false;
+    }
+
+    async function handlePromptsCopyImageMessage(ev) {
+        if (!ev || ev.origin !== RENDER_ORIGIN) return;
+        const data = ev.data;
+        if (!data || data.type !== 'CREATA_PROMPTS_COPY_IMAGE') return;
+        const reqId = String(data.requestId || '');
+        const dataUri = typeof data.dataUri === 'string' ? data.dataUri.trim() : '';
+        let ok = false;
+        if (/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(dataUri)) {
+            try {
+                const pngBlob = await imageUrlOrDataUriToPngBlobHost(dataUri, false);
+                ok = await writePngBlobToClipboardHost(pngBlob);
+            } catch (eCopy) {
+                ok = false;
+            }
+        }
+        try {
+            if (ev.source && typeof ev.source.postMessage === 'function') {
+                ev.source.postMessage({
+                    type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT',
+                    requestId: reqId,
+                    ok: ok
+                }, ev.origin);
+            }
+        } catch (eReply) {}
+    }
+
+    window.copyProptDrivePhotoImage = async function (fileId, fileName, btnEl) {
+        const cleanId = String(fileId || '').trim();
+        if (!isValidDriveId(cleanId)) return false;
+        const origLabel = btnEl ? btnEl.textContent : '🖼️';
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.textContent = '…';
+        }
+        let copied = false;
+        const candidates = [
+            'https://lh3.googleusercontent.com/d/' + encodeURIComponent(cleanId) + '=w1600',
+            'https://drive.google.com/thumbnail?id=' + encodeURIComponent(cleanId) + '&sz=w1600'
+        ];
+        try {
+            for (let i = 0; i < candidates.length && !copied; i++) {
+                try {
+                    const pngBlob = await imageUrlOrDataUriToPngBlobHost(candidates[i], true);
+                    copied = await writePngBlobToClipboardHost(pngBlob);
+                } catch (eCand) {}
+            }
+            if (copied) {
+                if (btnEl) btnEl.textContent = '✅';
+                showProptFeedback('🖼️ Foto copiada como imagen (' + String(fileName || cleanId) + ').', true);
+                setPromptsSourcesStatus('🖼️ Foto copiada como imagen.', 'ok');
+            } else {
+                if (btnEl) btnEl.textContent = '⚠️';
+                showProptFeedback('No se pudo copiar la imagen directamente (Drive bloqueó CORS). Ábrela con ↗ o cárgala en el estudio y usa 🖼️ Copiar foto.', false);
+            }
+            return copied;
+        } finally {
+            setTimeout(() => {
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.textContent = origLabel;
+                }
+            }, 1800);
+        }
+    };
+
     function initPromptsApp() {
         registerPromptsServiceWorker();
         syncProptConfigInputs();
         ingestQueryScriptUrl();
         initPromptsBackNav();
         syncKevinSuiteNavLinks();
+        window.addEventListener('message', handlePromptsCopyImageMessage);
 
         const pinEl = byId('proptPinInput');
         if (pinEl) {

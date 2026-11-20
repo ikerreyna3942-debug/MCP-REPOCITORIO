@@ -161,6 +161,8 @@
         assignInFlight: 0,
         uploadInFlight: false,
         syncSkusInFlight: false,
+        repairInFlight: false,
+        loadedFileNamesById: {},
         sessionSavedLogs: [],
         sessionSavedBySku: new Map(),
         deletedQueue: null,
@@ -272,17 +274,28 @@
 
     window.handlePhotoImgError = function (imgEl) {
         if (!imgEl) return;
-        const fid = imgEl.getAttribute('data-drive-id') || '';
+        const fid = imgEl.getAttribute('data-drive-id') || extractDriveFileId(imgEl.getAttribute('src') || '');
         const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
         if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid)) {
+            try { imgEl.removeAttribute('crossorigin'); } catch (eCr) {}
             if (step === 0) {
                 imgEl.setAttribute('data-fb-step', '1');
-                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w400';
+                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w800';
                 return;
             }
             if (step === 1) {
                 imgEl.setAttribute('data-fb-step', '2');
-                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w480';
+                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w400';
+                return;
+            }
+            if (step === 2) {
+                imgEl.setAttribute('data-fb-step', '3');
+                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w800';
+                return;
+            }
+            if (step === 3) {
+                imgEl.setAttribute('data-fb-step', '4');
+                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid);
                 return;
             }
         }
@@ -683,6 +696,10 @@
         return action === 'fotos_subir_list' ||
             action === 'fotos_subir_upload_inbox' ||
             action === 'fotos_subir_assign' ||
+            action === 'fotos_direct_upload_assign' ||
+            action === 'fotos_upload_visual_override' ||
+            action === 'fotos_reorganize_from_sheets' ||
+            action === 'inv_repair_photo_permissions' ||
             action === 'fotos_delete' ||
             action === 'fotos_subir_delete' ||
             action === 'fotos_sync_skus' ||
@@ -1031,12 +1048,15 @@
                     p.acabado || '',
                     Array.isArray(p.st) ? p.st : emptyFotosStocks(),
                     p.precio || '',
-                    p.fe || ''
+                    p.fe || '',
+                    p.tl || '',
+                    p.ct || ''
                 ];
             }
             const compactInbox = state.rawInboxFromDrive.slice(0, 220).map((f) => ({
                 id: f.id,
                 name: f.name,
+                shortcutId: f.shortcutId || '',
                 skuOrigin: f.skuOrigin || '',
                 sizeBytes: f.sizeBytes || 0,
                 updatedAt: f.updatedAt || '',
@@ -1053,7 +1073,8 @@
                 ts: Date.now(),
                 p: compactProducts,
                 inb: compactInbox,
-                fn: compactFn
+                fn: compactFn,
+                lfn: (state.loadedFileNamesById && typeof state.loadedFileNamesById === 'object') ? state.loadedFileNamesById : {}
             }));
         } catch (e) {}
     }
@@ -1110,6 +1131,8 @@
                 const locMeta = buildActiveLocationsMeta(st);
                 const precio = formatListPriceText(r[15]);
                 const fe = cleanStr(r[16]);
+                const tl = cleanStr(r[17]);
+                const ct = cleanStr(r[18]);
                 const searchSkuNorm = normalizeSearchText(sku);
                 const dispNorm = normalizeSearchText(displayName);
                 const cleanCat = cleanCategoryForPhotoSearch(r[7] || '', r[8] || '', displayName + ' ' + colBName);
@@ -1130,6 +1153,8 @@
                     tipo: String(r[8] || ''),
                     modelo: modelo,
                     variante: variante,
+                    tl: tl,
+                    ct: ct,
                     medidas: medidas,
                     acabado: acabado,
                     st: st,
@@ -1155,6 +1180,9 @@
             state.products = list;
             state.productBySku = bySku;
             state.productByNormName = byNormName;
+            if (parsed.lfn && typeof parsed.lfn === 'object' && !Array.isArray(parsed.lfn)) {
+                state.loadedFileNamesById = Object.assign({}, parsed.lfn, state.loadedFileNamesById || {});
+            }
             rebuildSiblingVariantsIndex();
             state.fotosNuevasSheetItems = Array.isArray(parsed.fn) ? parsed.fn : [];
             state.rawInboxFromDrive = Array.isArray(parsed.inb) ? parsed.inb : [];
@@ -1532,6 +1560,9 @@
         const q = readDeletedQueue();
         const delFileMap = q.fileIds || {};
         const delSkuMap = q.skus || {};
+        const fileNameMap = (state.loadedFileNamesById && typeof state.loadedFileNamesById === 'object')
+            ? state.loadedFileNamesById
+            : {};
         const items = [];
         const seenKey = new Set();
 
@@ -1545,18 +1576,20 @@
             if (seenKey.has(key)) continue;
             seenKey.add(key);
             const name = log.productName || sku;
+            const fileName = cleanStr(log.fileName || fileNameMap[fid] || '');
             const destName = log.destFolderName || '';
             items.push({
                 id: fid,
                 sku: sku,
                 name: name,
+                fileName: fileName,
                 viewUrl: log.newUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
                 localDataUrl: log.localDataUrl || '',
                 destFolderName: destName,
                 shortFolder: destName.replace(/^FOTOS\s+(DE\s+)?/i, ''),
                 rowNumber: log.rowNumber || null,
                 fromLoaded: true,
-                _searchNorm: normalizeSearchText(sku + ' ' + name + ' ' + destName)
+                _searchNorm: normalizeSearchText(sku + ' ' + fileName + ' ' + name + ' ' + destName)
             });
         }
 
@@ -1570,18 +1603,20 @@
             if (seenKey.has(key)) continue;
             seenKey.add(key);
             const name = p.displayName || p.colBName || sku;
+            const fileName = cleanStr(fileNameMap[fid] || '');
             const destName = p.destFolderName || '';
             items.push({
                 id: fid,
                 sku: sku,
                 name: name,
+                fileName: fileName,
                 viewUrl: p.photoUrl,
                 localDataUrl: '',
                 destFolderName: destName,
                 shortFolder: destName.replace(/^FOTOS\s+(DE\s+)?/i, ''),
                 rowNumber: p.rowNumber || null,
                 fromLoaded: true,
-                _searchNorm: (p.searchSkuNorm || '') + ' ' + (p.searchNameNorm || '') + ' ' + normalizeSearchText(destName)
+                _searchNorm: (p.searchSkuNorm || '') + ' ' + normalizeSearchText(fileName) + ' ' + (p.searchNameNorm || '') + ' ' + normalizeSearchText(destName)
             });
         }
 
@@ -2469,6 +2504,9 @@
         const prod = state.selectedSku ? state.productBySku.get(state.selectedSku) : null;
         const rowBadge = document.getElementById('selectedRowBadge');
         const btnOpenCotizador = document.getElementById('btnOpenInCotizadorStage');
+        const btnClearSku = document.getElementById('btnClearSelectedSku');
+        const autoDestPill = document.getElementById('autoDestFolderPill');
+        const linkedFabricChip = document.getElementById('skuLinkedFabricChip');
         const colASku = document.getElementById('selColASku');
         const colBName = document.getElementById('selColBName');
         const catLabel = document.getElementById('selCategoryLabel');
@@ -2491,6 +2529,12 @@
         if (!prod) {
             if (rowBadge) rowBadge.textContent = '—';
             if (btnOpenCotizador) btnOpenCotizador.classList.add('hidden');
+            if (btnClearSku) btnClearSku.classList.add('hidden');
+            if (autoDestPill) autoDestPill.textContent = '📁 Auto';
+            if (linkedFabricChip) {
+                linkedFabricChip.classList.add('hidden');
+                linkedFabricChip.innerHTML = '';
+            }
             if (colASku) colASku.textContent = '—';
             if (colBName) colBName.textContent = '—';
             if (catLabel) catLabel.textContent = '—';
@@ -2512,16 +2556,45 @@
         }
 
         if (btnOpenCotizador) btnOpenCotizador.classList.remove('hidden');
+        if (btnClearSku) btnClearSku.classList.remove('hidden');
         if (rowBadge) {
             rowBadge.textContent = prod.inSheet1 ? (prod.rowNumber ? ('Fila ' + prod.rowNumber) : 'Hoja 1') : 'Nuevo';
         }
+        const autoDestMeta = resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
+        prod.destFolderId = autoDestMeta.id;
+        prod.destFolderName = autoDestMeta.name;
+        const destSel = document.getElementById('destFolderSelect');
+        if (destSel && prod.destFolderId) destSel.value = prod.destFolderId;
+
         const shortCatName = prod.destFolderName.replace(/^FOTOS\s+(DE\s+)?/i, '');
+        if (autoDestPill) autoDestPill.textContent = '📁 Auto: ' + shortCatName;
         if (colASku) colASku.textContent = prod.sku;
         if (colBName) colBName.textContent = prod.colBName || prod.displayName;
         if (catLabel) catLabel.textContent = shortCatName;
         if (quickNameEl) quickNameEl.textContent = prod.colBName || prod.displayName || prod.sku;
         if (quickSkuEl) quickSkuEl.textContent = prod.sku;
         if (quickCatEl) quickCatEl.textContent = shortCatName;
+
+        if (linkedFabricChip) {
+            const matchedFab = (typeof findMatchingUploadedFabricForProduct === 'function')
+                ? findMatchingUploadedFabricForProduct(prod)
+                : null;
+            if (matchedFab && matchedFab.url) {
+                const fabThumb = resolveVisualThumbSrcInFotos(matchedFab.url, 140);
+                const fabFull = resolveVisualThumbSrcInFotos(matchedFab.url, 900);
+                const fabFid = extractDriveFileId(matchedFab.url);
+                linkedFabricChip.innerHTML =
+                    '<img src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedFab.label) + '" referrerpolicy="no-referrer" ' +
+                    'data-drive-id="' + escapeHtml(fabFid) + '" onerror="handlePhotoImgError(this)">' +
+                    '<span>🧵 Tela: ' + escapeHtml(matchedFab.label) + '</span>';
+                linkedFabricChip.onclick = function () { openPhotoLightbox(fabFull); };
+                linkedFabricChip.classList.remove('hidden');
+            } else {
+                linkedFabricChip.classList.add('hidden');
+                linkedFabricChip.innerHTML = '';
+                linkedFabricChip.onclick = null;
+            }
+        }
 
         if (moVarVal) {
             const mvParts = [];
@@ -2687,7 +2760,7 @@
                 'onerror="handlePhotoImgError(this)">';
             if (footWrap) footWrap.classList.remove('hidden');
             if (footText) {
-                footText.innerHTML = escapeHtml(savedSession.destFolderName) + ' · <a href="' + escapeHtml(savedSession.newUrl) + '" target="_blank" rel="noopener" style="color:#6EE7B7;font-weight:800;">↗</a>';
+                footText.innerHTML = escapeHtml(savedSession.fileName || savedSession.destFolderName) + ' · <a href="' + escapeHtml(savedSession.newUrl) + '" target="_blank" rel="noopener" style="color:#6EE7B7;font-weight:800;">↗</a>';
             }
             return;
         }
@@ -2778,9 +2851,10 @@
 
         let res = null;
         try {
-            res = await callWebAppPost('fotos_subir_list', buildOwnerAuthPayload(), 30000);
+            const listPayload = Object.assign({ includeLoadedNames: true }, buildOwnerAuthPayload());
+            res = await callWebAppPost('fotos_subir_list', listPayload, 30000);
             if ((!res || res.unavailable) && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
-                res = await callWebAppPost('fotos_subir_list', buildOwnerAuthPayload(), 30000);
+                res = await callWebAppPost('fotos_subir_list', listPayload, 30000);
             }
         } finally {
             state.inboxLoading = false;
@@ -2788,6 +2862,10 @@
         }
 
         if (res && res.ok && Array.isArray(res.files)) {
+            if (res.loadedFileNames && typeof res.loadedFileNames === 'object' && !Array.isArray(res.loadedFileNames)) {
+                state.loadedFileNamesById = Object.assign({}, state.loadedFileNamesById || {}, res.loadedFileNames);
+                invalidateLoadedPhotosCache();
+            }
             reconcileDeletedQueueWithLiveState(res.files);
             state.rawInboxFromDrive = res.files;
             state.inboxFiles = filterAndMergeInboxFiles(res.files);
@@ -2865,6 +2943,11 @@
                 const safeSku = escapeHtml((item.sku || '').replace(/'/g, "\\'"));
                 const safeId = escapeHtml((item.id || '').replace(/'/g, "\\'"));
                 const cardKey = 'L::' + (item.sku || '') + '::' + item.id;
+                const primaryTitle = item.fileName || item.name || item.sku;
+                const subText = [item.sku, item.shortFolder].filter(Boolean).join(' · ');
+                const titleTooltip = item.fileName
+                    ? (item.fileName + (item.sku ? (' · ' + item.sku) : '') + (item.name && item.name !== item.fileName ? (' · ' + item.name) : ''))
+                    : (item.sku ? (item.sku + ' · ' + item.name) : item.name);
 
                 parts[i] =
                     '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" onclick="takeLoadedPhotoForAssign(\'' + safeSku + '\', \'' + safeId + '\')">' +
@@ -2873,9 +2956,9 @@
                             '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
                         '</div>' +
                         '<div class="inbox-card-meta">' +
-                            '<div class="inbox-file-name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.sku ? (item.sku + ' · ' + item.name) : item.name) + '</div>' +
+                            '<div class="inbox-file-name" title="' + escapeHtml(titleTooltip) + '">' + escapeHtml(primaryTitle) + '</div>' +
                             '<div class="inbox-file-sub">' +
-                                '<span>' + escapeHtml(item.shortFolder || '') + '</span>' +
+                                '<span>' + escapeHtml(subText) + '</span>' +
                                 '<span data-take-lbl="1" style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
                             '</div>' +
                         '</div>' +
@@ -2961,6 +3044,7 @@
             state.selectedPhotoItem = fObj ? {
                 id: fObj.id,
                 name: fObj.name,
+                shortcutId: cleanStr(fObj.shortcutId),
                 viewUrl: fObj.viewUrl || ('https://drive.google.com/file/d/' + fObj.id + '/view?usp=sharing'),
                 thumbDataUrl: fObj.thumbDataUrl || '',
                 localDataUrl: fObj.localDataUrl || '',
@@ -2968,25 +3052,12 @@
                 skuOrigin: cleanStr(fObj.skuOrigin)
             } : null;
 
-            if (fObj && visualState.workMode === 'SKU') {
+            // Seguridad: NUNCA cambiar silenciosamente el SKU si el usuario ya eligió uno
+            if (fObj && visualState.workMode === 'SKU' && !state.selectedSku) {
                 const sug = fObj._suggestedSku || findSuggestedSkuForFileName(fObj.name) || cleanStr(fObj.skuOrigin);
-                if (sug) {
-                    const explicitInName = extractExplicitSkuFromFileName(fObj.name);
-                    let typeConflict = false;
-                    if (state.selectedSku && state.selectedSku !== sug) {
-                        const curProd = state.productBySku.get(state.selectedSku);
-                        const curTxt = normPlainCat((curProd && (curProd.displayName + ' ' + curProd.tipo)) || '');
-                        const fTxt = normPlainCat(fObj.name || '');
-                        if (
-                            (/\bSILLAS?\b/.test(curTxt) && /\bSILLON(?:ES)?\b/.test(fTxt)) ||
-                            (/\bSILLON(?:ES)?\b/.test(curTxt) && /\bSILLAS?\b/.test(fTxt))
-                        ) {
-                            typeConflict = true;
-                        }
-                    }
-                    if (!state.selectedSku || explicitInName === sug || typeConflict) {
-                        window.selectSkuProduct(sug, { skipBackSync: true });
-                    }
+                const explicitInName = sug ? extractExplicitSkuFromFileName(fObj.name) : '';
+                if (sug && explicitInName === sug && state.productBySku.has(sug)) {
+                    window.selectSkuProduct(sug, { skipBackSync: true });
                 }
             }
         }
@@ -3019,9 +3090,10 @@
             state.selectedInboxFileId = '';
             state.selectedPhotoItem = null;
         } else {
-            const displayLabel = prod
+            const origFileName = cleanStr((saved && saved.fileName) || (state.loadedFileNamesById && state.loadedFileNamesById[fid]) || '');
+            const displayLabel = origFileName || (prod
                 ? (prod.sku + ' · ' + (prod.displayName || prod.colBName || prod.sku))
-                : (sku || fid);
+                : (sku || fid));
             state.selectedInboxFileId = fid;
             state.selectedPhotoItem = {
                 id: fid,
@@ -4057,7 +4129,6 @@
                 }
                 if (!anyMatched) {
                     showAssignFeedback('⚠️ Selecciona un SKU primero.', false);
-                    window.jumpToFotosSection('secSkuFinder');
                     return;
                 }
                 await window.uploadLocalFilesToSubir({ files: files }, { suppressSummaryFeedback: true });
@@ -4065,26 +4136,205 @@
                 return;
             }
 
-            // CARGA Y ASIGNACIÓN INSTANTÁNEA (0ms en pantalla, subida en paralelo a su carpeta de Categoría)
+            // SUBIDA DIRECTA EN 1 SOLO PASO (rápida, conserva nombre exacto, acomoda según Sheets y deselecciona SKU)
             const targetSku = state.selectedSku;
             const prod = state.productBySku.get(targetSku);
             if (!prod) return;
 
+            const targetDestMeta = resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
             const destSelect = document.getElementById('destFolderSelect');
-            const chosenFolderId = cleanStr(destSelect ? destSelect.value : prod.destFolderId) || prod.destFolderId;
-            const chosenFolderMeta = DEST_FOLDER_BY_ID.get(chosenFolderId) || resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
-            if (destSelect && chosenFolderMeta) destSelect.value = chosenFolderMeta.id;
+            if (destSelect && targetDestMeta) destSelect.value = targetDestMeta.id;
 
-            // Disparamos la carga instantánea del primer archivo con suppressSummaryFeedback para no pisar el estado de Guardar
-            const uploadPromise = window.uploadLocalFilesToSubir({ files: [files[0]] }, { suppressSummaryFeedback: true });
-            // Como uploadLocalFilesToSubir inserta el archivo de forma síncrona en los primeros milisegundos, ya está seleccionado:
-            if (state.selectedSku === targetSku && getActiveSelectedPhotoObject()) {
-                await window.assignSelectedPhotoToProduct();
-                await uploadPromise;
+            const firstFile = files[0];
+            const safeFileName = cleanStr(firstFile.name) || ('foto_' + Date.now() + '.jpg');
+            const dataUrl = await readFileAsOptimizedDataUrl(firstFile);
+            if (!/^data:image\/[a-zA-Z0-9.+-]+;base64,.+/.test(String(dataUrl || ''))) {
+                showAssignFeedback('❌ Formato de imagen no compatible (' + escapeHtml(safeFileName) + ').', false);
+                return;
+            }
+
+            const prevUrlBeforeSave = prod.photoUrl || '';
+            const prevFidBeforeSave = prod.photoFileId || '';
+            const localId = 'local_dir_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000);
+
+            unmarkSkuDeletedInQueue(prod.sku, localId);
+
+            // Actualización optimista inmediata en Fotos y Cotizador (data:image/ visible al instante)
+            prod.photoUrl = dataUrl;
+            prod.photoFileId = localId;
+            prod.inSheet1 = true;
+            prod.destFolderId = targetDestMeta.id;
+            prod.destFolderName = targetDestMeta.name;
+
+            const logEntry = {
+                sku: prod.sku,
+                productName: prod.displayName,
+                rowNumber: prod.rowNumber || '...',
+                previousUrl: prevUrlBeforeSave,
+                newUrl: dataUrl,
+                fileId: localId,
+                fileName: safeFileName,
+                destFolderName: targetDestMeta.name,
+                destFolderUrl: 'https://drive.google.com/drive/folders/' + targetDestMeta.id,
+                localDataUrl: dataUrl,
+                ts: Date.now()
+            };
+
+            state.sessionSavedBySku.set(prod.sku, logEntry);
+            state.sessionSavedLogs = [logEntry].concat(state.sessionSavedLogs.filter((it) => it.sku !== prod.sku));
+            saveSavedOverridesNow();
+
+            // Seguridad: limpiar inmediatamente el producto seleccionado para evitar sobrescribir por error
+            state.selectedSku = '';
+            state.selectedInboxFileId = '';
+            state.selectedPhotoItem = null;
+
+            invalidateLoadedPhotosCache();
+            scheduleSaveFastCache();
+            renderSkuCategoryFilterRow();
+            renderSkuLocationFilterRow();
+            applySkuFiltersAndRender();
+            renderInboxGallery();
+            renderSelectedProductStage();
+            updateAssignButtonState();
+            saveFotosUiCheckpointNow();
+
+            notifySplitPeerOfPhotoUpdate(prod.sku, dataUrl, localId, targetDestMeta.name);
+            showAssignFeedback(
+                '⚡ Guardando <strong>' + escapeHtml(prod.sku) + '</strong> → <strong>' + escapeHtml(targetDestMeta.name) + '</strong>...',
+                true
+            );
+
+            const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+            if (isOfflineNow) {
+                await putOfflinePhotoBlobIdb(localId, dataUrl, safeFileName);
+                enqueueFotosOfflineOutbox({
+                    id: 'op_dir_' + Date.now() + '_' + prod.sku,
+                    type: 'direct_upload_assign',
+                    sku: prod.sku,
+                    fileName: safeFileName,
+                    localFileId: localId,
+                    productName: prod.displayName,
+                    categoria: prod.categoria,
+                    tipo: prod.tipo,
+                    targetFolderId: targetDestMeta.id,
+                    queuedAt: Date.now()
+                });
+                showAssignFeedback('⚡ En cola offline: <strong>' + escapeHtml(prod.sku) + '</strong>.', true);
             } else {
-                await uploadPromise;
-                if (state.selectedSku === targetSku && getActiveSelectedPhotoObject()) {
-                    await window.assignSelectedPhotoToProduct();
+                state.assignInFlight++;
+                try {
+                    let res = await callWebAppPost('fotos_direct_upload_assign', Object.assign({
+                        sku: prod.sku,
+                        fileName: safeFileName,
+                        dataUrl: dataUrl,
+                        productName: prod.displayName,
+                        categoria: prod.categoria,
+                        tipo: prod.tipo,
+                        targetFolderId: targetDestMeta.id
+                    }, buildOwnerAuthPayload()), 45000);
+
+                    // Fallback automático si Apps Script aún no se ha republicado con fotos_direct_upload_assign
+                    if (res && !res.ok && /Acci[óo]n no reconocida/i.test(cleanStr(res.error))) {
+                        const upRes = await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
+                            fileName: safeFileName,
+                            dataUrl: dataUrl,
+                            skipListReturn: true
+                        }, buildOwnerAuthPayload()), 45000);
+                        if (upRes && upRes.ok && upRes.file && upRes.file.id) {
+                            res = await callWebAppPost('fotos_subir_assign', Object.assign({
+                                sku: prod.sku,
+                                productName: prod.displayName,
+                                categoria: prod.categoria,
+                                tipo: prod.tipo,
+                                driveFileId: upRes.file.id,
+                                fromLoaded: false,
+                                targetFolderId: targetDestMeta.id,
+                                skipListReturn: true
+                            }, buildOwnerAuthPayload()), 30000);
+                        } else {
+                            res = upRes;
+                        }
+                    }
+
+                    if (!res || !res.ok) {
+                        if (res && res.authRequired) {
+                            window.lockFotosPortal();
+                            return;
+                        }
+                        if (res && res.unavailable) {
+                            await putOfflinePhotoBlobIdb(localId, dataUrl, safeFileName);
+                            enqueueFotosOfflineOutbox({
+                                id: 'op_dir_' + Date.now() + '_' + prod.sku,
+                                type: 'direct_upload_assign',
+                                sku: prod.sku,
+                                fileName: safeFileName,
+                                localFileId: localId,
+                                productName: prod.displayName,
+                                categoria: prod.categoria,
+                                tipo: prod.tipo,
+                                targetFolderId: targetDestMeta.id,
+                                queuedAt: Date.now()
+                            });
+                            showAssignFeedback('⚡ Sin red · en cola: <strong>' + escapeHtml(prod.sku) + '</strong>.', true);
+                        } else {
+                            prod.photoUrl = prevUrlBeforeSave;
+                            prod.photoFileId = prevFidBeforeSave;
+                            state.sessionSavedBySku.delete(prod.sku);
+                            state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it !== logEntry);
+                            saveSavedOverridesNow();
+                            invalidateLoadedPhotosCache();
+                            renderSkuCategoryFilterRow();
+                            renderSkuLocationFilterRow();
+                            applySkuFiltersAndRender();
+                            renderInboxGallery();
+                            renderSelectedProductStage();
+                            notifySplitPeerOfPhotoUpdate(prod.sku, prevUrlBeforeSave, prevFidBeforeSave, targetDestMeta.name);
+                            showAssignFeedback('❌ ' + escapeHtml(cleanStr(res && res.error) || 'Error al subir.'), false);
+                        }
+                    } else {
+                        if (res.newUrl) {
+                            prod.photoUrl = res.newUrl;
+                            logEntry.newUrl = res.newUrl;
+                        }
+                        if (res.fileId) {
+                            prod.photoFileId = res.fileId;
+                            logEntry.fileId = res.fileId;
+                            state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || safeFileName);
+                        }
+                        if (res.rowNumber) {
+                            prod.rowNumber = res.rowNumber;
+                            logEntry.rowNumber = res.rowNumber;
+                        }
+                        if (res.destFolderName) {
+                            prod.destFolderName = res.destFolderName;
+                            logEntry.destFolderName = res.destFolderName;
+                        }
+                        if (res.destFolderId) {
+                            prod.destFolderId = res.destFolderId;
+                            logEntry.destFolderUrl = 'https://drive.google.com/drive/folders/' + res.destFolderId;
+                        }
+                        if (res.fileName) {
+                            logEntry.fileName = res.fileName;
+                        }
+                        if (res.productName && (!prod.colBName || prod.displayName === '—')) {
+                            prod.colBName = res.productName;
+                            prod.displayName = res.productName;
+                            logEntry.productName = res.productName;
+                        }
+                        notifySplitPeerOfPhotoUpdate(prod.sku, prod.photoUrl, prod.photoFileId, logEntry.destFolderName);
+                        saveSavedOverridesNow();
+                        invalidateLoadedPhotosCache();
+                        scheduleSaveFastCache();
+                        applySkuFiltersAndRender();
+                        renderInboxGallery();
+                        showAssignFeedback(
+                            '✅ <strong>' + escapeHtml(prod.sku) + '</strong> → <strong>' + escapeHtml(logEntry.destFolderName) + '</strong>.',
+                            true
+                        );
+                    }
+                } finally {
+                    state.assignInFlight = Math.max(0, state.assignInFlight - 1);
                 }
             }
 
@@ -4138,6 +4388,7 @@
             state.selectedPhotoItem = {
                 id: item.file.id,
                 name: item.file.name,
+                shortcutId: cleanStr(item.file.shortcutId),
                 viewUrl: item.file.viewUrl || ('https://drive.google.com/file/d/' + item.file.id + '/view?usp=sharing'),
                 thumbDataUrl: item.file.thumbDataUrl || '',
                 localDataUrl: item.file.localDataUrl || '',
@@ -4238,18 +4489,22 @@
         const selPhoto = getActiveSelectedPhotoObject();
         if (!prod || !selPhoto) return;
 
+        // Carpeta siempre auto-resuelta según Sheets (categoría/tipo/nombre del producto)
         const autoDestMeta = resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
-        const destSelect = document.getElementById('destFolderSelect');
-        const requestedFolderId = cleanStr(destSelect ? destSelect.value : '') || cleanStr(prod.destFolderId);
-        const targetDestMeta = (requestedFolderId && DEST_FOLDER_BY_ID.get(requestedFolderId)) || autoDestMeta;
+        const targetDestMeta = (autoDestMeta && DEST_FOLDER_BY_ID.get(autoDestMeta.id)) || autoDestMeta;
         const targetFolderId = targetDestMeta.id;
+        const destSelect = document.getElementById('destFolderSelect');
         if (destSelect && targetFolderId) destSelect.value = targetFolderId;
 
         let activeFileId = selPhoto.id;
         const isLocalPendingPhoto = String(activeFileId || '').indexOf('local_inb_') === 0;
+        const dataUrlPreview = (selPhoto.localDataUrl && String(selPhoto.localDataUrl).indexOf('data:image/') === 0)
+            ? String(selPhoto.localDataUrl)
+            : '';
         const optimisticUrl = isLocalPendingPhoto
-            ? (selPhoto.localDataUrl || selPhoto.thumbDataUrl || selPhoto.viewUrl || '')
+            ? (dataUrlPreview || selPhoto.localDataUrl || selPhoto.thumbDataUrl || selPhoto.viewUrl || '')
             : (selPhoto.viewUrl || ('https://drive.google.com/file/d/' + activeFileId + '/view?usp=sharing'));
+        const peerPreviewUrl = dataUrlPreview || optimisticUrl;
         const prevUrlBeforeSave = prod.photoUrl || '';
         const prevFidBeforeSave = prod.photoFileId || '';
 
@@ -4272,7 +4527,7 @@
             fileName: selPhoto.name,
             destFolderName: targetDestMeta.name,
             destFolderUrl: 'https://drive.google.com/drive/folders/' + targetDestMeta.id,
-            localDataUrl: selPhoto.localDataUrl || selPhoto.thumbDataUrl || '',
+            localDataUrl: dataUrlPreview || selPhoto.localDataUrl || selPhoto.thumbDataUrl || '',
             ts: Date.now()
         };
 
@@ -4286,6 +4541,8 @@
             state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== activeFileId);
         }
 
+        // Seguridad: quitar selección del producto y de la foto inmediatamente al guardar
+        state.selectedSku = '';
         state.selectedInboxFileId = '';
         state.selectedPhotoItem = null;
 
@@ -4296,11 +4553,10 @@
         applySkuFiltersAndRender();
         renderInboxGallery();
         renderSelectedProductStage();
-        renderSessionHistoryLog();
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
 
-        notifySplitPeerOfPhotoUpdate(prod.sku, optimisticUrl, activeFileId, targetDestMeta.name);
+        notifySplitPeerOfPhotoUpdate(prod.sku, peerPreviewUrl, activeFileId, targetDestMeta.name);
 
         showAssignFeedback(
             '⚡ <strong>' + escapeHtml(prod.sku) + '</strong> → <strong>' + escapeHtml(targetDestMeta.name) + '</strong>',
@@ -4329,6 +4585,9 @@
                     }
                     state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== oldLocalId && f.id !== activeFileId);
                     state.inboxFiles = state.inboxFiles.filter((f) => f.id !== oldLocalId && f.id !== activeFileId);
+                    if (pendingUploadRes.dataUrl) {
+                        notifySplitPeerOfPhotoUpdate(prod.sku, pendingUploadRes.dataUrl, activeFileId, targetDestMeta.name);
+                    }
                 } else if (pendingUploadRes && pendingUploadRes.offlineQueued && pendingUploadRes.dataUrl) {
                     logEntry.localDataUrl = pendingUploadRes.dataUrl;
                     if (String(prod.photoUrl || '').indexOf('blob:') === 0) {
@@ -4347,7 +4606,6 @@
                     applySkuFiltersAndRender();
                     renderInboxGallery();
                     renderSelectedProductStage();
-                    renderSessionHistoryLog();
                     notifySplitPeerOfPhotoUpdate(prod.sku, prevUrlBeforeSave, prevFidBeforeSave, targetDestMeta.name);
                     if (pendingUploadRes.authRequired) {
                         window.lockFotosPortal();
@@ -4370,6 +4628,7 @@
                 categoria: prod.categoria,
                 tipo: prod.tipo,
                 driveFileId: activeFileId,
+                shortcutId: cleanStr(selPhoto.shortcutId),
                 fromLoaded: !!selPhoto.fromLoaded,
                 targetFolderId: targetFolderId,
                 queuedAt: Date.now()
@@ -4386,6 +4645,7 @@
                 categoria: prod.categoria,
                 tipo: prod.tipo,
                 driveFileId: activeFileId,
+                shortcutId: cleanStr(selPhoto.shortcutId),
                 fromLoaded: !!selPhoto.fromLoaded,
                 targetFolderId: targetFolderId,
                 skipListReturn: true
@@ -4405,6 +4665,7 @@
                         categoria: prod.categoria,
                         tipo: prod.tipo,
                         driveFileId: activeFileId,
+                        shortcutId: cleanStr(selPhoto.shortcutId),
                         fromLoaded: !!selPhoto.fromLoaded,
                         targetFolderId: targetFolderId,
                         queuedAt: Date.now()
@@ -4423,7 +4684,6 @@
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
-                renderSessionHistoryLog();
                 notifySplitPeerOfPhotoUpdate(prod.sku, prevUrlBeforeSave, prevFidBeforeSave, targetDestMeta.name);
                 showAssignFeedback('❌ ' + escapeHtml(cleanStr(res && res.error) || 'Error al guardar.'), false);
                 return;
@@ -4436,6 +4696,18 @@
             if (res.fileId) {
                 prod.photoFileId = res.fileId;
                 logEntry.fileId = res.fileId;
+                state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || selPhoto.name);
+            }
+            if (res.fileName) {
+                logEntry.fileName = res.fileName;
+            }
+            if (res.destFolderName) {
+                prod.destFolderName = res.destFolderName;
+                logEntry.destFolderName = res.destFolderName;
+            }
+            if (res.destFolderId) {
+                prod.destFolderId = res.destFolderId;
+                logEntry.destFolderUrl = 'https://drive.google.com/drive/folders/' + res.destFolderId;
             }
             if (res.rowNumber) {
                 prod.rowNumber = res.rowNumber;
@@ -4451,10 +4723,11 @@
             saveSavedOverridesNow();
             invalidateLoadedPhotosCache();
             scheduleSaveFastCache();
+            applySkuFiltersAndRender();
+            renderInboxGallery();
             if (state.selectedSku === prod.sku) {
                 renderSelectedProductStage();
             }
-            renderSessionHistoryLog();
             showAssignFeedback(
                 '✅ Fila ' + escapeHtml(logEntry.rowNumber) + ' → <strong>' + escapeHtml(logEntry.destFolderName) + '</strong>.',
                 true
@@ -4465,33 +4738,8 @@
     };
 
     function renderSessionHistoryLog() {
-        const panel = document.getElementById('sessionHistoryPanel');
-        const badge = document.getElementById('sessionSavedCountBadge');
-        const listEl = document.getElementById('sessionSavedList');
-        if (!panel || !listEl) return;
-
-        if (!state.sessionSavedLogs.length) {
-            panel.classList.add('hidden');
-            return;
-        }
-        panel.classList.remove('hidden');
-        if (badge) badge.textContent = String(state.sessionSavedLogs.length);
-
-        listEl.innerHTML = state.sessionSavedLogs.map((item) => {
-            const safeSku = escapeHtml(item.sku.replace(/'/g, "\\'"));
-            const safeFid = escapeHtml((item.fileId || extractDriveFileId(item.newUrl)).replace(/'/g, "\\'"));
-            return (
-                '<div class="session-log-row">' +
-                    '<span><strong>' + escapeHtml(item.sku) + '</strong> → ' + escapeHtml(item.destFolderName) + ' (Fila ' + escapeHtml(item.rowNumber) + ')</span>' +
-                    '<div style="display:flex;gap:6px;">' +
-                        '<button type="button" class="hdr-btn is-accent stage-action-btn" onclick="takeLoadedPhotoForAssign(\'' + safeSku + '\', \'' + safeFid + '\', event)">Tomar</button>' +
-                        '<button type="button" class="hdr-btn is-danger stage-action-btn" onclick="deleteLoadedPhotoBySku(\'' + safeSku + '\', \'' + safeFid + '\', event)">🗑</button>' +
-                        '<button type="button" class="hdr-btn is-neutral stage-action-btn" onclick="selectSkuProduct(\'' + safeSku + '\')">Ver</button>' +
-                        '<a href="' + escapeHtml(item.newUrl) + '" target="_blank" rel="noopener" class="hdr-btn stage-action-btn">↗</a>' +
-                    '</div>' +
-                '</div>'
-            );
-        }).join('');
+        // Historial inferior eliminado por solicitud del usuario
+        return;
     }
 
     function upsertProductFromCotizadorPeer(skuRaw, meta) {
@@ -4631,14 +4879,18 @@
     window.refreshAllPhotoWorkspace = async function (manualRefresh) {
         if (!state.unlocked) return;
         const btnRef = document.getElementById('btnHeaderRefreshFotos');
-        const origTxt = btnRef ? btnRef.textContent : '↻ Fotos';
+        const origTxt = btnRef ? btnRef.textContent : '↻ Actualizar';
         if (btnRef) { btnRef.disabled = true; btnRef.textContent = '↻...'; }
         try {
             await flushFotosOfflineOutbox();
-            await Promise.all([
+            const tasks = [
                 loadSheetsCatalog(),
                 window.refreshInboxOnly(false)
-            ]);
+            ];
+            if (typeof syncVisualOverridesFromCloudInFotos === 'function') {
+                tasks.push(syncVisualOverridesFromCloudInFotos());
+            }
+            await Promise.all(tasks);
             if (manualRefresh) {
                 const loadedCount = getLoadedPhotosList().length;
                 showAssignFeedback(
@@ -4650,6 +4902,86 @@
             }
         } finally {
             if (btnRef) { btnRef.disabled = false; btnRef.textContent = origTxt; }
+        }
+    };
+
+    window.reorganizeAndRepairFotosNow = async function () {
+        if (!state.unlocked || state.repairInFlight) return;
+        state.repairInFlight = true;
+        const btn = document.getElementById('btnRepairReorganizeFotos');
+        const origTxt = btn ? btn.textContent : '🔧 Reparar';
+        if (btn) { btn.disabled = true; btn.textContent = '🔧 ...'; }
+        showAssignFeedback('🔧 Reubicando fotos según Sheets y abriendo permisos públicos en Drive...', true);
+
+        let totalChecked = 0;
+        let totalMoved = 0;
+        let totalPublicFixed = 0;
+        let startIndex = 0;
+        let fallbackUsed = false;
+
+        try {
+            for (let batch = 0; batch < 15; batch++) {
+                if (btn) btn.textContent = '🔧 ' + (batch + 1) + '...';
+                const res = await callWebAppPost('fotos_reorganize_from_sheets', Object.assign({
+                    startIndex: startIndex,
+                    maxFiles: 60,
+                    maxItems: 60,
+                    repairPublic: batch === 0
+                }, buildOwnerAuthPayload()), 55000);
+
+                if (res && res.authRequired) {
+                    window.lockFotosPortal();
+                    return;
+                }
+
+                if (res && !res.ok && /Acci[óo]n no reconocida/i.test(cleanStr(res.error))) {
+                    fallbackUsed = true;
+                    const fbRes = await callWebAppPost('inv_repair_photo_permissions', buildOwnerAuthPayload(), 55000);
+                    if (fbRes && fbRes.ok) {
+                        totalPublicFixed += Number(fbRes.fixed || fbRes.updated || 0);
+                        totalChecked += Number(fbRes.checked || fbRes.total || 0);
+                    }
+                    break;
+                }
+
+                if (!res || !res.ok) {
+                    showAssignFeedback('❌ ' + escapeHtml(cleanStr(res && res.error) || 'No se pudo reparar/reubicar.'), false);
+                    return;
+                }
+
+                totalChecked += Number(res.filesChecked != null ? res.filesChecked : (res.checked || 0));
+                totalMoved += Number(res.filesMoved != null ? res.filesMoved : (res.moved || 0));
+                totalPublicFixed += Number(
+                    res.publicFixed != null
+                        ? res.publicFixed
+                        : ((Number(res.filesMadePublic) || 0) + (Number(res.foldersPublicUpdated) || 0) + (Number(res.visualOverridesPublic) || 0))
+                );
+
+                const remaining = Number(res.remaining || 0);
+                const nextIdx = Number(res.nextStartIndex != null ? res.nextStartIndex : (res.nextIndex || 0));
+                if (remaining <= 0 || !nextIdx || nextIdx <= startIndex) {
+                    break;
+                }
+                startIndex = nextIdx;
+            }
+
+            await window.refreshAllPhotoWorkspace(false);
+            if (fallbackUsed) {
+                showAssignFeedback(
+                    '✅ Permisos públicos reparados (' + totalPublicFixed + ' fotos). Publica el Apps Script nuevo para habilitar reubicación automática por lotes.',
+                    true
+                );
+            } else {
+                showAssignFeedback(
+                    '✅ ' + totalChecked + ' revisadas · ' + totalMoved + ' reubicadas · ' + totalPublicFixed + ' públicas.',
+                    true
+                );
+            }
+        } catch (errRep) {
+            showAssignFeedback('❌ ' + escapeHtml(errRep && errRep.message ? errRep.message : String(errRep)), false);
+        } finally {
+            state.repairInFlight = false;
+            if (btn) { btn.disabled = false; btn.textContent = origTxt; }
         }
     };
 
@@ -4805,13 +5137,16 @@
 
             const queue = readFotosOfflineOutbox();
             const assignedLocalIds = new Set(
-                queue.filter((it) => it && it.type === 'assign_photo').map((it) => it.driveFileId)
+                queue
+                    .filter((it) => it && (it.type === 'assign_photo' || it.type === 'direct_upload_assign'))
+                    .map((it) => it.driveFileId || it.localFileId)
             );
 
             for (let i = 0; i < blobs.length; i++) {
                 const b = blobs[i];
                 if (!b || !b.id || !b.dataUrl) continue;
-                if (!assignedLocalIds.has(b.id) && !state.inboxFiles.some((f) => f.id === b.id)) {
+                const isDirectBlob = String(b.id).indexOf('local_dir_') === 0;
+                if (!isDirectBlob && !assignedLocalIds.has(b.id) && !state.inboxFiles.some((f) => f.id === b.id)) {
                     const localItem = enrichInboxFileItem({
                         id: b.id,
                         name: b.fileName || 'Foto pendiente',
@@ -4837,7 +5172,8 @@
             });
 
             state.sessionSavedLogs.forEach((log) => {
-                if (log && String(log.fileId || '').indexOf('local_inb_') === 0 && !log.localDataUrl && blobById.has(log.fileId)) {
+                const isLocalLog = log && (String(log.fileId || '').indexOf('local_inb_') === 0 || String(log.fileId || '').indexOf('local_dir_') === 0);
+                if (isLocalLog && !log.localDataUrl && blobById.has(log.fileId)) {
                     const b = blobById.get(log.fileId);
                     log.localDataUrl = b.dataUrl;
                     log.newUrl = b.dataUrl;
@@ -4863,7 +5199,6 @@
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
-                renderSessionHistoryLog();
             }
         } catch (e) {}
     }
@@ -4884,7 +5219,78 @@
                 const entry = queue[i];
                 if (!entry) continue;
 
-                if (entry.type === 'upload_inbox') {
+                if (entry.type === 'direct_upload_assign') {
+                    const blobRec = await getOfflinePhotoBlobIdb(entry.localFileId);
+                    if (!blobRec || !blobRec.dataUrl) {
+                        continue;
+                    }
+                    let res = await callWebAppPost('fotos_direct_upload_assign', Object.assign({
+                        sku: entry.sku,
+                        fileName: entry.fileName || blobRec.fileName || 'foto.jpg',
+                        dataUrl: blobRec.dataUrl,
+                        productName: entry.productName,
+                        categoria: entry.categoria,
+                        tipo: entry.tipo,
+                        targetFolderId: entry.targetFolderId
+                    }, buildOwnerAuthPayload()), 45000);
+
+                    if (res && !res.ok && /Acci[óo]n no reconocida/i.test(cleanStr(res.error))) {
+                        const upRes = await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
+                            fileName: entry.fileName || blobRec.fileName || 'foto.jpg',
+                            dataUrl: blobRec.dataUrl,
+                            skipListReturn: true
+                        }, buildOwnerAuthPayload()), 45000);
+                        if (upRes && upRes.ok && upRes.file && upRes.file.id) {
+                            res = await callWebAppPost('fotos_subir_assign', Object.assign({
+                                sku: entry.sku,
+                                productName: entry.productName,
+                                categoria: entry.categoria,
+                                tipo: entry.tipo,
+                                driveFileId: upRes.file.id,
+                                fromLoaded: false,
+                                targetFolderId: entry.targetFolderId,
+                                skipListReturn: true
+                            }, buildOwnerAuthPayload()), 30000);
+                        } else {
+                            res = upRes;
+                        }
+                    }
+
+                    if (res && res.ok) {
+                        syncedAny = true;
+                        await deleteOfflinePhotoBlobIdb(entry.localFileId);
+                        const prod = state.productBySku.get(entry.sku);
+                        const saved = state.sessionSavedBySku.get(entry.sku);
+                        if (prod) {
+                            if (res.newUrl) prod.photoUrl = res.newUrl;
+                            if (res.fileId) prod.photoFileId = res.fileId;
+                            if (res.rowNumber) prod.rowNumber = res.rowNumber;
+                            if (res.destFolderName) prod.destFolderName = res.destFolderName;
+                            if (res.destFolderId) prod.destFolderId = res.destFolderId;
+                        }
+                        if (saved) {
+                            if (res.newUrl) saved.newUrl = res.newUrl;
+                            if (res.fileId) saved.fileId = res.fileId;
+                            if (res.rowNumber) saved.rowNumber = res.rowNumber;
+                            if (res.destFolderName) saved.destFolderName = res.destFolderName;
+                            if (res.fileName) saved.fileName = res.fileName;
+                        }
+                        if (res.fileId) {
+                            state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || entry.fileName);
+                        }
+                        if (entry.sku && (res.newUrl || (prod && prod.photoUrl))) {
+                            notifySplitPeerOfPhotoUpdate(
+                                entry.sku,
+                                res.newUrl || (prod && prod.photoUrl) || '',
+                                res.fileId || (prod && prod.photoFileId) || '',
+                                (res.destFolderName || (prod && prod.destFolderName) || '')
+                            );
+                        }
+                    } else if (res && res.unavailable) {
+                        remaining.push(...queue.slice(i));
+                        break;
+                    }
+                } else if (entry.type === 'upload_inbox') {
                     const blobRec = await getOfflinePhotoBlobIdb(entry.localFileId);
                     if (!blobRec || !blobRec.dataUrl) {
                         continue;
@@ -4940,6 +5346,7 @@
                         categoria: entry.categoria,
                         tipo: entry.tipo,
                         driveFileId: resolvedFid,
+                        shortcutId: cleanStr(entry.shortcutId),
                         fromLoaded: !!entry.fromLoaded,
                         targetFolderId: entry.targetFolderId,
                         skipListReturn: true
@@ -4961,6 +5368,9 @@
                             if (res.newUrl) saved.newUrl = res.newUrl;
                             if (res.fileId) saved.fileId = res.fileId;
                             if (res.rowNumber) saved.rowNumber = res.rowNumber;
+                        }
+                        if (res.fileId && res.fileName) {
+                            state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName);
                         }
                         if (entry.sku && (res.newUrl || (prod && prod.photoUrl))) {
                             notifySplitPeerOfPhotoUpdate(
@@ -6078,6 +6488,92 @@
         } catch (e3) {}
     }
 
+    function getUploadedFabricEntriesInFotos() {
+        const out = [];
+        const map = visualState.overridesMap || {};
+        const keys = Object.keys(map);
+        for (let i = 0; i < keys.length; i++) {
+            const k = String(keys[i] || '').trim().toUpperCase();
+            if (!k || k.indexOf('VFAB:') !== 0) continue;
+            const ovr = map[keys[i]];
+            if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') continue;
+            const rawUrl = cleanStr(ovr.note);
+            if (!rawUrl || (!/^https?:\/\//i.test(rawUrl) && !/^data:image\//i.test(rawUrl))) continue;
+            const label = cleanFabricVariationNameFotos(ovr.name || k.slice(5)) || cleanStr(ovr.name || k.slice(5));
+            const tokens = plainVisToken(label).split(' ').filter((w) => w.length >= 2);
+            if (!tokens.length) continue;
+            out.push({
+                overrideKey: k,
+                label: label,
+                url: rawUrl,
+                plain: tokens.join(' '),
+                sortedKey: tokens.slice().sort().join(' '),
+                tokens: tokens
+            });
+        }
+        return out;
+    }
+
+    function findMatchingUploadedFabricForProduct(prod) {
+        if (!prod) return null;
+        const entries = getUploadedFabricEntriesInFotos();
+        if (!entries.length) return null;
+
+        const candidates = [];
+        const addCand = (raw) => {
+            const c = cleanFabricVariationNameFotos(raw);
+            if (c && candidates.indexOf(c) === -1) candidates.push(c);
+        };
+        if (prod.tl && prod.ct) addCand(prod.tl + ' ' + prod.ct);
+        addCand(prod.tl);
+        if (prod.variante) {
+            String(prod.variante).split(/\s*[·|\/]\s*/).forEach(addCand);
+        }
+        if (prod.acabado) {
+            String(prod.acabado).split(/\s*[·|\/]\s*/).forEach(addCand);
+        }
+        addCand(prod.ct);
+        if (!candidates.length) return null;
+
+        // 1) Exact VFAB override key match
+        for (let i = 0; i < candidates.length; i++) {
+            const k = compactVisualOverrideKeyFotos('VFAB:', candidates[i]);
+            const exact = entries.find((e) => e.overrideKey === k);
+            if (exact) return exact;
+        }
+        // 2) Exact plain or word-order-independent match
+        for (let i = 0; i < candidates.length; i++) {
+            const cTokens = plainVisToken(candidates[i]).split(' ').filter((w) => w.length >= 2);
+            if (!cTokens.length) continue;
+            const cPlain = cTokens.join(' ');
+            const cSorted = cTokens.slice().sort().join(' ');
+            const hit = entries.find((e) => e.plain === cPlain || e.sortedKey === cSorted);
+            if (hit) return hit;
+        }
+        // 3) Subset match (uploaded fabric tokens contained in product fabric or vice-versa)
+        let best = null;
+        let bestScore = 0;
+        for (let i = 0; i < candidates.length; i++) {
+            const cTokens = plainVisToken(candidates[i]).split(' ').filter((w) => w.length >= 2);
+            if (!cTokens.length) continue;
+            const cSet = new Set(cTokens);
+            for (let j = 0; j < entries.length; j++) {
+                const e = entries[j];
+                const eSet = new Set(e.tokens);
+                const allEntryInCand = e.tokens.every((t) => cSet.has(t));
+                const allCandInEntry = cTokens.length >= 2 && cTokens.every((t) => eSet.has(t));
+                if (allEntryInCand || allCandInEntry) {
+                    const score = (allEntryInCand ? e.tokens.length * 10 : cTokens.length * 8) - Math.abs(e.tokens.length - cTokens.length);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = e;
+                    }
+                }
+            }
+        }
+        return best;
+    }
+
     async function syncVisualOverridesFromCloudInFotos() {
         loadVisualOverridesFromLocalStorage();
         if (!state.unlocked) return;
@@ -6094,6 +6590,8 @@
                 if (visualState.workMode !== 'SKU') {
                     renderVisualTargetsList();
                     renderVisualTargetStage();
+                } else if (state.selectedSku) {
+                    renderSelectedProductStage();
                 }
             }
         } catch (e) {}
@@ -6140,10 +6638,36 @@
 
         const isPureDirection = (txt) => /^(?:(?:CON|SIN)\s+BRAZOS?|BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)|DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?|CENTRAL|MODULAR|IND|INV|1P|2P|3P|4P|5P|SALA|SOFA|LOVE\s*SEAT|SILLON|ESQUINERO|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|TABURETE|REMATE)$/.test(txt);
 
+        const registerFabricEntry = (fabRaw, colorRaw, modelKey, modelTitle) => {
+            const fab = cleanFabricVariationNameFotos(fabRaw);
+            if (!fab || fab.length < 2 || isPureDirection(fab)) return '';
+            const fabOvKey = compactVisualOverrideKeyFotos('VFAB:', fab);
+            if (!fabOvKey) return '';
+            if (!fabricsMap.has(fabOvKey)) {
+                fabricsMap.set(fabOvKey, {
+                    fabricKey: fab,
+                    overrideKey: fabOvKey,
+                    label: fab,
+                    colorHint: cleanStr(colorRaw).toUpperCase(),
+                    modelCount: 0,
+                    moduleCount: 0,
+                    sampleModels: [],
+                    _models: new Set()
+                });
+            }
+            const fRec = fabricsMap.get(fabOvKey);
+            fRec.moduleCount++;
+            if (modelKey && !fRec._models.has(modelKey)) {
+                fRec._models.add(modelKey);
+                fRec.modelCount++;
+                if (modelTitle && fRec.sampleModels.length < 4) fRec.sampleModels.push(modelTitle);
+            }
+            return fab;
+        };
+
         for (let i = 0; i < sourceList.length; i++) {
             const it = sourceList[i];
             const mo = cleanStr(it.mo).toUpperCase();
-            if (!mo || mo.length < 2) continue;
             const catTok = plainVisToken(it.c);
             const tpTok = plainVisToken(it.tp);
             const nomTok = plainVisToken(it.n);
@@ -6151,6 +6675,15 @@
 
             const isExt = /\bEXTERIOR\b/.test(fullTok);
             const isSala = /\b(SALA|SOFA|LOVE\s*SEAT|LOVESEAT|ESQUINERO|CHAISE|MODULAR|FUTON|FUTTON|SILLON)\b/.test(fullTok);
+
+            // Registrar telas de TODOS los productos tapizados (Sillones, Sillas, Camas, Sofás, Salas, Exterior, etc.)
+            if (cleanStr(it.tl)) {
+                const genericModelTitle = (cleanStr(it.tp) || cleanStr(it.c) || 'MUEBLE') + (mo ? (' ' + mo) : '');
+                const genericModelKey = plainVisToken(genericModelTitle) || cleanStr(it.s);
+                registerFabricEntry(it.tl, it.ct, genericModelKey, genericModelTitle.toUpperCase());
+            }
+
+            if (!mo || mo.length < 2) continue;
             if (!isSala && !isExt) continue;
 
             let typeKey = 'SALA_MODULAR';
@@ -6206,25 +6739,8 @@
             }
             if (fab) {
                 cov._fabrics.add(fab);
-                const fabOvKey = compactVisualOverrideKeyFotos('VFAB:', fab);
-                if (!fabricsMap.has(fabOvKey)) {
-                    fabricsMap.set(fabOvKey, {
-                        fabricKey: fab,
-                        overrideKey: fabOvKey,
-                        label: fab,
-                        colorHint: cleanStr(it.ct).toUpperCase(),
-                        modelCount: 0,
-                        moduleCount: 0,
-                        sampleModels: [],
-                        _models: new Set()
-                    });
-                }
-                const fRec = fabricsMap.get(fabOvKey);
-                fRec.moduleCount++;
-                if (!fRec._models.has(ovKey)) {
-                    fRec._models.add(ovKey);
-                    fRec.modelCount++;
-                    if (fRec.sampleModels.length < 4) fRec.sampleModels.push(title);
+                if (!cleanStr(it.tl)) {
+                    registerFabricEntry(fab, it.ct, ovKey, title);
                 }
             }
         }
@@ -6321,6 +6837,14 @@
         box.className = 'assign-feedback-banner ' + (isOk ? 'is-ok' : 'is-err');
     }
 
+    window.clearSelectedVisualTarget = function () {
+        if (!visualState.selectedOverrideKey) return;
+        visualState.selectedOverrideKey = '';
+        showVisualStageFeedback('', true);
+        renderVisualTargetsList();
+        renderVisualTargetStage();
+    };
+
     window.setFotosWorkMode = function (modeRaw) {
         const nextMode = (modeRaw === 'COVER' || modeRaw === 'FABRIC') ? modeRaw : 'SKU';
         visualState.workMode = nextMode;
@@ -6385,10 +6909,8 @@
             if (rowBadge) rowBadge.textContent = nextMode === 'COVER' ? 'PORTADA' : 'TELA';
             loadVisualOverridesFromLocalStorage();
             rebuildVisualTargetsCatalog();
-            const list = getActiveVisualTargetsList();
-            if (list.length > 0) {
-                visualState.selectedOverrideKey = list[0].overrideKey;
-            }
+            // Seguridad: nunca pre-seleccionar automáticamente el primer elemento
+            visualState.selectedOverrideKey = '';
             renderVisualTargetsList();
             renderVisualTargetStage();
         }
@@ -6486,13 +7008,14 @@
             const active = ovKey === selKey;
             const photoUrl = getVisualOverridePhotoUrlInFotos(ovKey);
             const thumbSrc = photoUrl ? resolveVisualThumbSrcInFotos(photoUrl, 160) : '';
+            const fid = extractDriveFileId(photoUrl);
             const title = isFabric ? (item.label || item.fabricKey) : (item.title || item.groupKey);
             const sub = isFabric
-                ? ((item.colorHint ? (item.colorHint + ' · ') : '') + item.moduleCount + ' mód.')
+                ? ((item.colorHint ? (item.colorHint + ' · ') : '') + item.moduleCount + ' pzas')
                 : ((item.subCat ? (item.subCat + ' · ') : '') + item.itemCount + ' pzas');
 
             const thumbInner = thumbSrc
-                ? ('<img src="' + escapeHtml(thumbSrc) + '" alt="' + escapeHtml(title) + '" loading="lazy" referrerpolicy="no-referrer">')
+                ? ('<img src="' + escapeHtml(thumbSrc) + '" alt="' + escapeHtml(title) + '" loading="lazy" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)">')
                 : ('<span aria-hidden="true">' + (isFabric ? '🧵' : '🖼️') + '</span>');
 
             return (
@@ -6526,10 +7049,12 @@
 
         if (canAssignGallery && curCanvas) {
             const previewSrc = selPhoto.localDataUrl || selPhoto.thumbDataUrl || buildPhotoThumbUrl(selPhoto.id || selPhoto.viewUrl, 700);
+            const fid = extractDriveFileId(selPhoto.id || selPhoto.viewUrl || '');
             if (badgeEl) badgeEl.textContent = 'Lista';
             curCanvas.onclick = null;
             curCanvas.innerHTML =
                 '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Vista') + '" referrerpolicy="no-referrer" ' +
+                'data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)" ' +
                 'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '">';
         } else if (!canAssignGallery) {
             renderVisualTargetStage(true);
@@ -6543,6 +7068,7 @@
         const badgeEl = document.getElementById('visualPreviewBadge');
         const curCanvas = document.getElementById('visualCurPhotoCanvas');
         const delBtn = document.getElementById('visualCurDeleteBtn');
+        const clearBtn = document.getElementById('btnClearSelectedVisual');
         const urlInp = document.getElementById('visualTargetUrlInput');
         const isFabric = visualState.workMode === 'FABRIC';
         const target = getSelectedVisualTargetObj();
@@ -6557,14 +7083,17 @@
                 curCanvas.innerHTML = '<div class="photo-empty-placeholder">Toca o arrastra</div>';
             }
             if (delBtn) delBtn.classList.add('hidden');
+            if (clearBtn) clearBtn.classList.add('hidden');
             if (urlInp) urlInp.value = '';
             if (!skipGallerySync) syncVisualStageSelectedGalleryPreview();
             return;
         }
 
+        if (clearBtn) clearBtn.classList.remove('hidden');
         const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
         const curUrl = getVisualOverridePhotoUrlInFotos(target.overrideKey);
         const curThumb = curUrl ? resolveVisualThumbSrcInFotos(curUrl, 700) : '';
+        const curFid = extractDriveFileId(curUrl);
 
         if (eyebrow) {
             eyebrow.textContent = isFabric ? 'Tela' : 'Portada';
@@ -6572,7 +7101,7 @@
         if (titleEl) titleEl.textContent = label;
         if (subEl) {
             if (isFabric) {
-                subEl.textContent = target.moduleCount + ' mód. · ' + target.modelCount + (target.modelCount === 1 ? ' modelo' : ' modelos');
+                subEl.textContent = target.moduleCount + ' pzas · ' + target.modelCount + (target.modelCount === 1 ? ' modelo' : ' modelos');
             } else {
                 subEl.textContent = (target.subCat ? (target.subCat + ' · ') : '') + target.itemCount + ' pzas';
             }
@@ -6583,6 +7112,7 @@
                 curCanvas.onclick = null;
                 curCanvas.innerHTML =
                     '<img src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
+                    'data-drive-id="' + escapeHtml(curFid) + '" onerror="handlePhotoImgError(this)" ' +
                     'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
                     'onclick="openPhotoLightbox(\'' + escapeHtml(curThumb.replace(/'/g, "\\'")) + '\')">';
             } else {
@@ -6715,40 +7245,90 @@
         }
         const isFabric = visualState.workMode === 'FABRIC';
         const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+        const ovKey = String(target.overrideKey).trim().toUpperCase();
+        const categoryTag = isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
+        const safeFileName = cleanStr(file.name) || ((isFabric ? 'tela_' : 'portada_') + Date.now() + '.jpg');
+
         visualState.busy = true;
-        showVisualStageFeedback('Subiendo...', true);
-        syncVisualStageSelectedGalleryPreview();
+        showVisualStageFeedback('⚡ Subiendo ' + label + '...', true);
 
         try {
             const dataUrl = await optimizeVisualFileForMode(file, isFabric);
+            const optimisticEntry = {
+                sku: ovKey,
+                status: 'VISIBLE',
+                name: cleanStr(label).slice(0, 140),
+                category: categoryTag,
+                price: null,
+                note: dataUrl,
+                updatedBy: OWNER_EMAIL,
+                updatedAt: new Date().toLocaleString('es-MX')
+            };
+
+            // Actualización optimista inmediata en Cotizador + quitar selección para no sobrescribir por error
+            visualState.overridesMap[ovKey] = optimisticEntry;
+            saveVisualOverridesToLocalStorage();
+            broadcastVisualOverrideUpdateToCotizador(ovKey, optimisticEntry, false);
+            visualState.selectedOverrideKey = '';
+            state.selectedInboxFileId = '';
+            state.selectedPhotoItem = null;
+            renderVisualTargetsList();
+            renderVisualTargetStage();
+            updateGallerySelectionInDom();
+
             const auth = buildOwnerAuthPayload();
-            const res = await callWebAppPost('inv_upload_product_photo', {
+            let res = await callWebAppPost('fotos_upload_visual_override', {
                 authToken: auth.authToken || '',
                 sheetTab: auth.sheetTab || 'PROYECTOS',
                 advisorEmail: auth.advisorEmail || OWNER_EMAIL,
-                advisorName: 'Kevin Reyna',
-                sku: target.overrideKey,
-                productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
-                categoria: isFabric ? 'TELAS' : 'SALAS',
-                tipo: isFabric ? 'TELA' : 'PORTADA',
-                targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
-                driveOnly: true,
-                skipSheetWrite: true,
+                overrideKey: ovKey,
+                label: label,
+                categoryTag: categoryTag,
+                fileName: safeFileName,
                 dataUrl: dataUrl
-            }, 40000);
+            }, 45000);
 
-            const fid = cleanStr((res && res.fileId) || (res && res.driveUrl && extractDriveFileId(res.driveUrl)));
-            const driveUrl = cleanStr(res && res.driveUrl) || (fid ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
-            if (!res || !res.ok || !driveUrl) {
+            if (res && !res.ok && /Acci[óo]n no reconocida/i.test(cleanStr(res.error))) {
+                const upRes = await callWebAppPost('inv_upload_product_photo', {
+                    authToken: auth.authToken || '',
+                    sheetTab: auth.sheetTab || 'PROYECTOS',
+                    advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                    advisorName: 'Kevin Reyna',
+                    sku: ovKey,
+                    fileName: safeFileName,
+                    productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
+                    categoria: isFabric ? 'TELAS' : 'SALAS',
+                    tipo: isFabric ? 'TELA' : 'PORTADA',
+                    targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
+                    driveOnly: true,
+                    skipSheetWrite: true,
+                    skipCategoryCopy: true,
+                    dataUrl: dataUrl
+                }, 40000);
+                const fidFb = cleanStr((upRes && upRes.fileId) || (upRes && upRes.driveUrl && extractDriveFileId(upRes.driveUrl)));
+                const urlFb = cleanStr(upRes && upRes.driveUrl) || (fidFb ? ('https://drive.google.com/file/d/' + fidFb + '/view?usp=sharing') : '');
+                if (upRes && upRes.ok && urlFb) {
+                    const saveFb = await persistVisualPhotoOverrideFromFotos(target, urlFb, 'SAVE');
+                    res = saveFb.ok ? { ok: true, driveUrl: urlFb, fileId: fidFb } : { ok: false, error: saveFb.error };
+                } else {
+                    res = upRes;
+                }
+            }
+
+            if (!res || !res.ok) {
                 showVisualStageFeedback((res && res.error) || 'Error al subir.', false);
                 return;
             }
-            const saveRes = await persistVisualPhotoOverrideFromFotos(target, driveUrl, 'SAVE');
-            if (saveRes.ok) {
-                showVisualStageFeedback('✅ Guardada.', true);
-            } else {
-                showVisualStageFeedback('Subida (' + saveRes.error + ')', true);
+            const finalDriveUrl = cleanStr(res.driveUrl || res.newUrl);
+            const finalOverride = res.override || Object.assign({}, optimisticEntry, { note: finalDriveUrl || dataUrl });
+            visualState.overridesMap[ovKey] = finalOverride;
+            if (res.fileId) {
+                state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || safeFileName);
             }
+            saveVisualOverridesToLocalStorage();
+            broadcastVisualOverrideUpdateToCotizador(ovKey, finalOverride, false);
+            renderVisualTargetsList();
+            showVisualStageFeedback('✅ ' + label + ' guardada.', true);
         } catch (err) {
             showVisualStageFeedback((err && err.message) || 'Error al subir.', false);
         } finally {
@@ -6767,43 +7347,108 @@
         if (!target || !selPhoto) return;
 
         const isFabric = visualState.workMode === 'FABRIC';
-        const directUrl = cleanStr(selPhoto.viewUrl) || (selPhoto.id && !/^local_/i.test(selPhoto.id) ? ('https://drive.google.com/file/d/' + selPhoto.id + '/view?usp=sharing') : '');
+        const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+        const ovKey = String(target.overrideKey).trim().toUpperCase();
+        const categoryTag = isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
+        const fromLoaded = !!selPhoto.fromLoaded;
+        const rawPhotoId = cleanStr(selPhoto.id);
+        const isLocal = /^local_/i.test(rawPhotoId);
+        const directUrl = cleanStr(selPhoto.viewUrl) || (!isLocal && rawPhotoId ? ('https://drive.google.com/file/d/' + rawPhotoId + '/view?usp=sharing') : '');
+        const optimisticPreview = (selPhoto.localDataUrl && String(selPhoto.localDataUrl).indexOf('data:image/') === 0)
+            ? String(selPhoto.localDataUrl)
+            : directUrl;
+
         visualState.busy = true;
-        showVisualStageFeedback('Guardando...', true);
-        syncVisualStageSelectedGalleryPreview();
+        showVisualStageFeedback('⚡ Guardando ' + label + '...', true);
 
         try {
-            let finalUrl = directUrl;
-            if (!finalUrl && selPhoto.localDataUrl) {
-                const auth = buildOwnerAuthPayload();
-                const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
-                const upRes = await callWebAppPost('inv_upload_product_photo', {
-                    authToken: auth.authToken || '',
-                    sheetTab: auth.sheetTab || 'PROYECTOS',
-                    advisorEmail: auth.advisorEmail || OWNER_EMAIL,
-                    advisorName: 'Kevin Reyna',
-                    sku: target.overrideKey,
-                    productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
-                    categoria: isFabric ? 'TELAS' : 'SALAS',
-                    tipo: isFabric ? 'TELA' : 'PORTADA',
-                    targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
-                    driveOnly: true,
-                    skipSheetWrite: true,
-                    dataUrl: selPhoto.localDataUrl
-                }, 40000);
-                const fid = cleanStr((upRes && upRes.fileId) || (upRes && upRes.driveUrl && extractDriveFileId(upRes.driveUrl)));
-                finalUrl = cleanStr(upRes && upRes.driveUrl) || (fid ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
+            const optimisticEntry = {
+                sku: ovKey,
+                status: 'VISIBLE',
+                name: cleanStr(label).slice(0, 140),
+                category: categoryTag,
+                price: null,
+                note: optimisticPreview || directUrl,
+                updatedBy: OWNER_EMAIL,
+                updatedAt: new Date().toLocaleString('es-MX')
+            };
+
+            if (optimisticPreview || directUrl) {
+                visualState.overridesMap[ovKey] = optimisticEntry;
+                saveVisualOverridesToLocalStorage();
+                broadcastVisualOverrideUpdateToCotizador(ovKey, optimisticEntry, false);
             }
-            if (!finalUrl) {
-                showVisualStageFeedback('Sin enlace Drive.', false);
+
+            // Remover de bandeja SUBIR PREN si venía de extracción + limpiar selección para evitar errores
+            if (!fromLoaded && rawPhotoId) {
+                state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== rawPhotoId);
+                state.inboxFiles = state.inboxFiles.filter((f) => f.id !== rawPhotoId);
+                state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== rawPhotoId);
+            }
+            visualState.selectedOverrideKey = '';
+            state.selectedInboxFileId = '';
+            state.selectedPhotoItem = null;
+            renderInboxGallery();
+            renderVisualTargetsList();
+            renderVisualTargetStage();
+
+            const auth = buildOwnerAuthPayload();
+            let res = await callWebAppPost('fotos_upload_visual_override', {
+                authToken: auth.authToken || '',
+                sheetTab: auth.sheetTab || 'PROYECTOS',
+                advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                overrideKey: ovKey,
+                label: label,
+                categoryTag: categoryTag,
+                fileName: cleanStr(selPhoto.name),
+                sourceInboxFileId: isLocal ? '' : rawPhotoId,
+                shortcutId: cleanStr(selPhoto.shortcutId),
+                fromLoaded: fromLoaded,
+                dataUrl: isLocal ? cleanStr(selPhoto.localDataUrl) : ''
+            }, 45000);
+
+            if (res && !res.ok && /Acci[óo]n no reconocida/i.test(cleanStr(res.error))) {
+                let finalUrl = directUrl;
+                if (!finalUrl && selPhoto.localDataUrl) {
+                    const upRes = await callWebAppPost('inv_upload_product_photo', {
+                        authToken: auth.authToken || '',
+                        sheetTab: auth.sheetTab || 'PROYECTOS',
+                        advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                        advisorName: 'Kevin Reyna',
+                        sku: ovKey,
+                        fileName: cleanStr(selPhoto.name),
+                        productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
+                        categoria: isFabric ? 'TELAS' : 'SALAS',
+                        tipo: isFabric ? 'TELA' : 'PORTADA',
+                        targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
+                        driveOnly: true,
+                        skipSheetWrite: true,
+                        skipCategoryCopy: true,
+                        dataUrl: selPhoto.localDataUrl
+                    }, 40000);
+                    const fidFb = cleanStr((upRes && upRes.fileId) || (upRes && upRes.driveUrl && extractDriveFileId(upRes.driveUrl)));
+                    finalUrl = cleanStr(upRes && upRes.driveUrl) || (fidFb ? ('https://drive.google.com/file/d/' + fidFb + '/view?usp=sharing') : '');
+                }
+                if (finalUrl) {
+                    const saveFb = await persistVisualPhotoOverrideFromFotos(target, finalUrl, 'SAVE');
+                    res = saveFb.ok ? { ok: true, driveUrl: finalUrl } : { ok: false, error: saveFb.error };
+                }
+            }
+
+            if (!res || !res.ok) {
+                showVisualStageFeedback((res && res.error) || 'Error al guardar.', false);
                 return;
             }
-            const saveRes = await persistVisualPhotoOverrideFromFotos(target, finalUrl, 'SAVE');
-            if (saveRes.ok) {
-                showVisualStageFeedback('✅ Guardada.', true);
-            } else {
-                showVisualStageFeedback(saveRes.error || 'Guardada local.', true);
+            const finalDriveUrl = cleanStr(res.driveUrl || res.newUrl || directUrl);
+            const finalOverride = res.override || Object.assign({}, optimisticEntry, { note: finalDriveUrl });
+            visualState.overridesMap[ovKey] = finalOverride;
+            if (res.fileId) {
+                state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || selPhoto.name);
             }
+            saveVisualOverridesToLocalStorage();
+            broadcastVisualOverrideUpdateToCotizador(ovKey, finalOverride, false);
+            renderVisualTargetsList();
+            showVisualStageFeedback('✅ ' + label + ' guardada.', true);
         } catch (err) {
             showVisualStageFeedback((err && err.message) || 'Error.', false);
         } finally {
@@ -6829,6 +7474,9 @@
         showVisualStageFeedback('Guardando...', true);
         try {
             const saveRes = await persistVisualPhotoOverrideFromFotos(target, url, 'SAVE');
+            visualState.selectedOverrideKey = '';
+            renderVisualTargetsList();
+            renderVisualTargetStage();
             showVisualStageFeedback(saveRes.ok ? '✅ Guardado.' : (saveRes.error || 'Guardado local.'), true);
         } finally {
             visualState.busy = false;
@@ -6855,6 +7503,7 @@
         compactVisualOverrideKeyFotos: compactVisualOverrideKeyFotos,
         cleanFabricVariationNameFotos: cleanFabricVariationNameFotos,
         buildFallbackVisualTargetsFromProducts: buildFallbackVisualTargetsFromProducts,
+        findMatchingUploadedFabricForProduct: findMatchingUploadedFabricForProduct,
         rebuildVisualTargetsCatalog: rebuildVisualTargetsCatalog,
         getVisualState: function () { return visualState; }
     };

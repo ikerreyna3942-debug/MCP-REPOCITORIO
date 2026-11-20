@@ -3347,3 +3347,121 @@ body.inv-split-dragging .inv-split-iframe {
   background: #F5EFE2;
   border-color: #A38251;
 }
+
+/* Muestra automática de tela aplicada a variantes y detalle de producto */
+.inv-var-fabric-pill {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 8px 3px 3px;
+  border-radius: 999px;
+  border: 1px solid #E1DBC5;
+  background: #FAF7F0;
+  cursor: zoom-in;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.inv-var-fabric-pill:hover {
+  border-color: #A38251;
+  background: #F4EDE0;
+}
+
+.inv-var-fabric-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid rgba(163, 130, 81, 0.35);
+  flex-shrink: 0;
+}
+
+.inv-var-fabric-lbl {
+  font-size: 10px;
+  font-weight: 800;
+  color: #5C492C;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-det-fabric-swatch-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #DFD4BF;
+  background: linear-gradient(135deg, #FCF9F2 0%, #F7F1E4 100%);
+  color: #1A1816;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.inv-det-fabric-swatch-card:hover {
+  border-color: #A38251;
+  box-shadow: 0 3px 10px rgba(163, 130, 81, 0.14);
+}
+
+.inv-det-fabric-swatch-img-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid rgba(163, 130, 81, 0.35);
+  background: #FFFFFF;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inv-det-fabric-swatch-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.inv-det-fabric-swatch-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inv-det-fabric-swatch-tag {
+  font-size: 10px;
+  font-weight: 800;
+  color: #8F6F3F;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.inv-det-fabric-swatch-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1A1816;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-det-fabric-swatch-zoom {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 800;
+  color: #7D5E30;
+  background: #FFFFFF;
+  border: 1px solid #DFD4BF;
+  border-radius: 999px;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+

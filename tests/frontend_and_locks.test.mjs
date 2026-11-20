@@ -59,12 +59,12 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
   const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
   const suiteSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'suite/sw.js'), 'utf8');
-  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v9['"]/);
+  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v10['"]/);
   assert.match(promptsSwSrc, /creata-back-nav\.js\?v=1/);
   assert.match(promptsSwSrc, /prompts-styles\.css\?v=7/);
-  assert.match(promptsSwSrc, /prompts-app\.js\?v=9/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v16['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v16['"]/);
+  assert.match(promptsSwSrc, /prompts-app\.js\?v=10/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v17['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v17['"]/);
   assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v3['"]/);
   assert.match(panelSwSrc, /panel-styles\.css\?v=6/);
   assert.match(panelSwSrc, /panel-app\.js\?v=11/);
@@ -76,7 +76,7 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   assert.match(promptsHtmlSrc, /prompts-manifest\.json\?v=3/);
   assert.match(promptsHtmlSrc, /prompts-styles\.css\?v=7/);
   assert.match(promptsHtmlSrc, /creata-back-nav\.js\?v=1/);
-  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=9/);
+  assert.match(promptsHtmlSrc, /prompts-app\.js\?v=10/);
   assert.match(promptsHtmlSrc, /Configurar PIN/);
 
   const promptsCssSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-styles.css'), 'utf8');
@@ -153,10 +153,10 @@ test('Static cross-project isolation invariants hold across Project A, Project B
   assert.ok(!/SUBIR PREN/i.test(promptsJs), 'prompts-app.js must not reference SUBIR PREN');
   assert.ok(!promptsJs.includes('1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8'), 'prompts-app.js must not reference Control de Productos');
 
-  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=22
+  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=27
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
-  assert.match(fotosHtml, /fotos-productos-app\.js\?v=26/);
+  assert.match(fotosHtml, /fotos-productos-app\.js\?v=27/);
 });
 
 test('Prompts PWA (Items 12-14): blocks DOM XSS & javascript: URIs in renderProptGallery, prevents ?scriptUrl= silent overwrite & PIN exfiltration, and handles clipboard fallback', async () => {
@@ -379,12 +379,12 @@ test('App #9 (Feature F8): Auto-acomodar por categoría button removed from foto
   assert.match(assignFnMatch[0], /DEST_FOLDER_BY_ID\.get\(/, 'Guardar must validate against DEST_FOLDER_BY_ID');
 });
 
-test('Prompts SW (Item 14 / M2C): prompts-sw.js v9 evicts v2..v8, preserves other app caches, and intercepts prompts-app.js?v=9 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
+test('Prompts SW (Item 14 / M2C): prompts-sw.js v10 evicts v2..v9, preserves other app caches, and intercepts prompts-app.js?v=10 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
   const vm = await import('node:vm');
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9', 'creata-fotos-app-v11', 'creata-panel-app-v1', 'creata-inventario-v1'];
+  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9', 'creata-prompts-app-v10', 'creata-fotos-app-v11', 'creata-panel-app-v1', 'creata-inventario-v1'];
 
   const swSandbox = {
     URL,
@@ -413,7 +413,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v9 evicts v2..v8, preserves othe
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8']);
+  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9']);
 
   // Fetch bypasses script.google.com, buena-espero.onrender.com, and POST requests; intercepts same-origin GET
   const checkIntercept = (url, method = 'GET') => {
@@ -427,7 +427,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v9 evicts v2..v8, preserves othe
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
   assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
-  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=9', 'GET'), true);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=10', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
 });
 
@@ -633,3 +633,71 @@ test('Prompts App: Fuentes de fotos (SM S Mueblería / Cotización / SUBIR PROPT
   assert.match(els.get('proptSourcesStatus').textContent, /actualizar AppsScript_Prompts_Odoo\.gs/);
   assert.equal(els.get('proptSourcesStatus').classList.contains('is-err'), true);
 });
+
+test('App Prompts (Copy Photo Image Bridge): CREATA_PROMPTS_COPY_IMAGE writes binary image/png (never text), rejects untrusted origins, and photo cards include 🖼️ copy-photo button', async () => {
+  const vm = await import('node:vm');
+  const promptsJs = fs.readFileSync(path.join(REPO_ROOT, 'prompts-app.js'), 'utf8');
+  const panelJs = fs.readFileSync(path.join(REPO_ROOT, 'panel-app.js'), 'utf8');
+
+  assert.ok(panelJs.includes("type !== 'CREATA_PROMPTS_COPY_IMAGE'"), 'panel-app.js must also support CREATA_PROMPTS_COPY_IMAGE bridge');
+  assert.ok(promptsJs.includes('copyProptDrivePhotoImage('), 'prompts-app.js must expose copyProptDrivePhotoImage');
+
+  const msgListeners = [];
+  const writtenClipboardItems = [];
+  const replies = [];
+  class FakeClipboardItem {
+    constructor(map) { this.map = map; }
+  }
+  const sandbox = {
+    console, Date, Math, JSON, RegExp, Array, Object, String, Number, Boolean, Error, Promise, URL, URLSearchParams, AbortController, Uint8Array, Blob, atob,
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {},
+    ClipboardItem: FakeClipboardItem,
+    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    navigator: {
+      onLine: true, userAgent: 'Mozilla/5.0', platform: 'Linux', maxTouchPoints: 0,
+      serviceWorker: { register: () => Promise.resolve() },
+      clipboard: {
+        write: async (items) => { writtenClipboardItems.push(items); },
+        writeText: async () => { throw new Error('MUST NOT call writeText for photo copy'); }
+      }
+    },
+    history: { replaceState: () => {} },
+    location: { protocol: 'https:', pathname: '/MCP-REPOCITORIO/prompts.html', search: '', hash: '', href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts.html' },
+    document: { readyState: 'complete', getElementById: () => null, querySelectorAll: () => [], addEventListener: () => {} },
+    fetch: async () => ({ text: async () => '{}' })
+  };
+  sandbox.window = sandbox;
+  sandbox.window.addEventListener = (ev, fn) => { if (ev === 'message') msgListeners.push(fn); };
+  sandbox.window.matchMedia = () => ({ matches: false });
+  vm.runInNewContext(promptsJs, sandbox, { filename: 'prompts-app.js' });
+
+  assert.ok(msgListeners.length >= 1, 'prompts-app.js must register a window message listener');
+
+  // 1) Untrusted origin must be ignored
+  for (const fn of msgListeners) {
+    await fn({
+      origin: 'https://evil.example',
+      data: { type: 'CREATA_PROMPTS_COPY_IMAGE', requestId: 'bad1', dataUri: 'data:image/png;base64,iVBORw0KGgo=' },
+      source: { postMessage: (m, o) => replies.push({ m, o }) }
+    });
+  }
+  assert.equal(writtenClipboardItems.length, 0);
+  assert.equal(replies.length, 0);
+
+  // 2) Trusted Render origin with PNG data URI writes binary image/png Blob to ClipboardItem and replies ok: true
+  for (const fn of msgListeners) {
+    await fn({
+      origin: 'https://buena-espero.onrender.com',
+      data: { type: 'CREATA_PROMPTS_COPY_IMAGE', requestId: 'ok1', dataUri: 'data:image/png;base64,iVBORw0KGgo=' },
+      source: { postMessage: (m, o) => replies.push({ m, o }) }
+    });
+  }
+  assert.equal(writtenClipboardItems.length, 1);
+  assert.ok(writtenClipboardItems[0][0].map['image/png'] instanceof Blob, 'ClipboardItem must contain binary image/png Blob');
+  assert.equal(writtenClipboardItems[0][0].map['image/png'].type, 'image/png');
+  assert.deepEqual(JSON.parse(JSON.stringify(replies[0])), {
+    m: { type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', requestId: 'ok1', ok: true },
+    o: 'https://buena-espero.onrender.com'
+  });
+});
+

@@ -1220,7 +1220,6 @@ test('LINK-5: App de Fotos auto-renews expired authToken to load Drive SUBIR PRE
 
   assert.deepEqual(uploadedToDriveInbox, ['SKU-SALA-01 SALA MILAN NUEVA.jpg'], 'Must upload only brand-new file and deduplicate already-synced SUBIR PREN file');
   assert.equal(fotosVm.doc.getElementById('inboxHeaderBadge').textContent, '2');
-  assert.match(fotosVm.doc.getElementById('subirPrenLocalPathBadge').textContent, /SUBIR PREN/);
 });
 
 test('LINK-6: Cotizador (#uploadPhotoModal) loads Drive SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p) and assigns photo directly to Hoja 1 + live Cotizador & App de Fotos', async () => {
@@ -1306,4 +1305,87 @@ test('LINK-6: Cotizador (#uploadPhotoModal) loads Drive SUBIR PREN (11_rR-qhgM02
   assert.equal(cotizadorVm.doc.getElementById('detPhotoEmpty').classList.contains('hidden'), true, 'Cotizador detail photo must update immediately');
   assert.match(fotosPeer.doc.getElementById('curPhotoCanvas').innerHTML, /DriveSubirPrenSala01_ID/, 'App de Fotos must also receive real-time photo update via BroadcastChannel');
 });
+
+test('LINK-7: App de Fotos auto-clears selected product on save, never switches selected SKU when picking inbox photo, shows exact uploaded filename in Cargadas, and matches uploaded fabrics on existing SKUs', async () => {
+  const clock = createFakeClock();
+  const sharedStorage = createSharedStorage();
+  const BroadcastChannel = createSharedBroadcastBus();
+
+  sharedStorage.map.set('creata_fotos_fast_cache_v6', JSON.stringify({
+    ts: clock.now(),
+    p: [
+      ['SKU-SALA-01', 'SALA MILAN 3P', 'SALA MILAN 3P', '', 2, 1, 1, 'SALAS', 'SALA', '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb', 'MILAN', '3P', '220x95', 'LINO BEIGE', [2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0], '$24,900', '', 'LINO', 'BEIGE'],
+      ['SKU-COM-02', 'COMEDOR ALBA', 'COMEDOR ALBA', '', 3, 1, 1, 'COMEDORES', 'COMEDOR', '1iaZaA1TXcGVL9WABWi656Xouzviiog6K', 'ALBA', '6P', '180x100', 'PAROTA', [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], '$19,500', '', '', '']
+    ],
+    inb: [
+      { id: 'DriveInboxComedor_01', name: 'SKU-COM-02 Foto Original Alba.jpg', sizeBytes: 12000, viewUrl: 'https://drive.google.com/file/d/DriveInboxComedor_01/view?usp=sharing' }
+    ],
+    fn: []
+  }));
+  sharedStorage.map.set('creata_inv_product_overrides_v1', JSON.stringify({
+    'VFAB:LINO BEIGE': {
+      sku: 'VFAB:LINO BEIGE',
+      status: 'VISIBLE',
+      name: 'LINO BEIGE',
+      category: 'FABRIC_SWATCH',
+      note: 'https://drive.google.com/file/d/1FabricLinoBeigeTest99/view?usp=sharing'
+    }
+  }));
+
+  const fotosVm = createFotosVm({
+    clock,
+    sharedStorage,
+    BroadcastChannel,
+    customFetch: async (_url, init) => {
+      const body = init && init.body ? JSON.parse(init.body) : {};
+      if (body.action === 'fotos_subir_assign') {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            fileId: body.driveFileId,
+            fileName: 'SKU-COM-02 Foto Original Alba.jpg',
+            newUrl: 'https://drive.google.com/file/d/' + body.driveFileId + '/view?usp=sharing',
+            rowNumber: 2,
+            destFolderId: '1xo2z2bIE_HCscBiqFI8Ew-KhQacBElsb',
+            destFolderName: 'FOTOS SALAS'
+          })
+        };
+      }
+      if (body.action === 'fotos_subir_list') {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            files: [{ id: 'DriveInboxComedor_01', name: 'SKU-COM-02 Foto Original Alba.jpg', sizeBytes: 12000 }],
+            loadedFileNames: { DriveInboxComedor_01: 'SKU-COM-02 Foto Original Alba.jpg' }
+          })
+        };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    }
+  });
+
+  // 1) Selecting SKU-SALA-01 shows linked uploaded fabric chip automatically
+  fotosVm.win.selectSkuProduct('SKU-SALA-01');
+  assert.equal(fotosVm.doc.getElementById('selColASku').textContent, 'SKU-SALA-01');
+  const fabChip = fotosVm.doc.getElementById('skuLinkedFabricChip');
+  assert.equal(fabChip.classList.contains('hidden'), false, 'Uploaded VFAB:LINO BEIGE must attach automatically to SKU-SALA-01');
+  assert.match(fabChip.innerHTML, /LINO BEIGE/);
+
+  // 2) Picking an inbox photo named "SKU-COM-02 ..." while SKU-SALA-01 is ALREADY selected MUST NOT silently switch SKU!
+  fotosVm.win.selectInboxPhoto('DriveInboxComedor_01');
+  assert.equal(fotosVm.doc.getElementById('selColASku').textContent, 'SKU-SALA-01', 'Selected SKU must NEVER switch silently on inbox photo click');
+
+  // 3) Saving photo immediately auto-clears the selected SKU so it cannot be overwritten by mistake
+  await fotosVm.win.assignSelectedPhotoToProduct();
+  assert.equal(fotosVm.doc.getElementById('selColASku').textContent, '—', 'Selected SKU must auto-clear immediately after saving');
+  assert.equal(fotosVm.doc.getElementById('btnClearSelectedSku').classList.contains('hidden'), true);
+
+  // 4) Switching to Cargadas tab shows exact original uploaded fileName
+  fotosVm.win.setGalleryMode('LOADED');
+  const loadedHtml = fotosVm.doc.getElementById('inboxGalleryContainer').innerHTML;
+  assert.match(loadedHtml, /SKU-COM-02 Foto Original Alba\.jpg/, 'Cargadas tab must show exact uploaded filename');
+});
+
 

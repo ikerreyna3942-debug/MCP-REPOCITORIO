@@ -441,3 +441,100 @@ test('Project A: doPost(fotos_subir_list) returns explicit authRequired when una
   assert.deepEqual(validJson.files.map((f) => f.id).sort(), ['pren_file_001', 'pren_file_002']);
 });
 
+test('Project A (User Requirements 2, 3, 5, 7): preserves exact original filename, always shares publicly, 1-step direct upload & visual override move out of SUBIR PREN, and reorganizes misfiled photos from Sheets without touching Project B', () => {
+  const env = setupProjectAEnv();
+
+  // 1) Assigning from SUBIR PREN preserves exact filename (NO forced rename), shares publicly, and removes duplicate ONLY inside SUBIR PREN
+  env.makeFile('pren_dup_copy_01', 'SALA MILAN BEIGE.jpg', { parentId: IDS.SUBIR_PREN_CHILD });
+  const assignRes = env.context.handleFotosSubirAssign_({
+    ...KEVIN_AUTH,
+    sku: 'SKU-SALA-01',
+    driveFileId: 'pren_file_001',
+    skipListReturn: true
+  });
+  assert.equal(assignRes.ok, true);
+  assert.equal(assignRes.fileName, 'SALA MILAN BEIGE.jpg', 'Original filename must be preserved without renaming');
+  const f1 = env.filesById.get('pren_file_001');
+  assert.equal(f1.getName(), 'SALA MILAN BEIGE.jpg');
+  assert.equal(f1._state.parentIds.has(IDS.FOTOS_SALAS), true, 'Must auto-place into FOTOS SALAS from Sheets');
+  assert.equal(f1._state.parentIds.has(IDS.SUBIR_PREN), false, 'Must move out of SUBIR PREN');
+  assert.equal(f1._state.sharing && f1._state.sharing.access, 'ANYONE_WITH_LINK');
+  assert.equal(env.foldersById.get(IDS.FOTOS_SALAS)._state.sharing && env.foldersById.get(IDS.FOTOS_SALAS)._state.sharing.access, 'ANYONE_WITH_LINK');
+  assert.equal(env.foldersById.get(IDS.SUBIR_PREN)._state.sharing && env.foldersById.get(IDS.SUBIR_PREN)._state.sharing.access, 'ANYONE_WITH_LINK');
+  assert.equal(env.filesById.get('pren_dup_copy_01').isTrashed(), true, 'Duplicate inside SUBIR PREN extraction folder must be cleaned up');
+
+  // 2) 1-step direct upload (fotos_direct_upload_assign) places photo straight into Sheets category folder with exact filename + public sharing
+  const directResp = env.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'fotos_direct_upload_assign',
+        ...KEVIN_AUTH,
+        sku: 'SKU-COM-02',
+        fileName: 'Mi Comedor Alba Original.jpg',
+        dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/'
+      })
+    }
+  });
+  const directJson = JSON.parse(directResp.getContent());
+  assert.equal(directJson.ok, true, `Direct upload failed: ${directJson.error || ''}`);
+  assert.equal(directJson.fileName, 'Mi Comedor Alba Original.jpg');
+  assert.equal(directJson.destFolderId, IDS.FOTOS_COMEDORES, 'Must auto-resolve FOTOS COMEDORES from INVENTARIO_EN_VIVO');
+  const uploadedDirectFile = env.filesById.get(directJson.fileId);
+  assert.ok(uploadedDirectFile, 'Uploaded direct file must exist in Drive');
+  assert.equal(uploadedDirectFile._state.parentIds.has(IDS.FOTOS_COMEDORES), true);
+  assert.equal(uploadedDirectFile._state.sharing && uploadedDirectFile._state.sharing.access, 'ANYONE_WITH_LINK');
+  const sh1 = env.spreadsheetsById.get(IDS.SHEET_CONTROL).getSheetByName('1');
+  assert.match(String(sh1.getRange(4, 4).getValue()), new RegExp(directJson.fileId), 'Hoja 1 Col D must be updated');
+  assert.match(String(sh1.getRange(2, 2).getValue()), /^=ARRAYFORMULA/, 'Row 2 formulas must stay untouched');
+
+  // 3) 1-step visual override (fotos_upload_visual_override) moves file out of SUBIR PREN to FOTOS NUEVAS CARGADO, shares publicly, and saves VFAB override
+  const visResp = env.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'fotos_upload_visual_override',
+        ...KEVIN_AUTH,
+        overrideKey: 'VFAB:LINO BEIGE',
+        label: 'LINO BEIGE',
+        categoryTag: 'FABRIC_SWATCH',
+        sourceInboxFileId: 'pren_file_002',
+        fromLoaded: false
+      })
+    }
+  });
+  const visJson = JSON.parse(visResp.getContent());
+  assert.equal(visJson.ok, true, `Visual override failed: ${visJson.error || ''}`);
+  const f2 = env.filesById.get('pren_file_002');
+  assert.equal(f2._state.parentIds.has(IDS.FOTOS_NUEVAS_CARGADO), true, 'Visual photo from SUBIR PREN must move to FOTOS NUEVAS CARGADO');
+  assert.equal(f2._state.parentIds.has(IDS.SUBIR_PREN_CHILD), false, 'Visual photo must be removed from SUBIR PREN');
+  assert.equal(f2._state.sharing && f2._state.sharing.access, 'ANYONE_WITH_LINK');
+  assert.equal(f2.getName(), 'MESA ALBA.png', 'Visual file keeps original filename');
+
+  // 4) Reorganize misfiled photos from Sheets (fotos_reorganize_from_sheets): move SKU-SALA-01 photo back if misfiled in FOTOS INTERIOR & repair public permissions
+  const misfiledId = '1PrenSalaMilanLongId00001';
+  const misfiled = env.makeFile(misfiledId, 'SALA MILAN ORIGINAL.jpg', { parentId: IDS.FOTOS_INTERIOR });
+  misfiled._state.sharing = { access: 'PRIVATE', perm: 'NONE' };
+  sh1.getRange(3, 4).setValue('https://drive.google.com/file/d/' + misfiledId + '/view?usp=sharing');
+  const propt1 = env.filesById.get('propt_file_001');
+  propt1._state.sharing = { access: 'PRIVATE', perm: 'NONE' };
+  const reorgResp = env.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'fotos_reorganize_from_sheets',
+        ...KEVIN_AUTH,
+        startIndex: 0,
+        maxFiles: 50,
+        repairPublic: true
+      })
+    }
+  });
+  const reorgJson = JSON.parse(reorgResp.getContent());
+  assert.equal(reorgJson.ok, true);
+  assert.ok(reorgJson.moved >= 1 && reorgJson.filesMoved >= 1, 'Misfiled SKU-SALA-01 photo must be moved back to FOTOS SALAS');
+  assert.equal(misfiled._state.parentIds.has(IDS.FOTOS_SALAS), true);
+  assert.equal(misfiled._state.parentIds.has(IDS.FOTOS_INTERIOR), false);
+  assert.equal(misfiled.getName(), 'SALA MILAN ORIGINAL.jpg', 'Reorganization must NEVER rename files');
+  assert.equal(misfiled._state.sharing && misfiled._state.sharing.access, 'ANYONE_WITH_LINK');
+  assert.equal(propt1._state.sharing && propt1._state.sharing.access, 'PRIVATE', 'Project B files in SUBIR PROPT must NEVER be touched');
+});
+
+

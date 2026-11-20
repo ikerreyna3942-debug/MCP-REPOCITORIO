@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=23">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=24">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -85,12 +85,9 @@
                 <div class="header-actions">
                     <button type="button" id="btnInstallFotosApp" class="hdr-btn is-accent suite-hide-in-embed hidden" onclick="triggerInstallFotosApp()">📲 App</button>
                     <button type="button" id="btnSplitWithCotizador" class="hdr-btn is-split-btn hide-on-xs suite-hide-in-embed" onclick="toggleSplitCotizadorInFotos()" title="Dividir">⬛⬜ Dividir</button>
-                    <a class="hdr-btn hide-on-xs suite-hide-in-embed" href="./suite/" target="_blank" rel="noopener">Suite</a>
                     <a class="hdr-btn suite-hide-in-embed" href="./inventario.html">Cotizador</a>
-                    <a id="linkHeaderPrompts" class="hdr-btn suite-hide-in-embed" href="./prompts.html" title="Prompts">Prompts</a>
-                    <button type="button" id="btnHeaderSyncSkus" class="hdr-btn is-accent" onclick="syncSkusNow()">↻ SKUs</button>
-                    <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn" onclick="refreshAllPhotoWorkspace(true)">↻ Fotos</button>
-                    <a class="hdr-btn hide-on-xs suite-hide-in-embed" href="https://docs.google.com/spreadsheets/d/1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8/edit?gid=620514545#gid=620514545" target="_blank" rel="noopener">Hoja 1</a>
+                    <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn is-accent" onclick="refreshAllPhotoWorkspace(true)" title="Actualizar SKUs y fotos">↻ Actualizar</button>
+                    <button type="button" id="btnRepairReorganizeFotos" class="hdr-btn" onclick="reorganizeAndRepairFotosNow()" title="Reubicar según Sheets y reparar permisos de fotos">🔧 Reparar</button>
                     <button type="button" class="hdr-btn suite-hide-in-embed" onclick="lockFotosPortal()">Salir</button>
                 </div>
             </div>
@@ -116,7 +113,6 @@
                     <div class="panel-header">
                         <h2 id="skuFinderPanelTitle">Buscar SKU</h2>
                         <div class="panel-header-actions">
-                            <button type="button" id="btnSyncSkusCard" class="hdr-btn is-neutral is-compact-btn" onclick="syncSkusNow()" title="Sincronizar">↻ SKUs</button>
                             <span id="skuListCountBadge" class="panel-badge">0</span>
                         </div>
                     </div>
@@ -195,24 +191,23 @@
                             <h2 id="productStagePanelTitle">Producto</h2>
                             <div class="panel-header-actions">
                                 <button type="button" id="btnNextMissingPhoto" class="hdr-btn is-neutral is-compact-btn" onclick="selectNextMissingPhotoTarget()" title="Siguiente sin foto">Siguiente →</button>
-                                <button type="button" id="btnOpenInCotizadorStage" class="hdr-btn is-compact-btn hidden" onclick="openSelectedSkuInCotizador()" title="Cotizador">↗ Cotizador</button>
-                                <label id="btnDirectUploadLabel" class="hdr-btn is-accent is-compact-btn is-upload-lbl">
-                                    📷 Subir
-                                    <input type="file" id="directCategoryPhotoInput" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
-                                </label>
                                 <span id="selectedRowBadge" class="panel-badge">—</span>
                             </div>
                         </div>
                         <div class="panel-body">
 
                             <div id="skuStageContentWrap">
-                                <!-- ENCABEZADO RÁPIDO DEL PRODUCTO -->
+                                <!-- ENCABEZADO RÁPIDO DEL PRODUCTO SELECCIONADO -->
                                 <div id="skuQuickBanner" class="sku-quick-banner">
                                     <div class="sku-quick-main">
-                                        <div id="skuQuickName" class="sku-quick-name">Elige un SKU</div>
+                                        <div class="sku-quick-top-row">
+                                            <div id="skuQuickName" class="sku-quick-name">Elige un SKU</div>
+                                            <button type="button" id="btnClearSelectedSku" class="hdr-btn is-neutral stage-action-btn hidden" onclick="clearSelectedSku()" title="Quitar selección">✕ Quitar</button>
+                                        </div>
                                         <div class="sku-quick-meta">
                                             <span id="skuQuickSku" class="sku-quick-chip mono">—</span>
                                             <span id="skuQuickCat" class="sku-quick-chip is-gold">—</span>
+                                            <span id="skuLinkedFabricChip" class="sku-linked-fabric-chip hidden"></span>
                                         </div>
                                     </div>
                                 </div>
@@ -224,9 +219,7 @@
                                         <div class="photo-stage-head">
                                             <span class="photo-stage-title">Actual</span>
                                             <div class="stage-head-actions">
-                                                <button type="button" id="curPhotoTakeBtn" class="hdr-btn is-accent stage-action-btn hidden" onclick="takeCurrentProductPhoto()">Tomar</button>
-                                                <button type="button" id="curPhotoDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteCurrentProductPhoto()">🗑</button>
-                                                <a id="curPhotoOpenLink" href="#" target="_blank" rel="noopener" class="hdr-btn is-neutral stage-action-btn hidden">↗</a>
+                                                <button type="button" id="curPhotoDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteCurrentProductPhoto()" title="Borrar foto">🗑</button>
                                             </div>
                                         </div>
                                         <div id="curPhotoCanvas" class="photo-stage-canvas">
@@ -239,8 +232,7 @@
                                         <div class="photo-stage-head">
                                             <span id="newPhotoStageTitle" class="photo-stage-title">Nueva</span>
                                             <div class="stage-head-actions">
-                                                <button type="button" id="deleteSelectedPhotoBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteSelectedStagePhoto()">🗑</button>
-                                                <button type="button" id="clearSelectedInboxBtn" class="hdr-btn is-neutral stage-action-btn hidden" onclick="clearSelectedInboxPhoto()">Quitar</button>
+                                                <button type="button" id="clearSelectedInboxBtn" class="hdr-btn is-neutral stage-action-btn hidden" onclick="clearSelectedInboxPhoto()" title="Quitar foto">✕</button>
                                             </div>
                                         </div>
                                         <div id="newPhotoCanvas" class="photo-stage-canvas">
@@ -252,17 +244,17 @@
                                     </div>
                                 </div>
 
-                                <!-- ACCIÓN PRINCIPAL INMEDIATA -->
+                                <!-- ACCIÓN PRINCIPAL RESUMIDA (AUTO-ACOMODO SEGÚN SHEETS) -->
                                 <div class="assign-controls-bar">
                                     <div class="dest-folder-picker">
-                                        <label for="destFolderSelect" class="field-label" style="margin:0;">Destino:</label>
-                                        <select id="destFolderSelect" class="dest-select"></select>
+                                        <span id="autoDestFolderPill" class="auto-dest-pill" title="Carpeta automática según Sheets">📁 Auto</span>
+                                        <select id="destFolderSelect" class="dest-select hidden" aria-hidden="true"></select>
                                     </div>
 
                                     <div class="assign-btns-cluster">
-                                        <label class="btn-secondary-upload" title="Subir foto">
+                                        <label id="btnDirectUploadLabel" class="btn-secondary-upload" title="Subir foto directo al producto">
                                             📤 Subir
-                                            <input type="file" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
+                                            <input type="file" id="directCategoryPhotoInput" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
                                         </label>
                                         <button
                                             type="button"
@@ -326,7 +318,10 @@
                             <!-- PANEL DE PORTADAS Y TELAS -->
                             <div id="visualStageContentWrap" class="hidden">
                                 <div class="visual-stage-summary">
-                                    <div id="visualStageEyebrow" class="visual-stage-eyebrow">Portada</div>
+                                    <div class="sku-quick-top-row">
+                                        <div id="visualStageEyebrow" class="visual-stage-eyebrow">Portada</div>
+                                        <button type="button" id="btnClearSelectedVisual" class="hdr-btn is-neutral stage-action-btn hidden" onclick="clearSelectedVisualTarget()" title="Quitar selección">✕ Quitar</button>
+                                    </div>
                                     <div id="visualStageTitle" class="visual-stage-title">Elige modelo</div>
                                     <div id="visualStageSub" class="visual-stage-sub">Solo inicio</div>
                                 </div>
@@ -335,7 +330,7 @@
                                     <div class="photo-stage-head">
                                         <span id="visualPreviewBadge" class="photo-stage-title">Foto</span>
                                         <div class="stage-head-actions">
-                                            <button type="button" id="visualCurDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteSelectedVisualPhotoOverride()">🗑</button>
+                                            <button type="button" id="visualCurDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteSelectedVisualPhotoOverride()" title="Borrar foto">🗑</button>
                                         </div>
                                     </div>
                                     <div id="visualCurPhotoCanvas" class="photo-stage-canvas visual-single-canvas">
@@ -388,20 +383,6 @@
                         <div class="panel-body">
                             <div id="galleryQuickHint" class="gallery-quick-hint hidden"></div>
 
-                            <!-- ORIGEN VINCULADO -->
-                            <div id="subirPrenSourceBar" class="subir-pren-source-bar">
-                                <div class="subir-pren-source-info hide-on-xs">
-                                    <span class="subir-pren-source-tag">Origen:</span>
-                                    <span id="subirPrenLocalPathBadge" class="subir-pren-source-path mono" title="G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN">G:\Mi unidad\DOC ANIPA\Fotos general\Fotos de del proyeto\SUBIR PREN</span>
-                                </div>
-                                <div class="subir-pren-source-btns">
-                                    <button type="button" id="btnPickLocalSubirPrenFolder" class="hdr-btn is-accent is-compact-btn" onclick="loadFromLocalSubirPrenFolder(false)" title="Carpeta PC">💻 PC</button>
-                                    <button type="button" id="btnRebindLocalSubirPrenFolder" class="hdr-btn is-neutral is-compact-btn hidden hide-on-xs" onclick="loadFromLocalSubirPrenFolder(true)" title="Cambiar carpeta">📂</button>
-                                    <a id="linkOpenDriveSubirPren" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener" class="hdr-btn is-neutral is-compact-btn" title="Drive">☁️ Drive</a>
-                                    <button type="button" id="btnSyncDriveSubirPren" class="hdr-btn is-neutral is-compact-btn" onclick="refreshInboxOnly(true)" title="Actualizar" aria-label="Actualizar">↻</button>
-                                </div>
-                            </div>
-
                             <div class="inbox-toolbar">
                                 <div class="search-box-wrap inbox-search-wrap">
                                     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -419,30 +400,17 @@
                                 </div>
 
                                 <div class="inbox-toolbar-actions">
-                                    <label class="hdr-btn is-accent is-upload-lbl">
+                                    <label class="hdr-btn is-accent is-upload-lbl" title="Subir a SUBIR PREN">
                                         + Foto
                                         <input type="file" id="pcUploadToSubirInput" accept="image/*" multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
                                     </label>
-                                    <label class="hdr-btn is-upload-lbl">
-                                        📁 Carpeta
-                                        <input type="file" id="pcUploadFolderToSubirInput" accept="image/*" webkitdirectory directory multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
-                                    </label>
-                                    <button type="button" id="btnRefreshInbox" class="hdr-btn is-neutral hidden" onclick="refreshInboxOnly(true)" aria-label="Actualizar">↻</button>
+                                    <button type="button" id="btnPickLocalSubirPrenFolder" class="hdr-btn is-neutral is-compact-btn hide-on-xs" onclick="loadFromLocalSubirPrenFolder(false)" title="Carpeta PC SUBIR PREN">💻 PC</button>
+                                    <a id="linkOpenDriveSubirPren" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener" class="hdr-btn is-neutral is-compact-btn" title="Abrir SUBIR PREN en Drive">☁️</a>
+                                    <button type="button" id="btnRefreshInbox" class="hdr-btn is-neutral is-compact-btn" onclick="refreshInboxOnly(true)" title="Actualizar bandeja" aria-label="Actualizar">↻</button>
                                 </div>
                             </div>
 
                             <div id="inboxGalleryContainer" class="inbox-grid"></div>
-                        </div>
-                    </div>
-
-                    <!-- HISTORIAL BREVE DE SESIÓN -->
-                    <div id="sessionHistoryPanel" class="panel-card hidden">
-                        <div class="panel-header">
-                            <h2>Guardadas hoy</h2>
-                            <span id="sessionSavedCountBadge" class="panel-badge">0</span>
-                        </div>
-                        <div class="panel-body">
-                            <div id="sessionSavedList" class="session-log-list"></div>
                         </div>
                     </div>
 
@@ -485,7 +453,7 @@
             </div>
         </div>
         <div class="fotos-split-frame-wrap">
-            <iframe id="fotosSplitCotizadorFrame" class="fotos-split-iframe" title="Cotizador CREATA" src="about:blank"></iframe>
+            <iframe id="fotosSplitCotizadorFrame" class="fotos-split-iframe" title="Cotizador CREATA" src="about:blank" allow="clipboard-read; clipboard-write; camera; microphone; fullscreen; display-capture"></iframe>
         </div>
     </div>
 
@@ -529,6 +497,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=26"></script>
+    <script src="./fotos-productos-app.js?v=27"></script>
 </body>
 </html>

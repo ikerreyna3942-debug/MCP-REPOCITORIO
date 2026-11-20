@@ -2929,4 +2929,62 @@ body.is-suite-embed .header-actions .hdr-btn {
     }
 }
 
+.sku-quick-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
 
+.sku-quick-top-row .sku-quick-name {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.auto-dest-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-strong);
+    color: var(--gold-light);
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sku-linked-fabric-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px 2px 3px;
+    border-radius: 999px;
+    background: rgba(163, 130, 81, 0.16);
+    border: 1px solid rgba(204, 166, 107, 0.45);
+    color: var(--gold-light);
+    font-size: 10.5px;
+    font-weight: 800;
+    cursor: pointer;
+    max-width: 100%;
+}
+
+.sku-linked-fabric-chip img {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    flex-shrink: 0;
+}
+
+.sku-linked-fabric-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
