@@ -229,3 +229,25 @@ test('CreataGuard, Fotos App, and Apps Script wiring cover Portadas/Telas auth, 
   assert.match(gasSrc, /\^V\(\?:COV\|FAB\):\/i\.test\(sku\)/);
 });
 
+test('Streamlined practical Fotos App UX: top 3-mode bar, collapsible filters & specs, single visual dropzone, direct stage drop, and Next Missing Photo', () => {
+  const html = fs.readFileSync('fotos-productos.html', 'utf8');
+  assert.match(html, /class="fotos-mode-hero"/);
+  assert.match(html, /id="skuExtraFiltersDetails"/);
+  assert.match(html, /id="skuQuickBanner"/);
+  assert.match(html, /id="skuDetailsAccordion"/);
+  assert.match(html, /id="visualSinglePreviewCard"/);
+  assert.match(html, /id="btnNextMissingPhoto"[^>]*onclick="selectNextMissingPhotoTarget\(\)"/);
+  assert.match(html, /id="visualUrlDetails"/);
+
+  // Photo stage appears BEFORE collapsible specs accordion in SKU view
+  const idxPhotos = html.indexOf('id="curPhotoCanvas"');
+  const idxSpecs = html.indexOf('id="skuDetailsAccordion"');
+  assert.ok(idxPhotos > 0 && idxSpecs > idxPhotos, 'Photo stage must appear before collapsible specs accordion');
+
+  const js = fs.readFileSync('fotos-productos-app.js', 'utf8');
+  assert.match(js, /window\.selectNextMissingPhotoTarget = function/);
+  assert.match(js, /__creataStageDropBound/);
+  assert.match(js, /function syncSkuExtraFiltersBadge\(/);
+});
+
+

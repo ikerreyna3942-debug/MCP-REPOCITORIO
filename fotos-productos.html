@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=21">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=22">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -98,26 +98,29 @@
 
         <main class="workspace-shell">
 
+            <!-- SELECTOR PRINCIPAL ARRIBA: 1) FOTO DE PRODUCTO (SKU) · 2) PORTADA DE INICIO · 3) FOTO DE TELA -->
+            <section class="fotos-mode-hero" aria-label="Tipo de foto a administrar">
+                <div id="fotosWorkModeBar" class="fotos-work-mode-bar" role="tablist" aria-label="Modo de administración de fotos">
+                    <button type="button" class="fotos-work-mode-btn active" data-work-mode="SKU" role="tab" aria-selected="true" onclick="setFotosWorkMode('SKU')">📦 Producto (SKU)</button>
+                    <button type="button" class="fotos-work-mode-btn" data-work-mode="COVER" role="tab" aria-selected="false" onclick="setFotosWorkMode('COVER')">🖼️ Portada inicio</button>
+                    <button type="button" class="fotos-work-mode-btn" data-work-mode="FABRIC" role="tab" aria-selected="false" onclick="setFotosWorkMode('FABRIC')">🧵 Foto de tela</button>
+                </div>
+                <p id="fotosWorkModeHint" class="fotos-mode-hint">1) Elige un producto · 2) Sube o arrastra su foto (se encuadra sola) · 3) Listo.</p>
+            </section>
+
             <!-- 2 COLUMNAS EN PC · FLUJO MÓVIL EN CELULAR -->
             <section class="workbench-grid">
 
-                <!-- IZQUIERDA: BUSCADOR POR SKU, PORTADAS VISUALES Y TELAS -->
+                <!-- IZQUIERDA: LISTA LIMPIA DE SKUs / PORTADAS / TELAS -->
                 <div id="secSkuFinder" class="panel-card">
                     <div class="panel-header">
                         <h2 id="skuFinderPanelTitle">Buscar SKU</h2>
                         <div class="panel-header-actions">
-                            <button type="button" id="btnSyncSkusCard" class="hdr-btn is-accent is-compact-btn" onclick="syncSkusNow()">↻ SKUs</button>
+                            <button type="button" id="btnSyncSkusCard" class="hdr-btn is-neutral is-compact-btn" onclick="syncSkusNow()" title="Sincronizar SKUs">↻ SKUs</button>
                             <span id="skuListCountBadge" class="panel-badge">0</span>
                         </div>
                     </div>
                     <div class="panel-body">
-                        <!-- SELECTOR DE MODO: SKUs / PORTADAS INICIO / TELAS Y COLORES -->
-                        <div id="fotosWorkModeBar" class="fotos-work-mode-bar" role="tablist" aria-label="Modo de administración de fotos">
-                            <button type="button" class="fotos-work-mode-btn active" data-work-mode="SKU" role="tab" aria-selected="true" onclick="setFotosWorkMode('SKU')">📦 SKUs</button>
-                            <button type="button" class="fotos-work-mode-btn" data-work-mode="COVER" role="tab" aria-selected="false" onclick="setFotosWorkMode('COVER')">🖼️ Portadas</button>
-                            <button type="button" class="fotos-work-mode-btn" data-work-mode="FABRIC" role="tab" aria-selected="false" onclick="setFotosWorkMode('FABRIC')">🧵 Telas</button>
-                        </div>
-
                         <div id="skuFinderSkuControls">
                             <div class="search-box-wrap">
                                 <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -128,7 +131,7 @@
                                     type="search"
                                     id="skuSearchInput"
                                     class="search-input"
-                                    placeholder="Buscar SKU, modelo o categoría..."
+                                    placeholder="Buscar SKU, modelo o nombre..."
                                     autocomplete="off"
                                 >
                                 <button type="button" id="skuSearchClearBtn" class="search-clear-btn hidden" aria-label="Limpiar búsqueda" onclick="clearSkuSearch()">✕</button>
@@ -141,11 +144,17 @@
                                 <button type="button" class="filter-pill" data-filter="IN_INV" onclick="setSkuFilterMode('IN_INV')">Inventario</button>
                             </div>
 
-                            <!-- FILTRO POR CATEGORÍA DE FOTOS -->
-                            <div id="skuCategoryFilterRow" class="category-pills-scroll" aria-label="Filtrar por categoría"></div>
-
-                            <!-- FILTRO POR UBICACIÓN DE INVENTARIO (11 UBICACIONES OFICIALES + EN COTIZADOR) -->
-                            <div id="skuLocationFilterRow" class="category-pills-scroll location-pills-scroll" aria-label="Filtrar por ubicación"></div>
+                            <!-- FILTROS AVANZADOS PLEGABLES (DEJA LA LISTA VISIBLE DE INMEDIATO) -->
+                            <details id="skuExtraFiltersDetails" class="fotos-collapsible-box">
+                                <summary class="fotos-collapsible-summary">
+                                    <span>⚙️ Filtros por categoría y ubicación</span>
+                                    <span id="skuExtraFiltersBadge" class="fotos-collapsible-badge hidden">0</span>
+                                </summary>
+                                <div class="fotos-collapsible-body">
+                                    <div id="skuCategoryFilterRow" class="category-pills-scroll" aria-label="Filtrar por categoría"></div>
+                                    <div id="skuLocationFilterRow" class="category-pills-scroll location-pills-scroll" aria-label="Filtrar por ubicación"></div>
+                                </div>
+                            </details>
 
                             <div id="skuResultsList" class="sku-list"></div>
                         </div>
@@ -178,13 +187,14 @@
                     </div>
                 </div>
 
-                <!-- DERECHA: INFORMACIÓN DEL PRODUCTO + SUBIDA POR CATEGORÍA + GALERÍA -->
+                <!-- DERECHA: FOTO PRIMERO + ACCIÓN DIRECTA + GALERÍA -->
                 <div class="right-column-stack">
 
                     <div id="secProductStage" class="panel-card">
                         <div class="panel-header">
                             <h2 id="productStagePanelTitle">Producto</h2>
                             <div class="panel-header-actions">
+                                <button type="button" id="btnNextMissingPhoto" class="hdr-btn is-neutral is-compact-btn" onclick="selectNextMissingPhotoTarget()" title="Ir al siguiente sin foto">Siguiente sin foto →</button>
                                 <button type="button" id="btnOpenInCotizadorStage" class="hdr-btn is-compact-btn hidden" onclick="openSelectedSkuInCotizador()" title="Abrir en Cotizador">↗ Cotizador</button>
                                 <label id="btnDirectUploadLabel" class="hdr-btn is-accent is-compact-btn is-upload-lbl">
                                     📷 Subir
@@ -196,47 +206,20 @@
                         <div class="panel-body">
 
                             <div id="skuStageContentWrap">
-                                <!-- INFORMACIÓN DEL PRODUCTO Y VARIANTES ACOMODADA PARA CELULAR -->
-                                <div class="selected-sheet-summary">
-                                    <div class="sheet-col-box">
-                                        <div class="sheet-col-tag">SKU</div>
-                                        <div id="selColASku" class="sheet-col-val mono">—</div>
-                                    </div>
-                                    <div class="sheet-col-box">
-                                        <div class="sheet-col-tag">Categoría</div>
-                                        <div id="selCategoryLabel" class="sheet-col-val is-gold">—</div>
-                                    </div>
-                                    <div class="sheet-col-box span-full">
-                                        <div class="sheet-col-tag">Producto</div>
-                                        <div id="selColBName" class="sheet-col-val">—</div>
-                                    </div>
-                                    <div class="sheet-col-box">
-                                        <div class="sheet-col-tag">Modelo · Variante</div>
-                                        <div id="selModelVariantVal" class="sheet-col-val">—</div>
-                                    </div>
-                                    <div class="sheet-col-box">
-                                        <div class="sheet-col-tag">Medidas · Acabado</div>
-                                        <div id="selDimsFinishVal" class="sheet-col-val">—</div>
+                                <!-- ENCABEZADO RÁPIDO DEL PRODUCTO (1 LÍNEA CLARA ANTES DE LA FOTO) -->
+                                <div id="skuQuickBanner" class="sku-quick-banner">
+                                    <div class="sku-quick-main">
+                                        <div id="skuQuickName" class="sku-quick-name">Elige un SKU de la lista</div>
+                                        <div class="sku-quick-meta">
+                                            <span id="skuQuickSku" class="sku-quick-chip mono">—</span>
+                                            <span id="skuQuickCat" class="sku-quick-chip is-gold">—</span>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <!-- UBICACIONES EN VIVO (11 POSICIONES OFICIALES: LPPT + 10 BODEGA/PISO) -->
-                                <div id="selLocationsWrap" class="product-locations-strip hidden">
-                                    <div class="product-locations-head">
-                                        <span class="sibling-variants-label">Ubicaciones</span>
-                                        <span id="selLocationsSummaryBadge" class="product-locations-total mono">Stock: 0</span>
-                                    </div>
-                                    <div id="selLocationsGrid" class="product-locations-grid"></div>
-                                </div>
-
-                                <!-- TIRILLA DE VARIANTES HERMANAS DEL MISMO MODELO -->
-                                <div id="selSiblingVariantsWrap" class="sibling-variants-strip hidden">
-                                    <div class="sibling-variants-label">Variantes</div>
-                                    <div id="selSiblingVariantsList" class="sibling-variants-pills"></div>
-                                </div>
-
+                                <!-- FOTOS PRIMERO (ARRASTRA UNA IMAGEN AQUÍ O ELIGE ABAJO) -->
                                 <div class="dual-preview-grid">
-                                    <!-- FOTO ACTUAL (CARGADA EN COL D) -->
+                                    <!-- FOTO ACTUAL -->
                                     <div class="photo-stage-card">
                                         <div class="photo-stage-head">
                                             <span class="photo-stage-title">Actual</span>
@@ -247,21 +230,21 @@
                                             </div>
                                         </div>
                                         <div id="curPhotoCanvas" class="photo-stage-canvas">
-                                            <div class="photo-empty-placeholder">—</div>
+                                            <div class="photo-empty-placeholder">Sin foto</div>
                                         </div>
                                     </div>
 
-                                    <!-- FOTO SELECCIONADA PARA ASIGNAR -->
-                                    <div id="newPhotoStageCard" class="photo-stage-card">
+                                    <!-- NUEVA FOTO / ZONA DE ARRASTRE -->
+                                    <div id="newPhotoStageCard" class="photo-stage-card is-drop-ready">
                                         <div class="photo-stage-head">
-                                            <span id="newPhotoStageTitle" class="photo-stage-title">Seleccionada</span>
+                                            <span id="newPhotoStageTitle" class="photo-stage-title">Nueva foto</span>
                                             <div class="stage-head-actions">
                                                 <button type="button" id="deleteSelectedPhotoBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteSelectedStagePhoto()">🗑 Borrar</button>
                                                 <button type="button" id="clearSelectedInboxBtn" class="hdr-btn is-neutral stage-action-btn hidden" onclick="clearSelectedInboxPhoto()">Quitar</button>
                                             </div>
                                         </div>
                                         <div id="newPhotoCanvas" class="photo-stage-canvas">
-                                            <div class="photo-empty-placeholder">—</div>
+                                            <div class="photo-empty-placeholder">Sube, arrastra o elige abajo</div>
                                         </div>
                                         <div id="newPhotoFootWrap" class="photo-stage-foot hidden">
                                             <span id="newPhotoFileText" class="photo-stage-url"></span>
@@ -269,6 +252,7 @@
                                     </div>
                                 </div>
 
+                                <!-- ACCIÓN PRINCIPAL INMEDIATA -->
                                 <div class="assign-controls-bar">
                                     <div class="dest-folder-picker">
                                         <label for="destFolderSelect" class="field-label" style="margin:0;">Destino:</label>
@@ -276,8 +260,8 @@
                                     </div>
 
                                     <div class="assign-btns-cluster">
-                                        <label class="btn-secondary-upload" title="Subir foto a esta categoría">
-                                            📷 Subir
+                                        <label class="btn-secondary-upload" title="Subir foto directa desde tu equipo o celular">
+                                            📤 Subir foto
                                             <input type="file" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
                                         </label>
                                         <button
@@ -293,9 +277,53 @@
                                 </div>
 
                                 <div id="assignFeedbackBox" class="assign-feedback-banner hidden"></div>
+
+                                <!-- DETALLES COMPLETOS PLEGABLES (FICHA, UBICACIONES Y VARIANTES) -->
+                                <details id="skuDetailsAccordion" class="fotos-collapsible-box is-details-below">
+                                    <summary class="fotos-collapsible-summary">
+                                        <span>📋 Ver ficha, medidas, ubicaciones y variantes</span>
+                                    </summary>
+                                    <div class="fotos-collapsible-body">
+                                        <div class="selected-sheet-summary">
+                                            <div class="sheet-col-box">
+                                                <div class="sheet-col-tag">SKU</div>
+                                                <div id="selColASku" class="sheet-col-val mono">—</div>
+                                            </div>
+                                            <div class="sheet-col-box">
+                                                <div class="sheet-col-tag">Categoría</div>
+                                                <div id="selCategoryLabel" class="sheet-col-val is-gold">—</div>
+                                            </div>
+                                            <div class="sheet-col-box span-full">
+                                                <div class="sheet-col-tag">Producto</div>
+                                                <div id="selColBName" class="sheet-col-val">—</div>
+                                            </div>
+                                            <div class="sheet-col-box">
+                                                <div class="sheet-col-tag">Modelo · Variante</div>
+                                                <div id="selModelVariantVal" class="sheet-col-val">—</div>
+                                            </div>
+                                            <div class="sheet-col-box">
+                                                <div class="sheet-col-tag">Medidas · Acabado</div>
+                                                <div id="selDimsFinishVal" class="sheet-col-val">—</div>
+                                            </div>
+                                        </div>
+
+                                        <div id="selLocationsWrap" class="product-locations-strip hidden">
+                                            <div class="product-locations-head">
+                                                <span class="sibling-variants-label">Ubicaciones</span>
+                                                <span id="selLocationsSummaryBadge" class="product-locations-total mono">Stock: 0</span>
+                                            </div>
+                                            <div id="selLocationsGrid" class="product-locations-grid"></div>
+                                        </div>
+
+                                        <div id="selSiblingVariantsWrap" class="sibling-variants-strip hidden">
+                                            <div class="sibling-variants-label">Variantes</div>
+                                            <div id="selSiblingVariantsList" class="sibling-variants-pills"></div>
+                                        </div>
+                                    </div>
+                                </details>
                             </div>
 
-                            <!-- PANEL DE PORTADAS VISUALES (SOLO INICIO) Y FOTOS DE TELAS / COLORES -->
+                            <!-- PANEL PRÁCTICO DE PORTADAS VISUALES Y FOTOS DE TELAS (1 SOLA VISTA LIMPIA) -->
                             <div id="visualStageContentWrap" class="hidden">
                                 <div class="visual-stage-summary">
                                     <div id="visualStageEyebrow" class="visual-stage-eyebrow">PORTADA VISUAL · SOLO INICIO</div>
@@ -303,43 +331,40 @@
                                     <div id="visualStageSub" class="visual-stage-sub">Solo visual en el Cotizador · nunca modifica SKUs ni Hoja 1.</div>
                                 </div>
 
-                                <div class="dual-preview-grid">
-                                    <div class="photo-stage-card">
-                                        <div class="photo-stage-head">
-                                            <span class="photo-stage-title">Foto actual</span>
-                                            <div class="stage-head-actions">
-                                                <button type="button" id="visualCurDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteSelectedVisualPhotoOverride()">🗑 Quitar</button>
-                                            </div>
-                                        </div>
-                                        <div id="visualCurPhotoCanvas" class="photo-stage-canvas">
-                                            <div class="photo-empty-placeholder">—</div>
+                                <div id="visualSinglePreviewCard" class="photo-stage-card visual-single-preview-card is-drop-ready">
+                                    <div class="photo-stage-head">
+                                        <span id="visualPreviewBadge" class="photo-stage-title">Foto actual</span>
+                                        <div class="stage-head-actions">
+                                            <button type="button" id="visualCurDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteSelectedVisualPhotoOverride()">🗑 Quitar</button>
                                         </div>
                                     </div>
-
-                                    <div class="photo-stage-card">
-                                        <div class="photo-stage-head">
-                                            <span class="photo-stage-title">De la galería</span>
-                                        </div>
-                                        <div id="visualSelPhotoCanvas" class="photo-stage-canvas">
-                                            <div class="photo-empty-placeholder">Elige abajo o sube</div>
-                                        </div>
+                                    <div id="visualCurPhotoCanvas" class="photo-stage-canvas visual-single-canvas">
+                                        <div class="photo-empty-placeholder">Arrastra una foto aquí o toca "Subir foto"</div>
                                     </div>
+                                    <div id="visualSelPhotoCanvas" class="hidden" aria-hidden="true"></div>
                                 </div>
 
                                 <div class="visual-stage-actions-row">
-                                    <label id="visualUploadBtnLabel" class="btn-secondary-upload" title="Subir foto desde tu dispositivo">
+                                    <label id="visualUploadBtnLabel" class="btn-primary-gold visual-upload-primary" title="Subir foto desde tu dispositivo">
                                         📤 Subir foto
                                         <input type="file" id="visualTargetFileInput" accept="image/*" class="hidden" onchange="uploadVisualTargetPhotoFile(this)">
                                     </label>
-                                    <button type="button" id="btnAssignVisualGalleryPhoto" class="btn-primary-gold" onclick="assignGalleryPhotoToVisualTarget()" disabled>
-                                        ✓ Guardar de galería
+                                    <button type="button" id="btnAssignVisualGalleryPhoto" class="btn-secondary-upload hidden" onclick="assignGalleryPhotoToVisualTarget()" disabled>
+                                        ✓ Guardar foto de galería
                                     </button>
                                 </div>
 
-                                <div class="visual-url-row">
-                                    <input type="url" id="visualTargetUrlInput" class="search-input" placeholder="O pega un enlace de Google Drive / imagen (https://...)" autocomplete="off">
-                                    <button type="button" id="btnSaveVisualUrl" class="hdr-btn is-accent" onclick="saveVisualTargetPhotoUrl()">Guardar link</button>
-                                </div>
+                                <details id="visualUrlDetails" class="fotos-collapsible-box is-details-below">
+                                    <summary class="fotos-collapsible-summary">
+                                        <span>🔗 O pegar enlace de Google Drive</span>
+                                    </summary>
+                                    <div class="fotos-collapsible-body">
+                                        <div class="visual-url-row">
+                                            <input type="url" id="visualTargetUrlInput" class="search-input" placeholder="https://drive.google.com/file/d/..." autocomplete="off">
+                                            <button type="button" id="btnSaveVisualUrl" class="hdr-btn is-accent" onclick="saveVisualTargetPhotoUrl()">Guardar link</button>
+                                        </div>
+                                    </div>
+                                </details>
 
                                 <div id="visualStageFeedbackBox" class="assign-feedback-banner hidden"></div>
                             </div>
@@ -361,6 +386,8 @@
                             </div>
                         </div>
                         <div class="panel-body">
+                            <div id="galleryQuickHint" class="gallery-quick-hint">💡 Toca cualquier foto abajo para asignarla, o arrastra una imagen arriba.</div>
+
                             <!-- ORIGEN VINCULADO: CARPETA LOCAL G:\...\SUBIR PREN + GOOGLE DRIVE SUBIR PREN -->
                             <div id="subirPrenSourceBar" class="subir-pren-source-bar">
                                 <div class="subir-pren-source-info hide-on-xs">
@@ -400,7 +427,7 @@
                                         📁 Carpeta
                                         <input type="file" id="pcUploadFolderToSubirInput" accept="image/*" webkitdirectory directory multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
                                     </label>
-                                    <button type="button" id="btnRefreshInbox" class="hdr-btn is-neutral" onclick="refreshInboxOnly(true)" aria-label="Actualizar galería">↻</button>
+                                    <button type="button" id="btnRefreshInbox" class="hdr-btn is-neutral hidden" onclick="refreshInboxOnly(true)" aria-label="Actualizar galería">↻</button>
                                 </div>
                             </div>
 
@@ -502,6 +529,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=24"></script>
+    <script src="./fotos-productos-app.js?v=25"></script>
 </body>
 </html>

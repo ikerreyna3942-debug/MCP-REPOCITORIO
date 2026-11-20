@@ -2728,3 +2728,194 @@ body.is-suite-embed .header-actions .hdr-btn {
     font-size: 11.5px;
 }
 
+/* ============================================================================
+ * UX Práctica: Barra Superior de 3 Modos, Acordeones Plegables, Banner Rápido y Dropzone
+ * ============================================================================ */
+.fotos-mode-hero {
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.fotos-mode-hero .fotos-work-mode-bar {
+    margin-bottom: 0;
+}
+
+.fotos-mode-hint {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-secondary);
+    line-height: 1.35;
+}
+
+.fotos-collapsible-box {
+    margin-bottom: 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border-hairline);
+    background: var(--bg-subtle);
+    overflow: hidden;
+}
+
+.fotos-collapsible-box.is-details-below {
+    margin-top: 10px;
+    margin-bottom: 0;
+}
+
+.fotos-collapsible-summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--ink-secondary);
+    user-select: none;
+}
+
+.fotos-collapsible-summary::-webkit-details-marker {
+    display: none;
+}
+
+.fotos-collapsible-summary::after {
+    content: '▾';
+    font-size: 12px;
+    color: var(--gold-light);
+    transition: transform 0.16s ease;
+}
+
+.fotos-collapsible-box[open] > .fotos-collapsible-summary::after {
+    transform: rotate(180deg);
+}
+
+.fotos-collapsible-badge {
+    margin-left: auto;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--gold-accent);
+    color: #11161D;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.fotos-collapsible-body {
+    padding: 0 10px 10px;
+    border-top: 1px solid var(--border-hairline);
+    padding-top: 8px;
+}
+
+.sku-quick-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border-hairline);
+    background: var(--bg-subtle);
+}
+
+.sku-quick-main {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.sku-quick-name {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--ink-primary);
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sku-quick-meta {
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+}
+
+.sku-quick-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-hairline);
+    color: var(--ink-secondary);
+    font-size: 10.5px;
+    font-weight: 800;
+}
+
+.sku-quick-chip.is-gold {
+    color: var(--gold-light);
+    border-color: rgba(163, 130, 81, 0.4);
+    background: rgba(163, 130, 81, 0.14);
+}
+
+.photo-stage-card.is-drop-ready {
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#secProductStage.is-stage-drop-active .photo-stage-card.is-drop-ready,
+.photo-stage-card.is-drop-active {
+    border-color: var(--gold-light) !important;
+    box-shadow: 0 0 0 2px rgba(204, 166, 107, 0.45);
+}
+
+.visual-single-preview-card {
+    margin-bottom: 10px;
+}
+
+.visual-single-canvas {
+    min-height: 220px;
+    max-height: 290px;
+    cursor: pointer;
+}
+
+.visual-upload-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.gallery-quick-hint {
+    margin-bottom: 8px;
+    padding: 6px 9px;
+    border-radius: 8px;
+    background: rgba(163, 130, 81, 0.12);
+    border: 1px solid rgba(163, 130, 81, 0.28);
+    color: var(--ink-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+@media (max-width: 640px) {
+    .fotos-mode-hero {
+        padding: 6px 8px;
+    }
+    .fotos-work-mode-btn {
+        min-height: 40px;
+        font-size: 11px;
+    }
+    .fotos-mode-hint {
+        font-size: 10.5px;
+    }
+}
+
+
