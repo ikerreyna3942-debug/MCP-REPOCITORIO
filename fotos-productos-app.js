@@ -932,21 +932,29 @@
                         ? String(it.localDataUrl)
                         : '';
                 }
-                if (!persistUrl) continue;
+                const fid = cleanStr(it.fileId);
+                if (!persistUrl && fid.indexOf('local_') !== 0) continue;
                 list.push({
                     sku: it.sku,
                     productName: it.productName || '',
                     rowNumber: it.rowNumber || '',
                     previousUrl: it.previousUrl || '',
                     newUrl: persistUrl,
-                    fileId: it.fileId || '',
+                    fileId: fid,
                     fileName: it.fileName || '',
                     destFolderName: it.destFolderName || '',
                     destFolderUrl: it.destFolderUrl || '',
                     ts: it.ts || Date.now()
                 });
             }
-            localStorage.setItem(SAVED_OVERRIDES_STORAGE, JSON.stringify(list));
+            try {
+                localStorage.setItem(SAVED_OVERRIDES_STORAGE, JSON.stringify(list));
+            } catch (eQuota) {
+                const slimList = list.map((entry) => Object.assign({}, entry, {
+                    newUrl: String(entry.newUrl || '').indexOf('data:image/') === 0 ? '' : entry.newUrl
+                }));
+                localStorage.setItem(SAVED_OVERRIDES_STORAGE, JSON.stringify(slimList));
+            }
         } catch (e) {}
     }
 
@@ -965,11 +973,12 @@
             const now = Date.now();
             for (let i = 0; i < list.length; i++) {
                 const it = list[i];
-                if (!it || !it.sku || !it.newUrl) continue;
+                if (!it || !it.sku) continue;
                 const cleanUrl = cleanStr(it.newUrl);
-                if (!cleanUrl || cleanUrl.indexOf('blob:') === 0) continue;
-                const sku = cleanStr(it.sku).toUpperCase();
                 const fid = cleanStr(it.fileId || extractDriveFileId(cleanUrl));
+                const isLocalPending = fid.indexOf('local_') === 0;
+                if ((!cleanUrl || cleanUrl.indexOf('blob:') === 0) && !isLocalPending) continue;
+                const sku = cleanStr(it.sku).toUpperCase();
                 if (delSkus[sku] || (fid && delFiles[fid])) continue;
                 if (it.ts && (now - Number(it.ts)) > maxAgeMs) continue;
                 if (bySku.has(sku)) continue;
@@ -2900,8 +2909,11 @@
         }
 
         if (container && state.galleryMode === 'INBOX' && !state.inboxFiles.length) {
+            const isOff = typeof navigator !== 'undefined' && navigator.onLine === false;
             container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' +
-                escapeHtml(errMsg || 'No se pudo cargar la carpeta de Drive. Toca ↻ para reintentar.') +
+                escapeHtml(isOff
+                    ? '📡 Modo sin conexión · usa + Foto o 📤 Subir para agregar fotos desde tu teléfono.'
+                    : (errMsg || 'No se pudo cargar la carpeta de Drive. Toca ↻ para reintentar.')) +
                 '</div>';
         }
     };
@@ -5033,7 +5045,17 @@
         });
     }
 
-    async function putOfflinePhotoBlobIdb(record) {
+    async function putOfflinePhotoBlobIdb(recordOrId, optDataUrl, optFileName) {
+        let record = recordOrId;
+        if (typeof recordOrId === 'string') {
+            record = {
+                id: recordOrId,
+                dataUrl: String(optDataUrl || ''),
+                fileName: String(optFileName || 'foto.jpg'),
+                sizeBytes: String(optDataUrl || '').length,
+                createdAt: Date.now()
+            };
+        }
         const db = await openFotosOfflineIdb();
         if (!db || !record || !record.id) return false;
         return new Promise((resolve) => {
@@ -5107,14 +5129,60 @@
         }
     }
 
+    function updateOfflineSyncBanner() {
+        const bar = document.getElementById('offlineSyncStatusBar');
+        const txt = document.getElementById('offlineSyncStatusText');
+        const btn = document.getElementById('btnOfflineSyncNow');
+        if (!bar || !txt) return;
+        const isOff = typeof navigator !== 'undefined' && navigator.onLine === false;
+        const queueLen = readFotosOfflineOutbox().length;
+        if (!isOff && queueLen === 0) {
+            bar.classList.add('hidden');
+            bar.classList.remove('is-online-pending');
+            if (btn) btn.classList.add('hidden');
+            return;
+        }
+        bar.classList.remove('hidden');
+        if (isOff) {
+            bar.classList.remove('is-online-pending');
+            txt.textContent = queueLen > 0
+                ? ('📡 Sin conexión · ' + queueLen + ' foto(s) guardada(s) en teléfono para subir al volver la señal')
+                : '📡 Sin conexión · Puedes seguir subiendo fotos (se guardan en tu teléfono)';
+            if (btn) btn.classList.add('hidden');
+        } else {
+            bar.classList.add('is-online-pending');
+            txt.textContent = _fotosFlushingOutbox
+                ? ('⏳ Subiendo ' + queueLen + ' foto(s) guardada(s) en teléfono...')
+                : ('⏳ ' + queueLen + ' foto(s) pendiente(s) en teléfono lista(s) para sincronizar');
+            if (btn) {
+                btn.classList.toggle('hidden', !!_fotosFlushingOutbox);
+                btn.disabled = !!_fotosFlushingOutbox;
+            }
+        }
+    }
+
     function writeFotosOfflineOutbox(arr) {
         try {
             localStorage.setItem(FOTOS_OFFLINE_OUTBOX_STORAGE, JSON.stringify((arr || []).slice(-120)));
         } catch (e) {}
+        updateOfflineSyncBanner();
     }
 
     function enqueueFotosOfflineOutbox(entry) {
         const q = readFotosOfflineOutbox();
+        if (entry && entry.type === 'visual_override_upload' && entry.overrideKey) {
+            for (let i = q.length - 1; i >= 0; i--) {
+                if (q[i] && q[i].type === 'visual_override_upload' && q[i].overrideKey === entry.overrideKey) {
+                    q.splice(i, 1);
+                }
+            }
+        } else if (entry && entry.type === 'direct_upload_assign' && entry.sku) {
+            for (let i = q.length - 1; i >= 0; i--) {
+                if (q[i] && q[i].type === 'direct_upload_assign' && q[i].sku === entry.sku) {
+                    q.splice(i, 1);
+                }
+            }
+        }
         q.push(entry);
         writeFotosOfflineOutbox(q);
     }
@@ -5129,23 +5197,25 @@
     }
 
     async function hydrateOfflinePendingPhotos() {
+        updateOfflineSyncBanner();
         try {
             const blobs = await getAllOfflinePhotoBlobsIdb();
             if (!blobs.length) return;
             const blobById = new Map(blobs.map((b) => [b.id, b]));
             let changed = false;
+            let visualChanged = false;
 
             const queue = readFotosOfflineOutbox();
             const assignedLocalIds = new Set(
                 queue
-                    .filter((it) => it && (it.type === 'assign_photo' || it.type === 'direct_upload_assign'))
+                    .filter((it) => it && (it.type === 'assign_photo' || it.type === 'direct_upload_assign' || it.type === 'visual_override_upload'))
                     .map((it) => it.driveFileId || it.localFileId)
             );
 
             for (let i = 0; i < blobs.length; i++) {
                 const b = blobs[i];
                 if (!b || !b.id || !b.dataUrl) continue;
-                const isDirectBlob = String(b.id).indexOf('local_dir_') === 0;
+                const isDirectBlob = String(b.id).indexOf('local_dir_') === 0 || String(b.id).indexOf('local_vis_') === 0;
                 if (!isDirectBlob && !assignedLocalIds.has(b.id) && !state.inboxFiles.some((f) => f.id === b.id)) {
                     const localItem = enrichInboxFileItem({
                         id: b.id,
@@ -5178,10 +5248,35 @@
                     log.localDataUrl = b.dataUrl;
                     log.newUrl = b.dataUrl;
                     const prod = state.productBySku.get(log.sku);
-                    if (prod && prod.photoFileId === log.fileId) {
+                    if (prod && (prod.photoFileId === log.fileId || !prod.photoUrl)) {
                         prod.photoUrl = b.dataUrl;
+                        prod.photoFileId = log.fileId;
                     }
                     changed = true;
+                }
+            });
+
+            // Rehidratar también Portadas y Telas pendientes guardadas en IndexedDB sin red
+            queue.forEach((entry) => {
+                if (!entry || entry.type !== 'visual_override_upload' || !entry.overrideKey) return;
+                const ovKey = String(entry.overrideKey).trim().toUpperCase();
+                const b = entry.localFileId ? blobById.get(entry.localFileId) : null;
+                const previewUrl = (b && b.dataUrl) || entry.directUrl || '';
+                if (!previewUrl) return;
+                const cur = visualState.overridesMap[ovKey];
+                if (!cur || !cur.note || String(cur.note).indexOf('local_vis_') === 0) {
+                    visualState.overridesMap[ovKey] = {
+                        sku: ovKey,
+                        status: 'VISIBLE',
+                        name: cleanStr(entry.label || ovKey).slice(0, 140),
+                        category: entry.categoryTag || (ovKey.indexOf('VFAB:') === 0 ? 'FABRIC_SWATCH' : 'VISUAL_COVER'),
+                        price: null,
+                        note: previewUrl,
+                        localFileId: entry.localFileId || '',
+                        updatedBy: OWNER_EMAIL,
+                        updatedAt: new Date(entry.queuedAt || Date.now()).toLocaleString('es-MX')
+                    };
+                    visualChanged = true;
                 }
             });
 
@@ -5194,26 +5289,37 @@
                 }
             }
 
-            if (changed && state.unlocked) {
+            if ((changed || visualChanged) && state.unlocked) {
                 invalidateLoadedPhotosCache();
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
+                if (visualChanged) {
+                    renderVisualTargetsList();
+                    renderVisualTargetStage();
+                }
             }
         } catch (e) {}
     }
 
+    window.flushFotosOfflineOutboxNow = function () {
+        return flushFotosOfflineOutbox();
+    };
+
     async function flushFotosOfflineOutbox() {
+        updateOfflineSyncBanner();
         if (_fotosFlushingOutbox || !state.unlocked) return;
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
         const queue = readFotosOfflineOutbox();
         if (!queue.length) return;
 
         _fotosFlushingOutbox = true;
+        updateOfflineSyncBanner();
         try {
             const localToRealId = {};
             const remaining = [];
             let syncedAny = false;
+            let syncedVisualAny = false;
 
             for (let i = 0; i < queue.length; i++) {
                 const entry = queue[i];
@@ -5286,6 +5392,118 @@
                                 (res.destFolderName || (prod && prod.destFolderName) || '')
                             );
                         }
+                    } else if (res && res.unavailable) {
+                        remaining.push(...queue.slice(i));
+                        break;
+                    }
+                } else if (entry.type === 'visual_override_upload') {
+                    const ovKey = String(entry.overrideKey || '').trim().toUpperCase();
+                    if (!ovKey) continue;
+                    const isFabric = entry.categoryTag === 'FABRIC_SWATCH' || ovKey.indexOf('VFAB:') === 0;
+                    const label = cleanStr(entry.label || ovKey);
+                    const categoryTag = entry.categoryTag || (isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER');
+                    const blobRec = entry.localFileId ? await getOfflinePhotoBlobIdb(entry.localFileId) : null;
+                    const dataUrl = (blobRec && blobRec.dataUrl) || cleanStr(entry.dataUrl);
+                    const directUrl = cleanStr(entry.directUrl);
+                    const resolvedInboxId = entry.sourceInboxFileId ? (localToRealId[entry.sourceInboxFileId] || entry.sourceInboxFileId) : '';
+                    if (!dataUrl && !directUrl && !resolvedInboxId) {
+                        continue;
+                    }
+                    const auth = buildOwnerAuthPayload();
+                    let res = null;
+                    if (directUrl && !dataUrl && !resolvedInboxId) {
+                        res = await callWebAppPost('inv_product_override_save', {
+                            authToken: auth.authToken || '',
+                            advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                            sheetTab: auth.sheetTab || 'PROYECTOS',
+                            sku: ovKey,
+                            op: 'RESTORE',
+                            name: label.slice(0, 140),
+                            category: categoryTag,
+                            price: '',
+                            note: directUrl
+                        }, 25000);
+                        if (res && res.ok) {
+                            res = { ok: true, driveUrl: directUrl, override: res.override };
+                        }
+                    } else {
+                        res = await callWebAppPost('fotos_upload_visual_override', {
+                            authToken: auth.authToken || '',
+                            sheetTab: auth.sheetTab || 'PROYECTOS',
+                            advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                            overrideKey: ovKey,
+                            label: label,
+                            categoryTag: categoryTag,
+                            fileName: cleanStr(entry.fileName || (blobRec && blobRec.fileName) || 'foto.jpg'),
+                            sourceInboxFileId: /^local_/i.test(resolvedInboxId) ? '' : resolvedInboxId,
+                            shortcutId: cleanStr(entry.shortcutId),
+                            fromLoaded: !!entry.fromLoaded,
+                            dataUrl: dataUrl || ''
+                        }, 45000);
+
+                        if (res && !res.ok && /Acci[óo]n no reconocida/i.test(cleanStr(res.error))) {
+                            let finalUrl = directUrl;
+                            let fidFb = '';
+                            if (!finalUrl && dataUrl) {
+                                const upRes = await callWebAppPost('inv_upload_product_photo', {
+                                    authToken: auth.authToken || '',
+                                    sheetTab: auth.sheetTab || 'PROYECTOS',
+                                    advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                                    advisorName: 'Kevin Reyna',
+                                    sku: ovKey,
+                                    fileName: cleanStr(entry.fileName || (blobRec && blobRec.fileName) || 'foto.jpg'),
+                                    productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
+                                    categoria: isFabric ? 'TELAS' : 'SALAS',
+                                    tipo: isFabric ? 'TELA' : 'PORTADA',
+                                    targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
+                                    driveOnly: true,
+                                    skipSheetWrite: true,
+                                    skipCategoryCopy: true,
+                                    dataUrl: dataUrl
+                                }, 40000);
+                                fidFb = cleanStr((upRes && upRes.fileId) || (upRes && upRes.driveUrl && extractDriveFileId(upRes.driveUrl)));
+                                finalUrl = cleanStr(upRes && upRes.driveUrl) || (fidFb ? ('https://drive.google.com/file/d/' + fidFb + '/view?usp=sharing') : '');
+                            }
+                            if (finalUrl) {
+                                const saveRes = await callWebAppPost('inv_product_override_save', {
+                                    authToken: auth.authToken || '',
+                                    advisorEmail: auth.advisorEmail || OWNER_EMAIL,
+                                    sheetTab: auth.sheetTab || 'PROYECTOS',
+                                    sku: ovKey,
+                                    op: 'RESTORE',
+                                    name: label.slice(0, 140),
+                                    category: categoryTag,
+                                    price: '',
+                                    note: finalUrl
+                                }, 25000);
+                                res = (saveRes && saveRes.ok) ? { ok: true, driveUrl: finalUrl, fileId: fidFb, override: saveRes.override } : saveRes;
+                            }
+                        }
+                    }
+
+                    if (res && res.ok) {
+                        syncedAny = true;
+                        syncedVisualAny = true;
+                        if (entry.localFileId) {
+                            await deleteOfflinePhotoBlobIdb(entry.localFileId);
+                        }
+                        const finalDriveUrl = cleanStr(res.driveUrl || res.newUrl || directUrl);
+                        const finalOverride = res.override || {
+                            sku: ovKey,
+                            status: 'VISIBLE',
+                            name: label.slice(0, 140),
+                            category: categoryTag,
+                            price: null,
+                            note: finalDriveUrl || dataUrl,
+                            updatedBy: OWNER_EMAIL,
+                            updatedAt: new Date().toLocaleString('es-MX')
+                        };
+                        visualState.overridesMap[ovKey] = finalOverride;
+                        if (res.fileId) {
+                            state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || entry.fileName);
+                        }
+                        saveVisualOverridesToLocalStorage();
+                        broadcastVisualOverrideUpdateToCotizador(ovKey, finalOverride, false);
                     } else if (res && res.unavailable) {
                         remaining.push(...queue.slice(i));
                         break;
@@ -5398,13 +5616,21 @@
                 applySkuFiltersAndRender();
                 renderInboxGallery();
                 renderSelectedProductStage();
+                if (syncedVisualAny) {
+                    renderVisualTargetsList();
+                    renderVisualTargetStage();
+                }
                 renderSessionHistoryLog();
-                showAssignFeedback('✅ Pendientes sincronizadas.', true);
+                showAssignFeedback('✅ Fotos pendientes sincronizadas con Drive y Sheets.', true);
+                if (visualState.workMode !== 'SKU') {
+                    showVisualStageFeedback('✅ Fotos pendientes sincronizadas.', true);
+                }
             }
         } catch (e) {
             // Keep remaining queue
         } finally {
             _fotosFlushingOutbox = false;
+            updateOfflineSyncBanner();
         }
     }
 
@@ -6246,18 +6472,35 @@
         window.addEventListener('pagehide', () => saveFotosUiCheckpointNow());
         window.addEventListener('beforeunload', () => saveFotosUiCheckpointNow());
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden') saveFotosUiCheckpointNow();
-            else if (document.visibilityState === 'visible' && state.unlocked) sendFotosPresenceHeartbeat(false);
+            if (document.visibilityState === 'hidden') {
+                saveFotosUiCheckpointNow();
+            } else if (document.visibilityState === 'visible' && state.unlocked) {
+                updateOfflineSyncBanner();
+                flushFotosOfflineOutbox();
+                sendFotosPresenceHeartbeat(false);
+            }
         });
         window.addEventListener('focus', () => {
-            if (state.unlocked) sendFotosPresenceHeartbeat(false);
+            if (state.unlocked) {
+                updateOfflineSyncBanner();
+                sendFotosPresenceHeartbeat(false);
+            }
         });
 
         window.addEventListener('online', () => {
+            updateOfflineSyncBanner();
             if (state.unlocked) {
-                showAssignFeedback('🌐 En línea · sincronizando...', true);
+                showAssignFeedback('🌐 Conexión recuperada · sincronizando fotos guardadas...', true);
                 flushFotosOfflineOutbox();
+                drainPendingDeletedQueueAsync();
                 sendFotosPresenceHeartbeat(false);
+            }
+        });
+
+        window.addEventListener('offline', () => {
+            updateOfflineSyncBanner();
+            if (state.unlocked) {
+                showAssignFeedback('📡 Modo sin conexión · tus fotos se guardarán en el teléfono.', true);
             }
         });
 
@@ -6441,7 +6684,21 @@
     function saveVisualOverridesToLocalStorage() {
         try {
             localStorage.setItem(VISUAL_OVERRIDES_STORAGE_KEY, JSON.stringify(visualState.overridesMap || {}));
-        } catch (e) {}
+        } catch (eQuota) {
+            try {
+                const slim = {};
+                const src = visualState.overridesMap || {};
+                Object.keys(src).forEach((k) => {
+                    const entry = src[k];
+                    if (!entry) return;
+                    const note = String(entry.note || '');
+                    slim[k] = note.indexOf('data:image/') === 0
+                        ? Object.assign({}, entry, { note: entry.localFileId || '' })
+                        : entry;
+                });
+                localStorage.setItem(VISUAL_OVERRIDES_STORAGE_KEY, JSON.stringify(slim));
+            } catch (e2) {}
+        }
     }
 
     function getVisualOverridePhotoUrlInFotos(overrideKey) {
@@ -6577,6 +6834,7 @@
     async function syncVisualOverridesFromCloudInFotos() {
         loadVisualOverridesFromLocalStorage();
         if (!state.unlocked) return;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
         try {
             const auth = buildOwnerAuthPayload();
             const res = await callWebAppPost('inv_product_overrides_get', {
@@ -6585,7 +6843,16 @@
                 sheetTab: auth.sheetTab || 'PROYECTOS'
             }, 18000);
             if (res && res.ok && res.overrides && typeof res.overrides === 'object') {
-                visualState.overridesMap = res.overrides;
+                const pendingVis = {};
+                readFotosOfflineOutbox().forEach((entry) => {
+                    if (entry && entry.type === 'visual_override_upload' && entry.overrideKey) {
+                        const k = String(entry.overrideKey).trim().toUpperCase();
+                        if (visualState.overridesMap && visualState.overridesMap[k]) {
+                            pendingVis[k] = visualState.overridesMap[k];
+                        }
+                    }
+                });
+                visualState.overridesMap = Object.assign({}, res.overrides, pendingVis);
                 saveVisualOverridesToLocalStorage();
                 if (visualState.workMode !== 'SKU') {
                     renderVisualTargetsList();
@@ -7076,7 +7343,7 @@
         if (!target) {
             if (eyebrow) eyebrow.textContent = isFabric ? 'Tela' : 'Portada';
             if (titleEl) titleEl.textContent = isFabric ? 'Elige tela' : 'Elige modelo';
-            if (subEl) subEl.textContent = isFabric ? 'Muestra de tela' : 'Solo inicio';
+            if (subEl) subEl.textContent = isFabric ? 'Tela' : 'Solo inicio';
             if (badgeEl) badgeEl.textContent = 'Foto';
             if (curCanvas) {
                 curCanvas.onclick = null;
@@ -7207,6 +7474,20 @@
         renderVisualTargetsList();
         renderVisualTargetStage();
 
+        const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+        if (isOfflineNow && op === 'SAVE' && nextUrl) {
+            enqueueFotosOfflineOutbox({
+                id: 'op_vis_' + Date.now() + '_' + ovKey,
+                type: 'visual_override_upload',
+                overrideKey: ovKey,
+                label: label,
+                categoryTag: categoryTag,
+                directUrl: nextUrl,
+                queuedAt: Date.now()
+            });
+            return { ok: true, offlineQueued: true };
+        }
+
         try {
             const auth = buildOwnerAuthPayload();
             const res = await callWebAppPost('inv_product_override_save', {
@@ -7228,6 +7509,18 @@
                 }
                 return { ok: true };
             }
+            if (res && res.unavailable && op === 'SAVE' && nextUrl) {
+                enqueueFotosOfflineOutbox({
+                    id: 'op_vis_' + Date.now() + '_' + ovKey,
+                    type: 'visual_override_upload',
+                    overrideKey: ovKey,
+                    label: label,
+                    categoryTag: categoryTag,
+                    directUrl: nextUrl,
+                    queuedAt: Date.now()
+                });
+                return { ok: true, offlineQueued: true };
+            }
             return { ok: false, error: (res && res.error) || 'Guardado local.' };
         } catch (err) {
             return { ok: false, error: (err && err.message) || 'Guardado local.' };
@@ -7248,6 +7541,7 @@
         const ovKey = String(target.overrideKey).trim().toUpperCase();
         const categoryTag = isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
         const safeFileName = cleanStr(file.name) || ((isFabric ? 'tela_' : 'portada_') + Date.now() + '.jpg');
+        const localVisId = 'local_vis_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000);
 
         visualState.busy = true;
         showVisualStageFeedback('⚡ Subiendo ' + label + '...', true);
@@ -7261,6 +7555,7 @@
                 category: categoryTag,
                 price: null,
                 note: dataUrl,
+                localFileId: localVisId,
                 updatedBy: OWNER_EMAIL,
                 updatedAt: new Date().toLocaleString('es-MX')
             };
@@ -7275,6 +7570,23 @@
             renderVisualTargetsList();
             renderVisualTargetStage();
             updateGallerySelectionInDom();
+
+            const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+            if (isOfflineNow) {
+                await putOfflinePhotoBlobIdb(localVisId, dataUrl, safeFileName);
+                enqueueFotosOfflineOutbox({
+                    id: 'op_vis_' + Date.now() + '_' + ovKey,
+                    type: 'visual_override_upload',
+                    overrideKey: ovKey,
+                    label: label,
+                    categoryTag: categoryTag,
+                    fileName: safeFileName,
+                    localFileId: localVisId,
+                    queuedAt: Date.now()
+                });
+                showVisualStageFeedback('⚡ En cola offline: ' + label + ' (se subirá al volver la red).', true);
+                return;
+            }
 
             const auth = buildOwnerAuthPayload();
             let res = await callWebAppPost('fotos_upload_visual_override', {
@@ -7316,6 +7628,21 @@
             }
 
             if (!res || !res.ok) {
+                if (res && res.unavailable) {
+                    await putOfflinePhotoBlobIdb(localVisId, dataUrl, safeFileName);
+                    enqueueFotosOfflineOutbox({
+                        id: 'op_vis_' + Date.now() + '_' + ovKey,
+                        type: 'visual_override_upload',
+                        overrideKey: ovKey,
+                        label: label,
+                        categoryTag: categoryTag,
+                        fileName: safeFileName,
+                        localFileId: localVisId,
+                        queuedAt: Date.now()
+                    });
+                    showVisualStageFeedback('⚡ Sin red · en cola: ' + label + '.', true);
+                    return;
+                }
                 showVisualStageFeedback((res && res.error) || 'Error al subir.', false);
                 return;
             }
@@ -7369,6 +7696,7 @@
                 category: categoryTag,
                 price: null,
                 note: optimisticPreview || directUrl,
+                localFileId: isLocal ? rawPhotoId : '',
                 updatedBy: OWNER_EMAIL,
                 updatedAt: new Date().toLocaleString('es-MX')
             };
@@ -7391,6 +7719,31 @@
             renderInboxGallery();
             renderVisualTargetsList();
             renderVisualTargetStage();
+
+            const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+            if (isOfflineNow) {
+                let localVisId = isLocal ? rawPhotoId : '';
+                if (!localVisId && optimisticPreview && optimisticPreview.indexOf('data:image/') === 0) {
+                    localVisId = 'local_vis_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000);
+                    await putOfflinePhotoBlobIdb(localVisId, optimisticPreview, cleanStr(selPhoto.name));
+                }
+                enqueueFotosOfflineOutbox({
+                    id: 'op_vis_' + Date.now() + '_' + ovKey,
+                    type: 'visual_override_upload',
+                    overrideKey: ovKey,
+                    label: label,
+                    categoryTag: categoryTag,
+                    fileName: cleanStr(selPhoto.name),
+                    localFileId: localVisId,
+                    sourceInboxFileId: isLocal ? rawPhotoId : rawPhotoId,
+                    shortcutId: cleanStr(selPhoto.shortcutId),
+                    fromLoaded: fromLoaded,
+                    directUrl: isLocal ? '' : directUrl,
+                    queuedAt: Date.now()
+                });
+                showVisualStageFeedback('⚡ En cola offline: ' + label + '.', true);
+                return;
+            }
 
             const auth = buildOwnerAuthPayload();
             let res = await callWebAppPost('fotos_upload_visual_override', {
@@ -7436,6 +7789,29 @@
             }
 
             if (!res || !res.ok) {
+                if (res && res.unavailable) {
+                    let localVisId = isLocal ? rawPhotoId : '';
+                    if (!localVisId && optimisticPreview && optimisticPreview.indexOf('data:image/') === 0) {
+                        localVisId = 'local_vis_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000);
+                        await putOfflinePhotoBlobIdb(localVisId, optimisticPreview, cleanStr(selPhoto.name));
+                    }
+                    enqueueFotosOfflineOutbox({
+                        id: 'op_vis_' + Date.now() + '_' + ovKey,
+                        type: 'visual_override_upload',
+                        overrideKey: ovKey,
+                        label: label,
+                        categoryTag: categoryTag,
+                        fileName: cleanStr(selPhoto.name),
+                        localFileId: localVisId,
+                        sourceInboxFileId: rawPhotoId,
+                        shortcutId: cleanStr(selPhoto.shortcutId),
+                        fromLoaded: fromLoaded,
+                        directUrl: isLocal ? '' : directUrl,
+                        queuedAt: Date.now()
+                    });
+                    showVisualStageFeedback('⚡ Sin red · en cola: ' + label + '.', true);
+                    return;
+                }
                 showVisualStageFeedback((res && res.error) || 'Error al guardar.', false);
                 return;
             }

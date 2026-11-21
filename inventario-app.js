@@ -4677,7 +4677,7 @@
                 const fabThumb = resolveVisualImgSrc(matchedFab.url, 120);
                 const fabFid = extractDriveFileId(matchedFab.url);
                 fabricPillHtml =
-                    '<div class="inv-var-fabric-pill" data-fabric-zoom-url="' + escapeHtml(matchedFab.url) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedFab.label) + '" title="Ver muestra de tela">' +
+                    '<div class="inv-var-fabric-pill" data-fabric-zoom-url="' + escapeHtml(matchedFab.url) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedFab.label) + '" title="Ver tela">' +
                         '<img class="inv-var-fabric-thumb" src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedFab.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                         (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
                         ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
@@ -5294,14 +5294,14 @@
                 const fabThumb = resolveVisualImgSrc(matchedDetailFabric.url, 180);
                 const fabFid = extractDriveFileId(matchedDetailFabric.url);
                 fabricCardHtml =
-                    '<button type="button" class="inv-det-fabric-swatch-card inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailFabric.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedDetailFabric.label) + '" title="Toca para ampliar la muestra de tela">' +
+                    '<button type="button" class="inv-det-fabric-swatch-card inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailFabric.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedDetailFabric.label) + '" title="Toca para ampliar la tela">' +
                         '<span class="inv-det-fabric-swatch-img-wrap">' +
                             '<img src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedDetailFabric.label) + '" loading="eager" decoding="async" referrerpolicy="no-referrer"' +
                             (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
                             ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '</span>' +
                         '<span class="inv-det-fabric-swatch-meta">' +
-                            '<span class="inv-det-fabric-swatch-tag">🧵 Muestra de tela</span>' +
+                            '<span class="inv-det-fabric-swatch-tag">🧵 Tela</span>' +
                             '<span class="inv-det-fabric-swatch-name">' + escapeHtml(matchedDetailFabric.label) + '</span>' +
                         '</span>' +
                         '<span class="inv-det-fabric-swatch-zoom">🔍 Ver</span>' +
@@ -5319,7 +5319,7 @@
                     if (ev && ev.stopPropagation) ev.stopPropagation();
                     openVisualPhotoLightbox(
                         fabBtn.getAttribute('data-det-fabric-zoom-url') || '',
-                        fabBtn.getAttribute('data-det-fabric-zoom-label') || 'Muestra de tela'
+                        fabBtn.getAttribute('data-det-fabric-zoom-label') || 'Tela'
                     );
                 };
             }
@@ -15795,7 +15795,7 @@
         const existingUrl = getVisualOverridePhotoUrl(overrideKey);
         if (eyebrow) {
             eyebrow.textContent = kMode === 'fabric'
-                ? 'MUESTRA DE TELA / COLOR · GLOBAL'
+                ? 'TELA / COLOR · GLOBAL'
                 : 'SOLO VISUAL EN INICIO · NO ALTERA SKUS';
         }
         if (titleEl) {

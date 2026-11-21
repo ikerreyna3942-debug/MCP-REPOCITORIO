@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=24">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=25">
     <script src="./creata-guard.js"></script>
 </head>
 <body>
@@ -94,6 +94,12 @@
         </header>
 
         <main class="workspace-shell">
+
+            <!-- ESTADO DE MODO SIN CONEXIÓN / COLA DE FOTOS PENDIENTES EN TELÉFONO -->
+            <div id="offlineSyncStatusBar" class="offline-sync-bar hidden" role="status" aria-live="polite">
+                <span id="offlineSyncStatusText" class="offline-sync-text">📡 Sin conexión · Las fotos se guardan en tu teléfono</span>
+                <button type="button" id="btnOfflineSyncNow" class="hdr-btn is-accent is-compact-btn hidden" onclick="flushFotosOfflineOutboxNow()">↻ Subir ahora</button>
+            </div>
 
             <!-- SELECTOR PRINCIPAL ARRIBA: SKUs · PORTADAS · TELAS -->
             <section class="fotos-mode-hero" aria-label="Modo">
@@ -497,6 +503,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=27"></script>
+    <script src="./fotos-productos-app.js?v=28"></script>
 </body>
 </html>

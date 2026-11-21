@@ -1621,13 +1621,13 @@ test('UX-5: Mobile inputs & selects enforce font-size: 16px (anti-iOS auto-zoom)
   assert.ok(!/<(?:input|select)\b[^>]*style=["'][^"']*font-size/i.test(FOTOS_HTML_SRC));
 });
 
-test('UX-6: Cache version consistency (v17/img-v17, CSS?v=24, JS?v=27, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
+test('UX-6: Cache version consistency (v18/img-v18, CSS?v=25, JS?v=28, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
   assert.match(FOTOS_HTML_SRC, /fotos-manifest\.json\?v=3/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=24/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=25/);
   assert.match(FOTOS_HTML_SRC, /creata-back-nav\.js\?v=1/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=27/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v17['"]/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v17['"]/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=28/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v18['"]/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v18['"]/);
   assert.match(FOTOS_APP_SRC, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
 
   // Execute fotos-sw.js inside node:vm
@@ -1661,6 +1661,8 @@ test('UX-6: Cache version consistency (v17/img-v17, CSS?v=24, JS?v=27, manifest?
     'creata-fotos-app-img-v16',
     'creata-fotos-app-v17',
     'creata-fotos-app-img-v17',
+    'creata-fotos-app-v18',
+    'creata-fotos-app-img-v18',
     'creata-prompts-app-v3',
     'creata-inventario-v1'
   ];
@@ -1699,7 +1701,7 @@ test('UX-6: Cache version consistency (v17/img-v17, CSS?v=24, JS?v=27, manifest?
   };
   vm.runInNewContext(FOTOS_SW_SRC, swSandbox, { filename: 'fotos-sw.js' });
 
-  // Activate evicts v5..v16 while preserving v17, img-v17, and sibling app caches
+  // Activate evicts v5..v17 while preserving v18, img-v18, and sibling app caches
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
@@ -1711,6 +1713,7 @@ test('UX-6: Cache version consistency (v17/img-v17, CSS?v=24, JS?v=27, manifest?
     'creata-fotos-app-img-v14',
     'creata-fotos-app-img-v15',
     'creata-fotos-app-img-v16',
+    'creata-fotos-app-img-v17',
     'creata-fotos-app-img-v5',
     'creata-fotos-app-img-v6',
     'creata-fotos-app-img-v7',
@@ -1723,6 +1726,7 @@ test('UX-6: Cache version consistency (v17/img-v17, CSS?v=24, JS?v=27, manifest?
     'creata-fotos-app-v14',
     'creata-fotos-app-v15',
     'creata-fotos-app-v16',
+    'creata-fotos-app-v17',
     'creata-fotos-app-v5',
     'creata-fotos-app-v6',
     'creata-fotos-app-v7',
@@ -1747,14 +1751,14 @@ test('UX-6: Cache version consistency (v17/img-v17, CSS?v=24, JS?v=27, manifest?
 
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
-  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=27', 'POST'), false);
+  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=28', 'POST'), false);
   assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
   assert.equal(await checkFetch('https://lh3.googleusercontent.com/d/abc12345=w400', 'GET'), true);
-  assert.ok(openedCaches.includes('creata-fotos-app-img-v17'));
-  assert.ok(openedCaches.includes('creata-fotos-app-v17'));
+  assert.ok(openedCaches.includes('creata-fotos-app-img-v18'));
+  assert.ok(openedCaches.includes('creata-fotos-app-v18'));
 });
 
-test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear selection, auto-dest pill, repair button, and intact product DOM IDs)', () => {
+test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear selection, auto-dest pill, repair button, offline status bar, and intact product DOM IDs)', () => {
   // Desktop-only controls hidden on mobile <=640px via hide-on-xs
   assert.match(FOTOS_HTML_SRC, /id="btnSplitWithCotizador"[^>]*class="[^"]*hide-on-xs/);
 
@@ -1775,6 +1779,8 @@ test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear sel
   assert.match(FOTOS_HTML_SRC, /id="btnRepairReorganizeFotos"[^>]*onclick="reorganizeAndRepairFotosNow\(\)"/);
   assert.match(FOTOS_HTML_SRC, /id="autoDestFolderPill"/);
   assert.match(FOTOS_HTML_SRC, /id="skuLinkedFabricChip"/);
+  assert.match(FOTOS_HTML_SRC, /id="offlineSyncStatusBar"/);
+  assert.match(FOTOS_HTML_SRC, /id="btnOfflineSyncNow"[^>]*onclick="flushFotosOfflineOutboxNow\(\)"/);
   assert.ok(!FOTOS_HTML_SRC.includes('App Fotos · Categorías'));
   assert.ok(!FOTOS_HTML_SRC.includes('1. Buscar SKU o Categoría'));
   assert.ok(!FOTOS_HTML_SRC.includes('2. Ficha del Producto y Categoría'));
@@ -1788,7 +1794,8 @@ test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear sel
     'selColASku', 'selCategoryLabel', 'selColBName', 'selModelVariantVal', 'selDimsFinishVal',
     'selLocationsWrap', 'selLocationsGrid', 'selLocationsSummaryBadge',
     'selSiblingVariantsWrap', 'selSiblingVariantsList',
-    'destFolderSelect', 'btnAssignPhotoNow', 'btnClearSelectedSku', 'autoDestFolderPill', 'skuLinkedFabricChip'
+    'destFolderSelect', 'btnAssignPhotoNow', 'btnClearSelectedSku', 'autoDestFolderPill', 'skuLinkedFabricChip',
+    'offlineSyncStatusBar', 'offlineSyncStatusText', 'btnOfflineSyncNow'
   ]) {
     assert.ok(FOTOS_HTML_SRC.includes(`id="${id}"`), `Required product/control DOM ID missing: #${id}`);
   }
@@ -1799,9 +1806,12 @@ test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear sel
   const m640Css = FOTOS_CSS_SRC.slice(m640Start, m480Start);
   assert.match(m640Css, /\.inbox-grid\s*\{[^}]*repeat\(auto-fill,\s*minmax\(112px,\s*1fr\)\)/);
   assert.match(m640Css, /\.header-actions\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.match(m640Css, /\.header-actions\s+\.hdr-btn\s*\{[^}]*min-height:\s*38px/);
+  assert.match(m640Css, /\.inbox-toolbar-actions\s*\{[^}]*grid-template-columns:\s*1fr\s+44px\s+44px/);
+  assert.match(FOTOS_CSS_SRC, /\.offline-sync-bar\s*\{/);
 });
 
-test('UX-6c: Upload reliability fixes (MIME normalization, explicit server/auth error handling, rollback on failed pending upload, and non-blocking Apps Script inbox upload)', () => {
+test('UX-6c: Upload reliability, full offline phone queuing (SKUs + Portadas + Telas), and zero "muestra de tela" in Cotizador UI', () => {
   assert.match(FOTOS_APP_SRC, /function normalizeImageDataUrl\(/);
   assert.match(FOTOS_APP_SRC, /function isAcceptedImageFile\(/);
   assert.match(FOTOS_APP_SRC, /heic\|heif/i);
@@ -1810,6 +1820,19 @@ test('UX-6c: Upload reliability fixes (MIME normalization, explicit server/auth 
   assert.match(FOTOS_APP_SRC, /suppressSummaryFeedback:\s*true/);
   assert.match(FOTOS_APP_SRC, /pendingUploadRes && !pendingUploadRes\.ok && !pendingUploadRes\.offlineQueued/);
   assert.match(FOTOS_APP_SRC, /const CONCURRENCY = 2;/);
+  assert.match(FOTOS_APP_SRC, /function updateOfflineSyncBanner\(/);
+  assert.match(FOTOS_APP_SRC, /type:\s*'visual_override_upload'/);
+  assert.match(FOTOS_APP_SRC, /type:\s*'direct_upload_assign'/);
+  assert.match(FOTOS_APP_SRC, /window\.addEventListener\('offline'/);
+
+  // Cotizador UI must NOT contain the phrase "muestra de tela" (only clean "Tela" / "🧵 Tela")
+  const invJsSrc = fs.readFileSync(path.join(REPO_ROOT, 'inventario-app.js'), 'utf8');
+  const invHtmlSrc = fs.readFileSync(path.join(REPO_ROOT, 'inventario.html'), 'utf8');
+  assert.ok(!/>🧵\s*Muestra de tela</i.test(invJsSrc), 'Cotizador must not display "🧵 Muestra de tela"');
+  assert.ok(!/title="[^"]*muestra de tela[^"]*"/i.test(invJsSrc), 'Cotizador tooltips must not contain "muestra de tela"');
+  assert.ok(!/MUESTRA DE TELA \/ COLOR/i.test(invJsSrc), 'Cotizador modal eyebrow must not contain "MUESTRA DE TELA"');
+  assert.ok(!/muestra de tela/i.test(invHtmlSrc), 'inventario.html must not contain "muestra de tela"');
+  assert.ok(!/Muestra de tela/.test(FOTOS_APP_SRC), 'fotos-productos-app.js must use clean "Tela" label');
 
   const gsSrc = fs.readFileSync(path.join(REPO_ROOT, 'AppsScript_Creata_Drive_Sheets.gs'), 'utf8');
   const uploadHandlerMatch = gsSrc.match(/function handleFotosSubirUploadInbox_\(body\)[\s\S]*?\n\}/);

@@ -5,11 +5,15 @@
  * - Estrategia "red primero" para HTML/JS/CSS y caché rápida para miniaturas de Google Drive.
  */
 const CACHE_PREFIX = 'creata-fotos-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v17';
-const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v17';
+const CACHE_NAME = CACHE_PREFIX + 'v18';
+const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v18';
 const MAX_CACHED_IMAGES = 350;
 const PAGE_URL = './fotos-productos.html';
-const NETWORK_TIMEOUT_MS = 8000;
+const NETWORK_TIMEOUT_MS = 4500;
+
+function isOfflineNow() {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
 
 function isCacheableHost(url) {
     return url.origin === self.location.origin ||
@@ -26,6 +30,10 @@ async function precacheFotosShell() {
     const pageRes = await fetch(PAGE_URL, { cache: 'reload' });
     if (!pageRes || !pageRes.ok) return;
     await cache.put(PAGE_URL, pageRes.clone());
+    try {
+        const absPageUrl = new URL(PAGE_URL, self.location.href).href;
+        await cache.put(absPageUrl, pageRes.clone());
+    } catch (e) {}
     const html = await pageRes.text();
     const urls = new Set();
     const re = /<(?:script|link)\b[^>]*?(?:src|href)\s*=\s*["']([^"']+)["']/gi;
@@ -98,6 +106,9 @@ self.addEventListener('fetch', (event) => {
         event.respondWith((async () => {
             const cache = await caches.open(IMG_CACHE_NAME);
             const cached = await cache.match(req);
+            if (isOfflineNow()) {
+                return cached || Response.error();
+            }
             const networkFetch = fetch(req).then((res) => {
                 if (res && (res.ok || res.type === 'opaque')) {
                     cache.put(req, res.clone()).then(() => trimImageCache(cache)).catch(() => {});
@@ -120,6 +131,10 @@ self.addEventListener('fetch', (event) => {
     if (req.mode === 'navigate' || url.pathname.endsWith('/fotos-productos.html')) {
         event.respondWith((async () => {
             const cache = await caches.open(CACHE_NAME);
+            if (isOfflineNow()) {
+                const offCached = (await cache.match(req, { ignoreSearch: true })) || (await cache.match(PAGE_URL));
+                if (offCached) return offCached;
+            }
             try {
                 const netRes = await fetchWithTimeout(req, NETWORK_TIMEOUT_MS);
                 if (netRes && netRes.ok) {
@@ -135,6 +150,10 @@ self.addEventListener('fetch', (event) => {
 
     event.respondWith((async () => {
         const cache = await caches.open(CACHE_NAME);
+        if (isOfflineNow()) {
+            const offCached = (await cache.match(req)) || (await cache.match(req, { ignoreSearch: true }));
+            if (offCached) return offCached;
+        }
         try {
             const netRes = await fetchWithTimeout(req, NETWORK_TIMEOUT_MS);
             if (netRes && (netRes.ok || netRes.type === 'opaque')) {

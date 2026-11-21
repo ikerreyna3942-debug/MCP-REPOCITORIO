@@ -1964,12 +1964,38 @@ input,
     .inbox-toolbar-actions {
         width: 100%;
         display: grid;
-        grid-template-columns: 1fr 1fr auto;
+        grid-template-columns: 1fr auto auto auto;
         gap: 8px;
     }
     .inbox-toolbar-actions .hdr-btn {
         min-height: 44px;
+        min-width: 44px;
         width: 100%;
+        justify-content: center;
+    }
+    .visual-stage-actions-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        width: 100%;
+        gap: 8px;
+    }
+    .visual-stage-actions-row .visual-upload-primary,
+    .visual-stage-actions-row #btnAssignVisualGalleryPhoto {
+        min-height: 46px;
+        width: 100%;
+        font-size: 13px;
+        border-radius: 12px;
+        padding: 10px 12px;
+    }
+    .visual-url-row .search-input {
+        font-size: 16px;
+        min-height: 44px;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+    .visual-url-row .hdr-btn {
+        min-height: 44px;
+        flex-shrink: 0;
     }
     .inbox-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1989,8 +2015,8 @@ input,
     }
     .exec-header-inner {
         flex-wrap: wrap;
-        padding: 5px 8px;
-        gap: 5px;
+        padding: 6px 8px;
+        gap: 6px;
     }
     .brand-cluster {
         gap: 6px;
@@ -2008,17 +2034,21 @@ input,
         flex-wrap: wrap;
         overflow-x: visible;
         width: 100%;
-        gap: 4px;
+        gap: 5px;
         padding-bottom: 0;
     }
     .header-actions .hdr-btn {
-        flex: 1 1 0;
+        flex: 1 1 auto;
         min-width: 0;
-        min-height: 32px;
-        padding: 0 5px;
-        font-size: 10px;
+        min-height: 38px;
+        padding: 0 8px;
+        font-size: 11px;
         justify-content: center;
         white-space: nowrap;
+    }
+    .inbox-toolbar-actions {
+        grid-template-columns: 1fr 44px 44px;
+        gap: 6px;
     }
     .workspace-shell {
         padding: 8px calc(8px + env(safe-area-inset-right, 0px)) calc(140px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px));
@@ -2116,7 +2146,7 @@ input,
         gap: 4px;
     }
     .photo-stage-title {
-        font-size: 10px;
+        font-size: 10.5px;
     }
     .photo-stage-canvas {
         height: 144px;
@@ -2131,6 +2161,15 @@ input,
         flex-direction: column;
         align-items: stretch;
         gap: 5px;
+    }
+    .auto-dest-pill {
+        width: 100%;
+        justify-content: center;
+    }
+    .sku-quick-top-row .stage-action-btn {
+        flex-shrink: 0;
+        min-height: 36px;
+        padding: 0 10px;
     }
     .inbox-grid {
         grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
@@ -2154,18 +2193,23 @@ input,
 
 @media (max-width: 480px) {
     .photo-stage-head {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 6px;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4px;
+        min-height: 38px;
     }
     .stage-head-actions {
-        width: 100%;
+        width: auto;
+        flex-shrink: 0;
     }
     .hdr-btn.stage-action-btn {
         min-height: 34px;
+        min-width: 34px;
         height: auto;
         font-size: 11px;
-        flex: 1 1 auto;
+        padding: 0 8px;
+        flex: 0 0 auto;
     }
     .photo-stage-canvas {
         height: 148px;
@@ -2988,3 +3032,42 @@ body.is-suite-embed .header-actions .hdr-btn {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+.offline-sync-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.14);
+    border: 1px solid rgba(245, 158, 11, 0.42);
+    color: #FBBF24;
+    font-size: 11.5px;
+    font-weight: 800;
+    line-height: 1.3;
+}
+
+.offline-sync-bar.is-online-pending {
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.42);
+    color: #34D399;
+}
+
+.offline-sync-text {
+    min-width: 0;
+    flex: 1 1 200px;
+}
+
+@media (max-width: 640px) {
+    .offline-sync-bar {
+        padding: 7px 10px;
+        font-size: 11px;
+    }
+    .offline-sync-bar .hdr-btn {
+        min-height: 36px;
+        flex-shrink: 0;
+    }
+}
+
