@@ -80,7 +80,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   const panelHtml = fs.readFileSync(path.join(REPO_ROOT, 'panel.html'), 'utf8');
   assert.match(panelHtml, /rel="manifest"\s+href="\.\/panel-manifest\.json\?v=1"/);
   assert.match(panelHtml, /panel-styles\.css\?v=6/);
-  assert.match(panelHtml, /panel-app\.js\?v=11/);
+  assert.match(panelHtml, /panel-app\.js\?v=12/);
   assert.match(panelHtml, /id="btnSuiteAdd"/);
   assert.match(panelHtml, /id="btnSuiteOrientation"/);
   assert.match(panelHtml, /id="suiteAddMenu"/);
@@ -108,7 +108,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3', 'creata-prompts-app-v9', 'creata-fotos-app-v13', 'creata-inventario-v1', 'creata-suite-app-v1'];
+  const existingKeys = ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3', 'creata-panel-app-v4', 'creata-prompts-app-v11', 'creata-fotos-app-v19', 'creata-inventario-v1', 'creata-suite-app-v2'];
   const swSandbox = {
     URL,
     AbortController,
@@ -135,7 +135,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys, ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2']);
+  assert.deepEqual(deletedKeys, ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3']);
 
   const checkIntercept = (url, method = 'GET') => {
     let intercepted = false;
@@ -147,7 +147,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   };
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
-  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel-app.js?v=11', 'GET'), true);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel-app.js?v=12', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel.html', 'GET'), true);
 });
 
@@ -164,7 +164,7 @@ test('Independent /suite/ PWA: directory scope ./, in-scope shortcuts, suite/sw.
   const suiteHtml = fs.readFileSync(path.join(REPO_ROOT, 'suite/index.html'), 'utf8');
   assert.match(suiteHtml, /rel="manifest"\s+href="\.\/manifest\.json\?v=1"/);
   assert.match(suiteHtml, /\.\.\/panel-styles\.css\?v=6/);
-  assert.match(suiteHtml, /\.\.\/panel-app\.js\?v=11/);
+  assert.match(suiteHtml, /\.\.\/panel-app\.js\?v=12/);
   assert.match(suiteHtml, /id="btnSuiteOrientation"/);
 
   // Execute suite/sw.js in VM
@@ -176,7 +176,7 @@ test('Independent /suite/ PWA: directory scope ./, in-scope shortcuts, suite/sw.
     Response: { error: () => ({ ok: false }) },
     Request: function (u, o) { return { url: u, ...(o || {}) }; },
     caches: {
-      keys: async () => ['creata-suite-app-v0', 'creata-suite-app-v1', 'creata-panel-app-v3', 'creata-inventario-v1'],
+      keys: async () => ['creata-suite-app-v0', 'creata-suite-app-v1', 'creata-suite-app-v2', 'creata-panel-app-v4', 'creata-inventario-v1'],
       delete: async (k) => { deletedKeys.push(k); return true; },
       open: async () => ({ put: async () => {}, match: async () => null })
     },
@@ -192,7 +192,7 @@ test('Independent /suite/ PWA: directory scope ./, in-scope shortcuts, suite/sw.
   let actP;
   listeners.activate({ waitUntil: (p) => { actP = p; } });
   await actP;
-  assert.deepEqual(deletedKeys, ['creata-suite-app-v0']);
+  assert.deepEqual(deletedKeys, ['creata-suite-app-v0', 'creata-suite-app-v1']);
 
   // Runtime test of panel-app.js mounted under /MCP-REPOCITORIO/suite/?app=fotos&source=pwa
   const panelSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-app.js'), 'utf8');

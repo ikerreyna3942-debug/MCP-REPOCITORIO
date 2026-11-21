@@ -128,6 +128,11 @@ export function createMockGasEnvironment(options = {}) {
       setName: (n) => { fileState.name = String(n); return api; },
       getMimeType: () => fileState.mimeType,
       getSize: () => fileState.bytes.length,
+      getBlob: () => ({
+        getBytes: () => Buffer.from(fileState.bytes),
+        getContentType: () => fileState.mimeType,
+        getName: () => fileState.name
+      }),
       getLastUpdated: () => fileState.updatedAt,
       isTrashed: () => fileState.trashed,
       setTrashed: (t) => { fileState.trashed = Boolean(t); return api; },
@@ -448,6 +453,9 @@ export function createMockGasEnvironment(options = {}) {
       getService: () => ({
         getUrl: () => options.webAppUrl || 'https://script.google.com/macros/s/AKfycbMOCKPROMPTSWEBAPP/exec'
       })
+    },
+    Logger: {
+      log: () => {}
     }
   };
 

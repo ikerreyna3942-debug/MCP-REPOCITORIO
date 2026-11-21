@@ -15,6 +15,8 @@
     let wakeProbeDone = false;
     let promptsBackNav = null;
     let skuInputHadValue = false;
+    let studioEnabled = false;
+    let activeWorkspace = 'odoo'; // 'studio' cuando promptsNativeStudio existe; 'odoo' para Render Alta de Odoo
 
     function byId(id) {
         return document.getElementById(id);
@@ -233,7 +235,53 @@
         }
     };
 
+    window.switchPromptsWorkspace = function (modeRaw) {
+        const nextMode = (modeRaw === 'odoo' || !studioEnabled) ? 'odoo' : 'studio';
+        activeWorkspace = nextMode;
+
+        const studioEl = byId('promptsNativeStudio');
+        const frameEl = byId('promptsAppFrame');
+        const overlayEl = byId('promptsLoadingOverlay');
+        const btnStudio = byId('btnModePromptsNative');
+        const btnOdoo = byId('btnModeAltaOdoo');
+
+        if (btnStudio) {
+            btnStudio.classList.toggle('is-active', nextMode === 'studio');
+            btnStudio.setAttribute('aria-selected', nextMode === 'studio' ? 'true' : 'false');
+        }
+        if (btnOdoo) {
+            btnOdoo.classList.toggle('is-active', nextMode === 'odoo');
+            btnOdoo.setAttribute('aria-selected', nextMode === 'odoo' ? 'true' : 'false');
+        }
+
+        if (nextMode === 'studio') {
+            if (studioEl) studioEl.classList.remove('hidden');
+            if (frameEl) frameEl.classList.add('hidden');
+            if (overlayEl) overlayEl.classList.add('hidden');
+            stopLoadTimer();
+            const isOff = typeof navigator !== 'undefined' && navigator.onLine === false;
+            setConnectionStatus(isOff ? 'offline' : 'online', isOff ? 'Local · Sin red' : 'Nativo · V8 Pro');
+        } else {
+            if (studioEl) studioEl.classList.add('hidden');
+            if (frameEl) frameEl.classList.remove('hidden');
+            if (!frameLoaded && !frameNavigationRequested) {
+                loadGeneratorFrame(false);
+            } else if (frameLoaded) {
+                if (overlayEl) overlayEl.classList.add('hidden');
+                setConnectionStatus('online', 'Alta Odoo · En línea');
+            } else {
+                showLoadingOverlay(typeof navigator !== 'undefined' && navigator.onLine === false);
+            }
+        }
+    };
+
     window.reloadPromptsGenerator = function () {
+        if (studioEnabled && activeWorkspace === 'studio') {
+            if (window.CreataPromptsStudio && typeof window.CreataPromptsStudio.refreshMaterials === 'function') {
+                window.CreataPromptsStudio.refreshMaterials();
+            }
+            return;
+        }
         wakeProbeDone = false;
         loadGeneratorFrame(true);
     };
@@ -1419,13 +1467,25 @@
                     copied = await writePngBlobToClipboardHost(pngBlob);
                 } catch (eCand) {}
             }
+            if (!copied) {
+                try {
+                    const cfg = getProptConfig();
+                    if (isValidAppsScriptUrl(cfg.scriptUrl) && cfg.pin) {
+                        const b64Res = await callPromptsAppsScript('prompts_fetch_image_b64', { fileId: cleanId });
+                        if (b64Res && b64Res.ok && b64Res.dataUri) {
+                            const pngBlob = await imageUrlOrDataUriToPngBlobHost(b64Res.dataUri, false);
+                            copied = await writePngBlobToClipboardHost(pngBlob);
+                        }
+                    }
+                } catch (eGasB64) {}
+            }
             if (copied) {
                 if (btnEl) btnEl.textContent = '✅';
                 showProptFeedback('🖼️ Foto copiada como imagen (' + String(fileName || cleanId) + ').', true);
                 setPromptsSourcesStatus('🖼️ Foto copiada como imagen.', 'ok');
             } else {
                 if (btnEl) btnEl.textContent = '⚠️';
-                showProptFeedback('No se pudo copiar la imagen directamente (Drive bloqueó CORS). Ábrela con ↗ o cárgala en el estudio y usa 🖼️ Copiar foto.', false);
+                showProptFeedback('No se pudo copiar la imagen directamente (Drive bloqueó CORS). Conecta Apps Script con PIN o ábrela con ↗.', false);
             }
             return copied;
         } finally {
@@ -1435,6 +1495,35 @@
                     btnEl.textContent = origLabel;
                 }
             }, 1800);
+        }
+    };
+
+    const STUDIO_READONLY_ACTIONS = {
+        prompts_materials_list: true,
+        prompts_sources_list: true,
+        prompts_sku_lookup: true,
+        prompts_fetch_image_b64: true
+    };
+
+    window.__CREATA_PROMPTS_BRIDGE__ = {
+        callScript: function (action, extraPayload) {
+            if (!STUDIO_READONLY_ACTIONS[String(action || '')]) {
+                return Promise.reject(new Error('Acción no permitida desde el estudio de solo lectura: ' + action));
+            }
+            return callPromptsAppsScript(action, extraPayload);
+        },
+        copyDataUriImage: async function (dataUriOrUrl) {
+            try {
+                const useCors = !/^data:/i.test(String(dataUriOrUrl || ''));
+                const pngBlob = await imageUrlOrDataUriToPngBlobHost(dataUriOrUrl, useCors);
+                return await writePngBlobToClipboardHost(pngBlob);
+            } catch (e) {
+                return false;
+            }
+        },
+        openConfigDrawer: function () {
+            window.toggleProptDrawer(true);
+            window.toggleProptConfigPanel(true);
         }
     };
 
@@ -1507,11 +1596,17 @@
         // Estado de red
         window.addEventListener('offline', () => {
             frameLoaded = false;
-            showLoadingOverlay(true);
+            if (studioEnabled && activeWorkspace === 'studio') {
+                setConnectionStatus('offline', 'Local · Sin red');
+            } else {
+                showLoadingOverlay(true);
+            }
         });
 
         window.addEventListener('online', () => {
-            if (!frameLoaded) {
+            if (studioEnabled && activeWorkspace === 'studio') {
+                setConnectionStatus('online', 'Nativo · V8 Pro');
+            } else if (!frameLoaded) {
                 loadGeneratorFrame(false);
             } else {
                 setConnectionStatus('online', 'En línea');
@@ -1537,7 +1632,18 @@
         }
 
         syncInstallControls();
-        loadGeneratorFrame(false);
+
+        // Si el Estudio Nativo (V8 · V7 · V1) está montado, arrancarlo en 0.1s y dejar Render solo para Alta de Odoo
+        const studioContainer = byId('promptsNativeStudio');
+        if (studioContainer && window.CreataPromptsStudio && typeof window.CreataPromptsStudio.init === 'function') {
+            studioEnabled = true;
+            window.CreataPromptsStudio.init(studioContainer);
+            window.switchPromptsWorkspace('studio');
+        } else {
+            studioEnabled = false;
+            activeWorkspace = 'odoo';
+            loadGeneratorFrame(false);
+        }
     }
 
     if (document.readyState === 'loading') {

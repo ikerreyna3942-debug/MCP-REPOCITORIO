@@ -250,8 +250,9 @@
 
     const correo = normalizeEmail(s.correo);
     const puesto = cleanStr(s.puesto);
-    const isAdmin = Boolean(correo === OWNER_EMAIL || s.isAdmin === true || s.is_master === true || s.es_admin === true);
-    const isManager = Boolean(!isAdmin && (s.isManager === true || s.es_gerente === true || /GERENTE|COORDINADOR|ENCARGAD|DIRECT/i.test(puesto)));
+    const forcedPreview = Boolean(s.forceAdvisorPreview === true);
+    const isAdmin = Boolean(!forcedPreview && (correo === OWNER_EMAIL || s.isAdmin === true || s.is_master === true || s.es_admin === true));
+    const isManager = Boolean(!isAdmin && !forcedPreview && (s.isManager === true || s.es_gerente === true || /GERENTE|COORDINADOR|ENCARGAD|DIRECT/i.test(puesto)));
 
     const branches = [];
     const primaryB = canonicalBranchKey(s.sheetTab || s.erpStore || s.branchKey || s.sucursal);
@@ -274,6 +275,7 @@
       nombre: cleanStr(s.nombre) || correo,
       puesto,
       sheetTab: cleanStr(s.sheetTab || s.sheet_tab) || primaryB || 'PROYECTOS',
+      erpStore: cleanStr(s.erpStore || s.branchLabel || s.sheetTab || primaryB || ''),
       branchLabel: cleanStr(s.branchLabel || s.sucursal_label) || primaryB || 'Todas',
       branches,
       authToken: cleanStr(s.authToken || ''),
@@ -1392,7 +1394,7 @@
       const isAdmin = state.session.isAdmin;
       const jobs = [
         fetchSheetRows('COTIZACIONES_EN_VIVO', 'A1:Z1500', SHEET_ID),
-        fetchSheetRows('HISTORIAL', 'A1:J600', SHEET_ID),
+        isAdmin ? fetchSheetRows('HISTORIAL', 'A1:J600', SHEET_ID) : Promise.resolve(null),
         fetchSheetRows('CIERRES_COTIZACIONES', 'A1:L1000', SEG_SHEET_ID),
         fetchSheetRows('HISTORIAL_MOVIMIENTOS', 'A1:I1000', SEG_SHEET_ID),
         fetchSheetRows('COTIZACIONES_CREATA', 'A1:AA2000', SEG_SHEET_ID),

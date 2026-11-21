@@ -161,20 +161,20 @@
         if (!it || !it.s) return it;
         if (it._origN === undefined) it._origN = it.n;
         if (it._origC === undefined) it._origC = it.c;
-        if (it._origP === undefined) it._origP = it.p;
+        if (it._origPr === undefined) it._origPr = it.pr;
         const ovr = getProductOverrideForSku(it.s);
         if (!ovr) {
             it.n = it._origN;
             it.c = it._origC;
-            it.p = it._origP;
+            it.pr = it._origPr;
             return it;
         }
         it.n = (ovr.name && String(ovr.name).trim()) ? String(ovr.name).trim() : it._origN;
         it.c = (ovr.category && String(ovr.category).trim()) ? String(ovr.category).trim() : it._origC;
         if (ovr.price !== null && ovr.price !== undefined && ovr.price !== '' && isFinite(Number(ovr.price))) {
-            it.p = Number(ovr.price);
+            it.pr = formatPrice(Number(ovr.price)) || String(Number(ovr.price));
         } else {
-            it.p = it._origP;
+            it.pr = it._origPr;
         }
         return it;
     }
@@ -8058,7 +8058,39 @@
             onClose: function () { window.closeInAppModules(); },
             onGoHome: function () { window.goHomeFromLogo(); },
             onBackStatePush: notifyInvBackStatePush,
-            backNavManaged: Boolean(_invBackNav)
+            backNavManaged: Boolean(_invBackNav),
+            getLiveInventorySnapshot: function () {
+                const map = {};
+                if (!Array.isArray(allItems)) return map;
+                for (let i = 0; i < allItems.length; i++) {
+                    const it = allItems[i];
+                    if (!it || !it.s) continue;
+                    const sku = String(it.s).trim().toUpperCase();
+                    if (!sku) continue;
+                    const st = Array.isArray(it.st) ? it.st : [];
+                    map[sku] = {
+                        sku: sku,
+                        tipo: it.tp || '',
+                        modelo: it.mo || '',
+                        nombre: it.n || '',
+                        fotoRaw: it.f || '',
+                        cedis_bod: Number(st[1]) || 0,
+                        cedis_pis: Number(st[2]) || 0,
+                        casa_bod: Number(st[3]) || 0,
+                        casa_pis: Number(st[4]) || 0,
+                        ptc_bod: Number(st[5]) || 0,
+                        ptc_pis: Number(st[6]) || 0,
+                        col_bod: Number(st[7]) || 0,
+                        col_pis: Number(st[8]) || 0,
+                        pla_bod: Number(st[9]) || 0,
+                        pla_pis: Number(st[10]) || 0,
+                        out_bod: 0,
+                        out_pis: 0,
+                        precio: parsePriceNum(it.pr) || 0
+                    };
+                }
+                return map;
+            }
         };
     }
 
@@ -8300,6 +8332,7 @@
             const detClean = cleanStr(opts.detail) || '';
 
             callInvWebAppPost('inv_log_event', {
+                authToken: (sess && sess.authToken) || '',
                 classification: classClean,
                 module: modClean,
                 event: evClean,
@@ -8554,7 +8587,8 @@
                     rows = await fetchSheetCsvRows('Invitados');
                 }
                 if (!rows || !rows.length) {
-                    callInvWebAppPost('inv_ensure_invitados', {}, 8000).catch(() => {});
+                    const tok = (activeAdvisorSession && activeAdvisorSession.authToken) || '';
+                    if (tok) callInvWebAppPost('inv_ensure_invitados', { authToken: tok }, 8000).catch(() => {});
                 }
             }
             if (!rows || rows.length < 1) return [];
@@ -9695,6 +9729,12 @@
         try {
             if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(KEVIN_ROLE_PREVIEW_KEY);
             localStorage.removeItem(INV_SESSION_STARTED_AT_KEY);
+            localStorage.removeItem('creata_seg_closures_v1');
+            localStorage.removeItem('creata_seg_phones_v1');
+            localStorage.removeItem('creata_seg_contacted_v1');
+            localStorage.removeItem('creata_seg_audit_v1');
+            localStorage.removeItem('creata_seg_live_snapshot_v1');
+            localStorage.removeItem('creata_live_app_quotes_bridge_v1');
         } catch (eClrRole) {}
         saveAdvisorSession(null);
         pendingAuthContext = null;
@@ -11389,7 +11429,7 @@
         }
         pruneExpiredQuoteDrafts(false);
         if (!erpAdvisorsCatalog.length) {
-            loadErpCatalogLiveFromSheet().then(() => populateQuoteAdvisorControls());
+            loadErpCatalogLiveFromSheet().then(() => populateQuoteAdvisorControls()).catch(() => {});
         }
         populateQuoteAdvisorControls();
         renderQuoteDraftsBar();
@@ -12371,9 +12411,12 @@
                 : '✓ Chat abierto con <strong>' + escapeHtml(cliName) + '</strong> (' + escapeHtml(phone10) + ').'
         );
 
+        const nowD = new Date();
+        const pad2 = (n) => String(n).padStart(2, '0');
+        const avisoStamp = nowD.getFullYear() + '-' + pad2(nowD.getMonth() + 1) + '-' + pad2(nowD.getDate()) + ' ' + pad2(nowD.getHours()) + ':' + pad2(nowD.getMinutes());
         try {
             const contactedMap = JSON.parse(localStorage.getItem('creata_seg_contacted_v1') || '{}');
-            if (folioTxt) contactedMap[folioTxt] = true;
+            if (folioTxt) contactedMap[folioTxt] = avisoStamp;
             localStorage.setItem('creata_seg_contacted_v1', JSON.stringify(contactedMap));
         } catch (eContact) {}
 
@@ -12389,6 +12432,7 @@
                 telefono: phone10,
                 asesor: advName,
                 sucursal: storeName,
+                fecha_aviso: avisoStamp,
                 origen: 'COTIZADOR_MODAL_ENVIAR'
             }
         }, 10000).catch(() => {});
@@ -12707,6 +12751,7 @@
                             } catch (eLs) {}
                             if (!res.serverLoggedHistorial) {
                                 callInvWebAppPost('inv_log_event', {
+                                    authToken: (activeAdvisorSession && activeAdvisorSession.authToken) || '',
                                     classification: 'MOVIMIENTO',
                                     module: 'SEGUIMIENTO_COTIZACIONES',
                                     event: 'SEG_NUEVA_COTIZACION_APP',
@@ -13778,7 +13823,9 @@
                 ? window.CREATA_CLOUD_CONFIG.getApiUrl()
                 : '';
             if (!apiUrl) return false;
-            const res = await fetch(apiUrl + '?action=cm_inventory&sheetId=' + encodeURIComponent(META.sheetId) + '&tab=' + encodeURIComponent(META.tabName || 'INVENTARIO_EN_VIVO') + '&_t=' + Date.now());
+            const tok = (activeAdvisorSession && activeAdvisorSession.authToken) ? ('&authToken=' + encodeURIComponent(activeAdvisorSession.authToken)) : '';
+            if (!tok) return false;
+            const res = await fetch(apiUrl + '?action=cm_inventory&sheetId=' + encodeURIComponent(META.sheetId) + '&tab=' + encodeURIComponent(META.tabName || 'INVENTARIO_EN_VIVO') + tok + '&_t=' + Date.now());
             if (!res.ok) return false;
             const json = await res.json();
             if (json && json.ok && Array.isArray(json.rows) && json.rows.length > 1) {
@@ -14463,6 +14510,7 @@
 
         async function poll() {
             if (pollInFlight || !activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return;
+            if (!(typeof isFotosAppOwner === 'function' && isFotosAppOwner())) return;
             if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
             pollInFlight = true;
             try {
@@ -14609,7 +14657,7 @@
                 }
                 populateQuoteAdvisorControls();
             }
-        });
+        }).catch(() => {});
 
         updateCartBadge();
         const inp = document.getElementById('invSearchInput');
@@ -14661,7 +14709,9 @@
         refreshLiveSheetNow(true);
         function runSmartLivePollTick() {
             if (document.visibilityState === 'visible') {
-                refreshLiveSheetNow(false);
+                if (activeInAppModule !== 'seguimiento') {
+                    refreshLiveSheetNow(false);
+                }
                 sendInvPresenceHeartbeat(activeAdvisorSession, false);
                 if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.poll === 'function') {
                     window.CreataLiveAlerts.poll();
@@ -14670,7 +14720,9 @@
         }
         setInterval(runSmartLivePollTick, 60000);
         window.addEventListener('focus', function () {
-            refreshLiveSheetNow(false);
+            if (activeInAppModule !== 'seguimiento') {
+                refreshLiveSheetNow(false);
+            }
             sendInvPresenceHeartbeat(activeAdvisorSession, false);
             const modal = document.getElementById('settingsModal');
             if (modal && modal.classList.contains('open') && isRealKevinOwner() && !isKevinAdvisorPreviewActive() && typeof window.refreshSettingsTeamPresence === 'function') {
@@ -14845,7 +14897,7 @@
     let _invSplitTarget = 'fotos';
 
     function getInvSplitTargetUrl(target) {
-        return target === 'prompts' ? './prompts.html' : './fotos-productos.html?embed=1';
+        return target === 'prompts' ? './prompts.html?embed=1' : './fotos-productos.html?embed=1';
     }
 
     function loadInvSplitPrefs() {
@@ -16327,7 +16379,7 @@
                     });
                 }
                 try {
-                    localStorage.setItem(INV_SESSION_KEY, JSON.stringify(activeAdvisorSession));
+                    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(activeAdvisorSession));
                     const pMap = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}') || {};
                     pMap[activeAdvisorSession.correo] = { newKey: newPass, updatedAt: Date.now() };
                     localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(pMap));
@@ -16784,7 +16836,8 @@
         if (stBadge) stBadge.textContent = status;
         if (nameInp) nameInp.value = (ovr && ovr.name) || (it && it.n) || '';
         if (catInp) catInp.value = (ovr && ovr.category) || (it && it.c) || '';
-        const pVal = (ovr && ovr.price !== null && ovr.price !== undefined) ? ovr.price : (it && isFinite(Number(it.p)) ? Number(it.p) : '');
+        const parsedPr = it ? parsePriceNum(it.pr) : 0;
+        const pVal = (ovr && ovr.price !== null && ovr.price !== undefined && ovr.price !== '') ? ovr.price : (parsedPr > 0 ? parsedPr : '');
         if (priceInp) priceInp.value = pVal !== '' ? String(pVal) : '';
         if (noteInp) noteInp.value = (ovr && ovr.note) || '';
         if (btnArch) btnArch.classList.toggle('hidden', status === 'ARCHIVADO');

@@ -843,6 +843,22 @@ function doGet(e) {
     }
   }
 
+  if (action === 'seg_get_delta') {
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: false, rateBucket: 'seg_state', maxHits: 60, windowSec: 60 });
+    if (!gate.ok) return jsonResponse_({ ok: false });
+    try {
+      const p = (e && e.parameter) || {};
+      const reqBody = {
+        authToken: extractAuthTokenFromRequest_(e, null),
+        sinceVersion: Number(p.sinceVersion || 0) || 0,
+        sinceInvVersion: String(p.sinceInvVersion || '').trim()
+      };
+      return jsonResponse_(handleSegGetDelta_(reqBody));
+    } catch (err) {
+      return jsonResponse_({ ok: false });
+    }
+  }
+
   if (action === 'inv_presence_list') {
     const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: false, rateBucket: 'pres_list', maxHits: 45, windowSec: 60 });
     const reqEmailNorm = String((e && e.parameter && (e.parameter.advisorEmail || e.parameter.email)) || '').trim().toLowerCase().replace(/,/g, '.');
@@ -1003,11 +1019,26 @@ function doPost(e) {
       if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
       return jsonResponse_(handleSegGetState_(body));
     }
+    if (action === 'seg_get_delta') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'seg_state', maxHits: 60, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+      return jsonResponse_(handleSegGetDelta_(body));
+    }
     if (action === 'seg_sync_now') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        const recentStamp = CacheService.getScriptCache().get('SEG_ERP_SYNC_COOLDOWN_V1');
+        if (recentStamp) {
+          return jsonResponse_({ ok: true, cachedRecent: true, timestamp: recentStamp });
+        }
+      } catch (eCool) {}
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
+      try {
+        CacheService.getScriptCache().put('SEG_ERP_SYNC_COOLDOWN_V1', String((syncRes && syncRes.timestamp) || new Date().toISOString()), 60);
+      } catch (eCoolSet) {}
       return jsonResponse_(Object.assign({ ok: true }, syncRes));
     }
     if (action === 'inv_login') {
@@ -7436,6 +7467,10 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       } catch (e) {}
     }
 
+    if (erpOk) {
+      try { bumpSegInvVersion_(ahoraStr); } catch (eBumpInv) {}
+    }
+
     return {
       ok: erpOk,
       erpOk: erpOk,
@@ -10713,10 +10748,12 @@ function handleFotosDelete_(body) {
     }
 
     // Guardia de aislamiento Proyecto A/B ANTES de modificar Drive o Hoja "1"
-    const willTrashDrive = !!(driveFileId && !keepDriveFile && (source === 'INBOX' || forceTrash || !usedByOtherSku));
+    const shortcutId = String((body && body.shortcutId) || '').trim();
+    const deleteTargetId = (source === 'INBOX' && shortcutId) ? shortcutId : driveFileId;
+    const willTrashDrive = !!(deleteTargetId && !keepDriveFile && (source === 'INBOX' || forceTrash || !usedByOtherSku));
     let targetFile = null;
-    if (driveFileId) {
-      if (isForbiddenProjectBFolderId_(driveFileId)) {
+    if (deleteTargetId) {
+      if (isForbiddenProjectBFolderId_(deleteTargetId)) {
         return {
           ok: false,
           forbiddenFolder: true,
@@ -10724,7 +10761,7 @@ function handleFotosDelete_(body) {
         };
       }
       try {
-        targetFile = DriveApp.getFileById(driveFileId);
+        targetFile = DriveApp.getFileById(deleteTargetId);
       } catch (eLookupDel) {
         targetFile = null;
       }
@@ -10767,6 +10804,8 @@ function handleFotosDelete_(body) {
         }
       } catch (eGetFile) {}
     }
+
+    try { invalidateLoadedFileNamesCache_(); } catch (eInvCacheDel) {}
 
     try {
       registrarEventoHistorial_(ss, {
@@ -10951,12 +10990,146 @@ function getSpreadsheetSeguimiento_() {
 function mapErpStoreToSeguimientoBranch_(rawStoreOrTab, folio) {
   const s = String(rawStoreOrTab || '').trim().toUpperCase();
   const f = String(folio || '').trim().toUpperCase();
-  if (s.indexOf('PROYECTO') >= 0 || f.indexOf('PROY-') === 0) return 'PROYECTOS';
-  if (s.indexOf('CASA CREATA') >= 0 || f.indexOf('CC-') === 0) return 'CASA CREATA';
-  if (s.indexOf('PLAYA') >= 0 || f.indexOf('PC-') === 0) return 'PLAYA';
-  if (s.indexOf('COLOSIO') >= 0 || s.indexOf('COLOCIO') >= 0 || f.indexOf('CO-') === 0 || f.indexOf('OC-') === 0) return 'COLOSIO';
-  if (s.indexOf('PTC') >= 0 || s.indexOf('PUERTO') >= 0 || f.indexOf('CA-') === 0) return 'PTC';
+  if (s.indexOf('PROYECTO') >= 0 || /^PRO(?:Y|-|\d)/.test(f)) return 'PROYECTOS';
+  if (s.indexOf('CASA CREATA') >= 0 || s.indexOf('BONAMPAK') >= 0 || /^(?:CCB|CC-)/.test(f)) return 'CASA CREATA';
+  if (s.indexOf('PLAYA') >= 0 || /^(?:PL|PC-)/.test(f)) return 'PLAYA';
+  if (s.indexOf('COLOSIO') >= 0 || s.indexOf('COLOCIO') >= 0 || s.indexOf('OUTLET') >= 0 || /^(?:DTC|OUT|CO-|OC-)/.test(f)) return 'COLOSIO';
+  if (s.indexOf('PTC') >= 0 || s.indexOf('PUERTO') >= 0 || /^(?:PTC|CA-)/.test(f)) return 'PTC';
   return 'PTC';
+}
+
+const SEG_DELTA_STATE_KEY_ = 'SEG_DELTA_STATE_V1';
+const SEG_DELTA_MAX_LOG_ = 160;
+const SEG_DELTA_MAX_BYTES_ = 7200;
+
+function readSegDeltaState_() {
+  const fallback = { version: 1, invVersion: '', changes: [] };
+  try {
+    const cached = CacheService.getScriptCache().get(SEG_DELTA_STATE_KEY_);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          version: Number(parsed.version) || 1,
+          invVersion: String(parsed.invVersion || ''),
+          changes: Array.isArray(parsed.changes) ? parsed.changes : []
+        };
+      }
+    }
+  } catch (eC) {}
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(SEG_DELTA_STATE_KEY_);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        const out = {
+          version: Number(parsed.version) || 1,
+          invVersion: String(parsed.invVersion || ''),
+          changes: Array.isArray(parsed.changes) ? parsed.changes : []
+        };
+        try { CacheService.getScriptCache().put(SEG_DELTA_STATE_KEY_, JSON.stringify(out), 300); } catch (eC2) {}
+        return out;
+      }
+    }
+  } catch (eP) {}
+  return fallback;
+}
+
+function writeSegDeltaState_(st) {
+  const safe = {
+    version: Math.max(1, Number((st && st.version) || 1)),
+    invVersion: String((st && st.invVersion) || ''),
+    changes: Array.isArray(st && st.changes) ? st.changes.slice(-SEG_DELTA_MAX_LOG_) : []
+  };
+  let raw = JSON.stringify(safe);
+  while (raw.length > SEG_DELTA_MAX_BYTES_ && safe.changes.length > 10) {
+    safe.changes = safe.changes.slice(Math.ceil(safe.changes.length * 0.25));
+    raw = JSON.stringify(safe);
+  }
+  try { PropertiesService.getScriptProperties().setProperty(SEG_DELTA_STATE_KEY_, raw); } catch (eP) {}
+  try { CacheService.getScriptCache().put(SEG_DELTA_STATE_KEY_, raw, 300); } catch (eC) {}
+  return safe;
+}
+
+function recordSegDeltaChange_(kind, meta) {
+  try {
+    const m = meta || {};
+    const st = readSegDeltaState_();
+    const nextV = (Number(st.version) || 1) + 1;
+    st.version = nextV;
+    st.changes.push({
+      v: nextV,
+      ts: new Date().toISOString(),
+      kind: String(kind || 'EVENT').toUpperCase(),
+      folio: String(m.folio || '').trim().toUpperCase(),
+      branch: String(m.branch || '').trim().toUpperCase(),
+      advisorEmail: String(m.advisorEmail || '').trim().toLowerCase(),
+      advisorName: String(m.advisorName || '').trim(),
+      data: (m.data && typeof m.data === 'object') ? m.data : {}
+    });
+    writeSegDeltaState_(st);
+    return nextV;
+  } catch (eRec) {
+    return 0;
+  }
+}
+
+function bumpSegInvVersion_(stamp) {
+  try {
+    const st = readSegDeltaState_();
+    st.invVersion = String(stamp || new Date().toISOString());
+    writeSegDeltaState_(st);
+    return st.invVersion;
+  } catch (eBump) {
+    return '';
+  }
+}
+
+function readInventoryMapForSkus_(ssInv, targetSkusSet) {
+  const result = { bySku: {}, syncBanner: '' };
+  try {
+    const shInv = (ssInv || getSpreadsheet_()).getSheetByName(CONFIG.TAB_INVENTORY);
+    if (!shInv || shInv.getLastRow() < 3) return result;
+    const lastR = shInv.getLastRow();
+    const lastC = Math.min(Math.max(shInv.getLastColumn(), 32), 52);
+    const hdrRow2 = shInv.getRange(2, 1, 1, lastC).getDisplayValues()[0] || [];
+    result.syncBanner = String(hdrRow2[48] || '').trim();
+    const priceIdx = (lastC >= 50 && /PRECIO/i.test(String(hdrRow2[49] || ''))) ? 49 : (lastC >= 50 ? 49 : (lastC >= 49 ? 48 : -1));
+
+    const dataRows = shInv.getRange(3, 1, lastR - 2, lastC).getDisplayValues();
+    for (let i = 0; i < dataRows.length; i++) {
+      const r = dataRows[i] || [];
+      const sku = String(r[0] || '').trim().toUpperCase();
+      if (!sku) continue;
+      if (targetSkusSet && !targetSkusSet[sku]) continue;
+      const fotoRaw = String(r[5] || '').trim();
+      const driveId = extractDriveFileIdFromCell_(fotoRaw);
+      const rawPrice = priceIdx >= 0 ? String(r[priceIdx] || '') : '';
+      const priceNum = parseFloat(rawPrice.replace(/[^0-9.-]/g, '')) || 0;
+      result.bySku[sku] = {
+        sku: sku,
+        tipo: String(r[1] || '').trim(),
+        modelo: String(r[2] || '').trim(),
+        nombre: String(r[3] || '').trim(),
+        foto: fotoRaw,
+        driveId: driveId,
+        cedis_bod: parseInt(String(r[20] || '0'), 10) || 0,
+        cedis_pis: parseInt(String(r[21] || '0'), 10) || 0,
+        casa_bod: parseInt(String(r[22] || '0'), 10) || 0,
+        casa_pis: parseInt(String(r[23] || '0'), 10) || 0,
+        ptc_bod: parseInt(String(r[24] || '0'), 10) || 0,
+        ptc_pis: parseInt(String(r[25] || '0'), 10) || 0,
+        col_bod: parseInt(String(r[26] || '0'), 10) || 0,
+        col_pis: parseInt(String(r[27] || '0'), 10) || 0,
+        pla_bod: parseInt(String(r[28] || '0'), 10) || 0,
+        pla_pis: parseInt(String(r[29] || '0'), 10) || 0,
+        out_bod: parseInt(String(r[30] || '0'), 10) || 0,
+        out_pis: parseInt(String(r[31] || '0'), 10) || 0,
+        precio: priceNum
+      };
+    }
+  } catch (eInvRead) {}
+  return result;
 }
 
 function sincronizarPasswordEnHojaSeguimiento_(email, newKey) {
@@ -11034,8 +11207,9 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
     const clientName = String(info.clientName || 'Prospecto CREATA').trim();
     const clientPhone = String(info.clientPhone || '').replace(/\D+/g, '');
 
-    // Solo escanear INVENTARIO_EN_VIVO si alguna partida no trae desglose de stock en el payload
+    // Solo escanear INVENTARIO_EN_VIVO para los SKUs que no traen stockBreakdown
     const preSuppliedMap = {};
+    const missingSkuSet = {};
     let needsInventoryScan = false;
     for (let p = 0; p < info.partidas.length; p++) {
       const pt = info.partidas[p] || {};
@@ -11045,36 +11219,32 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
       if (preSt) {
         preSuppliedMap[sku] = preSt;
       } else {
+        missingSkuSet[sku] = true;
         needsInventoryScan = true;
       }
     }
 
     const invMap = {};
     if (needsInventoryScan) {
-      try {
-        const shInv = (ssInv || getSpreadsheet_()).getSheetByName(CONFIG.TAB_INVENTORY);
-        if (shInv && shInv.getLastRow() >= 4) {
-          const invRows = shInv.getRange(4, 1, shInv.getLastRow() - 3, 21).getValues();
-          for (let i = 0; i < invRows.length; i++) {
-            const r = invRows[i];
-            const skuKey = String(r[1] || '').trim().toUpperCase();
-            if (!skuKey) continue;
-            invMap[skuKey] = {
-              modelo: String(r[3] || '').trim(),
-              cedis_bodega: Number(r[6]) || 0,
-              cedis_piso: Number(r[7]) || 0,
-              casa_bodega: Number(r[8]) || 0,
-              casa_piso: Number(r[9]) || 0,
-              colosio_bodega: (Number(r[10]) || 0) + (Number(r[12]) || 0),
-              colosio_piso: (Number(r[11]) || 0) + (Number(r[13]) || 0),
-              playa_bodega: Number(r[14]) || 0,
-              playa_piso: Number(r[15]) || 0,
-              ptc_bodega: Number(r[16]) || 0,
-              ptc_piso: Number(r[17]) || 0
-            };
-          }
-        }
-      } catch (eInv) {}
+      const invRes = readInventoryMapForSkus_(ssInv, missingSkuSet);
+      const skuKeys = Object.keys(invRes.bySku || {});
+      for (let i = 0; i < skuKeys.length; i++) {
+        const k = skuKeys[i];
+        const m = invRes.bySku[k];
+        invMap[k] = {
+          modelo: m.modelo || '',
+          cedis_bodega: m.cedis_bod || 0,
+          cedis_piso: m.cedis_pis || 0,
+          casa_bodega: m.casa_bod || 0,
+          casa_piso: m.casa_pis || 0,
+          colosio_bodega: (m.col_bod || 0) + (m.out_bod || 0),
+          colosio_piso: (m.col_pis || 0) + (m.out_pis || 0),
+          playa_bodega: m.pla_bod || 0,
+          playa_piso: m.pla_pis || 0,
+          ptc_bodega: m.ptc_bod || 0,
+          ptc_piso: m.ptc_pis || 0
+        };
+      }
     }
 
     // Verificar partidas existentes para no duplicar ID_Partida
@@ -11109,9 +11279,10 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
         else if (sucSeg === 'PTC') { tb = st.ptc_bodega; tp = st.ptc_piso; tot = cb + cp + tb + tp; }
         else if (sucSeg === 'CASA CREATA') { tb = st.casa_bodega; tp = st.casa_piso; tot = cb + cp + tb + tp; }
         else {
-          tb = st.casa_bodega + st.colosio_bodega + st.playa_bodega + st.ptc_bodega;
-          tp = st.casa_piso + st.colosio_piso + st.playa_piso + st.ptc_piso;
-          tot = cb + cp + tb + tp;
+          // PROYECTOS: regla oficial Solo CEDIS
+          tb = 0;
+          tp = 0;
+          tot = cb + cp;
         }
       }
 
@@ -11171,6 +11342,15 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
       }
       shCot.getRange(startRow, 1, newRows.length, 27).setValues(newRows);
     }
+    if (newRows.length > 0 || updatedCount > 0) {
+      recordSegDeltaChange_('QUOTE', {
+        folio: folio,
+        branch: sucSeg,
+        advisorEmail: advisorEmail,
+        advisorName: advisorName,
+        data: { count: newRows.length + updatedCount, clientName: clientName }
+      });
+    }
     return (newRows.length > 0 || updatedCount > 0);
   } catch (eRegSeg) {
     Logger.log('Aviso registrarCotizacionAppEnSeguimiento_: ' + eRegSeg);
@@ -11184,12 +11364,14 @@ function handleSegAction_(body) {
   const folio = String(b.folio || '').trim().toUpperCase();
   const payload = b.payload || {};
   const ssInv = getSpreadsheet_();
-  const erpMeta = readErpAdvisorsFromPlantilla_(ssInv);
   const authReq = b.authToken ? b : Object.assign({}, b, { authToken: b.token || '' });
-  const authCheck = resolveAuthenticatedAdvisor_(ssInv, erpMeta.advisors, authReq);
+  const authCheck = resolveAuthenticatedAdvisor_(ssInv, [], authReq);
   if (!authCheck || !authCheck.ok || !authCheck.advisor || isGuestReadOnlyUser_(authCheck.advisor)) {
-    return { ok: false };
+    return { ok: false, authRequired: true };
   }
+  const verifiedUser = authCheck.advisor;
+  const userEmail = String(verifiedUser.correo || '').trim().toLowerCase();
+  const userBranch = mapErpStoreToSeguimientoBranch_(verifiedUser.erpStore || verifiedUser.sheetTab, '');
   const ssSeg = getSpreadsheetSeguimiento_();
   const ahoraStr = Utilities.formatDate(new Date(), 'America/Cancun', 'yyyy-MM-dd HH:mm:ss');
 
@@ -11199,8 +11381,8 @@ function handleSegAction_(body) {
     modulo: 'SEGUIMIENTO_COTIZACIONES',
     evento: sub || 'SEG_ACTION',
     estado: '✅ OK',
-    usuario: String(payload.usuario || payload.asesor || payload.advisorName || 'Usuario Seguimiento'),
-    sucursal: String(payload.sucursal || payload.erpStore || 'TODAS'),
+    usuario: String(payload.usuario || payload.asesor || payload.advisorName || verifiedUser.nombre || 'Usuario Seguimiento'),
+    sucursal: String(payload.sucursal || payload.erpStore || userBranch || 'TODAS'),
     referencia: folio || 'SEGUIMIENTO',
     detalle: JSON.stringify(payload),
     analisis: 'Evento sincronizado en vivo desde Seguimiento de Cotizaciones.'
@@ -11208,57 +11390,140 @@ function handleSegAction_(body) {
 
   if (!ssSeg) return { ok: true, fallbackOnly: true };
 
+  const lock = LockService.getScriptLock();
+  let gotLock = false;
+  try {
+    gotLock = lock.tryLock(10000);
+  } catch (eLk) {}
+
   try {
     if (sub === 'SEG_NUEVA_COTIZACION_APP' && payload && Array.isArray(payload.items)) {
       registrarCotizacionAppEnSeguimiento_(ssInv, {
         folio: payload.folio || folio,
         fechaStr: payload.fecha || ahoraStr.slice(0, 10),
-        sheetTab: payload.sheetTab,
-        erpStore: payload.erpStore,
-        advisorName: payload.advisorName,
-        advisorEmail: payload.advisorEmail,
+        sheetTab: payload.sheetTab || verifiedUser.sheetTab,
+        erpStore: payload.erpStore || verifiedUser.erpStore,
+        advisorName: payload.advisorName || verifiedUser.nombre,
+        advisorEmail: payload.advisorEmail || userEmail,
         clientName: payload.clientName,
         clientPhone: payload.clientPhone,
         partidas: payload.items
       });
     } else if (sub === 'SEG_CIERRE' && folio) {
-      let shCierres = ssSeg.getSheetByName('CIERRES_COTIZACIONES');
-      if (shCierres) {
-        shCierres.appendRow([
-          payload.fecha_hora || ahoraStr.slice(0, 16),
-          folio,
-          payload.sucursal || '',
-          payload.asesor || '',
-          payload.correo_asesor || '',
-          payload.cliente || '',
-          payload.whatsapp_cliente || '',
-          payload.estatus || 'CERRADA',
-          payload.motivo || '',
-          payload.comentarios || ''
-        ]);
+      const shCierres = ssSeg.getSheetByName('CIERRES_COTIZACIONES');
+      const statusNorm = String(payload.estatus || 'CERRADA').trim().toUpperCase();
+      let alreadyRecorded = false;
+      if (shCierres && shCierres.getLastRow() >= 2) {
+        const lastC = Math.min(shCierres.getLastColumn(), 12);
+        const existing = shCierres.getRange(2, 1, shCierres.getLastRow() - 1, Math.max(lastC, 8)).getDisplayValues();
+        for (let i = existing.length - 1; i >= 0; i--) {
+          const exFol = String(existing[i][1] || '').trim().toUpperCase();
+          const exSt = String(existing[i][7] || '').trim().toUpperCase();
+          if (exFol === folio && exSt === statusNorm) {
+            alreadyRecorded = true;
+            break;
+          }
+        }
       }
+      const closureRow = [
+        payload.fecha_hora || ahoraStr.slice(0, 16),
+        folio,
+        payload.sucursal || userBranch || '',
+        payload.asesor || verifiedUser.nombre || '',
+        payload.correo_asesor || userEmail || '',
+        payload.cliente || '',
+        payload.whatsapp_cliente || '',
+        statusNorm,
+        payload.motivo || '',
+        payload.comentarios || '',
+        payload.total_productos !== undefined ? String(payload.total_productos) : '',
+        payload.piezas_cotizadas !== undefined ? String(payload.piezas_cotizadas) : ''
+      ];
+      if (shCierres && !alreadyRecorded) {
+        shCierres.appendRow(closureRow);
+      }
+      recordSegDeltaChange_('CIERRE', {
+        folio: folio,
+        branch: String(payload.sucursal || userBranch || ''),
+        advisorEmail: String(payload.correo_asesor || userEmail || ''),
+        advisorName: String(payload.asesor || verifiedUser.nombre || ''),
+        data: {
+          Fecha_Hora: closureRow[0],
+          Folio_ERP: folio,
+          Sucursal: closureRow[2],
+          Asesor: closureRow[3],
+          Correo_Asesor: closureRow[4],
+          Cliente: closureRow[5],
+          WhatsApp_Cliente: closureRow[6],
+          Estatus_Cierre: closureRow[7],
+          Motivo_Cierre: closureRow[8],
+          Comentarios: closureRow[9],
+          Piezas_Cotizadas: closureRow[11]
+        }
+      });
     } else if (sub === 'SEG_TELEFONO' && folio) {
       const shCot = ssSeg.getSheetByName('COTIZACIONES_CREATA');
       const cleanTel = String(payload.whatsapp_cliente || '').replace(/\D+/g, '');
       if (shCot && shCot.getLastRow() >= 2 && cleanTel) {
-        const rows = shCot.getRange(2, 2, shCot.getLastRow() - 1, 1).getValues();
-        for (let i = 0; i < rows.length; i++) {
-          if (String(rows[i][0] || '').trim().toUpperCase() === folio) {
-            shCot.getRange(i + 2, 9).setNumberFormat('@').setValue(cleanTel);
+        const lastR = shCot.getLastRow();
+        const folCol = shCot.getRange(2, 2, lastR - 1, 1).getValues();
+        const telRange = shCot.getRange(2, 9, lastR - 1, 1);
+        const telVals = telRange.getDisplayValues();
+        let touched = false;
+        for (let i = 0; i < folCol.length; i++) {
+          if (String(folCol[i][0] || '').trim().toUpperCase() === folio) {
+            telVals[i][0] = cleanTel;
+            touched = true;
           }
         }
+        if (touched) {
+          telRange.setNumberFormat('@').setValues(telVals);
+        }
+      }
+      if (cleanTel) {
+        recordSegDeltaChange_('PHONE', {
+          folio: folio,
+          branch: String(payload.sucursal || userBranch || ''),
+          advisorEmail: String(payload.email || payload.correo_asesor || userEmail || ''),
+          advisorName: String(payload.usuario || payload.asesor || verifiedUser.nombre || ''),
+          data: { whatsapp_cliente: cleanTel }
+        });
       }
     } else if (sub === 'SEG_WHATSAPP' && folio) {
       const shCot = ssSeg.getSheetByName('COTIZACIONES_CREATA');
       const fAviso = String(payload.fecha_aviso || ahoraStr.slice(0, 16));
       if (shCot && shCot.getLastRow() >= 2) {
-        const rows = shCot.getRange(2, 2, shCot.getLastRow() - 1, 1).getValues();
-        for (let i = 0; i < rows.length; i++) {
-          if (String(rows[i][0] || '').trim().toUpperCase() === folio) {
-            shCot.getRange(i + 2, 26).setValue(fAviso);
+        const lastR = shCot.getLastRow();
+        const folCol = shCot.getRange(2, 2, lastR - 1, 1).getValues();
+        const avisoRange = shCot.getRange(2, 26, lastR - 1, 1);
+        const avisoVals = avisoRange.getDisplayValues();
+        let touched = false;
+        for (let i = 0; i < folCol.length; i++) {
+          if (String(folCol[i][0] || '').trim().toUpperCase() === folio) {
+            avisoVals[i][0] = fAviso;
+            touched = true;
           }
         }
+        if (touched) {
+          avisoRange.setValues(avisoVals);
+        }
       }
+      recordSegDeltaChange_('WHATSAPP', {
+        folio: folio,
+        branch: String(payload.sucursal || userBranch || ''),
+        advisorEmail: String(payload.email || payload.correo_asesor || userEmail || ''),
+        advisorName: String(payload.usuario || payload.asesor || verifiedUser.nombre || ''),
+        data: { fecha_aviso: fAviso }
+      });
+    } else if (sub === 'SEG_EMAIL' && folio) {
+      const fAviso = String(payload.fecha_aviso || ahoraStr.slice(0, 16));
+      recordSegDeltaChange_('EMAIL', {
+        folio: folio,
+        branch: String(payload.sucursal || userBranch || ''),
+        advisorEmail: String(payload.email || payload.correo_asesor || userEmail || ''),
+        advisorName: String(payload.usuario || payload.asesor || verifiedUser.nombre || ''),
+        data: { fecha_aviso: fAviso }
+      });
     }
 
     const shHist = ssSeg.getSheetByName('HISTORIAL_MOVIMIENTOS');
@@ -11266,10 +11531,10 @@ function handleSegAction_(body) {
       shHist.appendRow([
         ahoraStr,
         sub.replace(/^SEG_/, ''),
-        payload.usuario || payload.asesor || '',
-        payload.email || payload.correo_asesor || '',
-        payload.sucursal || '',
-        payload.accion || (sub + ' ' + folio),
+        payload.usuario || payload.asesor || verifiedUser.nombre || '',
+        payload.email || payload.correo_asesor || userEmail || '',
+        payload.sucursal || userBranch || '',
+        payload.accion || (sub + ' Folio ' + folio),
         payload.detalle || JSON.stringify(payload),
         'Web-App',
         payload.status || 'EXITOSO'
@@ -11277,9 +11542,14 @@ function handleSegAction_(body) {
     }
   } catch (eSegAct) {
     Logger.log('Aviso handleSegAction_: ' + eSegAct);
+  } finally {
+    if (gotLock) {
+      try { lock.releaseLock(); } catch (eRel) {}
+    }
   }
 
-  return { ok: true };
+  const deltaSt = readSegDeltaState_();
+  return { ok: true, version: deltaSt.version };
 }
 
 function extractDriveFileIdFromCell_(rawVal) {
@@ -11305,23 +11575,25 @@ function readSheetDisplayMatrixSafe_(book, tabName, maxTailRows) {
   return sh.getRange(1, 1, lastR, lastC).getDisplayValues();
 }
 
-/**
- * Endpoint autenticado seg_get_state: sirve estado de Seguimiento e Historial en vivo sin exponer
- * lecturas anónimas ni escribir en ninguna hoja.
- */
-function handleSegGetState_(body) {
-  const b = body || {};
-  const ssInv = getSpreadsheet_();
-  const erpMeta = readErpAdvisorsFromPlantilla_(ssInv);
-  const authCheck = resolveAuthenticatedAdvisor_(ssInv, erpMeta.advisors, b);
-  if (!authCheck || !authCheck.ok || !authCheck.advisor) {
-    return { ok: false };
+function readSheetAppendedRowsSafe_(book, tabName, afterRow) {
+  if (!book || !tabName) return { lastRow: 0, rows: [], shrunk: false };
+  const sh = book.getSheetByName(tabName);
+  if (!sh) return { lastRow: 0, rows: [], shrunk: false };
+  const lastR = sh.getLastRow();
+  const lastC = sh.getLastColumn();
+  const prevR = Math.max(0, parseInt(String(afterRow || 0), 10) || 0);
+  if (lastR < prevR) {
+    return { lastRow: lastR, rows: [], shrunk: true };
   }
-  const verifiedUser = authCheck.advisor;
-  if (isGuestReadOnlyUser_(verifiedUser)) {
-    return { ok: false };
+  if (lastR <= prevR || lastR < 2 || lastC < 1) {
+    return { lastRow: lastR, rows: [], shrunk: false };
   }
+  const startR = Math.max(2, prevR + 1);
+  const rows = sh.getRange(startR, 1, lastR - startR + 1, lastC).getDisplayValues();
+  return { lastRow: lastR, rows: rows, shrunk: false };
+}
 
+function buildSegRoleScopeInfo_(verifiedUser) {
   const isAdmin = !!verifiedUser.isAdmin;
   const isManager = !isAdmin && isManagerUserRole_(verifiedUser);
   const roleScope = isAdmin ? 'ADMIN' : (isManager ? 'GERENTE' : 'ASESOR');
@@ -11329,28 +11601,91 @@ function handleSegGetState_(body) {
   const userNameNorm = normPlainUpper_(verifiedUser.nombre || '');
   const userBranchSeg = mapErpStoreToSeguimientoBranch_(verifiedUser.erpStore || verifiedUser.sheetTab, '');
   const userStoreNorm = normalizeQuoteErpStore_(verifiedUser.erpStore, verifiedUser.sheetTab);
-
-  const ssSeg = getSpreadsheetSeguimiento_();
-  const cotCreata = readSheetDisplayMatrixSafe_(ssSeg, 'COTIZACIONES_CREATA', 0);
-  const cotVivo = readSheetDisplayMatrixSafe_(ssInv, TAB_QUOTES_LIVE_, 0);
-  const cierres = readSheetDisplayMatrixSafe_(ssSeg, 'CIERRES_COTIZACIONES', 0);
-  const configCreata = readSheetDisplayMatrixSafe_(ssSeg, 'CONFIG_CREATA', 0);
-
-  let histMov = readSheetDisplayMatrixSafe_(ssSeg, 'HISTORIAL_MOVIMIENTOS', 500);
-  if (!isAdmin && histMov.length > 1) {
-    const hdrM = histMov[0];
-    const filteredM = [];
-    for (let i = 1; i < histMov.length; i++) {
-      const r = histMov[i] || [];
-      const rowEmail = String(r[3] || '').trim().toLowerCase();
-      const rowUser = normPlainUpper_(r[2] || '');
-      const rowBranch = normPlainUpper_(r[4] || '');
-      const sameUser = (userEmail && rowEmail === userEmail) || (userNameNorm && rowUser && rowUser.indexOf(userNameNorm) !== -1);
-      const sameBranch = isManager && rowBranch && (rowBranch === normPlainUpper_(userBranchSeg) || rowBranch === userStoreNorm);
-      if (sameUser || sameBranch) filteredM.push(r);
+  const allowedBranches = {};
+  if (userBranchSeg) allowedBranches[normPlainUpper_(userBranchSeg)] = true;
+  if (userStoreNorm) allowedBranches[userStoreNorm] = true;
+  if (Array.isArray(verifiedUser.allLocations)) {
+    for (let i = 0; i < verifiedUser.allLocations.length; i++) {
+      const loc = verifiedUser.allLocations[i] || {};
+      const bSeg = mapErpStoreToSeguimientoBranch_(loc.erpStore || loc.sheetTab, '');
+      const bNorm = normalizeQuoteErpStore_(loc.erpStore, loc.sheetTab);
+      if (bSeg) allowedBranches[normPlainUpper_(bSeg)] = true;
+      if (bNorm) allowedBranches[bNorm] = true;
     }
-    histMov = [hdrM].concat(filteredM);
   }
+  return {
+    isAdmin: isAdmin,
+    isManager: isManager,
+    roleScope: roleScope,
+    userEmail: userEmail,
+    userNameNorm: userNameNorm,
+    userBranchSeg: userBranchSeg,
+    userStoreNorm: userStoreNorm,
+    allowedBranches: allowedBranches
+  };
+}
+
+function matchesSegScope_(scope, rowEmailRaw, rowNameRaw, rowBranchRaw, rowFolioRaw) {
+  if (scope.isAdmin) return true;
+  const rowEmail = String(rowEmailRaw || '').trim().toLowerCase();
+  const rowName = normPlainUpper_(rowNameRaw || '');
+  const rowBranch = normPlainUpper_(mapErpStoreToSeguimientoBranch_(rowBranchRaw || '', rowFolioRaw || ''));
+  const rawBranchNorm = normPlainUpper_(rowBranchRaw || '');
+  const sameUser = (scope.userEmail && rowEmail && rowEmail === scope.userEmail) ||
+    (scope.userNameNorm && rowName && (rowName === scope.userNameNorm || rowName.indexOf(scope.userNameNorm) !== -1 || scope.userNameNorm.indexOf(rowName) !== -1));
+  if (scope.isManager) {
+    const sameBranch = Boolean((rowBranch && scope.allowedBranches[rowBranch]) || (rawBranchNorm && scope.allowedBranches[rawBranchNorm]));
+    return sameUser || sameBranch;
+  }
+  return sameUser;
+}
+
+function filterSegMatrixByScope_(matrix, scope, colSpec, hasHeader) {
+  if (!Array.isArray(matrix) || !matrix.length) return [];
+  if (scope.isAdmin) return matrix;
+  const out = hasHeader ? [matrix[0]] : [];
+  const start = hasHeader ? 1 : 0;
+  for (let i = start; i < matrix.length; i++) {
+    const r = matrix[i] || [];
+    const em = colSpec.email >= 0 ? r[colSpec.email] : '';
+    const nm = colSpec.name >= 0 ? r[colSpec.name] : '';
+    const br = colSpec.branch >= 0 ? r[colSpec.branch] : '';
+    const fl = colSpec.folio >= 0 ? r[colSpec.folio] : '';
+    if (matchesSegScope_(scope, em, nm, br, fl)) {
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+/**
+ * Endpoint autenticado seg_get_state: sirve estado de Seguimiento e Historial en vivo
+ * filtrado estrictamente por rol (Admin / Gerente / Asesor) sin escribir en ninguna hoja.
+ */
+function handleSegGetState_(body) {
+  const b = body || {};
+  const ssInv = getSpreadsheet_();
+  const authCheck = resolveAuthenticatedAdvisor_(ssInv, [], b);
+  if (!authCheck || !authCheck.ok || !authCheck.advisor) {
+    return { ok: false, authRequired: true };
+  }
+  const verifiedUser = authCheck.advisor;
+  if (isGuestReadOnlyUser_(verifiedUser)) {
+    return { ok: false };
+  }
+
+  const scope = buildSegRoleScopeInfo_(verifiedUser);
+  const ssSeg = getSpreadsheetSeguimiento_();
+  const cotCreataRaw = readSheetDisplayMatrixSafe_(ssSeg, 'COTIZACIONES_CREATA', 0);
+  const cotVivoRaw = readSheetDisplayMatrixSafe_(ssInv, TAB_QUOTES_LIVE_, 0);
+  const cierresRaw = readSheetDisplayMatrixSafe_(ssSeg, 'CIERRES_COTIZACIONES', 0);
+  const configCreata = readSheetDisplayMatrixSafe_(ssSeg, 'CONFIG_CREATA', 0);
+  const histMovRaw = readSheetDisplayMatrixSafe_(ssSeg, 'HISTORIAL_MOVIMIENTOS', 500);
+
+  const cotCreata = filterSegMatrixByScope_(cotCreataRaw, scope, { email: 5, name: 4, branch: 3, folio: 1 }, true);
+  const cotVivo = filterSegMatrixByScope_(cotVivoRaw, scope, { email: 7, name: 8, branch: 6, folio: 1 }, true);
+  const cierres = filterSegMatrixByScope_(cierresRaw, scope, { email: 4, name: 3, branch: 2, folio: 1 }, true);
+  const histMov = filterSegMatrixByScope_(histMovRaw, scope, { email: 3, name: 2, branch: 4, folio: -1 }, true);
 
   let histSeg = [];
   const shHistInv = ssInv.getSheetByName(TAB_HISTORIAL_);
@@ -11364,61 +11699,25 @@ function handleSegGetState_(body) {
     for (let i = 0; i < dataRows.length; i++) {
       const r = dataRows[i] || [];
       if (String(r[2] || '').trim().toUpperCase() !== 'SEGUIMIENTO_COTIZACIONES') continue;
-      if (!isAdmin) {
-        const rowUsr = String(r[5] || '').toLowerCase();
-        const rowSuc = normPlainUpper_(r[6] || '');
-        const sameUser = (userEmail && rowUsr.indexOf(userEmail) !== -1) || (userNameNorm && normPlainUpper_(r[5] || '').indexOf(userNameNorm) !== -1);
-        const sameBranch = isManager && rowSuc && (rowSuc === normPlainUpper_(userBranchSeg) || rowSuc === userStoreNorm);
-        if (!sameUser && !sameBranch) continue;
-      }
+      if (!scope.isAdmin && !matchesSegScope_(scope, r[5], r[5], r[6], r[7])) continue;
       matchedSeg.push(r);
     }
     histSeg = [hdrRow].concat(matchedSeg.slice(-500));
   }
 
-  const inventoryPhotosBySku = {};
+  // Leer inventario solo para los SKUs presentes en cotizaciones visibles (o todo si includeInventory)
+  const neededSkus = {};
+  for (let i = 1; i < cotCreata.length; i++) {
+    const sku = String((cotCreata[i] && cotCreata[i][9]) || '').trim().toUpperCase();
+    if (sku) neededSkus[sku] = true;
+  }
+  const invRes = readInventoryMapForSkus_(ssInv, b.includeInventory ? null : (Object.keys(neededSkus).length ? neededSkus : null));
+  const inventoryPhotosBySku = invRes.bySku || {};
   let invFullRows = null;
-  const shInv = ssInv.getSheetByName(CONFIG.TAB_INVENTORY);
-  if (shInv && shInv.getLastRow() >= 4) {
-    const lastR = shInv.getLastRow();
-    const lastC = shInv.getLastColumn();
-    if (b.includeInventory) {
-      invFullRows = shInv.getRange(1, 1, lastR, lastC).getDisplayValues();
-      for (let i = 3; i < invFullRows.length; i++) {
-        const r = invFullRows[i] || [];
-        const sku = String(r[1] || '').trim().toUpperCase();
-        if (!sku) continue;
-        const fotoRaw = String(r[5] || '').trim();
-        const driveId = extractDriveFileIdFromCell_(fotoRaw);
-        const priceColIdx = r.length > 48 ? 48 : (r.length > 20 ? 20 : -1);
-        const priceNum = priceColIdx >= 0 ? (parseFloat(String(r[priceColIdx] || '').replace(/[^0-9.-]/g, '')) || 0) : 0;
-        inventoryPhotosBySku[sku] = {
-          foto: fotoRaw,
-          driveId: driveId,
-          nombre: String(r[2] || '').trim(),
-          modelo: String(r[3] || '').trim(),
-          precio: priceNum
-        };
-      }
-    } else {
-      const photoCols = shInv.getRange(4, 2, lastR - 3, 5).getDisplayValues(); // B..F (SKU, Nombre, Modelo, ..., Foto)
-      const priceVals = lastC >= 49 ? shInv.getRange(4, 49, lastR - 3, 1).getDisplayValues() : null; // AW
-      for (let i = 0; i < photoCols.length; i++) {
-        const r = photoCols[i] || [];
-        const sku = String(r[0] || '').trim().toUpperCase();
-        if (!sku) continue;
-        const fotoRaw = String(r[4] || '').trim();
-        const driveId = extractDriveFileIdFromCell_(fotoRaw);
-        const rawP = priceVals && priceVals[i] ? priceVals[i][0] : '';
-        const priceNum = parseFloat(String(rawP || '').replace(/[^0-9.-]/g, '')) || 0;
-        inventoryPhotosBySku[sku] = {
-          foto: fotoRaw,
-          driveId: driveId,
-          nombre: String(r[1] || '').trim(),
-          modelo: String(r[2] || '').trim(),
-          precio: priceNum
-        };
-      }
+  if (b.includeInventory) {
+    const shInv = ssInv.getSheetByName(CONFIG.TAB_INVENTORY);
+    if (shInv && shInv.getLastRow() >= 3) {
+      invFullRows = shInv.getRange(1, 1, shInv.getLastRow(), shInv.getLastColumn()).getDisplayValues();
     }
   }
 
@@ -11437,15 +11736,195 @@ function handleSegGetState_(body) {
   return {
     ok: true,
     updatedAt: new Date().toISOString(),
-    roleScope: roleScope,
+    roleScope: scope.roleScope,
+    syncBanner: invRes.syncBanner || '',
     sheets: sheetsOut,
-    cotCreataRows: cotCreata,
-    cotVivoRows: cotVivo,
-    cierresRows: cierres,
-    cfgRows: configCreata,
-    histMovRows: histMov,
-    histSegRows: histSeg,
     inventoryPhotosBySku: inventoryPhotosBySku
+  };
+}
+
+/**
+ * Endpoint incremental seg_get_delta ("Solo modificaciones nuevas"):
+ * - Fast path (mode: 'noop'): si no cambió versión, inventario ni filas nuevas -> 0 lecturas de matrices.
+ * - Delta path (mode: 'delta'): devuelve únicamente cambios en ring-buffer, filas recién agregadas
+ *   después de los watermarks y stock actualizado solo para los SKUs activos de seguimiento.
+ * - Bootstrap path (mode: 'full'): primera carga o tras borrado/reordenamiento de filas.
+ */
+function handleSegGetDelta_(body) {
+  const b = body || {};
+  const ssInv = getSpreadsheet_();
+  const authCheck = resolveAuthenticatedAdvisor_(ssInv, [], b);
+  if (!authCheck || !authCheck.ok || !authCheck.advisor) {
+    return { ok: false, authRequired: true };
+  }
+  const verifiedUser = authCheck.advisor;
+  if (isGuestReadOnlyUser_(verifiedUser)) {
+    return { ok: false };
+  }
+
+  const scope = buildSegRoleScopeInfo_(verifiedUser);
+  const deltaState = readSegDeltaState_();
+  const sinceVersion = Math.max(0, parseInt(String(b.sinceVersion || 0), 10) || 0);
+  const sinceInvVersion = String(b.sinceInvVersion || '').trim();
+  const wm = (b.rowWatermarks && typeof b.rowWatermarks === 'object') ? b.rowWatermarks : {};
+  const forceFull = Boolean(b.forceFull);
+
+  const ssSeg = getSpreadsheetSeguimiento_();
+  const shCotCreata = ssSeg ? ssSeg.getSheetByName('COTIZACIONES_CREATA') : null;
+  const shCotVivo = ssInv ? ssInv.getSheetByName(TAB_QUOTES_LIVE_) : null;
+  const shCierres = ssSeg ? ssSeg.getSheetByName('CIERRES_COTIZACIONES') : null;
+  const shHistMov = ssSeg ? ssSeg.getSheetByName('HISTORIAL_MOVIMIENTOS') : null;
+  const shHistInv = ssInv ? ssInv.getSheetByName(TAB_HISTORIAL_) : null;
+
+  const curWatermarks = {
+    cotCreata: shCotCreata ? shCotCreata.getLastRow() : 0,
+    cotVivo: shCotVivo ? shCotVivo.getLastRow() : 0,
+    cierres: shCierres ? shCierres.getLastRow() : 0,
+    histMov: shHistMov ? shHistMov.getLastRow() : 0,
+    histSeg: shHistInv ? shHistInv.getLastRow() : 0
+  };
+
+  // Leer banner de inventario en vivo (1 sola celda AW2) para detectar syncs hechos por Python/Trigger y GAS
+  let aw2Banner = '';
+  try {
+    const shInv = ssInv.getSheetByName(CONFIG.TAB_INVENTORY);
+    if (shInv && shInv.getLastRow() >= 2 && shInv.getLastColumn() >= 49) {
+      aw2Banner = String(shInv.getRange(2, 49).getDisplayValue() || '').trim();
+    }
+  } catch (eAw) {}
+  const liveInvBanner = [aw2Banner, deltaState.invVersion || ''].filter(Boolean).join('|');
+
+  const prevCotCreata = parseInt(String(wm.cotCreata || 0), 10) || 0;
+  const prevCotVivo = parseInt(String(wm.cotVivo || 0), 10) || 0;
+  const prevCierres = parseInt(String(wm.cierres || 0), 10) || 0;
+  const prevHistMov = parseInt(String(wm.histMov || 0), 10) || 0;
+
+  const hasClientWatermarks = (prevCotCreata > 0 || prevCotVivo > 0 || prevCierres > 0) &&
+    (b.sinceVersion !== undefined && b.sinceVersion !== null && String(b.sinceVersion).trim() !== '');
+  const oldestLoggedV = deltaState.changes.length ? Number(deltaState.changes[0].v || 0) : deltaState.version;
+  const anyShrunk = (curWatermarks.cotCreata < prevCotCreata) ||
+    (curWatermarks.cotVivo < prevCotVivo) ||
+    (curWatermarks.cierres < prevCierres);
+  const bufferOverflowed = (sinceVersion > 0 && sinceVersion < deltaState.version && deltaState.changes.length >= SEG_DELTA_MAX_LOG_ && sinceVersion < oldestLoggedV - 1);
+  const needsFull = forceFull || !hasClientWatermarks || anyShrunk || bufferOverflowed;
+
+  if (needsFull) {
+    const fullState = handleSegGetState_(Object.assign({}, b, { includeInventory: false }));
+    if (!fullState || !fullState.ok) return fullState || { ok: false };
+    return {
+      ok: true,
+      mode: 'full',
+      unchanged: false,
+      version: deltaState.version,
+      invVersion: liveInvBanner,
+      rowWatermarks: curWatermarks,
+      roleScope: scope.roleScope,
+      updatedAt: fullState.updatedAt,
+      syncBanner: liveInvBanner,
+      sheets: fullState.sheets,
+      stockDeltaBySku: fullState.inventoryPhotosBySku || {},
+      summary: { fullBootstrap: true }
+    };
+  }
+
+  const versionChanged = deltaState.version !== sinceVersion;
+  const invChanged = Boolean(liveInvBanner && liveInvBanner !== sinceInvVersion);
+  const rowsAppended = (curWatermarks.cotCreata > prevCotCreata) ||
+    (curWatermarks.cotVivo > prevCotVivo) ||
+    (curWatermarks.cierres > prevCierres) ||
+    (curWatermarks.histMov > prevHistMov);
+
+  // FAST PATH: Nada cambió => 0 lecturas de matrices
+  if (!versionChanged && !invChanged && !rowsAppended) {
+    return {
+      ok: true,
+      mode: 'noop',
+      unchanged: true,
+      version: deltaState.version,
+      invVersion: liveInvBanner,
+      rowWatermarks: curWatermarks,
+      roleScope: scope.roleScope,
+      updatedAt: new Date().toISOString(),
+      syncBanner: liveInvBanner,
+      summary: { totalChanges: 0, newQuotes: 0, updatedQuotes: 0, newClosures: 0, stockUpdates: 0 }
+    };
+  }
+
+  // DELTA PATH: Leer únicamente cambios nuevos después de los watermarks
+  const filteredChanges = [];
+  if (versionChanged) {
+    for (let i = 0; i < deltaState.changes.length; i++) {
+      const ch = deltaState.changes[i];
+      if (!ch || Number(ch.v || 0) <= sinceVersion) continue;
+      if (matchesSegScope_(scope, ch.advisorEmail, ch.advisorName, ch.branch, ch.folio)) {
+        filteredChanges.push(ch);
+      }
+    }
+  }
+
+  const appCotCreata = curWatermarks.cotCreata > prevCotCreata
+    ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, 'COTIZACIONES_CREATA', prevCotCreata).rows, scope, { email: 5, name: 4, branch: 3, folio: 1 }, false)
+    : [];
+  const appCotVivo = curWatermarks.cotVivo > prevCotVivo
+    ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssInv, TAB_QUOTES_LIVE_, prevCotVivo).rows, scope, { email: 7, name: 8, branch: 6, folio: 1 }, false)
+    : [];
+  const appCierres = curWatermarks.cierres > prevCierres
+    ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, 'CIERRES_COTIZACIONES', prevCierres).rows, scope, { email: 4, name: 3, branch: 2, folio: 1 }, false)
+    : [];
+  const appHistMov = curWatermarks.histMov > prevHistMov
+    ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, 'HISTORIAL_MOVIMIENTOS', prevHistMov).rows, scope, { email: 3, name: 2, branch: 4, folio: -1 }, false)
+    : [];
+
+  // Stock delta solo para los SKUs activos que sigue el usuario + SKUs recién agregados
+  const activeSkusSet = {};
+  if (Array.isArray(b.activeSkus)) {
+    for (let i = 0; i < b.activeSkus.length && i < 600; i++) {
+      const sk = String(b.activeSkus[i] || '').trim().toUpperCase();
+      if (sk) activeSkusSet[sk] = true;
+    }
+  }
+  for (let i = 0; i < appCotCreata.length; i++) {
+    const sk = String((appCotCreata[i] && appCotCreata[i][9]) || '').trim().toUpperCase();
+    if (sk) activeSkusSet[sk] = true;
+  }
+
+  let stockDeltaBySku = {};
+  if ((invChanged || appCotCreata.length > 0 || appCotVivo.length > 0) && Object.keys(activeSkusSet).length > 0) {
+    const invDeltaRes = readInventoryMapForSkus_(ssInv, activeSkusSet);
+    stockDeltaBySku = invDeltaRes.bySku || {};
+  }
+
+  const newQuotesCount = appCotCreata.length + appCotVivo.length;
+  const newClosuresCount = appCierres.length;
+  const updatedQuotesCount = filteredChanges.filter(function (c) { return c.kind !== 'CIERRE'; }).length;
+  const stockUpdatesCount = Object.keys(stockDeltaBySku).length;
+  const totalChanges = newQuotesCount + newClosuresCount + updatedQuotesCount + (invChanged && stockUpdatesCount > 0 ? 1 : 0);
+
+  return {
+    ok: true,
+    mode: totalChanges === 0 ? 'noop' : 'delta',
+    unchanged: totalChanges === 0,
+    version: deltaState.version,
+    invVersion: liveInvBanner,
+    rowWatermarks: curWatermarks,
+    roleScope: scope.roleScope,
+    updatedAt: new Date().toISOString(),
+    syncBanner: liveInvBanner,
+    changes: filteredChanges,
+    appendedRows: {
+      COTIZACIONES_CREATA: appCotCreata,
+      COTIZACIONES_EN_VIVO: appCotVivo,
+      CIERRES_COTIZACIONES: appCierres,
+      HISTORIAL_MOVIMIENTOS: appHistMov
+    },
+    stockDeltaBySku: stockDeltaBySku,
+    summary: {
+      totalChanges: totalChanges,
+      newQuotes: newQuotesCount,
+      updatedQuotes: updatedQuotesCount,
+      newClosures: newClosuresCount,
+      stockUpdates: stockUpdatesCount
+    }
   };
 }
 

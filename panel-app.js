@@ -798,6 +798,20 @@
             panelBackNav.resetToBase();
         }
         try {
+            const topEl = document.getElementById('suiteSlotTop');
+            const botEl = document.getElementById('suiteSlotBottom');
+            if (topEl) topEl.innerHTML = '';
+            if (botEl) botEl.innerHTML = '';
+            Object.keys(liveFramesById).forEach((k) => {
+                try {
+                    const fr = liveFramesById[k];
+                    if (fr && fr.parentNode) fr.parentNode.removeChild(fr);
+                    if (fr) fr.src = 'about:blank';
+                } catch (eFr) {}
+                delete liveFramesById[k];
+            });
+        } catch (eClrFr) {}
+        try {
             localStorage.removeItem(PANEL_SESSION_KEY);
             if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(MANUAL_LOCK_FLAG, '1');
         } catch (e) {}

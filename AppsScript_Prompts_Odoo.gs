@@ -727,6 +727,8 @@ function dispatchPromptsAction_(action, payload) {
       return handlePromptsProptDelete_(payload);
     case 'prompts_materials_list':
       return handlePromptsMaterialsList_(payload);
+    case 'prompts_fetch_image_b64':
+      return handlePromptsFetchImageB64_(payload);
     case 'prompts_sku_lookup':
       return handlePromptsSkuLookup_(payload);
     case 'odoo_buzon_list':
@@ -1273,23 +1275,140 @@ function handlePromptsProptDelete_(payload) {
 }
 
 // ============================================================================
-// 5. prompts_materials_list (solo lectura: TELAS + MADERAS)
+// 5. prompts_materials_list (ESTRICTAMENTE SOLO LECTURA: TELAS + FOTOS TELAS + MADERAS)
 // ============================================================================
+const PROMPTS_MATERIALS_CACHE_KEY_ = 'PROMPTS_MATERIALS_RO_V2';
+const PROMPTS_MATERIALS_CACHE_TTL_SEC_ = 600;
+const PROMPTS_FETCH_IMAGE_MAX_BYTES_ = 12 * 1024 * 1024;
+
+function listImagesRecursiveForMaterials_(folderObj, maxDepth, seenIds, relPath, excludeFolderIds) {
+  const out = [];
+  if (!folderObj || (folderObj.isTrashed && folderObj.isTrashed())) return out;
+  const fid = String((folderObj.getId && folderObj.getId()) || '').trim();
+  if (!fid || isForbiddenProjectAId_(fid)) return out;
+  if (excludeFolderIds && excludeFolderIds[fid]) return out;
+  const visitedFolders = {};
+  const queue = [{ folder: folderObj, depth: 0, path: String(relPath || '') }];
+  const limit = (typeof maxDepth === 'number' && maxDepth >= 0) ? Math.floor(maxDepth) : 3;
+
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    const fObj = cur.folder;
+    if (!fObj || (fObj.isTrashed && fObj.isTrashed())) continue;
+    const curId = String((fObj.getId && fObj.getId()) || '').trim();
+    if (!curId || visitedFolders[curId] || isForbiddenProjectAId_(curId)) continue;
+    if (excludeFolderIds && excludeFolderIds[curId]) continue;
+    visitedFolders[curId] = true;
+
+    try {
+      const it = fObj.getFiles();
+      while (it && it.hasNext()) {
+        const rawFile = it.next();
+        try {
+          const safeFile = resolveSafeImageFileForProjectB_(rawFile, false);
+          if (!safeFile) continue;
+          const sfId = String(safeFile.getId() || '').trim();
+          if (!sfId || seenIds[sfId]) continue;
+          seenIds[sfId] = true;
+          const meta = formatDriveFileMeta_(safeFile, curId);
+          meta.readOnly = true;
+          if (cur.path) meta.subfolder = cur.path;
+          out.push(meta);
+        } catch (eItem) {}
+      }
+    } catch (eFiles) {}
+
+    if (cur.depth < limit && typeof fObj.getFolders === 'function') {
+      try {
+        const subIt = fObj.getFolders();
+        while (subIt && subIt.hasNext()) {
+          const sub = subIt.next();
+          if (!sub || (sub.isTrashed && sub.isTrashed())) continue;
+          const subId = String((sub.getId && sub.getId()) || '').trim();
+          if (!subId || visitedFolders[subId] || isForbiddenProjectAId_(subId)) continue;
+          if (excludeFolderIds && excludeFolderIds[subId]) continue;
+          const subName = String((sub.getName && sub.getName()) || '').trim();
+          queue.push({
+            folder: sub,
+            depth: cur.depth + 1,
+            path: cur.path ? (cur.path + ' / ' + subName) : subName
+          });
+        }
+      } catch (eSub) {}
+    }
+  }
+
+  out.sort(function (a, b) {
+    const cmpName = String(a.name || '').localeCompare(String(b.name || ''), 'es');
+    if (cmpName !== 0) return cmpName;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  return out;
+}
+
 function handlePromptsMaterialsList_(payload) {
   const auth = verifyPromptsOwnerAuth_(payload);
   if (!auth.ok) return auth;
 
+  const forceRefresh = !!(payload && payload.forceRefresh);
+  if (!forceRefresh) {
+    try {
+      if (typeof CacheService !== 'undefined' && CacheService.getScriptCache) {
+        const cachedRaw = CacheService.getScriptCache().get(PROMPTS_MATERIALS_CACHE_KEY_);
+        if (cachedRaw) {
+          const cachedObj = JSON.parse(cachedRaw);
+          if (cachedObj && cachedObj.ok && Array.isArray(cachedObj.telas) && Array.isArray(cachedObj.maderas)) {
+            cachedObj.fromCache = true;
+            return cachedObj;
+          }
+        }
+      }
+    } catch (eCacheRead) {}
+  }
+
   const telasFolder = getSafeFolderById_(TELAS_FOLDER_ID_, 'prompts_materials_list:TELAS');
   const maderasFolder = getSafeFolderById_(MADERAS_FOLDER_ID_, 'prompts_materials_list:MADERAS');
 
-  const telas = (telasFolder.isTrashed && telasFolder.isTrashed()) ? [] : listImagesInFolderById_(telasFolder, { checkMultiParent: false });
-  const maderas = (maderasFolder.isTrashed && maderasFolder.isTrashed()) ? [] : listImagesInFolderById_(maderasFolder, { checkMultiParent: false });
+  const seenTelas = {};
+  const telas = (telasFolder.isTrashed && telasFolder.isTrashed())
+    ? []
+    : listImagesRecursiveForMaterials_(telasFolder, 3, seenTelas, '', { [MADERAS_FOLDER_ID_]: true });
 
-  return {
+  // Incluir también muestras directas guardadas en la carpeta raíz FOTOS TELAS (sin modificar/eliminar nada)
+  try {
+    const fotosTelasId = FOTOS_ODOO_SUBFOLDERS_ && FOTOS_ODOO_SUBFOLDERS_.TELAS && FOTOS_ODOO_SUBFOLDERS_.TELAS.id;
+    if (fotosTelasId && fotosTelasId !== TELAS_FOLDER_ID_ && !isForbiddenProjectAId_(fotosTelasId)) {
+      const fotosTelasFolder = getSafeFolderById_(fotosTelasId, 'prompts_materials_list:FOTOS_TELAS');
+      if (fotosTelasFolder && !(fotosTelasFolder.isTrashed && fotosTelasFolder.isTrashed())) {
+        const directTelas = listImagesRecursiveForMaterials_(fotosTelasFolder, 0, seenTelas, 'FOTOS TELAS', {
+          [TELAS_FOLDER_ID_]: true,
+          [MADERAS_FOLDER_ID_]: true
+        });
+        for (let i = 0; i < directTelas.length; i++) {
+          telas.push(directTelas[i]);
+        }
+        if (directTelas.length > 0) {
+          telas.sort(function (a, b) {
+            const cmpName = String(a.name || '').localeCompare(String(b.name || ''), 'es');
+            if (cmpName !== 0) return cmpName;
+            return String(a.id || '').localeCompare(String(b.id || ''));
+          });
+        }
+      }
+    }
+  } catch (eFt) {}
+
+  const seenMaderas = {};
+  const maderas = (maderasFolder.isTrashed && maderasFolder.isTrashed())
+    ? []
+    : listImagesRecursiveForMaterials_(maderasFolder, 3, seenMaderas, '', { [TELAS_FOLDER_ID_]: true });
+
+  const result = {
     ok: true,
     project: PROMPTS_PROJECT_TAG_,
     readOnly: true,
     telasFolderId: TELAS_FOLDER_ID_,
+    fotosTelasFolderId: (FOTOS_ODOO_SUBFOLDERS_ && FOTOS_ODOO_SUBFOLDERS_.TELAS && FOTOS_ODOO_SUBFOLDERS_.TELAS.id) || '',
     maderasFolderId: MADERAS_FOLDER_ID_,
     telas: telas,
     maderas: maderas,
@@ -1298,6 +1417,74 @@ function handlePromptsMaterialsList_(payload) {
       maderas: maderas.length
     },
     timestamp: new Date().toISOString()
+  };
+
+  try {
+    if (typeof CacheService !== 'undefined' && CacheService.getScriptCache) {
+      const jsonStr = JSON.stringify(result);
+      if (jsonStr.length < 95000) {
+        CacheService.getScriptCache().put(PROMPTS_MATERIALS_CACHE_KEY_, jsonStr, PROMPTS_MATERIALS_CACHE_TTL_SEC_);
+      }
+    }
+  } catch (eCacheWrite) {}
+
+  return result;
+}
+
+// ============================================================================
+// 5b. prompts_fetch_image_b64 (SOLO LECTURA — copia directa PNG sin CORS)
+// ============================================================================
+function handlePromptsFetchImageB64_(payload) {
+  const auth = verifyPromptsOwnerAuth_(payload);
+  if (!auth.ok) return auth;
+
+  const rawId = String((payload && (payload.fileId || payload.driveFileId || payload.id)) || '').trim();
+  if (!rawId || !/^[a-zA-Z0-9_-]{10,}$/.test(rawId)) {
+    return { ok: false, project: PROMPTS_PROJECT_TAG_, error: 'Falta un fileId válido de Drive.' };
+  }
+  assertNotForbiddenProjectAId_(rawId, 'prompts_fetch_image_b64');
+
+  let rawFile = null;
+  try {
+    rawFile = DriveApp.getFileById(rawId);
+  } catch (eOpen) {
+    return { ok: false, project: PROMPTS_PROJECT_TAG_, error: 'No se pudo leer el archivo en Drive.' };
+  }
+  if (!rawFile || (rawFile.isTrashed && rawFile.isTrashed())) {
+    return { ok: false, project: PROMPTS_PROJECT_TAG_, error: 'El archivo ya no existe o está en la papelera.' };
+  }
+
+  const safeFile = resolveSafeImageFileForProjectB_(rawFile, true);
+  if (!safeFile) {
+    return {
+      ok: false,
+      project: PROMPTS_PROJECT_TAG_,
+      forbiddenFolder: true,
+      error: 'Aislamiento Proyecto A/B: imagen no permitida o ubicada en carpeta de Proyecto A.'
+    };
+  }
+
+  const blob = safeFile.getBlob();
+  const bytes = blob.getBytes();
+  if (!bytes || !bytes.length) {
+    return { ok: false, project: PROMPTS_PROJECT_TAG_, error: 'La imagen está vacía.' };
+  }
+  if (bytes.length > PROMPTS_FETCH_IMAGE_MAX_BYTES_) {
+    return { ok: false, project: PROMPTS_PROJECT_TAG_, error: 'La imagen supera el límite de 12 MB para copia directa.' };
+  }
+
+  const mime = String(blob.getContentType() || safeFile.getMimeType() || 'image/jpeg').toLowerCase();
+  const safeMime = Object.prototype.hasOwnProperty.call(ALLOWED_IMAGE_MIME_TYPES_, mime) ? mime : 'image/jpeg';
+  const b64 = Utilities.base64Encode(bytes);
+  return {
+    ok: true,
+    project: PROMPTS_PROJECT_TAG_,
+    readOnly: true,
+    id: String(safeFile.getId() || rawId),
+    name: String(safeFile.getName() || 'imagen.jpg'),
+    mimeType: safeMime,
+    sizeBytes: bytes.length,
+    dataUri: 'data:' + safeMime + ';base64,' + b64
   };
 }
 
