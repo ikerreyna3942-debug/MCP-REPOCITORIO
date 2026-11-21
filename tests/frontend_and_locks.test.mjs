@@ -17,6 +17,7 @@ function runNodeCheck(filePath) {
 test('Syntax check (node --check) passes for all Apps Script (.gs) and frontend JS/SW files', () => {
   const filesToCheck = [
     'AppsScript_Creata_Drive_Sheets.gs',
+    'AppsScript_Parche_Fotos_V2.gs',
     'AppsScript_Prompts_Odoo.gs',
     'creata-back-nav.js',
     'fotos-productos-app.js',
