@@ -267,7 +267,16 @@
                 const raw = localStorage.getItem(keys[i]);
                 if (!raw) continue;
                 const obj = JSON.parse(raw);
-                if (obj && normalizeEmail(obj.correo) === OWNER_EMAIL && !obj.mustChangeKey) return true;
+                if (!obj || obj.mustChangeKey) continue;
+                const email = normalizeEmail(obj.correo);
+                const perms = (obj.adminPermissions && typeof obj.adminPermissions === 'object') ? obj.adminPermissions : null;
+                if (email === OWNER_EMAIL) {
+                    if (perms && perms.panelSuite === false) continue;
+                    return true;
+                }
+                if (obj.isAdmin === true && perms && perms.panelSuite === true) {
+                    return true;
+                }
             } catch (e) {}
         }
         return false;

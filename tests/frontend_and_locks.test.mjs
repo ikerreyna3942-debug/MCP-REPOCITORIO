@@ -60,10 +60,10 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
   const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
   const suiteSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'suite/sw.js'), 'utf8');
-  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v12['"]/);
+  assert.match(promptsSwSrc, /CACHE_PREFIX\s*\+\s*['"]v13['"]/);
   assert.match(promptsSwSrc, /creata-back-nav\.js\?v=1/);
   assert.match(promptsSwSrc, /prompts-styles\.css\?v=9/);
-  assert.match(promptsSwSrc, /prompts-studio-v8\.js\?v=1/);
+  assert.match(promptsSwSrc, /prompts-studio-v8\.js\?v=2/);
   assert.match(promptsSwSrc, /prompts-app\.js\?v=11/);
   assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v20['"]/);
   assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v20['"]/);
@@ -78,7 +78,7 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   assert.match(promptsHtmlSrc, /prompts-manifest\.json\?v=3/);
   assert.match(promptsHtmlSrc, /prompts-styles\.css\?v=9/);
   assert.match(promptsHtmlSrc, /creata-back-nav\.js\?v=1/);
-  assert.match(promptsHtmlSrc, /prompts-studio-v8\.js\?v=1/);
+  assert.match(promptsHtmlSrc, /prompts-studio-v8\.js\?v=2/);
   assert.match(promptsHtmlSrc, /prompts-app\.js\?v=11/);
   assert.match(promptsHtmlSrc, /Configurar PIN/);
 
@@ -385,12 +385,12 @@ test('App #9 (Feature F8): Auto-acomodar por categoría button removed from foto
   assert.match(assignFnMatch[0], /DEST_FOLDER_BY_ID\.get\(/, 'Guardar must validate against DEST_FOLDER_BY_ID');
 });
 
-test('Prompts SW (Item 14 / M2C): prompts-sw.js v12 evicts v2..v11, preserves other app caches, and intercepts prompts-studio-v8.js?v=1, prompts-app.js?v=11 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
+test('Prompts SW (Item 14 / M2C): prompts-sw.js v13 evicts v2..v12, preserves other app caches, and intercepts prompts-studio-v8.js?v=2, prompts-app.js?v=11 & creata-back-nav.js?v=1 while bypassing script.google.com and buena-espero.onrender.com', async () => {
   const vm = await import('node:vm');
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9', 'creata-prompts-app-v10', 'creata-prompts-app-v11', 'creata-prompts-app-v12', 'creata-fotos-app-v20', 'creata-panel-app-v4', 'creata-inventario-v1'];
+  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9', 'creata-prompts-app-v10', 'creata-prompts-app-v11', 'creata-prompts-app-v12', 'creata-prompts-app-v13', 'creata-fotos-app-v20', 'creata-panel-app-v4', 'creata-inventario-v1'];
 
   const swSandbox = {
     URL,
@@ -419,7 +419,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v12 evicts v2..v11, preserves ot
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9', 'creata-prompts-app-v10', 'creata-prompts-app-v11']);
+  assert.deepEqual(deletedKeys, ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9', 'creata-prompts-app-v10', 'creata-prompts-app-v11', 'creata-prompts-app-v12']);
 
   // Fetch bypasses script.google.com, buena-espero.onrender.com, and POST requests; intercepts same-origin GET
   const checkIntercept = (url, method = 'GET') => {
@@ -433,7 +433,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v12 evicts v2..v11, preserves ot
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
   assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
-  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-studio-v8.js?v=1', 'GET'), true);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-studio-v8.js?v=2', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts-app.js?v=11', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
 });

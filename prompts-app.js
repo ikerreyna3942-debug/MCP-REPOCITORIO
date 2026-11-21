@@ -1334,8 +1334,13 @@
                 const raw = localStorage.getItem(KEVIN_SUITE_SESSION_KEYS[i]);
                 if (!raw) continue;
                 const obj = JSON.parse(raw);
-                const email = String((obj && obj.correo) || '').trim().toLowerCase().replace(/,/g, '.');
-                if (email === KEVIN_OWNER_EMAIL && !obj.mustChangeKey) {
+                if (!obj || obj.mustChangeKey) continue;
+                const email = String(obj.correo || '').trim().toLowerCase().replace(/,/g, '.');
+                const perms = (obj.adminPermissions && typeof obj.adminPermissions === 'object') ? obj.adminPermissions : null;
+                if (email === KEVIN_OWNER_EMAIL && !(perms && perms.promptsIa === false)) {
+                    return true;
+                }
+                if (obj.isAdmin === true && perms && perms.promptsIa === true) {
                     return true;
                 }
             } catch (e) {}

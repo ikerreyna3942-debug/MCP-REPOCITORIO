@@ -24,7 +24,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=7">
-    <link rel="stylesheet" href="./inventario-ui.css?v=18">
+    <link rel="stylesheet" href="./inventario-ui.css?v=19">
 </head>
 <body>
 
@@ -176,11 +176,32 @@
                 <span class="inv-fab-item-label">Configuración</span>
             </button>
 
+            <button type="button" id="fabGuestSessionsBtn" class="inv-fab-item hidden" role="menuitem" onclick="closeFabMenu(); openSettingsModal('sessions');">
+                <span class="inv-fab-item-ico" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                </span>
+                <span class="inv-fab-item-label">Cerrar sesiones en otros dispositivos</span>
+            </button>
+
+            <button type="button" id="fabGuestPasswordBtn" class="inv-fab-item hidden" role="menuitem" onclick="closeFabMenu(); openSettingsModal('password');">
+                <span class="inv-fab-item-ico" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                </span>
+                <span class="inv-fab-item-label">Cambiar contraseña</span>
+            </button>
+
             <button type="button" id="fabInstallAppBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openInstallAppModal();">
                 <span class="inv-fab-item-ico" aria-hidden="true">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                 </span>
                 <span class="inv-fab-item-label">Instalar App</span>
+            </button>
+
+            <button type="button" id="fabLogoutBtn" class="inv-fab-item inv-fab-item-danger hidden" role="menuitem" onclick="closeFabMenu(); logoutAdvisorSession();">
+                <span class="inv-fab-item-ico" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1"></path></svg>
+                </span>
+                <span class="inv-fab-item-label">Salir</span>
             </button>
         </div>
 
@@ -1021,31 +1042,42 @@
                     </div>
                 </section>
 
-                <!-- SOLO KEVIN (ADMIN): EQUIPO EN VIVO (QUIÉN Y DÓNDE ESTÁ CONECTADO) -->
-                <section id="settingsTeamPresenceSection" class="inv-settings-section hidden" aria-label="Equipo conectado en vivo">
+                <!-- SOLO ADMIN (VER_EQUIPO_Y_INVITADOS): EQUIPO E INVITADOS EN VIVO -->
+                <section id="settingsTeamPresenceSection" class="inv-settings-section hidden" aria-label="Equipo e invitados conectados en vivo">
                     <div class="inv-settings-section-head">
-                        <h4 class="inv-settings-section-title">Equipo conectado en vivo</h4>
+                        <h4 class="inv-settings-section-title">Equipo e Invitados en vivo</h4>
                         <span id="settingsTeamOnlineBadge" class="inv-settings-pill-live">● 0 conectados</span>
                     </div>
-                    <p class="inv-settings-section-sub">Consulta quién está conectado, su sucursal y en qué sección de la app se encuentra.</p>
+                    <p class="inv-settings-section-sub">Consulta en tiempo real quién del equipo y qué invitados están conectados, su dispositivo, sucursal y sección.</p>
                     <div class="inv-team-presence-toolbar">
                         <div class="inv-team-presence-pills" role="group" aria-label="Filtrar conectados">
                             <button type="button" id="settingsTeamFilterAll" class="inv-team-filter-btn is-active" onclick="setSettingsTeamPresenceFilter('ALL')">Todos</button>
                             <button type="button" id="settingsTeamFilterOnline" class="inv-team-filter-btn" onclick="setSettingsTeamPresenceFilter('ONLINE')">Conectados</button>
                             <button type="button" id="settingsTeamFilterOffline" class="inv-team-filter-btn" onclick="setSettingsTeamPresenceFilter('OFFLINE')">Desconectados</button>
+                            <button type="button" id="settingsTeamFilterGuests" class="inv-team-filter-btn" onclick="setSettingsTeamPresenceFilter('GUESTS')">Invitados</button>
                         </div>
                         <button type="button" class="inv-btn-secondary" style="padding:5px 9px;font-size:11px;" onclick="refreshSettingsTeamPresence(true)">↻ Actualizar</button>
                     </div>
                     <div class="inv-field" style="margin:0;">
-                        <input id="settingsTeamSearchInput" type="search" class="inv-input" placeholder="Buscar asesor, sucursal o vista..." autocomplete="off" oninput="renderSettingsTeamPresenceList()">
+                        <input id="settingsTeamSearchInput" type="search" class="inv-input" placeholder="Buscar asesor, invitado, sucursal o dispositivo..." autocomplete="off" oninput="renderSettingsTeamPresenceList()">
                     </div>
                     <div id="settingsTeamPresenceStatus" class="inv-settings-status hidden"></div>
                     <div id="settingsTeamPresenceList" class="inv-team-presence-list">
-                        <div class="inv-settings-section-sub">Cargando equipo en vivo…</div>
+                        <div class="inv-settings-section-sub">Cargando equipo e invitados en vivo…</div>
                     </div>
                     <div class="inv-settings-actions-row">
-                        <button type="button" class="inv-btn-secondary" onclick="closeSettingsModal(); openInAppHistorial();">Abrir Historial completo ↗</button>
+                        <button type="button" id="btnSettingsOpenHistorialLink" class="inv-btn-secondary" onclick="closeSettingsModal(); openInAppHistorial();">Abrir Historial completo ↗</button>
                     </div>
+                </section>
+
+                <!-- PERMISOS POR COLUMNA (HOJA CUENTAS ADMINISTRATIVAS) -->
+                <section id="settingsAdminPermsSection" class="inv-settings-section hidden" aria-label="Permisos de cuenta administrativa">
+                    <div class="inv-settings-section-head">
+                        <h4 class="inv-settings-section-title">Permisos (CUENTAS ADMINISTRATIVAS)</h4>
+                        <span id="settingsAdminPermsCountBadge" class="inv-settings-badge">Por columna</span>
+                    </div>
+                    <p class="inv-settings-section-sub">Configura qué módulos puede ver cada cuenta administrativa cambiando <strong>SI / NO</strong> por columna en la hoja <code>CUENTAS ADMINISTRATIVAS</code>.</p>
+                    <div id="settingsAdminPermsChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
                 </section>
 
                 <!-- ASESORES (Y KEVIN EN MODO ASESOR): NOMBRE DEL DOCUMENTO PDF -->
@@ -1244,7 +1276,7 @@
     <script src="inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
     <script src="./seguimiento-app.js?v=9"></script>
-    <script src="./historial-app.js?v=8"></script>
-    <script src="inventario-app.js?v=94"></script>
+    <script src="./historial-app.js?v=9"></script>
+    <script src="inventario-app.js?v=95"></script>
 </body>
 </html>

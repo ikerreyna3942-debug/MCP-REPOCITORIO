@@ -1429,6 +1429,24 @@ main#invMainView.inv-main {
   color: #FFFFFF;
 }
 
+#invFabRoot .inv-fab-item-danger {
+  color: #9F2D2D;
+  border-top: 1px solid var(--inv-border-subtle, #EFEAE1);
+  border-radius: 0 0 9px 9px;
+  margin-top: 2px;
+  padding-top: 7px;
+}
+
+#invFabRoot .inv-fab-item-danger:hover {
+  background-color: #FEF2F2;
+  border-color: #FECACA;
+}
+
+#invFabRoot .inv-fab-item-danger .inv-fab-item-ico {
+  background-color: #FEE2E2;
+  color: #B91C1C;
+}
+
 #invFabRoot .inv-fab-item-ico svg {
   width: 14px;
   height: 14px;
@@ -3464,4 +3482,96 @@ body.inv-split-dragging .inv-split-iframe {
   padding: 4px 9px;
   white-space: nowrap;
 }
+
+/* ============================================================================
+ * Camas, Bases de Cama y Cabeceras: Selector de Tamaño -> Color / Madera -> Pieza
+ * ============================================================================ */
+#detVariantsList .inv-row.inv-bed-size-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #FFFFFF;
+  border: 1px solid #E1DBC5;
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+#detVariantsList .inv-row.inv-bed-size-card:hover {
+  border-color: #A38251;
+  box-shadow: 0 6px 18px rgba(26, 24, 22, 0.08);
+  transform: translateY(-1px);
+}
+
+#detVariantsList .inv-bed-size-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 150px;
+  max-height: 220px;
+  background: #FFFFFF;
+  padding: 8px;
+  border-bottom: 1px solid var(--inv-border-subtle);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#detVariantsList .inv-bed-size-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+#detVariantsList .inv-bed-size-pill {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #FAF6EE;
+  border: 1px solid #DFCCB2;
+  color: #9E7B4F;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(26, 24, 22, 0.06);
+}
+
+#detVariantsList .inv-bed-size-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1A1816;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+}
+
+#detVariantsList .inv-bed-size-chip {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #FBF6EE;
+  border: 1px solid #DFCCB2;
+  color: #7A5C30;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+#detVariantsList .inv-bed-selected-bar {
+  grid-column: 1 / -1;
+}
+
 

@@ -484,7 +484,7 @@ function formatDriveFileMeta_(file, folderId) {
     updatedAt: updated && updated.toISOString ? updated.toISOString() : '',
     viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
     thumbUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=w800',
-    cdnUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=s2054',
+    cdnUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=s2048',
     folderId: String(folderId || '').trim()
   };
 }

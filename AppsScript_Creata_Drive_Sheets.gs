@@ -1108,7 +1108,7 @@ function doPost(e) {
       }
     }
     if (action === 'inv_my_sessions') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_mysess', maxHits: 45, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_mysess', maxHits: 45, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
@@ -1118,7 +1118,7 @@ function doPost(e) {
       }
     }
     if (action === 'inv_revoke_session') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_revsess', maxHits: 30, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_revsess', maxHits: 30, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
@@ -1185,7 +1185,7 @@ function doPost(e) {
       return jsonResponse_(handleInvCreateErpClient_(body));
     }
     if (action === 'inv_upload_product_photo') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_photo', maxHits: 40, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_photo', maxHits: 40, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
       return jsonResponse_(handleInvUploadProductPhoto_(body));
     }
@@ -2378,12 +2378,143 @@ const INV_USER_TABS_ = [
 ];
 
 const TAB_INVITADOS_ = 'INVITADOS';
+const TAB_CUENTAS_ADMIN_ = 'CUENTAS ADMINISTRATIVAS';
 const MAX_GUEST_PLACES_PER_EMAIL_ = 2;
 
 const ADMIN_MASTER_EMAILS_ = {
   'santiago.torres@grupoanipa.com': true,
   'kevin.reyna@grupoanipa.com': true
 };
+
+const ADMIN_PERM_COLUMNS_ = [
+  { colIndex: 9,  header: 'VER_COTIZADOR',          key: 'cotizador' },
+  { colIndex: 10, header: 'VER_SEGUIMIENTO',        key: 'seguimiento' },
+  { colIndex: 11, header: 'VER_HISTORIAL',          key: 'historial' },
+  { colIndex: 12, header: 'VER_FOTOS_APP',          key: 'fotosApp' },
+  { colIndex: 13, header: 'VER_PROMPTS_IA',         key: 'promptsIa' },
+  { colIndex: 14, header: 'VER_PANEL_SUITE',        key: 'panelSuite' },
+  { colIndex: 15, header: 'VER_EQUIPO_Y_INVITADOS', key: 'equipoInvitados' },
+  { colIndex: 16, header: 'VER_CAMBIAR_ROL',        key: 'cambiarRol' },
+  { colIndex: 17, header: 'VER_GESTION_PRODUCTOS',  key: 'gestionProductos' },
+  { colIndex: 18, header: 'VER_SUBIR_FOTO',         key: 'subirFoto' },
+  { colIndex: 19, header: 'VER_CAMBIAR_TIENDA',     key: 'cambiarTienda' }
+];
+
+function defaultAdminPermissionsForEmail_(emailRaw) {
+  const em = String(emailRaw || '').trim().toLowerCase().replace(/,/g, '.');
+  const isOwnerKevin = (em === 'kevin.reyna@grupoanipa.com');
+  return {
+    cotizador: true,
+    seguimiento: true,
+    historial: true,
+    fotosApp: isOwnerKevin,
+    promptsIa: isOwnerKevin,
+    panelSuite: isOwnerKevin,
+    equipoInvitados: true,
+    cambiarRol: true,
+    gestionProductos: isOwnerKevin,
+    subirFoto: true,
+    cambiarTienda: true
+  };
+}
+
+function parseAdminPermCell_(rawVal, fallbackBool) {
+  if (rawVal === true) return true;
+  if (rawVal === false) return false;
+  const s = String(rawVal === null || rawVal === undefined ? '' : rawVal)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+  if (!s) return !!fallbackBool;
+  if (/^(SI|YES|TRUE|1|X|OK|VER|ACTIVO|HABILITADO)$/.test(s)) return true;
+  if (/^(NO|FALSE|0|OCULTO|INACTIVO|DESHABILITADO|-)$/.test(s)) return false;
+  return !!fallbackBool;
+}
+
+function extractAdminPermissionsFromRow_(headerRowVals, rowVals, dispRowVals, emailRaw) {
+  const perms = defaultAdminPermissionsForEmail_(emailRaw);
+  const hdr = Array.isArray(headerRowVals) ? headerRowVals : [];
+  const raw = Array.isArray(rowVals) ? rowVals : [];
+  const disp = Array.isArray(dispRowVals) ? dispRowVals : raw;
+
+  const colByKey = {};
+  for (let c = 0; c < hdr.length; c++) {
+    const norm = String(hdr[c] || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    if (!norm) continue;
+    for (let k = 0; k < ADMIN_PERM_COLUMNS_.length; k++) {
+      const def = ADMIN_PERM_COLUMNS_[k];
+      if (norm === def.header || norm.indexOf(def.header) !== -1) {
+        colByKey[def.key] = c;
+      }
+    }
+  }
+
+  for (let k = 0; k < ADMIN_PERM_COLUMNS_.length; k++) {
+    const def = ADMIN_PERM_COLUMNS_[k];
+    const idx = (colByKey[def.key] !== undefined) ? colByKey[def.key] : def.colIndex;
+    if (idx < disp.length || idx < raw.length) {
+      const cellVal = (disp[idx] !== undefined && disp[idx] !== '') ? disp[idx] : raw[idx];
+      perms[def.key] = parseAdminPermCell_(cellVal, perms[def.key]);
+    }
+  }
+  return perms;
+}
+
+function userHasAdminPerm_(advisor, permKey) {
+  if (!advisor || isGuestReadOnlyUser_(advisor) || !advisor.isAdmin) return false;
+  if (advisor.adminPermissions && typeof advisor.adminPermissions[permKey] === 'boolean') {
+    return advisor.adminPermissions[permKey];
+  }
+  const defaults = defaultAdminPermissionsForEmail_(advisor.correo);
+  return !!defaults[permKey];
+}
+
+function ensureCuentasAdministrativasSheet_(ss) {
+  const book = ss || getSpreadsheet_();
+  let sh = book.getSheetByName(TAB_CUENTAS_ADMIN_);
+  const createdNew = !sh;
+  if (!sh) {
+    sh = book.insertSheet(TAB_CUENTAS_ADMIN_, book.getSheets().length);
+  }
+  if (sh.getMaxColumns() < 21) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), 21 - sh.getMaxColumns());
+  }
+  if (sh.getMaxRows() < 30) {
+    sh.insertRowsAfter(sh.getMaxRows(), 30 - sh.getMaxRows());
+  }
+  const hdrRow = findUserHeaderRow1Based_(sh);
+  if (createdNew || hdrRow < 1) {
+    sh.getRange(1, 2, 1, 20).merge()
+      .setValue('CUENTAS ADMINISTRATIVAS — PERMISOS POR COLUMNA (CAMBIA SI / NO EN COLUMNAS J A T PARA CONFIGURAR QUÉ PUEDE VER CADA ADMINISTRATIVO)')
+      .setBackground('#252C32')
+      .setFontColor('#E1DBC5')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
+    const hdrVals = [[
+      '', 'CUENTAS ADMINISTRATIVAS', 'Nombre', 'Puesto', 'Correo', 'Contraseña Temporal', 'Contraseña', 'Asesor ERP', 'Descuento',
+      'VER_COTIZADOR', 'VER_SEGUIMIENTO', 'VER_HISTORIAL', 'VER_FOTOS_APP', 'VER_PROMPTS_IA', 'VER_PANEL_SUITE',
+      'VER_EQUIPO_Y_INVITADOS', 'VER_CAMBIAR_ROL', 'VER_GESTION_PRODUCTOS', 'VER_SUBIR_FOTO', 'VER_CAMBIAR_TIENDA', 'NOTAS'
+    ]];
+    sh.getRange(2, 1, 1, 21).setValues(hdrVals);
+    sh.getRange(2, 2, 1, 8).setBackground('#252C32').setFontColor('#FFFFFF').setFontWeight('bold').setHorizontalAlignment('center');
+    sh.getRange(2, 10, 1, 11).setBackground('#A38251').setFontColor('#FFFFFF').setFontWeight('bold').setHorizontalAlignment('center');
+    sh.getRange(2, 21, 1, 1).setBackground('#252C32').setFontColor('#FFFFFF').setFontWeight('bold').setHorizontalAlignment('center');
+    sh.setFrozenRows(2);
+  }
+  return sh;
+}
+
+function crearVerificarHojaAdministrativos() {
+  const ss = getSpreadsheet_();
+  const sh = ensureCuentasAdministrativasSheet_(ss);
+  return { ok: true, sheetName: sh.getName() };
+}
 
 const ERP_STORE_FOLIO_SERIES_ = {
   'CREATA LIVING PLAYA': 'PL',
@@ -2844,6 +2975,136 @@ function checkAndRegisterGuestDevice_(ss, guestUser, rawDeviceId, rawDeviceLabel
   };
 }
 
+function readGuestDevicesSnapshot_(ss, guestUser) {
+  const email = String((guestUser && guestUser.correo) || '').trim().toLowerCase();
+  let maxAllowedPlaces = Math.max(1, Math.min(50, Number(guestUser && guestUser.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL_));
+  const book = ss || getSpreadsheet_();
+  const sh = findInvitadosSheet_(book);
+  const props = PropertiesService.getScriptProperties();
+  const propKey = getGuestPropKeyForEmail_(email);
+
+  let sheetPlacesText = '';
+  let sheetDevicesRaw = '';
+  let targetRow = (guestUser && guestUser.rowNum > 0) ? guestUser.rowNum : -1;
+
+  if (sh && sh.getLastRow() >= 2) {
+    const maxCols = Math.min(Math.max(sh.getMaxColumns(), 10), 10);
+    if (targetRow > 0 && targetRow <= sh.getLastRow()) {
+      const rVals = sh.getRange(targetRow, 1, 1, Math.min(sh.getMaxColumns(), maxCols)).getDisplayValues()[0] || [];
+      const parsedCols = extractGuestDeviceColsFromRow_(rVals, rVals);
+      maxAllowedPlaces = parsedCols.maxPlaces;
+      sheetPlacesText = parsedCols.placesText;
+      sheetDevicesRaw = parsedCols.devicesRaw;
+    } else if (email) {
+      const allVals = sh.getRange(1, 1, sh.getLastRow(), Math.min(sh.getMaxColumns(), maxCols)).getDisplayValues();
+      for (let r = 0; r < allVals.length; r++) {
+        const row = allVals[r] || [];
+        const emCand = [row[4], row[0], row[1], row[2], row[3]]
+          .map((x) => String(x || '').trim().toLowerCase())
+          .find((x) => x === email);
+        if (emCand) {
+          targetRow = r + 1;
+          const parsedCols = extractGuestDeviceColsFromRow_(row, row);
+          maxAllowedPlaces = parsedCols.maxPlaces;
+          sheetPlacesText = parsedCols.placesText;
+          sheetDevicesRaw = parsedCols.devicesRaw;
+          break;
+        }
+      }
+    }
+  }
+
+  let devices = parseGuestDevicesFromText_(sheetDevicesRaw);
+  if (devices.length === 0) {
+    const wasExplicitlyClearedInSheet = targetRow > 0 && !sheetDevicesRaw && (!sheetPlacesText || /^0\s*\/\s*\d+$/.test(sheetPlacesText));
+    if (!wasExplicitlyClearedInSheet && propKey) {
+      try {
+        const rawProp = props.getProperty(propKey);
+        if (rawProp) {
+          const parsed = JSON.parse(rawProp);
+          if (Array.isArray(parsed)) {
+            devices = parsed.filter((d) => d && d.id).slice(0, maxAllowedPlaces);
+          }
+        }
+      } catch (eProp) {}
+    }
+  }
+
+  return {
+    sh: sh,
+    targetRow: targetRow,
+    maxAllowedPlaces: maxAllowedPlaces,
+    devices: devices,
+    propKey: propKey
+  };
+}
+
+function revokeGuestDevicesInSheetAndProps_(ss, guestUser, targetDeviceId, currentDevId) {
+  const snap = readGuestDevicesSnapshot_(ss, guestUser);
+  const props = PropertiesService.getScriptProperties();
+  const cleanCur = String(currentDevId || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+  const cleanTgt = targetDeviceId === 'ALL_OTHERS'
+    ? 'ALL_OTHERS'
+    : String(targetDeviceId || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+
+  const removedDevices = [];
+  const remaining = [];
+  for (let i = 0; i < snap.devices.length; i++) {
+    const d = snap.devices[i];
+    if (!d || !d.id) continue;
+    const dId = String(d.id).trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+    const shouldRemove = (cleanTgt === 'ALL_OTHERS')
+      ? (!cleanCur || dId !== cleanCur)
+      : Boolean(cleanTgt && dId === cleanTgt);
+    if (shouldRemove) {
+      removedDevices.push({ id: dId, label: String(d.label || 'Dispositivo') });
+    } else {
+      remaining.push(d);
+    }
+  }
+
+  if (removedDevices.length > 0) {
+    try {
+      if (remaining.length > 0) {
+        props.setProperty(snap.propKey, JSON.stringify(remaining));
+      } else if (typeof props.deleteProperty === 'function') {
+        props.deleteProperty(snap.propKey);
+      } else {
+        props.setProperty(snap.propKey, '[]');
+      }
+    } catch (ePropSave) {}
+
+    if (snap.sh && snap.targetRow > 0) {
+      try {
+        if (snap.sh.getMaxColumns() < 10) {
+          snap.sh.insertColumnsAfter(snap.sh.getMaxColumns(), 10 - snap.sh.getMaxColumns());
+        }
+        const statusI = remaining.length + ' / ' + snap.maxAllowedPlaces;
+        const detailJ = formatGuestDevicesForSheet_(remaining, snap.maxAllowedPlaces);
+        snap.sh.getRange(snap.targetRow, 8).setValue(snap.maxAllowedPlaces).setHorizontalAlignment('center').setFontWeight('bold');
+        snap.sh.getRange(snap.targetRow, 9).setNumberFormat('@').setValue(statusI).setHorizontalAlignment('center').setFontWeight('bold');
+        snap.sh.getRange(snap.targetRow, 10).setNumberFormat('@').setValue(detailJ);
+        SpreadsheetApp.flush();
+        invalidateBranchUsersCache_();
+      } catch (eShWrite) {}
+    }
+  }
+
+  let slotNumber = 1;
+  if (cleanCur) {
+    const idx = remaining.findIndex((d) => String((d && d.id) || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64) === cleanCur);
+    if (idx !== -1) slotNumber = idx + 1;
+  }
+
+  return {
+    removedDevices: removedDevices,
+    remainingDevices: remaining,
+    activeCount: remaining.length,
+    maxPlaces: snap.maxAllowedPlaces,
+    slotNumber: slotNumber
+  };
+}
+
 function handleInvGuestHeartbeat_(body) {
   const email = String((body && (body.email || body.advisorEmail)) || '').trim().toLowerCase();
   const devId = String((body && body.deviceId) || '').trim();
@@ -2862,10 +3123,36 @@ function handleInvGuestHeartbeat_(body) {
       error: 'Tu correo ya no aparece activo en la hoja INVITADOS.'
     };
   }
+  const sanitizedDevId = devId.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+  if (sanitizedDevId) {
+    const devMap = readUserDevicesMap_(email);
+    const devRec = devMap[sanitizedDevId];
+    if (devRec && Number(devRec.revokedAt || 0) > 0) {
+      return {
+        ok: false,
+        revoked: true,
+        error: 'Tu sesión fue cerrada desde otro dispositivo. Inicia sesión nuevamente para continuar.'
+      };
+    }
+  }
   const devCheck = checkAndRegisterGuestDevice_(ss, guestMatch, devId, devLabel);
   if (!devCheck.ok) {
     return devCheck;
   }
+  if (sanitizedDevId) {
+    try {
+      recordUserDeviceSession_(guestMatch, {
+        deviceId: sanitizedDevId,
+        deviceLabel: devLabel || 'Dispositivo',
+        erpStore: 'INVITADOS (SOLO VER)',
+        sheetTab: guestMatch.sheetTab || 'INVITADOS',
+        sessionStartedMs: Number((body && body.sessionStartedMs) || 0)
+      }, 'inventario', true);
+    } catch (eRecGuest) {}
+  }
+  try {
+    recordInvPresence_(guestMatch, 'inventario', true);
+  } catch (eGuestPres) {}
   return {
     ok: true,
     slotNumber: devCheck.slotNumber,
@@ -3216,6 +3503,7 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
 
   const targetSs = ss || getSpreadsheet_();
   const list = [];
+  const adminPermsByEmail = {};
   for (let t = 0; t < INV_USER_TABS_.length; t++) {
     const cfg = INV_USER_TABS_[t];
     let sh = targetSs.getSheetByName(cfg.tab);
@@ -3232,7 +3520,11 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
     const numRows = sh.getLastRow() - startRow + 1;
     if (numRows <= 0) continue;
 
-    const colsToRead = Math.min(sh.getMaxColumns(), 10); // A..J
+    const maxReadCols = cfg.isAdmin ? 22 : 10;
+    const colsToRead = Math.min(sh.getMaxColumns(), maxReadCols);
+    const hdrVals = (cfg.isAdmin && hdrRow >= 1)
+      ? (sh.getRange(hdrRow, 1, 1, colsToRead).getDisplayValues()[0] || [])
+      : [];
     const vals = sh.getRange(startRow, 1, numRows, colsToRead).getValues();
     const dispVals = sh.getRange(startRow, 1, numRows, colsToRead).getDisplayValues();
 
@@ -3328,6 +3620,11 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
       const isAdminUser = !isGuestRole && (!!cfg.isAdmin || !!ADMIN_MASTER_EMAILS_[correo] || /ADMINISTRADOR/i.test(puesto));
       const userErpStore = (isAdminUser && resolvedErpBranch) ? resolvedErpBranch : cfg.erpStore;
       const userPrefix = getStoreFolioPrefix_(userErpStore, cfg.orderPrefix);
+      let rowAdminPerms = null;
+      if (cfg.isAdmin) {
+        rowAdminPerms = extractAdminPermissionsFromRow_(hdrVals, r, dr, correo);
+        adminPermsByEmail[correo] = rowAdminPerms;
+      }
 
       list.push({
         sheetTab: actualTabName,
@@ -3351,8 +3648,20 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
         mustChangeKey: !defKey && !!tempKey,
         erpAdvisorLabel: resolvedErpLabel,
         erpAdvisorId: resolvedErpId,
-        erpAdvisorBranch: resolvedErpBranch
+        erpAdvisorBranch: resolvedErpBranch,
+        adminPermissions: rowAdminPerms || (isAdminUser ? defaultAdminPermissionsForEmail_(correo) : null)
       });
+    }
+  }
+
+  for (let i = 0; i < list.length; i++) {
+    const u = list[i];
+    if (!u || u.isGuest || !u.correo) continue;
+    if (adminPermsByEmail[u.correo]) {
+      u.isAdmin = true;
+      u.adminPermissions = adminPermsByEmail[u.correo];
+    } else if (u.isAdmin && !u.adminPermissions) {
+      u.adminPermissions = defaultAdminPermissionsForEmail_(u.correo);
     }
   }
 
@@ -3397,6 +3706,9 @@ function sanitizeUserForClient_(u, includeSignedToken) {
     out.guestSlotNum = u.guestSlotNum || 1;
     out.guestActivePlaces = u.guestActivePlaces || 1;
     out.guestMaxPlaces = Math.max(1, Math.min(50, Number(u.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL_));
+  }
+  if (!isGuest && out.isAdmin) {
+    out.adminPermissions = u.adminPermissions || defaultAdminPermissionsForEmail_(u.correo);
   }
   if (!isGuest && Array.isArray(u.branchAdvisorEmails)) {
     out.branchAdvisorEmails = u.branchAdvisorEmails;
@@ -3582,6 +3894,17 @@ function handleInvLogin_(body) {
   });
 
   try { recordInvPresence_(chosenOut, 'login', true); } catch (ePres) {}
+  if (deviceId) {
+    try {
+      recordUserDeviceSession_(chosenOut, {
+        deviceId: deviceId,
+        deviceLabel: deviceLabel || 'Dispositivo',
+        erpStore: chosenOut.isGuest ? 'INVITADOS (SOLO VER)' : (chosenOut.erpStore || chosenOut.sheetTab || ''),
+        sheetTab: chosenOut.sheetTab || '',
+        sessionStartedMs: Date.now()
+      }, 'login', true, { clearRevoked: true });
+    } catch (eDevSess) {}
+  }
 
   return {
     ok: true,
@@ -8994,12 +9317,7 @@ function handleInvUploadProductPhoto_(body) {
       return authCheck;
     }
     const verifiedUser = authCheck.advisor;
-    if (isGuestReadOnlyUser_(verifiedUser)) {
-      return {
-        ok: false,
-        error: 'Tu cuenta de Invitado (Solo Ver) no tiene permisos para subir fotografías.'
-      };
-    }
+    const isGuestUploader = isGuestReadOnlyUser_(verifiedUser);
 
     const skuUpper = String((body && body.sku) || '').trim().toUpperCase();
     const productName = String((body && body.productName) || skuUpper).trim();
@@ -9015,9 +9333,11 @@ function handleInvUploadProductPhoto_(body) {
 
     const ahoraStr = formatCancunNow_();
     const uploaderName = verifiedUser.nombre || verifiedUser.correo;
-    const roleStore = [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'ASESOR'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
-      .filter(Boolean)
-      .join(' · ');
+    const roleStore = isGuestUploader
+      ? 'INVITADO · INVITADOS'
+      : [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'ASESOR'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
+          .filter(Boolean)
+          .join(' · ');
 
     const mime = m[1];
     const base64Body = m[2];
@@ -9338,11 +9658,20 @@ function verifyExclusiveKevinOwner_(ss, body) {
     };
   }
   const emailNorm = String(authCheck.advisor.correo || '').trim().toLowerCase().replace(/,/g, '.');
-  if (emailNorm !== OWNER_FOTOS_EMAIL_) {
+  const perms = authCheck.advisor.adminPermissions || null;
+  const isPermittedAdmin = Boolean(authCheck.advisor.isAdmin && perms && perms.fotosApp === true);
+  if (emailNorm !== OWNER_FOTOS_EMAIL_ && !isPermittedAdmin) {
     return {
       ok: false,
       forbidden: true,
-      error: 'Acceso exclusivo denegado: este módulo está autorizado únicamente para ' + OWNER_FOTOS_EMAIL_ + '.'
+      error: 'Acceso exclusivo denegado: este módulo está autorizado únicamente para ' + OWNER_FOTOS_EMAIL_ + ' o administradores con VER_FOTOS_APP = SI.'
+    };
+  }
+  if (emailNorm === OWNER_FOTOS_EMAIL_ && perms && perms.fotosApp === false) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'El permiso VER_FOTOS_APP está desactivado para tu cuenta en CUENTAS ADMINISTRATIVAS.'
     };
   }
   return { ok: true, advisor: authCheck.advisor };
@@ -12399,6 +12728,9 @@ function handleInvPresenceHeartbeat_(body) {
   if (actor.renewedAuthToken) {
     res.renewedAuthToken = actor.renewedAuthToken;
   }
+  if (!isGuestReadOnlyUser_(actor.advisor) && actor.advisor.isAdmin) {
+    res.adminPermissions = actor.advisor.adminPermissions || defaultAdminPermissionsForEmail_(actor.advisor.correo);
+  }
   return res;
 }
 
@@ -12429,13 +12761,21 @@ function handleInvPresenceList_(body) {
       error: (actor && actor.error) || (isGuestBlocked ? 'Solo usuarios autorizados pueden consultar el equipo en vivo.' : 'Sesión expirada o token de presencia inválido.')
     };
   }
+  if (actor.advisor.isAdmin && !userHasAdminPerm_(actor.advisor, 'equipoInvitados')) {
+    return {
+      ok: false,
+      authRequired: false,
+      forbidden: true,
+      error: 'Tu cuenta no tiene habilitado VER_EQUIPO_Y_INVITADOS en CUENTAS ADMINISTRATIVAS.'
+    };
+  }
 
   const now = Date.now();
   const allUsers = Array.isArray(actor.allUsers) ? actor.allUsers : [];
   const presenceMap = readInvPresenceMap_();
 
   const mergedByKey = {};
-  const guestKeys = {};
+  const guestByKey = {};
 
   for (let i = 0; i < allUsers.length; i++) {
     const u = allUsers[i];
@@ -12443,7 +12783,21 @@ function handleInvPresenceList_(body) {
     const key = normalizePresenceKey_(u.correo, u.nombre);
     if (!key) continue;
     if (isGuestReadOnlyUser_(u)) {
-      guestKeys[key] = true;
+      const gEmail = String(u.correo || '').trim().toLowerCase();
+      const gName = String(u.nombre || gEmail || 'Invitado').trim();
+      const gRole = String(u.puesto || 'INVITADO (SOLO VER)').trim();
+      const gDevs = Array.isArray(u.guestDevices) ? u.guestDevices : [];
+      const gMax = Math.max(1, Math.min(50, Number(u.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL_));
+      if (!guestByKey[key]) {
+        guestByKey[key] = {
+          nombre: gName,
+          correo: gEmail,
+          sucursal: 'INVITADOS (SOLO VER)',
+          rol: gRole,
+          maxPlaces: gMax,
+          sheetDevices: gDevs
+        };
+      }
       continue;
     }
     const uSucursal = String(u.erpStore || u.sheetTab || '').trim();
@@ -12487,12 +12841,27 @@ function handleInvPresenceList_(body) {
   const presenceKeys = Object.keys(presenceMap);
   for (let i = 0; i < presenceKeys.length; i++) {
     const pKey = presenceKeys[i];
-    if (!pKey || mergedByKey[pKey] || guestKeys[pKey]) continue;
+    if (!pKey || mergedByKey[pKey]) continue;
     const pEntry = presenceMap[pKey];
     if (!pEntry) continue;
     const pRolNorm = String(pEntry.rol || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
     const pSucNorm = String(pEntry.sucursal || '').trim().toUpperCase();
-    if (/INVITAD|SOLO\s*VER|SOLO\s*LECTURA/.test(pRolNorm) || /^INVITADOS?$|^SOLO LECTURA$/.test(pSucNorm)) {
+    const isGuestEntry = Boolean(
+      guestByKey[pKey] ||
+      /INVITAD|SOLO\s*VER|SOLO\s*LECTURA/.test(pRolNorm) ||
+      /^INVITADOS?$|^SOLO LECTURA$/.test(pSucNorm)
+    );
+    if (isGuestEntry) {
+      if (!guestByKey[pKey]) {
+        guestByKey[pKey] = {
+          nombre: String(pEntry.nombre || pEntry.correo || 'Invitado').trim(),
+          correo: String(pEntry.correo || '').trim().toLowerCase(),
+          sucursal: 'INVITADOS (SOLO VER)',
+          rol: String(pEntry.rol || 'INVITADO (SOLO VER)').trim(),
+          maxPlaces: MAX_GUEST_PLACES_PER_EMAIL_,
+          sheetDevices: []
+        };
+      }
       continue;
     }
     mergedByKey[pKey] = {
@@ -12546,13 +12915,101 @@ function handleInvPresenceList_(body) {
   }
   const offlineCount = users.length - onlineCount;
 
+  // Invitados conectados en vivo (hoja INVITADOS + presenceMap + dispositivos por usuario)
+  const guests = [];
+  const guestKeyList = Object.keys(guestByKey);
+  for (let i = 0; i < guestKeyList.length; i++) {
+    const gk = guestKeyList[i];
+    const base = guestByKey[gk];
+    const entry = presenceMap[gk] || null;
+    let lastSeenMs = entry && Number(entry.lastSeenMs) > 0 ? Number(entry.lastSeenMs) : 0;
+    let online = Boolean(
+      entry &&
+      entry.online !== false &&
+      lastSeenMs > 0 &&
+      (now - lastSeenMs) <= INV_PRESENCE_ONLINE_THRESHOLD_MS_
+    );
+    let vista = entry ? sanitizePresenceVista_(entry.vista) : '';
+    let activeDeviceLabel = '';
+    const activeDevices = [];
+
+    if (base.correo) {
+      try {
+        const devMap = readUserDevicesMap_(base.correo);
+        const devIds = Object.keys(devMap);
+        for (let d = 0; d < devIds.length; d++) {
+          const rec = devMap[devIds[d]];
+          if (!rec || Number(rec.revokedAt || 0) > 0) continue;
+          const dSeen = Number(rec.lastSeenMs || 0);
+          const dOnline = Boolean(rec.online !== false && dSeen > 0 && (now - dSeen) <= INV_PRESENCE_ONLINE_THRESHOLD_MS_);
+          if (dSeen > lastSeenMs) {
+            lastSeenMs = dSeen;
+            if (rec.vista) vista = sanitizePresenceVista_(rec.vista);
+          }
+          if (dOnline) {
+            online = true;
+            if (!activeDeviceLabel && rec.deviceLabel) activeDeviceLabel = String(rec.deviceLabel);
+          }
+          activeDevices.push({
+            deviceId: rec.deviceId,
+            deviceLabel: String(rec.deviceLabel || 'Dispositivo'),
+            online: dOnline,
+            lastSeenMs: dSeen
+          });
+        }
+      } catch (eGDev) {}
+    }
+
+    if (!activeDeviceLabel && Array.isArray(base.sheetDevices) && base.sheetDevices.length) {
+      const lastSheetDev = base.sheetDevices[base.sheetDevices.length - 1];
+      if (lastSheetDev && lastSheetDev.label) activeDeviceLabel = String(lastSheetDev.label);
+    }
+
+    const activePlaces = Math.max(
+      Array.isArray(base.sheetDevices) ? base.sheetDevices.length : 0,
+      activeDevices.filter((x) => x.online).length
+    );
+
+    guests.push({
+      nombre: base.nombre,
+      correo: base.correo,
+      sucursal: 'INVITADOS (SOLO VER)',
+      rol: base.rol || 'INVITADO (SOLO VER)',
+      vista: vista || (online ? 'inventario' : ''),
+      online: online,
+      lastSeenMs: lastSeenMs,
+      isGuest: true,
+      deviceLabel: activeDeviceLabel,
+      activePlaces: activePlaces,
+      maxPlaces: base.maxPlaces || MAX_GUEST_PLACES_PER_EMAIL_,
+      slotLabel: activePlaces + ' / ' + (base.maxPlaces || MAX_GUEST_PLACES_PER_EMAIL_),
+      activeDevices: activeDevices
+    });
+  }
+
+  guests.sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    if ((b.lastSeenMs || 0) !== (a.lastSeenMs || 0)) return (b.lastSeenMs || 0) - (a.lastSeenMs || 0);
+    return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es', { sensitivity: 'base' });
+  });
+
+  let guestOnlineCount = 0;
+  for (let i = 0; i < guests.length; i++) {
+    if (guests[i].online) guestOnlineCount++;
+  }
+  const guestOfflineCount = guests.length - guestOnlineCount;
+
   const listRes = {
     ok: true,
     serverTimeMs: now,
     thresholdMs: INV_PRESENCE_ONLINE_THRESHOLD_MS_,
     onlineCount: onlineCount,
     offlineCount: offlineCount,
-    users: users
+    users: users,
+    guests: guests,
+    guestOnlineCount: guestOnlineCount,
+    guestOfflineCount: guestOfflineCount,
+    guestTotalCount: guests.length
   };
   if (actor.renewedAuthToken) {
     listRes.renewedAuthToken = actor.renewedAuthToken;
@@ -12617,7 +13074,7 @@ function writeUserDevicesMap_(emailRaw, mapObj) {
   return clean;
 }
 
-function recordUserDeviceSession_(advisor, body, vista, onlineFlag) {
+function recordUserDeviceSession_(advisor, body, vista, onlineFlag, opts) {
   if (!advisor || !advisor.correo) return { revoked: false };
   const email = String(advisor.correo || '').trim().toLowerCase().replace(/,/g, '.');
   const devId = String((body && body.deviceId) || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
@@ -12625,6 +13082,7 @@ function recordUserDeviceSession_(advisor, body, vista, onlineFlag) {
   const devLabel = String((body && body.deviceLabel) || 'Dispositivo').trim().slice(0, 80);
   const sucursal = String((body && (body.erpStore || body.branchLabel || body.sheetTab)) || advisor.erpStore || advisor.sheetTab || '').trim().slice(0, 60);
   const sessionStartedMs = Number((body && body.sessionStartedMs) || 0);
+  const clearRevoked = Boolean(opts && opts.clearRevoked);
   const now = Date.now();
 
   let lock = null;
@@ -12637,7 +13095,7 @@ function recordUserDeviceSession_(advisor, body, vista, onlineFlag) {
   try {
     const map = readUserDevicesMap_(email);
     const existing = map[devId] || null;
-    if (onlineFlag && existing && Number(existing.revokedAt || 0) > 0) {
+    if (!clearRevoked && onlineFlag && existing && Number(existing.revokedAt || 0) > 0) {
       if (!sessionStartedMs || sessionStartedMs <= Number(existing.revokedAt)) {
         return { revoked: true };
       }
@@ -12662,19 +13120,27 @@ function recordUserDeviceSession_(advisor, body, vista, onlineFlag) {
 
 function handleInvMySessions_(body) {
   const b = body || {};
-  const actor = resolvePresenceActor_(b, false);
-  if (!actor || !actor.advisor || isGuestReadOnlyUser_(actor.advisor)) {
+  const actor = resolvePresenceActor_(b, true);
+  if (!actor || actor.ok === false || !actor.advisor) {
     return { ok: false };
   }
+  const isGuestActor = isGuestReadOnlyUser_(actor.advisor);
   const email = String(actor.advisor.correo || '').trim().toLowerCase().replace(/,/g, '.');
   const currentDevId = String(b.deviceId || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
   const now = Date.now();
   if (currentDevId) {
-    recordUserDeviceSession_(actor.advisor, b, b.vista || 'configuracion', true);
+    const recBody = isGuestActor
+      ? Object.assign({}, b, { erpStore: 'INVITADOS (SOLO VER)' })
+      : b;
+    recordUserDeviceSession_(actor.advisor, recBody, b.vista || 'configuracion', true);
   }
   const map = readUserDevicesMap_(email);
-  const sessions = Object.keys(map).map((k) => {
+  const mergedById = {};
+  const mapKeys = Object.keys(map);
+  for (let i = 0; i < mapKeys.length; i++) {
+    const k = mapKeys[i];
     const e = map[k];
+    if (!e || !e.deviceId) continue;
     const lastSeenMs = Number(e.lastSeenMs || 0);
     const revokedAt = Number(e.revokedAt || 0);
     const active = Boolean(
@@ -12684,10 +13150,10 @@ function handleInvMySessions_(body) {
       (now - lastSeenMs) <= (24 * 3600 * 1000)
     );
     const onlineNow = Boolean(active && (now - lastSeenMs) <= INV_PRESENCE_ONLINE_THRESHOLD_MS_);
-    return {
+    mergedById[e.deviceId] = {
       deviceId: e.deviceId,
       deviceLabel: String(e.deviceLabel || 'Dispositivo'),
-      sucursal: String(e.sucursal || ''),
+      sucursal: String(e.sucursal || (isGuestActor ? 'INVITADOS (SOLO VER)' : '')),
       vista: String(e.vista || ''),
       lastSeenMs: lastSeenMs,
       online: onlineNow,
@@ -12695,29 +13161,77 @@ function handleInvMySessions_(body) {
       revoked: revokedAt > 0,
       isCurrent: Boolean(currentDevId && e.deviceId === currentDevId)
     };
-  });
+  }
+
+  let guestMeta = null;
+  if (isGuestActor) {
+    try {
+      const snap = readGuestDevicesSnapshot_(getSpreadsheet_(), actor.advisor);
+      let slotNum = 1;
+      for (let i = 0; i < snap.devices.length; i++) {
+        const d = snap.devices[i];
+        if (!d || !d.id) continue;
+        const dId = String(d.id).trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+        if (!dId) continue;
+        if (currentDevId && dId === currentDevId) slotNum = i + 1;
+        if (!mergedById[dId]) {
+          mergedById[dId] = {
+            deviceId: dId,
+            deviceLabel: String(d.label || 'Dispositivo autorizado'),
+            sucursal: 'INVITADOS (SOLO VER)',
+            vista: 'inventario',
+            lastSeenMs: now,
+            online: true,
+            active: true,
+            revoked: false,
+            isCurrent: Boolean(currentDevId && dId === currentDevId)
+          };
+        } else if (!mergedById[dId].revoked) {
+          mergedById[dId].active = true;
+          mergedById[dId].online = true;
+        }
+      }
+      guestMeta = {
+        activeCount: snap.devices.length,
+        maxPlaces: snap.maxAllowedPlaces,
+        slotNumber: slotNum
+      };
+    } catch (eGuestSnap) {}
+  }
+
+  const sessions = Object.keys(mergedById).map((k) => mergedById[k]);
   sessions.sort((a, bItem) => {
     if (a.isCurrent !== bItem.isCurrent) return a.isCurrent ? -1 : 1;
     if (a.online !== bItem.online) return a.online ? -1 : 1;
     return Number(bItem.lastSeenMs || 0) - Number(a.lastSeenMs || 0);
   });
-  return {
+  const out = {
     ok: true,
     serverTimeMs: now,
     currentDeviceId: currentDevId,
     sessions: sessions
   };
+  if (guestMeta) {
+    out.activeCount = guestMeta.activeCount;
+    out.maxPlaces = guestMeta.maxPlaces;
+    out.slotNumber = guestMeta.slotNumber;
+  }
+  return out;
 }
 
 function handleInvRevokeSession_(body) {
   const b = body || {};
-  const actor = resolvePresenceActor_(b, false);
-  if (!actor || !actor.advisor || isGuestReadOnlyUser_(actor.advisor)) {
+  const actor = resolvePresenceActor_(b, true);
+  if (!actor || actor.ok === false || !actor.advisor) {
     return { ok: false };
   }
+  const isGuestActor = isGuestReadOnlyUser_(actor.advisor);
   const email = String(actor.advisor.correo || '').trim().toLowerCase().replace(/,/g, '.');
-  const targetDeviceId = String(b.targetDeviceId || '').trim();
-  const currentDevId = String(b.deviceId || '').trim();
+  const rawTarget = String(b.targetDeviceId || '').trim();
+  const targetDeviceId = rawTarget === 'ALL_OTHERS'
+    ? 'ALL_OTHERS'
+    : rawTarget.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
+  const currentDevId = String(b.deviceId || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
   const now = Date.now();
 
   const lock = LockService.getScriptLock();
@@ -12730,6 +13244,7 @@ function handleInvRevokeSession_(body) {
       const id = keys[i];
       if (targetDeviceId === 'ALL_OTHERS') {
         if (currentDevId && id === currentDevId) continue;
+        if (Number(map[id].revokedAt || 0) > 0 && map[id].online === false) continue;
         map[id].online = false;
         map[id].revokedAt = now;
         revokedCount++;
@@ -12739,8 +13254,60 @@ function handleInvRevokeSession_(body) {
         revokedCount++;
       }
     }
+
+    let guestRevokeRes = null;
+    if (isGuestActor) {
+      try {
+        const ss = getSpreadsheet_();
+        guestRevokeRes = revokeGuestDevicesInSheetAndProps_(ss, actor.advisor, targetDeviceId, currentDevId);
+        const removedList = (guestRevokeRes && Array.isArray(guestRevokeRes.removedDevices))
+          ? guestRevokeRes.removedDevices
+          : [];
+        for (let r = 0; r < removedList.length; r++) {
+          const rem = removedList[r];
+          if (!rem || !rem.id) continue;
+          if (!map[rem.id]) {
+            map[rem.id] = {
+              deviceId: rem.id,
+              deviceLabel: rem.label || 'Dispositivo',
+              sucursal: 'INVITADOS (SOLO VER)',
+              vista: 'inventario',
+              lastSeenMs: now,
+              online: false,
+              revokedAt: now
+            };
+            revokedCount++;
+          } else if (Number(map[rem.id].revokedAt || 0) === 0 || map[rem.id].online !== false) {
+            map[rem.id].online = false;
+            map[rem.id].revokedAt = now;
+            revokedCount++;
+          }
+        }
+        if (revokedCount > 0) {
+          registrarEventoHistorial_(ss, {
+            clasificacion: 'MOVIMIENTO',
+            modulo: 'AppsScript · INVITADOS (Sesiones)',
+            evento: 'CIERRE REMOTO DE SESIONES (INVITADO)',
+            estado: '✅ OK',
+            usuario: (actor.advisor.nombre || email) + ' (' + email + ')',
+            sucursal: 'INVITADOS (SOLO VER)',
+            referencia: targetDeviceId === 'ALL_OTHERS' ? ('Otras sesiones (' + revokedCount + ')') : ('Dispositivo ' + targetDeviceId),
+            detalle: 'Se cerraron ' + revokedCount + ' sesión(es) remota(s) y se actualizaron los lugares autorizados en hoja INVITADOS (' +
+              guestRevokeRes.activeCount + ' / ' + guestRevokeRes.maxPlaces + ').',
+            analisis: 'Dispositivos revocados deberán iniciar sesión nuevamente.'
+          });
+        }
+      } catch (eGuestRev) {}
+    }
+
     writeUserDevicesMap_(email, map);
-    return { ok: true, revokedCount: revokedCount, serverTimeMs: now };
+    const out = { ok: true, revokedCount: revokedCount, serverTimeMs: now };
+    if (guestRevokeRes) {
+      out.activeCount = guestRevokeRes.activeCount;
+      out.maxPlaces = guestRevokeRes.maxPlaces;
+      out.slotNumber = guestRevokeRes.slotNumber;
+    }
+    return out;
   } finally {
     try { lock.releaseLock(); } catch (eR) {}
   }
@@ -12817,8 +13384,22 @@ function handleInvProductOverridesGet_(body) {
 function handleInvProductOverrideSave_(body) {
   const b = body || {};
   const ss = getSpreadsheet_();
-  const auth = verifyExclusiveKevinOwner_(ss, b);
-  if (!auth.ok) return auth;
+  let auth = verifyExclusiveKevinOwner_(ss, b);
+  if (!auth.ok) {
+    const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+    const advAuth = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, b);
+    if (advAuth && advAuth.ok && advAuth.advisor && advAuth.advisor.isAdmin && userHasAdminPerm_(advAuth.advisor, 'gestionProductos')) {
+      auth = { ok: true, advisor: advAuth.advisor };
+    } else {
+      return auth;
+    }
+  } else if (auth.advisor && auth.advisor.adminPermissions && auth.advisor.adminPermissions.gestionProductos === false) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Tu cuenta tiene desactivado VER_GESTION_PRODUCTOS en CUENTAS ADMINISTRATIVAS.'
+    };
+  }
 
   const sku = String(b.sku || '').trim().toUpperCase();
   if (!sku || sku.length > 60) {
@@ -12872,6 +13453,9 @@ function handleInvProductOverrideSave_(body) {
       : (existingRow ? String(existingRow[5] || '').trim() : '');
     const nowStr = formatCancunNow_();
 
+    const actorEmail = (auth && auth.advisor && auth.advisor.correo) ? String(auth.advisor.correo) : OWNER_FOTOS_EMAIL_;
+    const actorName = (auth && auth.advisor && auth.advisor.nombre) ? String(auth.advisor.nombre) : 'Kevin Reyna';
+
     const rowValues = [[
       sanitizeOverrideTextCell_(sku, 60),
       nextStatus,
@@ -12879,7 +13463,7 @@ function handleInvProductOverrideSave_(body) {
       nextCat,
       nextPrice,
       nextNote,
-      OWNER_FOTOS_EMAIL_,
+      actorEmail,
       nowStr
     ]];
 
@@ -12897,7 +13481,7 @@ function handleInvProductOverrideSave_(body) {
         modulo: 'Configuración · Productos Cotizador',
         evento: 'PRODUCTO ' + op + ' (' + nextStatus + ')',
         estado: '✅ OK',
-        usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
+        usuario: actorName + ' (' + actorEmail + ')',
         sucursal: 'ADMINISTRADOR',
         referencia: sku,
         detalle: 'Estado: ' + nextStatus + (nextName ? (' · Nombre: ' + nextName) : '') + (nextPrice !== '' ? (' · Precio: $' + nextPrice) : ''),
@@ -12915,7 +13499,7 @@ function handleInvProductOverrideSave_(body) {
         category: nextCat.replace(/^'/, ''),
         price: nextPrice === '' ? null : Number(nextPrice),
         note: nextNote.replace(/^'/, ''),
-        updatedBy: OWNER_FOTOS_EMAIL_,
+        updatedBy: actorEmail,
         updatedAt: nowStr
       }
     };

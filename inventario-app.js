@@ -64,6 +64,7 @@
 
     let currentGroup = null;
     let currentGroupFabricKey = '';
+    let currentGroupBedSizeKey = '';
     let currentDetailItem = null;
     let cart = loadCart();
     let lastLiveSignature = '';
@@ -140,12 +141,52 @@
         return '';
     }
 
+    function sanitizeVisualOverrideUrl(rawUrl, opts) {
+        const s = String(rawUrl == null ? '' : rawUrl).trim();
+        if (!s) return '';
+        if (/^(?:blob|javascript|vbscript|file):/i.test(s)) return '';
+        if (/^data:image\/(?:png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=]+$/i.test(s)) {
+            return (opts && opts.allowDataImage === true) ? s : '';
+        }
+        if (/^data:/i.test(s)) return '';
+        if (!/^https?:\/\/[^\s"'<>]+$/i.test(s)) return '';
+        try {
+            const u = new URL(s);
+            if (u.protocol !== 'https:' && u.protocol !== 'http:') return '';
+            if (!u.hostname || u.hostname.indexOf('.') === -1) return '';
+            return s;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function sanitizeProductOverridesMap(rawMap) {
+        const out = {};
+        if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return out;
+        const keys = Object.keys(rawMap);
+        for (let i = 0; i < keys.length; i++) {
+            const rawKey = keys[i];
+            const k = String(rawKey || '').trim().toUpperCase();
+            const ovr = rawMap[rawKey];
+            if (!k || !ovr || typeof ovr !== 'object') continue;
+            const isVisual = k.indexOf('VFAB:') === 0 || k.indexOf('VCOV:') === 0 ||
+                ovr.category === 'FABRIC_SWATCH' || ovr.category === 'VISUAL_COVER';
+            if (isVisual) {
+                const safeNote = sanitizeVisualOverrideUrl(ovr.note);
+                out[k] = Object.assign({}, ovr, { sku: k, note: safeNote });
+            } else {
+                out[k] = ovr;
+            }
+        }
+        return out;
+    }
+
     const INV_PRODUCT_OVERRIDES_STORAGE = 'creata_inv_product_overrides_v1';
     let invProductOverridesMap = (function loadInitialProductOverrides() {
         try {
             const raw = localStorage.getItem(INV_PRODUCT_OVERRIDES_STORAGE);
             const parsed = raw ? JSON.parse(raw) : null;
-            return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+            return sanitizeProductOverridesMap(parsed);
         } catch (e) {
             return {};
         }
@@ -479,10 +520,72 @@
         return ka.localeCompare(kb, 'es', { numeric: true, sensitivity: 'base' });
     }
 
+    const FABRIC_CANONICAL_ALIASES = [
+        [/\bCOLLETE\b/g, 'COLETTE'],
+        [/\bFLOFFLY\b/g, 'FLOFFY'],
+        [/\bTITTUS\b/g, 'TITUS'],
+        [/\bDARKGREY\b/g, 'DARK GREY'],
+        [/\bHIGHLIVING\b/g, 'HIGH LIVING'],
+        [/\bBRAXON\b/g, 'BRAXTON'],
+        [/\bNATRUAL\b/g, 'NATURAL'],
+        [/\bBRIKE\b/g, 'BRICK'],
+        [/\bKIMMI\b/g, 'KIMI'],
+        [/\bPORCELAINE\b/g, 'PORCELAIN'],
+        [/\bNUDE\s+BRACH\b/g, 'NUDE BEACH'],
+        [/\bCOPENHAGEN\b/g, 'COPENHAGUE'],
+        [/\bWITHE\b/g, 'WHITE'],
+        [/\bBAIGE\b/g, 'BEIGE']
+    ];
+
+    function canonicalizeFabricAliases(rawText) {
+        let s = String(rawText || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (!s) return '';
+        for (let i = 0; i < FABRIC_CANONICAL_ALIASES.length; i++) {
+            s = s.replace(FABRIC_CANONICAL_ALIASES[i][0], FABRIC_CANONICAL_ALIASES[i][1]);
+        }
+        return s.replace(/\s+/g, ' ').trim();
+    }
+
+    function stripFabricGradeAndVendorNoise(rawText) {
+        let s = String(rawText || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (!s) return '';
+        // 1) Quitar prefijos de grado (G1..G9, GG)
+        s = s.replace(/^(?:(?:G[1-9]|GG)\s+)+/i, '').trim();
+        // 2) Quitar prefijo "TELA DE " / "TELA " excepto frases protegidas
+        if (!/^(?:TELA\s+(?:ARTELL|MANTEL|REPELENTE|ECOLOGICA))$/.test(s)) {
+            s = s.replace(/^TELA(?:\s+DE)?\s+/i, '').trim();
+        }
+        // 3) Quitar sufijo " - MODELO" accidental en tela (ej. "BEIGE - LEONI" -> "BEIGE")
+        s = s.replace(/^([A-Z0-9][A-Z0-9\s]{1,40}?)\s+-\s+[A-Z0-9]{3,}$/, '$1').trim();
+        // 4) Quitar sufijos de proveedor al final cuando van precedidos de al menos un token
+        s = s.replace(/^(.+?)\s+(?:ARMONY|ATX\.?|BARSA|YOI)\s*$/i, '$1').trim();
+        const mSkanor = s.match(/^(.+?)\s+SKANOR\s*$/i);
+        if (mSkanor && !/\b(?:PAROTA|TECA|TEKA|ROSA\s+MORADA|ENCINO|NOGAL|PINO|ROBLE|FRESNO|TZALAM|MADERA)\b/i.test(mSkanor[1])) {
+            s = mSkanor[1].trim();
+        }
+        return s.replace(/\s+/g, ' ').trim();
+    }
+
+    function normalizeFabricLookupKey(rawText) {
+        const cleaned = cleanFabricVariationName(rawText);
+        return canonicalizeFabricAliases(stripFabricGradeAndVendorNoise(cleaned));
+    }
+
     const LIVE_EXTRA_FABRICS = {
         'SORRENTO IVORY': 'MARFIL / IVORY',
         'VOIRON OLIVO': 'VERDE OLIVO',
         'VOIRON PERLA': 'BLANCO PERLA',
+        'VOIRON CREAM': 'CREMA',
         'BOLTON FLAX': 'ARENA / LINO',
         'LINEN NATURE': 'LINO NATURAL',
         'NATURE LINEN': 'LINO NATURAL',
@@ -496,15 +599,20 @@
         'FOREVER MOSS': 'VERDE MUSGO',
         'REFLECT PLATINUM': 'GRIS PLATINO',
         'REFLECT CHARCOAL': 'GRIS OXFORD / CHARCOAL',
+        'REFLECT DOVE': 'GRIS PALOMA',
         'LULLABY OLIVE': 'VERDE OLIVO',
         'LULLABY OYSTER': 'OSTIÓN / MARFIL',
+        'AVALANCHE BONE': 'HUESO',
         'DISTRACTION NATURAL': 'ARENA / LINO NATURAL',
+        'DISTRACTION MIDNIGHT': 'AZUL MEDIANOCHE',
+        'DISTRACTION DOMINO': 'BLANCO / NEGRO',
         'LOVEME SAND': 'ARENA',
         'LOVEME COTTON': 'BLANCO ALGODÓN',
         'GELLAR MARBLE': 'BLANCO MÁRMOL',
         'GELLAR JUTE': 'YUTE NATURAL',
         'NIZA FOSSIL': 'GRIS FÓSIL',
-        'TITTUS PEARL': 'BLANCO PERLA',
+        'TITUS PEARL': 'BLANCO PERLA',
+        'TITUS CHALK': 'BLANCO TIZA',
         'MADISON SAND': 'ARENA',
         'COPENHAGUE NATURAL': 'NATURAL',
         'COPENHAGUE LINEN': 'LINO',
@@ -513,9 +621,9 @@
         'GLOSS COTTON': 'BLANCO ALGODÓN',
         'SUNSET IVORY': 'MARFIL / IVORY',
         'FRANCE BEIGE': 'BEIGE',
-        'GG FRANCE BEIGE': 'BEIGE',
         'MOHAIR 4 CURRY': 'MOSTAZA / CURRY',
         'MOHAIR CURRY': 'MOSTAZA / CURRY',
+        'MOHAIR COFFE': 'CAFÉ',
         'SAILCLOTH SUMMER SAND': 'ARENA',
         'SESAME RICE': 'BLANCO ARROZ',
         'NOSTALGIA BONE BROWN': 'HUESO / CAFÉ',
@@ -530,18 +638,79 @@
         'MERCURY PEYOTE': 'TAUPE / PEYOTE',
         'KELSI COTTON': 'BLANCO ALGODÓN',
         'SCAR PUTTY': 'ARENA / PUTTY',
+        'SCAR ECRU': 'CRUDO',
+        'WINDSOR ECRU': 'CRUDO',
         'FRESH FLAX': 'ARENA / FLAX',
         'LUXOR IVORY': 'MARFIL / IVORY',
         'RHONA ECRU': 'CRUDO / ECRU',
         'RHONA IVORY': 'MARFIL / IVORY',
+        'RHONA BONE': 'HUESO',
+        'RHONA SAND': 'ARENA',
+        'BELOVED FLAX': 'ARENA / LINO',
+        'FRESNO OYSTER': 'GRIS OSTRA',
+        'WOODWARD DOVE': 'GRIS PALOMA',
+        'GLACIER ICE': 'BLANCO HIELO',
+        'BLOIS PINO': 'VERDE PINO',
+        'KIRBY FLAX': 'LINO',
         'RUSTY NATURAL': 'NATURAL',
-        'KIMI PORCELAINE': 'BLANCO PORCELANA',
+        'KIMI PORCELAIN': 'BLANCO PORCELANA',
         'PRISMA OLIVE': 'VERDE OLIVO',
         'ALINE CASHMERE': 'CACHEMIRA / BEIGE',
         'ALINE TOAST': 'TOSTADO / TOAST',
-        'LILA LINEN': 'LINO',
+        'LILA LINEN': 'LINO / LILA',
         'NANTES CREAM': 'CREMA',
-        'ELITE GREY': 'GRIS'
+        'ELITE GREY': 'GRIS',
+        'ELITE FLAX': 'LINO',
+        'ATENEA SNOW': 'BLANCO NIEVE',
+        'MAGIC METAL': 'GRIS METÁLICO',
+        'LILLIE SNOW': 'BLANCO NIEVE',
+        'LILLIE SILVER': 'GRIS PLATA',
+        'ISMALIA LINEN': 'LINO',
+        'PRESTIGE IVORY': 'MARFIL',
+        'SOUL IVORY': 'MARFIL',
+        'TESSA KHAKI': 'KHAKI',
+        'TESSA VAINILLA': 'CREMA VAINILLA',
+        'RONDA SILVER': 'GRIS PLATA',
+        'RONDA MUSTARD': 'MOSTAZA',
+        'BLEND NATURAL': 'ARENA / NATURAL',
+        'BLEND MINERAL': 'GRIS MINERAL',
+        'BLEND TEAL': 'AQUA / TEAL',
+        'OUTRIGGER WHITE': 'BLANCO',
+        'OUTRIGGER CREAM': 'CREMA',
+        'DYNAMIC TAUPE': 'TAUPE',
+        'NILE BRICK': 'TERRACOTA',
+        'FLOFFY PORCELAIN': 'BLANCO PORCELANA',
+        'FLOFFY ALABASTER': 'BLANCO ALABASTRO',
+        'COLETTE CREAM': 'CREMA',
+        'COLETTE WHITE': 'BLANCO',
+        'COLETTE DUNE': 'ARENA / DUNE',
+        'COLETTE FLAX': 'ARENA / LINO',
+        'HIGH LIVING NATURAL': 'BEIGE NATURAL',
+        'HIGH LIVING WHITE': 'BLANCO',
+        'HIGH LIVING CHARCOAL': 'GRIS OXFORD',
+        'OSLO AVENA': 'AVENA',
+        'DUNDEE NATURAL': 'NATURAL',
+        'MODENA TUSK': 'MARFIL',
+        'SAND 07': 'ARENA',
+        'NAPOLI 01': 'ARENA CLARO',
+        'ROBLE 01': 'CRUDO / ARENA',
+        'BRONI 01': 'GRIS ARENA',
+        'BIKENDI LINEN': 'LINO CRUDO',
+        'BOSTON PERLA': 'PERLA / CRUDO',
+        'NUDE BEACH BLUE': 'AZUL',
+        'NUDE BEACH GREY': 'GRIS',
+        'NUDE BEACH SKY': 'AZUL CIELO',
+        'NUDE BEACH TEAL': 'AQUA / TEAL',
+        'NUDE BEACH LINEN': 'BEIGE / LINO',
+        'NUDE BEACH APPLE': 'VERDE MANZANA',
+        'NUDE BEACH ORANGE': 'NARANJA',
+        'NUDE BEACH WHITE': 'BLANCO',
+        'OLIVETO CORAL': 'CORAL',
+        'OLIVETO MARINO': 'AZUL MARINO',
+        'OLIVETO VERDE': 'VERDE',
+        'OLIVETO ARENA': 'ARENA',
+        'OLIVETO OLIVA': 'VERDE OLIVO',
+        'OLIVETO ORO': 'ORO / DORADO'
     };
 
     const LIVE_WOOD_PATTERNS = [
@@ -610,15 +779,598 @@
     ]);
 
     const liveKnownFabrics = new Map();
+    const liveCuratedFabrics = new Set();
     let liveFabricsListSorted = [];
     const liveSkuPrefixProv = new Map();
 
+    // ------------------------------------------------------------------------
+    // VALIDACIÓN Y RECONCILIACIÓN DE TELA Y COLOR DE TELA CONTRA NOMBRE (REQ 2A)
+    // ------------------------------------------------------------------------
+    const FABRIC_SINGLE_COLOR_WORDS = new Set([
+        'BLANCO', 'BLANCA', 'WHITE', 'NEGRO', 'NEGRA', 'BLACK', 'GRIS', 'GREY', 'GRAY',
+        'CAFE', 'BROWN', 'COFFE', 'COFFEE', 'CHOCOLATE', 'CREMA', 'CREAM', 'BEIGE', 'ARENA', 'SAND',
+        'HUESO', 'BONE', 'MARFIL', 'IVORY', 'CRUDO', 'ECRU', 'NATURAL', 'TOPO', 'TAUPE',
+        'AZUL', 'BLUE', 'MARINO', 'NAVY', 'SKY', 'CELESTE', 'AQUA', 'TEAL', 'TURQUESA',
+        'VERDE', 'GREEN', 'OLIVO', 'OLIVA', 'OLIVE', 'MUSGO', 'MOSS', 'ESMERALDA',
+        'ROJO', 'ROJA', 'RED', 'CORAL', 'TERRACOTA', 'BRICK', 'OXIDO', 'NARANJA', 'ORANGE', 'CALABAZA',
+        'AMARILLO', 'AMARILLA', 'YELLOW', 'MOSTAZA', 'MUSTARD', 'ORO', 'DORADO', 'GOLD',
+        'ROSA', 'PINK', 'MORADO', 'MORADA', 'PURPLE', 'LILA', 'VIOLETA', 'PLATA', 'SILVER', 'CARBÓN', 'CARBON', 'CHARCOAL', 'OXFORD', 'AVENA', 'OATMEAL'
+    ]);
+
+    const COLOR_FAMILY_RULES = [
+        // WHITE / OFF-WHITE / BONE / IVORY / PEARL / OYSTER / SNOW / COTTON / ALABASTER / RICE
+        [/\b(?:BLANC[OA]|WHITE|SNOW|NIEVE|COTTON|ALGODON|MARFIL|IVORY|PORCELAIN|PORCELANA|ALABASTER|ALABASTRO|CHALK|TIZA|PERLA|PEARL|HIELO|ICE|ARROZ|RICE|TUSK|HUESO|BONE|CREMA|CREAM|BUTTERMILK|VAINILLA|OSTRA|OSTION|OYSTER|GLACIER|CRUDO|ECRU)\b/, 'WHITE'],
+        // BEIGE / LINEN / FLAX / SAND / NATURAL / OAT / CREAM / BONE / KHAKI / CASHMERE / DUNE / PUTTY / JUTE
+        [/\b(?:BEIGE|ARENA|SAND|LINO|LINEN|FLAX|NATURAL|AVENA|OAT|OATMEAL|CREMA|CREAM|HUESO|BONE|MARFIL|IVORY|CRUDO|ECRU|KHAKI|CAQUI|DUNE|PUTTY|YUTE|JUTE|CACHEMIRA|CASHMERE|TOSTADO|TOAST|PERLA|VAINILLA)\b/, 'BEIGE'],
+        // TAUPE / TOPO / MUSHROOM / PEYOTE / STONE / GREIGE / GRAYGE
+        [/\b(?:TAUPE|TOPO|MUSHROOM|PEYOTE|GREIGE|GRAYGE|PIEDRA|STONE|TOSTADO|TOAST|VISON|MINK|FOSSIL|FOSIL)\b/, 'TAUPE'],
+        // BROWN / CAFE / COFFEE / CHOCOLATE / CARAMEL / CAMEL / TERRACOTTA / BRICK / NOGAL / TABACO
+        [/\b(?:CAFE|COFFE|COFFEE|BROWN|CHOCOLATE|CAMEL|CARAMELO|CANELA|BRONCE|COBRE|TERRACOTA|BRICK|OXIDO|RUST|NUEZ|TABACO|HABANO|TOSTADO|TOAST|AUTUMN)\b/, 'BROWN'],
+        // GREY / GRIS / SILVER / PLATINUM / CHARCOAL / OXFORD / DOVE / OYSTER / SLATE / METAL / MINERAL / FOSIL / NIEBLA
+        [/\b(?:GRIS|GREY|GRAY|GRAYGE|PLATA|SILVER|PLATINO|PLATINUM|CHARCOAL|CARBON|OXFORD|DOVE|PALOMA|OSTRA|OSTION|OYSTER|FOSIL|FOSSIL|MINERAL|METAL|METALICO|NIEBLA|MIST|CENIZO|ASH|SLATE|GRAFITO|ANTRACITA|PLOMO|HUMO|SMOKE)\b/, 'GREY'],
+        // BLACK / NEGRO / ONYX / DOMINO / JET
+        [/\b(?:NEGR[OA]|BLACK|ONIX|ONYX|DOMINO|JET|CARBON|CHARCOAL)\b/, 'BLACK'],
+        // BLUE / AZUL / NAVY / MARINO / MIDNIGHT / SKY / TEAL / AQUA / PETROL / DENIM / INDIGO
+        [/\b(?:AZUL|BLUE|MARINO|NAVY|MIDNIGHT|MEDIANOCHE|SKY|CIELO|CELESTE|TURQUESA|AQUA|TEAL|PETROLEO|DENIM|INDIGO|COBALTO|ZAFIRO)\b/, 'BLUE'],
+        // GREEN / VERDE / OLIVE / OLIVO / MOSS / PINO / SAGE / EMERALD / APPLE / MINT / TEAL
+        [/\b(?:VERDE|GREEN|OLIV[OA]|OLIVE|MUSGO|MOSS|PINO|SAGE|SALVIA|ESMERALDA|EMERALD|MENTA|MINT|MANZANA|APPLE|BOSQUE|FOREST|JADE|TEAL|AQUA)\b/, 'GREEN'],
+        // CORAL / RED / TERRACOTTA / ORANGE / CALABAZA / PINK / ROSA / BRICK / SALMON / BURGUNDY
+        [/\b(?:CORAL|ROJ[OA]|RED|TERRACOTA|BRICK|NARANJA|ORANGE|CALABAZA|SALMON|VINO|BURGUNDY|BORGOÑA|CARMESI|ROSA|PINK|MELOCOTON|DURAZNO|OXIDO)\b/, 'CORAL'],
+        // YELLOW / AMARILLO / MUSTARD / CURRY / GOLD / ORO / DORADO
+        [/\b(?:AMARILL[OA]|YELLOW|MOSTAZA|MUSTARD|CURRY|ORO|DORAD[OA]|GOLD|OCRE|MIEL|HONEY|AMBAR|AMBER)\b/, 'YELLOW'],
+        // PURPLE / MORADO / LILA / VIOLETA / LAVANDA / CIRUELA
+        [/\b(?:MORAD[OA]|PURPLE|LILA|VIOLETA|LAVANDA|CIRUELA|PLUM|UVA|MALVA)\b/, 'PURPLE']
+    ];
+
+    const EXPLICIT_COLOR_CUE_TABLE = [
+        [/\bGRIS\s+CLARO\b/, 'GRIS CLARO', ['GREY']],
+        [/\bGRIS\s+OSCURO\b|\bDARK\s+GREY\b|\bDARK\s+GRAY\b/, 'GRIS OSCURO', ['GREY']],
+        [/\bBEIGE\s+CLARO\b/, 'BEIGE CLARO', ['BEIGE']],
+        [/\bAZUL\s+MARINO\b|\bMARINO\b|\bNAVY\b/, 'AZUL MARINO', ['BLUE']],
+        [/\bAZUL\s+MEDIANOCHE\b|\bMIDNIGHT\b/, 'AZUL MEDIANOCHE', ['BLUE']],
+        [/\bAZUL\s+CIELO\b|\bSKY\b/, 'AZUL CIELO', ['BLUE']],
+        [/\bAZUL\b|\bBLUE\b/, 'AZUL', ['BLUE']],
+        [/\bTEAL\b|\bAQUA\b|\bTURQUESA\b/, 'AQUA / TEAL', ['BLUE', 'GREEN']],
+        [/\bVERDE\s+OLIV[OA]\b|\bOLIV[OA]\b|\bOLIVE\b/, 'VERDE OLIVO', ['GREEN']],
+        [/\bVERDE\s+PINO\b/, 'VERDE PINO', ['GREEN']],
+        [/\bVERDE\s+MANZANA\b|\bAPPLE\b/, 'VERDE MANZANA', ['GREEN']],
+        [/\bVERDE\b|\bGREEN\b/, 'VERDE', ['GREEN']],
+        [/\bCORAL\b/, 'CORAL', ['CORAL']],
+        [/\bTERRACOTA\b|\bBRICK\b/, 'TERRACOTA', ['BROWN', 'CORAL']],
+        [/\bCALABAZA\b|\bNARANJA\b|\bORANGE\b/, 'NARANJA', ['CORAL']],
+        [/\bTOPO\b|\bTAUPE\b/, 'TAUPE / TOPO', ['TAUPE']],
+        [/\bMOSTAZA\b|\bMUSTARD\b|\bCURRY\b/, 'MOSTAZA', ['YELLOW']],
+        [/\bAMARILL[OA]\b|\bYELLOW\b/, 'AMARILLO', ['YELLOW']],
+        [/\bMORAD[OA]\b|\bPURPLE\b|\bVIOLETA\b/, 'MORADO', ['PURPLE']],
+        [/\bROJ[OA]\b|\bRED\b/, 'ROJO', ['CORAL']],
+        [/\bROSA\b|\bPINK\b/, 'ROSA', ['CORAL']],
+        [/\bGRIS\b|\bGREY\b|\bGRAY\b/, 'GRIS', ['GREY']],
+        [/\bNEGR[OA]\b|\bBLACK\b/, 'NEGRO', ['BLACK']],
+        [/\bBLANC[OA]\b|\bWHITE\b/, 'BLANCO', ['WHITE']],
+        [/\bCREMA\b|\bCREAM\b/, 'CREMA', ['WHITE', 'BEIGE']],
+        [/\bBEIGE\b/, 'BEIGE', ['BEIGE']],
+        [/\bARENA\b|\bSAND\b/, 'ARENA', ['BEIGE']],
+        [/\bCAFE\b|\bCOFFE\b|\bCOFFEE\b|\bBROWN\b|\bCHOCOLATE\b/, 'CAFÉ', ['BROWN']],
+        [/\bHUESO\b|\bBONE\b/, 'HUESO', ['WHITE', 'BEIGE']],
+        [/\bMARFIL\b|\bIVORY\b/, 'MARFIL', ['WHITE', 'BEIGE']],
+        [/\bCRUD[OA]\b|\bECRU\b/, 'CRUDO', ['WHITE', 'BEIGE']]
+    ];
+
+    function getColorFamilies(rawText) {
+        const s = canonicalizeFabricAliases(rawText);
+        const fams = new Set();
+        if (!s) return fams;
+        for (let i = 0; i < COLOR_FAMILY_RULES.length; i++) {
+            if (COLOR_FAMILY_RULES[i][0].test(s)) {
+                fams.add(COLOR_FAMILY_RULES[i][1]);
+            }
+        }
+        return fams;
+    }
+
+    function colorFamiliesOverlap(textA, textB) {
+        const a = getColorFamilies(textA);
+        const b = getColorFamilies(textB);
+        if (a.size === 0 || b.size === 0) return true;
+        let hit = false;
+        a.forEach(f => { if (b.has(f)) hit = true; });
+        return hit;
+    }
+
+    function isWoodOrLacquerColorText(rawCt, itOpt) {
+        const c = plainModelToken(rawCt);
+        if (!c) return false;
+        if (/^(?:LACA\s+(?:BELLOTA|TACUBA|BLANCA|NEGRA)|BELLOTA|TACUBA|ROSA\s+MORADA(?:\s+\w+)?|PAROTA(?:\s+\w+)?|ENCINO(?:\s+\w+)?|NOGAL(?:\s+\w+)?|TECA(?:\s+\w+)?|PINO(?:\s+\w+)?|CARDEADO(?:\s+\w+)?|NATURAL\s+BARNIZ\s+MATTE)$/.test(c)) {
+            return true;
+        }
+        if (itOpt && c === 'HABANO' && plainModelToken(itOpt.cm) === 'HABANO') {
+            const tlFams = getColorFamilies(itOpt.tl);
+            if (tlFams.size > 0 && !tlFams.has('BROWN')) return true;
+        }
+        return false;
+    }
+
+    function isPollutedNonFabricText(rawTl) {
+        const t = plainModelToken(rawTl);
+        if (!t) return false;
+        if (/(?:^|\b)(?:3P\s+)?CARDEADO\s+BLANQUEADO\b/.test(t)) return true;
+        if (/\bSOTTANA\s+STONE\b/.test(t)) return true;
+        if (/\bCON\s+BEJUCO\b|\bSOLIDA\s+PANEL\b|\bACEITE\s+WHITE\b|\bTRAPO\s+ANTIQUE\b/.test(t)) return true;
+        if (/^\d+\s+ROSA\s+MORADA$|^ROSA\s+MORADA\b/.test(t)) return true;
+        if (/\bPROTECTOR\s+(?:QUEEN|KING|MATRIMONIAL|INDIVIDUAL|SAFETY)\b/.test(t)) return true;
+        if (/^(?:CON\s+COSTADOS(?:\s+SIN\s+ESTOPEROLES)?|SET\s+\d+PZS?\s+PARA|TELA\s+DE|TELA\s+[A-Z]|ACABADO\s+MATT?E|COPA\s+(?:ALTA|BAJA)|\/\s*BOLSENA\b.*)$/.test(t)) return true;
+        if (/^OCASIONAL\b.*\bROSA\s+MORADA\b/.test(t)) return true;
+        return false;
+    }
+
+    function isNonTextileProduct(it) {
+        if (!it) return false;
+        const tp = plainModelToken(stripDimensionsFromProductText(it.tp));
+        const nPlain = plainModelToken(stripDimensionsFromProductText(it.n));
+        const isHardGoodType = /^(?:ACCESORIOS?(?:\s+DECORATIVOS?)?|ACCECORIO|ESCULTURA|FLORERO|JARRON|BOTELLA|BOTELLON|CHAROLA|BANDEJA|FRUTERO|ENSALADERA|PLATO(?:\s+\w+)*|PLATON|SET\s+PLATO|BOWL|TAZON|MACETA|PLANTA(?:\s+\w+)*|FOLLAJE|CANDELABRO|PORTAVELAS?|PORTARRETRATO|VELAS?|LIBRO(?:\s+\w+)*|LINTERNA|FAROL|CORAL|CONCHA|LAMPARA(?:\s+\w+)*|CANDIL|ARBOTANTE|LUMINARIA|PLAFON|ESPEJO|CUADRO|ARTE\s+OBJETO|DECORATIVO\s+(?:DE\s+)?PARED|MESA(?:\s+\w+)*|CREDENZA|BUFETERA|BUFETERO|CONSOLA|RECIBIDOR|CAVA|BAR|MUEBLE\s+(?:DE|PARA)\s+TV|CENTRO\s+DE\s+(?:TV|ENTRETENIMIENTO|ENCETRENIMIENTO)|PTV|ESCRITORIO|LIBRERO|ESTANTERIA|VITRINA|ARCHIVERO|BURO|COMODA|CAJONERA|TOCADOR|PISOS?\s+MODULARES?|CRISTAL|LAMINA\s+DE\s+PVC|LAMBRIN(?:\s+\w+)*|PAPEL\s+TAPIZ|PEDESTAL|RELOJ(?:\s+\w+)*|ADORNOS?|PERCHERO|BIOMBO|MAMPARA|BAUL|CUBIERTA(?:\s+\w+)*)$/.test(tp);
+        if (!isHardGoodType) return false;
+        // Eximir muebles/textiles reales mal etiquetados como accesorio en ERP
+        const hasTextileProductNoun = /\b(?:SILLON(?:ES)?|SILLAS?|SOFAS?|SOFACAMAS?|SOFA\s+CAMA|LOVE\s*SEAT|LOVE\s+CON\s+BRAZO|CHAISE|POUF|PUFF|OTTOMAN|OTOMAN|COJIN(?:ES)?|FUNDAS?|TAPETES?|SABANAS?|DUVET|COLCHAS?|EDREDON|CUBRECAMA|CORTINAS?|PERSIANAS?|MANTEL(?:ES)?|CAMINO\s+DE\s+MESA|TORTILLERO|INDIVIDUALES|SERVILLETAS?|TOALLAS?|BRAZO\s+(?:BALI|DER|IZQ)|TELA\b)\b/.test(nPlain);
+        return !hasTextileProductNoun;
+    }
+
+    function wordBoundaryMatch(haystack, needle) {
+        if (!haystack || !needle) return false;
+        return (' ' + haystack + ' ').indexOf(' ' + needle + ' ') !== -1;
+    }
+
+    function isReversedTwoWordMatch(a, b) {
+        if (!a || !b) return false;
+        const pa = a.split(' ').filter(Boolean);
+        const pb = b.split(' ').filter(Boolean);
+        return pa.length === 2 && pb.length === 2 && pa[0] === pb[1] && pa[1] === pb[0];
+    }
+
+    function findLongestKnownFabricInText(canonText, preferCuratedOnly) {
+        if (!canonText || liveFabricsListSorted.length === 0) return null;
+        const padded = ' ' + canonText + ' ';
+        let bestCurated = null;
+        let bestAny = null;
+        for (let i = 0; i < liveFabricsListSorted.length; i++) {
+            const fk = liveFabricsListSorted[i];
+            if (fk.indexOf(' ') === -1 || LIVE_BAD_FABRICS.has(fk)) continue;
+            if (padded.indexOf(' ' + fk + ' ') !== -1) {
+                const info = liveKnownFabrics.get(fk);
+                if (!info) continue;
+                const entry = { key: fk, tl: info.tl, ct: info.ct || '', curated: !!info.curated };
+                if (entry.curated && !bestCurated) bestCurated = entry;
+                if (!bestAny) bestAny = entry;
+                if (bestCurated) break;
+            }
+        }
+        if (bestCurated) return bestCurated;
+        if (preferCuratedOnly) return null;
+        if (bestAny) return bestAny;
+        // Comprobar forma invertida de 2 palabras para telas curadas (ej. "GREY ELITE" <-> "ELITE GREY")
+        const words = canonText.split(' ').filter(Boolean);
+        for (let w = 0; w < words.length - 1; w++) {
+            const rev = words[w + 1] + ' ' + words[w];
+            if (liveCuratedFabrics.has(rev)) {
+                const info = liveKnownFabrics.get(rev);
+                if (info) return { key: rev, tl: info.tl, ct: info.ct || '', curated: true, inverted: true };
+            }
+        }
+        return null;
+    }
+
+    function buildColorSearchScope(nCanon, tlOpt) {
+        if (!nCanon) return '';
+        let s = nCanon;
+        // Preferir cláusula explícita después de "TELA (DE COJINES)?" cuando contiene color (ej. GC555006, ADSGC8720043, GC555007C)
+        const mAfterTela = s.match(/\bTELA\s+(?:DE\s+COJINES\s+)?(.+)$/);
+        if (mAfterTela && mAfterTela[1]) {
+            const tail = mAfterTela[1].trim();
+            for (let i = 0; i < EXPLICIT_COLOR_CUE_TABLE.length; i++) {
+                if (EXPLICIT_COLOR_CUE_TABLE[i][0].test(tail)) {
+                    s = tail;
+                    break;
+                }
+            }
+        }
+        // Quitar contextos de color que NO corresponden a la tela (mecanismos, patas, tubos, maderas, mesa de café)
+        s = s
+            .replace(/\bMEC\s+SKY\b/g, ' ')
+            .replace(/\bMESA\s+(?:DE\s+)?CAFE\b/g, ' ')
+            .replace(/\bPALO\s+DE\s+ROSA\b/g, ' ')
+            .replace(/\bROSA\s+MORADA(?:\s+(?:CAFE|CLAR[OA]|SOLID[OA]|TONO\s+NATURAL))?\b/g, ' ')
+            .replace(/\bLACA\s+(?:BELLOTA|TACUBA|BLANC[OA]|NEGR[OA])\b/g, ' ')
+            .replace(/\bPATA(?:S)?\s+(?:DE\s+)?(?:NEGR[OA]S?|BLANC[OA]S?|GREY(?:-GOLD)?|GRIS(?:-GOLD)?|NOGAL|TECA|TEKA|ORO|DORAD[OA]S?|MADERA|METAL|PAROTA|NATURAL)\b/g, ' ')
+            .replace(/\bBASE\s+(?:COLOR\s+|ACABADO\s+)?(?:POLVO\s+ALUMBRE\s+|ALUMINIO\s+)?(?:BLANC[OA]|NEGR[OA]|PAROTA|NATURAL|DORAD[OA]|ORO)\b/g, ' ')
+            .replace(/\bTUBO\s+(?:DE\s+ALUMINIO\s+|ACABADO\s+POLVO\s+ALUMBRE\s+)?(?:BLANC[OA]|NEGR[OA]|GRIS)\b/g, ' ')
+            .replace(/\bMARCO\s+(?:NEGR[OA]|BLANC[OA]|DORAD[OA]|ORO|PLATA|MADERA)\b/g, ' ')
+            .replace(/\bACABADO\s+(?:TEKA|TECA|POLVO\s+ALUMBRE\s+BLANC[OA]|NATURAL|MATT?E|NEGR[OA]|BLANC[OA])\b/g, ' ');
+        if (!/^CUERDA\b/i.test(plainModelToken(tlOpt || ''))) {
+            s = s.replace(/\bCUERDA\s+(?:VERDE|GRIS|NEGR[OA]|BLANC[OA]|CAFE|BEIGE|NATURAL)\b/g, ' ');
+        }
+        return s.replace(/\s+/g, ' ').trim();
+    }
+
+    function extractExplicitColorCues(text) {
+        if (!text) return [];
+        const found = [];
+        const usedRanges = [];
+        for (let i = 0; i < EXPLICIT_COLOR_CUE_TABLE.length; i++) {
+            const re = EXPLICIT_COLOR_CUE_TABLE[i][0];
+            const label = EXPLICIT_COLOR_CUE_TABLE[i][1];
+            const fams = EXPLICIT_COLOR_CUE_TABLE[i][2];
+            const m = re.exec(text);
+            if (!m) continue;
+            const start = m.index;
+            const end = start + m[0].length;
+            const overlaps = usedRanges.some(r => start < r[1] && end > r[0]);
+            if (overlaps) continue;
+            usedRanges.push([start, end]);
+            found.push({ index: start, label: label, families: fams, raw: m[0] });
+        }
+        found.sort((a, b) => a.index - b.index);
+        return found;
+    }
+
+    function validateAndNormalizeFabricColorAgainstName(item, opts) {
+        const mutate = !!(opts && opts.mutate === true);
+        const out = mutate ? item : Object.assign({}, item);
+        const sku = String((out && out.s) || '').trim().toUpperCase();
+        const before = {
+            tl: cleanStr(out && out.tl),
+            ct: cleanStr(out && out.ct),
+            cm: cleanStr(out && out.cm)
+        };
+        const issues = [];
+        const addIssue = code => { if (issues.indexOf(code) === -1) issues.push(code); };
+
+        if (!out) {
+            return { item: out, report: { sku: '', changed: false, issues: [], before: before, after: before } };
+        }
+
+        let tl = before.tl;
+        let ct = before.ct;
+        let cm = before.cm;
+
+        const nPlain = plainModelToken(stripDimensionsFromProductText(out.n || ''));
+        const nCanon = canonicalizeFabricAliases(nPlain);
+        const nonTextile = isNonTextileProduct(out);
+
+        // Rescate previo a Etapa 1: tela curada envuelta en ruido de tipo/madera (ej. "OCASIONAL SAND 07 ROSA MORADA TONO NATURAL")
+        if (tl && /^OCASIONAL\b.*\bROSA\s+MORADA\b/i.test(plainModelToken(tl))) {
+            const rescued = findLongestKnownFabricInText(canonicalizeFabricAliases(tl), true);
+            if (rescued) {
+                tl = rescued.tl;
+                addIssue('NON_TEXTILE_FABRIC_POLLUTION');
+            }
+        }
+
+        // ETAPA 1A: Patrones incondicionales de contaminación no textil en `tl`
+        if (tl) {
+            const tlPlain = plainModelToken(tl);
+            if (/(?:^|\b)(?:3P\s+)?CARDEADO\s+BLANQUEADO\b/.test(tlPlain)) {
+                tl = '';
+                if (!cm || plainModelToken(cm) === 'CARDEADO') cm = 'CARDEADO BLANQUEADO';
+                addIssue('NON_TEXTILE_FABRIC_POLLUTION');
+            } else if (/\bSOTTANA\s+STONE\b/.test(tlPlain)) {
+                tl = '';
+                ct = '';
+                addIssue('NON_TEXTILE_FABRIC_POLLUTION');
+            } else if (isPollutedNonFabricText(tlPlain)) {
+                const clearCtToo = nonTextile || /^(?:ACABADO\s+MATT?E|COPA\s+(?:ALTA|BAJA))$/.test(tlPlain);
+                tl = '';
+                if (clearCtToo) ct = '';
+                addIssue('NON_TEXTILE_FABRIC_POLLUTION');
+            }
+        }
+
+        // ETAPA 1B: Productos estrictamente no textiles (mesas, accesorios, lámparas, conectores, relojes, credenzas)
+        if (nonTextile && tl) {
+            const tlCanonCheck = canonicalizeFabricAliases(tl);
+            const mLegitMat = tlCanonCheck.match(/\b(PIEL|VINIL|YUTE|LINO|CUERDA|NOSTALGIA\s+BONE\s+BROWN)\b/);
+            const legitInName = !!(mLegitMat && wordBoundaryMatch(nCanon, mLegitMat[1]));
+            if (!legitInName) {
+                tl = '';
+                ct = '';
+                addIssue('NON_TEXTILE_FABRIC_POLLUTION');
+            }
+        }
+
+        // ETAPA 1C: Madera / laca filtrada dentro de `ct` (COLOR DE TELA)
+        if (ct && isWoodOrLacquerColorText(ct, { tl: tl, cm: cm })) {
+            if (!cm) cm = ct;
+            ct = '';
+            addIssue('WOOD_IN_COLOR_POLLUTION');
+        }
+
+        // ETAPA 1D: Falso parseo "MESA DE CAFE" y `tl` de un solo color en contradicción directa con `n`
+        if (tl && plainModelToken(tl) === 'CAFE' && /\bMESA\s+(?:DE\s+)?CAFE\b/.test(nPlain)) {
+            tl = '';
+            if (plainModelToken(ct) === 'PERLA / CRUDO') ct = '';
+            addIssue('NON_TEXTILE_FABRIC_POLLUTION');
+        }
+        if (tl && !nonTextile) {
+            const tlSingle = canonicalizeFabricAliases(tl);
+            if (tlSingle.indexOf(' ') === -1 && FABRIC_SINGLE_COLOR_WORDS.has(tlSingle)) {
+                const ctSingle = canonicalizeFabricAliases(ct);
+                const tlInName = wordBoundaryMatch(nCanon, tlSingle);
+                const nameCues = extractExplicitColorCues(buildColorSearchScope(nCanon));
+                if (!tlInName && ctSingle && nameCues.length > 0) {
+                    const ctMatchesName = nameCues.some(c => colorFamiliesOverlap(ctSingle, c.label));
+                    const tlMatchesName = nameCues.some(c => colorFamiliesOverlap(tlSingle, c.label));
+                    if (ctMatchesName && !tlMatchesName) {
+                        tl = '';
+                        addIssue('FABRIC_MISMATCH_WITH_NAME');
+                    }
+                } else if (tlInName && ctSingle && ctSingle.indexOf(' ') === -1 && FABRIC_SINGLE_COLOR_WORDS.has(ctSingle) &&
+                    wordBoundaryMatch(nCanon, ctSingle) && !colorFamiliesOverlap(tlSingle, ctSingle)) {
+                    // Ej. POUF CREMA NEGRO FLECOS (tl="NEGRO", ct="CREMA") -> tl="", ct="CREMA / NEGRO"
+                    const posTl = (' ' + nCanon + ' ').indexOf(' ' + tlSingle + ' ');
+                    const posCt = (' ' + nCanon + ' ').indexOf(' ' + ctSingle + ' ');
+                    const firstLbl = posCt <= posTl ? ctSingle : tlSingle;
+                    const secondLbl = posCt <= posTl ? tlSingle : ctSingle;
+                    tl = '';
+                    ct = firstLbl + ' / ' + secondLbl;
+                    addIssue('COLOR_CONTRADICTION_FIXED');
+                }
+            }
+        }
+
+        // ETAPA 2: Prefijos de grado (G2/G3/G4/GG), "TELA ", sufijo proveedor y aliases canónicos en `tl`
+        if (tl) {
+            const cleanSegment = seg => {
+                const rawSeg = cleanStr(seg);
+                if (!rawSeg) return '';
+                const plainSeg = plainModelToken(rawSeg);
+                const afterGrade = plainSeg
+                    .replace(/^(?:(?:G[1-9]|GG)\s+)+/i, '')
+                    .replace(/^TELA(?:\s+DE)?\s+(?!(?:ARTELL|MANTEL|REPELENTE|ECOLOGICA)$)/i, '')
+                    .replace(/^([A-Z0-9][A-Z0-9\s]{1,40}?)\s+-\s+[A-Z0-9]{3,}$/, '$1')
+                    .trim();
+                if (afterGrade !== plainSeg) addIssue('GRADE_PREFIX_STRIPPED');
+                const afterVendor = stripFabricGradeAndVendorNoise(afterGrade);
+                if (afterVendor !== afterGrade) addIssue('VENDOR_SUFFIX_STRIPPED');
+                const afterAlias = canonicalizeFabricAliases(afterVendor);
+                if (afterAlias !== afterVendor) addIssue('FABRIC_ALIAS_CANONICALIZED');
+                // Preservar acentos legítimos en frases genéricas (ej. "ALGODÓN SATÍN") si nada cambió
+                return (afterAlias === plainSeg) ? rawSeg : afterAlias;
+            };
+            if (tl.indexOf('/') !== -1) {
+                const segs = tl.split(/\s*\/\s*/);
+                const cleanedPrimary = cleanSegment(segs[0]);
+                const cleanedRest = segs.slice(1).map(sPart => {
+                    const pNorm = plainModelToken(sPart);
+                    const pAlias = canonicalizeFabricAliases(pNorm);
+                    if (pAlias !== pNorm) addIssue('FABRIC_ALIAS_CANONICALIZED');
+                    return pAlias === pNorm ? cleanStr(sPart) : pAlias;
+                }).filter(Boolean);
+                tl = cleanedRest.length > 0 ? (cleanedPrimary + ' / ' + cleanedRest.join(' / ')) : cleanedPrimary;
+            } else {
+                tl = cleanSegment(tl);
+            }
+        }
+
+        // ETAPA 3: Preservar tela principal del cuerpo antes de COORD / VIVO (ej. KIRBY FLAX / COORD MOHAIR COFFE, OSI IVORY / VIVO ALANIS BEIGE)
+        const mCoordOrVivo = nCanon.match(/\b(COORD\.?|VIVO)\b/);
+        const hasCoordInName = !!mCoordOrVivo;
+        const coordTag = (mCoordOrVivo && /^VIVO$/i.test(mCoordOrVivo[1])) ? 'VIVO' : 'COORD';
+        let beforeCoord = nCanon;
+        let afterCoord = '';
+        if (hasCoordInName) {
+            const splitIdx = mCoordOrVivo.index;
+            beforeCoord = nCanon.slice(0, splitIdx).trim();
+            afterCoord = nCanon.slice(splitIdx + mCoordOrVivo[0].length).trim();
+        }
+        if (hasCoordInName && !nonTextile && beforeCoord) {
+            const primaryFab = findLongestKnownFabricInText(beforeCoord, false);
+            const tlPrimaryNow = canonicalizeFabricAliases((tl || '').split(/\s*\/\s*/)[0]);
+            if (primaryFab && tlPrimaryNow.indexOf(primaryFab.key) === -1 &&
+                (!tlPrimaryNow || wordBoundaryMatch(afterCoord, tlPrimaryNow))) {
+                tl = primaryFab.tl + (tlPrimaryNow ? (' / ' + coordTag + ' ' + tlPrimaryNow) : '');
+                if (primaryFab.ct && (!ct || !colorFamiliesOverlap(ct, primaryFab.ct + ' ' + primaryFab.key))) {
+                    ct = primaryFab.ct;
+                }
+                addIssue('COORD_PRIMARY_RESTORED');
+            }
+        }
+
+        // ETAPA 4: Contradicción directa `tl` vs `n` y refinamiento de `tl` truncada/genérica
+        const nameScope = hasCoordInName ? beforeCoord : nCanon;
+        const nameFab = !nonTextile ? findLongestKnownFabricInText(nameScope, false) : null;
+        if (nameFab && tl && !nonTextile) {
+            const hasSlash = tl.indexOf('/') !== -1;
+            const tlPrimaryRaw = hasSlash ? tl.split(/\s*\/\s*/)[0].trim() : tl;
+            const coordSuffix = hasSlash ? (' / ' + tl.split(/\s*\/\s*/).slice(1).join(' / ').trim()) : '';
+            const tlPrimary = canonicalizeFabricAliases(tlPrimaryRaw);
+            const isExactOrInverted = tlPrimary === nameFab.key || isReversedTwoWordMatch(tlPrimary, nameFab.key);
+            const isTruncatedOrGeneric = LIVE_BAD_FABRICS.has(tlPrimary) || tlPrimary === 'LINEN' ||
+                (nameFab.key.indexOf(tlPrimary) !== -1 && nameFab.key.length > tlPrimary.length);
+            const isSuperset = tlPrimary.indexOf(nameFab.key) !== -1;
+
+            if (!isExactOrInverted && !isSuperset) {
+                if (isTruncatedOrGeneric) {
+                    tl = nameFab.tl + coordSuffix;
+                    addIssue('FABRIC_BACKFILLED_FROM_NAME');
+                    if (nameFab.ct) {
+                        if (!ct) {
+                            ct = nameFab.ct;
+                            addIssue('COLOR_BACKFILLED_FROM_NAME');
+                        } else if (!colorFamiliesOverlap(ct, nameFab.ct + ' ' + nameFab.key)) {
+                            ct = nameFab.ct;
+                            addIssue('COLOR_CONTRADICTION_FIXED');
+                        }
+                    }
+                } else {
+                    const oldTlPrimary = tlPrimaryRaw;
+                    tl = nameFab.tl + coordSuffix;
+                    if (nameFab.ct && (!ct || !colorFamiliesOverlap(ct, nameFab.ct + ' ' + nameFab.key))) {
+                        ct = nameFab.ct;
+                    }
+                    if (cleanStr(out.vr) && oldTlPrimary) {
+                        const escOld = oldTlPrimary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const vrRe = new RegExp('\\b' + escOld + '\\b', 'i');
+                        if (vrRe.test(out.vr)) {
+                            out.vr = out.vr.replace(vrRe, nameFab.tl);
+                        }
+                    }
+                    addIssue('FABRIC_MISMATCH_WITH_NAME');
+                }
+            }
+        }
+
+        // ETAPA 5: Completar `tl` / `ct` faltantes desde pistas explícitas en `n` o catálogo curado
+        if (!nonTextile) {
+            if (!tl && nameFab) {
+                tl = nameFab.tl;
+                addIssue('FABRIC_BACKFILLED_FROM_NAME');
+                if (nameFab.ct) {
+                    if (!ct) {
+                        ct = nameFab.ct;
+                        addIssue('COLOR_BACKFILLED_FROM_NAME');
+                    } else if (!colorFamiliesOverlap(ct, nameFab.ct + ' ' + nameFab.key)) {
+                        ct = nameFab.ct;
+                        addIssue('COLOR_CONTRADICTION_FIXED');
+                    }
+                }
+            } else if (!tl) {
+                const mTelaCue = nCanon.match(/\bTELA\s+(?:DE\s+COJINES\s+)?([A-Z]{4,}(?:\s+(?:CLARO|OSCURO|ICE|NATURAL))?)\b/);
+                if (mTelaCue && mTelaCue[1]) {
+                    const cueTok = mTelaCue[1].trim();
+                    const isColorPhraseOnly = /^(?:GRIS|BEIGE|BLANC[OA]|NEGR[OA]|AZUL|VERDE|CAFE|ARENA|CREMA|ROSA|ROJ[OA])(?:\s+(?:CLARO|OSCURO))?$/.test(cueTok);
+                    if (isColorPhraseOnly) {
+                        const cues = extractExplicitColorCues(cueTok);
+                        if (cues.length > 0 && (!ct || !colorFamiliesOverlap(ct, cues[0].label))) {
+                            const hadCt = !!ct;
+                            ct = cues[0].label;
+                            addIssue(hadCt ? 'COLOR_CONTRADICTION_FIXED' : 'COLOR_BACKFILLED_FROM_NAME');
+                        }
+                    } else if (!LIVE_BAD_FABRICS.has(cueTok) && !/^(?:COJINES|DECORATIV[OA]|TAPICERIA|PARA)$/.test(cueTok)) {
+                        tl = cueTok;
+                        addIssue('FABRIC_BACKFILLED_FROM_NAME');
+                        if (!ct) {
+                            if (cueTok === 'OATMEAL') {
+                                ct = 'AVENA / OATMEAL';
+                                addIssue('COLOR_BACKFILLED_FROM_NAME');
+                            } else {
+                                const cues = extractExplicitColorCues(cueTok);
+                                if (cues.length > 0) {
+                                    ct = cues[0].label;
+                                    addIssue('COLOR_BACKFILLED_FROM_NAME');
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (tl && !ct) {
+                const tlPrimaryKey = canonicalizeFabricAliases(tl.split(/\s*\/\s*/)[0]);
+                let fInfo = liveKnownFabrics.get(tlPrimaryKey);
+                if (!fInfo) {
+                    const pWords = tlPrimaryKey.split(' ').filter(Boolean);
+                    if (pWords.length === 2) fInfo = liveKnownFabrics.get(pWords[1] + ' ' + pWords[0]);
+                }
+                if (fInfo && fInfo.ct) {
+                    ct = fInfo.ct;
+                    addIssue('COLOR_BACKFILLED_FROM_NAME');
+                }
+            }
+        }
+
+        // ETAPA 6: Reconciliación estricta de contradicción de color `ct` vs `n` (segura para traducciones al español)
+        if (!nonTextile) {
+            const colorScope = buildColorSearchScope(nCanon, tl);
+            // Caso multi-color explícito (ej. "FUNDA AMARILLO LINEA BLANCA" con ct="BLANCO")
+            const mStripe = colorScope.match(/\b(AMARILL[OA]|AZUL|ROJ[OA]|VERDE|CORAL|NEGR[OA]|GRIS|ROSA|MORAD[OA]|NARANJA|TERRACOTA|TURQUESA)\s+(?:LINEA|RAYA|BORDE|FILO)\s+(BLANC[OA]|NEGR[OA]|DORAD[OA]|ORO|GRIS|BEIGE|CREMA)\b/);
+            if (mStripe) {
+                const c1 = extractExplicitColorCues(mStripe[1])[0];
+                const c2 = extractExplicitColorCues(mStripe[2])[0];
+                if (c1 && c2 && ct && !colorFamiliesOverlap(ct, c1.label)) {
+                    ct = c1.label + ' / ' + c2.label;
+                    addIssue('COLOR_CONTRADICTION_FIXED');
+                }
+            }
+
+            const cuesInScope = extractExplicitColorCues(colorScope);
+            if (cuesInScope.length > 0) {
+                if (!ct && issues.indexOf('NON_TEXTILE_FABRIC_POLLUTION') !== -1) {
+                    // Ej. VASESETSI1450 tras limpiar "CAFE" de "MESA DE CAFE" -> tomar "COLOR GREY" -> "GRIS"
+                    ct = cuesInScope[0].label;
+                    addIssue('COLOR_CONTRADICTION_FIXED');
+                } else if (ct) {
+                    const tlPrimaryKey = canonicalizeFabricAliases((tl || '').split(/\s*\/\s*/)[0]);
+                    const tlInfo = tlPrimaryKey ? liveKnownFabrics.get(tlPrimaryKey) : null;
+                    const confirmedByCuratedFabric = !!(
+                        tlInfo && tlInfo.ct &&
+                        (wordBoundaryMatch(nCanon, tlPrimaryKey) || (nameFab && nameFab.key === tlPrimaryKey)) &&
+                        colorFamiliesOverlap(ct, tlInfo.ct)
+                    );
+                    if (!confirmedByCuratedFabric) {
+                        const ctFams = getColorFamilies(ct);
+                        if (ctFams.size > 0) {
+                            const scopeFams = new Set();
+                            for (let cIdx = 0; cIdx < cuesInScope.length; cIdx++) {
+                                cuesInScope[cIdx].families.forEach(f => scopeFams.add(f));
+                            }
+                            let anyOverlap = false;
+                            ctFams.forEach(f => { if (scopeFams.has(f)) anyOverlap = true; });
+                            if (!anyOverlap) {
+                                ct = cuesInScope[0].label;
+                                addIssue('COLOR_CONTRADICTION_FIXED');
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ETAPA 7: Firma de idempotencia y retorno (NUNCA mutar it.n, it.tp, it.mo ni títulos exteriores)
+        out.tl = tl;
+        out.ct = ct;
+        out.cm = cm;
+        const after = { tl: tl, ct: ct, cm: cm };
+        const changed = (before.tl !== after.tl) || (before.ct !== after.ct) || (before.cm !== after.cm) || issues.length > 0;
+        out._fabValSig = [out.n || '', out.tp || '', out.tl || '', out.ct || '', out.cm || ''].join('\x1f');
+        return {
+            item: out,
+            report: { sku: sku, changed: changed, issues: issues, before: before, after: after }
+        };
+    }
+
+    function runInventoryFabricColorAudit(items) {
+        const list = Array.isArray(items) ? items : allItems;
+        const countsByCode = {};
+        const anomalies = [];
+        let itemsWithFabric = 0;
+        let itemsWithColor = 0;
+        for (let i = 0; i < list.length; i++) {
+            const it = list[i];
+            if (!it) continue;
+            if (cleanStr(it.tl)) itemsWithFabric++;
+            if (cleanStr(it.ct)) itemsWithColor++;
+            const res = validateAndNormalizeFabricColorAgainstName(it, { mutate: false });
+            if (res && res.report && res.report.changed) {
+                anomalies.push(res.report);
+                for (let j = 0; j < res.report.issues.length; j++) {
+                    const code = res.report.issues[j];
+                    countsByCode[code] = (countsByCode[code] || 0) + 1;
+                }
+            }
+        }
+        return {
+            totalItems: list.length,
+            itemsWithFabric: itemsWithFabric,
+            itemsWithColor: itemsWithColor,
+            affectedCount: anomalies.length,
+            countsByCode: countsByCode,
+            anomalies: anomalies
+        };
+    }
+
     function seedBaseLiveVocab() {
         Object.keys(LIVE_EXTRA_FABRICS).forEach(k => {
-            const kn = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
-            if (!liveKnownFabrics.has(kn)) {
-                liveKnownFabrics.set(kn, { tl: k, ct: LIVE_EXTRA_FABRICS[k] });
-            }
+            const kn = canonicalizeFabricAliases(k);
+            if (!kn) return;
+            liveCuratedFabrics.add(kn);
+            liveKnownFabrics.set(kn, { tl: kn, ct: LIVE_EXTRA_FABRICS[k], curated: true });
         });
         liveFabricsListSorted = Array.from(liveKnownFabrics.keys()).sort((a, b) => b.length - a.length);
     }
@@ -630,14 +1382,23 @@
         for (let i = 0; i < items.length; i++) {
             const it = items[i];
             if (!it) continue;
-            const tl = cleanStr(it.tl);
-            const ct = cleanStr(it.ct);
-            if (tl && tl.length >= 4) {
-                const tln = tl.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
-                if (!LIVE_BAD_FABRICS.has(tln) && tln.indexOf(' ') !== -1) {
+            const rawTl = cleanStr(it.tl);
+            const rawCt = cleanStr(it.ct);
+            if (rawTl && rawTl.length >= 4 && rawTl.indexOf('/') === -1 && !/\bCOORD\.?\b/i.test(rawTl) &&
+                !isNonTextileProduct(it) && !isPollutedNonFabricText(rawTl)) {
+                const tln = canonicalizeFabricAliases(stripFabricGradeAndVendorNoise(rawTl));
+                if (tln && tln.length >= 4 && !LIVE_BAD_FABRICS.has(tln) && tln.indexOf(' ') !== -1 &&
+                    !isPollutedNonFabricText(tln)) {
+                    const nCanon = canonicalizeFabricAliases(stripDimensionsFromProductText(it.n || ''));
+                    const tlConfirmedInName = wordBoundaryMatch(nCanon, tln);
+                    const safeCt = (rawCt && !isWoodOrLacquerColorText(rawCt, it) && tlConfirmedInName) ? rawCt.toUpperCase() : '';
                     const prev = liveKnownFabrics.get(tln);
-                    if (!prev || (ct && !prev.ct)) {
-                        liveKnownFabrics.set(tln, { tl: tl.toUpperCase(), ct: ct ? ct.toUpperCase() : (prev ? prev.ct : '') });
+                    if (!prev) {
+                        if (tlConfirmedInName) {
+                            liveKnownFabrics.set(tln, { tl: tln, ct: safeCt, curated: false });
+                        }
+                    } else if (!prev.curated && safeCt && !prev.ct) {
+                        liveKnownFabrics.set(tln, { tl: prev.tl, ct: safeCt, curated: false });
                     }
                 }
             }
@@ -1030,6 +1791,7 @@
         if (!cleanStr(it.pr) && erpRef && erpRef.pr) {
             it.pr = erpRef.pr;
         }
+        validateAndNormalizeFabricColorAgainstName(it, { mutate: true });
         return it;
     }
 
@@ -1089,7 +1851,8 @@
         'enrredadera': 'enredadera',
         'pigen': 'pigeon',
         'seashells': 'seashell',
-        'benzio iii': 'benzio'
+        'benzio iii': 'benzio',
+        'fossano': 'fossenzo'
     };
 
     function plainModelToken(s) {
@@ -1198,6 +1961,31 @@
     let exteriorSalaSetModels = new Set();
     let exteriorModularModels = new Set();
     let dynamicSofaCamaModels = new Set();
+    let bedUnifiedModels = new Set();
+
+    function resolveBedUnifiedTitlePrefix(items) {
+        if (!Array.isArray(items) || items.length === 0) return 'CAMA';
+        let hasCama = false;
+        let hasBase = false;
+        let hasCabecera = false;
+        for (let i = 0; i < items.length; i++) {
+            const x = items[i];
+            if (!x) continue;
+            const cat = x._cat || '';
+            const tpTok = plainModelToken(stripDimensionsFromProductText(x.tp));
+            if (cat === 'CAMAS' && tpTok !== 'LITERA' && tpTok !== 'CUNA') hasCama = true;
+            else if (cat === 'BASES') hasBase = true;
+            else if (cat === 'CABECERAS') hasCabecera = true;
+        }
+        if (hasCama && hasBase && hasCabecera) return 'CAMA, BASE Y CABECERA';
+        if (hasBase && hasCabecera && !hasCama) return 'BASE Y CABECERA';
+        if (hasCama && hasBase && !hasCabecera) return 'CAMA Y BASE';
+        if (hasCama && hasCabecera && !hasBase) return 'CAMA Y CABECERA';
+        if (hasCama) return 'CAMA';
+        if (hasBase) return 'BASE DE CAMA';
+        if (hasCabecera) return 'CABECERA';
+        return 'CAMA';
+    }
 
     function extractPlainModelKeyForPairing(it) {
         const rawMo = plainModelToken(it && it.mo);
@@ -1287,12 +2075,6 @@
             if (subCat === 'COLCHONES') {
                 return { domain: 'COLCHONES', typeKey: 'COLCHON', typeLabel: 'COLCHÓN', typeRank: 86 };
             }
-            if (subCat === 'CABECERAS') {
-                return { domain: 'RECAMARAS_MUEBLE', typeKey: 'CABECERA', typeLabel: 'CABECERA', typeRank: 82 };
-            }
-            if (subCat === 'BASES') {
-                return { domain: 'RECAMARAS_MUEBLE', typeKey: 'BASE_CAMA', typeLabel: 'BASE DE CAMA', typeRank: 84 };
-            }
             if (subCat === 'BURÓS') {
                 return { domain: 'RECAMARAS_MUEBLE', typeKey: 'BURO', typeLabel: 'BURÓ', typeRank: 88 };
             }
@@ -1310,6 +2092,24 @@
             }
             if (tpTok === 'LITERA') return { domain: 'RECAMARAS_MUEBLE', typeKey: 'LITERA', typeLabel: 'LITERA', typeRank: 80.5 };
             if (tpTok === 'CUNA') return { domain: 'RECAMARAS_MUEBLE', typeKey: 'CUNA', typeLabel: 'CUNA', typeRank: 81 };
+            if ((subCat === 'CAMAS' || subCat === 'BASES' || subCat === 'CABECERAS') && pairMoKey && bedUnifiedModels.has(pairMoKey)) {
+                const ownPieceTypeKey = subCat === 'CABECERAS' ? 'CABECERA' : (subCat === 'BASES' ? 'BASE_CAMA' : 'CAMA');
+                const ownPieceTypeLabel = subCat === 'CABECERAS' ? 'CABECERA' : (subCat === 'BASES' ? 'BASE DE CAMA' : 'CAMA');
+                return {
+                    domain: 'RECAMARAS_MUEBLE',
+                    typeKey: 'CAMA_CONJUNTO',
+                    typeLabel: 'CAMA, BASE Y CABECERA',
+                    typeRank: 80,
+                    ownPieceTypeKey: ownPieceTypeKey,
+                    ownPieceTypeLabel: ownPieceTypeLabel
+                };
+            }
+            if (subCat === 'CABECERAS') {
+                return { domain: 'RECAMARAS_MUEBLE', typeKey: 'CABECERA', typeLabel: 'CABECERA', typeRank: 82 };
+            }
+            if (subCat === 'BASES') {
+                return { domain: 'RECAMARAS_MUEBLE', typeKey: 'BASE_CAMA', typeLabel: 'BASE DE CAMA', typeRank: 84 };
+            }
             return { domain: 'RECAMARAS_MUEBLE', typeKey: 'CAMA', typeLabel: 'CAMA', typeRank: 80 };
         }
 
@@ -1499,10 +2299,12 @@
         'MESA_COMEDOR': ['MESA', 'MESAS', 'COMEDOR'],
         'SILLA_COMEDOR': ['SILLA', 'SILLAS', 'COMEDOR'],
         'BUFETERA': ['BUFETERA', 'BUFETERO', 'BUFERETERA'],
-        'CABECERA': ['CABECERA'],
+        'CAMA_CONJUNTO': ['CAMA', 'CAMAS', 'BASE', 'BASES', 'CABECERA', 'CABECERAS'],
+        'CAMA': ['CAMA', 'CAMAS'],
+        'CABECERA': ['CABECERA', 'CABECERAS'],
         'COLCHON': ['COLCHON'],
         'COMODA': ['COMODA', 'CAJONERA'],
-        'BASE_CAMA': ['BASE', 'CAMA'],
+        'BASE_CAMA': ['BASE', 'BASES', 'CAMA'],
         'MUEBLE_TV': ['MUEBLE', 'TV', 'PTV', 'CENTRO', 'ENTRETENIMIENTO', 'ENCETRENIMIENTO'],
         'LAMPARA_MESA': ['LAMPARA', 'MESA'],
         'LAMPARA_PISO': ['LAMPARA', 'PISO'],
@@ -1541,6 +2343,11 @@
         for (let i = 0; i < rawTokens.length; i++) {
             const nw = normTok(rawTokens[i]);
             if (!nw) continue;
+            if (/^G[1-6]$/.test(nw)) continue;
+            if (nw === 'GRADO' && i + 1 < rawTokens.length && /^[1-6]$/.test(normTok(rawTokens[i + 1]))) {
+                i++;
+                continue;
+            }
             if ((nw === 'DE' || nw === 'DEL' || nw === 'PARA') && i + 1 < rawTokens.length && skipWords.has(normTok(rawTokens[i + 1]))) {
                 continue;
             }
@@ -1563,10 +2370,13 @@
             const tpPad = ' ' + plainModelToken(basePrefix) + ' ';
             const moPad = ' ' + plainModelToken(distinctMo) + ' ';
             const title = (tpPad.indexOf(moPad) !== -1 ? basePrefix : (basePrefix + ' ' + distinctMo)).toUpperCase();
+            const singleFurnInfo = furnInfo.ownPieceTypeLabel
+                ? Object.assign({}, furnInfo, { typeKey: furnInfo.ownPieceTypeKey, typeLabel: furnInfo.ownPieceTypeLabel })
+                : furnInfo;
             return {
                 key: 'type_' + normalizePlain(furnInfo.typeKey) + '__mo_' + (canonMoKey || normalizePlain(distinctMo)),
                 title: title,
-                singleTitle: formatStructuredSingleTitle(it, furnInfo, distinctMo),
+                singleTitle: formatStructuredSingleTitle(it, singleFurnInfo, distinctMo),
                 mo: distinctMo,
                 typeKey: furnInfo.typeKey,
                 typeLabel: furnInfo.typeLabel,
@@ -1658,13 +2468,16 @@
     MAIN_OF_SUB['OTROS'] = 'ESPEJOS Y ACCESORIOS';
     SUB_CAT_RANK['OTROS'] = 999;
 
-    // Subcategorías de Salas y Exterior que permanecen agrupadas por Tipo + Modelo + Módulos + Variaciones
+    // Subcategorías de Salas, Exterior y Recámaras (Camas/Bases/Cabeceras) que permanecen agrupadas por Tipo + Modelo
     const GROUPED_SUBCATEGORIES = new Set([
         'SALAS MODULARES',
         'SALAS EN L',
         'SOFAS & LOVESEATS',
         'FUTONES & SOFÁ CAMAS',
-        'EXTERIOR'
+        'EXTERIOR',
+        'CAMAS',
+        'BASES',
+        'CABECERAS'
     ]);
 
     const MODULE_GROUPABLE_TYPE_KEYS = new Set([
@@ -1683,6 +2496,13 @@
         'EXT_SALA',
         'EXT_SOFA',
         'EXT_LOVE_SEAT'
+    ]);
+
+    const BED_GROUPABLE_TYPE_KEYS = new Set([
+        'CAMA_CONJUNTO',
+        'CAMA',
+        'BASE_CAMA',
+        'CABECERA'
     ]);
 
     function resolveItemModuleBucket(it) {
@@ -1772,22 +2592,78 @@
         return keys.size;
     }
 
+    function resolveItemBedSize(it) {
+        if (!it) return { key: 'UNSPECIFIED', label: 'ESTÁNDAR', rank: 99 };
+        const primary = plainModelToken(stripDimensionsFromProductText((it.n || '') + ' ' + (it.vr || '')));
+        const fallback = plainModelToken(it.m || '');
+        const matchText = function (txt) {
+            if (!txt) return null;
+            if (/\b(?:SUPER\s*KING(?:\s*SIZE)?|SKS)\b/.test(txt)) {
+                return { key: 'SUPER_KING', label: 'SUPER KING', rank: 6 };
+            }
+            if (/\b(?:MATRIMONIAL\s*[\/\-]\s*QUEEN(?:\s*SIZE)?|MAT\s*[\/\-]\s*QUEEN(?:\s*SIZE)?|QUEEN\s*[\/\-]\s*MAT(?:RIMONIAL)?|MATRIMONIAL\s+QUEEN(?:\s*SIZE)?)\b/.test(txt)) {
+                return { key: 'MATRIMONIAL_QUEEN', label: 'MAT / QUEEN', rank: 3 };
+            }
+            if (/\b(?:KING\s*SIZE|KING|KS)\b/.test(txt)) {
+                return { key: 'KING_SIZE', label: 'KING SIZE', rank: 5 };
+            }
+            if (/\b(?:QUEEN\s*SIZE|QUEEN|QS)\b/.test(txt)) {
+                return { key: 'QUEEN_SIZE', label: 'QUEEN SIZE', rank: 4 };
+            }
+            if (/\b(?:MATRIMONIAL|MAT|MTR)\b/.test(txt)) {
+                return { key: 'MATRIMONIAL', label: 'MATRIMONIAL', rank: 2 };
+            }
+            if (/\b(?:INDIVIDUAL|INDIV\.?|IND)\b/.test(txt)) {
+                return { key: 'INDIVIDUAL', label: 'INDIVIDUAL', rank: 1 };
+            }
+            return null;
+        };
+        return matchText(primary) || matchText(fallback) || { key: 'UNSPECIFIED', label: 'ESTÁNDAR', rank: 99 };
+    }
+
+    function resolveItemBedPieceInfo(it) {
+        if (!it) return { key: 'PIEZA', label: 'PIEZA', shortLabel: 'Pieza', rank: 50 };
+        const tpTok = plainModelToken(stripDimensionsFromProductText(it.tp));
+        const nomTok = plainModelToken(stripDimensionsFromProductText(it.n));
+        const prodTok = (tpTok + ' ' + nomTok).trim();
+        if (tpTok === 'EXTENSIONES DE CABECERA' || /\bEXTENSIONES?\b/.test(prodTok)) {
+            return { key: 'EXTENSION_CABECERA', label: 'EXTENSIONES DE CABECERA', shortLabel: 'Extensiones', rank: 35 };
+        }
+        const subCat = it._cat || resolveItemSubcategory(it, resolveItemCategory(it));
+        if (subCat === 'CAMAS' && tpTok !== 'LITERA' && tpTok !== 'CUNA') {
+            return { key: 'CAMA', label: 'CAMA', shortLabel: 'Cama', rank: 10 };
+        }
+        if (subCat === 'BASES') {
+            return { key: 'BASE_CAMA', label: 'BASE DE CAMA', shortLabel: 'Base de Cama', rank: 20 };
+        }
+        if (subCat === 'CABECERAS') {
+            return { key: 'CABECERA', label: 'CABECERA', shortLabel: 'Cabecera', rank: 30 };
+        }
+        return { key: 'PIEZA', label: tpTok || 'PIEZA', shortLabel: 'Pieza', rank: 50 };
+    }
+
     function cleanFabricVariationName(rawText) {
         let s = plainModelToken(stripDimensionsFromProductText(rawText || ''));
         if (!s) return '';
-        // Unificar telas coordinadas bajo la tela principal (ej. "ISMALIA LINEN / COORD ALANIS BEIGE" -> "ISMALIA LINEN")
-        s = s.replace(/\s*(?:\/|\||·)?\s*\bCOORD\.?\b[\s\S]*$/i, '').trim();
+        // Unificar telas coordinadas y vivos bajo la tela principal (ej. "ISMALIA LINEN / COORD ALANIS BEIGE" -> "ISMALIA LINEN")
+        s = s.replace(/\s*(?:\/|\||·)?\s*\b(?:COORD\.?|VIVO)\b[\s\S]*$/i, '').trim();
         // Limpiar prefijos de pieza/dirección que a veces llegan en `tl` o `vr`
         s = s.replace(/^(?:(?:CON|SIN)\s+BRAZOS?\s+|BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)\s+|(?:DERECHO|DEREHO|IZQUIERDO|DER|IZQ|CENTRAL|MODULAR|IND|INV|TELA|3P|2P|1P)\s+)+/i, '').trim();
+        // Eliminar tokens de tamaño de cama para que jamás se emitan como tela/color
+        s = s.replace(/\b(?:SUPER\s*KING(?:\s*SIZE)?|MATRIMONIAL\s*[\/\-]\s*QUEEN(?:\s*SIZE)?|MAT\s*[\/\-]\s*QUEEN(?:\s*SIZE)?|QUEEN\s*[\/\-]\s*MAT(?:RIMONIAL)?|MATRIMONIAL\s+QUEEN(?:\s*SIZE)?|KING\s*SIZE|QUEEN\s*SIZE|MATRIMONIAL|INDIVIDUAL|INDIV\.?|KING|QUEEN|SKS|KS|QS|MAT|MTR|IND)\b/gi, ' ');
+        s = s.replace(/^[\s\/\-·|]+|[\s\/\-·|]+$/g, '').replace(/\s+/g, ' ').trim();
+        if (!s) return '';
+        s = stripFabricGradeAndVendorNoise(s);
+        s = canonicalizeFabricAliases(s);
         s = s.replace(/^(?:DE|DEL|EN|CON|LA|EL)\s+/i, '').trim();
-        s = s.replace(/\s+/g, ' ').trim();
+        s = s.replace(/^[\s\/\-·|]+|[\s\/\-·|]+$/g, '').replace(/\s+/g, ' ').trim();
         return s;
     }
 
     function resolveItemFabricVariation(it, groupObj) {
         if (!it) return { key: 'ESTANDAR', label: 'ESTÁNDAR', colorHint: '' };
         const colorHint = cleanStr(it.ct).toUpperCase();
-        const isPureDirection = txt => /^(?:(?:CON|SIN)\s+BRAZOS?|BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)|DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?|CENTRAL|MODULAR|IND|INV|1P|2P|3P|4P|5P|SALA|SOFA|LOVE\s*SEAT|SILLON|ESQUINERO|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|TABURETE|REMATE)$/.test(txt);
+        const isPureDirection = txt => /^(?:(?:CON|SIN)\s+BRAZOS?|BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)|DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?|CENTRAL|MODULAR|IND|INDIV|INV|1P|2P|3P|4P|5P|SALA|SOFA|LOVE\s*SEAT|SILLON|ESQUINERO|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|TABURETE|REMATE|CAMA|CAMAS|BASE|BASES|CABECERA|CABECERAS|BOX|SKS|KS|QS|MAT|MTR|KING(?:\s+SIZE)?|QUEEN(?:\s+SIZE)?|MATRIMONIAL|INDIVIDUAL|SUPER\s+KING|CON\s+COSTADOS(?:\s+SIN\s+ESTOPEROLES)?|SIN\s+COSTADOS|SET\s+\d+PZS?\s+PARA|PROTECTOR)$/.test(txt);
 
         // 1) Prioridad: campo Tela (`it.tl`)
         let candidate = cleanFabricVariationName(it.tl);
@@ -1804,28 +2680,42 @@
             }
         }
 
-        // 3) Respaldo: color de tela (`it.ct`) o madera (`it.md`)
+        // 3) Respaldo: color de tela (`it.ct`) o madera + acabado (`it.md` + `it.cm`)
         if (!candidate) {
             const ctClean = cleanFabricVariationName(it.ct);
             if (ctClean && !isPureDirection(ctClean)) candidate = ctClean;
         }
         if (!candidate) {
             const mdClean = cleanFabricVariationName(it.md);
-            if (mdClean && !isPureDirection(mdClean)) candidate = mdClean;
+            const cmClean = cleanFabricVariationName(it.cm);
+            let woodCandidate = '';
+            if (mdClean && cmClean) {
+                if (cmClean.indexOf(mdClean) !== -1) woodCandidate = cmClean;
+                else if (mdClean.indexOf(cmClean) !== -1) woodCandidate = mdClean;
+                else woodCandidate = (mdClean + ' ' + cmClean).trim();
+            } else {
+                woodCandidate = mdClean || cmClean;
+            }
+            if (woodCandidate && !isPureDirection(woodCandidate)) candidate = woodCandidate;
         }
 
-        // 4) Último respaldo: extraer tela/acabado desde el nombre eliminando título y palabras del módulo
+        // 4) Último respaldo: extraer tela/acabado desde el nombre eliminando título y palabras del módulo/pieza
         if (!candidate) {
             const modB = resolveItemModuleBucket(it);
             const skipSet = new Set();
             const addSkip = txt => plainModelToken(txt).split(/\s+/).filter(Boolean).forEach(w => skipSet.add(w));
             if (groupObj && groupObj.title) addSkip(groupObj.title);
             if (it.mo) addSkip(it.mo);
+            if (it.tp) addSkip(it.tp);
             if (modB && Array.isArray(modB.stripTokens)) modB.stripTokens.forEach(w => skipSet.add(plainModelToken(w)));
+            if (it._cat === 'CAMAS' || it._cat === 'BASES' || it._cat === 'CABECERAS') {
+                ['CAMA', 'CAMAS', 'BASE', 'BASES', 'CABECERA', 'CABECERAS', 'BOX', 'COSTADOS', 'INFERIOR', 'SET', 'EXTENSIONES'].forEach(w => skipSet.add(w));
+            }
             const rem = plainModelToken(stripDimensionsFromProductText(it.n))
                 .split(/\s+/)
                 .filter(w => w && !skipSet.has(w) && !/^(?:DE|DEL|LA|EL|CON|SIN|EN|PARA|Y)$/.test(w));
             candidate = cleanFabricVariationName(rem.join(' '));
+            if (candidate && isPureDirection(candidate)) candidate = '';
         }
 
         if (!candidate) {
@@ -1836,6 +2726,54 @@
             label: candidate,
             colorHint: (colorHint && plainModelToken(colorHint) !== candidate) ? colorHint : ''
         };
+    }
+
+    function resolveItemBedColorOrFinish(it, groupObj) {
+        const base = resolveItemFabricVariation(it, groupObj || null);
+        const hasRealTextile = !!(cleanFabricVariationName(it && it.tl) || cleanStr(it && it.ct));
+        const hasWoodInfo = !!(cleanStr(it && it.md) || cleanStr(it && it.cm));
+        const isWood = !hasRealTextile && hasWoodInfo && base.key !== 'ESTANDAR';
+        return {
+            key: base.key,
+            label: base.label,
+            colorHint: isWood ? '' : base.colorHint,
+            isWood: isWood
+        };
+    }
+
+    function countDistinctBedSizesForGroup(typeKey, items) {
+        if (!typeKey || !BED_GROUPABLE_TYPE_KEYS.has(typeKey) || !Array.isArray(items) || items.length < 2) {
+            return 0;
+        }
+        const keys = new Set();
+        for (let i = 0; i < items.length; i++) {
+            const sz = resolveItemBedSize(items[i]);
+            if (sz && sz.key) keys.add(sz.key);
+        }
+        return keys.size;
+    }
+
+    function countDistinctBedColorsForGroup(typeKey, items) {
+        if (!typeKey || !BED_GROUPABLE_TYPE_KEYS.has(typeKey) || !Array.isArray(items) || items.length < 2) {
+            return 0;
+        }
+        const keys = new Set();
+        for (let i = 0; i < items.length; i++) {
+            const c = resolveItemBedColorOrFinish(items[i], null);
+            if (c && c.key) keys.add(c.key);
+        }
+        return keys.size;
+    }
+
+    function isBedGroupWoodOnly(items) {
+        if (!Array.isArray(items) || items.length === 0) return false;
+        let sawWood = false;
+        for (let i = 0; i < items.length; i++) {
+            const c = resolveItemBedColorOrFinish(items[i], null);
+            if (!c.isWood) return false;
+            sawWood = true;
+        }
+        return sawWood;
     }
 
     function countDistinctFabricsForGroup(typeKey, items) {
@@ -1888,10 +2826,7 @@
         if (!k || !invProductOverridesMap || typeof invProductOverridesMap !== 'object') return '';
         const ovr = invProductOverridesMap[k];
         if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') return '';
-        const rawUrl = cleanStr(ovr.note);
-        if (!rawUrl) return '';
-        if (/^https?:\/\//i.test(rawUrl) || /^data:image\//i.test(rawUrl)) return rawUrl;
-        return '';
+        return sanitizeVisualOverrideUrl(cleanStr(ovr.note));
     }
 
     function getGroupVisualCoverPhotoUrl(groupKey) {
@@ -1916,10 +2851,17 @@
             if (k.indexOf('VFAB:') !== 0) continue;
             const ovr = invProductOverridesMap[k];
             if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') continue;
-            const url = cleanStr(ovr.note);
-            if (!url || !(/^https?:\/\//i.test(url) || /^data:image\//i.test(url))) continue;
+            const url = sanitizeVisualOverrideUrl(cleanStr(ovr.note));
+            if (!url) continue;
             const rawLabel = cleanStr(ovr.name) || k.slice(5);
-            const normName = cleanFabricVariationName(rawLabel) || plainModelToken(rawLabel);
+            const rawNorm = canonicalizeFabricAliases(plainModelToken(rawLabel));
+            let normName = normalizeFabricLookupKey(rawLabel) || rawNorm;
+            const rawTokens = rawNorm.split(/\s+/).filter(t => t.length >= 2);
+            const normTokens = normName.split(/\s+/).filter(t => t.length >= 2);
+            // Guardia de proveedor para telas genéricas (ej. "VFAB:PIEL YOI" no debe colapsar a "PIEL" y aplicarse a otros SKUs de PIEL)
+            if (normTokens.length === 1 && VFAB_GENERIC_SINGLE_TOKENS.has(normTokens[0]) && rawTokens.length >= 2) {
+                normName = rawNorm;
+            }
             const tokens = normName.split(/\s+/).filter(t => t.length >= 2);
             if (!normName || !tokens.length) continue;
             const sortedSig = tokens.slice().sort().join(' ');
@@ -1940,19 +2882,29 @@
     }
 
     function matchFabricTextAgainstUploadedSwatches(rawCandidateText) {
-        const cleanCand = cleanFabricVariationName(rawCandidateText) || plainModelToken(rawCandidateText);
+        const rawNorm = canonicalizeFabricAliases(plainModelToken(rawCandidateText));
+        let cleanCand = normalizeFabricLookupKey(rawCandidateText) || rawNorm;
+        const rawToks = rawNorm.split(/\s+/).filter(t => t.length >= 2);
+        const cleanToks = cleanCand.split(/\s+/).filter(t => t.length >= 2);
+        if (cleanToks.length === 1 && VFAB_GENERIC_SINGLE_TOKENS.has(cleanToks[0]) && rawToks.length >= 2) {
+            cleanCand = rawNorm;
+        }
         if (!cleanCand || cleanCand === 'ESTANDAR') return null;
 
-        // 1) Exact override key match
-        const exactKey = buildFabricSwatchOverrideKey(cleanCand);
-        const exactUrl = getVisualOverridePhotoUrl(exactKey);
-        if (exactUrl) {
-            const ovr = invProductOverridesMap[exactKey];
-            return {
-                overrideKey: exactKey,
-                label: cleanStr(ovr && ovr.name) ? cleanStr(ovr.name).toUpperCase() : cleanCand,
-                url: exactUrl
-            };
+        // 1) Exact override key match (both raw and canonical)
+        const exactCandidates = [buildFabricSwatchOverrideKey(rawCandidateText), buildFabricSwatchOverrideKey(cleanCand)];
+        for (let eIdx = 0; eIdx < exactCandidates.length; eIdx++) {
+            const exactKey = exactCandidates[eIdx];
+            if (!exactKey) continue;
+            const exactUrl = getVisualOverridePhotoUrl(exactKey);
+            if (exactUrl) {
+                const ovr = invProductOverridesMap[exactKey];
+                return {
+                    overrideKey: exactKey,
+                    label: cleanStr(ovr && ovr.name) ? cleanStr(ovr.name).toUpperCase() : cleanCand,
+                    url: exactUrl
+                };
+            }
         }
 
         const entries = getUploadedFabricSwatchEntries();
@@ -1997,6 +2949,11 @@
     function getFabricSwatchPhotoUrl(fabricKey, itemOpt) {
         const directUrl = getVisualOverridePhotoUrl(buildFabricSwatchOverrideKey(fabricKey));
         if (directUrl) return directUrl;
+        const canonKey = normalizeFabricLookupKey(fabricKey);
+        if (canonKey) {
+            const canonUrl = getVisualOverridePhotoUrl(buildFabricSwatchOverrideKey(canonKey));
+            if (canonUrl) return canonUrl;
+        }
         const matched = matchFabricTextAgainstUploadedSwatches(fabricKey);
         if (matched && matched.url) return matched.url;
         if (itemOpt) {
@@ -2013,11 +2970,15 @@
 
         const tl = cleanStr(it.tl);
         const ct = cleanStr(it.ct);
+        const prov = plainModelToken(cleanStr(it.p));
         const combinedTlCt = (tl && ct && plainModelToken(tl).indexOf(plainModelToken(ct)) === -1)
             ? (tl + ' ' + ct)
             : (tl || ct);
 
         const candidates = [];
+        if (tl && prov && plainModelToken(tl) === 'PIEL') {
+            candidates.push('PIEL ' + prov);
+        }
         if (combinedTlCt) candidates.push(combinedTlCt);
         if (tl && tl !== combinedTlCt) candidates.push(tl);
         if (cleanStr(it.vr)) {
@@ -2041,7 +3002,7 @@
         }
 
         // Último respaldo: buscar tela ya subida (de >=2 palabras o nombre específico) dentro del nombre completo del producto
-        const nameNorm = plainModelToken(stripDimensionsFromProductText(it.n));
+        const nameNorm = canonicalizeFabricAliases(plainModelToken(stripDimensionsFromProductText(it.n)));
         if (nameNorm) {
             const nameSet = new Set(nameNorm.split(/\s+/).filter(Boolean));
             for (let i = 0; i < entries.length; i++) {
@@ -2057,19 +3018,21 @@
 
     function resolveVisualImgSrc(rawUrl, sizePx) {
         const clean = cleanStr(rawUrl);
-        if (!clean) return '';
-        if (/^data:image\//i.test(clean)) return clean;
-        const fid = extractDriveFileId(clean);
+        if (!clean || /^blob:/i.test(clean)) return '';
+        const allowed = sanitizeVisualOverrideUrl(clean, { allowDataImage: true });
+        if (!allowed) return '';
+        if (/^data:image\//i.test(allowed)) return allowed;
+        const fid = extractDriveFileId(allowed);
         if (fid) {
             return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + (Number(sizePx) || 400);
         }
-        return /^https?:\/\//i.test(clean) ? clean : '';
+        return allowed;
     }
 
     function isVisualPhotoEditorAllowed() {
         try {
-            return typeof isRealKevinOwner === 'function' && isRealKevinOwner() &&
-                !(typeof isKevinAdvisorPreviewActive === 'function' && isKevinAdvisorPreviewActive());
+            return typeof isEffectiveAdminSession === 'function' && isEffectiveAdminSession() &&
+                typeof hasAdminPerm === 'function' && hasAdminPerm('fotosApp');
         } catch (e) {
             return false;
         }
@@ -2204,6 +3167,18 @@
         if (/\b(LAMPARA|CANDIL|ARBOTANTE|LUMINARIA|PLAFON)\b/.test(prodTxt) || cat === 'ILUMINACION') {
             return 'LÁMPARAS';
         }
+        // Textiles de cama (cubrecamas, juegos de sábanas, sets de blancos 11 pzas) NO son muebles de cama
+        if (
+            /\b(CUBRE\s*CAMAS?|JUEGO\s+(?:DE\s+)?SABANAS?|JGO\.?\s+SABANAS?|SABANAS?|COLCHAS?|EDREDON(?:ES)?|DUVET)\b/.test(prodTxt) ||
+            (
+                /\bSET\b/.test(nom) &&
+                /\(\s*(?:[4-9]|[1-9]\d)\s*PZAS?\s*\)/.test(nom) &&
+                /\b(KING(?:\s+SIZE)?|QUEEN(?:\s+SIZE)?|MATRIMONIAL|MAT\/QUEEN|INDIVIDUAL|KS|QS)\b/.test(nom) &&
+                !/\b(CABECERA|BASE\s+DE\s+CAMA|PATAS?|EXTENSIONES?|BURO|COMODA|CAJONERA)\b/.test(nom)
+            )
+        ) {
+            return 'COJINES & TEXTILES';
+        }
         const isFurniturePiece = /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|LOVE\s+CON\s+BRAZO|SILLON(?:ES)?|BUTACAS?|CHAISE|ESQUINEROS?|FUTTON(?:ES)?|FUTON(?:ES)?|OTTOMAN|OTOMAN|POUF|PUFF?|MESAS?\s+(?:DE\s+)?(?:COMEDOR|CENTRO|CENTRAL|LATERAL|AUXILIAR|BAR|TV)|ANTECOMEDOR(?:ES)?|COMEDOR(?:ES)?|SILLAS?|BANCOS?|BANCAS?|TABURETES?|BUFETERAS?|CREDENZAS?|CONSOLAS?|CAVAS?|LIBREROS?|ESCRITORIOS?|CAMAS?|CABECERAS?|BASES?\s+(?:DE\s+)?CAMA|BUROS?|COMODAS?|TOCADOR(?:ES)?|CAJONERAS?|LITERAS?|CUNAS?|COLCHON(?:ES)?|PIE\s+DE\s+CAMA|CAMASTROS?|COLUMPIOS?)\b/.test(tp + ' ' + nom) ||
             /^(?:SALA|SOFA|LOVE\s*SEAT|LOVESEAT|SILLON|MESA\s+(?:DE\s+)?(?:COMEDOR|CENTRO|CENTRAL|LATERAL|AUXILIAR)|COMEDOR|SILLA|BANCO|BANCA|BUFETERA|CREDENZA|CAMA|BASE\s+(?:DE\s+)?CAMA|CABECERA|BURO|COMODA|COLCHON)\b/.test(nom);
 
@@ -2220,6 +3195,9 @@
         }
         if (/\b(COLCHON|CUBRE\s*COLCHON|PROTECTOR\s+DE\s+COLCHON)\b/.test(nom) || /^COLCHON$/.test(tp)) {
             return 'COLCHONES';
+        }
+        if (/\bPROTECTOR(?:ES)?\s+SAFETY\b/.test(prodTxt) || (/^PROTECTOR(?:ES)?\b/.test(nom) && !/\bCOLCHON\b/.test(nom))) {
+            return 'ACCESORIOS DECORATIVOS';
         }
         if (/\bESPEJOS?\b/.test(tp) || (/^ESPEJO\b/.test(nom) && !/\b(TOCADOR|COMODA)\b/.test(prodTxt))) {
             return 'ESPEJOS';
@@ -2269,9 +3247,11 @@
             return 'CABECERAS';
         }
         if (
-            /\b(BASES?\s+(?:DE\s+)?CAMA|BASES?\s+(?:PARA\s+)?COLCHON|BASES?\s+(?:KS|QS|MAT|IND|KING(?:\s+SIZE)?|QUEEN(?:\s+SIZE)?|MATRIMONIAL|INDIVIDUAL)|BOX\s*SPRING)\b/.test(prodTxt) ||
-            tp === 'BOX' ||
-            (/^BASES?\b/.test(tp) && !/\b(COMEDOR|MESA|CUBIERTA|CRISTAL|MARMOL|LAMPARA)\b/.test(allTxt))
+            tp !== 'CAMA' && (
+                /\b(BASES?\s+(?:DE\s+)?CAMA|BASES?\s+(?:PARA\s+)?COLCHON|BASES?\s+(?:KS|QS|MAT|MTR|IND|KING(?:\s+SIZE)?|QUEEN(?:\s+SIZE)?|MATRIMONIAL|INDIVIDUAL)|BOX\s*SPRING)\b/.test(prodTxt) ||
+                tp === 'BOX' ||
+                (/^BASES?\b/.test(tp) && !/\b(COMEDOR|MESA|CUBIERTA|CRISTAL|MARMOL|LAMPARA)\b/.test(allTxt))
+            )
         ) {
             return 'BASES';
         }
@@ -3080,8 +4060,8 @@
                     for (let i = 0; i < list.length; i++) {
                         const ov = list[i];
                         if (!ov || !ov.sku || !ov.newUrl) continue;
-                        const cleanUrl = cleanStr(ov.newUrl);
-                        if (!cleanUrl || cleanUrl.indexOf('blob:') === 0) continue;
+                        const cleanUrl = sanitizeVisualOverrideUrl(cleanStr(ov.newUrl));
+                        if (!cleanUrl) continue;
                         if (ov.ts && (now - Number(ov.ts)) > maxSavedAgeMs) continue;
                         const sk = cleanStr(ov.sku).toUpperCase();
                         if (!sk || savedBySku.has(sk)) continue;
@@ -3150,14 +4130,19 @@
         exteriorSalaSetModels = new Set();
         exteriorModularModels = new Set();
         dynamicSofaCamaModels = new Set();
+        bedUnifiedModels = new Set();
 
-        // Pre-pasada 1: normalizar campos base y detectar modelos con Sofá Cama para agrupar sus módulos hermanos (ej. CITY)
+        // Pre-pasada 1: normalizar campos base, validar tela/color contra nombre y detectar modelos con Sofá Cama (ej. CITY)
         for (let i = 0; i < allItems.length; i++) {
             const it = allItems[i];
             if (!Array.isArray(it.st)) it.st = emptyStocks();
             it.pr = formatPrice(it.pr);
             const skuKey = String(it.s || '').trim().toUpperCase();
             if (!skuKey) continue;
+            const curFabSig = [it.n || '', it.tp || '', it.tl || '', it.ct || '', it.cm || ''].join('\x1f');
+            if (it._fabValSig !== curFabSig) {
+                validateAndNormalizeFabricColorAgainstName(it, { mutate: true });
+            }
             it._avail = getItemAvailabilityKind(it);
             const pairMoKey = extractPlainModelKeyForPairing(it);
             if (pairMoKey) {
@@ -3168,9 +4153,10 @@
             }
         }
 
-        // Pre-pasada 2: clasificar subcategorías y detectar pares Sofá + Love Seat y colecciones modulares / sets de Exterior
+        // Pre-pasada 2: clasificar subcategorías y detectar pares Sofá + Love Seat, colecciones de Exterior y familias de Camas/Bases/Cabeceras
         const salaPairFlags = new Map();
         const extSeatFlags = new Map();
+        const bedFamilyFlags = new Map();
         for (let i = 0; i < allItems.length; i++) {
             const it = allItems[i];
             const skuKey = String(it.s || '').trim().toUpperCase();
@@ -3193,6 +4179,12 @@
                 } else if (/^SOFA\b/.test(tpTok) || /\bSOFAS?\b/.test(prodTok)) {
                     f.hasSofa = true;
                 }
+            } else if ((it._cat === 'CAMAS' || it._cat === 'BASES' || it._cat === 'CABECERAS') && tpTok !== 'LITERA' && tpTok !== 'CUNA') {
+                let bf = bedFamilyFlags.get(pairMoKey);
+                if (!bf) { bf = { hasCama: false, hasBase: false, hasCabecera: false }; bedFamilyFlags.set(pairMoKey, bf); }
+                if (it._cat === 'CAMAS') bf.hasCama = true;
+                else if (it._cat === 'BASES') bf.hasBase = true;
+                else if (it._cat === 'CABECERAS') bf.hasCabecera = true;
             } else if (it._cat === 'EXTERIOR') {
                 const isNonSeatExt = /\b(MESA|COMEDOR|CAMASTRO|COLUMPIO|SOMBRILLA)\b/.test(prodTok) || /^SILLA\b/.test(tpTok);
                 if (!isNonSeatExt && /\b(SALAS?|SOFAS?|LOVE\s*SEATS?|LOVESEATS?|ESQUINEROS?|CHAISE|OTTOMAN|OTOMAN|MODULAR|MODULO|REMATE|SILLON(?:ES)?)\b/.test(prodTok)) {
@@ -3218,6 +4210,10 @@
         }
         salaPairFlags.forEach((f, moKey) => {
             if (f.hasSofa && f.hasLoveSeat) sofaAndLoveseatModels.add(moKey);
+        });
+        bedFamilyFlags.forEach((bf, moKey) => {
+            const typeCount = (bf.hasCama ? 1 : 0) + (bf.hasBase ? 1 : 0) + (bf.hasCabecera ? 1 : 0);
+            if (typeCount >= 2) bedUnifiedModels.add(moKey);
         });
         extSeatFlags.forEach((f, moKey) => {
             if (f.hasModular) {
@@ -3331,6 +4327,8 @@
                 } else if (grp.typeKey === 'COMODA') {
                     const allCajonera = grp.items.every(x => x._typeLabel === 'CAJONERA');
                     chosenPrefix = allCajonera ? 'CAJONERA' : 'CÓMODA';
+                } else if (grp.typeKey === 'CAMA_CONJUNTO') {
+                    chosenPrefix = resolveBedUnifiedTitlePrefix(grp.items);
                 }
                 if (chosenPrefix) {
                     const fpPad = ' ' + plainModelToken(chosenPrefix) + ' ';
@@ -3342,13 +4340,17 @@
                 }
 
                 // Propagar información estructural faltante (Medidas por tamaño/pieza, Madera, Color de madera, Materiales) entre variantes hermanas del mismo modelo
+                const isBedGroup = !!(grp.typeKey && BED_GROUPABLE_TYPE_KEYS.has(grp.typeKey));
                 const getVarSizeSig = x => {
                     const txt = ' ' + plainModelToken((x.n || '') + ' ' + (x.vr || '') + ' ' + (x.tp || '')) + ' ';
                     const sigs = [];
-                    if (/\b(?:KING\s*SIZE|KING|KS)\b/.test(txt)) sigs.push('KS');
+                    if (isBedGroup && x._cat) sigs.push('BED_' + x._cat);
+                    if (/\b(?:SUPER\s*KING(?:\s*SIZE)?|SKS)\b/.test(txt)) sigs.push('SKS');
+                    else if (/\b(?:MATRIMONIAL\s*[\/\-]\s*QUEEN(?:\s*SIZE)?|MAT\s*[\/\-]\s*QUEEN(?:\s*SIZE)?|QUEEN\s*[\/\-]\s*MAT(?:RIMONIAL)?|MATRIMONIAL\s+QUEEN(?:\s*SIZE)?)\b/.test(txt)) sigs.push('MAT_QS');
+                    else if (/\b(?:KING\s*SIZE|KING|KS)\b/.test(txt)) sigs.push('KS');
                     else if (/\b(?:QUEEN\s*SIZE|QUEEN|QS)\b/.test(txt)) sigs.push('QS');
-                    else if (/\b(?:MATRIMONIAL|MAT)\b/.test(txt)) sigs.push('MAT');
-                    else if (/\b(?:INDIVIDUAL|IND)\b/.test(txt)) sigs.push('IND');
+                    else if (/\b(?:MATRIMONIAL|MAT|MTR)\b/.test(txt)) sigs.push('MAT');
+                    else if (/\b(?:INDIVIDUAL|INDIV\.?|IND)\b/.test(txt)) sigs.push('IND');
                     if (/\b(?:GRANDE|GDE)\b/.test(txt)) sigs.push('GDE');
                     else if (/\b(?:MEDIAN[OA]|MED)\b/.test(txt)) sigs.push('MED');
                     else if (/\b(?:CHIC[OA]|CH)\b/.test(txt)) sigs.push('CH');
@@ -3359,23 +4361,50 @@
                     if (/\b(?:TABURETE|OTTOMAN|POUF|PUFF)\b/.test(txt)) sigs.push('TAB');
                     return sigs.length ? sigs.join('_') : 'STD';
                 };
-                let sharedMd = '', sharedCm = '', sharedMt = '';
-                for (let j = 0; j < grp.items.length; j++) {
-                    const x = grp.items[j];
-                    if (!sharedMd && cleanStr(x.md)) sharedMd = cleanStr(x.md);
-                    if (!sharedCm && cleanStr(x.cm)) sharedCm = cleanStr(x.cm);
-                    if (!sharedMt && cleanStr(x.mt)) sharedMt = cleanStr(x.mt);
-                }
-                for (let j = 0; j < grp.items.length; j++) {
-                    const x = grp.items[j];
-                    if (!cleanStr(x.mo) && bestMo) x.mo = bestMo;
-                    if (!cleanStr(x.md) && sharedMd) x.md = sharedMd;
-                    if (!cleanStr(x.cm) && sharedCm && (!cleanStr(x.md) || cleanStr(x.md) === sharedMd)) x.cm = sharedCm;
-                    if (!cleanStr(x.mt) && sharedMt) x.mt = sharedMt;
-                    if (!cleanStr(x.m)) {
-                        const sig = getVarSizeSig(x);
-                        const donor = grp.items.find(y => cleanStr(y.m) && getVarSizeSig(y) === sig);
-                        if (donor) x.m = cleanStr(donor.m);
+                if (grp.typeKey === 'CAMA_CONJUNTO') {
+                    // Salvaguarda #2: en familias unificadas (Cama/Base/Cabecera), propagar madera/acabado SOLO dentro de cada pieza (`_cat`)
+                    const bySubCatMeta = new Map();
+                    for (let j = 0; j < grp.items.length; j++) {
+                        const x = grp.items[j];
+                        const sc = x._cat || 'OTRO';
+                        let meta = bySubCatMeta.get(sc);
+                        if (!meta) { meta = { md: '', cm: '', mt: '' }; bySubCatMeta.set(sc, meta); }
+                        if (!meta.md && cleanStr(x.md)) meta.md = cleanStr(x.md);
+                        if (!meta.cm && cleanStr(x.cm)) meta.cm = cleanStr(x.cm);
+                        if (!meta.mt && cleanStr(x.mt)) meta.mt = cleanStr(x.mt);
+                    }
+                    for (let j = 0; j < grp.items.length; j++) {
+                        const x = grp.items[j];
+                        const meta = bySubCatMeta.get(x._cat || 'OTRO') || { md: '', cm: '', mt: '' };
+                        if (!cleanStr(x.mo) && bestMo) x.mo = bestMo;
+                        if (!cleanStr(x.md) && meta.md) x.md = meta.md;
+                        if (!cleanStr(x.cm) && meta.cm && (!cleanStr(x.md) || cleanStr(x.md) === meta.md)) x.cm = meta.cm;
+                        if (!cleanStr(x.mt) && meta.mt) x.mt = meta.mt;
+                        if (!cleanStr(x.m)) {
+                            const sig = getVarSizeSig(x);
+                            const donor = grp.items.find(y => cleanStr(y.m) && getVarSizeSig(y) === sig);
+                            if (donor) x.m = cleanStr(donor.m);
+                        }
+                    }
+                } else {
+                    let sharedMd = '', sharedCm = '', sharedMt = '';
+                    for (let j = 0; j < grp.items.length; j++) {
+                        const x = grp.items[j];
+                        if (!sharedMd && cleanStr(x.md)) sharedMd = cleanStr(x.md);
+                        if (!sharedCm && cleanStr(x.cm)) sharedCm = cleanStr(x.cm);
+                        if (!sharedMt && cleanStr(x.mt)) sharedMt = cleanStr(x.mt);
+                    }
+                    for (let j = 0; j < grp.items.length; j++) {
+                        const x = grp.items[j];
+                        if (!cleanStr(x.mo) && bestMo) x.mo = bestMo;
+                        if (!cleanStr(x.md) && sharedMd) x.md = sharedMd;
+                        if (!cleanStr(x.cm) && sharedCm && (!cleanStr(x.md) || cleanStr(x.md) === sharedMd)) x.cm = sharedCm;
+                        if (!cleanStr(x.mt) && sharedMt) x.mt = sharedMt;
+                        if (!cleanStr(x.m)) {
+                            const sig = getVarSizeSig(x);
+                            const donor = grp.items.find(y => cleanStr(y.m) && getVarSizeSig(y) === sig);
+                            if (donor) x.m = cleanStr(donor.m);
+                        }
                     }
                 }
             }
@@ -3385,6 +4414,9 @@
             ).toUpperCase();
             grp.moduleCount = countDistinctModulesForGroup(grp.typeKey, grp.items);
             grp.variationCount = countDistinctFabricsForGroup(grp.typeKey, grp.items);
+            grp.bedSizeCount = countDistinctBedSizesForGroup(grp.typeKey, grp.items);
+            grp.bedColorCount = countDistinctBedColorsForGroup(grp.typeKey, grp.items);
+            grp.bedWoodOnly = !!(grp.typeKey && BED_GROUPABLE_TYPE_KEYS.has(grp.typeKey) && isBedGroupWoodOnly(grp.items));
             grp.totalStock = grp.items.reduce((acc, x) => acc + getBodegaPisoStock(x), 0);
             grp.lpptStock = grp.items.reduce((acc, x) => acc + getLpptStock(x), 0);
             grp._hasPhoto = (getGroupVisualCoverPhotoUrl(grp.key) || firstPhotoItem(grp.items)) ? 1 : 0;
@@ -3428,8 +4460,8 @@
                         mainCat: mainCat,
                         isModular: isModType ? 1 : 0,
                         itemCount: g.items.length,
-                        fabricCount: g.variationCount || 0,
-                        samplePhoto: samplePhotoIt ? String(samplePhotoIt.f || '') : ''
+                        fabricCount: g.variationCount || g.bedColorCount || 0,
+                        samplePhoto: samplePhotoIt ? sanitizeVisualOverrideUrl(samplePhotoIt.f) : ''
                     });
                     if (isModType) {
                         const seenFabInModel = new Set();
@@ -3566,14 +4598,34 @@
         if (modCnt >= 2) {
             return modCnt + ' módulos · ' + grp.items.length + ' var.';
         }
+        if (grp.typeKey && BED_GROUPABLE_TYPE_KEYS.has(grp.typeKey)) {
+            const szCnt = Number(grp.bedSizeCount) || 0;
+            const colCnt = Number(grp.bedColorCount) || 0;
+            if (szCnt >= 2 && colCnt >= 2) {
+                return szCnt + ' tam. · ' + colCnt + (grp.bedWoodOnly ? ' acab.' : ' colores');
+            }
+            if (szCnt >= 2) {
+                return szCnt + ' tamaños · ' + grp.items.length + ' var.';
+            }
+            if (colCnt >= 2) {
+                return colCnt + (grp.bedWoodOnly ? ' acabados · ' : ' colores · ') + grp.items.length + ' pzas';
+            }
+        }
         return grp.items.length + ' variantes';
     }
 
     function buildFilteredGroupView(baseGrp, matchedItems) {
         if (!baseGrp || !matchedItems || matchedItems.length === 0) return null;
         if (matchedItems.length === baseGrp.items.length) return baseGrp;
+        let multiTitle = baseGrp.title;
+        if (matchedItems.length > 1 && baseGrp.typeKey === 'CAMA_CONJUNTO' && baseGrp.mo) {
+            const narrowPrefix = resolveBedUnifiedTitlePrefix(matchedItems);
+            const fpPad = ' ' + plainModelToken(narrowPrefix) + ' ';
+            const moPad = ' ' + plainModelToken(baseGrp.mo) + ' ';
+            multiTitle = (fpPad.indexOf(moPad) !== -1 ? narrowPrefix : (narrowPrefix + ' ' + baseGrp.mo)).toUpperCase();
+        }
         const singleTitle = (matchedItems.length > 1
-            ? baseGrp.title
+            ? multiTitle
             : (matchedItems[0]._singleTitle || stripDimensionsFromProductText(matchedItems[0].n) || baseGrp.title || matchedItems[0].s)
         ).toUpperCase();
         return Object.assign({}, baseGrp, {
@@ -3581,6 +4633,9 @@
             displayTitle: singleTitle,
             moduleCount: countDistinctModulesForGroup(baseGrp.typeKey, matchedItems),
             variationCount: countDistinctFabricsForGroup(baseGrp.typeKey, matchedItems),
+            bedSizeCount: countDistinctBedSizesForGroup(baseGrp.typeKey, matchedItems),
+            bedColorCount: countDistinctBedColorsForGroup(baseGrp.typeKey, matchedItems),
+            bedWoodOnly: !!(baseGrp.typeKey && BED_GROUPABLE_TYPE_KEYS.has(baseGrp.typeKey) && isBedGroupWoodOnly(matchedItems)),
             totalStock: matchedItems.reduce((acc, x) => acc + getBodegaPisoStock(x), 0),
             lpptStock: matchedItems.reduce((acc, x) => acc + getLpptStock(x), 0),
             _hasPhoto: (getGroupVisualCoverPhotoUrl(baseGrp.key) || firstPhotoItem(matchedItems)) ? 1 : 0,
@@ -4387,7 +5442,7 @@
                 };
                 row.innerHTML =
                     '<div class="inv-card-top-right">' + buildCardCartControlHtml(skuKey) + '</div>' +
-                    buildThumbHtml(it, { card: true, eager: i < eagerCount }) +
+                    buildThumbHtml(it, { card: true, eager: i < eagerCount, boxRatio: 1 }) +
                     '<div class="inv-card-body">' +
                         '<div class="inv-card-title" data-card-title="1">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
                         '<div class="inv-card-meta"><span data-card-sub="1">' + escapeHtml(it.s) + '</span>' + stockBadgeHtml + '</div>' +
@@ -4578,11 +5633,14 @@
     // ------------------------------------------------------------------------
     // PASO 1: MODAL DE VARIANTES DISPONIBLES DEL MODELO (ej. SILLON APIENZO)
     // ------------------------------------------------------------------------
-    function renderGroupVariantsStep(grp, forcedFabricKey) {
+    function renderGroupVariantsStep(grp, forcedFabricKey, forcedSizeKey) {
         currentGroup = grp;
         currentDetailItem = null;
         if (forcedFabricKey !== undefined) {
             currentGroupFabricKey = String(forcedFabricKey || '').trim();
+        }
+        if (forcedSizeKey !== undefined) {
+            currentGroupBedSizeKey = String(forcedSizeKey || '').trim();
         }
 
         const crumbEl = document.getElementById('detGroupCrumb');
@@ -4607,7 +5665,7 @@
             skuEl.classList.add('hidden');
         }
         if (nameEl) {
-            nameEl.textContent = grp.title;
+            nameEl.textContent = grp.displayTitle || grp.title;
         }
         if (priceEl) priceEl.textContent = '';
         if (priceWrapEl) priceWrapEl.classList.add('hidden');
@@ -4733,7 +5791,10 @@
 
             const useFabricModuleSections = canGroupByFabricModules && (distinctModKeys.size >= 2 || fabricBucketsByKey.size >= 2);
 
+            const canGroupByBedSizeColor = !useFabricModuleSections && !!(grp && grp.typeKey && BED_GROUPABLE_TYPE_KEYS.has(grp.typeKey) && grp.items.length >= 2);
+
             if (useFabricModuleSections) {
+                currentGroupBedSizeKey = '';
                 if (currentGroupFabricKey && !fabricBucketsByKey.has(currentGroupFabricKey)) {
                     currentGroupFabricKey = '';
                 }
@@ -4848,8 +5909,313 @@
                     }
                     varList.innerHTML = htmlChunks.join('');
                 }
+            } else if (canGroupByBedSizeColor) {
+                const grpHeadTitle = grp.displayTitle || grp.title;
+                const sizeBucketsByKey = new Map();
+                const allColorsSet = new Set();
+                let allWoodOnly = true;
+
+                for (let i = 0; i < grp.items.length; i++) {
+                    const it = grp.items[i];
+                    const sz = resolveItemBedSize(it);
+                    const col = resolveItemBedColorOrFinish(it, grp);
+                    const piece = resolveItemBedPieceInfo(it);
+                    allColorsSet.add(col.key);
+                    if (!col.isWood) allWoodOnly = false;
+
+                    if (!sizeBucketsByKey.has(sz.key)) {
+                        sizeBucketsByKey.set(sz.key, {
+                            key: sz.key,
+                            label: sz.label,
+                            rank: sz.rank,
+                            items: [],
+                            pieceShortLabels: new Set(),
+                            colorsByKey: new Map()
+                        });
+                    }
+                    const sb = sizeBucketsByKey.get(sz.key);
+                    sb.items.push(it);
+                    if (piece && piece.shortLabel) sb.pieceShortLabels.add(piece.shortLabel);
+                    if (!sb.colorsByKey.has(col.key)) {
+                        sb.colorsByKey.set(col.key, {
+                            key: col.key,
+                            label: col.label,
+                            colorHint: col.colorHint || '',
+                            isWood: !!col.isWood,
+                            items: []
+                        });
+                    }
+                    const cb = sb.colorsByKey.get(col.key);
+                    if (!cb.colorHint && col.colorHint) cb.colorHint = col.colorHint;
+                    if (!col.isWood) cb.isWood = false;
+                    cb.items.push({ it: it, piece: piece });
+                }
+
+                const orderedSizes = Array.from(sizeBucketsByKey.values()).sort((a, b) =>
+                    (a.rank - b.rank) || compareAlphaEs(a.label, b.label)
+                );
+                for (let sIdx = 0; sIdx < orderedSizes.length; sIdx++) {
+                    const sb = orderedSizes[sIdx];
+                    sb.orderedColors = Array.from(sb.colorsByKey.values()).sort((a, b) =>
+                        (b.items.length - a.items.length) || compareAlphaEs(a.label, b.label)
+                    );
+                }
+
+                if (currentGroupBedSizeKey && !sizeBucketsByKey.has(currentGroupBedSizeKey)) {
+                    currentGroupBedSizeKey = '';
+                    currentGroupFabricKey = '';
+                }
+
+                const hasMultiSizes = orderedSizes.length >= 2;
+                const effectiveSizeKey = hasMultiSizes ? currentGroupBedSizeKey : (orderedSizes[0] ? orderedSizes[0].key : '');
+
+                if (hasMultiSizes && !effectiveSizeKey) {
+                    // PASO 1 CAMAS: Selector de Tamaño (Individual, Matrimonial, Queen Size, King Size, etc.)
+                    currentGroupFabricKey = '';
+                    if (nameEl) nameEl.textContent = grpHeadTitle;
+                    if (crumbEl) {
+                        const szTxt = orderedSizes.length + ' tamaños';
+                        const colCountAll = allColorsSet.size;
+                        const colTxt = colCountAll === 1
+                            ? (allWoodOnly ? '1 acabado' : '1 color / tela')
+                            : (colCountAll + (allWoodOnly ? ' acabados' : ' colores / telas'));
+                        const pzTxt = grp.items.length === 1 ? '1 pieza' : (grp.items.length + ' piezas');
+                        crumbEl.textContent = szTxt + ' · ' + colTxt + ' · ' + pzTxt;
+                        crumbEl.style.pointerEvents = 'none';
+                        crumbEl.style.cursor = 'default';
+                        crumbEl.classList.remove('hidden');
+                    }
+
+                    const sizeHtml = [];
+                    for (let sIdx = 0; sIdx < orderedSizes.length; sIdx++) {
+                        const sb = orderedSizes[sIdx];
+                        const samplePhotoIt = firstPhotoItem(sb.items);
+                        const photoUrl = samplePhotoIt ? photoUrlForItem(samplePhotoIt) : '';
+                        const photoSrc = photoUrl ? resolveVisualImgSrc(photoUrl, 520) : '';
+                        const photoFid = photoUrl ? extractDriveFileId(photoUrl) : '';
+                        const sbAllWood = sb.orderedColors.length > 0 && sb.orderedColors.every(c => c.isWood);
+                        const colCountTxt = sb.orderedColors.length === 1
+                            ? (sbAllWood ? '1 acabado' : '1 color')
+                            : (sb.orderedColors.length + (sbAllWood ? ' acabados' : ' colores'));
+                        const pieceTxt = Array.from(sb.pieceShortLabels).join(' + ');
+                        const pzTxt = sb.items.length === 1 ? '1 pza' : (sb.items.length + ' pzas');
+                        const subMeta = [colCountTxt, pieceTxt, pzTxt].filter(Boolean).join(' · ');
+                        const arrowTxt = sb.orderedColors.length >= 2
+                            ? (sbAllWood ? 'Acabados →' : 'Colores →')
+                            : 'Piezas →';
+
+                        const stageInner = photoSrc
+                            ? ('<img class="inv-bed-size-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(photoSrc) + '" alt="' + escapeHtml(grpHeadTitle + ' ' + sb.label) + '"' +
+                               (photoFid ? (' data-fid="' + escapeHtml(photoFid) + '"') : '') +
+                               ' onerror="window.__invHandleCardImgError&&window.__invHandleCardImgError(this)">')
+                            : ('<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🛏️</span><span>' + escapeHtml(sb.label) + '</span></div>');
+
+                        sizeHtml.push(
+                            '<div class="inv-row inv-variant-card inv-bed-size-card" data-bed-size-select-key="' + escapeHtml(sb.key) + '">' +
+                                '<div class="inv-bed-size-stage">' +
+                                    '<span class="inv-bed-size-pill">' + escapeHtml(sb.label) + '</span>' +
+                                    stageInner +
+                                '</div>' +
+                                '<div class="inv-fabric-choice-body">' +
+                                    '<div class="inv-fabric-choice-meta">' +
+                                        '<div class="inv-bed-size-title">' + escapeHtml(sb.label) + '</div>' +
+                                        '<div class="inv-fabric-choice-sub">' + escapeHtml(subMeta) + '</div>' +
+                                    '</div>' +
+                                    '<span class="inv-fabric-choice-arrow">' + escapeHtml(arrowTxt) + '</span>' +
+                                '</div>' +
+                            '</div>'
+                        );
+                    }
+                    varList.innerHTML = sizeHtml.join('');
+                } else {
+                    const selectedSb = sizeBucketsByKey.get(effectiveSizeKey) || orderedSizes[0];
+                    if (currentGroupFabricKey && !selectedSb.colorsByKey.has(currentGroupFabricKey)) {
+                        currentGroupFabricKey = '';
+                    }
+                    const sbAllWood = selectedSb.orderedColors.length > 0 && selectedSb.orderedColors.every(c => c.isWood);
+                    const hasMultiColorsInSize = selectedSb.orderedColors.length >= 2;
+
+                    if (hasMultiColorsInSize && !currentGroupFabricKey) {
+                        // PASO 2 CAMAS: Selector de Color de Tela / Acabado Madera dentro del Tamaño
+                        if (nameEl) {
+                            nameEl.textContent = selectedSb.key === 'UNSPECIFIED'
+                                ? grpHeadTitle
+                                : (grpHeadTitle + ' · ' + selectedSb.label);
+                        }
+                        if (crumbEl) {
+                            if (hasMultiSizes) {
+                                crumbEl.textContent = '← Tamaños (' + orderedSizes.length + ')';
+                                crumbEl.style.pointerEvents = 'auto';
+                                crumbEl.style.cursor = 'pointer';
+                            } else {
+                                const colTxt = selectedSb.orderedColors.length + (sbAllWood ? ' acabados' : ' colores / telas');
+                                const pzTxt = selectedSb.items.length === 1 ? '1 pieza' : (selectedSb.items.length + ' piezas');
+                                crumbEl.textContent = selectedSb.label + ' · ' + colTxt + ' · ' + pzTxt;
+                                crumbEl.style.pointerEvents = 'none';
+                                crumbEl.style.cursor = 'default';
+                            }
+                            crumbEl.classList.remove('hidden');
+                        }
+
+                        const choiceHtml = [];
+                        if (hasMultiSizes) {
+                            const barSub = selectedSb.orderedColors.length + (sbAllWood ? ' acabados disponibles' : ' colores / telas disponibles');
+                            choiceHtml.push(
+                                '<div class="inv-fabric-selected-bar inv-bed-selected-bar" data-bed-size-key="' + escapeHtml(selectedSb.key) + '">' +
+                                    '<div class="inv-fabric-head-left">' +
+                                        '<span class="inv-bed-size-chip">' + escapeHtml(selectedSb.label) + '</span>' +
+                                        '<div class="inv-fabric-meta">' +
+                                            '<span class="inv-fabric-sub">' + escapeHtml(barSub) + '</span>' +
+                                        '</div>' +
+                                    '</div>' +
+                                    '<button type="button" class="inv-fabric-back-btn" data-bed-size-back="1">← Tamaños</button>' +
+                                '</div>'
+                            );
+                        }
+
+                        for (let cIdx = 0; cIdx < selectedSb.orderedColors.length; cIdx++) {
+                            const fb = selectedSb.orderedColors[cIdx];
+                            const sampleIt = (fb.items && fb.items[0] && fb.items[0].it) || null;
+                            const swatchUrl = fb.isWood ? '' : getFabricSwatchPhotoUrl(fb.key, sampleIt);
+                            const swatchSrc = swatchUrl ? resolveVisualImgSrc(swatchUrl, 600) : '';
+                            const swatchFid = swatchUrl ? extractDriveFileId(swatchUrl) : '';
+                            const pzCountTxt = fb.items.length === 1 ? '1 pieza disponible' : (fb.items.length + ' piezas disponibles');
+                            const subMeta = fb.colorHint ? (fb.colorHint + ' · ' + pzCountTxt) : (fb.isWood ? ('Madera · ' + pzCountTxt) : pzCountTxt);
+
+                            const stageInner = swatchSrc
+                                ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
+                                   (swatchFid ? (' data-fid="' + escapeHtml(swatchFid) + '"') : '') +
+                                   ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
+                                   '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + fb.label) + '" title="Ampliar foto de tela" aria-label="Ampliar foto de tela">🔍</button>')
+                                : (fb.isWood
+                                    ? '<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🪵</span><span>Acabado Madera</span></div>'
+                                    : '<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🧵</span><span>Tela / Color</span></div>');
+
+                            choiceHtml.push(
+                                '<div class="inv-row inv-variant-card inv-fabric-choice-card" data-fabric-select-key="' + escapeHtml(fb.key) + '">' +
+                                    '<div class="inv-fabric-choice-stage">' + stageInner + '</div>' +
+                                    '<div class="inv-fabric-choice-body">' +
+                                        '<div class="inv-fabric-choice-meta">' +
+                                            '<div class="inv-fabric-choice-title">' + escapeHtml(fb.label) + '</div>' +
+                                            '<div class="inv-fabric-choice-sub">' + escapeHtml(subMeta) + '</div>' +
+                                        '</div>' +
+                                        '<span class="inv-fabric-choice-arrow">Piezas →</span>' +
+                                    '</div>' +
+                                '</div>'
+                            );
+                        }
+                        varList.innerHTML = choiceHtml.join('');
+                    } else {
+                        // PASO 3 CAMAS: Piezas disponibles (Cama / Base de Cama / Cabecera) para (Tamaño, Color/Madera)
+                        const selectedFb = (hasMultiColorsInSize && currentGroupFabricKey)
+                            ? selectedSb.colorsByKey.get(currentGroupFabricKey)
+                            : selectedSb.orderedColors[0];
+                        if (nameEl) {
+                            nameEl.textContent = grpHeadTitle + ' · ' + selectedSb.label + ' · ' + selectedFb.label;
+                        }
+                        if (crumbEl) {
+                            if (hasMultiColorsInSize) {
+                                crumbEl.textContent = '← ' + (selectedFb.isWood ? 'Acabados' : 'Colores / Telas') + ' (' + selectedSb.orderedColors.length + ') · ' + selectedSb.label;
+                                crumbEl.style.pointerEvents = 'auto';
+                                crumbEl.style.cursor = 'pointer';
+                            } else if (hasMultiSizes) {
+                                crumbEl.textContent = '← Tamaños (' + orderedSizes.length + ')';
+                                crumbEl.style.pointerEvents = 'auto';
+                                crumbEl.style.cursor = 'pointer';
+                            } else {
+                                crumbEl.textContent = selectedSb.label + ' · ' + selectedFb.label + ' · ' + selectedFb.items.length + ' piezas';
+                                crumbEl.style.pointerEvents = 'none';
+                                crumbEl.style.cursor = 'default';
+                            }
+                            crumbEl.classList.remove('hidden');
+                        }
+
+                        const sampleSelIt = (selectedFb.items && selectedFb.items[0] && selectedFb.items[0].it) || null;
+                        const swatchUrl = selectedFb.isWood ? '' : getFabricSwatchPhotoUrl(selectedFb.key, sampleSelIt);
+                        const swatchThumb = swatchUrl ? resolveVisualImgSrc(swatchUrl, 160) : '';
+                        const swatchSelFid = swatchUrl ? extractDriveFileId(swatchUrl) : '';
+                        const pzCountTxt = selectedFb.items.length === 1 ? '1 pieza disponible' : (selectedFb.items.length + ' piezas disponibles');
+                        const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + pzCountTxt) : (selectedFb.isWood ? ('Acabado Madera · ' + pzCountTxt) : pzCountTxt);
+                        const swatchInner = swatchThumb
+                            ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
+                              (swatchSelFid ? (' data-fid="' + escapeHtml(swatchSelFid) + '"') : '') +
+                              ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">'
+                            : '<span aria-hidden="true">' + (selectedFb.isWood ? '🪵' : '🧵') + '</span>';
+                        const swatchClasses = 'inv-fabric-swatch' + (swatchThumb ? '' : ' is-empty is-readonly');
+                        const swatchAttrs = swatchUrl
+                            ? (' data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + selectedFb.label) + '" title="Ver foto de la tela"')
+                            : ' disabled';
+                        let backBtnHtml = '';
+                        if (hasMultiColorsInSize) {
+                            backBtnHtml = '<button type="button" class="inv-fabric-back-btn" data-fabric-back="1">← ' + (selectedFb.isWood ? 'Acabados' : 'Colores') + '</button>';
+                        } else if (hasMultiSizes) {
+                            backBtnHtml = '<button type="button" class="inv-fabric-back-btn" data-bed-size-back="1">← Tamaños</button>';
+                        }
+
+                        const htmlChunks = [
+                            '<div class="inv-fabric-selected-bar inv-bed-selected-bar" data-fabric-key="' + escapeHtml(selectedFb.key) + '" data-bed-size-key="' + escapeHtml(selectedSb.key) + '">' +
+                                '<div class="inv-fabric-head-left">' +
+                                    '<button type="button" class="' + swatchClasses + '"' + swatchAttrs + '>' + swatchInner + '</button>' +
+                                    '<div class="inv-fabric-meta">' +
+                                        '<span class="inv-fabric-title">' + escapeHtml(selectedFb.label) + ' <span class="inv-bed-size-chip">' + escapeHtml(selectedSb.label) + '</span></span>' +
+                                        '<span class="inv-fabric-sub">' + escapeHtml(subMeta) + '</span>' +
+                                    '</div>' +
+                                '</div>' +
+                                backBtnHtml +
+                            '</div>'
+                        ];
+
+                        const sortedPieces = selectedFb.items.slice().sort((a, b) =>
+                            (a.piece.rank - b.piece.rank) ||
+                            compareAlphaEs(a.piece.label, b.piece.label) ||
+                            compareAlphaEs(a.it.n || a.it.s, b.it.n || b.it.s) ||
+                            String(a.it.s || '').localeCompare(String(b.it.s || ''))
+                        );
+                        const pieceBuckets = new Map();
+                        for (let pIdx = 0; pIdx < sortedPieces.length; pIdx++) {
+                            const lbl = sortedPieces[pIdx].piece.label;
+                            if (!pieceBuckets.has(lbl)) pieceBuckets.set(lbl, []);
+                            pieceBuckets.get(lbl).push(sortedPieces[pIdx]);
+                        }
+                        for (let pIdx = 0; pIdx < sortedPieces.length; pIdx++) {
+                            const pair = sortedPieces[pIdx];
+                            let cardLabel = pair.piece.label;
+                            const siblings = pieceBuckets.get(cardLabel) || [];
+                            if (siblings.length > 1) {
+                                // Desambiguación general cuando varias piezas comparten Tamaño + Color + Tipo (ej. madera Parota vs Rosa Morada, Tabaco vs Tacuba, Sin Cinchos)
+                                const distinctMds = new Set(siblings.map(s => plainModelToken(cleanStr(s.it.md))).filter(Boolean));
+                                const distinctCms = new Set(siblings.map(s => plainModelToken(cleanStr(s.it.cm)).replace(/^LACA\s+/, '')).filter(Boolean));
+                                let diffDetail = '';
+                                if (distinctMds.size > 1 && cleanStr(pair.it.md)) {
+                                    diffDetail = cleanStr(pair.it.md).toUpperCase();
+                                } else if (distinctCms.size > 1 && cleanStr(pair.it.cm)) {
+                                    diffDetail = cleanStr(pair.it.cm).toUpperCase();
+                                } else {
+                                    // Buscar tokens diferenciadores únicos en el nombre entre hermanos (ej. "SIN CINCHOS")
+                                    const tokenSets = siblings.map(s => new Set(plainModelToken(stripDimensionsFromProductText(s.it.n)).split(/\s+/).filter(Boolean)));
+                                    const myTokens = plainModelToken(stripDimensionsFromProductText(pair.it.n)).split(/\s+/).filter(Boolean);
+                                    const uniqueToks = myTokens.filter(tok => tokenSets.some(ts => !ts.has(tok)));
+                                    if (uniqueToks.length > 0) {
+                                        diffDetail = uniqueToks.join(' ');
+                                    } else {
+                                        const cmVal = cleanStr(pair.it.cm).toUpperCase();
+                                        const mdVal = cleanStr(pair.it.md).toUpperCase();
+                                        const medVal = cleanStr(pair.it.m).toUpperCase();
+                                        diffDetail = cmVal || mdVal || medVal || pair.it.s;
+                                    }
+                                }
+                                if (diffDetail && plainModelToken(diffDetail) !== plainModelToken(selectedFb.label) && cardLabel.indexOf(diffDetail) === -1) {
+                                    cardLabel = cardLabel + ' · ' + diffDetail;
+                                }
+                            }
+                            htmlChunks.push(renderVariantCardHtml({ it: pair.it, varLabel: cardLabel }));
+                        }
+                        varList.innerHTML = htmlChunks.join('');
+                    }
+                }
             } else {
                 currentGroupFabricKey = '';
+                currentGroupBedSizeKey = '';
                 const baseLabels = grp.items.map(it => buildVariantLabel(it, grp, null));
                 const labelCounts = new Map();
                 for (let i = 0; i < baseLabels.length; i++) {
@@ -4874,6 +6240,18 @@
                 varList.innerHTML = variantEntries.map(renderVariantCardHtml).join('');
             }
 
+            varList.querySelectorAll('[data-bed-size-select-key]').forEach(cardEl => {
+                cardEl.onclick = function () {
+                    const sKey = cardEl.getAttribute('data-bed-size-select-key') || '';
+                    if (sKey) window.selectGroupBedSizeStep(sKey);
+                };
+            });
+            varList.querySelectorAll('[data-bed-size-back]').forEach(btnEl => {
+                btnEl.onclick = function (ev) {
+                    if (ev && ev.stopPropagation) ev.stopPropagation();
+                    window.backToCurrentGroupVariants();
+                };
+            });
             varList.querySelectorAll('[data-fabric-select-key]').forEach(cardEl => {
                 cardEl.onclick = function () {
                     const fKey = cardEl.getAttribute('data-fabric-select-key') || '';
@@ -4912,10 +6290,19 @@
         prepareRelatedInStockSection(grp && grp.items && grp.items.length ? grp.items[0] : null, false);
     }
 
+    window.selectGroupBedSizeStep = function (sizeKey) {
+        if (!currentGroup || !sizeKey) return false;
+        currentGroupBedSizeKey = String(sizeKey).trim();
+        currentGroupFabricKey = '';
+        renderGroupVariantsStep(currentGroup, '', currentGroupBedSizeKey);
+        if (!invWorkspaceRestoring) notifyInvBackStatePush('product_bed_size_step');
+        return true;
+    };
+
     window.selectGroupFabricStep = function (fabricKey) {
         if (!currentGroup || !fabricKey) return false;
         currentGroupFabricKey = String(fabricKey).trim();
-        renderGroupVariantsStep(currentGroup, currentGroupFabricKey);
+        renderGroupVariantsStep(currentGroup, currentGroupFabricKey, currentGroupBedSizeKey);
         if (!invWorkspaceRestoring) notifyInvBackStatePush('product_fabric_modules');
         return true;
     };
@@ -4933,11 +6320,13 @@
         if (!grp) return false;
         if (grp.items.length === 1) {
             currentGroupFabricKey = '';
+            currentGroupBedSizeKey = '';
             return openProductDetail(grp.items[0].s, false);
         }
 
         if (!preserveFabricKey) {
             currentGroupFabricKey = '';
+            currentGroupBedSizeKey = '';
         }
         renderGroupVariantsStep(grp);
 
@@ -4956,14 +6345,20 @@
         const singleStep = document.getElementById('detSingleStep');
         const inSingleDetail = !!(currentDetailItem || (singleStep && !singleStep.classList.contains('hidden')));
         if (inSingleDetail) {
-            // Desde Detalle de SKU regresar a los Módulos del color seleccionado (o variantes)
+            // Desde Detalle de SKU regresar a los Módulos / Piezas del tamaño y color seleccionado
             openGroupModal(currentGroup.key, true);
             return;
         }
         if (currentGroupFabricKey) {
-            // Desde Click 3 (Módulos de un color) regresar a Click 2 (Colores / Telas)
+            // Desde Paso 3 regresar a Colores / Telas (conservando tamaño si aplica)
             currentGroupFabricKey = '';
-            renderGroupVariantsStep(currentGroup, '');
+            renderGroupVariantsStep(currentGroup, '', currentGroupBedSizeKey);
+            return;
+        }
+        if (currentGroupBedSizeKey) {
+            // Desde Paso 2 (o Paso 3 con 1 solo color) de Camas regresar a Tamaños
+            currentGroupBedSizeKey = '';
+            renderGroupVariantsStep(currentGroup, '', '');
         }
     };
 
@@ -4983,6 +6378,7 @@
             const grp = resolveActiveGroup(it._groupKey);
             currentGroup = (grp && grp.items.length > 1) ? grp : null;
             currentGroupFabricKey = '';
+            currentGroupBedSizeKey = '';
         }
 
         renderDetailModal(it, !!fromGroupList);
@@ -5060,6 +6456,7 @@
         currentDetailItem = null;
         currentGroup = null;
         currentGroupFabricKey = '';
+        currentGroupBedSizeKey = '';
         relatedStockExpanded = false;
         const relPanel = document.getElementById('detRelatedStockPanel');
         if (relPanel) relPanel.classList.add('hidden');
@@ -5089,9 +6486,15 @@
 
         if (crumbEl) {
             if (showGroupBack && currentGroup && currentGroup.items.length > 1) {
-                crumbEl.textContent = currentGroupFabricKey
-                    ? ('← ' + currentGroupFabricKey + ' · ' + currentGroup.title)
-                    : ('← ' + currentGroup.title);
+                const grpLbl = currentGroup.displayTitle || currentGroup.title;
+                const crumbParts = [];
+                if (currentGroupBedSizeKey) {
+                    const szObj = resolveItemBedSize(it);
+                    crumbParts.push(szObj && szObj.key === currentGroupBedSizeKey ? szObj.label : currentGroupBedSizeKey);
+                }
+                if (currentGroupFabricKey) crumbParts.push(currentGroupFabricKey);
+                crumbParts.push(grpLbl);
+                crumbEl.textContent = '← ' + crumbParts.join(' · ');
                 crumbEl.style.pointerEvents = 'auto';
                 crumbEl.style.cursor = 'pointer';
                 crumbEl.classList.remove('hidden');
@@ -5489,6 +6892,104 @@
     const OWNER_FOTOS_EMAIL = 'kevin.reyna@grupoanipa.com';
     const KEVIN_ROLE_PREVIEW_KEY = 'creata_inv_kevin_role_preview_v1';
     const KEVIN_PREVIEW_STORE_KEY = 'creata_inv_kevin_preview_store_v1';
+    const CANONICAL_SQUARE_UPLOAD_PX = 2048;
+
+    const ADMIN_PERM_COLUMNS_CLIENT = [
+        { colIndex: 9,  header: 'VER_COTIZADOR',          key: 'cotizador',        label: 'Cotizador' },
+        { colIndex: 10, header: 'VER_SEGUIMIENTO',        key: 'seguimiento',      label: 'Seguimiento' },
+        { colIndex: 11, header: 'VER_HISTORIAL',          key: 'historial',        label: 'Historial' },
+        { colIndex: 12, header: 'VER_FOTOS_APP',          key: 'fotosApp',         label: 'App Fotos / Portadas' },
+        { colIndex: 13, header: 'VER_PROMPTS_IA',         key: 'promptsIa',        label: 'Prompts IA' },
+        { colIndex: 14, header: 'VER_PANEL_SUITE',        key: 'panelSuite',       label: 'Panel Suite' },
+        { colIndex: 15, header: 'VER_EQUIPO_Y_INVITADOS', key: 'equipoInvitados',  label: 'Equipo e Invitados' },
+        { colIndex: 16, header: 'VER_CAMBIAR_ROL',        key: 'cambiarRol',       label: 'Modo Admin/Asesor' },
+        { colIndex: 17, header: 'VER_GESTION_PRODUCTOS',  key: 'gestionProductos', label: 'Gestionar SKUs' },
+        { colIndex: 18, header: 'VER_SUBIR_FOTO',         key: 'subirFoto',        label: 'Subir foto' },
+        { colIndex: 19, header: 'VER_CAMBIAR_TIENDA',     key: 'cambiarTienda',    label: 'Cambiar tienda' }
+    ];
+
+    function defaultAdminPermissionsForEmailClient(emailRaw) {
+        const em = String(emailRaw || '').trim().toLowerCase().replace(/,/g, '.');
+        const isOwnerKevin = (em === OWNER_FOTOS_EMAIL);
+        return {
+            cotizador: true,
+            seguimiento: true,
+            historial: true,
+            fotosApp: isOwnerKevin,
+            promptsIa: isOwnerKevin,
+            panelSuite: isOwnerKevin,
+            equipoInvitados: true,
+            cambiarRol: true,
+            gestionProductos: isOwnerKevin,
+            subirFoto: true,
+            cambiarTienda: true
+        };
+    }
+
+    function parseAdminPermCellClient(rawVal, fallbackBool) {
+        if (rawVal === true) return true;
+        if (rawVal === false) return false;
+        const s = String(rawVal === null || rawVal === undefined ? '' : rawVal)
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toUpperCase();
+        if (!s) return !!fallbackBool;
+        if (/^(SI|YES|TRUE|1|X|OK|VER|ACTIVO|HABILITADO)$/.test(s)) return true;
+        if (/^(NO|FALSE|0|OCULTO|INACTIVO|DESHABILITADO|-)$/.test(s)) return false;
+        return !!fallbackBool;
+    }
+
+    function extractAdminPermissionsFromRowClient(headerRow, rowArr, emailRaw) {
+        const perms = defaultAdminPermissionsForEmailClient(emailRaw);
+        const hdr = Array.isArray(headerRow) ? headerRow : [];
+        const r = Array.isArray(rowArr) ? rowArr : [];
+        const colByKey = {};
+        for (let c = 0; c < hdr.length; c++) {
+            const norm = String(hdr[c] || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toUpperCase()
+                .replace(/[^A-Z0-9]+/g, '_')
+                .replace(/^_+|_+$/g, '');
+            if (!norm) continue;
+            for (let k = 0; k < ADMIN_PERM_COLUMNS_CLIENT.length; k++) {
+                const def = ADMIN_PERM_COLUMNS_CLIENT[k];
+                if (norm === def.header || norm.indexOf(def.header) !== -1) {
+                    colByKey[def.key] = c;
+                }
+            }
+        }
+        for (let k = 0; k < ADMIN_PERM_COLUMNS_CLIENT.length; k++) {
+            const def = ADMIN_PERM_COLUMNS_CLIENT[k];
+            const idx = (colByKey[def.key] !== undefined) ? colByKey[def.key] : def.colIndex;
+            if (idx < r.length) {
+                perms[def.key] = parseAdminPermCellClient(r[idx], perms[def.key]);
+            }
+        }
+        return perms;
+    }
+
+    function isRealAdminAccount() {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
+        if (typeof isGuestSession === 'function' && isGuestSession()) return false;
+        const emailNorm = String(activeAdvisorSession.correo || '').trim().toLowerCase().replace(/,/g, '.');
+        return Boolean(activeAdvisorSession.isAdmin || emailNorm === OWNER_FOTOS_EMAIL || emailNorm === 'santiago.torres@grupoanipa.com');
+    }
+
+    function getActiveAdminPermissions() {
+        if (!isRealAdminAccount()) return null;
+        if (activeAdvisorSession && activeAdvisorSession.adminPermissions && typeof activeAdvisorSession.adminPermissions === 'object') {
+            return Object.assign(defaultAdminPermissionsForEmailClient(activeAdvisorSession.correo), activeAdvisorSession.adminPermissions);
+        }
+        return defaultAdminPermissionsForEmailClient(activeAdvisorSession && activeAdvisorSession.correo);
+    }
+
+    function hasAdminPerm(permKey) {
+        if (!isRealAdminAccount()) return false;
+        const perms = getActiveAdminPermissions();
+        return !!(perms && perms[permKey] === true);
+    }
 
     function isRealKevinOwner() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
@@ -5498,7 +6999,8 @@
     }
 
     function isKevinAdvisorPreviewActive() {
-        if (!isRealKevinOwner()) return false;
+        if (!isRealAdminAccount()) return false;
+        if (!isRealKevinOwner() && !hasAdminPerm('cambiarRol')) return false;
         try {
             return typeof sessionStorage !== 'undefined' && sessionStorage.getItem(KEVIN_ROLE_PREVIEW_KEY) === 'ASESOR';
         } catch (e) {
@@ -5522,12 +7024,13 @@
     }
 
     function isFotosAppOwner() {
-        return isRealKevinOwner() && !isKevinAdvisorPreviewActive();
+        if (!isEffectiveAdminSession()) return false;
+        return hasAdminPerm('fotosApp');
     }
 
     function canManageProductPhotos() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
-        if (typeof isGuestSession === 'function' && isGuestSession()) return false;
+        if (isEffectiveAdminSession() && !hasAdminPerm('subirFoto')) return false;
         return true;
     }
 
@@ -5559,8 +7062,8 @@
     }
 
     function normalizePhotoToSquare1x1DataUrl(file, targetSide, quality) {
-        const side = targetSide || 1080;
-        const jpegQ = quality || 0.86;
+        const side = targetSide || CANONICAL_SQUARE_UPLOAD_PX;
+        const jpegQ = quality || 0.88;
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
@@ -5576,7 +7079,7 @@
                     try {
                         const nw = img.naturalWidth || img.width || 1;
                         const nh = img.naturalHeight || img.height || 1;
-                        let sx = 0, sy = 0, sw = nw, sh = nh, isStudio = false;
+                        let sx = 0, sy = 0, sw = nw, sh = nh;
                         const bounds = detectProductStudioBoundsFromSource(img, 96);
                         if (bounds && bounds.isWhiteBg) {
                             const padSrcX = Math.round(nw * 0.015);
@@ -5590,13 +7093,12 @@
                                 sy = by;
                                 sw = bx2 - bx;
                                 sh = by2 - by;
-                                isStudio = true;
                             }
                         }
 
-                        const isWideStudio = isStudio && (sw > sh * 1.15);
-                        const outW = isWideStudio ? Math.min(1200, Math.round(side * 1.12)) : side;
-                        const outH = isWideStudio ? Math.round(outW * 0.75) : side;
+                        // Lienzo cuadrado uniforme 2048x2048 (#FFFFFF) con escala proporcional (~78% eje mayor) para jamás deformar sillones ni sofás
+                        const outW = side;
+                        const outH = side;
                         const out = document.createElement('canvas');
                         out.width = outW;
                         out.height = outH;
@@ -6450,7 +7952,7 @@
 
         async function uploadOne(file, idx) {
             try {
-                const dataUrl = await normalizePhotoToSquare1x1DataUrl(file, 1000, 0.80);
+                const dataUrl = await normalizePhotoToSquare1x1DataUrl(file, CANONICAL_SQUARE_UPLOAD_PX, 0.86);
 
                 // Para el titular (Kevin), subir por SUBIR PREN -> Categoría y registrar en Hoja '1'!D la foto principal
                 if (ownerModeAssign && idx === 0) {
@@ -7091,6 +8593,7 @@
 
         // Sincronizar con Apps Script en segundo plano para dejar constancia en las Columnas H, I y J de INVITADOS
         callInvWebAppPost('inv_guest_heartbeat', {
+            authToken: (activeAdvisorSession && activeAdvisorSession.authToken) || '',
             email: email,
             deviceId: devId,
             deviceLabel: devLbl
@@ -7723,6 +9226,14 @@
         }
     }
 
+    function getActiveSessionDeviceId(sessOpt) {
+        const s = sessOpt || activeAdvisorSession;
+        if (typeof isGuestSession === 'function' && isGuestSession(s)) {
+            return getOrCreateClientDeviceId();
+        }
+        return getInvPresenceDeviceId();
+    }
+
     let lastPresenceVistaSent = '';
     function currentPresenceVista() {
         return (activeInAppModule && activeInAppModule !== 'home') ? activeInAppModule : 'inventario';
@@ -7961,7 +9472,7 @@
                 isGuest: !!s.isGuest,
                 isAdmin: isEffectiveAdminSession(),
                 isManager: !!s.isManager,
-                deviceId: getInvPresenceDeviceId(),
+                deviceId: getActiveSessionDeviceId(s),
                 deviceLabel: devLabel,
                 sessionStartedMs: getInvSessionStartedMs(),
                 vista: vista,
@@ -7973,6 +9484,16 @@
             const hbRes = await callInvWebAppPost('inv_presence_heartbeat', hbPayload, 8000, true);
             if (hbRes && hbRes.renewedAuthToken) {
                 persistRenewedInvAuthToken(s, hbRes.renewedAuthToken);
+            }
+            if (hbRes && hbRes.ok && hbRes.adminPermissions && typeof hbRes.adminPermissions === 'object' && activeAdvisorSession && !isGuestSession()) {
+                const prevJson = JSON.stringify(activeAdvisorSession.adminPermissions || null);
+                const nextJson = JSON.stringify(hbRes.adminPermissions);
+                if (prevJson !== nextJson) {
+                    activeAdvisorSession.adminPermissions = hbRes.adminPermissions;
+                    saveAdvisorSession(activeAdvisorSession);
+                    renderAdvisorHeaderBar();
+                    if (typeof renderSettingsRoleAndSections === 'function') renderSettingsRoleAndSections();
+                }
             }
             if (hbRes && hbRes.sessionRevoked === true && typeof window.logoutAdvisorSession === 'function') {
                 window.logoutAdvisorSession();
@@ -7997,7 +9518,7 @@
             authToken: s.authToken || '',
             correo: s.correo || '',
             sheetTab: s.sheetTab || '',
-            deviceId: getInvPresenceDeviceId()
+            deviceId: getActiveSessionDeviceId(s)
         }, 5000, true).catch(() => {});
     }
 
@@ -8694,6 +10215,9 @@
                 const resolvedErpBranch = (matchedErp && matchedErp.branch) || '';
                 const isAdminUser = !!cfg.isAdmin || ADMIN_MASTER_EMAILS[correo] || /ADMINISTRADOR/i.test(puesto);
                 const userErpStore = (isAdminUser && resolvedErpBranch) ? resolvedErpBranch : cfg.erpStore;
+                const rowAdminPerms = cfg.isAdmin
+                    ? extractAdminPermissionsFromRowClient(headerIdx >= 0 ? rows[headerIdx] : [], r, correo)
+                    : null;
 
                 tabUsers.push({
                     sheetTab: cfg.tab,
@@ -8718,12 +10242,31 @@
                     mustChangeKey: !defKey && !!tempKey,
                     erpAdvisorLabel: resolvedErpLabel,
                     erpAdvisorId: resolvedErpId,
-                    erpAdvisorBranch: resolvedErpBranch
+                    erpAdvisorBranch: resolvedErpBranch,
+                    adminPermissions: rowAdminPerms || (isAdminUser ? defaultAdminPermissionsForEmailClient(correo) : null)
                 });
             }
             return tabUsers;
         }));
         const flatUsers = results.flat();
+        const adminPermsByEmail = {};
+        for (let a = 0; a < flatUsers.length; a++) {
+            const au = flatUsers[a];
+            if (au && !au.isGuest && au.sheetTab === 'CUENTAS ADMINISTRATIVAS' && au.correo && au.adminPermissions) {
+                adminPermsByEmail[String(au.correo).trim().toLowerCase()] = au.adminPermissions;
+            }
+        }
+        for (let a = 0; a < flatUsers.length; a++) {
+            const au = flatUsers[a];
+            if (!au || au.isGuest || !au.correo) continue;
+            const em = String(au.correo).trim().toLowerCase();
+            if (adminPermsByEmail[em]) {
+                au.isAdmin = true;
+                au.adminPermissions = adminPermsByEmail[em];
+            } else if (au.isAdmin && !au.adminPermissions) {
+                au.adminPermissions = defaultAdminPermissionsForEmailClient(em);
+            }
+        }
         for (let m = 0; m < flatUsers.length; m++) {
             const mu = flatUsers[m];
             if (!mu || mu.isAdmin || mu.isGuest || !mu.isManager) continue;
@@ -8751,6 +10294,18 @@
         const matchedLocs = liveUsers.filter(u => u && !u.isGuest && String(u.correo || '').trim().toLowerCase() === sessEmail);
         if (!matchedLocs.length) return;
 
+        const adminRow = matchedLocs.find(u => u && u.adminPermissions && u.sheetTab === 'CUENTAS ADMINISTRATIVAS') || matchedLocs.find(u => u && u.adminPermissions);
+        let permsChanged = false;
+        if (adminRow && adminRow.adminPermissions) {
+            const prevPermSig = JSON.stringify(activeAdvisorSession.adminPermissions || null);
+            const nextPermSig = JSON.stringify(adminRow.adminPermissions);
+            if (prevPermSig !== nextPermSig) {
+                activeAdvisorSession.isAdmin = true;
+                activeAdvisorSession.adminPermissions = adminRow.adminPermissions;
+                permsChanged = true;
+            }
+        }
+
         const prevLocs = Array.isArray(activeAdvisorSession.allLocations) ? activeAdvisorSession.allLocations : [];
         const tokenByTab = {};
         prevLocs.forEach(l => {
@@ -8773,11 +10328,12 @@
 
         const prevTabsSig = prevLocs.map(l => String((l && l.sheetTab) || '').toUpperCase()).join('|');
         const nextTabsSig = nextAll.map(l => String((l && l.sheetTab) || '').toUpperCase()).join('|');
-        if (prevTabsSig !== nextTabsSig || prevLocs.length !== nextAll.length) {
+        if (permsChanged || prevTabsSig !== nextTabsSig || prevLocs.length !== nextAll.length) {
             activeAdvisorSession.allLocations = nextAll;
             saveAdvisorSession(activeAdvisorSession);
             renderAdvisorHeaderBar();
             populateQuoteAdvisorControls();
+            if (typeof renderSettingsRoleAndSections === 'function') renderSettingsRoleAndSections();
         }
     }
 
@@ -8859,6 +10415,9 @@
         const fabPromptsBtn = document.getElementById('fabPromptsBtn');
         const fabPanelSuiteBtn = document.getElementById('fabPanelSuiteBtn');
         const fabSettingsBtn = document.getElementById('fabSettingsBtn');
+        const fabGuestSessionsBtn = document.getElementById('fabGuestSessionsBtn');
+        const fabGuestPasswordBtn = document.getElementById('fabGuestPasswordBtn');
+        const fabLogoutBtn = document.getElementById('fabLogoutBtn');
         const headerRoleModePill = document.getElementById('headerRoleModePill');
         const uploadPhotoAppFotosLink = document.getElementById('uploadPhotoAppFotosLink');
         const uploadPhotoSplitBtn = document.getElementById('uploadPhotoSplitBtn');
@@ -8869,11 +10428,16 @@
         const isOwnerFotos = isFotosAppOwner();
         const effectiveAdmin = isEffectiveAdminSession();
         const kevinAdvisorPreview = isKevinAdvisorPreviewActive();
+        const canSeeHistorial = isAuthed && !guestMode && effectiveAdmin && hasAdminPerm('historial');
+        const canSeeCotizador = !guestMode && (!effectiveAdmin || hasAdminPerm('cotizador'));
+        const canSeeSeguimiento = !guestMode && (!effectiveAdmin || hasAdminPerm('seguimiento'));
+        const canSeePromptsIa = isAuthed && !guestMode && effectiveAdmin && hasAdminPerm('promptsIa');
+        const canSeePanelSuite = isAuthed && !guestMode && effectiveAdmin && hasAdminPerm('panelSuite');
 
         if (headerHistBtn) {
-            headerHistBtn.classList.toggle('hidden', !isAuthed || guestMode || !isOwnerFotos);
+            headerHistBtn.classList.toggle('hidden', !canSeeHistorial);
         }
-        if (!isOwnerFotos && activeInAppModule === 'historial' && typeof window.closeInAppModules === 'function') {
+        if (!canSeeHistorial && activeInAppModule === 'historial' && typeof window.closeInAppModules === 'function') {
             window.closeInAppModules();
         }
         if (headerLogoutBtn) {
@@ -8884,13 +10448,16 @@
             fabRoot.classList.toggle('hidden', !isAuthed);
             if (!isAuthed) window.closeFabMenu();
         }
-        if (fabQuoteBtn) fabQuoteBtn.classList.toggle('hidden', guestMode);
-        if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', guestMode);
+        if (fabQuoteBtn) fabQuoteBtn.classList.toggle('hidden', !canSeeCotizador);
+        if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', !canSeeSeguimiento);
         if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canUploadDrivePhotos);
         if (fabSplitFotosBtn) fabSplitFotosBtn.classList.toggle('hidden', !isOwnerFotos);
-        if (fabPromptsBtn) fabPromptsBtn.classList.toggle('hidden', !isOwnerFotos);
-        if (fabPanelSuiteBtn) fabPanelSuiteBtn.classList.toggle('hidden', !isOwnerFotos);
+        if (fabPromptsBtn) fabPromptsBtn.classList.toggle('hidden', !canSeePromptsIa);
+        if (fabPanelSuiteBtn) fabPanelSuiteBtn.classList.toggle('hidden', !canSeePanelSuite);
         if (fabSettingsBtn) fabSettingsBtn.classList.toggle('hidden', !isAuthed || guestMode);
+        if (fabGuestSessionsBtn) fabGuestSessionsBtn.classList.toggle('hidden', !isAuthed || !guestMode);
+        if (fabGuestPasswordBtn) fabGuestPasswordBtn.classList.toggle('hidden', !isAuthed || !guestMode);
+        if (fabLogoutBtn) fabLogoutBtn.classList.toggle('hidden', !isAuthed);
         if (uploadPhotoAppFotosLink) uploadPhotoAppFotosLink.classList.toggle('hidden', !isOwnerFotos);
         if (uploadPhotoSplitBtn) uploadPhotoSplitBtn.classList.toggle('hidden', !isOwnerFotos);
         if (!isOwnerFotos && _invSplitActive && typeof window.closeInvSplitFotosDock === 'function') {
@@ -9294,6 +10861,7 @@
 
         try {
             const hbRes = await callInvWebAppPost('inv_guest_heartbeat', {
+                authToken: (activeAdvisorSession && activeAdvisorSession.authToken) || '',
                 email: email,
                 deviceId: deviceId,
                 deviceLabel: deviceLabel
@@ -10121,12 +11689,17 @@
         adminWrap.classList.remove('hidden');
         if (lockedGrid) lockedGrid.classList.add('hidden');
 
-        const storesList = erpStoresCatalog.length > 0 ? erpStoresCatalog.slice() : DEFAULT_ERP_STORES.slice();
+        const canSwitchStore = typeof hasAdminPerm === 'function' ? hasAdminPerm('cambiarTienda') : true;
+        const rawStoresList = erpStoresCatalog.length > 0 ? erpStoresCatalog.slice() : DEFAULT_ERP_STORES.slice();
         DEFAULT_ERP_STORES.forEach(ds => {
-            if (storesList.indexOf(ds) === -1) storesList.push(ds);
+            if (rawStoresList.indexOf(ds) === -1) rawStoresList.push(ds);
         });
 
-        const targetStore = cleanStr(quoteDraftMeta.erpStore) || cleanStr(sess.erpStore) || 'CREATA PUERTO CANCUN';
+        const assignedStore = cleanStr(sess.erpStore) || 'CREATA PUERTO CANCUN';
+        const targetStore = canSwitchStore
+            ? (cleanStr(quoteDraftMeta.erpStore) || assignedStore)
+            : assignedStore;
+        const storesList = canSwitchStore ? rawStoresList : [assignedStore];
         if (storesList.indexOf(targetStore) === -1) storesList.unshift(targetStore);
 
         storeSel.innerHTML = storesList.map(st => {
@@ -10135,6 +11708,7 @@
             return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st + ' · Folio ' + est) + '</option>';
         }).join('');
         storeSel.value = targetStore;
+        storeSel.disabled = !canSwitchStore;
         quoteDraftMeta.erpStore = targetStore;
 
         const targetStoreUp = targetStore.toUpperCase();
@@ -13022,7 +14596,7 @@
                 window.backToCurrentGroupVariants();
                 return;
             }
-            if (isModalOpenById('productDetailModal') && isElVisibleById('detVariantsStep') && currentGroup && currentGroupFabricKey) {
+            if (isModalOpenById('productDetailModal') && isElVisibleById('detVariantsStep') && currentGroup && (currentGroupFabricKey || currentGroupBedSizeKey)) {
                 ev.__creataEscapeHandled = true;
                 window.backToCurrentGroupVariants();
                 return;
@@ -14725,7 +16299,7 @@
             }
             sendInvPresenceHeartbeat(activeAdvisorSession, false);
             const modal = document.getElementById('settingsModal');
-            if (modal && modal.classList.contains('open') && isRealKevinOwner() && !isKevinAdvisorPreviewActive() && typeof window.refreshSettingsTeamPresence === 'function') {
+            if (modal && modal.classList.contains('open') && isRealAdminAccount() && !isKevinAdvisorPreviewActive() && hasAdminPerm('equipoInvitados') && typeof window.refreshSettingsTeamPresence === 'function') {
                 window.refreshSettingsTeamPresence(false);
             }
         });
@@ -15038,12 +16612,12 @@
     };
 
     window.openPromptsFromCotizador = function () {
-        if (!isFotosAppOwner()) return;
+        if (!isEffectiveAdminSession() || !hasAdminPerm('promptsIa')) return;
         window.location.href = './prompts.html';
     };
 
     window.openPanelFromCotizador = function () {
-        if (!isFotosAppOwner()) return;
+        if (!isEffectiveAdminSession() || !hasAdminPerm('panelSuite')) return;
         const opened = window.open('./suite/', '_blank', 'noopener');
         if (!opened) window.location.href = './suite/';
     };
@@ -15354,6 +16928,18 @@
                     escapeAllowed: true,
                     toast: 'Volviendo a colores / telas'
                 },
+                // Priority 12b3: Bed Group Step 2 / Auto-Skipped Step 3 -> Step 1 (Sizes)
+                {
+                    id: 'bed_size_back_to_sizes',
+                    isActive: function () {
+                        return isModalOpenById('productDetailModal') &&
+                            isElVisibleById('detVariantsStep') &&
+                            Boolean(currentGroup && !currentGroupFabricKey && currentGroupBedSizeKey);
+                    },
+                    undo: function () { window.backToCurrentGroupVariants(); },
+                    escapeAllowed: true,
+                    toast: 'Volviendo a tamaños'
+                },
                 // Priority 12c: Product Detail Modal Close
                 {
                     id: 'product_detail_modal',
@@ -15631,7 +17217,8 @@
                 try {
                     const parsedOvr = ev.newValue ? JSON.parse(ev.newValue) : {};
                     if (parsedOvr && typeof parsedOvr === 'object' && !Array.isArray(parsedOvr)) {
-                        invProductOverridesMap = parsedOvr;
+                        invProductOverridesMap = sanitizeProductOverridesMap(parsedOvr);
+                        _vfabIndexMapRef = null;
                         rerenderCatalogAfterOverrideChange();
                     }
                 } catch (eOvrSync) {}
@@ -15689,7 +17276,8 @@
     }
 
     function saveLocalProductOverridesMap(mapObj) {
-        invProductOverridesMap = (mapObj && typeof mapObj === 'object' && !Array.isArray(mapObj)) ? mapObj : {};
+        invProductOverridesMap = sanitizeProductOverridesMap(mapObj);
+        _vfabIndexMapRef = null;
         try {
             localStorage.setItem(INV_PRODUCT_OVERRIDES_STORAGE, JSON.stringify(invProductOverridesMap));
         } catch (e) {}
@@ -15781,7 +17369,10 @@
         const k = String(overrideKey || '').trim().toUpperCase();
         if (!k) return { ok: false, error: 'Clave inválida.' };
         const op = opMode === 'DELETE' ? 'DELETE' : 'SAVE';
-        const nextUrl = op === 'DELETE' ? '' : cleanStr(photoUrl);
+        const nextUrl = op === 'DELETE' ? '' : sanitizeVisualOverrideUrl(cleanStr(photoUrl));
+        if (op === 'SAVE' && !nextUrl) {
+            return { ok: false, error: 'URL de imagen inválida (no se permiten enlaces temporales blob: ni data:).' };
+        }
         const categoryTag = kind === 'fabric' ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
 
         // Actualizar de inmediato localmente para respuesta instantánea
@@ -15946,9 +17537,9 @@
     window.saveVisualPhotoFromUrl = async function () {
         if (visualPhotoInFlight || !visualPhotoPickerCtx || !isVisualPhotoEditorAllowed()) return;
         const urlInp = document.getElementById('visualPhotoUrlInput');
-        const rawUrl = cleanStr(urlInp && urlInp.value);
-        if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
-            setSettingsStatusBox('visualPhotoStatus', 'Pega un enlace válido que empiece con https://', 'err');
+        const rawUrl = sanitizeVisualOverrideUrl(cleanStr(urlInp && urlInp.value));
+        if (!rawUrl) {
+            setSettingsStatusBox('visualPhotoStatus', 'Pega un enlace válido que empiece con https:// (no se permiten enlaces blob: ni data:)', 'err');
             return;
         }
         const ctx = Object.assign({}, visualPhotoPickerCtx);
@@ -16047,29 +17638,39 @@
     }
 
     function renderSettingsRoleAndSections() {
+        const titleEl = document.getElementById('settingsModalTitle');
         const subEl = document.getElementById('settingsUserSubtitle');
         const roleSec = document.getElementById('settingsRoleSwitchSection');
         const teamPresenceSec = document.getElementById('settingsTeamPresenceSection');
+        const adminPermsSec = document.getElementById('settingsAdminPermsSection');
+        const histLinkBtn = document.getElementById('btnSettingsOpenHistorialLink');
         const docSec = document.getElementById('settingsDocNameSection');
         const branchSec = document.getElementById('settingsBranchSection');
         const prodSec = document.getElementById('settingsProductsSection');
 
-        const isKevin = isRealKevinOwner();
-        const kevinAdvisor = isKevinAdvisorPreviewActive();
+        const guestMode = isGuestSession();
+        const isAdminAcct = !guestMode && isRealAdminAccount();
+        const kevinAdvisor = !guestMode && isKevinAdvisorPreviewActive();
         const effectiveAdmin = isEffectiveAdminSession();
         const roleInfo = getAdvisorRoleInfo();
 
+        if (titleEl) {
+            titleEl.textContent = guestMode ? 'Mi cuenta (Invitado)' : 'Configuración';
+        }
         if (subEl && activeAdvisorSession) {
-            const storeLbl = kevinAdvisor
-                ? getKevinAdvisorPreviewStore()
-                : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab);
+            const storeLbl = guestMode
+                ? ('Lugar ' + (Number(activeAdvisorSession.guestSlotNum) || 1) + '/' + (Number(activeAdvisorSession.guestMaxPlaces) || MAX_GUEST_PLACES_PER_EMAIL))
+                : (kevinAdvisor
+                    ? getKevinAdvisorPreviewStore()
+                    : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab));
             subEl.textContent = (activeAdvisorSession.nombre || activeAdvisorSession.correo) + ' · ' + roleInfo.puesto + (storeLbl ? (' · ' + storeLbl) : '');
         }
 
-        // 1) Solo Kevin: interruptor Administrador <-> Asesor (siempre visible para Kevin)
+        // 1) Administrativos con VER_CAMBIAR_ROL=SI: interruptor Administrador <-> Asesor
         if (roleSec) {
-            roleSec.classList.toggle('hidden', !isKevin);
-            if (isKevin) {
+            const showRoleSwitch = isAdminAcct && hasAdminPerm('cambiarRol');
+            roleSec.classList.toggle('hidden', !showRoleSwitch);
+            if (showRoleSwitch) {
                 const badge = document.getElementById('settingsRoleModeBadge');
                 const btnAdm = document.getElementById('btnSettingsRoleAdmin');
                 const btnAdv = document.getElementById('btnSettingsRoleAdvisor');
@@ -16083,18 +17684,41 @@
             }
         }
 
-        // 1b) Solo Kevin (Administrador): Equipo conectado en vivo (quién y dónde está conectado)
+        // 1b) Administrativos con VER_EQUIPO_Y_INVITADOS=SI: Equipo e Invitados conectados en vivo
         if (teamPresenceSec) {
-            const showTeamPresence = isKevin && !kevinAdvisor;
+            const showTeamPresence = isAdminAcct && !kevinAdvisor && hasAdminPerm('equipoInvitados');
             teamPresenceSec.classList.toggle('hidden', !showTeamPresence);
+            if (histLinkBtn) {
+                histLinkBtn.classList.toggle('hidden', !hasAdminPerm('historial'));
+            }
             if (showTeamPresence && typeof window.renderSettingsTeamPresenceList === 'function') {
                 window.renderSettingsTeamPresenceList();
             }
         }
 
-        // 2) Nombre del documento PDF: visible para asesores y también para Kevin (todas las configuraciones)
+        // 1c) Resumen de permisos por columna desde hoja CUENTAS ADMINISTRATIVAS
+        if (adminPermsSec) {
+            const showAdminPerms = isAdminAcct && !kevinAdvisor;
+            adminPermsSec.classList.toggle('hidden', !showAdminPerms);
+            if (showAdminPerms) {
+                const permsObj = getActiveAdminPermissions() || {};
+                const chipsEl = document.getElementById('settingsAdminPermsChips');
+                const countBadgeEl = document.getElementById('settingsAdminPermsCountBadge');
+                let activeCount = 0;
+                const chipsHtml = ADMIN_PERM_COLUMNS_CLIENT.map(function (def) {
+                    const enabled = permsObj[def.key] === true;
+                    if (enabled) activeCount++;
+                    const cls = enabled ? 'inv-settings-pill-live' : 'inv-settings-badge';
+                    return '<span class="' + cls + '" title="' + escapeHtml(def.header) + '">' + (enabled ? '✓ ' : '✕ ') + escapeHtml(def.label) + '</span>';
+                }).join('');
+                if (chipsEl) chipsEl.innerHTML = chipsHtml;
+                if (countBadgeEl) countBadgeEl.textContent = activeCount + '/' + ADMIN_PERM_COLUMNS_CLIENT.length + ' activos';
+            }
+        }
+
+        // 2) Nombre del documento PDF: visible para asesores y administrativos
         if (docSec) {
-            const showDocName = Boolean(activeAdvisorSession && !activeAdvisorSession.mustChangeKey && !isGuestSession());
+            const showDocName = Boolean(activeAdvisorSession && !activeAdvisorSession.mustChangeKey && !guestMode);
             docSec.classList.toggle('hidden', !showDocName);
             if (showDocName) {
                 const prefs = readPdfDocNamePrefs();
@@ -16108,10 +17732,10 @@
             }
         }
 
-        // 3) Cambiar de bodega / tienda: SOLO usuarios en más de 1 hoja de tienda (y en Vista Asesor de Kevin para previsualizar)
+        // 3) Cambiar de bodega / tienda: usuarios en más de 1 hoja de tienda (y en Vista Asesor para previsualizar)
         if (branchSec) {
             const multiLocs = getUserMultiStoreList();
-            const showBranch = multiLocs.length > 1 || kevinAdvisor;
+            const showBranch = !guestMode && (multiLocs.length > 1 || kevinAdvisor);
             branchSec.classList.toggle('hidden', !showBranch);
             if (showBranch) {
                 const badge = document.getElementById('settingsBranchCountBadge');
@@ -16143,9 +17767,9 @@
             }
         }
 
-        // 4) Gestionar productos (Guardar · Archivar · Eliminar): SOLO Kevin en modo Administrador
+        // 4) Gestionar productos (Guardar · Archivar · Eliminar): Administrativos con VER_GESTION_PRODUCTOS=SI
         if (prodSec) {
-            const showProds = isKevin && !kevinAdvisor;
+            const showProds = isAdminAcct && !kevinAdvisor && hasAdminPerm('gestionProductos');
             prodSec.classList.toggle('hidden', !showProds);
             if (showProds) {
                 renderSettingsProductOverridesList();
@@ -16165,7 +17789,7 @@
 
     function startSettingsTeamPresenceAutoRefresh() {
         stopSettingsTeamPresenceAutoRefresh();
-        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        if (!isRealAdminAccount() || isKevinAdvisorPreviewActive() || !hasAdminPerm('equipoInvitados')) return;
         settingsTeamPresenceTimer = setInterval(function () {
             const modal = document.getElementById('settingsModal');
             if (!modal || !modal.classList.contains('open')) {
@@ -16173,16 +17797,17 @@
                 return;
             }
             if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-            if (isRealKevinOwner() && !isKevinAdvisorPreviewActive() && typeof window.refreshSettingsTeamPresence === 'function') {
+            if (isRealAdminAccount() && !isKevinAdvisorPreviewActive() && hasAdminPerm('equipoInvitados') && typeof window.refreshSettingsTeamPresence === 'function') {
                 window.refreshSettingsTeamPresence(false);
             }
         }, 20000);
     }
 
-    window.openSettingsModal = function () {
-        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return;
+    window.openSettingsModal = function (focusSection) {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return;
         const modal = document.getElementById('settingsModal');
         if (!modal) return;
+        const guestMode = isGuestSession();
         setSettingsStatusBox('settingsDocNameStatus', '', 'ok');
         setSettingsStatusBox('settingsPassStatus', '', 'ok');
         setSettingsStatusBox('settingsSessionsStatus', '', 'ok');
@@ -16200,14 +17825,35 @@
         modal.classList.add('open');
         notifyInvBackStatePush('settings_modal');
         window.refreshSettingsOpenSessions(false);
-        const isKevinAdminNow = isRealKevinOwner() && !isKevinAdvisorPreviewActive();
-        if (isKevinAdminNow && typeof window.refreshSettingsTeamPresence === 'function') {
+        const canSeeTeamPresenceNow = !guestMode && isRealAdminAccount() && !isKevinAdvisorPreviewActive() && hasAdminPerm('equipoInvitados');
+        const canManageProdsNow = !guestMode && isRealAdminAccount() && !isKevinAdvisorPreviewActive() && hasAdminPerm('gestionProductos');
+        if (canSeeTeamPresenceNow && typeof window.refreshSettingsTeamPresence === 'function') {
             window.refreshSettingsTeamPresence(false);
             startSettingsTeamPresenceAutoRefresh();
         } else {
             stopSettingsTeamPresenceAutoRefresh();
         }
-        syncProductOverridesFromCloud(isKevinAdminNow);
+        if (!guestMode) {
+            syncProductOverridesFromCloud(canManageProdsNow);
+        }
+        const focusKey = String(focusSection || '').trim().toLowerCase();
+        if (focusKey === 'password' || focusKey === 'sessions') {
+            const targetId = focusKey === 'sessions' ? 'settingsSessionsSection' : 'settingsPasswordSection';
+            const scrollFn = function () {
+                const secEl = document.getElementById(targetId);
+                if (secEl && typeof secEl.scrollIntoView === 'function') {
+                    secEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                if (focusKey === 'password' && currEl && typeof currEl.focus === 'function') {
+                    currEl.focus();
+                }
+            };
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(scrollFn);
+            } else {
+                scrollFn();
+            }
+        }
     };
 
     window.closeSettingsModal = function () {
@@ -16217,7 +17863,7 @@
     };
 
     window.setKevinRolePreviewMode = function (mode) {
-        if (!isRealKevinOwner()) return;
+        if (!isRealAdminAccount() || !hasAdminPerm('cambiarRol')) return;
         const target = String(mode || 'ADMIN').toUpperCase() === 'ASESOR' ? 'ASESOR' : 'ADMIN';
         try {
             if (typeof sessionStorage !== 'undefined') {
@@ -16239,7 +17885,7 @@
             }
         }
         renderSettingsRoleAndSections();
-        if (target === 'ADMIN') {
+        if (target === 'ADMIN' && hasAdminPerm('equipoInvitados')) {
             const modal = document.getElementById('settingsModal');
             if (modal && modal.classList.contains('open') && typeof window.refreshSettingsTeamPresence === 'function') {
                 window.refreshSettingsTeamPresence(false);
@@ -16254,7 +17900,7 @@
     };
 
     window.setKevinAdvisorPreviewStore = function (storeName) {
-        if (!isRealKevinOwner()) return;
+        if (!isRealAdminAccount() || !hasAdminPerm('cambiarRol')) return;
         const clean = cleanStr(storeName) || 'CREATA PUERTO CANCUN';
         try {
             if (typeof sessionStorage !== 'undefined') {
@@ -16310,7 +17956,7 @@
     };
 
     window.submitSettingsPasswordChange = async function () {
-        if (settingsPassInFlight || !activeAdvisorSession || isGuestSession()) return;
+        if (settingsPassInFlight || !activeAdvisorSession || activeAdvisorSession.mustChangeKey) return;
         const currEl = document.getElementById('settingsCurrPassInput');
         const newEl = document.getElementById('settingsNewPassInput');
         const confEl = document.getElementById('settingsConfPassInput');
@@ -16347,7 +17993,7 @@
                 email: activeAdvisorSession.correo,
                 accessKey: currPass,
                 sheetTab: activeAdvisorSession.sheetTab || '',
-                deviceId: getInvPresenceDeviceId(),
+                deviceId: getActiveSessionDeviceId(),
                 deviceLabel: (typeof getClientDeviceLabel === 'function') ? getClientDeviceLabel() : 'Navegador'
             }, 15000);
             if (!verifyRes || !verifyRes.ok) {
@@ -16387,7 +18033,10 @@
                 if (currEl) currEl.value = '';
                 if (newEl) newEl.value = '';
                 if (confEl) confEl.value = '';
-                setSettingsStatusBox('settingsPassStatus', 'Contraseña actualizada correctamente en todas tus hojas.', 'ok');
+                const okPassMsg = isGuestSession()
+                    ? 'Contraseña actualizada correctamente.'
+                    : 'Contraseña actualizada correctamente en todas tus hojas.';
+                setSettingsStatusBox('settingsPassStatus', okPassMsg, 'ok');
             } else {
                 setSettingsStatusBox('settingsPassStatus', (res && res.error) || 'No se pudo actualizar la contraseña.', 'err');
             }
@@ -16449,14 +18098,37 @@
         }).join('');
     }
 
+    function syncGuestSlotMetaFromSessionResponse(res) {
+        if (!res || !activeAdvisorSession || !isGuestSession()) return;
+        let changed = false;
+        if (Number(res.slotNumber) > 0) {
+            activeAdvisorSession.guestSlotNum = Number(res.slotNumber);
+            changed = true;
+        }
+        if (typeof res.activeCount === 'number' && res.activeCount >= 0) {
+            activeAdvisorSession.guestActivePlaces = res.activeCount;
+            changed = true;
+        }
+        if (Number(res.maxPlaces) > 0) {
+            activeAdvisorSession.guestMaxPlaces = Number(res.maxPlaces);
+            changed = true;
+        }
+        if (changed) {
+            saveAdvisorSession(activeAdvisorSession);
+            renderAdvisorHeaderBar();
+            renderSettingsRoleAndSections();
+        }
+    }
+
     window.refreshSettingsOpenSessions = async function (showFeedback) {
-        if (!activeAdvisorSession || isGuestSession()) return;
-        const curDevId = getInvPresenceDeviceId();
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return;
+        const guestMode = isGuestSession();
+        const curDevId = getActiveSessionDeviceId();
         const curLabel = (typeof getClientDeviceLabel === 'function') ? getClientDeviceLabel() : 'Este navegador';
         const fallbackLocal = [{
             deviceId: curDevId,
             deviceLabel: curLabel,
-            sucursal: cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab),
+            sucursal: guestMode ? 'INVITADOS (SOLO VER)' : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab),
             vista: currentPresenceVista(),
             lastSeenMs: Date.now(),
             online: true,
@@ -16475,13 +18147,14 @@
                 authToken: activeAdvisorSession.authToken || '',
                 advisorEmail: activeAdvisorSession.correo || '',
                 sheetTab: activeAdvisorSession.sheetTab || '',
-                erpStore: activeAdvisorSession.erpStore || '',
+                erpStore: guestMode ? 'INVITADOS (SOLO VER)' : (activeAdvisorSession.erpStore || ''),
                 deviceId: curDevId,
                 deviceLabel: curLabel,
                 sessionStartedMs: getInvSessionStartedMs(),
                 vista: 'configuracion'
             }, 15000);
             if (res && res.ok && Array.isArray(res.sessions)) {
+                syncGuestSlotMetaFromSessionResponse(res);
                 renderSettingsSessionsList(res.sessions.length ? res.sessions : fallbackLocal, res.serverTimeMs || Date.now());
                 if (showFeedback) {
                     setSettingsStatusBox('settingsSessionsStatus', 'Sesiones actualizadas (' + res.sessions.length + ').', 'ok');
@@ -16497,8 +18170,11 @@
 
     const settingsTeamPresenceState = {
         users: [],
+        guests: [],
         onlineCount: 0,
         offlineCount: 0,
+        guestOnlineCount: 0,
+        guestOfflineCount: 0,
         serverTimeMs: 0,
         filter: 'ALL',
         loading: false,
@@ -16519,36 +18195,52 @@
     }
 
     window.setSettingsTeamPresenceFilter = function (mode) {
-        const next = (mode === 'ONLINE' || mode === 'OFFLINE') ? mode : 'ALL';
+        const next = (mode === 'ONLINE' || mode === 'OFFLINE' || mode === 'GUESTS') ? mode : 'ALL';
         settingsTeamPresenceState.filter = next;
         window.renderSettingsTeamPresenceList();
     };
 
     window.renderSettingsTeamPresenceList = function () {
-        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        if (!isRealAdminAccount() || isKevinAdvisorPreviewActive() || !hasAdminPerm('equipoInvitados')) return;
         const badgeEl = document.getElementById('settingsTeamOnlineBadge');
         const listEl = document.getElementById('settingsTeamPresenceList');
         const btnAll = document.getElementById('settingsTeamFilterAll');
         const btnOn = document.getElementById('settingsTeamFilterOnline');
         const btnOff = document.getElementById('settingsTeamFilterOffline');
+        const btnGuests = document.getElementById('settingsTeamFilterGuests');
         const searchEl = document.getElementById('settingsTeamSearchInput');
 
-        const total = settingsTeamPresenceState.users.length;
+        const teamUsers = Array.isArray(settingsTeamPresenceState.users) ? settingsTeamPresenceState.users : [];
+        const guestUsers = Array.isArray(settingsTeamPresenceState.guests) ? settingsTeamPresenceState.guests : [];
+        const allCombined = teamUsers.concat(guestUsers);
+        const total = allCombined.length;
         const onCount = settingsTeamPresenceState.onlineCount;
         const offCount = settingsTeamPresenceState.offlineCount;
+        const gTotal = guestUsers.length;
+        const gOnCount = settingsTeamPresenceState.guestOnlineCount;
+        const combinedOn = onCount + gOnCount;
+        const combinedOff = Math.max(0, total - combinedOn);
 
-        if (badgeEl) badgeEl.textContent = '● ' + onCount + ' conectado' + (onCount === 1 ? '' : 's');
+        if (badgeEl) {
+            badgeEl.textContent = gTotal > 0
+                ? ('● ' + onCount + ' equipo · ' + gOnCount + ' invitado' + (gOnCount === 1 ? '' : 's'))
+                : ('● ' + onCount + ' conectado' + (onCount === 1 ? '' : 's'));
+        }
         if (btnAll) {
             btnAll.textContent = 'Todos' + (total ? (' (' + total + ')') : '');
             btnAll.classList.toggle('is-active', settingsTeamPresenceState.filter === 'ALL');
         }
         if (btnOn) {
-            btnOn.textContent = 'Conectados' + (total ? (' (' + onCount + ')') : '');
+            btnOn.textContent = 'Conectados' + (total ? (' (' + combinedOn + ')') : '');
             btnOn.classList.toggle('is-active', settingsTeamPresenceState.filter === 'ONLINE');
         }
         if (btnOff) {
-            btnOff.textContent = 'Desconectados' + (total ? (' (' + offCount + ')') : '');
+            btnOff.textContent = 'Desconectados' + (total ? (' (' + combinedOff + ')') : '');
             btnOff.classList.toggle('is-active', settingsTeamPresenceState.filter === 'OFFLINE');
+        }
+        if (btnGuests) {
+            btnGuests.textContent = 'Invitados' + (gTotal ? (' (' + gOnCount + '/' + gTotal + ')') : '');
+            btnGuests.classList.toggle('is-active', settingsTeamPresenceState.filter === 'GUESTS');
         }
         if (!listEl) return;
 
@@ -16558,12 +18250,22 @@
         }
 
         const q = cleanStr(searchEl ? searchEl.value : '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        const filtered = settingsTeamPresenceState.users.filter(function (u) {
+        const sourcePool = settingsTeamPresenceState.filter === 'GUESTS' ? guestUsers : allCombined;
+        const filtered = sourcePool.filter(function (u) {
             if (settingsTeamPresenceState.filter === 'ONLINE' && !u.online) return false;
             if (settingsTeamPresenceState.filter === 'OFFLINE' && u.online) return false;
             if (q) {
-                const hay = [u.nombre, u.sucursal, u.rol, u.vista, formatInvPresenceVistaLabel(u.vista)]
-                    .join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                const hay = [
+                    u.nombre,
+                    u.correo,
+                    u.sucursal,
+                    u.rol,
+                    u.vista,
+                    formatInvPresenceVistaLabel(u.vista),
+                    u.deviceLabel,
+                    u.slotLabel,
+                    u.isGuest ? 'invitado' : ''
+                ].join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
                 if (!hay.includes(q)) return false;
             }
             return true;
@@ -16577,6 +18279,8 @@
                 } else if (settingsTeamPresenceState.error === 'unavailable') {
                     emptyMsg = 'No se pudo consultar el equipo en vivo. Toca ↻ Actualizar para reintentar.';
                 }
+            } else if (settingsTeamPresenceState.filter === 'GUESTS') {
+                emptyMsg = gTotal ? 'Sin invitados coincidentes con esa búsqueda.' : 'Aún no hay invitados registrados en la hoja INVITADOS.';
             } else if (settingsTeamPresenceState.filter === 'ONLINE') {
                 emptyMsg = 'Nadie conectado en los últimos 3 minutos.';
             } else if (q) {
@@ -16589,22 +18293,33 @@
         const refNow = settingsTeamPresenceState.serverTimeMs || Date.now();
         listEl.innerHTML = filtered.map(function (u) {
             const vistaLbl = formatInvPresenceVistaLabel(u.vista);
-            const whereParts = [
-                u.sucursal ? ('📍 ' + u.sucursal) : '',
-                vistaLbl ? (u.online ? ('En: ' + vistaLbl) : ('Última vista: ' + vistaLbl)) : ''
-            ].filter(Boolean);
-            const subLine = [u.rol || '', whereParts.join(' · ')].filter(Boolean).join(' · ') || '—';
+            const whereParts = u.isGuest
+                ? [
+                    u.slotLabel ? ('Lugares: ' + u.slotLabel) : '',
+                    u.deviceLabel ? ('📱 ' + u.deviceLabel) : '',
+                    vistaLbl ? (u.online ? ('En: ' + vistaLbl) : ('Última vista: ' + vistaLbl)) : ''
+                ].filter(Boolean)
+                : [
+                    u.sucursal ? ('📍 ' + u.sucursal) : '',
+                    vistaLbl ? (u.online ? ('En: ' + vistaLbl) : ('Última vista: ' + vistaLbl)) : ''
+                ].filter(Boolean);
+            const subLine = u.isGuest
+                ? (whereParts.join(' · ') || 'Invitado (Solo ver)')
+                : ([u.rol || '', whereParts.join(' · ')].filter(Boolean).join(' · ') || '—');
             const timeLbl = u.lastSeenMs ? formatSettingsSessionTime(u.lastSeenMs, refNow) : 'Sin registro';
             const cls = u.online ? 'is-online' : 'is-offline';
+            const guestPill = u.isGuest
+                ? ' <span class="inv-settings-badge" style="margin-left:5px;font-size:9px;padding:1px 6px;">INVITADO</span>'
+                : '';
             const badgeHtml = u.online
                 ? '<span class="inv-settings-pill-live">● Conectado</span>'
                 : '<span class="inv-settings-badge">Desconectado</span>';
             return (
-                '<div class="inv-team-presence-row ' + cls + '">' +
+                '<div class="inv-team-presence-row ' + cls + (u.isGuest ? ' is-guest-row' : '') + '">' +
                     '<div class="inv-team-presence-left">' +
                         '<span class="inv-team-dot ' + cls + '" aria-hidden="true"></span>' +
                         '<div class="inv-settings-item-main">' +
-                            '<div class="inv-settings-item-title">' + escapeHtml(u.nombre || 'Usuario') + '</div>' +
+                            '<div class="inv-settings-item-title">' + escapeHtml(u.nombre || (u.isGuest ? 'Invitado' : 'Usuario')) + guestPill + '</div>' +
                             '<div class="inv-settings-item-meta">' + escapeHtml(subLine) + '</div>' +
                         '</div>' +
                     '</div>' +
@@ -16618,7 +18333,7 @@
     };
 
     window.refreshSettingsTeamPresence = async function (showFeedback) {
-        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        if (!isRealAdminAccount() || isKevinAdvisorPreviewActive() || !hasAdminPerm('equipoInvitados')) return;
         if (settingsTeamPresenceInFlight && !showFeedback) return;
         settingsTeamPresenceInFlight = true;
 
@@ -16638,8 +18353,11 @@
             if (!token && !fallbackKey) {
                 settingsTeamPresenceState.error = 'no_token';
                 settingsTeamPresenceState.users = [];
+                settingsTeamPresenceState.guests = [];
                 settingsTeamPresenceState.onlineCount = 0;
                 settingsTeamPresenceState.offlineCount = 0;
+                settingsTeamPresenceState.guestOnlineCount = 0;
+                settingsTeamPresenceState.guestOfflineCount = 0;
                 window.renderSettingsTeamPresenceList();
                 return;
             }
@@ -16690,9 +18408,11 @@
                         : Boolean(lastSeenMs > 0 && (serverNow - lastSeenMs) <= thresholdMs);
                     return {
                         nombre: cleanStr(raw.nombre) || 'Usuario',
+                        correo: cleanStr(raw.correo),
                         sucursal: cleanStr(raw.sucursal),
                         rol: cleanStr(raw.rol),
                         vista: cleanStr(raw.vista),
+                        isGuest: false,
                         online: online,
                         lastSeenMs: lastSeenMs
                     };
@@ -16702,15 +18422,51 @@
                     if (b.lastSeenMs !== a.lastSeenMs) return b.lastSeenMs - a.lastSeenMs;
                     return a.nombre.localeCompare(b.nombre, 'es');
                 });
+
+                const rawGuests = Array.isArray(res.guests) ? res.guests : [];
+                const guestList = rawGuests.filter(Boolean).map(function (raw) {
+                    const lastSeenMs = Number(raw.lastSeenMs) > 0 ? Number(raw.lastSeenMs) : 0;
+                    const online = typeof raw.online === 'boolean'
+                        ? raw.online
+                        : Boolean(lastSeenMs > 0 && (serverNow - lastSeenMs) <= thresholdMs);
+                    const activePl = typeof raw.activePlaces === 'number' ? raw.activePlaces : (online ? 1 : 0);
+                    const maxPl = Number(raw.maxPlaces) > 0 ? Number(raw.maxPlaces) : MAX_GUEST_PLACES_PER_EMAIL;
+                    return {
+                        nombre: cleanStr(raw.nombre) || 'Invitado',
+                        correo: cleanStr(raw.correo),
+                        sucursal: 'INVITADOS (SOLO VER)',
+                        rol: cleanStr(raw.rol) || 'INVITADO (SOLO VER)',
+                        vista: cleanStr(raw.vista),
+                        deviceLabel: cleanStr(raw.deviceLabel),
+                        activePlaces: activePl,
+                        maxPlaces: maxPl,
+                        slotLabel: cleanStr(raw.slotLabel) || (activePl + ' / ' + maxPl),
+                        isGuest: true,
+                        online: online,
+                        lastSeenMs: lastSeenMs
+                    };
+                });
+                guestList.sort(function (a, b) {
+                    if (a.online !== b.online) return a.online ? -1 : 1;
+                    if (b.lastSeenMs !== a.lastSeenMs) return b.lastSeenMs - a.lastSeenMs;
+                    return a.nombre.localeCompare(b.nombre, 'es');
+                });
+
                 settingsTeamPresenceState.users = list;
+                settingsTeamPresenceState.guests = guestList;
                 settingsTeamPresenceState.onlineCount = list.filter(function (u) { return u.online; }).length;
                 settingsTeamPresenceState.offlineCount = list.length - settingsTeamPresenceState.onlineCount;
+                settingsTeamPresenceState.guestOnlineCount = guestList.filter(function (g) { return g.online; }).length;
+                settingsTeamPresenceState.guestOfflineCount = guestList.length - settingsTeamPresenceState.guestOnlineCount;
                 settingsTeamPresenceState.serverTimeMs = serverNow;
                 settingsTeamPresenceState.error = '';
                 settingsTeamPresenceState.loading = false;
                 window.renderSettingsTeamPresenceList();
                 if (showFeedback) {
-                    setSettingsStatusBox('settingsTeamPresenceStatus', 'Equipo actualizado: ' + settingsTeamPresenceState.onlineCount + ' conectados de ' + list.length + '.', 'ok');
+                    const gSuffix = guestList.length
+                        ? (' · Invitados: ' + settingsTeamPresenceState.guestOnlineCount + ' en línea de ' + guestList.length)
+                        : '';
+                    setSettingsStatusBox('settingsTeamPresenceStatus', 'Equipo actualizado: ' + settingsTeamPresenceState.onlineCount + ' conectados de ' + list.length + gSuffix + '.', 'ok');
                 }
                 return;
             }
@@ -16733,10 +18489,12 @@
             const res = await callInvWebAppPost('inv_revoke_session', {
                 authToken: activeAdvisorSession.authToken,
                 advisorEmail: activeAdvisorSession.correo,
-                deviceId: getInvPresenceDeviceId(),
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                deviceId: getActiveSessionDeviceId(),
                 targetDeviceId: targetDeviceId
             }, 15000);
             if (res && res.ok) {
+                syncGuestSlotMetaFromSessionResponse(res);
                 setSettingsStatusBox('settingsSessionsStatus', 'Sesión cerrada remotamente.', 'ok');
                 window.refreshSettingsOpenSessions(false);
             } else {
@@ -16755,11 +18513,17 @@
             const res = await callInvWebAppPost('inv_revoke_session', {
                 authToken: activeAdvisorSession.authToken,
                 advisorEmail: activeAdvisorSession.correo,
-                deviceId: getInvPresenceDeviceId(),
+                sheetTab: activeAdvisorSession.sheetTab || '',
+                deviceId: getActiveSessionDeviceId(),
                 targetDeviceId: 'ALL_OTHERS'
             }, 15000);
             if (res && res.ok) {
-                setSettingsStatusBox('settingsSessionsStatus', 'Se cerraron ' + Number(res.revokedCount || 0) + ' sesiones en otros dispositivos.', 'ok');
+                syncGuestSlotMetaFromSessionResponse(res);
+                const count = Number(res.revokedCount || 0);
+                const msg = count === 0
+                    ? 'No había otras sesiones abiertas en otros dispositivos.'
+                    : ('Se cerraron ' + count + (count === 1 ? ' sesión' : ' sesiones') + ' en otros dispositivos.');
+                setSettingsStatusBox('settingsSessionsStatus', msg, 'ok');
                 window.refreshSettingsOpenSessions(false);
             } else {
                 setSettingsStatusBox('settingsSessionsStatus', 'Actualiza Apps Script para cerrar sesiones en otros dispositivos.', 'warn');
@@ -16772,7 +18536,7 @@
     };
 
     window.searchSettingsProductCandidates = function (queryRaw) {
-        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        if (!isRealAdminAccount() || isKevinAdvisorPreviewActive() || !hasAdminPerm('gestionProductos')) return;
         const listEl = document.getElementById('settingsProdSuggestList');
         if (!listEl) return;
         const q = String(queryRaw || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -16811,7 +18575,7 @@
     };
 
     window.selectSettingsProductForEdit = function (skuRaw) {
-        if (!isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        if (!isRealAdminAccount() || isKevinAdvisorPreviewActive() || !hasAdminPerm('gestionProductos')) return;
         const sku = String(skuRaw || '').trim().toUpperCase();
         const it = bySkuMap.get(sku) || null;
         const ovr = getProductOverrideForSku(sku);
@@ -16883,7 +18647,7 @@
     }
 
     window.submitSettingsProductAction = async function (opRaw) {
-        if (settingsProdInFlight || !isRealKevinOwner() || isKevinAdvisorPreviewActive()) return;
+        if (settingsProdInFlight || !isRealAdminAccount() || isKevinAdvisorPreviewActive() || !hasAdminPerm('gestionProductos')) return;
         const sku = String(settingsSelectedProductSku || '').trim().toUpperCase();
         if (!sku) {
             setSettingsStatusBox('settingsProdStatus', 'Primero selecciona un SKU de la búsqueda.', 'err');
@@ -16899,6 +18663,7 @@
         const catVal = cleanStr((document.getElementById('settingsProdCategoryInput') || {}).value);
         const priceRaw = cleanStr((document.getElementById('settingsProdPriceInput') || {}).value);
         const noteVal = cleanStr((document.getElementById('settingsProdNoteInput') || {}).value);
+        const actorEmail = cleanStr(activeAdvisorSession && activeAdvisorSession.correo) || OWNER_FOTOS_EMAIL;
 
         settingsProdInFlight = true;
         setSettingsStatusBox('settingsProdStatus', 'Guardando...', 'warn');
@@ -16911,15 +18676,15 @@
             category: catVal,
             price: priceRaw !== '' && isFinite(Number(priceRaw)) ? Number(priceRaw) : null,
             note: noteVal,
-            updatedBy: OWNER_FOTOS_EMAIL,
+            updatedBy: actorEmail,
             updatedAt: new Date().toLocaleString('es-MX')
         };
 
         try {
             const res = await callInvWebAppPost('inv_product_override_save', {
                 authToken: activeAdvisorSession.authToken || '',
-                advisorEmail: OWNER_FOTOS_EMAIL,
-                sheetTab: activeAdvisorSession.sheetTab || 'PROYECTOS',
+                advisorEmail: actorEmail,
+                sheetTab: activeAdvisorSession.sheetTab || 'CUENTAS ADMINISTRATIVAS',
                 sku: sku,
                 op: op,
                 name: nameVal,
@@ -16960,4 +18725,64 @@
         applyAllProductOverridesToCatalog();
         setTimeout(() => { syncProductOverridesFromCloud(false); }, 1800);
     } catch (eBootOvr) {}
+
+    if (typeof window !== 'undefined') {
+        window.__CREATA_INV_AUDIT__ = {
+            FABRIC_CANONICAL_ALIASES: FABRIC_CANONICAL_ALIASES,
+            BED_GROUPABLE_TYPE_KEYS: BED_GROUPABLE_TYPE_KEYS,
+            ADMIN_PERM_COLUMNS_CLIENT: ADMIN_PERM_COLUMNS_CLIENT,
+            defaultAdminPermissionsForEmailClient: defaultAdminPermissionsForEmailClient,
+            parseAdminPermCellClient: parseAdminPermCellClient,
+            extractAdminPermissionsFromRowClient: extractAdminPermissionsFromRowClient,
+            hasAdminPerm: hasAdminPerm,
+            getActiveAdminPermissions: getActiveAdminPermissions,
+            settingsTeamPresenceState: settingsTeamPresenceState,
+            CANONICAL_SQUARE_UPLOAD_PX: CANONICAL_SQUARE_UPLOAD_PX,
+            canonicalizeFabricAliases: canonicalizeFabricAliases,
+            stripFabricGradeAndVendorNoise: stripFabricGradeAndVendorNoise,
+            normalizeFabricLookupKey: normalizeFabricLookupKey,
+            sanitizeVisualOverrideUrl: sanitizeVisualOverrideUrl,
+            sanitizeProductOverridesMap: sanitizeProductOverridesMap,
+            validateAndNormalizeFabricColorAgainstName: validateAndNormalizeFabricColorAgainstName,
+            runInventoryFabricColorAudit: runInventoryFabricColorAudit,
+            cleanFabricVariationName: cleanFabricVariationName,
+            resolveItemFabricVariation: resolveItemFabricVariation,
+            resolveItemBedSize: resolveItemBedSize,
+            resolveItemBedPieceInfo: resolveItemBedPieceInfo,
+            resolveItemBedColorOrFinish: resolveItemBedColorOrFinish,
+            resolveBedUnifiedTitlePrefix: resolveBedUnifiedTitlePrefix,
+            countDistinctBedSizesForGroup: countDistinctBedSizesForGroup,
+            countDistinctBedColorsForGroup: countDistinctBedColorsForGroup,
+            isBedGroupWoodOnly: isBedGroupWoodOnly,
+            classifyItemSubcategory: classifyItemSubcategory,
+            getVisualOverridePhotoUrl: getVisualOverridePhotoUrl,
+            getGroupVisualCoverPhotoUrl: getGroupVisualCoverPhotoUrl,
+            getUploadedFabricSwatchEntries: getUploadedFabricSwatchEntries,
+            matchFabricTextAgainstUploadedSwatches: matchFabricTextAgainstUploadedSwatches,
+            getFabricSwatchPhotoUrl: getFabricSwatchPhotoUrl,
+            findMatchingFabricSwatchForItem: findMatchingFabricSwatchForItem,
+            resolveVisualImgSrc: resolveVisualImgSrc,
+            buildFabricSwatchOverrideKey: buildFabricSwatchOverrideKey,
+            buildVisualCoverOverrideKey: buildVisualCoverOverrideKey,
+            saveLocalProductOverridesMap: saveLocalProductOverridesMap,
+            persistVisualPhotoOverride: persistVisualPhotoOverride,
+            normalizeInventoryItemLive: normalizeInventoryItemLive,
+            buildCleanProductSpecRows: buildCleanProductSpecRows,
+            formatGroupBadgeLabel: formatGroupBadgeLabel,
+            renderGroupVariantsStep: renderGroupVariantsStep,
+            indexItemsAndGroups: indexItemsAndGroups,
+            setAllItems: function (arr) { allItems = Array.isArray(arr) ? arr : []; },
+            getAllItems: function () { return allItems; },
+            getAllGroups: function () { return allGroups; },
+            getFilteredGroups: function () { return filteredGroups; },
+            getCurrentGroupState: function () {
+                return {
+                    groupKey: currentGroup ? currentGroup.key : '',
+                    bedSizeKey: currentGroupBedSizeKey,
+                    fabricKey: currentGroupFabricKey,
+                    detailSku: currentDetailItem ? currentDetailItem.s : ''
+                };
+            }
+        };
+    }
 })();
