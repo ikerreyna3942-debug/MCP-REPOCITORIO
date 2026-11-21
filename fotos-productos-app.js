@@ -22,9 +22,10 @@
     const FOTOS_OFFLINE_IDB_NAME = 'creata_fotos_offline_idb_v1';
     const FOTOS_OFFLINE_IDB_STORE = 'pending_photos';
     const FOTOS_INBOX_SYNC_STORAGE = 'creata_fotos_inbox_sync_v1';
+    const RECENT_UPLOADS_STORAGE = 'creata_fotos_recent_uploads_v1';
     const FOTOS_TAB_ID = 'ftab_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-    const LIVE_INBOX_POLL_MS = 15000;
-    const LIVE_CATALOG_POLL_MS = 45000;
+    const LIVE_INBOX_POLL_MS = 10000;
+    const LIVE_CATALOG_POLL_MS = 25000;
 
     let _fotosUiCheckpointRestoredOnce = false;
     let _fotosRestoringCheckpoint = false;
@@ -892,6 +893,21 @@
             action === 'inv_upload_product_photo';
     }
 
+    function isTransientLockError(res) {
+        if (!res || res.ok || res.authRequired || res.forbidden || res.forbiddenFolder) return false;
+        const msg = cleanStr(res.error).toLowerCase();
+        return /candado|lock|tiempo de espera.*candado|waitlock|otro proceso.*modificando/.test(msg);
+    }
+
+    function isRetryablePhotoWriteAction(action) {
+        return action === 'fotos_upload_visual_override' ||
+            action === 'fotos_direct_upload_assign' ||
+            action === 'fotos_subir_assign' ||
+            action === 'fotos_subir_upload_inbox' ||
+            action === 'inv_product_override_save' ||
+            action === 'inv_upload_product_photo';
+    }
+
     async function callWebAppPost(action, payloadObj, timeoutMs) {
         const isFotosAction = isOwnerFotosProtectedAction(action);
         if (isFotosAction && !cleanStr(state.authToken) && cleanStr(state.accessKey)) {
@@ -901,7 +917,8 @@
             }
         }
 
-        let res = await sendRawWebAppPost(action, payloadObj, timeoutMs);
+        let activePayload = payloadObj;
+        let res = await sendRawWebAppPost(action, activePayload, timeoutMs);
         if (res && res.renewedAuthToken) {
             persistRefreshedOwnerToken(res.renewedAuthToken);
         }
@@ -912,8 +929,8 @@
                 if (cleanStr(state.accessKey)) {
                     const freshTok = await renewOwnerAuthTokenSilently();
                     if (freshTok) {
-                        const retryPayload = Object.assign({}, payloadObj || {}, { authToken: freshTok });
-                        res = await sendRawWebAppPost(action, retryPayload, timeoutMs);
+                        activePayload = Object.assign({}, activePayload || {}, { authToken: freshTok });
+                        res = await sendRawWebAppPost(action, activePayload, timeoutMs);
                         if (res && res.renewedAuthToken) {
                             persistRefreshedOwnerToken(res.renewedAuthToken);
                         }
@@ -929,6 +946,21 @@
                         error: 'Sesión expirada. Ingresa tu contraseña para conectar con SUBIR PREN.'
                     });
                 }
+            }
+        }
+
+        if (isRetryablePhotoWriteAction(action) && isTransientLockError(res)) {
+            const backoffs = [2200, 4200];
+            for (let attempt = 0; attempt < backoffs.length; attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, backoffs[attempt]));
+                if (cleanStr(state.authToken) && activePayload && typeof activePayload === 'object') {
+                    activePayload = Object.assign({}, activePayload, { authToken: state.authToken });
+                }
+                res = await sendRawWebAppPost(action, activePayload, timeoutMs);
+                if (res && res.renewedAuthToken) {
+                    persistRefreshedOwnerToken(res.renewedAuthToken);
+                }
+                if (!isTransientLockError(res)) break;
             }
         }
         return res;
@@ -1746,6 +1778,226 @@
         return out;
     }
 
+    let _recentUploadsMem = null;
+
+    function getVisualOverridesMapSafe() {
+        try {
+            return (visualState && visualState.overridesMap && typeof visualState.overridesMap === 'object')
+                ? visualState.overridesMap
+                : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function parseMxDateTimestamp(rawStr) {
+        const s = cleanStr(rawStr);
+        if (!s) return 0;
+        if (/^\d{10,13}$/.test(s)) {
+            const n = Number(s);
+            return n > 1e12 ? n : (n * 1000);
+        }
+        const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (m) {
+            const d = parseInt(m[1], 10);
+            const mo = parseInt(m[2], 10) - 1;
+            let y = parseInt(m[3], 10);
+            if (y < 100) y += 2000;
+            const hh = m[4] ? parseInt(m[4], 10) : 0;
+            const mm = m[5] ? parseInt(m[5], 10) : 0;
+            const ss = m[6] ? parseInt(m[6], 10) : 0;
+            const dt = new Date(y, mo, d, hh, mm, ss);
+            return isNaN(dt.getTime()) ? 0 : dt.getTime();
+        }
+        const parsed = Date.parse(s);
+        return isNaN(parsed) ? 0 : parsed;
+    }
+
+    function readRecentUploadsStore() {
+        if (Array.isArray(_recentUploadsMem)) return _recentUploadsMem;
+        try {
+            const raw = localStorage.getItem(RECENT_UPLOADS_STORAGE);
+            if (!raw) {
+                _recentUploadsMem = [];
+                return _recentUploadsMem;
+            }
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                _recentUploadsMem = parsed.filter((it) => it && it.id && !/^blob:/i.test(cleanStr(it.viewUrl)));
+                return _recentUploadsMem;
+            }
+        } catch (e) {}
+        _recentUploadsMem = [];
+        return _recentUploadsMem;
+    }
+
+    function writeRecentUploadsStore(list) {
+        const cleanList = (Array.isArray(list) ? list : []).slice(0, 40);
+        _recentUploadsMem = cleanList;
+        try {
+            const serializable = cleanList.map((it) => {
+                const hasDriveId = !isLocalTempPhotoId(it.id) && /^[a-zA-Z0-9_-]{15,}$/.test(cleanStr(it.id));
+                return {
+                    id: cleanStr(it.id),
+                    targetKey: cleanStr(it.targetKey),
+                    targetLabel: cleanStr(it.targetLabel).slice(0, 140),
+                    targetKind: cleanStr(it.targetKind || 'SKU'),
+                    fileName: cleanStr(it.fileName).slice(0, 140),
+                    viewUrl: /^blob:/i.test(cleanStr(it.viewUrl)) ? '' : cleanStr(it.viewUrl),
+                    localDataUrl: hasDriveId ? '' : (String(it.localDataUrl || '').indexOf('data:image/') === 0 && String(it.localDataUrl).length < 180000 ? it.localDataUrl : ''),
+                    destFolderName: cleanStr(it.destFolderName).slice(0, 80),
+                    ts: Number(it.ts || 0) || Date.now()
+                };
+            });
+            localStorage.setItem(RECENT_UPLOADS_STORAGE, JSON.stringify(serializable));
+        } catch (e) {}
+    }
+
+    function recordRecentUploadedPhoto(entry) {
+        if (!entry || typeof entry !== 'object') return;
+        const rawUrl = cleanStr(entry.viewUrl || entry.newUrl || '');
+        if (/^blob:/i.test(rawUrl) && !cleanStr(entry.fileId) && !cleanStr(entry.id)) return;
+        const fid = cleanStr(entry.fileId || entry.id || extractDriveFileId(rawUrl));
+        const isLocal = isLocalTempPhotoId(fid);
+        const safeDataUrl = String(entry.localDataUrl || '').indexOf('data:image/') === 0 ? String(entry.localDataUrl) : '';
+        if (!fid || (!isLocal && !/^[a-zA-Z0-9_-]{15,}$/.test(fid)) || (isLocal && !safeDataUrl)) return;
+
+        const targetKey = cleanStr(entry.targetKey || entry.sku || entry.overrideKey).toUpperCase();
+        const targetKind = cleanStr(entry.targetKind) || (targetKey.indexOf('VFAB:') === 0 ? 'TELA' : (targetKey.indexOf('VCOV:') === 0 ? 'PORTADA' : 'SKU'));
+        const targetLabel = cleanStr(entry.targetLabel || entry.productName || entry.label || targetKey);
+        const fileName = cleanStr(entry.fileName || (state.loadedFileNamesById && state.loadedFileNamesById[fid]) || '');
+        const viewUrl = (!/^blob:/i.test(rawUrl) && rawUrl) || (!isLocal ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
+        const nextRec = {
+            id: fid,
+            targetKey: targetKey,
+            targetLabel: targetLabel,
+            targetKind: targetKind,
+            fileName: fileName,
+            viewUrl: viewUrl,
+            localDataUrl: safeDataUrl,
+            destFolderName: cleanStr(entry.destFolderName || (targetKind === 'TELA' ? 'Tela' : (targetKind === 'PORTADA' ? 'Portada' : ''))),
+            ts: Number(entry.ts || Date.now()) || Date.now()
+        };
+
+        const prev = readRecentUploadsStore();
+        const merged = [nextRec].concat(prev.filter((it) => it && it.id !== fid));
+        writeRecentUploadsStore(merged);
+        if (fileName && !isLocal) {
+            state.loadedFileNamesById[fid] = fileName;
+        }
+        invalidateLoadedPhotosCache();
+        if (typeof renderRecentUploadedStrip === 'function') {
+            renderRecentUploadedStrip();
+        }
+    }
+
+    function formatShortTimeLabel(ts) {
+        const n = Number(ts || 0);
+        if (!n || !isFinite(n)) return '';
+        const diffMin = Math.floor((Date.now() - n) / 60000);
+        if (diffMin >= 0 && diffMin < 1) return 'Ahora';
+        if (diffMin >= 1 && diffMin < 60) return diffMin + 'm';
+        try {
+            const d = new Date(n);
+            const now = new Date();
+            if (d.toDateString() === now.toDateString()) {
+                return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+            }
+            return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function getRecentUploadedPhotosList() {
+        const q = readDeletedQueue();
+        const delFileMap = q.fileIds || {};
+        const delSkuMap = q.skus || {};
+        const fileNameMap = (state.loadedFileNamesById && typeof state.loadedFileNamesById === 'object')
+            ? state.loadedFileNamesById
+            : {};
+
+        const byId = new Map();
+        const pushCandidate = (cand) => {
+            if (!cand || !cand.id) return;
+            const fid = cleanStr(cand.id);
+            const isLocal = isLocalTempPhotoId(fid);
+            if (!fid || (!isLocal && !/^[a-zA-Z0-9_-]{15,}$/.test(fid))) return;
+            if (delFileMap[fid]) return;
+            if (cand.targetKey && delSkuMap[cand.targetKey]) return;
+            if (isLocal && !cand.localDataUrl) return;
+            if (/^blob:/i.test(cleanStr(cand.viewUrl))) return;
+
+            const prev = byId.get(fid);
+            if (!prev || (cand.ts || 0) > (prev.ts || 0)) {
+                byId.set(fid, Object.assign({}, prev || {}, cand, {
+                    fileName: cleanStr(cand.fileName || (prev && prev.fileName) || fileNameMap[fid] || ''),
+                    localDataUrl: cand.localDataUrl || (prev && prev.localDataUrl) || ''
+                }));
+            } else {
+                if (!prev.fileName && cand.fileName) prev.fileName = cand.fileName;
+                if (!prev.localDataUrl && cand.localDataUrl) prev.localDataUrl = cand.localDataUrl;
+            }
+        };
+
+        // 1) Historial reciente guardado en dispositivo
+        const stored = readRecentUploadsStore();
+        for (let i = 0; i < stored.length; i++) {
+            pushCandidate(stored[i]);
+        }
+
+        // 2) Subidas de SKU de la sesión actual
+        for (let s = 0; s < state.sessionSavedLogs.length; s++) {
+            const log = state.sessionSavedLogs[s];
+            if (!log || !log.sku) continue;
+            const sku = cleanStr(log.sku).toUpperCase();
+            const fid = cleanStr(log.fileId || extractDriveFileId(log.newUrl));
+            pushCandidate({
+                id: fid,
+                targetKey: sku,
+                targetLabel: log.productName || sku,
+                targetKind: 'SKU',
+                fileName: cleanStr(log.fileName || fileNameMap[fid] || ''),
+                viewUrl: log.newUrl || (!isLocalTempPhotoId(fid) ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : ''),
+                localDataUrl: log.localDataUrl || '',
+                destFolderName: cleanStr(log.destFolderName || ''),
+                ts: parseMxDateTimestamp(log.timestamp) || (Date.now() - (s + 1) * 1000)
+            });
+        }
+
+        // 3) Portadas y Telas en la nube (_INV_PRODUCT_OVERRIDES)
+        const ovMap = getVisualOverridesMapSafe();
+        const ovKeys = Object.keys(ovMap);
+        for (let i = 0; i < ovKeys.length; i++) {
+            const ovKey = cleanStr(ovKeys[i]).toUpperCase();
+            if (ovKey.indexOf('VCOV:') !== 0 && ovKey.indexOf('VFAB:') !== 0) continue;
+            const ov = ovMap[ovKeys[i]];
+            if (!ov || cleanStr(ov.status).toUpperCase() === 'DELETED') continue;
+            const rawUrl = cleanStr(ov.note);
+            if (!rawUrl || /^blob:/i.test(rawUrl)) continue;
+            const isDataUri = rawUrl.indexOf('data:image/') === 0;
+            const fid = isDataUri ? cleanStr(ov.localFileId) : extractDriveFileId(rawUrl);
+            if (!fid) continue;
+            const kind = ovKey.indexOf('VFAB:') === 0 ? 'TELA' : 'PORTADA';
+            const label = cleanStr(ov.name) || ovKey.replace(/^V(?:COV|FAB):/, '');
+            pushCandidate({
+                id: fid,
+                targetKey: ovKey,
+                targetLabel: label,
+                targetKind: kind,
+                fileName: cleanStr(fileNameMap[fid] || ''),
+                viewUrl: isDataUri ? '' : ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
+                localDataUrl: isDataUri ? rawUrl : '',
+                destFolderName: kind === 'TELA' ? 'Tela' : 'Portada',
+                ts: parseMxDateTimestamp(ov.updatedAt) || 0
+            });
+        }
+
+        return Array.from(byId.values())
+            .sort((a, b) => (Number(b.ts || 0) - Number(a.ts || 0)))
+            .slice(0, 24);
+    }
+
     function getLoadedPhotosList() {
         if (state.cachedLoadedList) return state.cachedLoadedList;
 
@@ -1757,6 +2009,32 @@
             : {};
         const items = [];
         const seenKey = new Set();
+
+        // 1) Recién cargadas primero (incluye SKUs, Portadas y Telas)
+        const recent = getRecentUploadedPhotosList();
+        for (let r = 0; r < recent.length; r++) {
+            const it = recent[r];
+            const sku = cleanStr(it.targetKey || it.id).toUpperCase();
+            const fid = cleanStr(it.id);
+            const key = sku + '::' + fid;
+            if (seenKey.has(key)) continue;
+            seenKey.add(key);
+            const kindLabel = it.targetKind === 'TELA' ? '🧵 Tela' : (it.targetKind === 'PORTADA' ? '🖼️ Portada' : (it.destFolderName || '').replace(/^FOTOS\s+(DE\s+)?/i, ''));
+            items.push({
+                id: fid,
+                sku: sku,
+                name: it.targetLabel || sku,
+                fileName: it.fileName || '',
+                viewUrl: it.viewUrl || (!isLocalTempPhotoId(fid) ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : ''),
+                localDataUrl: it.localDataUrl || '',
+                destFolderName: it.destFolderName || kindLabel,
+                shortFolder: kindLabel || 'Reciente',
+                targetKind: it.targetKind || 'SKU',
+                rowNumber: null,
+                fromLoaded: true,
+                _searchNorm: normalizeSearchText(sku + ' ' + (it.fileName || '') + ' ' + (it.targetLabel || '') + ' ' + kindLabel)
+            });
+        }
 
         for (let s = 0; s < state.sessionSavedLogs.length; s++) {
             const log = state.sessionSavedLogs[s];
@@ -1788,7 +2066,7 @@
 
         for (let i = 0; i < state.products.length; i++) {
             const p = state.products[i];
-            if (!p || !p.photoUrl) continue;
+            if (!p || !p.photoUrl || /^blob:/i.test(cleanStr(p.photoUrl))) continue;
             const sku = p.sku;
             const fid = p.photoFileId || extractDriveFileId(p.photoUrl);
             const isLocal = isLocalTempPhotoId(fid);
@@ -3138,12 +3416,77 @@
             container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' +
                 escapeHtml(isOff
                     ? '📡 Modo sin conexión · usa + Foto o 📤 Subir para agregar fotos desde tu teléfono.'
-                    : (errMsg || 'No se pudo cargar la carpeta de Drive. Toca ↻ para reintentar.')) +
+                    : (errMsg || 'Reconectando automáticamente con Google Drive en vivo...')) +
                 '</div>';
         }
     };
 
+    function renderRecentUploadedStrip() {
+        const strip = document.getElementById('recentUploadedPhotosStrip');
+        const rail = document.getElementById('recentUploadedPhotosRail');
+        const badge = document.getElementById('recentUploadsCountBadge');
+        if (!strip || !rail) return;
+
+        const recent = getRecentUploadedPhotosList();
+        if (badge) badge.textContent = String(recent.length);
+        if (!recent.length) {
+            strip.classList.add('hidden');
+            rail.innerHTML = '';
+            return;
+        }
+
+        strip.classList.remove('hidden');
+        const activePhoto = getActiveSelectedPhotoObject();
+        const activeId = activePhoto ? activePhoto.id : '';
+        const parts = new Array(recent.length);
+
+        for (let i = 0; i < recent.length; i++) {
+            const it = recent[i];
+            const isSel = !!(activeId && activeId === it.id && activePhoto && activePhoto.fromLoaded);
+            const thumb = it.localDataUrl || buildPhotoThumbUrl(it.id || it.viewUrl, 320);
+            const fullSrc = it.localDataUrl || buildPhotoThumbUrl(it.id || it.viewUrl, 1200);
+            const safeFid = escapeHtml((it.id || '').replace(/'/g, "\\'"));
+            const safeKey = escapeHtml((it.targetKey || '').replace(/'/g, "\\'"));
+            const safeFull = escapeHtml((fullSrc || '').replace(/'/g, "\\'"));
+            const kindClass = it.targetKind === 'TELA' ? 'is-fabric' : (it.targetKind === 'PORTADA' ? 'is-cover' : 'is-sku');
+            const kindTag = it.targetKind === 'TELA' ? '🧵 Tela' : (it.targetKind === 'PORTADA' ? '🖼️ Portada' : (it.targetKey || 'SKU'));
+            const displayTitle = it.fileName || it.targetLabel || it.targetKey || 'Foto';
+            const timeTxt = formatShortTimeLabel(it.ts);
+            const tooltip = [displayTitle, it.targetLabel, timeTxt].filter(Boolean).join(' · ');
+
+            parts[i] =
+                '<div class="recent-upload-card' + (isSel ? ' selected' : '') + '" data-recent-id="' + escapeHtml(it.id) + '" onclick="selectRecentUploadedPhoto(\'' + safeFid + '\', \'' + safeKey + '\', event)" title="' + escapeHtml(tooltip) + '">' +
+                    '<div class="recent-upload-thumb-wrap ' + kindClass + '">' +
+                        '<button type="button" class="recent-upload-eye-btn" title="Ver en grande" aria-label="Ver foto" onclick="previewRecentUploadedPhoto(\'' + safeFull + '\', event)">👁</button>' +
+                        '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(it.id) + '" onerror="handlePhotoImgError(this)">' +
+                        '<span class="recent-upload-kind-tag">' + escapeHtml(kindTag) + '</span>' +
+                    '</div>' +
+                    '<div class="recent-upload-meta">' +
+                        '<div class="recent-upload-name">' + escapeHtml(displayTitle) + '</div>' +
+                        '<div class="recent-upload-sub">' +
+                            '<span>' + escapeHtml(timeTxt || 'Reciente') + '</span>' +
+                            '<span class="is-reuse-pill" data-recent-lbl="1">' + (isSel ? '✓ Lista' : 'Reusar') + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+        }
+        rail.innerHTML = parts.join('');
+    }
+
+    window.previewRecentUploadedPhoto = function (src, ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        if (src && typeof window.openPhotoLightbox === 'function') {
+            window.openPhotoLightbox(src);
+        }
+    };
+
+    window.selectRecentUploadedPhoto = function (fileIdRaw, targetKeyRaw, ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        window.takeLoadedPhotoForAssign(targetKeyRaw || '', fileIdRaw || '', ev);
+    };
+
     function renderInboxGallery() {
+        renderRecentUploadedStrip();
         const container = document.getElementById('inboxGalleryContainer');
         const inboxBadge = document.getElementById('inboxHeaderBadge');
         const loadedBadge = document.getElementById('loadedHeaderBadge');
@@ -3181,15 +3524,19 @@
                 const safeId = escapeHtml((item.id || '').replace(/'/g, "\\'"));
                 const cardKey = 'L::' + (item.sku || '') + '::' + item.id;
                 const primaryTitle = item.fileName || item.name || item.sku;
-                const subText = [item.sku, item.shortFolder].filter(Boolean).join(' · ');
+                const isVisualItem = /^V(?:COV|FAB):/i.test(item.sku || '');
+                const displaySkuTag = isVisualItem ? (item.name || item.sku.replace(/^V(?:COV|FAB):/i, '')) : item.sku;
+                const subText = [displaySkuTag, item.shortFolder].filter(Boolean).join(' · ');
                 const titleTooltip = item.fileName
-                    ? (item.fileName + (item.sku ? (' · ' + item.sku) : '') + (item.name && item.name !== item.fileName ? (' · ' + item.name) : ''))
-                    : (item.sku ? (item.sku + ' · ' + item.name) : item.name);
+                    ? (item.fileName + (displaySkuTag ? (' · ' + displaySkuTag) : '') + (item.name && item.name !== item.fileName && item.name !== displaySkuTag ? (' · ' + item.name) : ''))
+                    : (displaySkuTag ? (displaySkuTag + (item.name && item.name !== displaySkuTag ? (' · ' + item.name) : '')) : item.name);
 
                 parts[i] =
                     '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" onclick="takeLoadedPhotoForAssign(\'' + safeSku + '\', \'' + safeId + '\')">' +
                         '<div class="inbox-thumb-box">' +
-                            '<button type="button" class="card-del-btn" title="Borrar" onclick="deleteLoadedPhotoBySku(\'' + safeSku + '\', \'' + safeId + '\', event)">🗑</button>' +
+                            (!isVisualItem
+                                ? ('<button type="button" class="card-del-btn" title="Borrar" onclick="deleteLoadedPhotoBySku(\'' + safeSku + '\', \'' + safeId + '\', event)">🗑</button>')
+                                : '') +
                             '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
                         '</div>' +
                         '<div class="inbox-card-meta">' +
@@ -3248,22 +3595,36 @@
     }
 
     function updateGallerySelectionInDom() {
-        const container = document.getElementById('inboxGalleryContainer');
-        if (!container) return;
         const activePhoto = getActiveSelectedPhotoObject();
-        const targetKey = activePhoto
-            ? (activePhoto.fromLoaded ? ('L::' + (activePhoto.skuOrigin || '') + '::' + activePhoto.id) : ('I::' + activePhoto.id))
-            : '';
+        const container = document.getElementById('inboxGalleryContainer');
+        if (container) {
+            const targetKey = activePhoto
+                ? (activePhoto.fromLoaded ? ('L::' + (activePhoto.skuOrigin || '') + '::' + activePhoto.id) : ('I::' + activePhoto.id))
+                : '';
 
-        const cards = container.querySelectorAll('.inbox-photo-card');
-        for (let i = 0; i < cards.length; i++) {
-            const card = cards[i];
-            const isSel = targetKey && card.getAttribute('data-card-key') === targetKey;
-            card.classList.toggle('selected', !!isSel);
-            const lbl = card.querySelector('[data-take-lbl]');
-            if (lbl) {
-                lbl.textContent = isSel ? '✓' : 'Tomar';
-                lbl.style.color = isSel ? '#CCA66B' : '#D0D9E4';
+            const cards = container.querySelectorAll('.inbox-photo-card');
+            for (let i = 0; i < cards.length; i++) {
+                const card = cards[i];
+                const isSel = targetKey && card.getAttribute('data-card-key') === targetKey;
+                card.classList.toggle('selected', !!isSel);
+                const lbl = card.querySelector('[data-take-lbl]');
+                if (lbl) {
+                    lbl.textContent = isSel ? '✓' : 'Tomar';
+                    lbl.style.color = isSel ? '#CCA66B' : '#D0D9E4';
+                }
+            }
+        }
+
+        const rail = document.getElementById('recentUploadedPhotosRail');
+        if (rail) {
+            const activeRecentId = (activePhoto && activePhoto.fromLoaded) ? activePhoto.id : '';
+            const rCards = rail.querySelectorAll('.recent-upload-card');
+            for (let i = 0; i < rCards.length; i++) {
+                const card = rCards[i];
+                const isSel = !!(activeRecentId && card.getAttribute('data-recent-id') === activeRecentId);
+                card.classList.toggle('selected', isSel);
+                const rLbl = card.querySelector('[data-recent-lbl]');
+                if (rLbl) rLbl.textContent = isSel ? '✓ Lista' : 'Reusar';
             }
         }
     }
@@ -3301,6 +3662,9 @@
         hideAssignFeedback();
         updateGallerySelectionInDom();
         renderSelectedProductStage();
+        if (typeof syncVisualStageSelectedGalleryPreview === 'function') {
+            syncVisualStageSelectedGalleryPreview();
+        }
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
         if (!alreadySame) {
@@ -3314,38 +3678,58 @@
         let fid = cleanStr(fileIdRaw);
         const prod = sku ? state.productBySku.get(sku) : null;
         const saved = sku ? state.sessionSavedBySku.get(sku) : null;
-        const url = (prod && prod.photoUrl) || (saved && saved.newUrl) || (fid ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
+        const ovMap = getVisualOverridesMapSafe();
+        const visOv = sku && ovMap[sku] ? ovMap[sku] : null;
+        const recentMatch = getRecentUploadedPhotosList().find((r) => (fid && r.id === fid) || (sku && r.targetKey === sku)) || null;
+        const rawCandidateUrl = (prod && prod.photoUrl) ||
+            (saved && saved.newUrl) ||
+            (recentMatch && recentMatch.viewUrl) ||
+            (visOv && !/^blob:/i.test(cleanStr(visOv.note)) && cleanStr(visOv.note).indexOf('data:image/') !== 0 ? cleanStr(visOv.note) : '') ||
+            (fid && !isLocalTempPhotoId(fid) ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
+        const url = /^blob:/i.test(cleanStr(rawCandidateUrl)) ? '' : rawCandidateUrl;
         if (!fid && url) fid = extractDriveFileId(url);
         if (!fid) return;
 
         const alreadySame = state.selectedPhotoItem &&
             state.selectedPhotoItem.id === fid &&
             state.selectedPhotoItem.fromLoaded &&
-            state.selectedPhotoItem.skuOrigin === sku;
+            (state.selectedPhotoItem.skuOrigin === sku || !sku);
 
         if (alreadySame) {
             state.selectedInboxFileId = '';
             state.selectedPhotoItem = null;
         } else {
-            const origFileName = cleanStr((saved && saved.fileName) || (state.loadedFileNamesById && state.loadedFileNamesById[fid]) || '');
+            const origFileName = cleanStr(
+                (saved && saved.fileName) ||
+                (recentMatch && recentMatch.fileName) ||
+                (state.loadedFileNamesById && state.loadedFileNamesById[fid]) ||
+                ''
+            );
             const displayLabel = origFileName || (prod
                 ? (prod.sku + ' · ' + (prod.displayName || prod.colBName || prod.sku))
-                : (sku || fid));
+                : ((recentMatch && recentMatch.targetLabel) || (visOv && visOv.name) || sku || fid));
+            const localDataUrl = (saved && saved.localDataUrl) ||
+                (recentMatch && recentMatch.localDataUrl) ||
+                (visOv && cleanStr(visOv.note).indexOf('data:image/') === 0 ? cleanStr(visOv.note) : '') ||
+                '';
             state.selectedInboxFileId = fid;
             state.selectedPhotoItem = {
                 id: fid,
                 name: displayLabel,
-                viewUrl: url,
+                viewUrl: url || (!isLocalTempPhotoId(fid) ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : ''),
                 thumbDataUrl: '',
-                localDataUrl: (saved && saved.localDataUrl) || '',
+                localDataUrl: localDataUrl,
                 fromLoaded: true,
-                skuOrigin: sku
+                skuOrigin: sku || (recentMatch && recentMatch.targetKey) || ''
             };
         }
 
         hideAssignFeedback();
         updateGallerySelectionInDom();
         renderSelectedProductStage();
+        if (typeof syncVisualStageSelectedGalleryPreview === 'function') {
+            syncVisualStageSelectedGalleryPreview();
+        }
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
         if (!alreadySame) {
@@ -4590,6 +4974,17 @@
                             logEntry.productName = res.productName;
                         }
                         notifySplitPeerOfPhotoUpdate(prod.sku, prod.photoUrl, prod.photoFileId, logEntry.destFolderName);
+                        recordRecentUploadedPhoto({
+                            fileId: prod.photoFileId,
+                            viewUrl: prod.photoUrl,
+                            fileName: logEntry.fileName || safeFileName,
+                            targetKey: prod.sku,
+                            targetLabel: prod.displayName || prod.colBName || prod.sku,
+                            targetKind: 'SKU',
+                            localDataUrl: logEntry.localDataUrl || '',
+                            destFolderName: logEntry.destFolderName || '',
+                            ts: Date.now()
+                        });
                         saveSavedOverridesNow();
                         invalidateLoadedPhotosCache();
                         scheduleSaveFastCache();
@@ -4987,6 +5382,17 @@
             }
 
             notifySplitPeerOfPhotoUpdate(prod.sku, prod.photoUrl, prod.photoFileId, logEntry.destFolderName);
+            recordRecentUploadedPhoto({
+                fileId: prod.photoFileId || activeFileId,
+                viewUrl: prod.photoUrl,
+                fileName: logEntry.fileName || (selPhoto && selPhoto.name) || '',
+                targetKey: prod.sku,
+                targetLabel: prod.displayName || prod.colBName || prod.sku,
+                targetKind: 'SKU',
+                localDataUrl: logEntry.localDataUrl || '',
+                destFolderName: logEntry.destFolderName || '',
+                ts: Date.now()
+            });
             saveSavedOverridesNow();
             invalidateLoadedPhotosCache();
             scheduleSaveFastCache();
@@ -7228,11 +7634,17 @@
                 visualState.overridesMap = nextMap;
                 if (visChanged) {
                     saveVisualOverridesToLocalStorage();
+                    invalidateLoadedPhotosCache();
                     if (visualState.workMode !== 'SKU') {
                         renderVisualTargetsList();
                         renderVisualTargetStage();
                     } else if (state.selectedSku) {
                         renderSelectedProductStage();
+                    }
+                    if (state.galleryMode === 'LOADED') {
+                        renderInboxGallery();
+                    } else {
+                        renderRecentUploadedStrip();
                     }
                 }
             }
@@ -7834,6 +8246,9 @@
         const ovKey = String(target.overrideKey).trim().toUpperCase();
         const op = opMode === 'DELETE' ? 'DELETE' : 'SAVE';
         const nextUrl = op === 'DELETE' ? '' : cleanStr(photoUrl);
+        if (op === 'SAVE' && /^blob:/i.test(nextUrl)) {
+            return { ok: false, error: 'URL temporal inválida; vuelve a subir la imagen.' };
+        }
         const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
         const categoryTag = isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
 
@@ -7863,9 +8278,22 @@
             visualState.overridesMap[ovKey] = localEntry;
         }
         saveVisualOverridesToLocalStorage();
+        invalidateLoadedPhotosCache();
         broadcastVisualOverrideUpdateToCotizador(ovKey, localEntry, op === 'DELETE');
         renderVisualTargetsList();
         renderVisualTargetStage();
+        if (op === 'SAVE' && nextUrl) {
+            recordRecentUploadedPhoto({
+                viewUrl: nextUrl,
+                targetKey: ovKey,
+                targetLabel: label,
+                targetKind: isFabric ? 'TELA' : 'PORTADA',
+                destFolderName: isFabric ? 'Tela' : 'Portada',
+                ts: Date.now()
+            });
+        } else {
+            renderInboxGallery();
+        }
 
         const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
         if (isOfflineNow && op === 'SAVE' && nextUrl) {
@@ -7895,7 +8323,9 @@
                 if (op !== 'DELETE' && res.override) {
                     visualState.overridesMap[ovKey] = res.override;
                     saveVisualOverridesToLocalStorage();
+                    invalidateLoadedPhotosCache();
                     broadcastVisualOverrideUpdateToCotizador(ovKey, res.override, false);
+                    renderInboxGallery();
                 }
                 return { ok: true };
             }
@@ -8036,9 +8466,22 @@
             if (res.fileId) {
                 state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || safeFileName);
             }
+            recordRecentUploadedPhoto({
+                fileId: cleanStr(res.fileId || extractDriveFileId(finalDriveUrl) || localVisId),
+                viewUrl: finalDriveUrl,
+                fileName: cleanStr(res.fileName || safeFileName),
+                targetKey: ovKey,
+                targetLabel: label,
+                targetKind: isFabric ? 'TELA' : 'PORTADA',
+                localDataUrl: dataUrl,
+                destFolderName: isFabric ? 'Tela' : 'Portada',
+                ts: Date.now()
+            });
             saveVisualOverridesToLocalStorage();
+            invalidateLoadedPhotosCache();
             broadcastVisualOverrideUpdateToCotizador(ovKey, finalOverride, false);
             renderVisualTargetsList();
+            renderInboxGallery();
             showVisualStageFeedback('✅ ' + label + ' guardada.', true);
         } catch (err) {
             showVisualStageFeedback((err && err.message) || 'Error al subir.', false);
@@ -8211,10 +8654,23 @@
             if (res.fileId) {
                 state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || selPhoto.name);
             }
+            recordRecentUploadedPhoto({
+                fileId: cleanStr(res.fileId || extractDriveFileId(finalDriveUrl) || activePhotoId),
+                viewUrl: finalDriveUrl,
+                fileName: cleanStr(res.fileName || selPhoto.name),
+                targetKey: ovKey,
+                targetLabel: label,
+                targetKind: isFabric ? 'TELA' : 'PORTADA',
+                localDataUrl: cleanStr(selPhoto.localDataUrl || ''),
+                destFolderName: isFabric ? 'Tela' : 'Portada',
+                ts: Date.now()
+            });
             saveVisualOverridesToLocalStorage();
+            invalidateLoadedPhotosCache();
             broadcastVisualOverrideUpdateToCotizador(ovKey, finalOverride, false);
             if (!fromLoaded) notifyFotosInboxChanged('assign_visual');
             renderVisualTargetsList();
+            renderInboxGallery();
             showVisualStageFeedback('✅ ' + label + ' guardada.', true);
         } catch (err) {
             showVisualStageFeedback((err && err.message) || 'Error.', false);
@@ -8272,6 +8728,10 @@
         buildFallbackVisualTargetsFromProducts: buildFallbackVisualTargetsFromProducts,
         findMatchingUploadedFabricForProduct: findMatchingUploadedFabricForProduct,
         rebuildVisualTargetsCatalog: rebuildVisualTargetsCatalog,
+        recordRecentUploadedPhoto: recordRecentUploadedPhoto,
+        getRecentUploadedPhotosList: getRecentUploadedPhotosList,
+        getLoadedPhotosList: getLoadedPhotosList,
+        isTransientLockError: isTransientLockError,
         getVisualState: function () { return visualState; }
     };
 

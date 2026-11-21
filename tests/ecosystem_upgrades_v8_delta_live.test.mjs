@@ -441,3 +441,127 @@ test('Ecosystem Safety & Cleanup: orphaned historial-styles.css deleted, advisor
   // Panel lockHubPortal destroys mounted iframes
   assert.match(panelJs, /Object\.keys\(liveFramesById\)\.forEach/);
 });
+
+// ============================================================================
+// 5. FOTOS 100% LIVE (NO REFRESH BUTTONS), RECENT UPLOADS REUSE & LOCK RETRY
+// ============================================================================
+test('Fotos 100% Live UX: zero manual refresh buttons, recent uploads reuse strip (SKU + Portadas + Telas), blob: block, lock retry, and prompts mobile topbar fix', () => {
+  const fotosHtml = readRepoFile('fotos-productos.html');
+  const fotosJs = readRepoFile('fotos-productos-app.js');
+  const promptsCss = readRepoFile('prompts-styles.css');
+
+  // Manual refresh buttons completely removed
+  assert.ok(!fotosHtml.includes('btnHeaderRefreshFotos'), 'Header refresh button must be removed');
+  assert.ok(!fotosHtml.includes('btnRefreshInbox'), 'Inbox refresh button must be removed');
+  assert.ok(!fotosHtml.includes('btnOfflineSyncNow'), 'Offline manual sync button must be removed');
+  assert.ok(!fotosJs.includes('Toca ↻ para reintentar'), 'No stale manual refresh prompt text');
+
+  // Faster live polling + lock retry + blob: URL guard
+  assert.match(fotosJs, /LIVE_INBOX_POLL_MS\s*=\s*10000/);
+  assert.match(fotosJs, /LIVE_CATALOG_POLL_MS\s*=\s*25000/);
+  assert.match(fotosJs, /function isTransientLockError\(/);
+  assert.match(fotosJs, /isRetryablePhotoWriteAction\(action\)\s*&&\s*isTransientLockError\(res\)/);
+  assert.match(fotosJs, /if\s*\(op === 'SAVE' && \/\^blob:\/i\.test\(nextUrl\)\)/);
+
+  // Recent uploads strip present in HTML + wired in JS
+  assert.match(fotosHtml, /id="recentUploadedPhotosStrip"/);
+  assert.match(fotosHtml, /id="recentUploadedPhotosRail"/);
+  assert.match(fotosJs, /RECENT_UPLOADS_STORAGE\s*=\s*'creata_fotos_recent_uploads_v1'/);
+  assert.match(fotosJs, /function recordRecentUploadedPhoto\(/);
+  assert.match(fotosJs, /function getRecentUploadedPhotosList\(/);
+  assert.match(fotosJs, /function renderRecentUploadedStrip\(/);
+  assert.match(fotosJs, /window\.selectRecentUploadedPhoto\s*=/);
+
+  // Prompts mobile topbar overflow fix
+  assert.match(promptsCss, /\.topbar-actions\s*\{[^}]*overflow-x:\s*auto/);
+
+  // Execute fotos-productos-app.js in a minimal VM to test recordRecentUploadedPhoto + getRecentUploadedPhotosList + isTransientLockError
+  const storage = new Map();
+  const sandbox = {
+    console, Date, Math, JSON, RegExp, Array, Object, String, Number, Boolean, Error, Promise, Map, Set, URL,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    setInterval: () => 1,
+    clearInterval: () => {},
+    localStorage: {
+      getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+      setItem: (k, v) => storage.set(k, String(v)),
+      removeItem: (k) => storage.delete(k)
+    },
+    sessionStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {}
+    },
+    navigator: { onLine: true, userAgent: 'Mozilla/5.0' },
+    location: { protocol: 'https:', pathname: '/MCP-REPOCITORIO/fotos-productos.html', search: '', hash: '', href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos.html' },
+    document: {
+      readyState: 'loading',
+      visibilityState: 'visible',
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {},
+      body: { classList: { add: () => {}, remove: () => {}, toggle: () => {} } }
+    }
+  };
+  sandbox.window = sandbox;
+  sandbox.window.addEventListener = () => {};
+  sandbox.window.matchMedia = () => ({ matches: false });
+  vm.runInNewContext(fotosJs, sandbox, { filename: 'fotos-productos-app.js' });
+
+  const api = sandbox.window.__CREATA_FOTOS_VISUAL_TEST__;
+  assert.ok(api, '__CREATA_FOTOS_VISUAL_TEST__ must be exposed');
+
+  // Lock error detection
+  assert.equal(api.isTransientLockError({ ok: false, error: 'El tiempo de espera de la solicitud para obtener el candado ha expirado' }), true);
+  assert.equal(api.isTransientLockError({ ok: false, error: 'Credenciales inválidas' }), false);
+  assert.equal(api.isTransientLockError({ ok: true }), false);
+
+  // Recent uploads merge: SKU + Cloud VFAB fabric + reject broken blob: URL
+  const vs = api.getVisualState();
+  vs.overridesMap['VFAB:DISTRACTION NATURAL'] = {
+    sku: 'VFAB:DISTRACTION NATURAL',
+    status: 'VISIBLE',
+    name: 'DISTRACTION NATURAL',
+    note: 'blob:https://ikerreyna3942-debug.github.io/broken-temp-id',
+    updatedAt: '20/11/2026 14:24:21'
+  };
+  vs.overridesMap['VFAB:RUSTY NATURAL'] = {
+    sku: 'VFAB:RUSTY NATURAL',
+    status: 'VISIBLE',
+    name: 'RUSTY NATURAL',
+    note: 'https://drive.google.com/file/d/1OJQsRTIgUGs0216PYOxMkrCvb8Yr6kmT/view?usp=sharing',
+    updatedAt: '21/11/2026 9:56:44'
+  };
+
+  api.recordRecentUploadedPhoto({
+    fileId: '1WvGp_FxQvOGtu3yuBRRonY6sERMXF_yK',
+    viewUrl: 'https://drive.google.com/file/d/1WvGp_FxQvOGtu3yuBRRonY6sERMXF_yK/view?usp=sharing',
+    fileName: 'NORDIC GREY.jpg',
+    targetKey: 'YO1PAARNOGRRM',
+    targetLabel: 'SILLON AARMIN',
+    targetKind: 'SKU',
+    ts: Date.now()
+  });
+
+  // Broken blob: attempt must be ignored
+  api.recordRecentUploadedPhoto({
+    viewUrl: 'blob:https://ikerreyna3942-debug.github.io/invalid-blob',
+    targetKey: 'VFAB:BAD',
+    targetLabel: 'BAD',
+    targetKind: 'TELA',
+    ts: Date.now() + 5000
+  });
+
+  const recent = api.getRecentUploadedPhotosList();
+  assert.equal(recent.length, 2, 'Must contain SKU upload + valid Drive VFAB fabric, excluding broken blob:');
+  assert.equal(recent[0].id, '1WvGp_FxQvOGtu3yuBRRonY6sERMXF_yK', 'Newest upload must appear first');
+  assert.equal(recent[1].id, '1OJQsRTIgUGs0216PYOxMkrCvb8Yr6kmT', 'Cloud VFAB fabric must appear for instant reuse');
+  assert.equal(recent[1].targetKind, 'TELA');
+
+  const loaded = api.getLoadedPhotosList();
+  assert.ok(loaded.some((it) => it.id === '1OJQsRTIgUGs0216PYOxMkrCvb8Yr6kmT' && it.targetKind === 'TELA'), 'Cargadas tab must include uploaded Telas/Portadas too');
+  assert.ok(!loaded.some((it) => /blob:/i.test(it.viewUrl || '')), 'Cargadas tab must never include broken blob: URLs');
+});
+

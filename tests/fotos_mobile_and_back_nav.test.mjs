@@ -1621,13 +1621,13 @@ test('UX-5: Mobile inputs & selects enforce font-size: 16px (anti-iOS auto-zoom)
   assert.ok(!/<(?:input|select)\b[^>]*style=["'][^"']*font-size/i.test(FOTOS_HTML_SRC));
 });
 
-test('UX-6: Cache version consistency (v19/img-v19, CSS?v=26, JS?v=29, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
+test('UX-6: Cache version consistency (v20/img-v20, CSS?v=27, JS?v=30, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
   assert.match(FOTOS_HTML_SRC, /fotos-manifest\.json\?v=3/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=26/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=27/);
   assert.match(FOTOS_HTML_SRC, /creata-back-nav\.js\?v=1/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=29/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v19['"]/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v19['"]/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=30/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v20['"]/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v20['"]/);
   assert.match(FOTOS_APP_SRC, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
 
   // Execute fotos-sw.js inside node:vm
@@ -1665,6 +1665,8 @@ test('UX-6: Cache version consistency (v19/img-v19, CSS?v=26, JS?v=29, manifest?
     'creata-fotos-app-img-v18',
     'creata-fotos-app-v19',
     'creata-fotos-app-img-v19',
+    'creata-fotos-app-v20',
+    'creata-fotos-app-img-v20',
     'creata-prompts-app-v3',
     'creata-inventario-v1'
   ];
@@ -1703,7 +1705,7 @@ test('UX-6: Cache version consistency (v19/img-v19, CSS?v=26, JS?v=29, manifest?
   };
   vm.runInNewContext(FOTOS_SW_SRC, swSandbox, { filename: 'fotos-sw.js' });
 
-  // Activate evicts v5..v18 while preserving v19, img-v19, and sibling app caches
+  // Activate evicts v5..v19 while preserving v20, img-v20, and sibling app caches
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
@@ -1717,6 +1719,7 @@ test('UX-6: Cache version consistency (v19/img-v19, CSS?v=26, JS?v=29, manifest?
     'creata-fotos-app-img-v16',
     'creata-fotos-app-img-v17',
     'creata-fotos-app-img-v18',
+    'creata-fotos-app-img-v19',
     'creata-fotos-app-img-v5',
     'creata-fotos-app-img-v6',
     'creata-fotos-app-img-v7',
@@ -1731,6 +1734,7 @@ test('UX-6: Cache version consistency (v19/img-v19, CSS?v=26, JS?v=29, manifest?
     'creata-fotos-app-v16',
     'creata-fotos-app-v17',
     'creata-fotos-app-v18',
+    'creata-fotos-app-v19',
     'creata-fotos-app-v5',
     'creata-fotos-app-v6',
     'creata-fotos-app-v7',
@@ -1755,24 +1759,27 @@ test('UX-6: Cache version consistency (v19/img-v19, CSS?v=26, JS?v=29, manifest?
 
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
-  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=29', 'POST'), false);
+  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=30', 'POST'), false);
   assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
   assert.equal(await checkFetch('https://lh3.googleusercontent.com/d/abc12345=w400', 'GET'), true);
-  assert.ok(openedCaches.includes('creata-fotos-app-img-v19'));
-  assert.ok(openedCaches.includes('creata-fotos-app-v19'));
+  assert.ok(openedCaches.includes('creata-fotos-app-img-v20'));
+  assert.ok(openedCaches.includes('creata-fotos-app-v20'));
 });
 
-test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear selection, auto-dest pill, repair button, offline status bar, and intact product DOM IDs)', () => {
+test('UX-6b: Streamlined Fotos UI (100% live without manual refresh buttons, recent uploads reuse strip, clear selection, auto-dest pill, repair button, offline status bar, and intact product DOM IDs)', () => {
   // Desktop-only controls hidden on mobile <=640px via hide-on-xs
   assert.match(FOTOS_HTML_SRC, /id="btnSplitWithCotizador"[^>]*class="[^"]*hide-on-xs/);
 
-  // Concise labels & streamlined buttons requested by user (no bottom history, no redundant controls)
+  // Concise labels & streamlined buttons requested by user (no bottom history, no manual refresh buttons)
   assert.match(FOTOS_HTML_SRC, /<h1>Fotos<\/h1>/);
   assert.match(FOTOS_HTML_SRC, /<h2[^>]*>Buscar SKU<\/h2>/);
   assert.match(FOTOS_HTML_SRC, /<h2[^>]*>Producto<\/h2>/);
   assert.ok(!FOTOS_HTML_SRC.includes('sessionHistoryPanel'), 'Bottom sessionHistoryPanel ("Guardadas hoy") must be removed');
   assert.ok(!FOTOS_HTML_SRC.includes('Guardadas hoy'), '"Guardadas hoy" history heading must be removed');
   assert.ok(!FOTOS_HTML_SRC.includes('subirPrenSourceBar'), 'Redundant 4-button subirPrenSourceBar must be removed');
+  assert.ok(!FOTOS_HTML_SRC.includes('btnHeaderRefreshFotos'), 'Manual header refresh button must be removed for 100% live UX');
+  assert.ok(!FOTOS_HTML_SRC.includes('btnRefreshInbox'), 'Manual inbox refresh button must be removed for 100% live UX');
+  assert.ok(!FOTOS_HTML_SRC.includes('btnOfflineSyncNow'), 'Manual offline sync button must be removed for automatic live flush');
   assert.match(FOTOS_HTML_SRC, /<div class="sheet-col-tag">SKU<\/div>/);
   assert.match(FOTOS_HTML_SRC, /<div class="sheet-col-tag">Categoría<\/div>/);
   assert.match(FOTOS_HTML_SRC, /<div class="sheet-col-tag">Producto<\/div>/);
@@ -1784,7 +1791,8 @@ test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear sel
   assert.match(FOTOS_HTML_SRC, /id="autoDestFolderPill"/);
   assert.match(FOTOS_HTML_SRC, /id="skuLinkedFabricChip"/);
   assert.match(FOTOS_HTML_SRC, /id="offlineSyncStatusBar"/);
-  assert.match(FOTOS_HTML_SRC, /id="btnOfflineSyncNow"[^>]*onclick="flushFotosOfflineOutboxNow\(\)"/);
+  assert.match(FOTOS_HTML_SRC, /id="recentUploadedPhotosStrip"/);
+  assert.match(FOTOS_HTML_SRC, /id="recentUploadedPhotosRail"/);
   assert.ok(!FOTOS_HTML_SRC.includes('App Fotos · Categorías'));
   assert.ok(!FOTOS_HTML_SRC.includes('1. Buscar SKU o Categoría'));
   assert.ok(!FOTOS_HTML_SRC.includes('2. Ficha del Producto y Categoría'));
@@ -1799,7 +1807,7 @@ test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear sel
     'selLocationsWrap', 'selLocationsGrid', 'selLocationsSummaryBadge',
     'selSiblingVariantsWrap', 'selSiblingVariantsList',
     'destFolderSelect', 'btnAssignPhotoNow', 'btnClearSelectedSku', 'autoDestFolderPill', 'skuLinkedFabricChip',
-    'offlineSyncStatusBar', 'offlineSyncStatusText', 'btnOfflineSyncNow'
+    'offlineSyncStatusBar', 'offlineSyncStatusText', 'recentUploadedPhotosStrip', 'recentUploadedPhotosRail'
   ]) {
     assert.ok(FOTOS_HTML_SRC.includes(`id="${id}"`), `Required product/control DOM ID missing: #${id}`);
   }
@@ -1813,6 +1821,7 @@ test('UX-6b: Streamlined Fotos UI (compact buttons, no bottom history, clear sel
   assert.match(m640Css, /\.header-actions\s+\.hdr-btn\s*\{[^}]*min-height:\s*38px/);
   assert.match(m640Css, /\.inbox-toolbar-actions\s*\{[^}]*grid-template-columns:\s*1fr\s+44px\s+44px/);
   assert.match(FOTOS_CSS_SRC, /\.offline-sync-bar\s*\{/);
+  assert.match(FOTOS_CSS_SRC, /\.recent-uploads-strip\s*\{/);
 });
 
 test('UX-6c: Upload reliability, full offline phone queuing (SKUs + Portadas + Telas), and zero "muestra de tela" in Cotizador UI', () => {
