@@ -549,6 +549,13 @@ html, body {
     .prompts-topbar {
         padding: 0 7px;
         gap: 5px;
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .topbar-brand {
+        flex: 0 1 auto;
+        min-width: 0;
     }
 
     .topbar-title {
@@ -566,10 +573,24 @@ html, body {
         display: none !important;
     }
 
+    .topbar-actions {
+        flex: 1 1 auto;
+        min-width: 0;
+        justify-content: flex-end;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .topbar-actions::-webkit-scrollbar {
+        display: none;
+    }
+
     .tb-btn {
         height: 34px;
-        padding: 0 9px;
+        padding: 0 8px;
         font-size: 11px;
+        flex-shrink: 0;
     }
 
     .tb-btn-icon {
@@ -598,8 +619,8 @@ html, body {
     }
 
     .topbar-brand {
-        gap: 5px;
-        flex: 1 1 auto;
+        gap: 4px;
+        flex: 0 0 auto;
         min-width: 0;
     }
 
@@ -614,8 +635,7 @@ html, body {
     }
 
     .topbar-title {
-        font-size: 11.5px;
-        max-width: 110px;
+        display: none;
     }
 
     .status-pill {
@@ -632,12 +652,12 @@ html, body {
 
     .tb-btn {
         height: 32px;
-        padding: 0 8px;
+        padding: 0 7px;
         font-size: 10.5px;
     }
 
     .tb-btn-icon {
-        width: 32px;
+        width: 30px;
         padding: 0;
     }
 }

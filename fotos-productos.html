@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=26">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=27">
     <script src="./creata-guard.js?v=3"></script>
 </head>
 <body>
@@ -90,7 +90,6 @@
                     <button type="button" id="btnInstallFotosApp" class="hdr-btn is-accent suite-hide-in-embed hidden" onclick="triggerInstallFotosApp()">📲 App</button>
                     <button type="button" id="btnSplitWithCotizador" class="hdr-btn is-split-btn hide-on-xs suite-hide-in-embed" onclick="toggleSplitCotizadorInFotos()" title="Dividir">⬛⬜ Dividir</button>
                     <a class="hdr-btn suite-hide-in-embed" href="./inventario.html">Cotizador</a>
-                    <button type="button" id="btnHeaderRefreshFotos" class="hdr-btn is-accent" onclick="refreshAllPhotoWorkspace(true)" title="Actualizar SKUs y fotos">↻ Actualizar</button>
                     <button type="button" id="btnRepairReorganizeFotos" class="hdr-btn" onclick="reorganizeAndRepairFotosNow()" title="Reubicar según Sheets y reparar permisos de fotos">🔧 Reparar</button>
                     <button type="button" class="hdr-btn suite-hide-in-embed" onclick="lockFotosPortal()">Salir</button>
                 </div>
@@ -99,10 +98,9 @@
 
         <main class="workspace-shell">
 
-            <!-- ESTADO DE MODO SIN CONEXIÓN / COLA DE FOTOS PENDIENTES EN TELÉFONO -->
+            <!-- ESTADO DE MODO SIN CONEXIÓN / COLA DE FOTOS PENDIENTES EN TELÉFONO (AUTO-SYNC AL VOLVER LA RED) -->
             <div id="offlineSyncStatusBar" class="offline-sync-bar hidden" role="status" aria-live="polite">
-                <span id="offlineSyncStatusText" class="offline-sync-text">📡 Sin conexión · Las fotos se guardan en tu teléfono</span>
-                <button type="button" id="btnOfflineSyncNow" class="hdr-btn is-accent is-compact-btn hidden" onclick="flushFotosOfflineOutboxNow()">↻ Subir ahora</button>
+                <span id="offlineSyncStatusText" class="offline-sync-text">📡 Sin conexión · Las fotos se guardan y suben solas al volver la red</span>
             </div>
 
             <!-- SELECTOR PRINCIPAL ARRIBA: SKUs · PORTADAS · TELAS -->
@@ -391,6 +389,18 @@
                             </div>
                         </div>
                         <div class="panel-body">
+                            <!-- CARRUSEL EN VIVO DE FOTOS RECIÉN CARGADAS PARA VER Y REUSAR EN 1 TOQUE -->
+                            <section id="recentUploadedPhotosStrip" class="recent-uploads-strip hidden" aria-label="Fotos recién cargadas">
+                                <div class="recent-uploads-head">
+                                    <div class="recent-uploads-title-wrap">
+                                        <span class="recent-uploads-title">🕒 Recién cargadas</span>
+                                        <span id="recentUploadsCountBadge" class="panel-badge">0</span>
+                                    </div>
+                                    <span class="recent-uploads-hint">Toca para reusar</span>
+                                </div>
+                                <div id="recentUploadedPhotosRail" class="recent-uploads-rail"></div>
+                            </section>
+
                             <div id="galleryQuickHint" class="gallery-quick-hint hidden"></div>
 
                             <div class="inbox-toolbar">
@@ -416,7 +426,6 @@
                                     </label>
                                     <button type="button" id="btnPickLocalSubirPrenFolder" class="hdr-btn is-neutral is-compact-btn hide-on-xs" onclick="loadFromLocalSubirPrenFolder(false)" title="Carpeta PC SUBIR PREN">💻 PC</button>
                                     <a id="linkOpenDriveSubirPren" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener" class="hdr-btn is-neutral is-compact-btn" title="Abrir SUBIR PREN en Drive">☁️</a>
-                                    <button type="button" id="btnRefreshInbox" class="hdr-btn is-neutral is-compact-btn" onclick="refreshInboxOnly(true)" title="Actualizar bandeja" aria-label="Actualizar">↻</button>
                                 </div>
                             </div>
 
@@ -507,6 +516,6 @@
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=29"></script>
+    <script src="./fotos-productos-app.js?v=30"></script>
 </body>
 </html>

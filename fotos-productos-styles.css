@@ -3497,4 +3497,192 @@ body.is-suite-embed .header-actions .hdr-btn {
     }
 }
 
+/* ===== CARRUSEL EN VIVO: FOTOS RECIÉN CARGADAS PARA REUSAR ===== */
+.recent-uploads-strip {
+    margin-bottom: 10px;
+    padding: 9px 10px 10px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(163, 130, 81, 0.11) 0%, rgba(17, 22, 29, 0.72) 100%);
+    border: 1px solid rgba(163, 130, 81, 0.36);
+}
+
+.recent-uploads-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.recent-uploads-title-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.recent-uploads-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--gold-light);
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+}
+
+.recent-uploads-hint {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--ink-secondary);
+    white-space: nowrap;
+}
+
+.recent-uploads-rail {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.recent-upload-card {
+    position: relative;
+    flex: 0 0 108px;
+    width: 108px;
+    border-radius: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    overflow: hidden;
+    cursor: pointer;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
+}
+
+.recent-upload-card:hover {
+    border-color: var(--gold-accent);
+}
+
+.recent-upload-card.selected {
+    border-color: var(--gold-light);
+    box-shadow: 0 0 0 2px rgba(204, 166, 107, 0.45);
+}
+
+.recent-upload-thumb-wrap {
+    position: relative;
+    width: 100%;
+    height: 78px;
+    background: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.recent-upload-thumb-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.recent-upload-thumb-wrap.is-sku img,
+.recent-upload-thumb-wrap.is-cover img {
+    object-fit: contain;
+    padding: 3px;
+}
+
+.recent-upload-eye-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(17, 22, 29, 0.78);
+    color: #F8FAFC;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+}
+
+.recent-upload-kind-tag {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: rgba(17, 22, 29, 0.82);
+    color: #FDE68A;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    max-width: calc(100% - 8px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recent-upload-meta {
+    padding: 5px 6px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.recent-upload-name {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--ink-primary);
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recent-upload-sub {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    font-size: 9.5px;
+    color: var(--ink-secondary);
+}
+
+.recent-upload-sub .is-reuse-pill {
+    font-weight: 800;
+    color: var(--gold-light);
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .recent-uploads-strip {
+        padding: 8px 8px 9px;
+    }
+
+    .recent-upload-card {
+        flex: 0 0 112px;
+        width: 112px;
+    }
+
+    .recent-upload-thumb-wrap {
+        height: 82px;
+    }
+
+    .recent-upload-eye-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+}
+
+
 
