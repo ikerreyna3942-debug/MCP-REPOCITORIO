@@ -5,8 +5,8 @@
  * - Estrategia "red primero" para HTML/JS/CSS y caché rápida para miniaturas de Google Drive.
  */
 const CACHE_PREFIX = 'creata-fotos-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v18';
-const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v18';
+const CACHE_NAME = CACHE_PREFIX + 'v19';
+const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v19';
 const MAX_CACHED_IMAGES = 350;
 const PAGE_URL = './fotos-productos.html';
 const NETWORK_TIMEOUT_MS = 4500;
@@ -36,11 +36,15 @@ async function precacheFotosShell() {
     } catch (e) {}
     const html = await pageRes.text();
     const urls = new Set();
-    const re = /<(?:script|link)\b[^>]*?(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+    const re = /<(?:script|link)\b([^>]*?)>/gi;
     let m;
     while ((m = re.exec(html)) !== null) {
+        const attrs = m[1] || '';
+        if (/\brel\s*=\s*["'](?:preconnect|dns-prefetch)["']/i.test(attrs)) continue;
+        const srcMatch = attrs.match(/\b(?:src|href)\s*=\s*["']([^"']+)["']/i);
+        if (!srcMatch || !srcMatch[1]) continue;
         try {
-            const u = new URL(m[1], self.location.href);
+            const u = new URL(srcMatch[1], self.location.href);
             if (!/^https?:$/.test(u.protocol) || !isCacheableHost(u)) continue;
             if (u.origin === self.location.origin && !/\.(?:js|css|json|png)$/i.test(u.pathname)) continue;
             urls.add(u.href);
@@ -110,7 +114,9 @@ self.addEventListener('fetch', (event) => {
                 return cached || Response.error();
             }
             const networkFetch = fetch(req).then((res) => {
-                if (res && (res.ok || res.type === 'opaque')) {
+                // Solo guardar en caché si es respuesta válida (evitar fijar 403/404 permanentes tras reparar permisos)
+                const ct = (res && res.headers && res.headers.get('content-type') || '').toLowerCase();
+                if (res && res.ok && (!ct || ct.startsWith('image/'))) {
                     cache.put(req, res.clone()).then(() => trimImageCache(cache)).catch(() => {});
                 }
                 return res;

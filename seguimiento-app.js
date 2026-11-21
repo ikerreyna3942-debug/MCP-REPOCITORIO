@@ -68,6 +68,13 @@
   let _pendingSegCheckpointRestore = null;
   let _segFlushingOutbox = false;
   let _segFetchSeq = 0;
+  let _segDeltaVersion = 0;
+  let _segDeltaInvVersion = '';
+  let _segRowWatermarks = { cotCreata: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 };
+  let _segDeltaUnsupported = false;
+  let _segDirCacheMem = null;
+  let _segDirFetchedAt = 0;
+  const SEG_DIR_TTL_MS = 30 * 60 * 1000;
 
   let pollIntervalId = null;
   let scrollTimer = null;
@@ -508,7 +515,10 @@
     };
   }
 
-  async function fetchUnifiedAdvisorsDirectory() {
+  async function fetchUnifiedAdvisorsDirectory(forceRefresh) {
+    if (!forceRefresh && _segDirCacheMem && _segDirFetchedAt > 0 && (Date.now() - _segDirFetchedAt) < SEG_DIR_TTL_MS) {
+      return _segDirCacheMem;
+    }
     const segTabs = [
       { tab: 'CUENTAS ADMINISTRATIVAS', branch: 'TODAS' },
       { tab: 'PLAYA', branch: 'PLAYA' },
@@ -610,7 +620,12 @@
 
     APP_STATE.directoryRecords = records;
     APP_STATE.advisors = advisors;
-    return { records, advisors, byEmail };
+    const out = { records, advisors, byEmail };
+    if (records.length > 0) {
+      _segDirCacheMem = out;
+      _segDirFetchedAt = Date.now();
+    }
+    return out;
   }
 
   function hydrateDirectoryFromCacheSync() {
@@ -1048,13 +1063,48 @@
     return null;
   }
 
+  function hydrateLiveInventoryFromHost() {
+    try {
+      if (mountOpts && typeof mountOpts.getLiveInventorySnapshot === 'function') {
+        const hostMap = mountOpts.getLiveInventorySnapshot();
+        if (hostMap && typeof hostMap === 'object' && Object.keys(hostMap).length > 0) {
+          const byName = {};
+          for (const skuKey of Object.keys(hostMap)) {
+            const p = hostMap[skuKey];
+            if (!p) continue;
+            const photo = resolveProductPhoto(p.fotoRaw || p.foto || '');
+            hostMap[skuKey] = {
+              ...p,
+              fotoId: photo.driveId || p.fotoId || '',
+              fotoThumb: photo.thumbUrl || p.fotoThumb || '',
+              fotoUrl: photo.fullUrl || p.fotoUrl || ''
+            };
+            if (p.nombre) byName[normalizeText(p.nombre)] = hostMap[skuKey];
+          }
+          APP_STATE.inventoryBySku = hostMap;
+          APP_STATE.inventoryByName = byName;
+          return true;
+        }
+      }
+    } catch (eHostInv) {}
+    return false;
+  }
+
   function hydrateFromLocalSnapshotSync() {
     hydrateDirectoryFromCacheSync();
+    hydrateLiveInventoryFromHost();
     const rawCachedSnapshot = readJsonStorage(SEG_LIVE_SNAPSHOT_KEY, null);
     const currentEmail = APP_STATE.user ? normalizeEmail(APP_STATE.user.correo) : '';
     const snapEmail = rawCachedSnapshot && rawCachedSnapshot.userEmail ? normalizeEmail(rawCachedSnapshot.userEmail) : '';
     const snapOwnedByCurrentUser = !snapEmail || !currentEmail || snapEmail === currentEmail;
     const cachedSnapshot = snapOwnedByCurrentUser ? rawCachedSnapshot : null;
+    if (cachedSnapshot && cachedSnapshot.deltaMeta && typeof cachedSnapshot.deltaMeta === 'object') {
+      _segDeltaVersion = Number(cachedSnapshot.deltaMeta.version || 0) || 0;
+      _segDeltaInvVersion = cleanStr(cachedSnapshot.deltaMeta.invVersion || '');
+      if (cachedSnapshot.deltaMeta.rowWatermarks && typeof cachedSnapshot.deltaMeta.rowWatermarks === 'object') {
+        _segRowWatermarks = Object.assign({ cotCreata: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 }, cachedSnapshot.deltaMeta.rowWatermarks);
+      }
+    }
     const localBridgeQuotes = readJsonStorage(APP_QUOTES_BRIDGE_KEY, []);
     const hasSnap = Boolean(cachedSnapshot && Array.isArray(cachedSnapshot.rawPartidas) && cachedSnapshot.rawPartidas.length);
     const hasBridge = Array.isArray(localBridgeQuotes) && localBridgeQuotes.length > 0;
@@ -1175,10 +1225,414 @@
     return true;
   }
 
+  function rebindActiveModalQuote() {
+    if (!ACTIVE_MODAL_QUOTE || !ACTIVE_MODAL_QUOTE.Folio_ERP) return;
+    const openFolio = cleanStr(ACTIVE_MODAL_QUOTE.Folio_ERP).toUpperCase();
+    const fresh = (APP_STATE.quotes || []).find(q => cleanStr(q && q.Folio_ERP).toUpperCase() === openFolio);
+    if (fresh) {
+      ACTIVE_MODAL_QUOTE = fresh;
+    }
+  }
+
+  function ingestStockDeltaMap(stockMap) {
+    if (!stockMap || typeof stockMap !== 'object') return 0;
+    let count = 0;
+    for (const rawSku of Object.keys(stockMap)) {
+      const sku = cleanStr(rawSku).toUpperCase();
+      if (!sku) continue;
+      const entry = stockMap[rawSku];
+      if (!entry || typeof entry !== 'object') continue;
+      const rawPhotoVal = cleanStr(entry.foto || entry.fotoRaw || entry.fotoUrl || '');
+      const explicitId = cleanStr(entry.driveId || '');
+      const resolved = rawPhotoVal
+        ? resolveProductPhoto(rawPhotoVal)
+        : (explicitId ? {
+            driveId: explicitId,
+            thumbUrl: `https://lh3.googleusercontent.com/d/${explicitId}=w400`,
+            fullUrl: `https://lh3.googleusercontent.com/d/${explicitId}=w1000`
+          } : { driveId: '', thumbUrl: '', fullUrl: '' });
+      const prev = APP_STATE.inventoryBySku[sku] || {};
+      const nextProd = {
+        sku,
+        tipo: cleanStr(entry.tipo) || prev.tipo || '',
+        modelo: cleanStr(entry.modelo) || prev.modelo || '',
+        nombre: cleanStr(entry.nombre) || prev.nombre || '',
+        fotoRaw: rawPhotoVal || prev.fotoRaw || '',
+        fotoId: resolved.driveId || explicitId || prev.fotoId || '',
+        fotoThumb: resolved.thumbUrl || prev.fotoThumb || '',
+        fotoUrl: resolved.fullUrl || prev.fotoUrl || '',
+        cedis_bod: entry.cedis_bod !== undefined ? (Number(entry.cedis_bod) || 0) : (prev.cedis_bod || 0),
+        cedis_pis: entry.cedis_pis !== undefined ? (Number(entry.cedis_pis) || 0) : (prev.cedis_pis || 0),
+        casa_bod: entry.casa_bod !== undefined ? (Number(entry.casa_bod) || 0) : (prev.casa_bod || 0),
+        casa_pis: entry.casa_pis !== undefined ? (Number(entry.casa_pis) || 0) : (prev.casa_pis || 0),
+        ptc_bod: entry.ptc_bod !== undefined ? (Number(entry.ptc_bod) || 0) : (prev.ptc_bod || 0),
+        ptc_pis: entry.ptc_pis !== undefined ? (Number(entry.ptc_pis) || 0) : (prev.ptc_pis || 0),
+        col_bod: entry.col_bod !== undefined ? (Number(entry.col_bod) || 0) : (prev.col_bod || 0),
+        col_pis: entry.col_pis !== undefined ? (Number(entry.col_pis) || 0) : (prev.col_pis || 0),
+        pla_bod: entry.pla_bod !== undefined ? (Number(entry.pla_bod) || 0) : (prev.pla_bod || 0),
+        pla_pis: entry.pla_pis !== undefined ? (Number(entry.pla_pis) || 0) : (prev.pla_pis || 0),
+        out_bod: entry.out_bod !== undefined ? (Number(entry.out_bod) || 0) : (prev.out_bod || 0),
+        out_pis: entry.out_pis !== undefined ? (Number(entry.out_pis) || 0) : (prev.out_pis || 0),
+        precio: entry.precio !== undefined ? (Number(entry.precio) || 0) : (prev.precio || 0)
+      };
+      APP_STATE.inventoryBySku[sku] = nextProd;
+      const nNorm = normalizeText(nextProd.nombre);
+      if (nNorm) APP_STATE.inventoryByName[nNorm] = nextProd;
+      count++;
+    }
+    return count;
+  }
+
+  function saveCompactSegSnapshot() {
+    if (!APP_STATE.user || !Array.isArray(APP_STATE.rawPartidas) || !APP_STATE.rawPartidas.length) return;
+    // Guardar solo los SKUs realmente presentes en cotizaciones visibles (evita QuotaExceededError de 5 MB)
+    const scopedInv = {};
+    for (let i = 0; i < APP_STATE.rawPartidas.length; i++) {
+      const sk = cleanStr(APP_STATE.rawPartidas[i] && APP_STATE.rawPartidas[i].Clave_Producto).toUpperCase();
+      if (sk && APP_STATE.inventoryBySku[sk]) scopedInv[sk] = APP_STATE.inventoryBySku[sk];
+    }
+    writeJsonStorage(SEG_LIVE_SNAPSHOT_KEY, {
+      savedAt: Date.now(),
+      userEmail: normalizeEmail(APP_STATE.user.correo),
+      rawPartidas: APP_STATE.rawPartidas,
+      closures: APP_STATE.closures,
+      auditLogs: (APP_STATE.auditLogs || []).slice(-200),
+      config: APP_STATE.config,
+      inventoryBySku: scopedInv,
+      appCreatedFolios: APP_STATE.appCreatedFolios,
+      deltaMeta: {
+        version: _segDeltaVersion,
+        invVersion: _segDeltaInvVersion,
+        rowWatermarks: _segRowWatermarks
+      }
+    });
+  }
+
+  function collectActiveQuotedSkus() {
+    const set = new Set();
+    const list = APP_STATE.rawPartidas || [];
+    for (let i = 0; i < list.length; i++) {
+      const sk = cleanStr(list[i] && list[i].Clave_Producto).toUpperCase();
+      if (sk) set.add(sk);
+    }
+    return Array.from(set).slice(0, 600);
+  }
+
+  async function fetchDeltaState(opts) {
+    const o = opts || {};
+    const isManual = Boolean(o.manual);
+    const isBackground = !isManual && Boolean(o.background);
+    if (!mounted || !APP_STATE.user) return { ok: false, skipped: true };
+
+    const token = cleanStr(APP_STATE.user && APP_STATE.user.authToken);
+    if (!token || _segDeltaUnsupported) {
+      await fetchLiveState(isBackground);
+      return { ok: true, mode: 'fallback' };
+    }
+
+    const seq = ++_segFetchSeq;
+    try {
+      const hasLocalData = Array.isArray(APP_STATE.rawPartidas) && APP_STATE.rawPartidas.length > 0;
+      const reqPayload = {
+        action: 'seg_get_delta',
+        sinceVersion: hasLocalData ? _segDeltaVersion : 0,
+        sinceInvVersion: hasLocalData ? _segDeltaInvVersion : '',
+        rowWatermarks: hasLocalData ? _segRowWatermarks : { cotCreata: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 },
+        activeSkus: collectActiveQuotedSkus(),
+        forceFull: Boolean(o.forceFull) || !hasLocalData
+      };
+
+      const res = await callWebAppPost(reqPayload, 14000);
+      if (!mounted || seq !== _segFetchSeq) return { ok: false, stale: true };
+
+      // Respaldo transparente si el Apps Script desplegado aún no incluye seg_get_delta
+      if (!res || !res.ok) {
+        const errStr = cleanStr(res && res.error);
+        if (/no reconocida|unknown/i.test(errStr)) {
+          _segDeltaUnsupported = true;
+        }
+        await fetchLiveState(isBackground);
+        return { ok: true, mode: 'fallback' };
+      }
+
+      if (res.version) _segDeltaVersion = Number(res.version) || _segDeltaVersion;
+      if (res.invVersion) {
+        _segDeltaInvVersion = cleanStr(res.invVersion);
+        APP_STATE.last_erp_sync = _segDeltaInvVersion.replace(/^EN VIVO\s*\|\s*/i, '').trim() || _segDeltaInvVersion;
+      }
+      if (res.rowWatermarks && typeof res.rowWatermarks === 'object') {
+        _segRowWatermarks = Object.assign({}, _segRowWatermarks, res.rowWatermarks);
+      }
+
+      const sl = $('seg_lastSyncLabel');
+
+      // 1) FAST PATH: Cero cambios nuevos -> 0 reconstrucción, 0 escrituras en localStorage, 0 re-render DOM
+      if (res.mode === 'noop' || res.unchanged === true) {
+        if (sl) {
+          sl.textContent = APP_STATE.last_erp_sync || 'Al día';
+        }
+        flushSegOfflineOutbox();
+        return { ok: true, mode: 'noop', totalChanges: 0 };
+      }
+
+      // 2) BOOTSTRAP COMPLETO (1a carga o tras limpieza de filas): usar datos ya filtrados por rol sin 19 CSVs
+      if (res.mode === 'full' && res.sheets) {
+        await hydrateDirectoryAndApplyFullApiState(res, isBackground);
+        return { ok: true, mode: 'full', totalChanges: (APP_STATE.quotes || []).length };
+      }
+
+      // 3) DELTA INCREMENTAL: Mezclar ÚNICAMENTE las modificaciones nuevas sobre el estado existente
+      let touchedCount = 0;
+      const stockMap = (res.stockDeltaBySku && typeof res.stockDeltaBySku === 'object') ? res.stockDeltaBySku : {};
+      const updatedStockCount = ingestStockDeltaMap(stockMap);
+
+      const closuresMap = Object.assign({}, APP_STATE.closures || {}, readJsonStorage(SEG_CLOSURES_CACHE_KEY, {}));
+      const phoneByFolio = Object.assign({}, readJsonStorage(SEG_PHONES_CACHE_KEY, {}));
+      const contactedByFolio = Object.assign({}, readJsonStorage(SEG_CONTACTED_CACHE_KEY, {}));
+      const appCreatedFolios = new Set(APP_STATE.appCreatedFolios || []);
+      const byPartida = new Map();
+      for (const existing of (APP_STATE.rawPartidas || [])) {
+        if (existing && existing.ID_Partida) byPartida.set(existing.ID_Partida, existing);
+      }
+
+      const appRows = (res.appendedRows && typeof res.appendedRows === 'object') ? res.appendedRows : {};
+
+      // 3a) Nuevos cierres agregados
+      for (const r of (appRows.CIERRES_COTIZACIONES || [])) {
+        if (!r || !r[1]) continue;
+        const fol = cleanStr(r[1]).toUpperCase();
+        closuresMap[fol] = {
+          Fecha_Hora: cleanStr(r[0]),
+          Folio_ERP: fol,
+          Sucursal: cleanStr(r[2]),
+          Asesor: cleanStr(r[3]),
+          Correo_Asesor: normalizeEmail(r[4]),
+          Cliente: cleanStr(r[5]),
+          WhatsApp_Cliente: cleanPhone(r[6]),
+          Estatus_Cierre: cleanStr(r[7]) || 'CERRADA',
+          Motivo_Cierre: cleanStr(r[8]),
+          Comentarios: cleanStr(r[9]),
+          Piezas_Cotizadas: cleanStr(r[11])
+        };
+        touchedCount++;
+      }
+
+      // 3b) Nuevas filas agregadas en COTIZACIONES_CREATA
+      for (const r of (appRows.COTIZACIONES_CREATA || [])) {
+        if (!r || !r[0] || !r[1]) continue;
+        const idP = cleanStr(r[0]);
+        const folio = cleanStr(r[1]).toUpperCase();
+        const sucKey = mapTabToBranchKey(r[3] || folio);
+        const sku = cleanStr(r[9]).toUpperCase();
+        const advMatch = matchAdvisorInfo(r[4], r[5], sucKey);
+        const liveSt = calculateStockForBranch(sku, sucKey);
+        const prod = APP_STATE.inventoryBySku[sku];
+        if (cleanStr(r[26]).toUpperCase() === 'APP_COTIZACION' || cleanStr(r[25]).toLowerCase() === 'true') {
+          appCreatedFolios.add(folio);
+        }
+        const itemObj = {
+          ID_Partida: idP,
+          Folio_ERP: folio,
+          Fecha_Cotizacion: parseDateToIso(r[2]),
+          Sucursal: sucKey,
+          Asesor: (advMatch && advMatch.nombre) || cleanStr(r[4]),
+          Correo_Asesor: normalizeEmail(r[5]) || (advMatch && advMatch.correo) || '',
+          Tel_Asesor: cleanPhone(r[6]) || (advMatch && advMatch.telefono) || '',
+          Cliente: cleanStr(r[7]),
+          WhatsApp_Cliente: phoneByFolio[folio] || cleanPhone(r[8]),
+          Clave_Producto: sku,
+          Nombre_Producto: cleanStr(r[10]) || (prod && prod.nombre) || sku,
+          Modelo: cleanStr(r[11]) || (prod && prod.modelo) || '',
+          Precio_Unitario: cleanStr(r[12]) || (prod && prod.precio ? prod.precio.toFixed(2) : '0.00'),
+          Cantidad_Cotizada: cleanStr(r[13]) || '1',
+          Stock_Inicial_Total: cleanStr(r[14]) || (liveSt ? String(liveSt.total_disponible) : '0'),
+          Stock_Actual_CEDIS_Bodega: liveSt ? String(liveSt.cedis_bodega) : (cleanStr(r[15]) || '0'),
+          Stock_Actual_CEDIS_Piso: liveSt ? String(liveSt.cedis_piso) : (cleanStr(r[16]) || '0'),
+          Stock_Actual_Tienda_Bodega: liveSt ? String(liveSt.tienda_bodega) : (cleanStr(r[17]) || '0'),
+          Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : (cleanStr(r[18]) || '0'),
+          Stock_Actual_Total: liveSt ? String(liveSt.total_disponible) : (cleanStr(r[19]) || '0'),
+          Estatus_ERP: cleanStr(r[24]) || 'Cotizado',
+          Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || r[25]),
+          Foto_Url: (prod && prod.fotoUrl) || '',
+          Foto_Thumb: (prod && prod.fotoThumb) || '',
+          Foto_Drive_Id: (prod && prod.fotoId) || '',
+          Creada_En_App: appCreatedFolios.has(folio)
+        };
+        evaluateItemUrgency(itemObj);
+        byPartida.set(idP, itemObj);
+        touchedCount++;
+      }
+
+      // 3c) Nuevas filas agregadas en COTIZACIONES_EN_VIVO
+      for (const r of (appRows.COTIZACIONES_EN_VIVO || [])) {
+        if (!r || (!r[1] && !r[0])) continue;
+        const folio = cleanStr(r[1] || r[0]).toUpperCase();
+        if (!folio) continue;
+        const fechaIso = parseDateToIso(r[3]);
+        const sucKey = mapTabToBranchKey(r[6] || r[5] || folio);
+        const correoAsesor = normalizeEmail(r[7]);
+        const nombreAsesorRaw = cleanStr(r[8]);
+        const advMatch = matchAdvisorInfo(nombreAsesorRaw, correoAsesor, sucKey);
+        const nombreAsesor = (advMatch && advMatch.nombre) || nombreAsesorRaw;
+        const telAsesor = (advMatch && advMatch.telefono) || '';
+        const cliente = cleanStr(r[11]) || 'Prospecto CREATA';
+        const telCliente = phoneByFolio[folio] || cleanPhone(r[12]);
+        const resumenSkus = cleanStr(r[17]);
+        const origenColY = cleanStr(r[24]).toUpperCase();
+        if (origenColY === 'APP_COTIZACION') appCreatedFolios.add(folio);
+        const parts = resumenSkus.split(',').map(s => s.trim()).filter(Boolean);
+        for (const p of parts) {
+          const m = p.match(/^([A-Z0-9\-_./]+)\s*x\s*(\d+)/i);
+          const sku = cleanStr(m ? m[1] : p).toUpperCase();
+          const qty = m ? (parseInt(m[2], 10) || 1) : 1;
+          if (!sku) continue;
+          const idP = `${folio}_${sku}`;
+          if (byPartida.has(idP)) continue; // No sobrescribir datos más ricos de COTIZACIONES_CREATA
+          const prod = APP_STATE.inventoryBySku[sku];
+          const liveSt = calculateStockForBranch(sku, sucKey);
+          const stActual = liveSt ? liveSt.total_disponible : 0;
+          const itemObj = {
+            ID_Partida: idP,
+            Folio_ERP: folio,
+            Fecha_Cotizacion: fechaIso,
+            Sucursal: sucKey,
+            Asesor: nombreAsesor,
+            Correo_Asesor: correoAsesor,
+            Tel_Asesor: telAsesor,
+            Cliente: cliente,
+            WhatsApp_Cliente: telCliente,
+            Clave_Producto: sku,
+            Nombre_Producto: (prod && prod.nombre) || sku,
+            Modelo: (prod && prod.modelo) || '',
+            Precio_Unitario: prod && prod.precio ? prod.precio.toFixed(2) : '0.00',
+            Cantidad_Cotizada: String(qty),
+            Stock_Inicial_Total: String(Math.max(stActual, qty)),
+            Stock_Actual_CEDIS_Bodega: liveSt ? String(liveSt.cedis_bodega) : '0',
+            Stock_Actual_CEDIS_Piso: liveSt ? String(liveSt.cedis_piso) : '0',
+            Stock_Actual_Tienda_Bodega: liveSt ? String(liveSt.tienda_bodega) : '0',
+            Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : '0',
+            Stock_Actual_Total: String(stActual),
+            Estatus_ERP: 'Cotizado',
+            Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || ''),
+            Foto_Url: (prod && prod.fotoUrl) || '',
+            Foto_Thumb: (prod && prod.fotoThumb) || '',
+            Foto_Drive_Id: (prod && prod.fotoId) || '',
+            Creada_En_App: appCreatedFolios.has(folio)
+          };
+          evaluateItemUrgency(itemObj);
+          byPartida.set(idP, itemObj);
+          touchedCount++;
+        }
+      }
+
+      // 3d) Cambios incrementales del ring-buffer (PHONE, WHATSAPP, EMAIL, CIERRE)
+      for (const ch of (res.changes || [])) {
+        if (!ch || !ch.folio) continue;
+        const fol = cleanStr(ch.folio).toUpperCase();
+        const kind = cleanStr(ch.kind).toUpperCase();
+        const d = (ch.data && typeof ch.data === 'object') ? ch.data : {};
+        if (kind === 'CIERRE') {
+          closuresMap[fol] = Object.assign({ Folio_ERP: fol, Estatus_Cierre: 'CERRADA' }, d);
+          touchedCount++;
+        } else if (kind === 'PHONE' && d.whatsapp_cliente) {
+          const tel = cleanPhone(d.whatsapp_cliente);
+          if (tel) {
+            phoneByFolio[fol] = tel;
+            for (const item of byPartida.values()) {
+              if (item.Folio_ERP === fol) item.WhatsApp_Cliente = tel;
+            }
+            touchedCount++;
+          }
+        } else if ((kind === 'WHATSAPP' || kind === 'EMAIL') && d.fecha_aviso) {
+          const av = cleanAvisoDate(d.fecha_aviso);
+          if (av) {
+            contactedByFolio[fol] = av;
+            for (const item of byPartida.values()) {
+              if (item.Folio_ERP === fol) {
+                item.Fecha_Ultimo_Aviso = av;
+                evaluateItemUrgency(item);
+              }
+            }
+            touchedCount++;
+          }
+        }
+      }
+
+      // 3e) Re-evaluar stock únicamente en partidas cuyo SKU recibió actualización de inventario
+      if (updatedStockCount > 0) {
+        for (const item of byPartida.values()) {
+          const sku = cleanStr(item.Clave_Producto).toUpperCase();
+          if (!sku || !stockMap[sku]) continue;
+          const liveSt = calculateStockForBranch(sku, item.Sucursal);
+          const prod = APP_STATE.inventoryBySku[sku];
+          if (liveSt) {
+            item.Stock_Actual_CEDIS_Bodega = String(liveSt.cedis_bodega);
+            item.Stock_Actual_CEDIS_Piso = String(liveSt.cedis_piso);
+            item.Stock_Actual_Tienda_Bodega = String(liveSt.tienda_bodega);
+            item.Stock_Actual_Tienda_Piso = String(liveSt.tienda_piso);
+            item.Stock_Actual_Total = String(liveSt.total_disponible);
+          }
+          if (prod && prod.fotoUrl && !item.Foto_Url) {
+            item.Foto_Url = prod.fotoUrl;
+            item.Foto_Thumb = prod.fotoThumb;
+            item.Foto_Drive_Id = prod.fotoId;
+          }
+          evaluateItemUrgency(item);
+        }
+      }
+
+      APP_STATE.closures = closuresMap;
+      APP_STATE.appCreatedFolios = Array.from(appCreatedFolios);
+      APP_STATE.rawPartidas = Array.from(byPartida.values());
+      const allGrouped = groupQuotesByFolio(APP_STATE.rawPartidas, closuresMap, appCreatedFolios);
+      APP_STATE.quotes = filterGroupedQuotesForUser(allGrouped, APP_STATE.user);
+      rebindActiveModalQuote();
+      saveCompactSegSnapshot();
+      flushSegOfflineOutbox();
+
+      if (sl) {
+        sl.textContent = APP_STATE.last_erp_sync || 'En vivo';
+      }
+      populateAdvisorFilter();
+      renderQuotes();
+
+      const sumTotal = Number((res.summary && res.summary.totalChanges) || touchedCount || (updatedStockCount > 0 ? 1 : 0));
+      return { ok: true, mode: 'delta', totalChanges: sumTotal, updatedStockCount };
+    } catch (eDelta) {
+      if (mounted && seq === _segFetchSeq) {
+        await fetchLiveState(isBackground);
+      }
+      return { ok: true, mode: 'fallback' };
+    }
+  }
+
+  async function hydrateDirectoryAndApplyFullApiState(apiRes, isBackground) {
+    hydrateLiveInventoryFromHost();
+    if (apiRes.stockDeltaBySku) {
+      ingestStockDeltaMap(apiRes.stockDeltaBySku);
+    }
+    const dirData = await fetchUnifiedAdvisorsDirectory(false);
+    if (!mounted) return;
+    const sh = apiRes.sheets || {};
+    await applyFullSheetsPayload({
+      dirData,
+      invRows: Array.isArray(sh.INVENTARIO_EN_VIVO) ? sh.INVENTARIO_EN_VIVO : null,
+      cotCreataRows: Array.isArray(sh.COTIZACIONES_CREATA) ? sh.COTIZACIONES_CREATA : [],
+      cotVivoRows: Array.isArray(sh.COTIZACIONES_EN_VIVO) ? sh.COTIZACIONES_EN_VIVO : [],
+      cierresRows: Array.isArray(sh.CIERRES_COTIZACIONES) ? sh.CIERRES_COTIZACIONES : [],
+      cfgRows: Array.isArray(sh.CONFIG_CREATA) ? sh.CONFIG_CREATA : [],
+      histMovRows: Array.isArray(sh.HISTORIAL_MOVIMIENTOS) ? sh.HISTORIAL_MOVIMIENTOS : [],
+      histInvRows: Array.isArray(sh.HISTORIAL_SEG) ? sh.HISTORIAL_SEG : [],
+      apiState: { inventoryPhotosBySku: apiRes.stockDeltaBySku || {} },
+      isBackground
+    });
+  }
+
   async function fetchLiveState(isBackground) {
     if (!mounted || !APP_STATE.user) return;
     const seq = ++_segFetchSeq;
     try {
+      const hasHostInv = hydrateLiveInventoryFromHost() || Object.keys(APP_STATE.inventoryBySku || {}).length > 0;
       const apiState = await tryFetchAuthenticatedSegState();
       if (!mounted || seq !== _segFetchSeq) return;
 
@@ -1192,8 +1646,8 @@
         histMovRows,
         histInvRows
       ] = await Promise.all([
-        fetchUnifiedAdvisorsDirectory(),
-        (apiState && Array.isArray(apiState.invRows)) ? Promise.resolve(apiState.invRows) : fetchSheetCsv(SHEET_INV_ID, 'INVENTARIO_EN_VIVO'),
+        fetchUnifiedAdvisorsDirectory(false),
+        (apiState && Array.isArray(apiState.invRows)) ? Promise.resolve(apiState.invRows) : (hasHostInv ? Promise.resolve(null) : fetchSheetCsv(SHEET_INV_ID, 'INVENTARIO_EN_VIVO')),
         (apiState && Array.isArray(apiState.cotCreataRows)) ? Promise.resolve(apiState.cotCreataRows) : fetchSheetCsv(SHEET_SEG_ID, 'COTIZACIONES_CREATA'),
         (apiState && Array.isArray(apiState.cotVivoRows)) ? Promise.resolve(apiState.cotVivoRows) : fetchSheetCsv(SHEET_INV_ID, 'COTIZACIONES_EN_VIVO'),
         (apiState && Array.isArray(apiState.cierresRows)) ? Promise.resolve(apiState.cierresRows) : fetchSheetCsv(SHEET_SEG_ID, 'CIERRES_COTIZACIONES'),
@@ -1203,6 +1657,24 @@
       ]);
 
       if (!mounted || seq !== _segFetchSeq) return;
+      await applyFullSheetsPayload({
+        dirData, invRows, cotCreataRows, cotVivoRows, cierresRows, cfgRows, histMovRows, histInvRows, apiState, isBackground
+      });
+    } catch (err) {
+      if (mounted) {
+        if (!_segUiCheckpointRestoredOnce) {
+          restoreSegUiCheckpointOnce(false);
+        } else if (!isBackground) {
+          _pendingSegCheckpointRestore = null;
+          renderQuotes();
+        }
+      }
+    }
+  }
+
+  async function applyFullSheetsPayload(ctx) {
+    const { dirData, invRows, cotCreataRows, cotVivoRows, cierresRows, cfgRows, histMovRows, histInvRows, apiState, isBackground } = ctx;
+    try {
 
       // Enrich user phone/branches from live directory WITHOUT clobbering authToken / roles from opts.session
       const curEmail = normalizeEmail(APP_STATE.user.correo);
@@ -1700,18 +2172,10 @@
       APP_STATE.quotes = filteredForUser;
       APP_STATE.auditLogs = auditLogs;
       APP_STATE.appCreatedFolios = Array.from(appCreatedFolios);
+      rebindActiveModalQuote();
 
       if (hasLiveQuoteSheets && allPartidas.length > 0) {
-        writeJsonStorage(SEG_LIVE_SNAPSHOT_KEY, {
-          savedAt: Date.now(),
-          userEmail: APP_STATE.user ? normalizeEmail(APP_STATE.user.correo) : '',
-          rawPartidas: allPartidas,
-          closures: closuresMap,
-          auditLogs: auditLogs.slice(-300),
-          config: APP_STATE.config,
-          inventoryBySku: APP_STATE.inventoryBySku,
-          appCreatedFolios: APP_STATE.appCreatedFolios
-        });
+        saveCompactSegSnapshot();
         flushSegOfflineOutbox();
       }
 
@@ -1756,9 +2220,9 @@
           </div>
           <div class="cm-topbar-right">
             <span id="seg_lastSyncLabel" class="cm-subtitle-chip cm-mono"></span>
-            <button type="button" id="seg_btnManualSync" class="cm-btn cm-btn-icon" data-seg-action="manual-sync" aria-label="Actualizar ERP">
+            <button type="button" id="seg_btnManualSync" class="cm-btn cm-btn-icon" data-seg-action="manual-sync" aria-label="Buscar cambios nuevos" title="Consultar solo modificaciones nuevas sin recargar todo">
               <span id="seg_syncIcon">🔄</span>
-              <span id="seg_syncText">Actualizar ERP</span>
+              <span id="seg_syncText">Buscar cambios</span>
             </button>
           </div>
         </div>
@@ -2123,14 +2587,11 @@
     if (hasZero || hasInsufficient) {
       return '<span class="cm-pill cm-pill-rose">Incompleto</span>';
     }
-    if (hasAjustado) {
-      return '<span class="cm-pill cm-pill-amber">Ajustado</span>';
-    }
-    if (items.length > 0) {
-      return '<span class="cm-pill cm-pill-emerald">Disponible</span>';
-    }
     if (q.Nivel_Urgencia === 'CRITICO') {
       return '<span class="cm-pill cm-pill-rose">Crítico</span>';
+    }
+    if (hasAjustado) {
+      return '<span class="cm-pill cm-pill-amber">Ajustado</span>';
     }
     if (q.Nivel_Urgencia === 'SOLO_PISO') {
       return '<span class="cm-pill cm-pill-amber">Solo piso</span>';
@@ -2450,92 +2911,6 @@
     }
 
     applySilentImageProtection(container);
-  }
-
-  function convertBlobToPngBlob(blob) {
-    return new Promise((resolve, reject) => {
-      if (blob && blob.type === 'image/png') {
-        resolve(blob);
-        return;
-      }
-      const imgUrl = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth || img.width || 800;
-          canvas.height = img.naturalHeight || img.height || 800;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0);
-          canvas.toBlob((pngBlob) => {
-            try { URL.revokeObjectURL(imgUrl); } catch (e) {}
-            if (pngBlob) resolve(pngBlob);
-            else reject(new Error('canvas toBlob failed'));
-          }, 'image/png');
-        } catch (err) {
-          try { URL.revokeObjectURL(imgUrl); } catch (e) {}
-          reject(err);
-        }
-      };
-      img.onerror = () => {
-        try { URL.revokeObjectURL(imgUrl); } catch (e) {}
-        reject(new Error('image decode failed'));
-      };
-      img.src = imgUrl;
-    });
-  }
-
-  async function attachItemPhoto(itemId, sku, triggerBtn) {
-    if (!ACTIVE_MODAL_QUOTE) return;
-    const items = ACTIVE_MODAL_QUOTE.items || [];
-    const item = items.find(x => x.ID_Partida === itemId || x.Clave_Producto === sku);
-    if (!item) return;
-    const photo = getItemPhotoMeta(item);
-    if (!photo || !photo.fullUrl) return;
-
-    const prevText = triggerBtn ? triggerBtn.textContent : '';
-    if (triggerBtn) {
-      triggerBtn.disabled = true;
-      triggerBtn.textContent = 'Cargando...';
-    }
-
-    try {
-      const resp = await fetch(photo.fullUrl, { mode: 'cors', cache: 'force-cache', referrerPolicy: 'no-referrer' });
-      if (!resp || !resp.ok) throw new Error('photo fetch failed');
-      const blob = await resp.blob();
-      const safeSku = cleanStr(item.Clave_Producto || 'producto').replace(/[^A-Za-z0-9_-]+/g, '_');
-      const ext = (blob.type && blob.type.includes('png')) ? 'png' : 'jpg';
-      const file = new File([blob], `CREATA_${safeSku}.${ext}`, { type: blob.type || 'image/jpeg' });
-      const msg = cleanStr($('seg_previewMessageText')?.value || '');
-
-      if (typeof navigator !== 'undefined' && typeof navigator.canShare === 'function' && typeof navigator.share === 'function') {
-        try {
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], text: msg || undefined });
-            showToast('Foto lista para compartir', '📷');
-            return;
-          }
-        } catch (shareErr) {
-          if (shareErr && shareErr.name === 'AbortError') return;
-        }
-      }
-
-      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof ClipboardItem !== 'undefined') {
-        const pngBlob = await convertBlobToPngBlob(blob);
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-        showToast('Foto copiada — pega en WhatsApp (Ctrl+V)', '📷');
-        return;
-      }
-
-      showToast('No fue posible adjuntar la foto en este navegador', '⚠️');
-    } catch (err) {
-      showToast('Foto no disponible en este momento', '⚠️');
-    } finally {
-      if (triggerBtn) {
-        triggerBtn.disabled = false;
-        triggerBtn.textContent = prevText || '📷 Adjuntar foto';
-      }
-    }
   }
 
   function toggleItemSelection(idPartida, isChecked) {
@@ -3007,19 +3382,24 @@
     const icon = $('seg_syncIcon');
     const text = $('seg_syncText');
     if (icon) icon.classList.add('cm-spin');
-    if (text) text.textContent = 'Actualizando...';
+    if (text) text.textContent = 'Buscando...';
 
     try {
-      await Promise.race([
-        callWebAppPost({ action: 'seg_sync_now' }, 12000),
-        callWebAppPost({ action: 'inv_erp_sync_now' }, 12000)
-      ]);
-    } catch (e) {}
-
-    await fetchLiveState(false);
-    if (icon) icon.classList.remove('cm-spin');
-    if (text) text.textContent = 'Actualizar';
-    showToast('Actualizado', '✓');
+      const res = await fetchDeltaState({ manual: true });
+      if (res && res.mode === 'noop') {
+        showToast('Sin modificaciones nuevas', '✓');
+      } else if (res && res.mode === 'delta') {
+        const n = Number(res.totalChanges || 0);
+        showToast(n > 0 ? (n + (n === 1 ? ' modificación nueva' : ' modificaciones nuevas')) : 'Cambios aplicados', '✓');
+      } else {
+        showToast('Actualizado', '✓');
+      }
+    } catch (e) {
+      showToast('Sin conexión', '⚠️');
+    } finally {
+      if (icon) icon.classList.remove('cm-spin');
+      if (text) text.textContent = 'Buscar cambios';
+    }
   }
 
   // ============================================================================
@@ -3493,9 +3873,6 @@
         case 'send-wa':
           sendModalWhatsApp();
           break;
-        case 'attach-photo':
-          attachItemPhoto(btn.getAttribute('data-item-id') || '', btn.getAttribute('data-sku') || '', btn);
-          break;
         case 'open-cerrar':
           if (_pendingSegCheckpointRestore) delete _pendingSegCheckpointRestore.closeModal;
           openModalCerrar(folio);
@@ -3585,7 +3962,10 @@
     const onBeforeUnload = () => saveSegUiCheckpointNow();
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') saveSegUiCheckpointNow();
-      else if (document.visibilityState === 'visible') sendSegPresenceHeartbeat(false);
+      else if (document.visibilityState === 'visible') {
+        sendSegPresenceHeartbeat(false);
+        fetchDeltaState({ background: true });
+      }
     };
     const onWindowFocus = () => {
       sendSegPresenceHeartbeat(false);
@@ -3593,7 +3973,7 @@
     const onOnline = () => {
       if (!mounted) return;
       flushSegOfflineOutbox();
-      fetchLiveState(true);
+      fetchDeltaState({ background: true });
       sendSegPresenceHeartbeat(false);
     };
     const onKeyDown = (ev) => {
@@ -3643,6 +4023,9 @@
     _segFetchSeq++;
     _pendingSegCheckpointRestore = null;
     _segPrevSearchNonEmpty = false;
+    _segDeltaVersion = 0;
+    _segDeltaInvVersion = '';
+    _segRowWatermarks = { cotCreata: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 };
     APP_STATE.user = null;
     APP_STATE.quotes = [];
     APP_STATE.rawPartidas = [];
@@ -3830,14 +4213,14 @@
     _segPrevSearchNonEmpty = Boolean(cleanStr($('seg_filterSearch')?.value || ''));
 
     sendSegPresenceHeartbeat(true);
-    fetchLiveState(false);
+    fetchDeltaState({ manual: false });
     flushSegOfflineOutbox();
 
     if (pollIntervalId) clearInterval(pollIntervalId);
     pollIntervalId = setInterval(() => {
       if (mounted && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
         sendSegPresenceHeartbeat(false);
-        fetchLiveState(true);
+        fetchDeltaState({ background: true });
       }
     }, POLL_INTERVAL_MS);
 
@@ -3869,7 +4252,7 @@
 
   function refresh() {
     if (!mounted) return Promise.resolve();
-    return fetchLiveState(false);
+    return fetchDeltaState({ manual: false });
   }
 
   function isMounted() {

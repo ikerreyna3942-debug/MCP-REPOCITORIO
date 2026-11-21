@@ -988,9 +988,9 @@ test('Seguimiento Manual + CreataBackNav: slideHistory is bounded (<= 20) and Ba
 
 test('Static coverage check: fotos-productos.html, prompts.html, panel.html, and seguimiento-manual.html load ./creata-back-nav.js?v=1 before app logic', () => {
   const checks = [
-    { file: 'fotos-productos.html', appPattern: /fotos-productos-app\.js\?v=28/ },
-    { file: 'prompts.html', appPattern: /prompts-app\.js\?v=10/ },
-    { file: 'panel.html', appPattern: /panel-app\.js\?v=11/ },
+    { file: 'fotos-productos.html', appPattern: /fotos-productos-app\.js\?v=29/ },
+    { file: 'prompts.html', appPattern: /prompts-app\.js\?v=11/ },
+    { file: 'panel.html', appPattern: /panel-app\.js\?v=12/ },
     { file: 'seguimiento-manual.html', appPattern: /<script>\s*\r?\n\s*let isEditMode/ }
   ];
 

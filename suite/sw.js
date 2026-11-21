@@ -6,7 +6,7 @@
  *   Android, iOS, Windows y Mac.
  */
 const CACHE_PREFIX = 'creata-suite-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v1';
+const CACHE_NAME = CACHE_PREFIX + 'v2';
 const PAGE_URL = './index.html';
 const NETWORK_TIMEOUT_MS = 7000;
 
@@ -18,10 +18,10 @@ const SHELL_ASSETS = [
     './icon-512.png',
     './apple-icon.png',
     '../panel-styles.css?v=6',
-    '../creata-logo.js?v=32',
-    '../creata-cloud.js?v=32',
+    '../creata-logo.js?v=33',
+    '../creata-cloud.js?v=33',
     '../creata-back-nav.js?v=1',
-    '../panel-app.js?v=11'
+    '../panel-app.js?v=12'
 ];
 
 function isCacheableHost(url) {

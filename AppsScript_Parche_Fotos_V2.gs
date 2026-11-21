@@ -56,11 +56,26 @@ function doPost(e) {
       if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
       return jsonResponse_(handleSegGetState_(body));
     }
+    if (action === 'seg_get_delta') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'seg_state', maxHits: 60, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+      return jsonResponse_(handleSegGetDelta_(body));
+    }
     if (action === 'seg_sync_now') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        const recentStamp = CacheService.getScriptCache().get('SEG_ERP_SYNC_COOLDOWN_V1');
+        if (recentStamp) {
+          return jsonResponse_({ ok: true, cachedRecent: true, timestamp: recentStamp });
+        }
+      } catch (eCool) {}
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
+      try {
+        CacheService.getScriptCache().put('SEG_ERP_SYNC_COOLDOWN_V1', String((syncRes && syncRes.timestamp) || new Date().toISOString()), 60);
+      } catch (eCoolSet) {}
       return jsonResponse_(Object.assign({ ok: true }, syncRes));
     }
     if (action === 'inv_login') {

@@ -7,15 +7,16 @@
  *   tráfico hacia Render (https://buena-espero.onrender.com/).
  */
 const CACHE_PREFIX = 'creata-prompts-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v10';
+const CACHE_NAME = CACHE_PREFIX + 'v11';
 const PAGE_URL = './prompts.html';
 const NETWORK_TIMEOUT_MS = 7000;
 
 const SHELL_ASSETS = [
     './prompts.html',
-    './prompts-styles.css?v=7',
+    './prompts-styles.css?v=8',
     './creata-back-nav.js?v=1',
-    './prompts-app.js?v=10',
+    './prompts-studio-v8.js?v=1',
+    './prompts-app.js?v=11',
     './prompts-manifest.json?v=3',
     './prompts-icon-192.png',
     './prompts-icon-512.png',
@@ -38,10 +39,11 @@ async function precachePromptsShell() {
         if (pageRes && pageRes.ok) {
             await cache.put(PAGE_URL, pageRes.clone());
             const html = await pageRes.text();
-            const re = /<(?:script|link)\b[^>]*?(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+            const re = /<(?:script|link)\b[^>]*?(?:src|href)\s*=\s*["']([^"']+)["'][^>]*>/gi;
             let m;
             while ((m = re.exec(html)) !== null) {
                 try {
+                    if (/\brel\s*=\s*["'](?:preconnect|dns-prefetch)["']/i.test(m[0])) continue;
                     const u = new URL(m[1], self.location.href);
                     if (!/^https?:$/.test(u.protocol) || !isCacheableHost(u)) continue;
                     if (u.origin === self.location.origin && !/\.(?:js|css|json|png|svg|webp)$/i.test(u.pathname)) continue;
