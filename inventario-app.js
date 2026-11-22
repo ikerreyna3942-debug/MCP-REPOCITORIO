@@ -5649,12 +5649,15 @@
         const priceWrapEl = document.getElementById('detPriceWrap');
         const priceEl = document.getElementById('detPrice');
         const actionsRow = document.getElementById('detHeaderActionsRow');
+        const addPillWrap = document.getElementById('detAddPillWrap');
         const addBtn = document.getElementById('detAddCartBtn');
         const subBtn = document.getElementById('detSubCartBtn');
         const remAllBtn = document.getElementById('detRemoveAllCartBtn');
+        const oosBtn = document.getElementById('detOutOfStockRequestBtn');
         const varStep = document.getElementById('detVariantsStep');
         const singleStep = document.getElementById('detSingleStep');
         const varList = document.getElementById('detVariantsList');
+        const guestModeGrp = typeof isGuestSession === 'function' && isGuestSession();
 
         if (crumbEl) {
             crumbEl.textContent = '';
@@ -5669,10 +5672,12 @@
         }
         if (priceEl) priceEl.textContent = '';
         if (priceWrapEl) priceWrapEl.classList.add('hidden');
-        if (actionsRow) actionsRow.classList.add('hidden');
+        if (actionsRow) actionsRow.classList.toggle('hidden', guestModeGrp);
+        if (addPillWrap) addPillWrap.classList.add('hidden');
         if (addBtn) addBtn.classList.add('hidden');
         if (subBtn) subBtn.classList.add('hidden');
         if (remAllBtn) remAllBtn.classList.add('hidden');
+        if (oosBtn) oosBtn.classList.toggle('hidden', guestModeGrp);
 
         function normWordForVariant(w) {
             return String(w || '')
@@ -6240,6 +6245,12 @@
                 varList.innerHTML = variantEntries.map(renderVariantCardHtml).join('');
             }
 
+            if (varList.classList) {
+                const rawVarHtml = String(varList.innerHTML || '');
+                const isCompactChoiceGrid = rawVarHtml.indexOf('inv-fabric-choice-card') !== -1 || rawVarHtml.indexOf('inv-bed-size-card') !== -1;
+                varList.classList.toggle('inv-variants-compact-choices', isCompactChoiceGrid);
+            }
+
             varList.querySelectorAll('[data-bed-size-select-key]').forEach(cardEl => {
                 cardEl.onclick = function () {
                     const sKey = cardEl.getAttribute('data-bed-size-select-key') || '';
@@ -6479,9 +6490,11 @@
         const priceEl = document.getElementById('detPrice');
         const discInp = document.getElementById('detVisualDiscInput');
         const actionsRow = document.getElementById('detHeaderActionsRow');
+        const addPillWrap = document.getElementById('detAddPillWrap');
         const addBtn = document.getElementById('detAddCartBtn');
         const subBtn = document.getElementById('detSubCartBtn');
         const remAllBtn = document.getElementById('detRemoveAllCartBtn');
+        const oosBtn = document.getElementById('detOutOfStockRequestBtn');
         const guestMode = typeof isGuestSession === 'function' && isGuestSession();
 
         if (crumbEl) {
@@ -6538,11 +6551,14 @@
         const q = (!guestMode && cart[key]) ? (Number(cart[key].qty) || 0) : 0;
         if (guestMode) {
             if (actionsRow) actionsRow.classList.add('hidden');
+            if (addPillWrap) addPillWrap.classList.add('hidden');
             if (addBtn) addBtn.classList.add('hidden');
             if (subBtn) subBtn.classList.add('hidden');
             if (remAllBtn) remAllBtn.classList.add('hidden');
+            if (oosBtn) oosBtn.classList.add('hidden');
         } else {
             if (actionsRow) actionsRow.classList.remove('hidden');
+            if (addPillWrap) addPillWrap.classList.remove('hidden');
             if (addBtn) {
                 addBtn.classList.remove('hidden');
                 addBtn.textContent = q > 0 ? ('Agregar (' + q + ')') : 'Agregar';
@@ -6552,6 +6568,9 @@
             }
             if (remAllBtn) {
                 remAllBtn.classList.add('hidden');
+            }
+            if (oosBtn) {
+                oosBtn.classList.remove('hidden');
             }
         }
 
@@ -11294,6 +11313,7 @@
         window.closeInAppModules({ skipCheckpoint: true });
         if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
         if (typeof window.closeSettingsModal === 'function') window.closeSettingsModal();
+        if (typeof window.closeOutOfStockRequestModal === 'function') window.closeOutOfStockRequestModal();
         try {
             if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(KEVIN_ROLE_PREVIEW_KEY);
             localStorage.removeItem(INV_SESSION_STARTED_AT_KEY);
@@ -16770,6 +16790,13 @@
                     undo: function () { window.closeInstallAppModal(); },
                     escapeAllowed: true
                 },
+                // Priority 2a: Out-of-Stock Demand Request Modal (z-index: 92)
+                {
+                    id: 'out_of_stock_request_modal',
+                    isActive: function () { return isModalOpenById('outOfStockRequestModal'); },
+                    undo: function () { window.closeOutOfStockRequestModal(); },
+                    escapeAllowed: true
+                },
                 // Priority 2b: Settings Modal (z-index: 86)
                 {
                     id: 'settings_modal',
@@ -18721,6 +18748,215 @@
         }
     };
 
+    // ========================================================================
+    // REGISTRO DE DEMANDA / PIEZAS SOLICITADAS SIN STOCK (DEMANDA_SIN_STOCK)
+    // ========================================================================
+    const INV_OOS_LOCAL_BACKUP_KEY = 'creata_inv_oos_requests_backup_v1';
+    let oosReqInFlight = false;
+    let oosReqActiveContext = null;
+
+    function computeStockSummaryForDemandItem(it) {
+        if (!it || !Array.isArray(it.st)) return 'Sin dato de stock';
+        const lppt = Math.max(0, Number(it.st[0]) || 0);
+        let storeTotal = 0;
+        for (let i = 1; i < it.st.length; i++) {
+            storeTotal += Math.max(0, Number(it.st[i]) || 0);
+        }
+        if (storeTotal === 0 && lppt === 0) return '0 en tiendas · 0 LPPT (Agotado)';
+        return storeTotal + ' en tiendas/CEDIS · ' + lppt + ' LPPT';
+    }
+
+    function buildOutOfStockRequestContext(itemOverride, groupOverride) {
+        const it = itemOverride || currentDetailItem || null;
+        const grp = groupOverride || currentGroup || null;
+        if (it) {
+            const sku = cleanStr(it.s).toUpperCase();
+            const modelName = stripDimensionsFromProductText(it.n) || cleanStr(it._groupTitle) || sku;
+            const category = cleanStr(it.c || (grp && grp.category) || '');
+            const varParts = [];
+            const bedSz = (typeof resolveItemBedSize === 'function') ? resolveItemBedSize(it) : null;
+            if (bedSz && bedSz.key && bedSz.key !== 'UNSPECIFIED' && bedSz.label) {
+                varParts.push(bedSz.label);
+            }
+            const fabText = [cleanStr(it.tl), cleanStr(it.ct)].filter(Boolean).join(' ').trim();
+            if (fabText) varParts.push(fabText);
+            const woodText = [cleanStr(it.md), cleanStr(it.cm)].filter(Boolean).join(' ').trim();
+            if (!fabText && woodText) varParts.push(woodText);
+            return {
+                sku: sku,
+                modelName: modelName.toUpperCase(),
+                category: category,
+                variantInfo: varParts.join(' · '),
+                stockSummary: computeStockSummaryForDemandItem(it)
+            };
+        }
+        if (grp) {
+            const itemsArr = Array.isArray(grp.items) ? grp.items : [];
+            const sample = itemsArr[0] || null;
+            const sku = sample && sample.s ? cleanStr(sample.s).toUpperCase() : cleanStr(grp.key).toUpperCase();
+            const modelName = cleanStr(grp.displayTitle || grp.title || sku).toUpperCase();
+            const category = cleanStr((sample && sample.c) || grp.category || '');
+            const varParts = [];
+            if (currentGroupBedSizeKey) varParts.push(currentGroupBedSizeKey);
+            if (currentGroupFabricKey) varParts.push(currentGroupFabricKey);
+            return {
+                sku: sku,
+                modelName: modelName,
+                category: category,
+                variantInfo: varParts.join(' · '),
+                stockSummary: itemsArr.length ? ('Grupo (' + itemsArr.length + ' variantes)') : 'Sin stock'
+            };
+        }
+        return {
+            sku: '',
+            modelName: '',
+            category: '',
+            variantInfo: '',
+            stockSummary: 'Sin dato de stock'
+        };
+    }
+
+    function saveOutOfStockRequestLocalBackup(entry) {
+        try {
+            const raw = localStorage.getItem(INV_OOS_LOCAL_BACKUP_KEY);
+            const arr = raw ? (JSON.parse(raw) || []) : [];
+            if (Array.isArray(arr)) {
+                arr.unshift(entry);
+                localStorage.setItem(INV_OOS_LOCAL_BACKUP_KEY, JSON.stringify(arr.slice(0, 60)));
+            }
+        } catch (e) {}
+    }
+
+    window.openOutOfStockRequestModal = function () {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return;
+        const modal = document.getElementById('outOfStockRequestModal');
+        if (!modal) return;
+
+        const ctx = buildOutOfStockRequestContext();
+        oosReqActiveContext = ctx;
+
+        const skuEl = document.getElementById('oosReqSkuInput');
+        const modelEl = document.getElementById('oosReqModelInput');
+        const qtyEl = document.getElementById('oosReqQtyInput');
+        const varEl = document.getElementById('oosReqVariantInput');
+        const comEl = document.getElementById('oosReqCommentsInput');
+        const metaEl = document.getElementById('oosReqMetaSummary');
+        const btnEl = document.getElementById('btnOosReqSubmit');
+
+        if (skuEl) skuEl.value = ctx.sku || '';
+        if (modelEl) modelEl.value = ctx.modelName || '';
+        if (qtyEl) qtyEl.value = '1';
+        if (varEl) varEl.value = ctx.variantInfo || '';
+        if (comEl) comEl.value = '';
+        if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.textContent = '📋 Registrar solicitud';
+        }
+        setSettingsStatusBox('oosReqStatus', '', 'ok');
+
+        const activeStore = isKevinAdvisorPreviewActive()
+            ? getKevinAdvisorPreviewStore()
+            : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || 'Sin tienda');
+        const advName = cleanStr(activeAdvisorSession.nombre || activeAdvisorSession.correo || 'Asesor');
+        if (metaEl) {
+            metaEl.textContent = '📍 ' + activeStore + ' · 👤 ' + advName + ' · 📦 Stock actual: ' + ctx.stockSummary;
+        }
+
+        modal.classList.add('open');
+        notifyInvBackStatePush('out_of_stock_request_modal');
+        setTimeout(function () {
+            if (comEl && typeof comEl.focus === 'function') comEl.focus();
+        }, 40);
+    };
+
+    window.closeOutOfStockRequestModal = function () {
+        const modal = document.getElementById('outOfStockRequestModal');
+        if (modal) modal.classList.remove('open');
+    };
+
+    window.submitOutOfStockRequest = async function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        if (oosReqInFlight || !activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return;
+
+        const skuEl = document.getElementById('oosReqSkuInput');
+        const modelEl = document.getElementById('oosReqModelInput');
+        const qtyEl = document.getElementById('oosReqQtyInput');
+        const varEl = document.getElementById('oosReqVariantInput');
+        const comEl = document.getElementById('oosReqCommentsInput');
+        const btnEl = document.getElementById('btnOosReqSubmit');
+
+        const sku = cleanStr(skuEl ? skuEl.value : '').toUpperCase();
+        const modelName = cleanStr(modelEl ? modelEl.value : '').toUpperCase();
+        const qtyRaw = Number(qtyEl ? qtyEl.value : 1);
+        const qty = (isFinite(qtyRaw) && qtyRaw >= 1) ? Math.min(999, Math.round(qtyRaw)) : 1;
+        const variantInfo = cleanStr(varEl ? varEl.value : '');
+        const comments = cleanStr(comEl ? comEl.value : '');
+
+        if (!sku && !modelName) {
+            setSettingsStatusBox('oosReqStatus', 'Ingresa al menos el SKU o nombre del modelo.', 'err');
+            return;
+        }
+        if (!comments) {
+            setSettingsStatusBox('oosReqStatus', 'Escribe los comentarios de lo que solicita el cliente.', 'err');
+            if (comEl && typeof comEl.focus === 'function') comEl.focus();
+            return;
+        }
+
+        const activeStore = isKevinAdvisorPreviewActive()
+            ? getKevinAdvisorPreviewStore()
+            : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || 'SIN ASIGNAR');
+        const payload = {
+            authToken: activeAdvisorSession.authToken || '',
+            advisorEmail: cleanStr(activeAdvisorSession.correo),
+            sheetTab: cleanStr(activeAdvisorSession.sheetTab),
+            erpStore: activeStore,
+            sku: sku,
+            modelName: modelName,
+            category: cleanStr(oosReqActiveContext && oosReqActiveContext.category),
+            variantInfo: variantInfo,
+            qty: qty,
+            comments: comments,
+            stockSummary: cleanStr(oosReqActiveContext && oosReqActiveContext.stockSummary)
+        };
+
+        oosReqInFlight = true;
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.textContent = 'Registrando...';
+        }
+        setSettingsStatusBox('oosReqStatus', 'Guardando en DEMANDA_SIN_STOCK...', 'warn');
+
+        try {
+            const res = await callInvWebAppPost('inv_register_demand_request', payload, 18000, true);
+            if (res && res.ok) {
+                const folio = cleanStr(res.requestId || '');
+                saveOutOfStockRequestLocalBackup(Object.assign({ synced: true, requestId: folio, savedAt: Date.now() }, payload));
+                setSettingsStatusBox('oosReqStatus', '✓ Solicitud registrada en DEMANDA_SIN_STOCK' + (folio ? (' (' + folio + ')') : '') + '.', 'ok');
+                if (typeof showToast === 'function') {
+                    showToast('Solicitud sin stock registrada' + (folio ? (' · ' + folio) : '') + '.');
+                }
+                setTimeout(function () {
+                    window.closeOutOfStockRequestModal();
+                }, 900);
+            } else {
+                saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                const errMsg = (res && res.error)
+                    ? res.error
+                    : 'No se pudo conectar con Apps Script (actualiza la implementación de Control de Productos para guardar en DEMANDA_SIN_STOCK).';
+                setSettingsStatusBox('oosReqStatus', errMsg, 'warn');
+            }
+        } catch (err) {
+            saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+            setSettingsStatusBox('oosReqStatus', 'Error de red al guardar. Respaldo guardado en este dispositivo.', 'err');
+        } finally {
+            oosReqInFlight = false;
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.textContent = '📋 Registrar solicitud';
+            }
+        }
+    };
+
     try {
         applyAllProductOverridesToCatalog();
         setTimeout(() => { syncProductOverridesFromCloud(false); }, 1800);
@@ -18738,6 +18974,8 @@
             getActiveAdminPermissions: getActiveAdminPermissions,
             settingsTeamPresenceState: settingsTeamPresenceState,
             CANONICAL_SQUARE_UPLOAD_PX: CANONICAL_SQUARE_UPLOAD_PX,
+            buildOutOfStockRequestContext: buildOutOfStockRequestContext,
+            computeStockSummaryForDemandItem: computeStockSummaryForDemandItem,
             canonicalizeFabricAliases: canonicalizeFabricAliases,
             stripFabricGradeAndVendorNoise: stripFabricGradeAndVendorNoise,
             normalizeFabricLookupKey: normalizeFabricLookupKey,

@@ -24,7 +24,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=7">
-    <link rel="stylesheet" href="./inventario-ui.css?v=19">
+    <link rel="stylesheet" href="./inventario-ui.css?v=20">
 </head>
 <body>
 
@@ -232,25 +232,32 @@
                             class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold border shrink-0"
                             style="border-color:#E8E4DE; color:#252C32;" aria-label="Cerrar">✕</button>
                 </div>
-                <!-- FILA 2: BOTÓN DE AGREGAR DEBAJO DEL TÍTULO (CON DESCUENTO DE PIEZAS INTEGRADO) -->
-                <div id="detHeaderActionsRow" class="flex flex-wrap items-center gap-1.5 mt-1.5">
-                    <div id="detAddPillWrap" class="inv-det-add-pill inline-flex items-center">
-                        <button type="button" id="detSubCartBtn" onclick="subtractCurrentDetailFromCart()"
-                                title="Descontar 1 pieza de la cotización"
-                                class="hidden inv-det-action-btn inv-det-sub-btn flex items-center justify-center transition"
-                                aria-label="Descontar 1 pieza">
-                            −
-                        </button>
-                        <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
-                                class="inv-det-action-btn inv-det-add-btn uppercase tracking-wider transition">
-                            Agregar
+                <!-- FILA 2: BOTÓN DE AGREGAR (IZQ.) Y SOLICITAR SIN STOCK (DER.) DEBAJO DEL TÍTULO -->
+                <div id="detHeaderActionsRow" class="flex flex-wrap items-center justify-between gap-1.5 mt-1.5 w-full">
+                    <div class="inline-flex flex-wrap items-center gap-1.5">
+                        <div id="detAddPillWrap" class="inv-det-add-pill inline-flex items-center">
+                            <button type="button" id="detSubCartBtn" onclick="subtractCurrentDetailFromCart()"
+                                    title="Descontar 1 pieza de la cotización"
+                                    class="hidden inv-det-action-btn inv-det-sub-btn flex items-center justify-center transition"
+                                    aria-label="Descontar 1 pieza">
+                                −
+                            </button>
+                            <button type="button" id="detAddCartBtn" onclick="addCurrentDetailToCart()"
+                                    class="inv-det-action-btn inv-det-add-btn uppercase tracking-wider transition">
+                                Agregar
+                            </button>
+                        </div>
+                        <button type="button" id="detRemoveAllCartBtn" onclick="removeCurrentDetailFromCart()"
+                                title="Quitar producto de la cotización"
+                                class="hidden inv-det-action-btn uppercase tracking-wider border transition"
+                                style="border-color:#FECACA; background:#FEF2F2; color:#991B1B;">
+                            Quitar
                         </button>
                     </div>
-                    <button type="button" id="detRemoveAllCartBtn" onclick="removeCurrentDetailFromCart()"
-                            title="Quitar producto de la cotización"
-                            class="hidden inv-det-action-btn uppercase tracking-wider border transition"
-                            style="border-color:#FECACA; background:#FEF2F2; color:#991B1B;">
-                        Quitar
+                    <button type="button" id="detOutOfStockRequestBtn" onclick="openOutOfStockRequestModal()"
+                            title="Registrar pieza solicitada por cliente que no está disponible"
+                            class="inv-det-action-btn inv-det-oos-btn uppercase tracking-wider transition">
+                        📋 Sin stock / Solicitar
                     </button>
                 </div>
             </div>
@@ -1268,6 +1275,52 @@
         </div>
     </div>
 
+    <!-- MODAL REGISTRAR PIEZA SOLICITADA SIN STOCK (DEMANDA_SIN_STOCK) -->
+    <div id="outOfStockRequestModal" class="modal-backdrop" style="z-index:92;" onclick="if(event.target===this) closeOutOfStockRequestModal()">
+        <div class="inv-modal-card inv-oos-modal-card" role="dialog" aria-modal="true" aria-labelledby="oosReqModalTitle" onclick="event.stopPropagation()">
+            <div class="inv-modal-head">
+                <div class="min-w-0">
+                    <div class="text-[10px] font-extrabold uppercase tracking-wider" style="color:#A38251;">Demanda sin stock · Donde atacar</div>
+                    <h3 id="oosReqModalTitle" class="inv-modal-title truncate">Registrar pieza solicitada</h3>
+                </div>
+                <button type="button" onclick="closeOutOfStockRequestModal()" class="inv-modal-close" aria-label="Cerrar">✕</button>
+            </div>
+            <form id="oosReqForm" class="inv-modal-body space-y-2.5" onsubmit="submitOutOfStockRequest(event)">
+                <p class="text-[11.5px] leading-snug" style="color:#5B554D;">
+                    Registra las piezas que pide el cliente y no hay disponibles. El SKU y el nombre del modelo se llenan automáticamente y se guardan en <strong>DEMANDA_SIN_STOCK</strong>.
+                </p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div class="inv-field sm:col-span-2">
+                        <label for="oosReqSkuInput" class="inv-field-label">SKU (automático)</label>
+                        <input id="oosReqSkuInput" type="text" class="inv-input font-mono uppercase" placeholder="SKU del producto" maxlength="64" required>
+                    </div>
+                    <div class="inv-field">
+                        <label for="oosReqQtyInput" class="inv-field-label">Piezas</label>
+                        <input id="oosReqQtyInput" type="number" min="1" max="999" step="1" value="1" class="inv-input" required>
+                    </div>
+                </div>
+                <div class="inv-field">
+                    <label for="oosReqModelInput" class="inv-field-label">Nombre del modelo (automático)</label>
+                    <input id="oosReqModelInput" type="text" class="inv-input uppercase" placeholder="Nombre del modelo" maxlength="160" required>
+                </div>
+                <div class="inv-field">
+                    <label for="oosReqVariantInput" class="inv-field-label">Color / Tela / Tamaño solicitado (opcional)</label>
+                    <input id="oosReqVariantInput" type="text" class="inv-input" placeholder="Ej. Tela Arena · King Size · Derecha" maxlength="140">
+                </div>
+                <div class="inv-field">
+                    <label for="oosReqCommentsInput" class="inv-field-label">Comentarios del cliente / faltante</label>
+                    <textarea id="oosReqCommentsInput" rows="3" class="inv-input inv-oos-textarea" placeholder="Ej. Cliente necesita 2 piezas para entrega inmediata, en tienda y CEDIS está en 0. Preguntó si llega esta semana." maxlength="600" required></textarea>
+                </div>
+                <div id="oosReqMetaSummary" class="inv-oos-meta-chip"></div>
+                <div id="oosReqStatus" class="inv-settings-status hidden"></div>
+                <div class="inv-modal-foot" style="padding:8px 0 0; border-top:1px solid #ECE7DE; justify-content:flex-end; gap:8px;">
+                    <button type="button" onclick="closeOutOfStockRequestModal()" class="inv-btn-secondary">Cancelar</button>
+                    <button type="submit" id="btnOosReqSubmit" class="inv-btn-primary">📋 Registrar solicitud</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script src="creata-finishes.js?v=33"></script>
     <script src="creata-img.js?v=33"></script>
     <script src="creata-cloud.js?v=33"></script>
@@ -1277,6 +1330,6 @@
     <script src="./creata-back-nav.js?v=1"></script>
     <script src="./seguimiento-app.js?v=9"></script>
     <script src="./historial-app.js?v=9"></script>
-    <script src="inventario-app.js?v=95"></script>
+    <script src="inventario-app.js?v=96"></script>
 </body>
 </html>

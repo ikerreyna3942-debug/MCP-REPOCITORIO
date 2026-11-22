@@ -1146,6 +1146,16 @@ function doPost(e) {
         return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : 'Error al guardar producto.' });
       }
     }
+    if (action === 'inv_register_demand_request') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_demand_req', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión no válida.' });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvRegisterDemandRequest_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : 'Error al registrar solicitud sin stock.' });
+      }
+    }
     if (action === 'inv_ensure_invitados') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
@@ -13507,6 +13517,158 @@ function handleInvProductOverrideSave_(body) {
     try { lock.releaseLock(); } catch (eRel) {}
   }
 }
+
+// ============================================================================
+// REGISTRO DE DEMANDA / PIEZAS SOLICITADAS SIN STOCK (DEMANDA_SIN_STOCK)
+// ============================================================================
+const TAB_DEMANDA_SIN_STOCK_ = 'DEMANDA_SIN_STOCK';
+
+function ensureDemandaSinStockSheet_(ss) {
+  const book = ss || getSpreadsheet_();
+  let sh = book.getSheetByName(TAB_DEMANDA_SIN_STOCK_);
+  if (!sh) {
+    sh = book.insertSheet(TAB_DEMANDA_SIN_STOCK_);
+  }
+  const headers = [
+    'FECHA_HORA',
+    'ID_SOLICITUD',
+    'SKU',
+    'NOMBRE_MODELO',
+    'CATEGORIA',
+    'COLOR_TELA_TAMANO',
+    'PIEZAS_SOLICITADAS',
+    'COMENTARIOS',
+    'STOCK_SISTEMA_ACTUAL',
+    'TIENDA_SUCURSAL',
+    'ASESOR',
+    'CORREO_ASESOR',
+    'ESTATUS'
+  ];
+  if (sh.getLastRow() < 2) {
+    sh.getRange(1, 1, 1, headers.length).setValues([[
+      'CREATA · REGISTRO DE DEMANDA Y PIEZAS SOLICITADAS SIN STOCK (DONDE ATACAR)',
+      '', '', '', '', '', '', '', '', '', '', '', ''
+    ]]);
+    sh.getRange(2, 1, 1, headers.length).setValues([headers]);
+    try {
+      sh.getRange(1, 1, 1, headers.length).merge().setFontWeight('bold').setBackground('#252C32').setFontColor('#FFFFFF');
+      sh.getRange(2, 1, 1, headers.length).setFontWeight('bold').setBackground('#A38251').setFontColor('#FFFFFF').setHorizontalAlignment('center');
+      sh.setFrozenRows(2);
+    } catch (eFmt) {}
+  }
+  return sh;
+}
+
+function handleInvRegisterDemandRequest_(body) {
+  const b = body || {};
+  const ss = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+  const auth = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, b);
+  if (!auth || !auth.ok || !auth.advisor) {
+    return {
+      ok: false,
+      authRequired: true,
+      error: (auth && auth.error) || 'Sesión no válida. Inicia sesión para registrar solicitudes.'
+    };
+  }
+  const advisor = auth.advisor;
+  if (advisor.isGuest || String(advisor.sheetTab || '').trim().toUpperCase() === 'INVITADOS') {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Las cuentas de Invitado (Solo ver) no pueden registrar solicitudes internas.'
+    };
+  }
+
+  const sku = sanitizeOverrideTextCell_(String(b.sku || '').trim().toUpperCase(), 64);
+  const modelName = sanitizeOverrideTextCell_(String(b.modelName || b.nombreModelo || '').trim(), 160);
+  const category = sanitizeOverrideTextCell_(String(b.category || b.categoria || '').trim(), 80);
+  const variantInfo = sanitizeOverrideTextCell_(String(b.variantInfo || b.colorTela || '').trim(), 140);
+  const comments = sanitizeOverrideTextCell_(String(b.comments || b.comentarios || '').trim(), 600);
+  const stockSummary = sanitizeOverrideTextCell_(String(b.stockSummary || b.stockActual || '').trim(), 160);
+  const qtyRaw = Number(b.qty || b.piezas || 1);
+  const qty = (isFinite(qtyRaw) && qtyRaw >= 1) ? Math.min(999, Math.round(qtyRaw)) : 1;
+
+  if (!sku && !modelName) {
+    return { ok: false, error: 'Ingresa al menos el SKU o nombre del modelo.' };
+  }
+  if (!comments) {
+    return { ok: false, error: 'Escribe un comentario con lo que solicita el cliente.' };
+  }
+
+  const storeRaw = String(b.erpStore || b.sucursal || advisor.erpStore || advisor.branchLabel || advisor.sheetTab || '').trim();
+  const storeSafe = sanitizeOverrideTextCell_(storeRaw || 'SIN ASIGNAR', 80);
+  const advisorNameSafe = sanitizeOverrideTextCell_(String(advisor.nombre || advisor.correo || 'Asesor').trim(), 100);
+  const advisorEmailSafe = sanitizeOverrideTextCell_(String(advisor.correo || '').trim().toLowerCase(), 120);
+  const nowStr = formatCancunNow_();
+  const nowDt = new Date();
+  const stamp = Utilities.formatDate(nowDt, 'America/Cancun', 'yyyyMMdd');
+  const randSuffix = String(Math.floor(1000 + Math.random() * 9000));
+  const requestId = 'DEM-' + stamp + '-' + randSuffix;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureDemandaSinStockSheet_(ss);
+    const nextRow = Math.max(3, sh.getLastRow() + 1);
+    const rowValues = [[
+      nowStr,
+      requestId,
+      sku,
+      modelName,
+      category,
+      variantInfo,
+      qty,
+      comments,
+      stockSummary,
+      storeSafe,
+      advisorNameSafe,
+      advisorEmailSafe,
+      'PENDIENTE'
+    ]];
+    sh.getRange(nextRow, 1, 1, 13).setValues(rowValues);
+    SpreadsheetApp.flush();
+
+    try {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'Demanda sin stock',
+        evento: 'SOLICITUD SIN STOCK',
+        estado: '📋 PENDIENTE',
+        usuario: advisorNameSafe + ' (' + advisorEmailSafe + ')',
+        sucursal: storeSafe,
+        referencia: sku.replace(/^'/, '') || requestId,
+        detalle: qty + ' pz · ' + modelName.replace(/^'/, '') + (variantInfo ? (' · ' + variantInfo.replace(/^'/, '')) : '') + ' · ' + comments.replace(/^'/, '').slice(0, 140),
+        analisis: 'Registrado en ' + TAB_DEMANDA_SIN_STOCK_ + ' (' + requestId + ') para análisis de reposición.'
+      });
+    } catch (eHist) {}
+
+    return {
+      ok: true,
+      requestId: requestId,
+      tabName: TAB_DEMANDA_SIN_STOCK_,
+      rowNum: nextRow,
+      record: {
+        fechaHora: nowStr,
+        requestId: requestId,
+        sku: sku.replace(/^'/, ''),
+        modelName: modelName.replace(/^'/, ''),
+        category: category.replace(/^'/, ''),
+        variantInfo: variantInfo.replace(/^'/, ''),
+        qty: qty,
+        comments: comments.replace(/^'/, ''),
+        stockSummary: stockSummary.replace(/^'/, ''),
+        store: storeSafe.replace(/^'/, ''),
+        advisorName: advisorNameSafe.replace(/^'/, ''),
+        advisorEmail: advisorEmailSafe.replace(/^'/, ''),
+        status: 'PENDIENTE'
+      }
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
+  }
+}
+
 
 
 
