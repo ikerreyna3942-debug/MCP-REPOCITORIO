@@ -720,4 +720,87 @@ test('Turn 8 — Deprecated prompts.html & suite/ removed; Cotizador, Fotos, and
   assert.ok(panelJs.includes('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel.html'));
 });
 
+test('Turn 9 — SALA ASHA classifies as FUTONES & SOFÁ CAMAS (SOFÁ CAMA ASHA) and manual _INV_PRODUCT_OVERRIDES category edits are honored immediately', () => {
+  const invJs = readRepo('inventario-app.js');
+  const invHtml = readRepo('inventario.html');
+  const fotosJs = readRepo('fotos-productos-app.js');
+  const gasSrc = readRepo('AppsScript_Creata_Drive_Sheets.gs');
+
+  assert.match(invHtml, /id="settingsProdCategoryOptions"/);
+  assert.match(invHtml, /<option value="FUTONES &amp; SOFÁ CAMAS"><\/option>/);
+  assert.match(fotosJs, /SOFA\\s\*CAMAS\?\|\\bSALA\\s\+ASHA\\b/);
+  assert.match(gasSrc, /SOFA\\s\*CAMAS\?\|\\bSALA\\s\+ASHA\\b/);
+
+  const store = new Map();
+  const sb = {
+    window: {},
+    document: {
+      readyState: 'loading',
+      addEventListener: () => {},
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      createElement: () => ({ style: {}, classList: { add: () => {}, remove: () => {}, toggle: () => {} }, setAttribute: () => {} }),
+      body: { classList: { add: () => {}, remove: () => {}, toggle: () => {} }, appendChild: () => {} }
+    },
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    navigator: { onLine: true, userAgent: 'node' },
+    location: { href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/inventario.html', search: '', hash: '' },
+    URL,
+    URLSearchParams,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    setInterval: () => 1,
+    clearInterval: () => {},
+    requestAnimationFrame: (fn) => fn(),
+    console
+  };
+  sb.window = sb;
+  sb.window.addEventListener = () => {};
+  sb.window.CREATA_INV_DATA = [
+    { s: 'KUDSCAASHBROA', tp: 'SALA', mo: 'ASHA', n: 'SALA ASHA BRAXTON OAT', vr: 'BRAXTON OAT', c: 'SALAS & SOFÁS', tl: 'BRAXTON OAT', ct: 'OAT', m: '263X115X76 CM', p: 'KUDU', pr: '$53,421.65', st: [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { s: 'KUDSCAASHBRSN', tp: 'SOFA CAMA', mo: 'ASHA', n: 'SALA ASHA BRAXTON SNOW', vr: 'BRAXTON SNOW', c: 'SALAS & SOFÁS', tl: 'BRAXTON SNOW', ct: 'SNOW', m: '263X115X76 CM', p: 'KUDU', pr: '$53,421.65', st: [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { s: 'ASHA1000578', tp: 'COJIN', mo: 'THEMLA', n: 'Cojin Themla Black White Pillow', vr: 'BLACK WHITE', c: 'COJINES & TEXTILES', tl: 'WHITE', ct: 'BLANCO', p: 'SKANOR', pr: '$1,404.95', st: [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { s: 'TESTSOFAMOV01', tp: 'SOFA', mo: 'MILAN', n: 'SOFA MILAN BEIGE', vr: 'BEIGE', c: 'SALAS & SOFÁS', tl: 'LINO', ct: 'BEIGE', p: 'TEST', pr: '$25,000.00', st: [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { s: 'SKSILTKIGIABN', tp: 'SILLA', mo: 'GIARA', n: 'GIARA SILLA PATA TECA ENTINTADO BLEND NATURAL', vr: 'BLEND NATURAL', c: 'SILLAS & SILLONES', tl: 'BLEND', ct: 'NATURAL', p: 'SKANOR', pr: '$6,500.00', st: [0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+  ];
+  sb.window.CREATA_INV_META = { sheetId: '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8' };
+
+  const instrumented = invJs.replace(
+    'window.__CREATA_INV_AUDIT__ = {',
+    'window.__TURN9__ = { allItems: () => allItems, allGroups: () => allGroups, indexItemsAndGroups, applyAllProductOverridesToCatalog, resolveManualSubcategoryOverride }; window.__CREATA_INV_AUDIT__ = {'
+  );
+  vm.runInNewContext(instrumented, sb, { filename: 'inventario-app.js' });
+  const t9 = sb.window.__TURN9__;
+  const hooks = sb.window.__CREATA_INV_AUDIT__;
+
+  // 1) SALA ASHA classifies in FUTONES & SOFÁ CAMAS even when tp='SALA' and groups as SOFÁ CAMA ASHA
+  t9.indexItemsAndGroups();
+  const bySku1 = new Map(t9.allItems().map((x) => [x.s, x]));
+  assert.equal(bySku1.get('KUDSCAASHBROA')._cat, 'FUTONES & SOFÁ CAMAS');
+  assert.equal(bySku1.get('KUDSCAASHBROA')._main, 'SALAS');
+  assert.equal(bySku1.get('KUDSCAASHBRSN')._cat, 'FUTONES & SOFÁ CAMAS');
+  assert.equal(bySku1.get('ASHA1000578')._cat, 'COJINES & TEXTILES', 'Cojin with SKU prefix ASHA must remain in COJINES & TEXTILES');
+  const ashaGroup = t9.allGroups().find((g) => g.items.some((i) => i.s === 'KUDSCAASHBROA'));
+  assert.ok(ashaGroup, 'ASHA group must exist');
+  assert.equal(ashaGroup.title, 'SOFÁ CAMA ASHA');
+  assert.equal(ashaGroup.items.length, 2, 'Both BRAXTON OAT and BRAXTON SNOW must group under SOFÁ CAMA ASHA');
+
+  // 2) Manual category override in _INV_PRODUCT_OVERRIDES (including casual "Sofa camas") moves product immediately,
+  //    while broad ERP category "SILLAS & SILLONES" keeps falling through to SILLAS
+  hooks.saveLocalProductOverridesMap({
+    TESTSOFAMOV01: { sku: 'TESTSOFAMOV01', status: 'VISIBLE', name: 'SOFA MILAN BEIGE', category: 'Sofa camas' },
+    SKSILTKIGIABN: { sku: 'SKSILTKIGIABN', status: 'VISIBLE', name: 'GIARA SILLA PATA TECA ENTINTADO BLEND NATURAL', category: 'SILLAS & SILLONES' }
+  });
+  t9.applyAllProductOverridesToCatalog();
+  t9.indexItemsAndGroups();
+  const bySku2 = new Map(t9.allItems().map((x) => [x.s, x]));
+  assert.equal(bySku2.get('TESTSOFAMOV01')._cat, 'FUTONES & SOFÁ CAMAS', 'Manual "Sofa camas" override must move item to FUTONES & SOFÁ CAMAS');
+  assert.equal(bySku2.get('SKSILTKIGIABN')._cat, 'SILLAS', 'Broad ERP category "SILLAS & SILLONES" must still auto-classify SILLA as SILLAS');
+  assert.equal(t9.resolveManualSubcategoryOverride('Sillones'), 'SILLONES');
+  assert.equal(t9.resolveManualSubcategoryOverride('Salas en L'), 'SALAS EN L');
+  assert.equal(t9.resolveManualSubcategoryOverride('VISUAL_COVER'), '');
+});
+
 
