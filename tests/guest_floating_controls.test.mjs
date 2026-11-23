@@ -15,6 +15,8 @@ test('Guest floating menu markup & CSS styles exist in inventario.html and inven
   assert(html.includes('Cambiar contraseña'), 'Missing guest password button label');
   assert(html.includes('Subir foto'), 'Missing upload photo button label');
   assert(html.includes('Salir'), 'Missing Salir button label');
+  assert(!html.includes('id="headerLogoutBtn"'), 'Salir button must not appear on main header');
+  assert(!html.includes('class="inv-guest-exit"'), 'Guest Salir button must not appear on main header');
 
   const css = fs.readFileSync('inventario-ui.css', 'utf8');
   assert(css.includes('#invFabRoot .inv-fab-item-danger'), 'Missing .inv-fab-item-danger CSS rule');
