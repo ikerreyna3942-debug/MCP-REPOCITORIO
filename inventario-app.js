@@ -10570,7 +10570,6 @@
         const headerSwitchStoreBtnText = document.getElementById('headerSwitchStoreBtnText');
         const headerExtraWrap = document.getElementById('invHeaderExtra');
         const headerHistBtn = document.getElementById('headerHistorialBtn');
-        const headerLogoutBtn = document.getElementById('headerLogoutBtn');
         const guestBadgeWrap = document.getElementById('headerGuestBadgeWrap');
         const guestBadgeText = document.getElementById('headerGuestBadgeText');
 
@@ -10606,9 +10605,6 @@
         }
         if (!canSeeHistorial && activeInAppModule === 'historial' && typeof window.closeInAppModules === 'function') {
             window.closeInAppModules();
-        }
-        if (headerLogoutBtn) {
-            headerLogoutBtn.classList.toggle('hidden', !isAuthed || guestMode);
         }
 
         if (fabRoot) {
