@@ -363,7 +363,6 @@ test('Frontend HTML/JS contracts: CUENTAS ADMINISTRATIVAS chips, Invitados filte
   const histJs = fs.readFileSync('historial-app.js', 'utf8');
   const panelJs = fs.readFileSync('panel-app.js', 'utf8');
   const fotosJs = fs.readFileSync('fotos-productos-app.js', 'utf8');
-  const promptsJs = fs.readFileSync('prompts-app.js', 'utf8');
 
   // HTML hooks for live guests & admin per-column permissions
   assert.ok(invHtml.includes('id="settingsTeamFilterGuests"'), 'Missing Invitados filter button in Settings modal');
@@ -372,7 +371,7 @@ test('Frontend HTML/JS contracts: CUENTAS ADMINISTRATIVAS chips, Invitados filte
   assert.ok(invHtml.includes('id="settingsAdminPermsCountBadge"'), 'Missing #settingsAdminPermsCountBadge');
   assert.ok(invHtml.includes('id="btnSettingsOpenHistorialLink"'), 'Missing #btnSettingsOpenHistorialLink');
 
-  // JS contracts across inventario, historial, panel, fotos, prompts
+  // JS contracts across inventario, historial, panel, fotos
   assert.ok(invJs.includes('CANONICAL_SQUARE_UPLOAD_PX = 2048'), 'inventario-app.js must normalize square uploads to 2048px');
   assert.ok(invJs.includes("setSettingsTeamPresenceFilter = function (mode)"), 'Missing setSettingsTeamPresenceFilter');
   assert.ok(invJs.includes("mode === 'GUESTS'"), 'Settings presence filter must support GUESTS');
@@ -381,74 +380,22 @@ test('Frontend HTML/JS contracts: CUENTAS ADMINISTRATIVAS chips, Invitados filte
   assert.ok(histJs.includes('adminPermissions.equipoInvitados === false'), 'Historial must hide presence panel when VER_EQUIPO_Y_INVITADOS=NO');
   assert.ok(panelJs.includes('perms.panelSuite === true'), 'panel-app.js must honor VER_PANEL_SUITE=SI for admins');
   assert.ok(fotosJs.includes('perms.fotosApp === true'), 'fotos-productos-app.js must honor VER_FOTOS_APP=SI for admins');
-  assert.ok(promptsJs.includes('perms.promptsIa === true'), 'prompts-app.js must honor VER_PROMPTS_IA=SI for admins');
+  assert.ok(invJs.includes("hasAdminPerm('promptsIa')"), 'inventario-app.js must gate Prompts IA launcher on VER_PROMPTS_IA');
 });
 
-test('Prompts Studio V8 (MCP-REPOCITORIO): 2048x2048, distinct 3/4 Right vs 3/4 Left with live setField refresh, and Nano Banana 2.1 vs Gemini 3 Pro Image', () => {
-  const studioSrc = fs.readFileSync('prompts-studio-v8.js', 'utf8');
+test('Official Prompts routing: prompts.html & suite/ removed, launchers point to https://buena-espero.onrender.com/, and AppsScript_Prompts_Odoo.gs uses =s2048', () => {
+  assert.equal(fs.existsSync('prompts.html'), false, 'Deprecated prompts.html must stay removed');
+  assert.equal(fs.existsSync('prompts-app.js'), false, 'Deprecated prompts-app.js must stay removed');
+  assert.equal(fs.existsSync('prompts-studio-v8.js'), false, 'Deprecated prompts-studio-v8.js must stay removed');
+  assert.equal(fs.existsSync('suite/index.html'), false, 'Deprecated suite/index.html must stay removed');
+
+  const invJs = fs.readFileSync('inventario-app.js', 'utf8');
+  const fotosJs = fs.readFileSync('fotos-productos-app.js', 'utf8');
+  const panelJs = fs.readFileSync('panel-app.js', 'utf8');
   const promptsGs = fs.readFileSync('AppsScript_Prompts_Odoo.gs', 'utf8');
 
-  assert.ok(!/2054/.test(studioSrc), 'prompts-studio-v8.js must have ZERO residual 2054 references');
   assert.ok(!/=s2054/.test(promptsGs), 'AppsScript_Prompts_Odoo.gs must use =s2048 instead of =s2054');
-
-  const store = new Map();
-  const sandbox = {
-    window: {},
-    localStorage: {
-      getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k)
-    },
-    document: { getElementById: () => null },
-    Date, Math, JSON, RegExp, Array, Object, String, Number, Boolean, Error, Promise, Set, Map,
-    setTimeout: () => 1, clearTimeout: () => {}
-  };
-  sandbox.window = sandbox;
-  vm.runInNewContext(studioSrc, sandbox, { filename: 'prompts-studio-v8.js' });
-  const studio = sandbox.CreataPromptsStudio;
-
-  // Verify models registry
-  assert.deepEqual(Array.from(studio.IMAGE_MODELS, (m) => m.id), ['gemini-nano-banana-2.1', 'gemini-3-pro-image']);
-
-  // Step 1: Generate V8 SINGLE_VIEW with THREE_QUARTER_RIGHT + Nano Banana 2.1
-  studio.setField('productName', 'Sofá Modular Valenti Chaise Izquierdo');
-  studio.setMode('SINGLE_VIEW');
-  studio.setField('angleId', 'THREE_QUARTER_RIGHT');
-  studio.setField('targetModel', 'gemini-nano-banana-2.1');
-  studio.setField('thinkingLevel', 'high');
-  const rightBlocks = studio.generateNow();
-  assert.equal(rightBlocks.length, 1);
-  const pRight = rightBlocks[0].prompt;
-  assert.match(pRight, /2048x2048/);
-  assert.match(pRight, /gemini-nano-banana-2\.1/);
-  assert.match(pRight, /thinking_level="high"/);
-  assert.match(pRight, /FACING TOWARD THE RIGHT/i);
-  assert.match(pRight, /NEVER facing left/i);
-  assert.match(pRight, /ANTI-MIRROR HANDEDNESS LOCK/i);
-
-  // Step 2: Switch live via setField to THREE_QUARTER_LEFT & Gemini 3 Pro Image (NO extra generateNow needed!)
-  studio.setField('angleId', 'THREE_QUARTER_LEFT');
-  studio.setField('targetModel', 'gemini-3-pro-image');
-  const leftBlocks = studio.getState().generatedBlocks;
-  assert.equal(leftBlocks.length, 1);
-  const pLeft = leftBlocks[0].prompt;
-  assert.notEqual(pRight, pLeft, 'setField must live-refresh prompt when changing 3/4 Right -> 3/4 Left');
-  assert.match(pLeft, /2048x2048/);
-  assert.match(pLeft, /gemini-3-pro-image/);
-  assert.match(pLeft, /FACING TOWARD THE LEFT/i);
-  assert.match(pLeft, /NEVER facing right/i);
-  assert.match(pLeft, /ANTI-MIRROR HANDEDNESS LOCK/i);
-  assert.ok(!/thinking_level=/.test(pLeft), 'Gemini 3 Pro Image prompt must not inject thinking_level');
-
-  // Step 3: Verify V7 1_VISTA with THREE_QUARTER_LEFT does NOT inject contradictory 3/4 Front-Right Hero text
-  const v7Left = studio.generatePrompts({
-    version: 'V7',
-    v7Mode: '1_VISTA',
-    angleId: 'THREE_QUARTER_LEFT',
-    forceThreeQuarterRight: true,
-    productName: 'Silla Brisa'
-  });
-  assert.equal(v7Left.length, 1);
-  assert.match(v7Left[0].prompt, /FACING TOWARD THE LEFT/i);
-  assert.ok(!/FACING TOWARD THE RIGHT/i.test(v7Left[0].prompt), 'V7 1_VISTA 3/4 Left must never inject contradictory Right-facing override');
+  assert.ok(invJs.includes("https://buena-espero.onrender.com/?embed=true"), 'Cotizador split prompts must target Buena Espero Render');
+  assert.ok(fotosJs.includes("https://buena-espero.onrender.com/?embed=true"), 'Fotos split prompts must target Buena Espero Render');
+  assert.ok(panelJs.includes("https://buena-espero.onrender.com/?embed=true"), 'Panel Suite prompts must target Buena Espero Render');
 });

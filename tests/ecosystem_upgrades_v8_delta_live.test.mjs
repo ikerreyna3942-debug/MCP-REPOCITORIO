@@ -255,107 +255,18 @@ test('Fotos App Mobile CSS & Live Auto-Sync: balanced braces, authoritative phon
 });
 
 // ============================================================================
-// 3. PROMPTS NATIVE STUDIO (V8 PRO + V7 + V1) & ALTA DE ODOO (RENDER)
+// 3. OFFICIAL PROMPTS ROUTING (https://buena-espero.onrender.com/) & PROJECT B BACKEND
 // ============================================================================
-test('Prompts Studio Native Engine: ONLY V8/V7/V1 versions, V8 CREATA Pro 2048x2048/78%/#FFFFFF/0% shadows + 100% casco, V7 9 modes, V1 3 engines, clearPhotos preserves settings, zero hardcoded API keys', () => {
-  const studioSrc = readRepoFile('prompts-studio-v8.js');
-  const promptsJs = readRepoFile('prompts-app.js');
-  const promptsCss = readRepoFile('prompts-styles.css');
-  const promptsHtml = readRepoFile('prompts.html');
-
-  assertBalancedCssBraces(promptsCss, 'prompts-styles.css');
-
-  // Security: zero hardcoded Google/Gemini API keys
-  assert.ok(!/AIza[0-9A-Za-z_-]{20,}/.test(studioSrc), 'prompts-studio-v8.js must NEVER contain hardcoded API keys');
-  assert.ok(!/AIza[0-9A-Za-z_-]{20,}/.test(promptsJs), 'prompts-app.js must NEVER contain hardcoded API keys');
-  assert.ok(promptsHtml.includes('id="promptsNativeStudio"'), 'prompts.html must mount native studio container');
-  assert.ok(promptsHtml.includes('id="btnModeAltaOdoo"'), 'prompts.html must provide Alta Odoo (Render) mode switcher');
-
-  // Execute prompts-studio-v8.js in Node VM
-  const store = new Map();
-  const sandbox = {
-    window: {},
-    localStorage: {
-      getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k)
-    },
-    document: { getElementById: () => null },
-    Date, Math, JSON, RegExp, Array, Object, String, Number, Boolean, Error, Promise, Set, Map,
-    setTimeout: () => 1, clearTimeout: () => {}
-  };
-  sandbox.window = sandbox;
-  vm.runInNewContext(studioSrc, sandbox, { filename: 'prompts-studio-v8.js' });
-  const studio = sandbox.CreataPromptsStudio;
-  assert.ok(studio, 'window.CreataPromptsStudio must be exposed');
-
-  // Strictly ONLY V8, V7, V1
-  assert.deepEqual(Array.from(studio.VERSIONS, (v) => v.id), ['V8', 'V7', 'V1']);
-  assert.equal(studio.getState().version, 'V8', 'Default version must be V8');
-
-  // V8 PACK_CREATA with exact filename slot mapping & 100% casco upholstery
-  const v8Pack = studio.generatePrompts({
-    version: 'V8',
-    v8Mode: 'PACK_CREATA',
-    sku: 'HAK1PLUM01',
-    productName: 'Sillón Individual Lumina',
-    dimensions: '85 x 80 x 78 cm',
-    furniturePhoto: { name: 'LUMINA_ORIGINAL.jpg' },
-    fabricSwatch: { name: 'ATLAS_SAND.jpg' },
-    woodSwatch: { name: 'TEKA_CLARO.jpg' }
-  });
-  assert.equal(v8Pack.length, 3, 'V8 PACK_CREATA must generate Catalog + Cover + CAD prompts');
-  assert.match(v8Pack[0].prompt, /2048x2048/);
-  assert.match(v8Pack[0].prompt, /78%/);
-  assert.match(v8Pack[0].prompt, /#FFFFFF/);
-  assert.match(v8Pack[0].prompt, /0% shadow|ZERO cast shadows/);
-  assert.match(v8Pack[0].prompt, /\[IMAGE 1: "LUMINA_ORIGINAL\.jpg"\]/);
-  assert.match(v8Pack[0].prompt, /\[IMAGE 2: "ATLAS_SAND\.jpg"\]/);
-  assert.match(v8Pack[0].prompt, /\[IMAGE 3: "TEKA_CLARO\.jpg"\]/);
-  assert.match(v8Pack[0].prompt, /100% FULL-BODY CASCO/);
-  assert.match(v8Pack[2].prompt, /85 x 80 x 78 cm/);
-
-  // V7 has 9 modes and supports 3/4 right 2048x2048
-  assert.equal(studio.V7_MODES.length, 9);
-  const v7Out = studio.generatePrompts({
-    version: 'V7',
-    v7Mode: 'CAMBIO_DUAL',
-    forceThreeQuarterRight: true,
-    furniturePhoto: { name: 'SOFA_MILAN.jpg' },
-    fabricSwatch: { name: 'BOUCLE_IVORY.jpg' },
-    woodSwatch: { name: 'PAROTA.jpg' }
-  });
-  assert.equal(v7Out.length, 1);
-  assert.match(v7Out[0].prompt, /2048x2048/);
-  assert.match(v7Out[0].prompt, /BOUCLE_IVORY\.jpg/);
-  assert.match(v7Out[0].prompt, /PAROTA\.jpg/);
-
-  // V1 generates 3 engine-specific outputs (AI Studio, Flux/MJ, ChatGPT)
-  const v1Out = studio.generatePrompts({
-    version: 'V1',
-    v1Mode: 'CAMBIO_MATERIAL',
-    productName: 'Sala Modular Riviera',
-    fabricSwatch: { name: 'LINO_ARENA.jpg' }
-  });
-  assert.equal(v1Out.length, 3);
-  assert.match(v1Out[0].title, /AI Studio/i);
-  assert.match(v1Out[1].title, /Flux/i);
-  assert.match(v1Out[2].title, /ChatGPT/i);
-
-  // clearPhotos() NEVER resets version, mode, angle, room, or checkboxes
-  studio.setVersion('V7');
-  studio.setMode('ENTORNO');
-  studio.setField('roomId', 'PENTHOUSE_MAR');
-  studio.setFieldSilent('sku', 'SKU-TEST');
-  studio.setFieldSilent('productName', 'Mesa Test');
-  studio.getState().furniturePhoto = { name: 'temp.jpg', previewUrl: 'data:image/png;base64,AA==' };
-  studio.clearPhotos();
-  const stAfter = studio.getState();
-  assert.equal(stAfter.furniturePhoto, null);
-  assert.equal(stAfter.sku, '');
-  assert.equal(stAfter.version, 'V7', 'clearPhotos must preserve selected version');
-  assert.equal(stAfter.v7Mode, 'ENTORNO', 'clearPhotos must preserve selected mode');
-  assert.equal(stAfter.roomId, 'PENTHOUSE_MAR', 'clearPhotos must preserve selected room');
+test('Official Prompts IA consolidated to https://buena-espero.onrender.com/ (deprecated prompts.html & suite/ removed)', () => {
+  for (const removed of ['prompts.html', 'prompts-app.js', 'prompts-studio-v8.js', 'prompts-styles.css', 'prompts-sw.js', 'suite/index.html', 'suite/sw.js']) {
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, removed)), false, `Deprecated file must stay removed: ${removed}`);
+  }
+  const invJs = readRepoFile('inventario-app.js');
+  const fotosJs = readRepoFile('fotos-productos-app.js');
+  const panelJs = readRepoFile('panel-app.js');
+  assert.match(invJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true'/);
+  assert.match(fotosJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true'/);
+  assert.match(panelJs, /id:\s*'prompts'[\s\S]*?https:\/\/buena-espero\.onrender\.com\/\?embed=true/);
 });
 
 test('Project B Backend: prompts_materials_list scans TELAS + FOTOS TELAS + MADERAS strictly read-only with cache, and prompts_fetch_image_b64 blocks Project A files', () => {
@@ -432,8 +343,8 @@ test('Ecosystem Safety & Cleanup: orphaned historial-styles.css deleted, advisor
   assert.match(invJs, /it\.pr\s*=\s*formatPrice\(/);
   // CreataLiveAlerts restricted to authorized admin
   assert.match(invJs, /if\s*\(!\(typeof isFotosAppOwner === 'function' && isFotosAppOwner\(\)\)\)\s*return;/);
-  // Split target for Prompts points to native ./prompts.html?embed=1
-  assert.match(invJs, /target\s*===\s*'prompts'\s*\?\s*'\.\/prompts\.html\?embed=1'/);
+  // Split target for Prompts points to official Buena Espero Render app
+  assert.match(invJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true'/);
   // Logout clears creata_seg_* keys to prevent shared-device bleed
   assert.match(invJs, /creata_seg_/);
   // Historial skips admin-only CSV for non-admin advisors
@@ -445,10 +356,9 @@ test('Ecosystem Safety & Cleanup: orphaned historial-styles.css deleted, advisor
 // ============================================================================
 // 5. FOTOS 100% LIVE (NO REFRESH BUTTONS), RECENT UPLOADS REUSE & LOCK RETRY
 // ============================================================================
-test('Fotos 100% Live UX: zero manual refresh buttons, recent uploads reuse strip (SKU + Portadas + Telas), blob: block, lock retry, and prompts mobile topbar fix', () => {
+test('Fotos 100% Live UX: zero manual refresh buttons, recent uploads reuse strip (SKU + Portadas + Telas), blob: block, and lock retry', () => {
   const fotosHtml = readRepoFile('fotos-productos.html');
   const fotosJs = readRepoFile('fotos-productos-app.js');
-  const promptsCss = readRepoFile('prompts-styles.css');
 
   // Manual refresh buttons completely removed
   assert.ok(!fotosHtml.includes('btnHeaderRefreshFotos'), 'Header refresh button must be removed');
@@ -471,9 +381,6 @@ test('Fotos 100% Live UX: zero manual refresh buttons, recent uploads reuse stri
   assert.match(fotosJs, /function getRecentUploadedPhotosList\(/);
   assert.match(fotosJs, /function renderRecentUploadedStrip\(/);
   assert.match(fotosJs, /window\.selectRecentUploadedPhoto\s*=/);
-
-  // Prompts mobile topbar overflow fix
-  assert.match(promptsCss, /\.topbar-actions\s*\{[^}]*overflow-x:\s*auto/);
 
   // Execute fotos-productos-app.js in a minimal VM to test recordRecentUploadedPhoto + getRecentUploadedPhotosList + isTransientLockError
   const storage = new Map();

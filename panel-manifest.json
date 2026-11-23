@@ -74,11 +74,11 @@
     {
       "name": "Prompts IA",
       "short_name": "Prompts IA",
-      "description": "Abrir Generador de Prompts IA CREATA",
-      "url": "./prompts.html",
+      "description": "Abrir Prompts IA Oficial (Buena Espero)",
+      "url": "./panel.html?app=prompts",
       "icons": [
         {
-          "src": "./prompts-icon-192.png",
+          "src": "./inventario-icon-192.png",
           "sizes": "192x192",
           "type": "image/png"
         }

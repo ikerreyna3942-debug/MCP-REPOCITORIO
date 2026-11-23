@@ -17279,7 +17279,7 @@
     let _invSplitTarget = 'fotos';
 
     function getInvSplitTargetUrl(target) {
-        return target === 'prompts' ? './prompts.html?embed=1' : './fotos-productos.html?embed=1';
+        return target === 'prompts' ? 'https://buena-espero.onrender.com/?embed=true' : './fotos-productos.html?embed=1';
     }
 
     function loadInvSplitPrefs() {
@@ -17421,13 +17421,14 @@
 
     window.openPromptsFromCotizador = function () {
         if (!isEffectiveAdminSession() || !hasAdminPerm('promptsIa')) return;
-        window.location.href = './prompts.html';
+        const opened = window.open('https://buena-espero.onrender.com/', '_blank', 'noopener');
+        if (!opened) window.location.href = 'https://buena-espero.onrender.com/';
     };
 
     window.openPanelFromCotizador = function () {
         if (!isEffectiveAdminSession() || !hasAdminPerm('panelSuite')) return;
-        const opened = window.open('./suite/', '_blank', 'noopener');
-        if (!opened) window.location.href = './suite/';
+        const opened = window.open('./panel.html', '_blank', 'noopener');
+        if (!opened) window.location.href = './panel.html';
     };
 
     window.setInvSplitPreset = function (pctVal) {

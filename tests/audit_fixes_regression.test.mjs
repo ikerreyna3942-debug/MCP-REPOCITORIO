@@ -189,219 +189,6 @@ test('Fotos SW & App fixes: opaque lh3.googleusercontent.com images cache proper
   assert.match(fotosJs, /bloqueo\|bloquear/);
 });
 
-test('Prompts Studio V8, prompts-app.js & prompts-styles.css: materialTarget scoping, apostrophe-safe pickers, V7/V1 aspectRatio & forceCreataSpec, mobile topbar fix', () => {
-  const studioSrc = readRepo('prompts-studio-v8.js');
-  const promptsJs = readRepo('prompts-app.js');
-  const promptsCss = readRepo('prompts-styles.css');
-
-  const root = { innerHTML: '', classList: { contains: () => false }, addEventListener: () => {} };
-  const sandbox = {
-    window: {},
-    document: { getElementById: (id) => (id === 'promptsNativeStudio' ? root : null) },
-    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-    navigator: {},
-    setTimeout,
-    clearTimeout,
-    console
-  };
-  sandbox.window.addEventListener = () => {};
-  vm.runInNewContext(studioSrc, sandbox, { filename: 'prompts-studio-v8.js' });
-  const studio = sandbox.window.CreataPromptsStudio;
-  studio.init(root);
-
-  // 1) In V8 PACK_CREATA, fabricSwatch MUST still be included even when materialTarget === 'MADERA'
-  const v8PackWithFabric = studio.generatePrompts({
-    version: 'V8',
-    v8Mode: 'PACK_CREATA',
-    materialTarget: 'MADERA',
-    furniturePhoto: { name: 'sofa.jpg' },
-    fabricSwatch: { name: 'Lino Arena.jpg' }
-  });
-  assert.match(v8PackWithFabric[0].prompt, /Lino Arena\.jpg/, 'PACK_CREATA must NOT silently ignore fabricSwatch when materialTarget=MADERA');
-
-  // 2) In V7, forceCreataSpec=false and aspectRatio='16:9' are honored
-  const v7Custom = studio.generatePrompts({
-    version: 'V7',
-    v7Mode: 'FONDO_BLANCO',
-    forceCreataSpec: false,
-    aspectRatio: '16:9',
-    furniturePhoto: { name: 'mesa.jpg' }
-  });
-  assert.ok(!/NON-NEGOTIABLE/.test(v7Custom[0].prompt), 'V7 must honor forceCreataSpec: false');
-  assert.match(v7Custom[0].prompt, /aspect_ratio="16:9"/);
-
-  // 3) In V1 CAMBIO_MATERIAL, materialTarget='MADERA' excludes fabric and aspectRatio='4:5' updates --ar
-  const v1WoodOnly = studio.generatePrompts({
-    version: 'V1',
-    v1Mode: 'CAMBIO_MATERIAL',
-    materialTarget: 'MADERA',
-    aspectRatio: '4:5',
-    fabricSwatch: { name: 'Velvet Blue.jpg' },
-    woodSwatch: { name: 'Nogal Oscuro.jpg' }
-  });
-  assert.ok(!/Velvet Blue/.test(v1WoodOnly[0].prompt), 'V1 CAMBIO_MATERIAL with materialTarget=MADERA must exclude fabric swatch');
-  assert.match(v1WoodOnly[0].prompt, /Nogal Oscuro/);
-  assert.match(v1WoodOnly[1].prompt, /--ar 4:5/);
-
-  // 4) Apostrophe-containing Drive filename renders safely via data-cp-name (no raw quote breakage)
-  const st = studio.getState();
-  st.telasList = [{ id: '1AbCdEfGhIjKlMnOpQr', name: "O'Brien's Velvet.jpg" }];
-  st.materialsLoaded = true;
-  studio.openMaterialPicker('TELA');
-  assert.equal(studio.hasActivePicker(), true);
-  assert.match(root.innerHTML, /data-cp-name="O&#39;Brien&#39;s Velvet\.jpg"/);
-  assert.ok(!/onclick="copyProptDrivePhotoImage\('/.test(root.innerHTML), 'Must not inline-quote Drive filenames in onclick');
-  assert.equal(studio.closeActivePickers(), true);
-  assert.equal(studio.hasActivePicker(), false);
-
-  // 5) prompts-app.js & prompts-styles.css guards
-  assert.match(promptsJs, /if \(studioEnabled && activeWorkspace === 'studio'\) return;/);
-  assert.match(promptsJs, /https:\/\/buena-espero\.onrender\.com/);
-  assert.match(promptsJs, /https:\/\/app-1-3y7y\.onrender\.com/);
-  assert.match(promptsJs, /studio_picker/);
-  assert.match(promptsJs, /frameNavigationRequested = false;/);
-  assert.match(promptsCss, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.topbar-actions\s*\{[\s\S]*?justify-content:\s*flex-start;/);
-  assert.match(promptsCss, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.propt-input\s*\{[\s\S]*?font-size:\s*16px;/);
-});
-
-test('Turn 2 — Prompts 3-tab workspace (V8 + Prompts Render buena-espero + Alta Odoo) & exact Output Name workflow', () => {
-  const promptsHtml = readRepo('prompts.html');
-  const promptsJs = readRepo('prompts-app.js');
-  const studioSrc = readRepo('prompts-studio-v8.js');
-
-  // 1) prompts.html mounts all 3 tabs and custom upload filename input
-  assert.match(promptsHtml, /id="btnModePromptsNative"[^>]*onclick="switchPromptsWorkspace\('studio'\)"/);
-  assert.match(promptsHtml, /id="btnModePromptsRender"[^>]*onclick="switchPromptsWorkspace\('render'\)"/);
-  assert.match(promptsHtml, /id="btnModeAltaOdoo"[^>]*onclick="switchPromptsWorkspace\('odoo'\)"/);
-  assert.match(promptsHtml, /id="proptCustomFileNameInput"/);
-
-  // 2) prompts-studio-v8.js injects exact output filename in V8, V7, V1 and renders copy/upload controls
-  const root = { innerHTML: '', classList: { contains: () => false }, addEventListener: () => {} };
-  const previewEl = { textContent: '' };
-  const outWrapEl = { innerHTML: '' };
-  const sandbox = {
-    window: {},
-    document: {
-      getElementById: (id) => {
-        if (id === 'promptsNativeStudio') return root;
-        if (id === 'stOutputNamePreview') return previewEl;
-        if (id === 'stGeneratedOutputsWrap') return outWrapEl;
-        return null;
-      }
-    },
-    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-    navigator: {},
-    setTimeout: () => 1,
-    clearTimeout: () => {},
-    console
-  };
-  sandbox.window = sandbox;
-  sandbox.window.addEventListener = () => {};
-  vm.runInNewContext(studioSrc, sandbox, { filename: 'prompts-studio-v8.js' });
-  const studio = sandbox.window.CreataPromptsStudio;
-  studio.init(root);
-
-  const v8Pack = studio.generatePrompts({
-    version: 'V8',
-    v8Mode: 'PACK_CREATA',
-    outputName: 'MESA SANTORINI 8P ROSA MORADA.png',
-    sku: 'BARMESSAN8PRM'
-  });
-  assert.equal(v8Pack.length, 3);
-  assert.equal(v8Pack[0].outputFileName, 'MESA SANTORINI 8P ROSA MORADA.png');
-  assert.equal(v8Pack[1].outputFileName, 'MESA SANTORINI 8P ROSA MORADA_PORTADA.png');
-  assert.equal(v8Pack[2].outputFileName, 'MESA SANTORINI 8P ROSA MORADA_CAD.png');
-  assert.match(v8Pack[0].prompt, /OUTPUT FILE \/ ASSET NAME \(EXACT\): "MESA SANTORINI 8P ROSA MORADA\.png"/);
-
-  const v7Out = studio.generatePrompts({ version: 'V7', v7Mode: 'FONDO_BLANCO', outputName: 'SILLON ZURICH SAND 07' });
-  assert.equal(v7Out[0].outputFileName, 'SILLON ZURICH SAND 07.png');
-  assert.match(v7Out[0].prompt, /"SILLON ZURICH SAND 07\.png"/);
-
-  const v1Out = studio.generatePrompts({ version: 'V1', v1Mode: 'RESTAURAR_HD', outputName: 'CREDENZA PAROTA' });
-  assert.equal(v1Out[0].outputFileName, 'CREDENZA PAROTA.png');
-  assert.equal(v1Out[1].outputFileName, 'CREDENZA PAROTA.png');
-  assert.match(v1Out[1].prompt, /"CREDENZA PAROTA\.png"/);
-
-  studio.setOutputName('MESA SANTORINI 8P ROSA MORADA');
-  assert.equal(previewEl.textContent, 'MESA SANTORINI 8P ROSA MORADA.png');
-  studio.generateNow();
-  assert.match(root.innerHTML, /id="stOutputNameInput"/);
-  assert.match(root.innerHTML, /MESA SANTORINI 8P ROSA MORADA\.png/);
-  assert.match(root.innerHTML, /copyOutputName\(0/);
-  assert.match(root.innerHTML, /sendNameToOdooUpload\(0\)/);
-  assert.match(root.innerHTML, /switchPromptsWorkspace\('render'\)/);
-
-  // 3) prompts-app.js routes 'render' -> buena-espero and 'odoo' -> app-1-3y7y, and pre-fills custom upload name
-  const loadedUrls = [];
-  const makeEl = (id) => {
-    const classes = new Set();
-    return {
-      id,
-      value: '',
-      src: '',
-      textContent: '',
-      innerHTML: '',
-      classList: {
-        add: (...c) => c.forEach((x) => classes.add(x)),
-        remove: (...c) => c.forEach((x) => classes.delete(x)),
-        toggle: (c, f) => (f ? classes.add(c) : classes.delete(c)),
-        contains: (c) => classes.has(c)
-      },
-      setAttribute: () => {},
-      addEventListener: () => {},
-      focus: () => {}
-    };
-  };
-  const els = {
-    promptsNativeStudio: makeEl('promptsNativeStudio'),
-    promptsAppFrame: makeEl('promptsAppFrame'),
-    promptsLoadingOverlay: makeEl('promptsLoadingOverlay'),
-    btnModePromptsNative: makeEl('btnModePromptsNative'),
-    btnModePromptsRender: makeEl('btnModePromptsRender'),
-    btnModeAltaOdoo: makeEl('btnModeAltaOdoo'),
-    proptDrawer: makeEl('proptDrawer'),
-    proptCustomFileNameInput: makeEl('proptCustomFileNameInput'),
-    proptSkuInput: makeEl('proptSkuInput'),
-    proptFeedback: makeEl('proptFeedback')
-  };
-  const pWin = {
-    document: {
-      readyState: 'complete',
-      getElementById: (id) => els[id] || null,
-      querySelectorAll: () => [],
-      addEventListener: () => {}
-    },
-    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-    navigator: { onLine: true, userAgent: 'node' },
-    location: { href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/prompts.html', search: '' },
-    CreataPromptsStudio: { init: () => true },
-    CreataBackNav: {
-      replaceIframeUrl: (_frame, url) => { loadedUrls.push(url); }
-    },
-    fetch: () => Promise.resolve({ ok: true }),
-    addEventListener: () => {},
-    setTimeout: () => 1,
-    clearTimeout: () => {},
-    setInterval: () => 1,
-    clearInterval: () => {},
-    URL,
-    URLSearchParams,
-    console
-  };
-  pWin.window = pWin;
-  vm.runInNewContext(promptsJs, pWin, { filename: 'prompts-app.js' });
-
-  pWin.switchPromptsWorkspace('render');
-  assert.ok(loadedUrls[loadedUrls.length - 1].startsWith('https://buena-espero.onrender.com/?embed=true'), 'render tab must load buena-espero.onrender.com');
-  pWin.switchPromptsWorkspace('odoo');
-  assert.ok(loadedUrls[loadedUrls.length - 1].startsWith('https://app-1-3y7y.onrender.com/?embed=true'), 'odoo tab must load app-1-3y7y.onrender.com');
-
-  const stemFilled = pWin.openProptUploadWithName('MESA SANTORINI 8P ROSA MORADA.png', 'barmessan8prm');
-  assert.equal(stemFilled, 'MESA SANTORINI 8P ROSA MORADA');
-  assert.equal(els.proptCustomFileNameInput.value, 'MESA SANTORINI 8P ROSA MORADA');
-  assert.equal(els.proptSkuInput.value, 'BARMESSAN8PRM');
-});
-
 test('Turn 2 — Cotizador Wood Swatches (VWOD:), zero fabric false-positives on BARMESSAN8PRM wood table, and Fotos Maderas tab', () => {
   const invJs = readRepo('inventario-app.js');
   const invCss = readRepo('inventario-ui.css');
@@ -646,67 +433,6 @@ test('Turn 3 — BARMESAN6PRM (MESA SANTORINI 6P ROSA MORADA) and generic-color 
   // 5) Upholstered chair with ROSA MORADA legs (no SAND 07) must NEVER match OCASIONAL SAND 07 ROSA MORADA TONO NATURAL
   const chairOtherFab = { s: 'YOCHAIR01', c: 'SILLONES', tp: 'SILLON OCASIONAL', n: 'SILLON OCASIONAL ROSA MORADA TONO NATURAL', vr: 'OCASIONAL ROSA MORADA', tl: '', ct: '', md: 'ROSA MORADA', cm: 'TONO NATURAL', p: 'YOI' };
   assert.equal(hooks.findMatchingFabricSwatchForItem(chairOtherFab, null), null);
-});
-
-test('Turn 4 — Prompts Studio V8 adopts compact 1-screen V7 aesthetic (tabs, 3/4 quick button, concise V8 prompts, V7 slate/sky palette)', () => {
-  const studioSrc = readRepo('prompts-studio-v8.js');
-  const promptsCss = readRepo('prompts-styles.css');
-
-  // V7 palette & compact classes in CSS
-  assert.match(promptsCss, /\.prompts-native-studio\s*\{[\s\S]*?background:\s*#1E293B/);
-  assert.match(promptsCss, /\.st-v7-topbar\s*\{/);
-  assert.match(promptsCss, /\.st-v7-out-tabs\s*\{/);
-  assert.match(promptsCss, /\.st-v7-action-bar\s*\{/);
-  assert.match(promptsCss, /#0284C7/);
-  assert.match(promptsCss, /#38BDF8/);
-
-  // Execute Studio V8 in VM and verify compact tabbed outputs + generateQuick34Right
-  const root = { innerHTML: '', classList: { contains: () => false }, addEventListener: () => {} };
-  const outWrap = { innerHTML: '' };
-  const sb = {
-    window: {},
-    document: {
-      getElementById: (id) => (id === 'promptsNativeStudio' ? root : (id === 'stGeneratedOutputsWrap' ? outWrap : null))
-    },
-    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-    navigator: {},
-    setTimeout: () => 1,
-    clearTimeout: () => {},
-    console
-  };
-  sb.window = sb;
-  sb.window.addEventListener = () => {};
-  vm.runInNewContext(studioSrc, sb, { filename: 'prompts-studio-v8.js' });
-  const studio = sb.window.CreataPromptsStudio;
-  studio.init(root);
-
-  // Compact UI mounts 1-line V7 topbar, compact mode select, optional camera angle selector, special directives box, and collapsed options accordion
-  assert.match(root.innerHTML, /class="st-card st-v7-topbar"/);
-  assert.match(root.innerHTML, /id="stModeSelect"/);
-  assert.match(root.innerHTML, /id="stCameraAngleSelect"/);
-  assert.match(root.innerHTML, /id="stOutputNameInput"/);
-  assert.match(root.innerHTML, /id="stSpecialDirectivesInput"/);
-  assert.match(root.innerHTML, /class="st-adv-details"/);
-  assert.ok(!/generateQuick34Right\(\)/.test(root.innerHTML), 'UI must no longer render forced 3/4 Derecha button');
-
-  // PACK_CREATA produces 3 concise prompts rendered through V7 output tabs
-  studio.setOutputName('MESA SANTORINI 6P ROSA MORADA');
-  const pack = studio.generateNow();
-  assert.equal(pack.length, 3);
-  assert.ok(pack[0].prompt.length < 2200, `Concise V8 catalog prompt should stay under 2200 chars (got ${pack[0].prompt.length})`);
-  assert.match(root.innerHTML, /st-v7-out-tabs/);
-  assert.match(root.innerHTML, /setActiveOutTab\(1\)/);
-
-  // Switching to Portada tab (idx 1) updates output wrap to _PORTADA filename
-  studio.setActiveOutTab(1);
-  assert.match(outWrap.innerHTML, /MESA SANTORINI 6P ROSA MORADA_PORTADA\.png/);
-
-  // Programmatic helper generateQuick34Right remains available if explicitly called
-  const q34 = studio.generateQuick34Right();
-  assert.equal(q34.length, 1);
-  assert.match(q34[0].prompt, /2048x2048/);
-  assert.match(q34[0].prompt, /FACING TOWARD THE RIGHT/i);
-  assert.match(q34[0].prompt, /#FFFFFF/);
 });
 
 test('Turn 5 — Salas/Sofás only show wood swatch when visible wood is named in product title, internal PINO ESTUFADO and lone modifiers (CLARO) never false-match TABACO CLARO BARSA', () => {
@@ -959,113 +685,39 @@ test('Turn 6 — Strict Single-Source-of-Truth from CONTROL DE PRODUCTOS PRESENT
   assert.notEqual(bySku.get('ARMMAR2PKECO')._singleTitle, bySku.get('ARMMAR3PKECO')._singleTitle);
 });
 
-test('Turn 7 — Prompts Studio V8 removes forced 3/4 default, adds optional cameraAngle selector and high-priority Special Directives (fuera de lo común) across V8/V7/V1', () => {
-  const studioSrc = readRepo('prompts-studio-v8.js');
-  const promptsCss = readRepo('prompts-styles.css');
+test('Turn 8 — Deprecated prompts.html & suite/ removed; Cotizador, Fotos, and Panel cleanly route Prompts IA to official https://buena-espero.onrender.com/ with zero dead links', () => {
+  const removedFiles = [
+    'prompts.html', 'prompts-app.js', 'prompts-studio-v8.js', 'prompts-styles.css', 'prompts-sw.js',
+    'prompts-manifest.json', 'prompts-icon-192.png', 'prompts-icon-512.png', 'prompts-apple-icon.png',
+    'suite/index.html', 'suite/manifest.json', 'suite/sw.js', 'suite/icon-192.png', 'suite/icon-512.png', 'suite/apple-icon.png'
+  ];
+  for (const rel of removedFiles) {
+    assert.equal(fs.existsSync(path.join(REPO_ROOT, rel)), false, `Removed file must not exist: ${rel}`);
+  }
 
-  // Verify special box CSS exists and braces are balanced
-  assert.match(promptsCss, /\.st-special-box\s*\{/);
-  assert.match(promptsCss, /\.st-special-chip\.is-active\s*\{/);
-  assert.match(promptsCss, /\.st-v7-angle-select\s*\{/);
+  const invJs = readRepo('inventario-app.js');
+  const fotosJs = readRepo('fotos-productos-app.js');
+  const panelJs = readRepo('panel-app.js');
+  const panelHtml = readRepo('panel.html');
+  const panelManifest = readRepo('panel-manifest.json');
 
-  const root = { innerHTML: '', classList: { contains: () => false }, addEventListener: () => {} };
-  const outWrap = { innerHTML: '' };
-  const store = new Map();
-  const sb = {
-    window: {},
-    document: {
-      getElementById: (id) => (id === 'promptsNativeStudio' ? root : (id === 'stGeneratedOutputsWrap' ? outWrap : null))
-    },
-    localStorage: {
-      getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k)
-    },
-    navigator: {},
-    setTimeout: () => 1,
-    clearTimeout: () => {},
-    console
-  };
-  sb.window = sb;
-  sb.window.addEventListener = () => {};
-  vm.runInNewContext(studioSrc, sb, { filename: 'prompts-studio-v8.js' });
-  const studio = sb.window.CreataPromptsStudio;
-  studio.init(root);
+  for (const [label, src] of [
+    ['inventario-app.js', invJs],
+    ['fotos-productos-app.js', fotosJs],
+    ['panel-app.js', panelJs],
+    ['panel.html', panelHtml],
+    ['panel-manifest.json', panelManifest]
+  ]) {
+    assert.ok(!src.includes('prompts.html'), `${label} must have zero dead links to prompts.html`);
+    assert.ok(!src.includes('./suite/'), `${label} must have zero dead links to ./suite/`);
+  }
 
-  // 1) Default state MUST be ORIGINAL (no forced 3/4)
-  assert.equal(studio.getState().cameraAngle, 'ORIGINAL');
-  assert.equal(studio.getState().forceThreeQuarterRight, false);
-  assert.equal(studio.getState().specialDirectives, '');
-  assert.ok(studio.CAMERA_ANGLE_OPTIONS.length >= 9);
-  assert.ok(studio.SPECIAL_DIRECTIVE_PRESETS.length >= 6);
-
-  // 2) Zero forced 3/4 across V8, V7, and V1 by default
-  const v8Pack = studio.generatePrompts({ version: 'V8', v8Mode: 'PACK_CREATA', productName: 'Sala Modular Atenas' });
-  assert.ok(!/FACING TOWARD THE RIGHT/i.test(v8Pack[0].prompt), 'V8 PACK_CREATA must NOT force 3/4 right by default');
-  assert.match(v8Pack[0].prompt, /Keep exact original camera angle/i);
-
-  const v8Mat = studio.generatePrompts({ version: 'V8', v8Mode: 'MATERIAL_SWAP', productName: 'Mesa Santorini' });
-  assert.ok(!/FACING TOWARD THE RIGHT/i.test(v8Mat[0].prompt), 'V8 MATERIAL_SWAP must NOT force 3/4 right by default');
-
-  const v7Mat = studio.generatePrompts({ version: 'V7', v7Mode: 'CAMBIO_DUAL', productName: 'Sala Atenas' });
-  assert.ok(!/FACING TOWARD THE RIGHT/i.test(v7Mat[0].prompt), 'V7 CAMBIO_DUAL must NOT force 3/4 right by default');
-
-  const v1Def = studio.generatePrompts({ version: 'V1', v1Mode: 'RESTAURAR_HD', productName: 'Sofá Milán' });
-  assert.ok(!/3\/4 front-right/i.test(v1Def[1].prompt), 'V1 Flux/MJ must NOT hardcode 3/4 front-right by default');
-  assert.match(v1Def[0].prompt, /do NOT force 3\/4 rotation/i);
-
-  // 3) Selecting an optional camera angle injects it live and switching back to ORIGINAL removes it
-  studio.setField('productName', 'Sofá Modular Atenas');
-  studio.generateNow();
-  studio.setField('cameraAngle', 'THREE_QUARTER_LEFT');
-  const pLeft = studio.getState().generatedBlocks[0].prompt;
-  assert.match(pLeft, /FACING TOWARD THE LEFT/i);
-  assert.ok(!/FACING TOWARD THE RIGHT/i.test(pLeft));
-
-  studio.setField('cameraAngle', 'FRONT');
-  const pFront = studio.getState().generatedBlocks[0].prompt;
-  assert.match(pFront, /straight front elevation \(0°/i);
-
-  studio.setField('cameraAngle', 'ORIGINAL');
-  const pOrig = studio.getState().generatedBlocks[0].prompt;
-  assert.match(pOrig, /Keep exact original camera angle/i);
-  assert.ok(!/FACING TOWARD THE LEFT|straight front elevation/i.test(pOrig));
-
-  // 4) Special Directives presets + free text inject HIGHEST PRIORITY override across V8, V7, V1 and relax scale/geometry locks cleanly
-  studio.toggleSpecialPreset('ONLY_ONE_MODULE');
-  studio.toggleSpecialPreset('LARGER_SCALE');
-  assert.match(studio.getState().specialDirectives, /1 módulo/i);
-  assert.match(studio.getState().specialDirectives, /88%/i);
-  const v8Special = studio.getState().generatedBlocks;
-  assert.match(v8Special[0].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
-  assert.match(v8Special[0].prompt, /1 módulo/i);
-  assert.match(v8Special[0].prompt, /HONOR SPECIAL USER DIRECTIVES scale\/size override/i);
-  assert.match(v8Special[0].prompt, /Except where explicitly modified by SPECIAL USER DIRECTIVES above/);
-  assert.match(v8Special[1].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
-  assert.match(v8Special[2].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
-
-  // Toggle off ONLY_ONE_MODULE leaves LARGER_SCALE intact
-  studio.toggleSpecialPreset('ONLY_ONE_MODULE');
-  assert.ok(!/1 módulo/i.test(studio.getState().specialDirectives));
-  assert.match(studio.getState().specialDirectives, /88%/i);
-
-  // Custom free text via setSpecialDirectives works in V7 and V1 too
-  studio.setSpecialDirectives('Dejar solo el módulo central y hacerlo más grande');
-  const v7Special = studio.generatePrompts({ version: 'V7', v7Mode: 'FONDO_BLANCO', productName: 'Sala Modular' });
-  assert.match(v7Special[0].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
-  assert.match(v7Special[0].prompt, /módulo central/);
-  assert.match(v7Special[0].prompt, /Except where explicitly modified by SPECIAL USER DIRECTIVES above/);
-
-  const v1Special = studio.generatePrompts({ version: 'V1', v1Mode: 'EXTRAER_BLANCO', productName: 'Sala Modular' });
-  assert.match(v1Special[0].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
-  assert.match(v1Special[1].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
-  assert.match(v1Special[2].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
-
-  // 5) clearPhotos() clears per-product specialDirectives while preserving optional cameraAngle preference
-  studio.setField('cameraAngle', 'SIDE_RIGHT');
-  studio.clearPhotos();
-  assert.equal(studio.getState().specialDirectives, '');
-  assert.equal(studio.getState().cameraAngle, 'SIDE_RIGHT');
+  assert.ok(invJs.includes('https://buena-espero.onrender.com/?embed=true'));
+  assert.ok(invJs.includes("window.open('https://buena-espero.onrender.com/'"));
+  assert.ok(invJs.includes("window.open('./panel.html'"));
+  assert.ok(fotosJs.includes('https://buena-espero.onrender.com/?embed=true'));
+  assert.ok(panelJs.includes('https://buena-espero.onrender.com/?embed=true'));
+  assert.ok(panelJs.includes('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel.html'));
 });
 
 

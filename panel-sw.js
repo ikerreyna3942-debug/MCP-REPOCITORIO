@@ -1,13 +1,13 @@
 /*
  * CREATA · Panel Suite Kevin — Service Worker exclusivo para panel.html
  * - Registrado con scope './panel' => nunca controla index.html, admin.html,
- *   inventario.html, fotos-productos.html ni prompts.html.
+ *   inventario.html ni fotos-productos.html.
  * - Habilita instalación nativa como PWA en Android, iOS, Windows y Mac.
  * - Cachea el shell local con estrategia "red primero" y deja pasar intacto el
  *   tráfico hacia script.google.com y *.onrender.com.
  */
 const CACHE_PREFIX = 'creata-panel-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v4';
+const CACHE_NAME = CACHE_PREFIX + 'v5';
 const PAGE_URL = './panel.html';
 const NETWORK_TIMEOUT_MS = 7000;
 
@@ -17,8 +17,8 @@ const SHELL_ASSETS = [
     './creata-logo.js?v=33',
     './creata-cloud.js?v=33',
     './creata-back-nav.js?v=1',
-    './panel-app.js?v=12',
-    './panel-manifest.json?v=1',
+    './panel-app.js?v=13',
+    './panel-manifest.json?v=2',
     './inventario-icon-192.png',
     './inventario-icon-512.png',
     './inventario-apple-icon.png'

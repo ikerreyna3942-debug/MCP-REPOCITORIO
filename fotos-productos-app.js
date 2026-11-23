@@ -6731,7 +6731,7 @@
     let _fotosSplitTarget = 'cotizador';
 
     function getFotosSplitTargetUrl(target) {
-        return target === 'prompts' ? './prompts.html?embed=1' : './inventario.html?embed=1';
+        return target === 'prompts' ? 'https://buena-espero.onrender.com/?embed=true' : './inventario.html?embed=1';
     }
 
     function loadFotosSplitPrefs() {

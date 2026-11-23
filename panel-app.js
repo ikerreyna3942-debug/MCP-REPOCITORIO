@@ -20,9 +20,9 @@
 
     // Exclusivo Kevin: solo las 3 apps unificadas en el menú "+ Agregar" (Arriba / Abajo / Izquierda / Derecha)
     const SUITE_APPS = [
-        { id: 'cotizador', icon: '📋', title: 'Cotizador',      url: ASSET_BASE + 'inventario.html?embed=1',      openModule: 'inventario' },
-        { id: 'fotos',     icon: '📷', title: 'Carga de Fotos', url: ASSET_BASE + 'fotos-productos.html?embed=1' },
-        { id: 'prompts',   icon: '✨', title: 'Prompts IA',     url: ASSET_BASE + 'prompts.html?embed=1',         wakeUrl: 'https://buena-espero.onrender.com/' }
+        { id: 'cotizador', icon: '📋', title: 'Cotizador',      url: './inventario.html?embed=1',      openModule: 'inventario' },
+        { id: 'fotos',     icon: '📷', title: 'Carga de Fotos', url: './fotos-productos.html?embed=1' },
+        { id: 'prompts',   icon: '✨', title: 'Prompts IA',     url: 'https://buena-espero.onrender.com/?embed=true', wakeUrl: 'https://buena-espero.onrender.com/' }
     ];
     const SUITE_APPS_BY_ID = {};
     SUITE_APPS.forEach((a) => { SUITE_APPS_BY_ID[a.id] = a; });
@@ -774,13 +774,11 @@
 
     window.copyPanelAppLink = async function () {
         const fb = document.getElementById('panelCopyFeedback');
-        let appUrl = 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/suite/';
+        let appUrl = 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel.html';
         try {
             if (typeof location !== 'undefined' && location.origin && location.pathname) {
-                const baseDir = IS_SUITE_DIR
-                    ? location.pathname.replace(/\/index\.html$/i, '/').replace(/\/?$/, '/')
-                    : location.pathname.replace(/\/[^/]*$/, '/suite/');
-                appUrl = location.origin + baseDir;
+                const panelPath = location.pathname.replace(/\/[^/]*$/, '/panel.html');
+                appUrl = location.origin + panelPath;
             }
         } catch (e) {}
         let copied = false;
