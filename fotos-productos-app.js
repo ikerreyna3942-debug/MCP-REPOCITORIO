@@ -2287,7 +2287,7 @@
                 // Resolver índices de columnas de las 11 ubicaciones, fecha LPPT y precio en INVENTARIO_EN_VIVO
                 let whColIndices = FOTOS_WAREHOUSES.map((w) => w.defaultCol);
                 let colFeIdx = 16;
-                let colPrecioIdx = 48;
+                let colPrecioIdx = 49;
                 let hasStockColsInInv = false;
 
                 if (Array.isArray(rowsInv) && rowsInv.length > 0) {
@@ -2302,7 +2302,7 @@
                     };
                     whColIndices = FOTOS_WAREHOUSES.map((w) => findHdrCol(w.colNames, w.defaultCol));
                     colFeIdx = findHdrCol(['FECHA ESTIMADA DE LLEGADA', 'FECHA ESTIMADA'], 16);
-                    colPrecioIdx = findHdrCol(['PRECIO DE LISTA', 'PRECIO LISTA', 'PRECIO'], 48);
+                    colPrecioIdx = findHdrCol(['PRECIO DE LISTA', 'PRECIO LISTA', 'PRECIO'], 49);
                     hasStockColsInInv = whColIndices.some((idx, w) => w > 0 && idx !== -1 && hdrRow.length > idx);
                 }
 
@@ -2359,6 +2359,7 @@
                                 tl: tl,
                                 ct: ct,
                                 md: md,
+                                cm: cm,
                                 medidas: med,
                                 acabado: acabado,
                                 st: st,
@@ -2391,6 +2392,7 @@
                             tl: '',
                             ct: '',
                             md: '',
+                            cm: '',
                             medidas: '',
                             acabado: '',
                             st: st,
@@ -2419,7 +2421,8 @@
                         }
 
                         if (!mergedMap.has(sku)) {
-                            const displayName = colBName || (inv ? inv.nombreInv : '') || '';
+                            // Fuente canónica única: priorizar NOMBRE de INVENTARIO_EN_VIVO en CONTROL DE PRODUCTOS PRESENTACIÓN
+                            const displayName = (inv && inv.nombreInv) || colBName || '';
                             const dest = resolveCategoryDestFolderForProduct(
                                 inv ? inv.categoria : '',
                                 inv ? inv.tipo : '',
@@ -2447,6 +2450,7 @@
                                 tl: inv ? (inv.tl || '') : '',
                                 ct: inv ? (inv.ct || '') : '',
                                 md: inv ? (inv.md || '') : '',
+                                cm: inv ? (inv.cm || '') : '',
                                 medidas: inv ? inv.medidas : '',
                                 acabado: inv ? inv.acabado : '',
                                 st: stArr,
@@ -2467,7 +2471,7 @@
                             const existing = mergedMap.get(sku);
                             if (!existing.colBName && colBName) {
                                 existing.colBName = colBName;
-                                existing.displayName = colBName;
+                                if (!existing.displayName || existing.displayName === '—') existing.displayName = colBName;
                             }
                             if (!existing.photoUrl && colDUrl) {
                                 existing.photoUrl = colDUrl;
@@ -2505,6 +2509,7 @@
                         tl: inv.tl || '',
                         ct: inv.ct || '',
                         md: inv.md || '',
+                        cm: inv.cm || '',
                         medidas: inv.medidas || '',
                         acabado: inv.acabado || '',
                         st: inv.st,
@@ -5516,6 +5521,10 @@
             tipo: tipo,
             modelo: modelo,
             variante: variante,
+            tl: (m && cleanStr(m.tl)) || '',
+            ct: (m && cleanStr(m.ct)) || '',
+            md: (m && cleanStr(m.md)) || '',
+            cm: (m && cleanStr(m.cm)) || '',
             medidas: medidas,
             acabado: acabado,
             st: stArr,
@@ -6659,6 +6668,7 @@
                     tl: cleanStr(it.tl),
                     ct: cleanStr(it.ct),
                     md: cleanStr(it.md),
+                    cm: cleanStr(it.cm),
                     medidas: cleanStr(it.m),
                     acabado: acabado,
                     st: stArr,

@@ -1621,13 +1621,13 @@ test('UX-5: Mobile inputs & selects enforce font-size: 16px (anti-iOS auto-zoom)
   assert.ok(!/<(?:input|select)\b[^>]*style=["'][^"']*font-size/i.test(FOTOS_HTML_SRC));
 });
 
-test('UX-6: Cache version consistency (v24/img-v24, CSS?v=27, JS?v=34, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
+test('UX-6: Cache version consistency (v25/img-v25, CSS?v=27, JS?v=35, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
   assert.match(FOTOS_HTML_SRC, /fotos-manifest\.json\?v=3/);
   assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=27/);
   assert.match(FOTOS_HTML_SRC, /creata-back-nav\.js\?v=1/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=34/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v24['"]/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v24['"]/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=35/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v25['"]/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v25['"]/);
   assert.match(FOTOS_APP_SRC, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
 
   // Execute fotos-sw.js inside node:vm
@@ -1675,6 +1675,8 @@ test('UX-6: Cache version consistency (v24/img-v24, CSS?v=27, JS?v=34, manifest?
     'creata-fotos-app-img-v23',
     'creata-fotos-app-v24',
     'creata-fotos-app-img-v24',
+    'creata-fotos-app-v25',
+    'creata-fotos-app-img-v25',
     'creata-prompts-app-v3',
     'creata-inventario-v1'
   ];
@@ -1713,7 +1715,7 @@ test('UX-6: Cache version consistency (v24/img-v24, CSS?v=27, JS?v=34, manifest?
   };
   vm.runInNewContext(FOTOS_SW_SRC, swSandbox, { filename: 'fotos-sw.js' });
 
-  // Activate evicts v5..v23 while preserving v24, img-v24, and sibling app caches
+  // Activate evicts v5..v24 while preserving v25, img-v25, and sibling app caches
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
@@ -1732,6 +1734,7 @@ test('UX-6: Cache version consistency (v24/img-v24, CSS?v=27, JS?v=34, manifest?
     'creata-fotos-app-img-v21',
     'creata-fotos-app-img-v22',
     'creata-fotos-app-img-v23',
+    'creata-fotos-app-img-v24',
     'creata-fotos-app-img-v5',
     'creata-fotos-app-img-v6',
     'creata-fotos-app-img-v7',
@@ -1751,6 +1754,7 @@ test('UX-6: Cache version consistency (v24/img-v24, CSS?v=27, JS?v=34, manifest?
     'creata-fotos-app-v21',
     'creata-fotos-app-v22',
     'creata-fotos-app-v23',
+    'creata-fotos-app-v24',
     'creata-fotos-app-v5',
     'creata-fotos-app-v6',
     'creata-fotos-app-v7',
@@ -1775,11 +1779,11 @@ test('UX-6: Cache version consistency (v24/img-v24, CSS?v=27, JS?v=34, manifest?
 
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(await checkFetch('https://script.google.com/macros/s/ABC/exec', 'POST'), false);
-  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=34', 'POST'), false);
+  assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=35', 'POST'), false);
   assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
   assert.equal(await checkFetch('https://lh3.googleusercontent.com/d/abc12345=w400', 'GET'), true);
-  assert.ok(openedCaches.includes('creata-fotos-app-img-v24'));
-  assert.ok(openedCaches.includes('creata-fotos-app-v24'));
+  assert.ok(openedCaches.includes('creata-fotos-app-img-v25'));
+  assert.ok(openedCaches.includes('creata-fotos-app-v25'));
 });
 
 test('UX-6b: Streamlined Fotos UI (100% live without manual refresh buttons, recent uploads reuse strip, clear selection, auto-dest pill, repair button, offline status bar, and intact product DOM IDs)', () => {

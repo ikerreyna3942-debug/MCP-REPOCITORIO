@@ -477,15 +477,21 @@
             }
             s = s.replace(pat, ' ');
         }
-        s = s
-            .replace(/\(\s*\)/g, ' ')
-            .replace(/\s+([,.])/g, '$1')
-            .replace(/\b(?:FRENTE|FONDO|ALTO|ALTURA|LARGO|ANCHO)\s*(?:[xX*×yY]\s*(?:FRENTE|FONDO|ALTO|ALTURA|LARGO|ANCHO)\b)+/gi, ' ')
-            .replace(/\b(?:CON\s+MEDIDAS?|MEDIDAS?|DIAMETRO|DIÁMETRO|DIAM)\b\.?\s*:?/gi, ' ')
-            .replace(/\s+\b(?:DE|CON\s+MEDIDA|FRENTE|FONDO|LARGO|ANCHO|ALTO)\s*$/i, '')
-            .replace(/\s{2,}/g, ' ')
-            .replace(/^[,\s.\-·\/]+|[,\s.\-·\/]+$/g, '')
-            .trim();
+        if (extracted.length > 0) {
+            s = s
+                .replace(/\(\s*\)/g, ' ')
+                .replace(/\s+([,.])/g, '$1')
+                .replace(/\b(?:FRENTE|FONDO|ALTO|ALTURA|LARGO|ANCHO)\s*(?:[xX*×yY]\s*(?:FRENTE|FONDO|ALTO|ALTURA|LARGO|ANCHO)\b)+/gi, ' ')
+                .replace(/\b(?:CON\s+MEDIDAS?|MEDIDAS?|DIAMETRO|DIÁMETRO|DIAM)\b\.?\s*:?/gi, ' ')
+                .replace(/\s+\b(?:DE|CON\s+MEDIDA|FRENTE|FONDO|LARGO|ANCHO|ALTO)\s*$/i, '')
+                .replace(/\s{2,}/g, ' ')
+                .replace(/^[,\s.\-·\/]+|[,\s.\-·\/]+$/g, '')
+                .trim();
+        } else {
+            s = s
+                .replace(/\s{2,}/g, ' ')
+                .trim();
+        }
         let bestMed = '';
         for (let i = 0; i < extracted.length; i++) {
             const nm = normalizeExtractedDimLive(extracted[i]);
@@ -1076,9 +1082,18 @@
             }
         }
 
-        // ETAPA 1C: Madera / laca filtrada dentro de `ct` (COLOR DE TELA)
+        // ETAPA 1C: Madera / laca filtrada dentro de `ct` (COLOR DE TELA) + limpiar `cm` corrupto (ej. nombre completo o medidas pegadas en COLOR DE MADERA)
+        const isSalaNoWoodName = /\b(SALA|SALAS|SOFA|SOFAS|SOFACAMA|SOFA\s+CAMA|MODULAR|SECCIONAL|ESCUADRA|LOVESEAT|LOVE\s+SEAT|CHAISE|ESQUINERO|FUTON|FUTTON)\b/i.test(plainModelToken((out.tp || '') + ' ' + (out.n || ''))) &&
+            !/\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|TEKA|TEAK|ENCINO|ROBLE|FRESNO|CEDRO|CAOBA|OLMO|HAYA|TABACO|TACUBA|BELLOTA|HABANO|ESPIGA|GINGER|CAMEL|NOCHE|NUEZ|MADERA)\b/i.test(nPlain);
+        if (cm) {
+            const cmPlain = plainModelToken(cm);
+            if ((/\d+\s*CM\b/i.test(cm) && cm.length > 18) || (nPlain.length >= 10 && cmPlain.indexOf(nPlain) !== -1)) {
+                cm = '';
+                addIssue('CORRUPTED_WOOD_COLOR_CLEARED');
+            }
+        }
         if (ct && isWoodOrLacquerColorText(ct, { tl: tl, cm: cm })) {
-            if (!cm) cm = ct;
+            if (!cm && !isSalaNoWoodName) cm = ct;
             ct = '';
             addIssue('WOOD_IN_COLOR_POLLUTION');
         }
@@ -1607,7 +1622,8 @@
         const plainUpper = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
         const sku = cleanStr(it.s);
         const skuUpper = sku.toUpperCase();
-        const erpRef = skuUpper ? liveErpCatalogBySku.get(skuUpper) : null;
+        const isLiveSheetRow = !!it._fromLiveInvSheet;
+        const erpRef = (!isLiveSheetRow && skuUpper) ? liveErpCatalogBySku.get(skuUpper) : null;
 
         let nom = cleanStr(it.n);
         let mo = cleanStr(it.mo) || (erpRef && erpRef.mo) || '';
@@ -1615,6 +1631,45 @@
         let vr = cleanStr(it.vr);
         let med = cleanStr(it.m);
         let cat = cleanStr(it.c);
+
+        // Si el registro proviene directamente de CONTROL DE PRODUCTOS PRESENTACIÓN (INVENTARIO_EN_VIVO),
+        // respetar fielmente el NOMBRE y los datos exactos de su propia fila sin recortar, adivinar ni mezclar.
+        if (isLiveSheetRow) {
+            if (!nom || nom.toUpperCase() === skuUpper) {
+                const liveErpRef = skuUpper ? liveErpCatalogBySku.get(skuUpper) : null;
+                if (liveErpRef && liveErpRef.n) nom = liveErpRef.n;
+            }
+            if (/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(nom)) {
+                const badParsed = stripDimensionsAndExtractLive(nom);
+                if (!med && badParsed.med) med = badParsed.med;
+                const liveErpRef = skuUpper ? liveErpCatalogBySku.get(skuUpper) : null;
+                const erpClean = liveErpRef && liveErpRef.n && !/^(?:MEDIDAS?\s*:|[\d\s.,xX*×]+(?:CM|MTS?|M)?\.?$)/i.test(liveErpRef.n)
+                    ? liveErpRef.n
+                    : '';
+                nom = erpClean || mo || sku;
+            }
+            if (!tp) tp = deduceProductTypeLive(nom, cat, mo) || 'ACCESORIO DECORATIVO';
+            if (!cat || /\d.*x.*\d/i.test(cat)) cat = deduceCategoryLive(tp, nom, cat);
+            it.n = nom || sku;
+            it.tp = tp;
+            it.mo = mo;
+            it.vr = vr;
+            it.m = med;
+            it.c = cat;
+            it.tl = cleanStr(it.tl);
+            it.ct = cleanStr(it.ct);
+            it.md = cleanStr(it.md);
+            it.cm = cleanStr(it.cm);
+            it.mt = cleanStr(it.mt);
+            it.p = cleanStr(it.p);
+            it.f = cleanStr(it.f);
+            if (!cleanStr(it.pr)) {
+                const liveErpRef = skuUpper ? liveErpCatalogBySku.get(skuUpper) : null;
+                if (liveErpRef && liveErpRef.pr) it.pr = liveErpRef.pr;
+            }
+            validateAndNormalizeFabricColorAgainstName(it, { mutate: true });
+            return it;
+        }
 
         if ((!nom || nom.toUpperCase() === skuUpper) && erpRef && erpRef.n) {
             nom = erpRef.n;
@@ -1636,9 +1691,9 @@
         if (/^T\.\s+[A-Z]/i.test(nom)) nom = nom.replace(/^T\.\s+/i, 'TAPETE ');
         if (/^TEL-ARTELL\s+/i.test(nom)) nom = nom.replace(/^TEL-ARTELL\s+/i, 'TELA ARTELL ');
 
-        // 2) Quitar medidas incrustadas en NOMBRE y guardarlas en MEDIDAS si estaba vacío
+        // 2) Quitar medidas numéricas incrustadas en NOMBRE (solo si existían) y guardarlas en MEDIDAS si estaba vacío
         const parsedNom = stripDimensionsAndExtractLive(nom);
-        if (parsedNom.text && /[A-Za-zÁÉÍÓÚáéíóúÑñ]{2,}/.test(parsedNom.text)) {
+        if (parsedNom.med && parsedNom.text && /[A-Za-zÁÉÍÓÚáéíóúÑñ]{2,}/.test(parsedNom.text)) {
             nom = parsedNom.text;
         }
         if (!med && parsedNom.med) med = parsedNom.med;
@@ -1701,8 +1756,12 @@
         let prov = cleanStr(it.p) || (prevIt && cleanStr(prevIt.p)) || '';
 
         const searchBlob = ' ' + plainUpper(nom) + ' ';
+        const isHardGoodAuto = isNonTextileProduct({ tp: tp, n: nom });
+        const isSalaNoWoodAuto = SALA_SOFA_WOOD_GUARD_RE.test(plainUpper(cat + ' ' + tp + ' ' + nom)) && !VISIBLE_WOOD_IN_NAME_RE.test(searchBlob);
+        const isTextileNoWoodAuto = NON_WOOD_TEXTILE_CAT_RE.test(plainUpper(cat)) || /\b(COJIN|COJINES|FUNDA|FUNDAS|ALMOHADON|SABANA|DUVET|MANTEL|HILO|TOALLA|TAPETE|ALFOMBRA|COLCHON|CORTINA)\b/i.test(plainUpper(tp + ' ' + nom));
+
         if (tp === 'TELA' && !tl && mo) tl = mo;
-        if (!tl && liveFabricsListSorted.length > 0) {
+        if (!tl && !isHardGoodAuto && liveFabricsListSorted.length > 0) {
             for (let f = 0; f < liveFabricsListSorted.length; f++) {
                 const fk = liveFabricsListSorted[f];
                 if (searchBlob.indexOf(' ' + fk + ' ') !== -1) {
@@ -1719,15 +1778,16 @@
             if (fInfo && fInfo.ct) ct = fInfo.ct;
         }
 
-        if (!md) {
+        if (!md && !isSalaNoWoodAuto && !isTextileNoWoodAuto) {
             for (let w = 0; w < LIVE_WOOD_PATTERNS.length; w++) {
+                if (LIVE_WOOD_PATTERNS[w][1] === 'PINO' && !/\bMADERA\s+DE\s+PINO\b/.test(searchBlob)) continue;
                 if (LIVE_WOOD_PATTERNS[w][0].test(searchBlob)) {
                     md = LIVE_WOOD_PATTERNS[w][1];
                     break;
                 }
             }
         }
-        if (!cm) {
+        if (!cm && !isSalaNoWoodAuto && !isTextileNoWoodAuto) {
             for (let w = 0; w < LIVE_WOOD_COLOR_PATTERNS.length; w++) {
                 if (LIVE_WOOD_COLOR_PATTERNS[w][0].test(searchBlob)) {
                     cm = LIVE_WOOD_COLOR_PATTERNS[w][1];
@@ -1747,7 +1807,7 @@
 
         if (vr) {
             const vrParsed = stripDimensionsAndExtractLive(vr);
-            if (vrParsed.text && /[A-Za-z]{2,}/.test(vrParsed.text)) vr = vrParsed.text;
+            if (vrParsed.med && vrParsed.text && /[A-Za-z]{2,}/.test(vrParsed.text)) vr = vrParsed.text;
         } else if (prevIt && cleanStr(prevIt.vr)) {
             vr = stripDimensionsFromProductText(prevIt.vr);
         }
@@ -2031,7 +2091,15 @@
             }
             // SOFAS & LOVESEATS: si el modelo tiene tanto Sofá como Love Seat, agrupar juntos como "SOFÁ Y LOVE SEAT [MODELO]"
             if (subCat === 'SOFAS & LOVESEATS' && pairMoKey && sofaAndLoveseatModels.has(pairMoKey)) {
-                return { domain: 'SALAS_TAPIZ', typeKey: 'SOFA_LOVESEAT', typeLabel: 'SOFÁ Y LOVE SEAT', typeRank: 18 };
+                const isLs = /^(LOVE\s*SEAT|LOVESEAT)\b/.test(tpTok) || /\b(LOVE\s*SEATS?|LOVESEATS?)\b/.test(prodTok);
+                return {
+                    domain: 'SALAS_TAPIZ',
+                    typeKey: 'SOFA_LOVESEAT',
+                    typeLabel: 'SOFÁ Y LOVE SEAT',
+                    typeRank: 18,
+                    ownPieceTypeKey: isLs ? 'LOVE_SEAT' : 'SOFA',
+                    ownPieceTypeLabel: isLs ? 'LOVE SEAT' : 'SOFÁ'
+                };
             }
             if (/^(OTTOMAN|OTOMAN|POUF|PUFF|TABURETE)$/.test(tpTok)) {
                 return { domain: 'SALAS_TAPIZ', typeKey: 'OTTOMAN', typeLabel: 'OTOMÁN', typeRank: 45 };
@@ -2168,7 +2236,16 @@
                     return { domain: 'EXTERIOR', typeKey: 'EXT_SALA_MODULAR', typeLabel: 'SALA MODULAR EXTERIOR', typeRank: 110 };
                 }
                 if (pairMoKey && exteriorSofaAndLoveseatModels.has(pairMoKey)) {
-                    return { domain: 'EXTERIOR', typeKey: 'EXT_SOFA_LOVESEAT', typeLabel: 'SOFÁ Y LOVE SEAT EXTERIOR', typeRank: 110.5 };
+                    const isExtLs = /^LOVE\s*SEAT\b|^LOVESEAT\b/.test(tpTok) || /\b(LOVE\s*SEATS?|LOVESEATS?)\b/.test(prodTok);
+                    const isExtSil = !isExtLs && (/^SILLON\b/.test(tpTok) || /\bSILLON(?:ES)?\b/.test(prodTok));
+                    return {
+                        domain: 'EXTERIOR',
+                        typeKey: 'EXT_SOFA_LOVESEAT',
+                        typeLabel: 'SOFÁ Y LOVE SEAT EXTERIOR',
+                        typeRank: 110.5,
+                        ownPieceTypeKey: isExtLs ? 'EXT_LOVE_SEAT' : (isExtSil ? 'EXT_SILLON' : 'EXT_SOFA'),
+                        ownPieceTypeLabel: isExtLs ? 'LOVE SEAT EXTERIOR' : (isExtSil ? 'SILLÓN EXTERIOR' : 'SOFÁ EXTERIOR')
+                    };
                 }
                 if (pairMoKey && exteriorSalaSetModels.has(pairMoKey)) {
                     return { domain: 'EXTERIOR', typeKey: 'EXT_SALA', typeLabel: 'SALA EXTERIOR', typeRank: 110.6 };
@@ -4794,74 +4871,8 @@
                     }
                 }
 
-                // Propagar información estructural faltante (Medidas por tamaño/pieza, Madera, Color de madera, Materiales) entre variantes hermanas del mismo modelo
-                const isBedGroup = !!(grp.typeKey && BED_GROUPABLE_TYPE_KEYS.has(grp.typeKey));
-                const getVarSizeSig = x => {
-                    const txt = ' ' + plainModelToken((x.n || '') + ' ' + (x.vr || '') + ' ' + (x.tp || '')) + ' ';
-                    const sigs = [];
-                    if (isBedGroup && x._cat) sigs.push('BED_' + x._cat);
-                    if (/\b(?:SUPER\s*KING(?:\s*SIZE)?|SKS)\b/.test(txt)) sigs.push('SKS');
-                    else if (/\b(?:MATRIMONIAL\s*[\/\-]\s*QUEEN(?:\s*SIZE)?|MAT\s*[\/\-]\s*QUEEN(?:\s*SIZE)?|QUEEN\s*[\/\-]\s*MAT(?:RIMONIAL)?|MATRIMONIAL\s+QUEEN(?:\s*SIZE)?)\b/.test(txt)) sigs.push('MAT_QS');
-                    else if (/\b(?:KING\s*SIZE|KING|KS)\b/.test(txt)) sigs.push('KS');
-                    else if (/\b(?:QUEEN\s*SIZE|QUEEN|QS)\b/.test(txt)) sigs.push('QS');
-                    else if (/\b(?:MATRIMONIAL|MAT|MTR)\b/.test(txt)) sigs.push('MAT');
-                    else if (/\b(?:INDIVIDUAL|INDIV\.?|IND)\b/.test(txt)) sigs.push('IND');
-                    if (/\b(?:GRANDE|GDE)\b/.test(txt)) sigs.push('GDE');
-                    else if (/\b(?:MEDIAN[OA]|MED)\b/.test(txt)) sigs.push('MED');
-                    else if (/\b(?:CHIC[OA]|CH)\b/.test(txt)) sigs.push('CH');
-                    if (/\bCHAISE\b/.test(txt)) sigs.push('CHAISE');
-                    if (/\bESQUINERO\b/.test(txt)) sigs.push('ESQ');
-                    if (/\b(?:LOVE\s*SEAT|LOVESEAT|2\s*P)\b/.test(txt)) sigs.push('2P');
-                    if (/\b(?:3\s*P|SOFA\s*3)\b/.test(txt)) sigs.push('3P');
-                    if (/\b(?:TABURETE|OTTOMAN|POUF|PUFF)\b/.test(txt)) sigs.push('TAB');
-                    return sigs.length ? sigs.join('_') : 'STD';
-                };
-                if (grp.typeKey === 'CAMA_CONJUNTO') {
-                    // Salvaguarda #2: en familias unificadas (Cama/Base/Cabecera), propagar madera/acabado SOLO dentro de cada pieza (`_cat`)
-                    const bySubCatMeta = new Map();
-                    for (let j = 0; j < grp.items.length; j++) {
-                        const x = grp.items[j];
-                        const sc = x._cat || 'OTRO';
-                        let meta = bySubCatMeta.get(sc);
-                        if (!meta) { meta = { md: '', cm: '', mt: '' }; bySubCatMeta.set(sc, meta); }
-                        if (!meta.md && cleanStr(x.md)) meta.md = cleanStr(x.md);
-                        if (!meta.cm && cleanStr(x.cm)) meta.cm = cleanStr(x.cm);
-                        if (!meta.mt && cleanStr(x.mt)) meta.mt = cleanStr(x.mt);
-                    }
-                    for (let j = 0; j < grp.items.length; j++) {
-                        const x = grp.items[j];
-                        const meta = bySubCatMeta.get(x._cat || 'OTRO') || { md: '', cm: '', mt: '' };
-                        if (!cleanStr(x.mo) && bestMo) x.mo = bestMo;
-                        if (!cleanStr(x.md) && meta.md) x.md = meta.md;
-                        if (!cleanStr(x.cm) && meta.cm && (!cleanStr(x.md) || cleanStr(x.md) === meta.md)) x.cm = meta.cm;
-                        if (!cleanStr(x.mt) && meta.mt) x.mt = meta.mt;
-                        if (!cleanStr(x.m)) {
-                            const sig = getVarSizeSig(x);
-                            const donor = grp.items.find(y => cleanStr(y.m) && getVarSizeSig(y) === sig);
-                            if (donor) x.m = cleanStr(donor.m);
-                        }
-                    }
-                } else {
-                    let sharedMd = '', sharedCm = '', sharedMt = '';
-                    for (let j = 0; j < grp.items.length; j++) {
-                        const x = grp.items[j];
-                        if (!sharedMd && cleanStr(x.md)) sharedMd = cleanStr(x.md);
-                        if (!sharedCm && cleanStr(x.cm)) sharedCm = cleanStr(x.cm);
-                        if (!sharedMt && cleanStr(x.mt)) sharedMt = cleanStr(x.mt);
-                    }
-                    for (let j = 0; j < grp.items.length; j++) {
-                        const x = grp.items[j];
-                        if (!cleanStr(x.mo) && bestMo) x.mo = bestMo;
-                        if (!cleanStr(x.md) && sharedMd) x.md = sharedMd;
-                        if (!cleanStr(x.cm) && sharedCm && (!cleanStr(x.md) || cleanStr(x.md) === sharedMd)) x.cm = sharedCm;
-                        if (!cleanStr(x.mt) && sharedMt) x.mt = sharedMt;
-                        if (!cleanStr(x.m)) {
-                            const sig = getVarSizeSig(x);
-                            const donor = grp.items.find(y => cleanStr(y.m) && getVarSizeSig(y) === sig);
-                            if (donor) x.m = cleanStr(donor.m);
-                        }
-                    }
-                }
+                // NUNCA mezclar ni propagar Madera, Color de madera, Materiales, Medidas ni Modelo entre SKUs distintos:
+                // cada SKU conserva estrictamente los datos propios de su fila en CONTROL DE PRODUCTOS PRESENTACIÓN (INVENTARIO_EN_VIVO).
             }
             grp.displayTitle = (grp.items.length > 1
                 ? grp.title
@@ -7016,7 +7027,7 @@
             if (discInp) discInp.value = '';
         }
 
-        const baseTitle = stripDimensionsFromProductText(it.n) || cleanStr(it._groupTitle) || it.s || '';
+        const baseTitle = cleanStr(it.n) || cleanStr(it._groupTitle) || it.s || '';
         const formattedPrice = formatPrice(it.pr);
         if (nameEl) {
             nameEl.textContent = baseTitle;
@@ -10650,18 +10661,17 @@
                 if (!hSku || hSku === 'SKU') continue;
                 const hNom = cleanStr(hr[1]);
                 if (hNom && /^DESC[-\s]|DESCONTINUAD/i.test(hNom)) continue;
-                const hMo = cleanStr(hr[2]);
+                // Col C (hr[2]) en Hoja '1' es 'FOTO APP', NO 'MODELO'
                 const hFotoRaw = cleanStr(hr[3]);
                 const hFoto = (/^https?:\/\//i.test(hFotoRaw) || extractDriveFileId(hFotoRaw)) ? hFotoRaw : '';
                 const prevEntry = nextErpCatalog.get(hSku);
                 if (prevEntry) {
                     if (!prevEntry.n && hNom) prevEntry.n = hNom;
-                    if (!prevEntry.mo && hMo && !/^(MODELO|ID_PRODUCTO_ERP)$/i.test(hMo)) prevEntry.mo = hMo;
                     if (!prevEntry.f && hFoto) prevEntry.f = hFoto;
                 } else if (hNom) {
                     nextErpCatalog.set(hSku, {
                         sku: hSkuRaw,
-                        mo: (hMo && !/^(MODELO|ID_PRODUCTO_ERP)$/i.test(hMo)) ? hMo : '',
+                        mo: '',
                         n: hNom,
                         pr: nextPrices.get(hSku) || '',
                         f: hFoto
@@ -13644,14 +13654,14 @@
             if (getBodegaPisoStock(it) < 1 && typeof hasValidErpPrice === 'function' && !hasValidErpPrice(it)) return;
             cart[key] = {
                 sku: it.s,
-                name: stripDimensionsFromProductText(it.n) || it.s,
+                name: cleanStr(it.n) || it.s,
                 price: formatPrice(it.pr),
                 qty: 0,
                 discountPct: 0
             };
         } else if (it && it.pr) {
             cart[key].price = formatPrice(it.pr);
-            cart[key].name = stripDimensionsFromProductText(it.n) || stripDimensionsFromProductText(cart[key].name) || it.s;
+            cart[key].name = cleanStr(it.n) || cleanStr(cart[key].name) || it.s;
         }
         cart[key].qty = Math.max(0, (Number(cart[key].qty) || 0) + stepDelta);
         if (cart[key].qty <= 0) {
@@ -15395,7 +15405,7 @@
     // RESPALDO SIN CONEXIÓN: último inventario en vivo guardado en este dispositivo
     // (Bodega/Piso de CEDIS, CASA CREATA, PTC, COLOSIO, PLAYA + LPPT y fecha estimada)
     // ------------------------------------------------------------------------
-    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v4';
+    const LIVE_CACHE_KEY = 'creata_inv_live_cache_v5';
     const LIVE_OK_TS_KEY = 'creata_inv_live_ok_ts_v1';
     const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe', 'fcomp'];
     const LIVE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -15405,6 +15415,7 @@
     try {
         localStorage.removeItem('creata_inv_live_cache_v2');
         localStorage.removeItem('creata_inv_live_cache_v3');
+        localStorage.removeItem('creata_inv_live_cache_v4');
         lastLiveOkMs = Number(localStorage.getItem(LIVE_OK_TS_KEY) || 0) || 0;
     } catch (e) {}
 
@@ -15470,6 +15481,7 @@
                 if (it.fcomp === undefined) it.fcomp = '';
                 const st = r[fieldList.length];
                 it.st = (Array.isArray(st) && st.length === WAREHOUSES.length) ? st.map(v => Math.max(0, Number(v) || 0)) : emptyStocks();
+                it._fromLiveInvSheet = true;
                 if (cleanStr(it.s)) items.push(normalizeInventoryItemLive(it, null));
             }
             if (items.length === 0) return false;
@@ -15979,30 +15991,34 @@
                 ? rawPrCell
                 : (colPrecio !== -1 ? gvizCellFormatted(rowCells, colPrecio) : '');
             const erpFallbackPr = liveErpPricesBySku.get(skuUpper) || '';
-            const prFormatted = formatPrice(rawPr) || formatPrice(erpFallbackPr) || (prevIt && formatPrice(prevIt.pr)) || '';
+            const prFormatted = formatPrice(rawPr) || formatPrice(erpFallbackPr) || '';
 
+            // Fuente canónica única: cada columna presente en INVENTARIO_EN_VIVO manda 100% (incluso si está vacía).
+            // Solo recurrir a prevIt si la columna no vino en la respuesta (colIdx < 0), nunca resucitar caché vieja.
+            const liveCol = (colIdx, prevVal) => (colIdx >= 0 ? cleanStr(gvizCellRaw(rowCells, colIdx)) : cleanStr(prevVal));
             liveItems.push(normalizeInventoryItemLive({
                 s: sku,
-                tp: cleanStr(gvizCellRaw(rowCells, colTp)) || (prevIt && prevIt.tp) || '',
-                mo: cleanStr(gvizCellRaw(rowCells, colMo)) || (prevIt && prevIt.mo) || '',
-                n: cleanStr(gvizCellRaw(rowCells, colNombre)) || (prevIt && prevIt.n) || sku,
-                vr: cleanStr(gvizCellRaw(rowCells, colVar)) || (prevIt && prevIt.vr) || '',
-                f: colFoto >= 0 ? cleanStr(gvizCellRaw(rowCells, colFoto)) : ((prevIt && prevIt.f) || ''),
-                c: cleanStr(gvizCellRaw(rowCells, colCat)) || (prevIt && prevIt.c) || '',
-                tl: cleanStr(gvizCellRaw(rowCells, colTela)) || (prevIt && prevIt.tl) || '',
-                ct: cleanStr(gvizCellRaw(rowCells, colColorTela)) || (prevIt && prevIt.ct) || '',
-                md: cleanStr(gvizCellRaw(rowCells, colMadera)) || (prevIt && prevIt.md) || '',
-                cm: cleanStr(gvizCellRaw(rowCells, colColorMadera)) || (prevIt && prevIt.cm) || '',
-                mt: cleanStr(gvizCellRaw(rowCells, colMat)) || (prevIt && prevIt.mt) || '',
-                m: cleanStr(gvizCellRaw(rowCells, colMed)) || (prevIt && prevIt.m) || '',
-                p: cleanStr(gvizCellRaw(rowCells, colProv)) || (prevIt && prevIt.p) || '',
+                _fromLiveInvSheet: true,
+                tp: liveCol(colTp, prevIt && prevIt.tp),
+                mo: liveCol(colMo, prevIt && prevIt.mo),
+                n: liveCol(colNombre, prevIt && prevIt.n) || sku,
+                vr: liveCol(colVar, prevIt && prevIt.vr),
+                f: liveCol(colFoto, prevIt && prevIt.f),
+                c: liveCol(colCat, prevIt && prevIt.c),
+                tl: liveCol(colTela, prevIt && prevIt.tl),
+                ct: liveCol(colColorTela, prevIt && prevIt.ct),
+                md: liveCol(colMadera, prevIt && prevIt.md),
+                cm: liveCol(colColorMadera, prevIt && prevIt.cm),
+                mt: liveCol(colMat, prevIt && prevIt.mt),
+                m: liveCol(colMed, prevIt && prevIt.m),
+                p: liveCol(colProv, prevIt && prevIt.p),
                 pr: prFormatted,
                 lt: lpptInfo.lt,
                 baseLt: lpptInfo.baseLt,
                 fe: lpptInfo.fe,
                 fcomp: lpptInfo.fcomp,
                 st: st
-            }, prevIt));
+            }, null));
         }
 
         // Si existe un producto nuevo en el catálogo ERP de S Mueblería (plantilla!AE:AH) que aún no está en INVENTARIO_EN_VIVO, agregarlo y completarlo en automático
@@ -16093,11 +16109,13 @@
         const nextSig = computeItemsSignature(liveItems);
         if (nextSig !== lastLiveSignature) {
             lastLiveSignature = nextSig;
+            // Guardar respaldo offline limpio (antes de overrides locales) para evitar arrastrar ediciones viejas
+            const cleanLiveCacheSnapshot = liveItems.map(x => Object.assign({}, x, { st: Array.isArray(x.st) ? x.st.slice() : [] }));
             allItems = liveItems;
             window.CREATA_INV_DATA = liveItems;
             applyAllProductOverridesToCatalog();
             indexItemsAndGroups();
-            scheduleSaveLiveInventoryCache(liveItems);
+            scheduleSaveLiveInventoryCache(cleanLiveCacheSnapshot);
 
             const inp = document.getElementById('invSearchInput');
             applyFilter(inp ? inp.value : '', true);

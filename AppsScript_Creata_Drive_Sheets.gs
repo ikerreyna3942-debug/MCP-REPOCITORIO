@@ -9035,7 +9035,7 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     if (/^TEL-ARTELL\s+/i.test(nom)) nom = nom.replace(/^TEL-ARTELL\s+/i, 'TELA ARTELL ');
 
     const parsedNom = stripDimensionsAndExtractInv_(nom);
-    if (parsedNom.text && /[A-Za-zÁÉÍÓÚáéíóúÑñ]{2,}/.test(parsedNom.text)) {
+    if (parsedNom.med && parsedNom.text && /[A-Za-zÁÉÍÓÚáéíóúÑñ]{2,}/.test(parsedNom.text)) {
       nom = parsedNom.text;
     }
     if (!med && parsedNom.med) med = parsedNom.med;
@@ -9058,24 +9058,26 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
 
     if (!tp) tp = deduceProductTypeInv_(nom, cat, mo) || 'ACCESORIO DECORATIVO';
     const nomHeadInv = normPlainUpper_(nom).split(/\b(?:INCLUYE|INCL|CON\s+\d|CON\s+MESAS?\b|CON\s+SILLAS?\b|C\/\s*FUNDAS)\b/)[0].trim();
-    if (/^SALA\b/.test(nomHeadInv) && !/^SALA\s+(?:DE\s+)?COMEDOR\b/.test(nomHeadInv)) {
-      tp = 'SALA';
-    } else if (/^RECAMARA\b/.test(nomHeadInv)) {
-      tp = 'RECÁMARA';
-    } else if (
-      /\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(nomHeadInv) &&
-      !/\bSILLAS?\b/.test(nomHeadInv) &&
-      !/^(?:SALA|SOFA\s+CAMA|FUTTON|FUTON)\b/.test(nomHeadInv)
-    ) {
-      if (!/\bSILLON\b/.test(normPlainUpper_(tp))) {
-        tp = /\bOCASIONAL\b/.test(nomHeadInv) ? 'SILLON OCASIONAL' : 'SILLON';
-      }
-    } else if (
-      /\bSILLAS?\b/.test(nomHeadInv) &&
-      !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHeadInv)
-    ) {
-      if (!/^SILLA\b/.test(normPlainUpper_(tp))) {
-        tp = 'SILLA';
+    if (!cleanInvCell_(r[1])) {
+      if (/^SALA\b/.test(nomHeadInv) && !/^SALA\s+(?:DE\s+)?COMEDOR\b/.test(nomHeadInv)) {
+        tp = 'SALA';
+      } else if (/^RECAMARA\b/.test(nomHeadInv)) {
+        tp = 'RECÁMARA';
+      } else if (
+        /\b(SILLON(?:ES)?|BUTACAS?|MECEDORAS?|RECLINABLES?|BERGERE)\b/.test(nomHeadInv) &&
+        !/\bSILLAS?\b/.test(nomHeadInv) &&
+        !/^(?:SALA|SOFA\s+CAMA|FUTTON|FUTON)\b/.test(nomHeadInv)
+      ) {
+        if (!/\bSILLON\b/.test(normPlainUpper_(tp))) {
+          tp = /\bOCASIONAL\b/.test(nomHeadInv) ? 'SILLON OCASIONAL' : 'SILLON';
+        }
+      } else if (
+        /\bSILLAS?\b/.test(nomHeadInv) &&
+        !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHeadInv)
+      ) {
+        if (!/^SILLA\b/.test(normPlainUpper_(tp))) {
+          tp = 'SILLA';
+        }
       }
     }
     mo = cleanOrExtractModelInv_(mo, nom, tp);
@@ -9093,8 +9095,13 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
     }
 
     const searchBlob = ' ' + normPlainUpper_(nom) + ' ';
+    const isHardGoodInv = /^(?:MESA(?:\s+\w+)*|CREDENZA|BUFETERA|BUFETERO|CONSOLA|CAVA|MUEBLE\s+DE\s+TV|ESCRITORIO|LIBRERO|BURO|COMODA|CAJONERA|TOCADOR|ESPEJO|CUADRO|LAMPARA(?:\s+\w+)*|CANDIL|ARBOTANTE|MACETA|FLORERO|JARRON|CHAROLA|ESCULTURA|ACCESORIO\s+DECORATIVO)$/.test(normPlainUpper_(tp));
+    const isNonWoodTextileInv = /^(?:COJIN|FUNDA(?:\s+\w+)*|BLANCOS|TAPETE|COLCHON|RELLENO|TELA)$/.test(normPlainUpper_(tp));
+    const isSalaWithoutWoodNameInv = /\b(SALA|SOFA|SOFA\s+CAMA|LOVE\s*SEAT|CHAISE|ESQUINERO|FUTON|FUTTON)\b/.test(normPlainUpper_(tp + ' ' + nom)) &&
+      !/\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|TEKA|TEAK|ENCINO|ROBLE|FRESNO|TABACO|TACUBA|BELLOTA|HABANO|ESPIGA|NUEZ|MADERA)\b/.test(searchBlob);
+
     if (tp === 'TELA' && !tl && mo) tl = mo;
-    if (!tl && fabricsSorted.length > 0) {
+    if (!tl && !isHardGoodInv && fabricsSorted.length > 0) {
       for (let f = 0; f < fabricsSorted.length; f++) {
         const fk = fabricsSorted[f];
         if (searchBlob.indexOf(' ' + fk + ' ') >= 0) {
@@ -9107,15 +9114,16 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
       ct = knownFabrics[normPlainUpper_(tl)].ct || '';
     }
 
-    if (!md) {
+    if (!md && !isNonWoodTextileInv && !isSalaWithoutWoodNameInv) {
       for (let w = 0; w < INV_WOOD_PATTERNS_.length; w++) {
+        if (INV_WOOD_PATTERNS_[w][1] === 'PINO' && !/\bMADERA\s+DE\s+PINO\b/.test(searchBlob)) continue;
         if (INV_WOOD_PATTERNS_[w][0].test(searchBlob)) {
           md = INV_WOOD_PATTERNS_[w][1];
           break;
         }
       }
     }
-    if (!cm) {
+    if (!cm && !isNonWoodTextileInv && !isSalaWithoutWoodNameInv) {
       for (let w = 0; w < INV_WOOD_COLOR_PATTERNS_.length; w++) {
         if (INV_WOOD_COLOR_PATTERNS_[w][0].test(searchBlob)) {
           cm = INV_WOOD_COLOR_PATTERNS_[w][1];
@@ -9135,7 +9143,7 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
 
     if (vr) {
       const vrParsed = stripDimensionsAndExtractInv_(vr);
-      if (vrParsed.text && /[A-Za-z]{2,}/.test(vrParsed.text)) vr = vrParsed.text;
+      if (vrParsed.med && vrParsed.text && /[A-Za-z]{2,}/.test(vrParsed.text)) vr = vrParsed.text;
     }
     if (!vr) {
       const vParts = [];
