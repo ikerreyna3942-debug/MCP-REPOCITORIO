@@ -12580,7 +12580,8 @@ function hacerPublicasFotosInventario_(opts) {
       '1eSoUmv6IqQ7iU5BZPf8drKg6ktD6ESVT',
       '17k8kIyyBcAcYIPpICvU7LXGzKvDDuHUk',
       '1M8xqPRijm_JdsWSsTEPEX3CsgGfvJyDm',
-      '1CI3J-86sx9aCW6RX-i1k26mJ52xT_Nyw'
+      '1CI3J-86sx9aCW6RX-i1k26mJ52xT_Nyw',
+      '1iSJztVhhrNvopTdX5sDcLSolhSnK_VAy' // TELAS ODOO
     ];
     const recurseSubfolderIds = {};
     recurseSubfolderIds[SUBIR_INBOX_FOLDER_ID_] = true;
@@ -12622,7 +12623,7 @@ function hacerPublicasFotosInventario_(opts) {
     }
   }
 
-  // 2) IDs únicos leídos EN SOLO LECTURA desde INVENTARIO_EN_VIVO Col F, Hoja '1' Col D y _INV_PRODUCT_OVERRIDES (Portadas/Telas)
+  // 2) IDs únicos leídos EN SOLO LECTURA: primero _INV_PRODUCT_OVERRIDES (Telas/Portadas), luego INVENTARIO_EN_VIVO Col F y Hoja '1' Cols D y E
   const fileIdSet = {};
   const fileIds = [];
   const addFileId = (raw) => {
@@ -12635,6 +12636,11 @@ function hacerPublicasFotosInventario_(opts) {
 
   try {
     const ss = getSpreadsheet_();
+    const shOv = ss.getSheetByName(INV_PRODUCT_OVERRIDES_TAB_);
+    if (shOv && shOv.getLastRow() >= 2 && shOv.getLastColumn() >= 6) {
+      const colNote = shOv.getRange(2, 6, shOv.getLastRow() - 1, 1).getDisplayValues();
+      for (let i = 0; i < colNote.length; i++) addFileId(colNote[i][0]);
+    }
     const shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
     if (shInv && shInv.getLastRow() >= 4) {
       const colF = shInv.getRange(4, 6, shInv.getLastRow() - 3, 1).getDisplayValues();
@@ -12642,13 +12648,12 @@ function hacerPublicasFotosInventario_(opts) {
     }
     const sh1 = ss.getSheetByName('1');
     if (sh1 && sh1.getLastRow() >= 2 && sh1.getLastColumn() >= 4) {
-      const colD = sh1.getRange(2, 4, sh1.getLastRow() - 1, 1).getDisplayValues();
-      for (let i = 0; i < colD.length; i++) addFileId(colD[i][0]);
-    }
-    const shOv = ss.getSheetByName(INV_PRODUCT_OVERRIDES_TAB_);
-    if (shOv && shOv.getLastRow() >= 2 && shOv.getLastColumn() >= 6) {
-      const colNote = shOv.getRange(2, 6, shOv.getLastRow() - 1, 1).getDisplayValues();
-      for (let i = 0; i < colNote.length; i++) addFileId(colNote[i][0]);
+      const colsToRead = sh1.getLastColumn() >= 5 ? 2 : 1;
+      const colDE = sh1.getRange(2, 4, sh1.getLastRow() - 1, colsToRead).getDisplayValues();
+      for (let i = 0; i < colDE.length; i++) {
+        addFileId(colDE[i][0]);
+        if (colsToRead >= 2) addFileId(colDE[i][1]);
+      }
     }
   } catch (eRead) {
     summary.errors.push('sheet_read:' + String((eRead && eRead.message) || eRead));
@@ -13620,19 +13625,24 @@ function readProductOverridesMap_(ss) {
     const priceNum = (priceRaw !== '' && priceRaw !== null && priceRaw !== undefined && isFinite(Number(priceRaw)))
       ? Number(priceRaw)
       : null;
+    const noteStr = String(vals[i][5] || '').trim();
+    if (/^V(?:FAB|COV):/i.test(sku) && (/^blob:/i.test(noteStr) || /^data:/i.test(noteStr))) continue;
     out[sku] = {
       sku: sku,
       status: (status === 'ARCHIVADO' || status === 'ELIMINADO') ? status : 'VISIBLE',
       name: String(vals[i][2] || '').trim(),
       category: String(vals[i][3] || '').trim(),
       price: priceNum,
-      note: String(vals[i][5] || '').trim(),
+      note: noteStr,
       updatedBy: String(vals[i][6] || '').trim(),
       updatedAt: String(vals[i][7] || '').trim()
     };
   }
   try {
-    CacheService.getScriptCache().put(INV_PRODUCT_OVERRIDES_CACHE_KEY_, JSON.stringify(out), 300);
+    const jsonOut = JSON.stringify(out);
+    if (jsonOut.length <= 95000) {
+      CacheService.getScriptCache().put(INV_PRODUCT_OVERRIDES_CACHE_KEY_, jsonOut, 300);
+    }
   } catch (ePut) {}
   return out;
 }
@@ -13676,6 +13686,14 @@ function handleInvProductOverrideSave_(body) {
     return { ok: false, error: 'Operación no permitida: ' + op };
   }
 
+  const isVisualOverrideKey = /^V(?:COV|FAB):/i.test(sku);
+  if (isVisualOverrideKey && op !== 'DELETE' && op !== 'ARCHIVE' && b.note !== undefined) {
+    const rawNoteCheck = String(b.note || '').trim();
+    if (/^blob:/i.test(rawNoteCheck) || /^data:/i.test(rawNoteCheck)) {
+      return { ok: false, error: 'No se permiten enlaces temporales (blob:/data:) en fotos de tela o portada.' };
+    }
+  }
+
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -13699,7 +13717,7 @@ function handleInvProductOverrideSave_(body) {
     if (op === 'ARCHIVE') nextStatus = 'ARCHIVADO';
     else if (op === 'DELETE') nextStatus = 'ELIMINADO';
     else if (op === 'RESTORE') nextStatus = 'VISIBLE';
-    else if (op === 'SAVE' && (/^V(?:COV|FAB):/i.test(sku) || (prevStatus !== 'ARCHIVADO' && prevStatus !== 'ELIMINADO'))) nextStatus = 'VISIBLE';
+    else if (op === 'SAVE' && (isVisualOverrideKey || (prevStatus !== 'ARCHIVADO' && prevStatus !== 'ELIMINADO'))) nextStatus = 'VISIBLE';
 
     const nextName = (b.name !== undefined)
       ? sanitizeOverrideTextCell_(b.name, 140)
@@ -13718,6 +13736,19 @@ function handleInvProductOverrideSave_(body) {
       ? sanitizeOverrideTextCell_(b.note, 220)
       : (existingRow ? String(existingRow[5] || '').trim() : '');
     const nowStr = formatCancunNow_();
+
+    // Garantizar permiso público de lectura en Drive para cualquier foto de tela o portada guardada en _INV_PRODUCT_OVERRIDES
+    if (nextStatus === 'VISIBLE' && nextNote) {
+      try {
+        const noteFid = extractDriveFileIdFromCell_(nextNote);
+        if (noteFid && typeof DriveApp !== 'undefined' && DriveApp && typeof DriveApp.getFileById === 'function' && !isForbiddenProjectBFolderId_(noteFid)) {
+          const drvFile = DriveApp.getFileById(noteFid);
+          if (drvFile && !isFileInForbiddenProjectBFolder_(drvFile)) {
+            ensurePublicSharingItem_(drvFile);
+          }
+        }
+      } catch (eEnsureVis) {}
+    }
 
     const actorEmail = (auth && auth.advisor && auth.advisor.correo) ? String(auth.advisor.correo) : OWNER_FOTOS_EMAIL_;
     const actorName = (auth && auth.advisor && auth.advisor.nombre) ? String(auth.advisor.nombre) : 'Kevin Reyna';
