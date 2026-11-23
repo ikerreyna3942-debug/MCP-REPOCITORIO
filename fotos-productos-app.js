@@ -3107,15 +3107,21 @@
             const matchedFab = (typeof findMatchingUploadedFabricForProduct === 'function')
                 ? findMatchingUploadedFabricForProduct(prod)
                 : null;
-            if (matchedFab && matchedFab.url) {
-                const fabThumb = resolveVisualThumbSrcInFotos(matchedFab.url, 140);
-                const fabFull = resolveVisualThumbSrcInFotos(matchedFab.url, 900);
-                const fabFid = extractDriveFileId(matchedFab.url);
+            const matchedWood = (!matchedFab && typeof findMatchingUploadedWoodForProduct === 'function')
+                ? findMatchingUploadedWoodForProduct(prod)
+                : null;
+            const matchedSwatch = (matchedFab && matchedFab.url)
+                ? { label: matchedFab.label, url: matchedFab.url, prefix: '🧵 Tela: ' }
+                : ((matchedWood && matchedWood.url) ? { label: matchedWood.label, url: matchedWood.url, prefix: '🪵 Madera: ' } : null);
+            if (matchedSwatch) {
+                const swThumb = resolveVisualThumbSrcInFotos(matchedSwatch.url, 140);
+                const swFull = resolveVisualThumbSrcInFotos(matchedSwatch.url, 900);
+                const swFid = extractDriveFileId(matchedSwatch.url);
                 linkedFabricChip.innerHTML =
-                    '<img src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedFab.label) + '" referrerpolicy="no-referrer" ' +
-                    'data-drive-id="' + escapeHtml(fabFid) + '" onerror="handlePhotoImgError(this)">' +
-                    '<span>🧵 Tela: ' + escapeHtml(matchedFab.label) + '</span>';
-                linkedFabricChip.onclick = function () { openPhotoLightbox(fabFull); };
+                    '<img src="' + escapeHtml(swThumb) + '" alt="' + escapeHtml(matchedSwatch.label) + '" referrerpolicy="no-referrer" ' +
+                    'data-drive-id="' + escapeHtml(swFid) + '" onerror="handlePhotoImgError(this)">' +
+                    '<span>' + matchedSwatch.prefix + escapeHtml(matchedSwatch.label) + '</span>';
+                linkedFabricChip.onclick = function () { openPhotoLightbox(swFull); };
                 linkedFabricChip.classList.remove('hidden');
             } else {
                 linkedFabricChip.classList.add('hidden');
@@ -7672,6 +7678,18 @@
         } catch (e3) {}
     }
 
+    const FOTOS_VFAB_GENERIC_SINGLE_TOKENS = new Set([
+        'TELA', 'COLOR', 'ESTANDAR', 'CLARO', 'OSCURO', 'NATURAL', 'MEDIO', 'LINO', 'PIEL',
+        'BEIGE', 'BLANCO', 'BLANCA', 'WHITE', 'NEGRO', 'NEGRA', 'BLACK',
+        'GRIS', 'GREY', 'GRAY', 'AZUL', 'BLUE', 'VERDE', 'GREEN',
+        'ROJO', 'ROJA', 'RED', 'CAFE', 'BROWN', 'MARRON', 'ARENA', 'SAND',
+        'CREMA', 'CREAM', 'HUESO', 'BONE', 'IVORY', 'MARFIL',
+        'DORADO', 'ORO', 'GOLD', 'PLATA', 'SILVER', 'BRONCE', 'ROSA', 'PINK',
+        'TERRACOTA', 'TAUPE', 'CAMEL', 'CHOCOLATE', 'OLIVO', 'OLIVE',
+        'MOSTAZA', 'MUSTARD', 'OCRE', 'CRUDO', 'PERLA', 'PEARL',
+        'SNOW', 'FLAX', 'ECRU', 'OAT', 'TOAST', 'ALABASTER', 'PIEDRA', 'STONE'
+    ]);
+
     function getUploadedFabricEntriesInFotos() {
         const out = [];
         const map = visualState.overridesMap || {};
@@ -7683,12 +7701,25 @@
             if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') continue;
             const rawUrl = cleanStr(ovr.note);
             if (!rawUrl || (!/^https?:\/\//i.test(rawUrl) && !/^data:image\//i.test(rawUrl))) continue;
-            const label = cleanFabricVariationNameFotos(ovr.name || k.slice(5)) || cleanStr(ovr.name || k.slice(5));
-            const tokens = plainVisToken(label).split(' ').filter((w) => w.length >= 2);
+            const rawName = cleanStr(ovr.name || k.slice(5));
+            let label = cleanFabricVariationNameFotos(rawName) || rawName;
+            const rawTokens = plainVisToken(rawName).split(' ').filter((w) => w.length >= 2);
+            let tokens = plainVisToken(label).split(' ').filter((w) => w.length >= 2);
+            if (tokens.length === 1 && FOTOS_VFAB_GENERIC_SINGLE_TOKENS.has(tokens[0]) && rawTokens.length >= 2) {
+                label = rawName;
+                tokens = rawTokens;
+            }
+            const strippedWood = plainVisToken(label)
+                .replace(/\bROSA\s+MORADA(?:\s+(?:TONO\s+)?(?:NATURAL|BARSA|YOI|CHAVOYA|CLARA|OSCURA|NOGAL))?\b/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (strippedWood) {
+                tokens = strippedWood.split(' ').filter((w) => w.length >= 2);
+            }
             if (!tokens.length) continue;
             out.push({
                 overrideKey: k,
-                label: label,
+                label: rawName.toUpperCase(),
                 url: rawUrl,
                 plain: tokens.join(' '),
                 sortedKey: tokens.slice().sort().join(' '),
@@ -7700,11 +7731,17 @@
 
     function findMatchingUploadedFabricForProduct(prod) {
         if (!prod) return null;
-        if (!cleanStr(prod.tl) && !cleanStr(prod.ct)) {
+        const tlClean = cleanStr(prod.tl);
+        const ctClean = cleanStr(prod.ct);
+        const hasRealFabricCols = Boolean(
+            (tlClean && !isPureWoodDescriptorFotos(tlClean)) ||
+            (ctClean && !isPureWoodDescriptorFotos(ctClean))
+        );
+        if (!hasRealFabricCols) {
             const catTok = plainVisToken(prod.categoria || '');
             const typeNameTok = plainVisToken(cleanStr(prod.tipo || '') + ' ' + cleanStr(prod.displayName || prod.colBName || ''));
-            const hasUph = /\b(SILLA|SILLON|SOFA|SALA|LOVESEAT|LOVE\s+SEAT|MODULAR|CHAISE|COJIN|COJINES|CABECERA|CAMA|BANCO|TABURETE|PERIQUERA|POUF|PUF|OTTOMAN|OTOMAN|CAMASTRO|TAPIZ|TELA|PIEL|LINO|BOUCLE|VELVET|TERCIOPELO|CHENILLE)\b/i.test(typeNameTok);
-            if (!hasUph && (catTok === 'MESAS' || catTok === 'MESAS DE CENTRO LATERALES' || catTok === 'BUFETERAS CREDENZAS' || /\b(MESA|COMEDOR|CREDENZA|BUFETERA|BURO|CONSOLA|ESCRITORIO|LIBRERO|MUEBLE\s+TV|PEDESTAL|BASE|CUBIERTA|ESPEJO|CUADRO)\b/i.test(typeNameTok))) {
+            const hasUph = /\b(SILLA|SILLON|SOFA|SALA|LOVESEAT|LOVE\s+SEAT|MODULAR|CHAISE|COJIN|COJINES|CABECERA|CAMA|BANCO|TABURETE|PERIQUERA|POUF|PUF|OTTOMAN|OTOMAN|CAMASTRO|TAPIZ|TELA|PIEL|LINO|BOUCLE|VELVET|TERCIOPELO|CHENILLE|BAUL)\b/i.test(typeNameTok);
+            if (!hasUph && (catTok === 'MESAS' || catTok === 'MESAS DE CENTRO LATERALES' || catTok === 'BUFETERAS CREDENZAS' || catTok === 'ILUMINACION' || catTok === 'ESPEJOS ARTE' || /\b(MESA|COMEDOR|CREDENZA|BUFETERA|BURO|CONSOLA|ESCRITORIO|LIBRERO|MUEBLE\s+TV|PEDESTAL|BASE|CUBIERTA|ESPEJO|CUADRO|LAMPARA|CANDIL|ARBOTANTE|MACETA|FLORERO|JARRON|FOLLAJE|BOTELLA|ESCULTURA|RELOJ)\b/i.test(typeNameTok))) {
                 return null;
             }
         }
@@ -7753,6 +7790,7 @@
             const cSet = new Set(cTokens);
             for (let j = 0; j < entries.length; j++) {
                 const e = entries[j];
+                if (e.tokens.length === 1 && FOTOS_VFAB_GENERIC_SINGLE_TOKENS.has(e.tokens[0])) continue;
                 const eSet = new Set(e.tokens);
                 const allEntryInCand = e.tokens.every((t) => cSet.has(t));
                 const allCandInEntry = cTokens.length >= 2 && cTokens.every((t) => eSet.has(t));
@@ -7766,6 +7804,63 @@
             }
         }
         return best;
+    }
+
+    function findMatchingUploadedWoodForProduct(prod) {
+        if (!prod) return null;
+        const map = visualState.overridesMap || {};
+        const woodEntries = [];
+        const seenKeys = new Set();
+        const addWoodEntry = (k, ovr) => {
+            if (!k || seenKeys.has(k)) return;
+            if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') return;
+            const rawUrl = cleanStr(ovr.note);
+            if (!rawUrl || (!/^https?:\/\//i.test(rawUrl) && !/^data:image\//i.test(rawUrl))) return;
+            const label = cleanStr(ovr.name || k.slice(5)).toUpperCase();
+            const tokens = plainVisToken(label).split(' ').filter((w) => w.length >= 2);
+            if (!tokens.length) return;
+            seenKeys.add(k);
+            woodEntries.push({ overrideKey: k, label: label, url: rawUrl, plain: tokens.join(' '), tokens: tokens, tokenSet: new Set(tokens) });
+        };
+        Object.keys(map).forEach((rk) => {
+            const k = String(rk || '').trim().toUpperCase();
+            if (k.indexOf('VWOD:') === 0) addWoodEntry(k, map[rk]);
+        });
+        Object.keys(DEFAULT_WOOD_SWATCHES_FOTOS).forEach((dk) => {
+            const ovr = Object.prototype.hasOwnProperty.call(map, dk) ? map[dk] : null;
+            if (ovr && (ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO')) return;
+            addWoodEntry(dk, (ovr && cleanStr(ovr.note)) ? ovr : DEFAULT_WOOD_SWATCHES_FOTOS[dk]);
+        });
+        if (!woodEntries.length) return null;
+
+        const cands = [];
+        const pushCand = (v) => {
+            const s = cleanStr(v);
+            if (s && cands.indexOf(s) === -1) cands.push(s);
+        };
+        if (prod.cm) pushCand(prod.cm);
+        if (prod.md && prod.cm) pushCand(prod.md + ' ' + prod.cm);
+        if (prod.md) pushCand(prod.md);
+        if (prod.variante) String(prod.variante).split(/\s*[·|\/]\s*/).forEach((p) => { if (isPureWoodDescriptorFotos(p)) pushCand(p); });
+        if (prod.acabado) String(prod.acabado).split(/\s*[·|\/]\s*/).forEach((p) => { if (isPureWoodDescriptorFotos(p)) pushCand(p); });
+        if (!cands.length) return null;
+
+        const filler = new Set(['MADERA', 'DE', 'EN', 'CON', 'TONO', 'NATURAL', 'ACABADO', 'SOLIDA', 'SOLIDO', 'CHAPA', 'LAMINADO']);
+        for (let i = 0; i < cands.length; i++) {
+            const k = compactVisualOverrideKeyFotos('VWOD:', cands[i]);
+            const exact = woodEntries.find((e) => e.overrideKey === k);
+            if (exact) return exact;
+        }
+        for (let i = 0; i < cands.length; i++) {
+            const cToks = plainVisToken(cands[i]).split(' ').filter((w) => w.length >= 2 && !filler.has(w));
+            if (!cToks.length) continue;
+            const cSet = new Set(cToks);
+            const sub = woodEntries.find((e) => e.tokens.every((t) => cSet.has(t)));
+            if (sub) return sub;
+            const sup = woodEntries.find((e) => cToks.every((t) => e.tokenSet.has(t)));
+            if (sup) return sup;
+        }
+        return null;
     }
 
     async function syncVisualOverridesFromCloudInFotos(opts) {

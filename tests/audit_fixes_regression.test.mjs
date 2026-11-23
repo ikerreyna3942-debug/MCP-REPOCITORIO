@@ -529,17 +529,123 @@ test('Turn 2 — Cotizador Wood Swatches (VWOD:), zero fabric false-positives on
   const overriddenWood = hooks.findMatchingWoodSwatchForItem(mesaSantorini, null);
   assert.match(overriddenWood.url, /1CustomWoodOverrideId888/);
 
-  // 2) CSS wood card styling + querySelectorAll zoom binding in inventario-app.js
+  // 2) CSS wood card + variant pill styling + querySelectorAll zoom binding in inventario-app.js
   assert.match(invCss, /\.inv-det-fabric-swatch-card\.is-wood\s*\{/);
+  assert.match(invCss, /\.inv-var-fabric-pill\.is-wood\s*\{/);
   assert.match(invJs, /specsGrid\.querySelectorAll\('\[data-det-fabric-zoom-url\]'\)/);
+  assert.match(invJs, /inv-var-fabric-pill is-wood/);
 
-  // 3) App de Fotos Maderas tab + Apps Script VWOD support
+  // 3) App de Fotos Maderas tab + Apps Script VWOD support + wood chip fallback
   assert.match(fotosHtml, /data-work-mode="WOOD"[^>]*onclick="setFotosWorkMode\('WOOD'\)"/);
   assert.match(fotosJs, /DEFAULT_WOOD_SWATCHES_FOTOS/);
   assert.match(fotosJs, /WOOD_SWATCH/);
+  assert.match(fotosJs, /findMatchingUploadedWoodForProduct/);
+  assert.match(fotosJs, /FOTOS_VFAB_GENERIC_SINGLE_TOKENS/);
   assert.match(gasMain, /kind === 'wood' \? 'WOOD_SWATCH'/);
   assert.match(gasPatch, /kind === 'wood' \? 'WOOD_SWATCH'/);
   assert.match(gasMain, /\^V\(\?:COV\|FAB\|WOD\):\/i\.test\(ovKey\)/);
   assert.match(gasPatch, /\^V\(\?:COV\|FAB\|WOD\):\/i\.test\(ovKey\)/);
 });
+
+test('Turn 3 — BARMESAN6PRM (MESA SANTORINI 6P ROSA MORADA) and generic-color VFAB false-positive prevention (TELA BEIGE - LEONI, CUERDA BEIGE)', () => {
+  const invJs = readRepo('inventario-app.js');
+  const store = new Map();
+  const sb = {
+    window: {},
+    document: {
+      readyState: 'loading',
+      addEventListener: () => {},
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      createElement: () => ({ style: {}, classList: { add: () => {}, remove: () => {}, toggle: () => {} }, setAttribute: () => {} }),
+      body: { classList: { add: () => {}, remove: () => {}, toggle: () => {} }, appendChild: () => {} }
+    },
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    navigator: { onLine: true, userAgent: 'node' },
+    location: { href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/inventario.html', search: '', hash: '' },
+    URL,
+    URLSearchParams,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    setInterval: () => 1,
+    clearInterval: () => {},
+    requestAnimationFrame: (fn) => fn(),
+    console
+  };
+  sb.window = sb;
+  sb.window.addEventListener = () => {};
+  sb.window.CREATA_INV_DATA = [];
+  sb.window.CREATA_INV_META = { sheetId: '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8' };
+  vm.runInNewContext(invJs, sb, { filename: 'inventario-app.js' });
+  const hooks = sb.window.__CREATA_INV_AUDIT__;
+
+  hooks.saveLocalProductOverridesMap({
+    'VFAB:OCASIONAL SAND 07 ROSA MORADA TONO NATURAL': {
+      sku: 'VFAB:OCASIONAL SAND 07 ROSA MORADA TONO NATURAL',
+      status: 'VISIBLE',
+      name: 'OCASIONAL SAND 07 ROSA MORADA TONO NATURAL',
+      category: 'FABRIC_SWATCH',
+      note: 'https://drive.google.com/file/d/1qM-cUmFQNJOCb5P3aByAwkqJ58Tf-BOs/view?usp=sharing'
+    },
+    'VFAB:TELA BEIGE - LEONI': {
+      sku: 'VFAB:TELA BEIGE - LEONI',
+      status: 'VISIBLE',
+      name: 'TELA BEIGE - LEONI',
+      category: 'FABRIC_SWATCH',
+      note: 'https://drive.google.com/file/d/1LeoniBeigeTestId111/view?usp=sharing'
+    },
+    'VFAB:TELA BEIGE CUERDA COFFE KATE': {
+      sku: 'VFAB:TELA BEIGE CUERDA COFFE KATE',
+      status: 'VISIBLE',
+      name: 'TELA BEIGE CUERDA COFFE KATE',
+      category: 'FABRIC_SWATCH',
+      note: 'https://drive.google.com/file/d/1KateCuerdaTestId222/view?usp=sharing'
+    }
+  });
+
+  // 1) Exact live row for BARMESAN6PRM (screenshot SKU)
+  const barmesan6 = {
+    s: 'BARMESAN6PRM',
+    tp: 'MESA',
+    mo: 'SANTORINI',
+    n: 'MESA SANTORINI 6P ROSA MORADA',
+    vr: 'ROSA MORADA BARSA',
+    c: 'COMEDORES',
+    tl: '',
+    ct: '',
+    md: 'ROSA MORADA',
+    cm: 'ROSA MORADA BARSA',
+    p: 'BARSA'
+  };
+  assert.equal(hooks.findMatchingFabricSwatchForItem(barmesan6, null), null, 'BARMESAN6PRM must NEVER match a fabric swatch');
+  const wood6 = hooks.findMatchingWoodSwatchForItem(barmesan6, null);
+  assert.ok(wood6, 'BARMESAN6PRM must match ROSA MORADA BARSA wood swatch');
+  assert.equal(wood6.overrideKey, 'VWOD:ROSA MORADA BARSA');
+
+  // 2) Even if a wood table accidentally has a wood finish in tl, wood guard must still block fabric match
+  const pollutedTable = Object.assign({}, barmesan6, { tl: 'ROSA MORADA' });
+  assert.equal(hooks.findMatchingFabricSwatchForItem(pollutedTable, null), null, 'Wood table with wood text in tl must still block fabric swatch');
+
+  // 3) VFAB:TELA BEIGE - LEONI must ONLY match SILLON LEONI TELA BEIGE, NEVER lamps/pots/tables
+  const lampBeige = { s: 'ALUXPISBERBEI', c: 'ILUMINACIÓN', tp: 'LAMPARA DE PISO', n: 'LAMPARA DE PISO BERGAMO PANTALLA COLOR BEIGE', vr: 'NOGAL BEIGE', tl: '', ct: '', md: 'NOGAL', cm: 'BEIGE', p: 'ALUX' };
+  const potBeige = { s: 'FIBMACTRECBEI', c: 'ACCESORIOS DECORATIVOS', tp: 'MACETA', n: 'MACETA JARRON TRENTO CH COLOR DESLAVADO BEIGE', vr: 'COLOR BEIGE DESLAVADO', tl: '', ct: '', md: '', cm: '', p: 'FIB' };
+  const sillonLeoni = { s: 'GMM1PLEOBEI', c: 'SILLONES', tp: 'SILLON', n: 'SILLON LEONI TELA BEIGE', vr: 'TELA BEIGE', tl: 'TELA BEIGE', ct: 'BEIGE', md: '', cm: '', p: 'GMM' };
+  assert.equal(hooks.findMatchingFabricSwatchForItem(lampBeige, null), null);
+  assert.equal(hooks.findMatchingFabricSwatchForItem(potBeige, null), null);
+  const leoniMatch = hooks.findMatchingFabricSwatchForItem(sillonLeoni, null);
+  assert.ok(leoniMatch && leoniMatch.overrideKey === 'VFAB:TELA BEIGE - LEONI', 'SILLON LEONI TELA BEIGE must still match VFAB:TELA BEIGE - LEONI');
+
+  // 4) Generic CUERDA BEIGE must NOT fuzzy-match into unrelated model-specific KATE swatch
+  const lampOlimpia = { s: 'ALUXLPOLICBE', c: 'ILUMINACIÓN', tp: 'LAMPARA DE PISO', n: 'LAMPARA DE PISO OLIMPIA CUERDA BEIGE', vr: 'CUERDA BEIGE', tl: 'CUERDA BEIGE', ct: 'CLARA', md: '', cm: '', p: 'ALUX' };
+  const mesaLulin = { s: 'ADSLUL8PFERSI', c: 'COMEDORES', tp: 'MESA DE COMEDOR', n: 'LULIN MESA DE COMEDOR CON 8 SILLAS CUERDA BEIGE', vr: 'CUERDA BEIGE', tl: 'CUERDA BEIGE', ct: 'BEIGE', md: '', cm: '', p: 'ADS' };
+  assert.equal(hooks.findMatchingFabricSwatchForItem(lampOlimpia, null), null);
+  assert.equal(hooks.findMatchingFabricSwatchForItem(mesaLulin, null), null);
+
+  // 5) Upholstered chair with ROSA MORADA legs (no SAND 07) must NEVER match OCASIONAL SAND 07 ROSA MORADA TONO NATURAL
+  const chairOtherFab = { s: 'YOCHAIR01', c: 'SILLONES', tp: 'SILLON OCASIONAL', n: 'SILLON OCASIONAL ROSA MORADA TONO NATURAL', vr: 'OCASIONAL ROSA MORADA', tl: '', ct: '', md: 'ROSA MORADA', cm: 'TONO NATURAL', p: 'YOI' };
+  assert.equal(hooks.findMatchingFabricSwatchForItem(chairOtherFab, null), null);
+});
+
 

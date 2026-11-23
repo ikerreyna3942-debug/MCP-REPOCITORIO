@@ -3449,6 +3449,20 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   white-space: nowrap;
 }
 
+.inv-var-fabric-pill.is-wood {
+  border-color: #D8C7B2;
+  background: #FBF6F0;
+}
+
+.inv-var-fabric-pill.is-wood:hover {
+  border-color: #8C6239;
+  background: #F4EAE0;
+}
+
+.inv-var-fabric-pill.is-wood .inv-var-fabric-lbl {
+  color: #5C3D22;
+}
+
 .inv-det-fabric-swatch-card {
   width: 100%;
   display: flex;

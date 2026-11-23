@@ -65,8 +65,8 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   assert.match(promptsSwSrc, /prompts-styles\.css\?v=11/);
   assert.match(promptsSwSrc, /prompts-studio-v8\.js\?v=4/);
   assert.match(promptsSwSrc, /prompts-app\.js\?v=13/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v22['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v22['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v23['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v23['"]/);
   assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v4['"]/);
   assert.match(panelSwSrc, /panel-styles\.css\?v=6/);
   assert.match(panelSwSrc, /panel-app\.js\?v=12/);
@@ -159,10 +159,10 @@ test('Static cross-project isolation invariants hold across Project A, Project B
     assert.ok(!src.includes('1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8'), `${label} must not reference Control de Productos`);
   }
 
-  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=32
+  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=33
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
-  assert.match(fotosHtml, /fotos-productos-app\.js\?v=32/);
+  assert.match(fotosHtml, /fotos-productos-app\.js\?v=33/);
 });
 
 test('Prompts PWA (Items 12-14): blocks DOM XSS & javascript: URIs in renderProptGallery, prevents ?scriptUrl= silent overwrite & PIN exfiltration, and handles clipboard fallback', async () => {

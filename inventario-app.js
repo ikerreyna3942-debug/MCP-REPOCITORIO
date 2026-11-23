@@ -2914,14 +2914,19 @@
 
     function isWoodOnlyProductForFabricGuard(it) {
         if (!it) return false;
-        const hasFabricCols = Boolean(cleanStr(it.tl) || cleanStr(it.ct));
+        const tlClean = cleanStr(it.tl);
+        const ctClean = cleanStr(it.ct);
+        const hasFabricCols = Boolean(
+            (tlClean && !isPureWoodDescriptor(tlClean)) ||
+            (ctClean && !isPureWoodDescriptor(ctClean))
+        );
         if (hasFabricCols) return false;
         const catNorm = plainModelToken(it.c);
         const typeNameNorm = plainModelToken(cleanStr(it.tp) + ' ' + cleanStr(it.n));
-        const hasUpholsteredHint = /\b(SILLA|SILLON|SOFA|SALA|LOVESEAT|LOVE\s+SEAT|MODULAR|CHAISE|COJIN|COJINES|CABECERA|CAMA|BANCO|TABURETE|PERIQUERA|POUF|PUF|OTTOMAN|OTOMAN|CAMASTRO|TAPIZ|TELA|PIEL|LINO|BOUCLE|VELVET|TERCIOPELO|CHENILLE|RECLINABLE|POLTRONA|BUTACA)\b/i.test(typeNameNorm);
+        const hasUpholsteredHint = /\b(SILLA|SILLON|SOFA|SALA|LOVESEAT|LOVE\s+SEAT|MODULAR|CHAISE|COJIN|COJINES|CABECERA|CAMA|BANCO|TABURETE|PERIQUERA|POUF|PUF|OTTOMAN|OTOMAN|CAMASTRO|TAPIZ|TELA|PIEL|LINO|BOUCLE|VELVET|TERCIOPELO|CHENILLE|RECLINABLE|POLTRONA|BUTACA|BAUL)\b/i.test(typeNameNorm);
         if (hasUpholsteredHint) return false;
-        if (catNorm === 'MESAS' || catNorm === 'MESAS DE CENTRO LATERALES' || catNorm === 'BUFETERAS CREDENZAS') return true;
-        return /\b(MESA|COMEDOR|CREDENZA|BUFETERA|BURO|CONSOLA|ESCRITORIO|LIBRERO|MUEBLE\s+TV|PEDESTAL|BASE|CUBIERTA|ESPEJO|CUADRO|CAJONERA|COMODA|TOCADOR|VITRINA|CANTINA|BARRA|PERCHERO|REPISA)\b/i.test(typeNameNorm);
+        if (catNorm === 'MESAS' || catNorm === 'MESAS DE CENTRO LATERALES' || catNorm === 'BUFETERAS CREDENZAS' || catNorm === 'ILUMINACION' || catNorm === 'ESPEJOS ARTE') return true;
+        return /\b(MESA|COMEDOR|CREDENZA|BUFETERA|BURO|CONSOLA|ESCRITORIO|LIBRERO|MUEBLE\s+TV|PEDESTAL|BASE|CUBIERTA|ESPEJO|CUADRO|CAJONERA|COMODA|TOCADOR|VITRINA|CANTINA|BARRA|PERCHERO|REPISA|LAMPARA|CANDIL|ARBOTANTE|MACETA|FLORERO|JARRON|FOLLAJE|BOTELLA|ESCULTURA|RELOJ)\b/i.test(typeNameNorm);
     }
 
     function getVisualOverridePhotoUrl(overrideKey) {
@@ -2949,6 +2954,32 @@
         'DERECHO', 'IZQUIERDO', 'CENTRAL', 'CON', 'SIN', 'BRAZO', 'BRAZOS',
         'CLARO', 'OSCURO', 'NATURAL', 'MEDIO', 'NUEVO', 'NUEVA', 'LINO', 'PIEL'
     ]);
+    // Colores/materiales genéricos que nunca deben quedar como 1 solo token en un VFAB (ej. "TELA BEIGE - LEONI" -> nunca colapsar a "BEIGE")
+    const VFAB_GENERIC_SINGLE_COLOR_TOKENS = new Set([
+        'BEIGE', 'BLANCO', 'BLANCA', 'WHITE', 'NEGRO', 'NEGRA', 'BLACK',
+        'GRIS', 'GREY', 'GRAY', 'AZUL', 'BLUE', 'VERDE', 'GREEN',
+        'ROJO', 'ROJA', 'RED', 'CAFE', 'BROWN', 'MARRON', 'ARENA', 'SAND',
+        'CREMA', 'CREAM', 'HUESO', 'BONE', 'IVORY', 'MARFIL',
+        'DORADO', 'ORO', 'GOLD', 'PLATA', 'SILVER', 'BRONCE', 'ROSA', 'PINK',
+        'TERRACOTA', 'TAUPE', 'CAMEL', 'CHOCOLATE', 'OLIVO', 'OLIVE',
+        'MOSTAZA', 'MUSTARD', 'OCRE', 'CRUDO', 'PERLA', 'PEARL',
+        'SNOW', 'FLAX', 'ECRU', 'OAT', 'TOAST', 'ALABASTER',
+        'PIEDRA', 'STONE', 'LINEN', 'COTTON', 'ALGODON', 'CUERDA',
+        'CHARCOAL', 'PUTTY', 'DOVE', 'MINERAL'
+    ]);
+
+    function isGenericSingleFabricToken(tok) {
+        return VFAB_GENERIC_SINGLE_TOKENS.has(tok) || VFAB_GENERIC_SINGLE_COLOR_TOKENS.has(tok);
+    }
+
+    function stripWoodNoiseFromFabricSwatchNorm(normText) {
+        if (!normText) return '';
+        const cleaned = String(normText)
+            .replace(/\bROSA\s+MORADA(?:\s+(?:TONO\s+)?(?:NATURAL|BARSA|YOI|CHAVOYA|CLARA|OSCURA|NOGAL))?\b/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return cleaned || normText;
+    }
 
     function getUploadedFabricSwatchEntries() {
         if (!invProductOverridesMap || typeof invProductOverridesMap !== 'object') return [];
@@ -2967,10 +2998,12 @@
             let normName = normalizeFabricLookupKey(rawLabel) || rawNorm;
             const rawTokens = rawNorm.split(/\s+/).filter(t => t.length >= 2);
             const normTokens = normName.split(/\s+/).filter(t => t.length >= 2);
-            // Guardia de proveedor para telas genéricas (ej. "VFAB:PIEL YOI" no debe colapsar a "PIEL" y aplicarse a otros SKUs de PIEL)
-            if (normTokens.length === 1 && VFAB_GENERIC_SINGLE_TOKENS.has(normTokens[0]) && rawTokens.length >= 2) {
+            // Guardia de proveedor/modelo para telas o colores genéricos (ej. "VFAB:PIEL YOI" o "VFAB:TELA BEIGE - LEONI")
+            if (normTokens.length === 1 && isGenericSingleFabricToken(normTokens[0]) && rawTokens.length >= 2) {
                 normName = rawNorm;
             }
+            // Limpiar ruido de madera incrustado en claves VFAB mixtas (ej. "OCASIONAL SAND 07 ROSA MORADA TONO NATURAL")
+            normName = stripWoodNoiseFromFabricSwatchNorm(normName);
             const tokens = normName.split(/\s+/).filter(t => t.length >= 2);
             if (!normName || !tokens.length) continue;
             const sortedSig = tokens.slice().sort().join(' ');
@@ -2997,7 +3030,7 @@
         if (isPureWoodDescriptor(cleanCand)) return null;
         const rawToks = rawNorm.split(/\s+/).filter(t => t.length >= 2);
         const cleanToks = cleanCand.split(/\s+/).filter(t => t.length >= 2);
-        if (cleanToks.length === 1 && VFAB_GENERIC_SINGLE_TOKENS.has(cleanToks[0]) && rawToks.length >= 2) {
+        if (cleanToks.length === 1 && isGenericSingleFabricToken(cleanToks[0]) && rawToks.length >= 2) {
             cleanCand = rawNorm;
         }
         if (!cleanCand || cleanCand === 'ESTANDAR') return null;
@@ -3037,15 +3070,15 @@
         // 3) Uploaded fabric tokens appear as a complete whole-word subset inside the candidate text
         for (let i = 0; i < entries.length; i++) {
             const e = entries[i];
-            if (e.tokens.length === 1 && VFAB_GENERIC_SINGLE_TOKENS.has(e.tokens[0])) continue;
+            if (e.tokens.length === 1 && isGenericSingleFabricToken(e.tokens[0])) continue;
             if (e.tokens.every(tok => candSet.has(tok))) {
                 return { overrideKey: e.overrideKey, label: e.label, url: e.url };
             }
         }
 
         // 4) Candidate is a specific multi-word fabric name contained within an uploaded fabric name
-        // Guardia anti-falso positivo: nunca emparejar si todos los tokens del candidato son de madera/acabado/genéricos
-        if (candTokens.length >= 2 && !candTokens.every(tok => WOOD_DESCRIPTOR_ALLOWED_TOKENS.has(tok) || VFAB_GENERIC_SINGLE_TOKENS.has(tok))) {
+        // Guardia anti-falso positivo: nunca emparejar si todos los tokens del candidato son de madera/acabado/colores genéricos
+        if (candTokens.length >= 2 && !candTokens.every(tok => WOOD_DESCRIPTOR_ALLOWED_TOKENS.has(tok) || isGenericSingleFabricToken(tok))) {
             for (let i = 0; i < entries.length; i++) {
                 const e = entries[i];
                 const eSet = new Set(e.tokens);
@@ -3124,7 +3157,7 @@
             for (let i = 0; i < entries.length; i++) {
                 const e = entries[i];
                 if (isPureWoodDescriptor(e.normName)) continue;
-                if (e.tokens.length < 2 && (e.tokens[0].length < 5 || VFAB_GENERIC_SINGLE_TOKENS.has(e.tokens[0]))) continue;
+                if (e.tokens.length < 2 && (e.tokens[0].length < 5 || isGenericSingleFabricToken(e.tokens[0]))) continue;
                 if (e.tokens.every(tok => nameSet.has(tok))) {
                     return { overrideKey: e.overrideKey, label: e.label, url: e.url };
                 }
@@ -6121,6 +6154,7 @@
             const skuKey = String(it.s || '').toUpperCase();
             const varLabel = entry.varLabel;
             const matchedFab = (!currentGroupFabricKey) ? findMatchingFabricSwatchForItem(it, grp) : null;
+            const matchedWood = (!matchedFab) ? findMatchingWoodSwatchForItem(it, grp) : null;
             let fabricPillHtml = '';
             if (matchedFab && matchedFab.url) {
                 const fabThumb = resolveVisualImgSrc(matchedFab.url, 120);
@@ -6131,6 +6165,16 @@
                         (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
                         ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '<span class="inv-var-fabric-lbl">' + escapeHtml(matchedFab.label) + '</span>' +
+                    '</div>';
+            } else if (matchedWood && matchedWood.url) {
+                const woodThumb = resolveVisualImgSrc(matchedWood.url, 120);
+                const woodFid = extractDriveFileId(matchedWood.url);
+                fabricPillHtml =
+                    '<div class="inv-var-fabric-pill is-wood" data-fabric-zoom-url="' + escapeHtml(matchedWood.url) + '" data-fabric-zoom-label="' + escapeHtml('Madera · ' + matchedWood.label) + '" title="Ver madera">' +
+                        '<img class="inv-var-fabric-thumb" src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedWood.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
+                        (woodFid ? (' data-fid="' + escapeHtml(woodFid) + '"') : '') +
+                        ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
+                        '<span class="inv-var-fabric-lbl">🪵 ' + escapeHtml(matchedWood.label) + '</span>' +
                     '</div>';
             }
             return '<div class="inv-row inv-variant-card" data-var-sku="' + escapeHtml(skuKey) + '">' +

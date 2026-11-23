@@ -5,8 +5,8 @@
  * - Estrategia "red primero" para HTML/JS/CSS y caché rápida para miniaturas de Google Drive.
  */
 const CACHE_PREFIX = 'creata-fotos-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v22';
-const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v22';
+const CACHE_NAME = CACHE_PREFIX + 'v23';
+const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v23';
 const MAX_CACHED_IMAGES = 350;
 const PAGE_URL = './fotos-productos.html';
 const NETWORK_TIMEOUT_MS = 4500;
