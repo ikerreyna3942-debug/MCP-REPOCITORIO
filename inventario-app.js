@@ -3171,9 +3171,19 @@
     // ------------------------------------------------------------------------
     let _vwodIndexMapRef = null;
     let _vwodIndexEntries = [];
-    const NON_WOOD_MATERIAL_ONLY_RE = /^(MARMOL|MARBOL|TRAVERTINO|ONIX|PIEDRA|GRANITO|CUARZO|CRISTAL|VIDRIO|ESPEJO|METAL|ACERO|ALUMINIO|HIERRO|HERRERIA|LATON|BRONCE|COBRE|CERAMICA|PORCELANA|PORCELANATO|RESINA|PLASTICO|POLIPROPILENO|RATAN|RATTAN|MIMBRE|CUERDA|SOGA|FIBRA|CONCRETO|CEMENTO|N\/A|NA|NO APLICA|NINGUNA|NINGUNO|SIN MADERA|-)$/i;
+    const NON_WOOD_MATERIAL_ONLY_RE = /^(MARMOL|MARBOL|TRAVERTINO|ONIX|PIEDRA|GRANITO|CUARZO|CRISTAL|VIDRIO|ESPEJO|METAL|ACERO|ALUMINIO|HIERRO|HERRERIA|LATON|BRONCE|COBRE|CERAMICA|PORCELANA|PORCELANATO|RESINA|PLASTICO|POLIPROPILENO|RATAN|RATTAN|MIMBRE|CUERDA|SOGA|FIBRA|CONCRETO|CEMENTO|PINO|PINO\s+ESTUFADO|MADERA\s+DE\s+PINO|MDF|TRIPLAY|CONTRACHAPADO|AGLOMERADO|POLIESTER|ESPUMA|DELCRON|N\/A|NA|NO APLICA|NINGUNA|NINGUNO|SIN MADERA|-)$/i;
     const WOOD_FILLER_TOKENS = new Set(['MADERA', 'DE', 'EN', 'CON', 'TONO', 'NATURAL', 'ACABADO', 'LACA', 'BARNIZ', 'BASE', 'PATAS', 'CUBIERTA', 'SOLIDA', 'SOLIDO', 'MACIZA', 'MACIZO', 'CHAPA', 'LAMINADO', 'LAMINADA', 'ENCHAPADO', 'ENCHAPADA']);
     const WOOD_SPECIAL_FINISH_TOKENS = new Set(['ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'CLARA', 'CLARO', 'OSCURO', 'OSCURA']);
+    // Modificadores/adjetivos solos nunca deben emparejar una muestra de madera (ej. "CLARO" != "TABACO CLARO BARSA")
+    const WOOD_MODIFIER_ONLY_TOKENS = new Set([
+        'CLARO', 'CLARA', 'OSCURO', 'OSCURA', 'OBSCURO', 'OBSCURA',
+        'ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'BLANCO', 'BLANCA',
+        'NEGRO', 'NEGRA', 'GRIS', 'BEIGE', 'CAFE', 'NATURAL', 'TONO',
+        'LACA', 'MATTE', 'MATE', 'BARNIZ', 'BRILLANTE', 'SEMI', 'CARDEADO', 'BLANQUEADO'
+    ]);
+    const SALA_SOFA_WOOD_GUARD_RE = /\b(SALA|SALAS|SOFA|SOFAS|SOFACAMA|SOFA\s+CAMA|MODULAR|SECCIONAL|ESCUADRA|LOVESEAT|LOVE\s+SEAT|CHAISE|ESQUINERO|FUTON|FUTTON)\b/i;
+    const NON_WOOD_TEXTILE_CAT_RE = /^(COJINES\s+TEXTILES|TEXTILES|ROPA\s+DE\s+CAMA|TAPETES|ALFOMBRAS|COLCHONES|BLANCOS)$/i;
+    const VISIBLE_WOOD_IN_NAME_RE = /\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|TEKA|TEAK|ENCINO|ROBLE|FRESNO|CEDRO|CAOBA|OLMO|HAYA|TABACO|TACUBA|BELLOTA|HABANO|ESPIGA|GINGER|CAMEL|NOCHE|NUEZ|MADERA|PATA(?:S)?\s+DE\s+MADERA|BASE\s+(?:EN\s+)?MADERA)\b/i;
 
     function expandWoodProviderAliases(provRaw) {
         const p = plainModelToken(provRaw);
@@ -3199,6 +3209,7 @@
     function normalizeWoodCanonicalText(raw) {
         return plainModelToken(raw)
             .replace(/\bFACTORY\b/g, 'FACTORI')
+            .replace(/\b(?:TEKA|TEAK)\b/g, 'TECA')
             .replace(/\s+/g, ' ')
             .trim();
     }
@@ -3295,6 +3306,8 @@
         if (!coreCandTokens.length) return null;
         const nonProvCoreTokens = coreCandTokens.filter(t => !provAliases.includes(t) && !WOOD_PROVIDER_RE.test(t));
         if (!nonProvCoreTokens.length) return null;
+        // Nunca permitir que solo modificadores genéricos (ej. "CLARO", "CLARA", "ENTINTADO", "OSCURO", "WHITE") emparejen una madera
+        if (nonProvCoreTokens.every(t => WOOD_MODIFIER_ONLY_TOKENS.has(t))) return null;
         const candSet = new Set(candTokens);
         const candSortedSig = candTokens.slice().sort().join(' ');
         const candWantsSpecial = candTokens.some(t => WOOD_SPECIAL_FINISH_TOKENS.has(t));
@@ -3376,6 +3389,22 @@
 
     function findMatchingWoodSwatchForItem(it, groupObj) {
         if (!it) return null;
+        const catNorm = plainModelToken(cleanStr(it._cat || it.c));
+        const nameNorm = plainModelToken(stripDimensionsFromProductText(it.n));
+        const typeNameNorm = plainModelToken(cleanStr(it.tp) + ' ' + cleanStr(it.n));
+
+        // 1) Nunca mostrar madera en textiles/accesorios no maderables (cojines, fundas, hilos, tapetes, colchones)
+        if (NON_WOOD_TEXTILE_CAT_RE.test(catNorm) || /\b(COJIN|COJINES|FUNDA|FUNDAS|ALMOHADON|SABANA|DUVET|MANTEL|HILO|CONO\s+DE\s+HILO|TOALLA|TAPETE|ALFOMBRA|COLCHON|CORTINA)\b/i.test(typeNameNorm)) {
+            return null;
+        }
+
+        // 2) REGLA SALAS / SOFÁS: las salas tapizadas NO muestran madera de casco interno (ej. "PINO ESTUFADO" / "CLARO")
+        //    SOLO muestran muestra de madera si el NOMBRE del producto menciona explícitamente madera/acabado visible.
+        const isSalaOrSofa = SALA_SOFA_WOOD_GUARD_RE.test(catNorm + ' ' + typeNameNorm);
+        if (isSalaOrSofa && !VISIBLE_WOOD_IN_NAME_RE.test(nameNorm)) {
+            return null;
+        }
+
         const md = cleanStr(it.md);
         const cm = cleanStr(it.cm);
         const prov = cleanStr(it.p);
@@ -3384,16 +3413,24 @@
         if (mdNorm && NON_WOOD_MATERIAL_ONLY_RE.test(mdNorm) && (!cmNorm || NON_WOOD_MATERIAL_ONLY_RE.test(cmNorm))) {
             return null;
         }
+        // Si el producto especifica explícitamente pata negra / laca negra / laca blanca en el nombre sin especie visible, no mostrar madera natural
+        if (/^(?:LACA\s+)?(?:NEGR[OA]|BLANC[OA])$/i.test(cmNorm) && /\b(?:PATA(?:S)?\s+NEGR[OA]S?|LACA\s+(?:NEGR[OA]|BLANC[OA]))\b/i.test(nameNorm) && !VISIBLE_WOOD_IN_NAME_RE.test(nameNorm)) {
+            return null;
+        }
 
         const candidates = [];
-        if (cm && !NON_WOOD_MATERIAL_ONLY_RE.test(cmNorm)) {
+        const mdOk = Boolean(md && !NON_WOOD_MATERIAL_ONLY_RE.test(mdNorm));
+        const cmOk = Boolean(cm && !NON_WOOD_MATERIAL_ONLY_RE.test(cmNorm));
+        // Priorizar combinación especie + acabado (ej. "TECA ENTINTADO", "ROSA MORADA CLARA") antes de sueltos
+        if (mdOk && cmOk && cmNorm.indexOf(mdNorm) === -1) {
+            if (prov && (mdNorm + ' ' + cmNorm).indexOf(plainModelToken(prov)) === -1) candidates.push(md + ' ' + cm + ' ' + prov);
+            candidates.push(md + ' ' + cm);
+        }
+        if (cmOk) {
             if (prov && cmNorm.indexOf(plainModelToken(prov)) === -1) candidates.push(cm + ' ' + prov);
             candidates.push(cm);
         }
-        if (md && cm && !NON_WOOD_MATERIAL_ONLY_RE.test(mdNorm) && !NON_WOOD_MATERIAL_ONLY_RE.test(cmNorm) && cmNorm.indexOf(mdNorm) === -1) {
-            candidates.push(md + ' ' + cm);
-        }
-        if (md && !NON_WOOD_MATERIAL_ONLY_RE.test(mdNorm)) {
+        if (mdOk) {
             if (prov && mdNorm.indexOf(plainModelToken(prov)) === -1) candidates.push(md + ' ' + prov);
             candidates.push(md);
         }
@@ -3415,9 +3452,8 @@
         }
 
         // Respaldo conservador: si no venían columnas MADERA/COLOR MADERA, buscar únicamente especies inequívocas en el nombre
-        if (!md && !cm && cleanStr(it.n)) {
-            const nameNorm = plainModelToken(stripDimensionsFromProductText(it.n));
-            const spMatch = nameNorm.match(/\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|ENCINO|ROBLE)\b/i);
+        if (!md && !cm && nameNorm) {
+            const spMatch = nameNorm.match(/\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|TEKA|TEAK|ENCINO|ROBLE)\b/i);
             if (spMatch && spMatch[1]) {
                 const hit = matchWoodTextAgainstUploadedSwatches(spMatch[1], prov);
                 if (hit && hit.url) return hit;

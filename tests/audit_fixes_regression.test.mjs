@@ -707,5 +707,158 @@ test('Turn 4 — Prompts Studio V8 adopts compact 1-screen V7 aesthetic (tabs, 3
   assert.match(q34[0].prompt, /#FFFFFF/);
 });
 
+test('Turn 5 — Salas/Sofás only show wood swatch when visible wood is named in product title, internal PINO ESTUFADO and lone modifiers (CLARO) never false-match TABACO CLARO BARSA', () => {
+  const invJs = readRepo('inventario-app.js');
+  const fotosJs = readRepo('fotos-productos-app.js');
+  const store = new Map();
+  const sb = {
+    window: {},
+    document: {
+      readyState: 'loading',
+      addEventListener: () => {},
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      createElement: () => ({ style: {}, classList: { add: () => {}, remove: () => {}, toggle: () => {} }, setAttribute: () => {} }),
+      body: { classList: { add: () => {}, remove: () => {}, toggle: () => {} }, appendChild: () => {} }
+    },
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    navigator: { onLine: true, userAgent: 'node' },
+    location: { href: 'https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/inventario.html', search: '', hash: '' },
+    URL,
+    URLSearchParams,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    setInterval: () => 1,
+    clearInterval: () => {},
+    requestAnimationFrame: (fn) => fn(),
+    console
+  };
+  sb.window = sb;
+  sb.window.addEventListener = () => {};
+  sb.window.CREATA_INV_DATA = [];
+  sb.window.CREATA_INV_META = { sheetId: '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8' };
+  vm.runInNewContext(invJs, sb, { filename: 'inventario-app.js' });
+  const hooks = sb.window.__CREATA_INV_AUDIT__;
 
+  hooks.saveLocalProductOverridesMap({
+    'VFAB:PRISMA OLIVE': {
+      sku: 'VFAB:PRISMA OLIVE',
+      status: 'VISIBLE',
+      name: 'PRISMA OLIVE',
+      category: 'FABRIC_SWATCH',
+      note: 'https://drive.google.com/file/d/1PrismaOliveTestId123/view?usp=sharing'
+    }
+  });
 
+  // 1) Kevin's screenshot SKU: CVVSALEXPODER (SALA LEXY, internal PINO ESTUFADO + propagated cm='CLARO')
+  //    MUST match PRISMA OLIVE fabric and MUST NOT match TABACO CLARO BARSA wood!
+  const salaLexy = {
+    s: 'CVVSALEXPODER',
+    tp: 'SALA',
+    mo: 'LEXY',
+    n: 'SALA LEXY C TELA PRISMA OLIVE CHAISE DERECHO LOVE SEAT IZQUIERDO',
+    vr: 'PRISMA OLIVE',
+    c: 'SALAS',
+    tl: 'PRISMA OLIVE',
+    ct: 'OLIVE',
+    md: 'PINO ESTUFADO',
+    cm: 'CLARO',
+    p: 'CVV'
+  };
+  const lexyFab = hooks.findMatchingFabricSwatchForItem(salaLexy, null);
+  assert.ok(lexyFab && lexyFab.overrideKey === 'VFAB:PRISMA OLIVE', 'CVVSALEXPODER must still match VFAB:PRISMA OLIVE');
+  assert.equal(hooks.findMatchingWoodSwatchForItem(salaLexy, null), null, 'CVVSALEXPODER (SALA without wood in name) must NEVER show a wood swatch');
+
+  // 2) Aluminum outdoor sofa with cm='CLARO' must NEVER show a wood swatch
+  const salaAlum = {
+    s: 'GC555006',
+    tp: 'SALA',
+    mo: 'EXTERIOR',
+    n: 'SALA EXTERIOR ALUMINIO GRIS CLARO',
+    vr: 'GRIS CLARO',
+    c: 'EXTERIOR',
+    tl: 'TEXTILENO',
+    ct: 'GRIS CLARO',
+    md: 'ALUMINIO',
+    cm: 'CLARO',
+    p: 'GC'
+  };
+  assert.equal(hooks.findMatchingWoodSwatchForItem(salaAlum, null), null, 'Aluminum sala GC555006 must NOT match wood');
+
+  // 3) Textile cushion with cm='CLARO' must NEVER show a wood swatch
+  const cojinGris = {
+    s: 'MALCOJGRSCL',
+    tp: 'COJIN',
+    mo: 'DECORATIVO',
+    n: 'COJIN DECORATIVO GRIS CLARO',
+    vr: 'GRIS CLARO',
+    c: 'COJINES TEXTILES',
+    tl: 'ALGODON',
+    ct: 'GRIS CLARO',
+    md: '',
+    cm: 'CLARO',
+    p: 'MAL'
+  };
+  assert.equal(hooks.findMatchingWoodSwatchForItem(cojinGris, null), null, 'Textile cushion MALCOJGRSCL must NOT match wood');
+
+  // 4) Love seat that EXPLICITLY mentions wood in name ('DE TEKA CARDEADO CLARO') MUST resolve to VWOD:TECA SKANOR (NOT TABACO CLARO!)
+  const loveSeatLumina = {
+    s: 'HAKLSLMNTCGI',
+    tp: 'LOVE SEAT',
+    mo: 'LUMINA',
+    n: 'LOVE SEAT LUMINA DE TEKA CARDEADO CLARO',
+    vr: 'TEKA CARDEADO CLARO',
+    c: 'EXTERIOR',
+    tl: 'OLEFIN',
+    ct: 'GRIS',
+    md: 'TECA',
+    cm: 'CLARO',
+    p: 'HAK'
+  };
+  const luminaWood = hooks.findMatchingWoodSwatchForItem(loveSeatLumina, null);
+  assert.ok(luminaWood, 'LOVE SEAT LUMINA DE TEKA must match wood because TEKA is in product name');
+  assert.equal(luminaWood.overrideKey, 'VWOD:TECA SKANOR', 'TECA + CLARO must skip lone CLARO and resolve to VWOD:TECA SKANOR');
+
+  // 5) Sala escuadra explicitly naming 'TECA ENTINTADO' MUST resolve to VWOD:TECA ENTINTADO SKANOR
+  const salaTereani = {
+    s: 'SKSADTKTEREDO',
+    tp: 'SALA',
+    mo: 'TEREANI',
+    n: 'TEREANI ESCUADRA DERECHA TECA ENTINTADO',
+    vr: 'TECA ENTINTADO',
+    c: 'SALAS',
+    tl: 'OLEFIN',
+    ct: 'BEIGE',
+    md: 'TECA',
+    cm: 'ENTINTADO',
+    p: 'SKANOR'
+  };
+  const tereaniWood = hooks.findMatchingWoodSwatchForItem(salaTereani, null);
+  assert.ok(tereaniWood, 'TEREANI ESCUADRA DERECHA TECA ENTINTADO must match wood');
+  assert.equal(tereaniWood.overrideKey, 'VWOD:TECA ENTINTADO SKANOR');
+
+  // 6) Genuine TABACO CLARO dining table MUST still match VWOD:TABACO CLARO BARSA
+  const mesaMykonos = {
+    s: 'BARMESMYK6PTC',
+    tp: 'MESA',
+    mo: 'MYKONOS',
+    n: 'MESA MYKONOS 6P TABACO CLARO',
+    vr: 'TABACO CLARO',
+    c: 'COMEDORES',
+    tl: '',
+    ct: '',
+    md: 'ENCINO',
+    cm: 'TABACO CLARO',
+    p: 'BARSA'
+  };
+  const mykonosWood = hooks.findMatchingWoodSwatchForItem(mesaMykonos, null);
+  assert.ok(mykonosWood, 'MESA MYKONOS 6P TABACO CLARO must match VWOD:TABACO CLARO BARSA');
+  assert.equal(mykonosWood.overrideKey, 'VWOD:TABACO CLARO BARSA');
+
+  // 7) fotos-productos-app.js mirrors the exact Sala/Sofá name-required guard & lone-modifier filter
+  assert.match(fotosJs, /visibleWoodInNameRe/);
+  assert.match(fotosJs, /PINO\\s\+ESTUFADO/);
+  assert.match(fotosJs, /modOnly/);
+});

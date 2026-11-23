@@ -65,8 +65,8 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   assert.match(promptsSwSrc, /prompts-styles\.css\?v=12/);
   assert.match(promptsSwSrc, /prompts-studio-v8\.js\?v=5/);
   assert.match(promptsSwSrc, /prompts-app\.js\?v=13/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v23['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v23['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v24['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v24['"]/);
   assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v4['"]/);
   assert.match(panelSwSrc, /panel-styles\.css\?v=6/);
   assert.match(panelSwSrc, /panel-app\.js\?v=12/);
@@ -159,10 +159,10 @@ test('Static cross-project isolation invariants hold across Project A, Project B
     assert.ok(!src.includes('1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8'), `${label} must not reference Control de Productos`);
   }
 
-  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=33
+  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=34
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
-  assert.match(fotosHtml, /fotos-productos-app\.js\?v=33/);
+  assert.match(fotosHtml, /fotos-productos-app\.js\?v=34/);
 });
 
 test('Prompts PWA (Items 12-14): blocks DOM XSS & javascript: URIs in renderProptGallery, prevents ?scriptUrl= silent overwrite & PIN exfiltration, and handles clipboard fallback', async () => {
@@ -390,7 +390,7 @@ test('Prompts SW (Item 14 / M2C): prompts-sw.js v16 evicts v2..v15, preserves ot
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'prompts-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9', 'creata-prompts-app-v10', 'creata-prompts-app-v11', 'creata-prompts-app-v12', 'creata-prompts-app-v13', 'creata-prompts-app-v14', 'creata-prompts-app-v15', 'creata-prompts-app-v16', 'creata-fotos-app-v23', 'creata-panel-app-v4', 'creata-inventario-v1'];
+  const existingKeys = ['creata-prompts-app-v2', 'creata-prompts-app-v3', 'creata-prompts-app-v4', 'creata-prompts-app-v5', 'creata-prompts-app-v6', 'creata-prompts-app-v7', 'creata-prompts-app-v8', 'creata-prompts-app-v9', 'creata-prompts-app-v10', 'creata-prompts-app-v11', 'creata-prompts-app-v12', 'creata-prompts-app-v13', 'creata-prompts-app-v14', 'creata-prompts-app-v15', 'creata-prompts-app-v16', 'creata-fotos-app-v24', 'creata-panel-app-v4', 'creata-inventario-v1'];
 
   const swSandbox = {
     URL,

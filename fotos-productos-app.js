@@ -7808,6 +7808,17 @@
 
     function findMatchingUploadedWoodForProduct(prod) {
         if (!prod) return null;
+        const catTok = plainVisToken(prod.categoria || '');
+        const nameTok = plainVisToken(prod.displayName || prod.colBName || '');
+        const typeNameTok = plainVisToken(cleanStr(prod.tipo || '') + ' ' + nameTok);
+        const visibleWoodInNameRe = /\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|TEKA|TEAK|ENCINO|ROBLE|FRESNO|CEDRO|CAOBA|OLMO|HAYA|TABACO|TACUBA|BELLOTA|HABANO|ESPIGA|GINGER|CAMEL|NOCHE|NUEZ|MADERA|PATA(?:S)?\s+DE\s+MADERA|BASE\s+(?:EN\s+)?MADERA)\b/i;
+        if (/^(COJINES\s+TEXTILES|TEXTILES|ROPA\s+DE\s+CAMA|TAPETES|ALFOMBRAS|COLCHONES|BLANCOS)$/i.test(catTok) || /\b(COJIN|COJINES|FUNDA|FUNDAS|ALMOHADON|SABANA|DUVET|MANTEL|HILO|TOALLA|TAPETE|ALFOMBRA|COLCHON|CORTINA)\b/i.test(typeNameTok)) {
+            return null;
+        }
+        if (/\b(SALA|SALAS|SOFA|SOFAS|SOFACAMA|SOFA\s+CAMA|MODULAR|SECCIONAL|ESCUADRA|LOVESEAT|LOVE\s+SEAT|CHAISE|ESQUINERO|FUTON|FUTTON)\b/i.test(catTok + ' ' + typeNameTok) && !visibleWoodInNameRe.test(nameTok)) {
+            return null;
+        }
+
         const map = visualState.overridesMap || {};
         const woodEntries = [];
         const seenKeys = new Set();
@@ -7817,7 +7828,7 @@
             const rawUrl = cleanStr(ovr.note);
             if (!rawUrl || (!/^https?:\/\//i.test(rawUrl) && !/^data:image\//i.test(rawUrl))) return;
             const label = cleanStr(ovr.name || k.slice(5)).toUpperCase();
-            const tokens = plainVisToken(label).split(' ').filter((w) => w.length >= 2);
+            const tokens = plainVisToken(label).replace(/\b(?:TEKA|TEAK)\b/g, 'TECA').split(' ').filter((w) => w.length >= 2);
             if (!tokens.length) return;
             seenKeys.add(k);
             woodEntries.push({ overrideKey: k, label: label, url: rawUrl, plain: tokens.join(' '), tokens: tokens, tokenSet: new Set(tokens) });
@@ -7836,24 +7847,25 @@
         const cands = [];
         const pushCand = (v) => {
             const s = cleanStr(v);
-            if (s && cands.indexOf(s) === -1) cands.push(s);
+            if (s && !/^(PINO|PINO\s+ESTUFADO|MDF|TRIPLAY|CONTRACHAPADO|AGLOMERADO)$/i.test(plainVisToken(s)) && cands.indexOf(s) === -1) cands.push(s);
         };
-        if (prod.cm) pushCand(prod.cm);
         if (prod.md && prod.cm) pushCand(prod.md + ' ' + prod.cm);
+        if (prod.cm) pushCand(prod.cm);
         if (prod.md) pushCand(prod.md);
         if (prod.variante) String(prod.variante).split(/\s*[·|\/]\s*/).forEach((p) => { if (isPureWoodDescriptorFotos(p)) pushCand(p); });
         if (prod.acabado) String(prod.acabado).split(/\s*[·|\/]\s*/).forEach((p) => { if (isPureWoodDescriptorFotos(p)) pushCand(p); });
         if (!cands.length) return null;
 
         const filler = new Set(['MADERA', 'DE', 'EN', 'CON', 'TONO', 'NATURAL', 'ACABADO', 'SOLIDA', 'SOLIDO', 'CHAPA', 'LAMINADO']);
+        const modOnly = new Set(['CLARO', 'CLARA', 'OSCURO', 'OSCURA', 'ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'BLANCO', 'BLANCA', 'NEGRO', 'NEGRA', 'GRIS', 'BEIGE', 'CAFE', 'LACA', 'MATTE', 'MATE', 'BARNIZ', 'CARDEADO', 'BLANQUEADO']);
         for (let i = 0; i < cands.length; i++) {
             const k = compactVisualOverrideKeyFotos('VWOD:', cands[i]);
             const exact = woodEntries.find((e) => e.overrideKey === k);
             if (exact) return exact;
         }
         for (let i = 0; i < cands.length; i++) {
-            const cToks = plainVisToken(cands[i]).split(' ').filter((w) => w.length >= 2 && !filler.has(w));
-            if (!cToks.length) continue;
+            const cToks = plainVisToken(cands[i]).replace(/\b(?:TEKA|TEAK)\b/g, 'TECA').split(' ').filter((w) => w.length >= 2 && !filler.has(w));
+            if (!cToks.length || cToks.every((t) => modOnly.has(t))) continue;
             const cSet = new Set(cToks);
             const sub = woodEntries.find((e) => e.tokens.every((t) => cSet.has(t)));
             if (sub) return sub;
