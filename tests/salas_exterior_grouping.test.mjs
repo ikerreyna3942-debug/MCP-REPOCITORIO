@@ -60,6 +60,10 @@ function createInventarioAppHarness(items) {
     ' renderMoreItems: window.renderMoreItems,' +
     ' setInvCategory: window.setInvCategory,' +
     ' setInvSubCategory: window.setInvSubCategory,' +
+    ' openGroupModal: window.openGroupModal,' +
+    ' selectGroupFabricStep: window.selectGroupFabricStep,' +
+    ' backToCurrentGroupVariants: window.backToCurrentGroupVariants,' +
+    ' getCurrentGroupState: () => ({ fabricKey: currentGroupFabricKey, bedSizeKey: currentGroupBedSizeKey, detailSku: currentDetailItem ? currentDetailItem.s : "" }),' +
     ' getDocEl: (id) => document.getElementById(id)' +
     '};';
   const patched = src.replace(/\}\)\(\);\s*$/, '\n' + hook + '\n})();\n');
@@ -72,7 +76,7 @@ function createInventarioAppHarness(items) {
       innerHTML: '',
       textContent: '',
       value: '',
-      style: {},
+      style: { setProperty() {}, removeProperty() {} },
       children: [],
       scrollLeft: 0,
       scrollWidth: 0,
@@ -418,4 +422,69 @@ test('Universal fabric attachment: uploaded VFAB fabric automatically applies to
   // Clean up
   API.saveLocalProductOverridesMap({});
 });
+
+test('Selecting a color with only 1 piece (e.g. SALA ARIA OSI FLAX) opens product detail sheet directly and Back returns to Colors', () => {
+  const prevItems = API.getAllItems();
+  try {
+    const ariaItems = [
+      {
+        s: 'CVVSALAARIOF',
+        n: 'SALA ARIA OSI FLAX INCLUYE LOVE SEAT DER ESQUINERO Y LOVE SEAT IZQ',
+        t: 'SALA',
+        mo: 'ARIA',
+        c: 'SALAS & SOFÁS',
+        vr: 'OSI FLAX',
+        tl: 'OSI FLAX',
+        ct: 'ARENA / FLAX',
+        pr: 49296.97,
+        f: 'https://drive.google.com/file/d/1sZX6RI01T_l0UHgFxCamRo3UKbj2qBA7/view',
+        st: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        lp: 0
+      },
+      {
+        s: 'CVVSALAARIOI',
+        n: 'SALA ARIA OSI IVORY INCLUYE LOVE SEAT DER ESQUINERO Y LOVE SEAT IZQ',
+        t: 'SALA',
+        mo: 'ARIA',
+        c: 'SALAS & SOFÁS',
+        vr: 'OSI IVORY',
+        tl: 'OSI IVORY',
+        ct: 'IVORY',
+        pr: 49296.97,
+        f: 'https://drive.google.com/file/d/1YMAHTajkHItYgS3gUg6kM7gHPpf4JSh1/view',
+        st: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        lp: 0
+      }
+    ];
+    API.setAllItems(ariaItems);
+    API.indexItemsAndGroups();
+    API.setInvCategory('SALAS');
+    API.setInvSubCategory('');
+    const ariaGrp = API.getFilteredGroups().find(g => g.mo === 'ARIA');
+    assert.ok(ariaGrp && ariaGrp.items.length === 2, 'Expected SALA ARIA group with 2 color items');
+
+    // Step 1: Open group -> shows 2 color cards (OSI FLAX and OSI IVORY)
+    assert.equal(API.openGroupModal(ariaGrp.key, false), true);
+    const colHtml = API.getDocEl('detVariantsList').innerHTML;
+    assert.match(colHtml, /data-fabric-select-key="OSI FLAX"/);
+    assert.match(colHtml, /data-fabric-select-key="OSI IVORY"/);
+
+    // Step 2: Select OSI FLAX (only 1 piece) -> opens CVVSALAARIOF detail sheet DIRECTLY!
+    assert.equal(API.selectGroupFabricStep('OSI FLAX'), true);
+    assert.equal(API.getDocEl('detSingleStep').classList.contains('hidden'), false, 'Single-item color must open product detail sheet directly');
+    assert.equal(API.getDocEl('detVariantsStep').classList.contains('hidden'), true, 'Intermediate 1-module variants screen must be skipped');
+    assert.equal(API.getCurrentGroupState().detailSku, 'CVVSALAARIOF');
+    assert.equal(API.getCurrentGroupState().fabricKey, '', 'fabricKey must remain empty so Back returns cleanly to Color cards');
+
+    // Step 3: Back returns directly to the 2 Color cards (no 1-module intermediate screen)
+    API.backToCurrentGroupVariants();
+    assert.equal(API.getDocEl('detVariantsStep').classList.contains('hidden'), false);
+    assert.match(API.getDocEl('detVariantsList').innerHTML, /data-fabric-select-key="OSI FLAX"/);
+    assert.match(API.getDocEl('detVariantsList').innerHTML, /data-fabric-select-key="OSI IVORY"/);
+  } finally {
+    API.setAllItems(prevItems);
+    API.indexItemsAndGroups();
+  }
+});
+
 
