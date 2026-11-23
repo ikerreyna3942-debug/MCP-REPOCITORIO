@@ -680,12 +680,14 @@ test('Turn 4 — Prompts Studio V8 adopts compact 1-screen V7 aesthetic (tabs, 3
   const studio = sb.window.CreataPromptsStudio;
   studio.init(root);
 
-  // Compact UI mounts 1-line V7 topbar, compact mode select, 3-button action strip, and collapsed options accordion
+  // Compact UI mounts 1-line V7 topbar, compact mode select, optional camera angle selector, special directives box, and collapsed options accordion
   assert.match(root.innerHTML, /class="st-card st-v7-topbar"/);
   assert.match(root.innerHTML, /id="stModeSelect"/);
+  assert.match(root.innerHTML, /id="stCameraAngleSelect"/);
   assert.match(root.innerHTML, /id="stOutputNameInput"/);
+  assert.match(root.innerHTML, /id="stSpecialDirectivesInput"/);
   assert.match(root.innerHTML, /class="st-adv-details"/);
-  assert.match(root.innerHTML, /generateQuick34Right\(\)/);
+  assert.ok(!/generateQuick34Right\(\)/.test(root.innerHTML), 'UI must no longer render forced 3/4 Derecha button');
 
   // PACK_CREATA produces 3 concise prompts rendered through V7 output tabs
   studio.setOutputName('MESA SANTORINI 6P ROSA MORADA');
@@ -699,7 +701,7 @@ test('Turn 4 — Prompts Studio V8 adopts compact 1-screen V7 aesthetic (tabs, 3
   studio.setActiveOutTab(1);
   assert.match(outWrap.innerHTML, /MESA SANTORINI 6P ROSA MORADA_PORTADA\.png/);
 
-  // 1-click 3/4 Derecha button produces direct 3/4 right 2048x2048 #FFFFFF prompt
+  // Programmatic helper generateQuick34Right remains available if explicitly called
   const q34 = studio.generateQuick34Right();
   assert.equal(q34.length, 1);
   assert.match(q34[0].prompt, /2048x2048/);
@@ -956,4 +958,114 @@ test('Turn 6 — Strict Single-Source-of-Truth from CONTROL DE PRODUCTOS PRESENT
   assert.match(bySku.get('ARMMAR3PKECO')._singleTitle, /^SOFÁ MARENO\b/, 'ARMMAR3PKECO single title must say SOFÁ MARENO');
   assert.notEqual(bySku.get('ARMMAR2PKECO')._singleTitle, bySku.get('ARMMAR3PKECO')._singleTitle);
 });
+
+test('Turn 7 — Prompts Studio V8 removes forced 3/4 default, adds optional cameraAngle selector and high-priority Special Directives (fuera de lo común) across V8/V7/V1', () => {
+  const studioSrc = readRepo('prompts-studio-v8.js');
+  const promptsCss = readRepo('prompts-styles.css');
+
+  // Verify special box CSS exists and braces are balanced
+  assert.match(promptsCss, /\.st-special-box\s*\{/);
+  assert.match(promptsCss, /\.st-special-chip\.is-active\s*\{/);
+  assert.match(promptsCss, /\.st-v7-angle-select\s*\{/);
+
+  const root = { innerHTML: '', classList: { contains: () => false }, addEventListener: () => {} };
+  const outWrap = { innerHTML: '' };
+  const store = new Map();
+  const sb = {
+    window: {},
+    document: {
+      getElementById: (id) => (id === 'promptsNativeStudio' ? root : (id === 'stGeneratedOutputsWrap' ? outWrap : null))
+    },
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k)
+    },
+    navigator: {},
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    console
+  };
+  sb.window = sb;
+  sb.window.addEventListener = () => {};
+  vm.runInNewContext(studioSrc, sb, { filename: 'prompts-studio-v8.js' });
+  const studio = sb.window.CreataPromptsStudio;
+  studio.init(root);
+
+  // 1) Default state MUST be ORIGINAL (no forced 3/4)
+  assert.equal(studio.getState().cameraAngle, 'ORIGINAL');
+  assert.equal(studio.getState().forceThreeQuarterRight, false);
+  assert.equal(studio.getState().specialDirectives, '');
+  assert.ok(studio.CAMERA_ANGLE_OPTIONS.length >= 9);
+  assert.ok(studio.SPECIAL_DIRECTIVE_PRESETS.length >= 6);
+
+  // 2) Zero forced 3/4 across V8, V7, and V1 by default
+  const v8Pack = studio.generatePrompts({ version: 'V8', v8Mode: 'PACK_CREATA', productName: 'Sala Modular Atenas' });
+  assert.ok(!/FACING TOWARD THE RIGHT/i.test(v8Pack[0].prompt), 'V8 PACK_CREATA must NOT force 3/4 right by default');
+  assert.match(v8Pack[0].prompt, /Keep exact original camera angle/i);
+
+  const v8Mat = studio.generatePrompts({ version: 'V8', v8Mode: 'MATERIAL_SWAP', productName: 'Mesa Santorini' });
+  assert.ok(!/FACING TOWARD THE RIGHT/i.test(v8Mat[0].prompt), 'V8 MATERIAL_SWAP must NOT force 3/4 right by default');
+
+  const v7Mat = studio.generatePrompts({ version: 'V7', v7Mode: 'CAMBIO_DUAL', productName: 'Sala Atenas' });
+  assert.ok(!/FACING TOWARD THE RIGHT/i.test(v7Mat[0].prompt), 'V7 CAMBIO_DUAL must NOT force 3/4 right by default');
+
+  const v1Def = studio.generatePrompts({ version: 'V1', v1Mode: 'RESTAURAR_HD', productName: 'Sofá Milán' });
+  assert.ok(!/3\/4 front-right/i.test(v1Def[1].prompt), 'V1 Flux/MJ must NOT hardcode 3/4 front-right by default');
+  assert.match(v1Def[0].prompt, /do NOT force 3\/4 rotation/i);
+
+  // 3) Selecting an optional camera angle injects it live and switching back to ORIGINAL removes it
+  studio.setField('productName', 'Sofá Modular Atenas');
+  studio.generateNow();
+  studio.setField('cameraAngle', 'THREE_QUARTER_LEFT');
+  const pLeft = studio.getState().generatedBlocks[0].prompt;
+  assert.match(pLeft, /FACING TOWARD THE LEFT/i);
+  assert.ok(!/FACING TOWARD THE RIGHT/i.test(pLeft));
+
+  studio.setField('cameraAngle', 'FRONT');
+  const pFront = studio.getState().generatedBlocks[0].prompt;
+  assert.match(pFront, /straight front elevation \(0°/i);
+
+  studio.setField('cameraAngle', 'ORIGINAL');
+  const pOrig = studio.getState().generatedBlocks[0].prompt;
+  assert.match(pOrig, /Keep exact original camera angle/i);
+  assert.ok(!/FACING TOWARD THE LEFT|straight front elevation/i.test(pOrig));
+
+  // 4) Special Directives presets + free text inject HIGHEST PRIORITY override across V8, V7, V1 and relax scale/geometry locks cleanly
+  studio.toggleSpecialPreset('ONLY_ONE_MODULE');
+  studio.toggleSpecialPreset('LARGER_SCALE');
+  assert.match(studio.getState().specialDirectives, /1 módulo/i);
+  assert.match(studio.getState().specialDirectives, /88%/i);
+  const v8Special = studio.getState().generatedBlocks;
+  assert.match(v8Special[0].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
+  assert.match(v8Special[0].prompt, /1 módulo/i);
+  assert.match(v8Special[0].prompt, /HONOR SPECIAL USER DIRECTIVES scale\/size override/i);
+  assert.match(v8Special[0].prompt, /Except where explicitly modified by SPECIAL USER DIRECTIVES above/);
+  assert.match(v8Special[1].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
+  assert.match(v8Special[2].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
+
+  // Toggle off ONLY_ONE_MODULE leaves LARGER_SCALE intact
+  studio.toggleSpecialPreset('ONLY_ONE_MODULE');
+  assert.ok(!/1 módulo/i.test(studio.getState().specialDirectives));
+  assert.match(studio.getState().specialDirectives, /88%/i);
+
+  // Custom free text via setSpecialDirectives works in V7 and V1 too
+  studio.setSpecialDirectives('Dejar solo el módulo central y hacerlo más grande');
+  const v7Special = studio.generatePrompts({ version: 'V7', v7Mode: 'FONDO_BLANCO', productName: 'Sala Modular' });
+  assert.match(v7Special[0].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
+  assert.match(v7Special[0].prompt, /módulo central/);
+  assert.match(v7Special[0].prompt, /Except where explicitly modified by SPECIAL USER DIRECTIVES above/);
+
+  const v1Special = studio.generatePrompts({ version: 'V1', v1Mode: 'EXTRAER_BLANCO', productName: 'Sala Modular' });
+  assert.match(v1Special[0].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
+  assert.match(v1Special[1].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
+  assert.match(v1Special[2].prompt, /SPECIAL USER DIRECTIVES \(HIGHEST PRIORITY/);
+
+  // 5) clearPhotos() clears per-product specialDirectives while preserving optional cameraAngle preference
+  studio.setField('cameraAngle', 'SIDE_RIGHT');
+  studio.clearPhotos();
+  assert.equal(studio.getState().specialDirectives, '');
+  assert.equal(studio.getState().cameraAngle, 'SIDE_RIGHT');
+});
+
 

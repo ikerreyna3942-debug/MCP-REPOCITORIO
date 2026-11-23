@@ -2,7 +2,7 @@
     'use strict';
 
     const GEMINI_KEY_STORAGE = 'creata_prompts_gemini_key_v1';
-    const PREFS_STORAGE = 'creata_prompts_studio_prefs_v8';
+    const PREFS_STORAGE = 'creata_prompts_studio_prefs_v9';
     const GEMINI_MODEL = 'gemini-2.5-flash';
     const CANONICAL_STUDIO_PX = 2048;
 
@@ -54,15 +54,15 @@
         'NEVER facing right, backrest on left, flat 0° frontal, mirrored/flipped';
 
     const VERSIONS = [
-        { id: 'V8', label: 'V8 · CREATA Pro', badge: 'NUEVA', desc: 'Exclusiva CREATA: Paquete Cotizador 2048×2048 · 78% parejo sin deformar · #FFFFFF · 0% sombras · Nano Banana 2.1 / Gemini 3 Pro.' },
-        { id: 'V7', label: 'V7 · Estudio 9 Modos', badge: '9 MODOS', desc: 'Estudio fotográfico completo con 9 modos, 11 ángulos (3/4 Der. / Izq. diferenciados) y 2048×2048 sin deformar.' },
+        { id: 'V8', label: 'V8 · CREATA Pro', badge: 'NUEVA', desc: 'Exclusiva CREATA: Paquete Cotizador 2048×2048 · 78% parejo sin deformar · #FFFFFF · 0% sombras · ángulo opcional · indicaciones especiales.' },
+        { id: 'V7', label: 'V7 · Estudio 9 Modos', badge: '9 MODOS', desc: 'Estudio fotográfico completo con 9 modos, selector opcional de ángulo y 2048×2048 sin deformar.' },
         { id: 'V1', label: 'V1 · Clásica Original', badge: 'CLÁSICA', desc: 'Versión clásica directa con salida separada para AI Studio / Gemini, Flux / Midjourney y ChatGPT / DALL-E.' }
     ];
 
     const V8_MODES = [
         { id: 'PACK_CREATA', label: '📦 Paquete Cotizador CREATA', short: 'Paquete CREATA', hint: 'Genera 3 prompts listos: Foto Catálogo 2048×2048 (#FFFFFF · 0% sombras · sin deformar), Portada Ambiente y Plano CAD.' },
-        { id: 'SEVEN_VIEWS', label: '📸 7 Vistas + 3/4 Derecha', short: '7 Vistas', hint: 'Serie completa de 7 ángulos consistentes (3/4 Derecha y 3/4 Izquierda diferenciados) en 2048×2048.' },
-        { id: 'SINGLE_VIEW', label: '🎯 1 Vista Específica (11 ángulos)', short: '1 Vista', hint: 'Genera un ángulo puntual exacto (incluyendo 3/4 mirando a la Derecha vs. 3/4 mirando a la Izquierda) manteniendo proporciones intactas.' },
+        { id: 'SEVEN_VIEWS', label: '📸 7 Vistas de Estudio', short: '7 Vistas', hint: 'Serie completa de 7 ángulos consistentes (3/4 Derecha y 3/4 Izquierda diferenciados) en 2048×2048.' },
+        { id: 'SINGLE_VIEW', label: '🎯 1 Vista Específica (11 ángulos)', short: '1 Vista', hint: 'Genera un ángulo puntual exacto manteniendo proporciones intactas.' },
         { id: 'MATERIAL_SWAP', label: '🧵🪵 Cambio Material (100% Casco)', short: 'Tela / Madera', hint: 'Retapiza 100% el casco y/o cambia madera usando muestras de Drive (solo lectura) con micro-escala realista.' },
         { id: 'ENVIRONMENT', label: '🛋️ Escenario / Ambiente CREATA', short: 'Ambiente', hint: 'Coloca el mueble real en una habitación editorial CREATA sin modificar una sola costura ni pata.' },
         { id: 'CAD_HD', label: '📐 Plano CAD + Restaurar HD 8K', short: 'CAD / HD 8K', hint: 'Ficha técnica ortográfica con medidas exactas en cm + restauración limpia de estudio 8K en 2048×2048.' }
@@ -99,6 +99,28 @@
         { id: 'LOW_HERO', label: '🏛️ Contrapicada Editorial', en: 'Subtle low-angle architectural hero perspective (~45 cm height, 85mm rectilinear lens) emphasizing base/legs and grounded stance without lens distortion', exclude: 'top-down view, fish-eye distortion' },
         { id: 'DETAIL_TEXTURE', label: '🔍 Macro Textura y Costura', en: 'Close-up 100mm macro detail of fabric weave, piping, stitching, and wood grain transition at realistic physical scale', exclude: 'distant room view, blurry weave, flat plastic texture' },
         { id: 'DETAIL_BASE', label: '🪵 Detalle Patas / Base / Estructura', en: 'Close-up studio detail of legs, plinth, joinery, and lower frame craftsmanship', exclude: 'top-down view, blurry base, altered leg design' }
+    ];
+
+    const CAMERA_ANGLE_OPTIONS = [
+        { id: 'ORIGINAL', label: '📷 Original de la foto (sin forzar 3/4)', en: '', exclude: '' },
+        { id: 'THREE_QUARTER_RIGHT', label: '↘️ 3/4 Mirando a la Derecha', en: CANONICAL_34_RIGHT_PROMPT, exclude: CANONICAL_34_RIGHT_EXCLUDE },
+        { id: 'THREE_QUARTER_LEFT', label: '↙️ 3/4 Mirando a la Izquierda', en: CANONICAL_34_LEFT_PROMPT, exclude: CANONICAL_34_LEFT_EXCLUDE },
+        { id: 'FRONT', label: '⬆️ Frontal Recta (0°)', en: SINGLE_ANGLES[1].en, exclude: SINGLE_ANGLES[1].exclude },
+        { id: 'SIDE_RIGHT', label: '➡️ Perfil Derecho (90°)', en: SINGLE_ANGLES[3].en, exclude: SINGLE_ANGLES[3].exclude },
+        { id: 'SIDE_LEFT', label: '⬅️ Perfil Izquierdo (-90°)', en: SINGLE_ANGLES[4].en, exclude: SINGLE_ANGLES[4].exclude },
+        { id: 'BACK', label: '⬇️ Vista Trasera (180°)', en: SINGLE_ANGLES[5].en, exclude: SINGLE_ANGLES[5].exclude },
+        { id: 'TOP_DOWN', label: '🛰️ Cenital / Aérea (90°)', en: SINGLE_ANGLES[6].en, exclude: SINGLE_ANGLES[6].exclude },
+        { id: 'HIGH_ANGLE', label: '📐 Picada 45°', en: SINGLE_ANGLES[7].en, exclude: SINGLE_ANGLES[7].exclude },
+        { id: 'LOW_HERO', label: '🏛️ Contrapicada Editorial', en: SINGLE_ANGLES[8].en, exclude: SINGLE_ANGLES[8].exclude }
+    ];
+
+    const SPECIAL_DIRECTIVE_PRESETS = [
+        { id: 'ONLY_ONE_MODULE', label: '🧩 Solo 1 módulo', text: 'Dejar ÚNICAMENTE 1 módulo individual aislado (eliminar los demás módulos adjuntos y reconstruir limpiamente el costado expuesto con la misma tapicería y costuras).' },
+        { id: 'LARGER_SCALE', label: '🔍 Más grande', text: 'Colocar el mueble más grande y cercano ocupando ~88% del encuadre sin recortar ningún borde ni deformar proporciones.' },
+        { id: 'SMALLER_SCALE', label: '📐 Más chico / aire', text: 'Colocar el mueble más pequeño (~65% del encuadre) con mayor margen blanco limpio alrededor.' },
+        { id: 'NO_PILLOWS', label: '🛋️ Sin cojines', text: 'Quitar todos los cojines decorativos sueltos y mostrar el respaldo y asiento limpios con la misma tapicería.' },
+        { id: 'LEGS_ONLY', label: '🪵 Solo cambiar patas', text: 'Modificar únicamente el acabado/color de las patas o base manteniendo 100% intacto el resto del mueble.' },
+        { id: 'REMOVE_EXTRAS', label: '✂️ Quitar extras', text: 'Eliminar cualquier objeto alrededor (mesas, tapetes, lámparas, plantas o fondos) dejando solo el mueble principal.' }
     ];
 
     const ROOM_ENVIRONMENTS = [
@@ -140,6 +162,7 @@
         v7Mode: '7_VISTAS',
         v1Mode: 'RESTAURAR_HD',
         angleId: 'THREE_QUARTER_RIGHT',
+        cameraAngle: 'ORIGINAL', // ORIGINAL (sin forzar 3/4) | THREE_QUARTER_RIGHT | THREE_QUARTER_LEFT | FRONT | ...
         roomId: 'RIVIERA_TULUM',
         category: 'AUTO',
         materialTarget: 'DUAL', // TELA | MADERA | DUAL
@@ -147,13 +170,14 @@
         aspectRatio: '1:1', // 1:1 (2048x2048) | 4:3 | 3:2 | 16:9
         thinkingLevel: 'medium', // minimal | medium | high (solo Nano Banana 2.1)
         forceCreataSpec: true, // 2048x2048 · 78% parejo sin deformar · #FFFFFF · 0% sombras
-        forceThreeQuarterRight: true,
+        forceThreeQuarterRight: false,
         includeSpanishNotes: true,
         sku: '',
         productName: '',
         outputName: '',
         dimensions: '',
         extraNotes: '',
+        specialDirectives: '',
         visionAnalysis: '',
         visionLoading: false,
         furniturePhoto: null, // { id?, name, previewUrl, dataUri?, source, fileId? }
@@ -255,6 +279,7 @@
             if (p.v7Mode && V7_MODES.some((m) => m.id === p.v7Mode)) state.v7Mode = p.v7Mode;
             if (p.v1Mode && V1_MODES.some((m) => m.id === p.v1Mode)) state.v1Mode = p.v1Mode;
             if (p.angleId && SINGLE_ANGLES.some((a) => a.id === p.angleId)) state.angleId = p.angleId;
+            if (p.cameraAngle && CAMERA_ANGLE_OPTIONS.some((a) => a.id === p.cameraAngle)) state.cameraAngle = p.cameraAngle;
             if (p.roomId && ROOM_ENVIRONMENTS.some((r) => r.id === p.roomId)) state.roomId = p.roomId;
             if (p.category && CATEGORIES.some((c) => c.id === p.category)) state.category = p.category;
             if (p.materialTarget === 'TELA' || p.materialTarget === 'MADERA' || p.materialTarget === 'DUAL') state.materialTarget = p.materialTarget;
@@ -262,7 +287,6 @@
             if (p.aspectRatio && ASPECT_RATIO_OPTIONS.some((a) => a.id === p.aspectRatio)) state.aspectRatio = p.aspectRatio;
             if (p.thinkingLevel === 'minimal' || p.thinkingLevel === 'medium' || p.thinkingLevel === 'high') state.thinkingLevel = p.thinkingLevel;
             if (typeof p.forceCreataSpec === 'boolean') state.forceCreataSpec = p.forceCreataSpec;
-            if (typeof p.forceThreeQuarterRight === 'boolean') state.forceThreeQuarterRight = p.forceThreeQuarterRight;
         } catch (e) {}
     }
 
@@ -274,14 +298,14 @@
                 v7Mode: state.v7Mode,
                 v1Mode: state.v1Mode,
                 angleId: state.angleId,
+                cameraAngle: state.cameraAngle,
                 roomId: state.roomId,
                 category: state.category,
                 materialTarget: state.materialTarget,
                 targetModel: state.targetModel,
                 aspectRatio: state.aspectRatio,
                 thinkingLevel: state.thinkingLevel,
-                forceCreataSpec: state.forceCreataSpec,
-                forceThreeQuarterRight: state.forceThreeQuarterRight
+                forceCreataSpec: state.forceCreataSpec
             }));
         } catch (e) {}
     }
@@ -355,8 +379,26 @@
         return SINGLE_ANGLES.find((a) => a.id === angleId) || SINGLE_ANGLES[0];
     }
 
+    function getCameraAngleObj(cameraAngleId) {
+        const found = CAMERA_ANGLE_OPTIONS.find((a) => a.id === cameraAngleId);
+        return (found && found.id !== 'ORIGINAL') ? found : null;
+    }
+
     function getRoomObj(roomId) {
         return ROOM_ENVIRONMENTS.find((r) => r.id === roomId) || ROOM_ENVIRONMENTS[0];
+    }
+
+    function hasCustomScaleDirective(specialText) {
+        const n = normSearch(specialText);
+        if (!n) return false;
+        return /\b(grande|chico|chica|pequen|acerc|alej|zoom|tamano|escala|larger|bigger|smaller|closer|scale)\b|\b(8[0-9]|9[0-9]|6[0-9]|5[0-9])%/i.test(n);
+    }
+
+    function buildSpecialDirectivesBlock(cfg) {
+        const txt = cleanStr(cfg && cfg.specialDirectives);
+        if (!txt) return '';
+        return 'SPECIAL USER DIRECTIVES (HIGHEST PRIORITY — OVERRIDE DEFAULT LOCKS WHERE REQUESTED): ' + txt +
+            ' Execute these custom requests faithfully (e.g., isolate only 1 module, enlarge/shrink framing scale, remove/modify specific parts) while keeping photorealistic quality and everything else 100% faithful to [IMAGE 1].';
     }
 
     function buildModelTargetBlock(cfg) {
@@ -381,20 +423,29 @@
         return line;
     }
 
-    function buildCreataCatalogSpecBlock(forceSpec, force34Right, aspectRatioOpt, explicitAngleObj) {
+    function buildCreataCatalogSpecBlock(forceSpec, force34Right, aspectRatioOpt, explicitAngleObj, specialDirectivesText) {
         const ar = aspectRatioOpt || '1:1';
         const dimTxt = ar === '1:1' ? '2048x2048 (1:1, 2K)' : (ar + ' 2K (2048px)');
+        const customScale = hasCustomScaleDirective(specialDirectivesText);
         if (!forceSpec) {
-            return 'STUDIO: Crisp catalog lighting, pure white #FFFFFF background, centered proportional framing (zero distortion).';
+            const angleNote = explicitAngleObj
+                ? (' Angle: ' + explicitAngleObj.en + (explicitAngleObj.exclude ? (' | EXCLUDE: ' + explicitAngleObj.exclude + '.') : ''))
+                : (force34Right
+                    ? (' Angle: ' + CANONICAL_34_RIGHT_PROMPT + ' | EXCLUDE: ' + CANONICAL_34_RIGHT_EXCLUDE + '.')
+                    : ' Keep exact original camera angle of [IMAGE 1] (do NOT force 3/4 rotation).');
+            return 'STUDIO: Crisp catalog lighting, pure white #FFFFFF background, centered proportional framing (zero distortion).' + angleNote;
         }
+        const framingLine = customScale
+            ? '- Framing: uniform aspect-locked proportions (HONOR SPECIAL USER DIRECTIVES scale/size override; balanced #FFFFFF margins, zero stretching/cropping).'
+            : '- Framing: uniform 1:1 aspect-locked scale (~78% longest axis centered, balanced #FFFFFF margins, zero stretching/cropping).';
         const angleLine = explicitAngleObj
             ? ('- Angle: ' + explicitAngleObj.en + (explicitAngleObj.exclude ? (' | EXCLUDE: ' + explicitAngleObj.exclude + '.') : ''))
             : (force34Right
                 ? ('- Angle: ' + CANONICAL_34_RIGHT_PROMPT + ' | EXCLUDE: ' + CANONICAL_34_RIGHT_EXCLUDE + '.')
-                : '- Angle: 85mm rectilinear studio lens (zero wide-angle distortion).');
+                : '- Angle: Keep exact original camera angle and viewing perspective of [IMAGE 1] (85mm rectilinear; do NOT force 3/4 rotation).');
         return [
             'CREATA CATALOG SPEC (NON-NEGOTIABLE · ' + dimTxt + '):',
-            '- Framing: uniform 1:1 aspect-locked scale (~78% longest axis centered, balanced #FFFFFF margins, zero stretching/cropping).',
+            framingLine,
             '- Background & Shadows: 100% solid pure white #FFFFFF edge-to-edge, ZERO cast shadows / 0% shadow cutout on floor (keep natural 3D volume only on furniture).',
             angleLine
         ].join('\n');
@@ -429,6 +480,7 @@
             v7Mode: state.v7Mode,
             v1Mode: state.v1Mode,
             angleId: state.angleId,
+            cameraAngle: state.cameraAngle,
             roomId: state.roomId,
             category: state.category,
             materialTarget: state.materialTarget,
@@ -442,6 +494,7 @@
             outputName: state.outputName,
             dimensions: state.dimensions,
             extraNotes: state.extraNotes,
+            specialDirectives: state.specialDirectives,
             visionAnalysis: state.visionAnalysis,
             furniturePhoto: state.furniturePhoto,
             fabricSwatch: state.fabricSwatch,
@@ -473,6 +526,24 @@
         const headerText = buildProductHeader(cfg, catKey);
         const modelBlock = buildModelTargetBlock(cfg);
 
+        // Optional camera angle: ORIGINAL by default (NEVER forces 3/4 unless explicitly selected or requested)
+        const selectedCameraObj = (cfg.cameraAngle && cfg.cameraAngle !== 'ORIGINAL')
+            ? getCameraAngleObj(cfg.cameraAngle)
+            : (cfg.forceThreeQuarterRight === true ? getCameraAngleObj('THREE_QUARTER_RIGHT') : null);
+        const optionalCameraLine = selectedCameraObj
+            ? ('CAMERA ANGLE: ' + selectedCameraObj.en + (selectedCameraObj.exclude ? (' | EXCLUDE: ' + selectedCameraObj.exclude + '.') : ''))
+            : '';
+        const multiViewAngleObj = {
+            en: 'Consistent 85mm rectilinear studio lens across all 7 requested camera angles. ' + ANTI_MIRROR_HANDEDNESS_LOCK,
+            exclude: ''
+        };
+
+        // Special user directives (highest priority — overrides default locks where explicitly requested)
+        const specialBlock = buildSpecialDirectivesBlock(cfg);
+        const hasSpecial = Boolean(specialBlock);
+        const customScale = hasCustomScaleDirective(cfg.specialDirectives);
+        const specialLockNote = hasSpecial ? ' (Except where explicitly modified by SPECIAL USER DIRECTIVES above.)' : '';
+
         const usesMaterialTarget =
             (cfg.version === 'V8' && (cfg.v8Mode || 'PACK_CREATA') === 'MATERIAL_SWAP') ||
             (cfg.version === 'V1' && (cfg.v1Mode || 'RESTAURAR_HD') === 'CAMBIO_MATERIAL');
@@ -489,7 +560,7 @@
             const slots = buildSlotMap(Object.assign({}, cfg, { includeFabric: includeFab, includeWood: includeWood }));
             const slotBlock = formatSlotMapText(slots);
             const matBlock = (includeFab || includeWood) ? buildCascoMaterialRules(slots, includeFab, includeWood) : '';
-            const lockLine = 'GEOMETRY LOCK: [IMAGE 1] is 100% source of truth. ' + catRule + ' No extra pillows, props, logos, text, or clutter.';
+            const lockLine = 'GEOMETRY LOCK: [IMAGE 1] is 100% source of truth. ' + catRule + ' No extra pillows, props, logos, text, or clutter.' + specialLockNote;
 
             if (mode === 'PACK_CREATA') {
                 const catalogPrompt = [
@@ -497,16 +568,20 @@
                     modelBlock,
                     headerText,
                     slotBlock,
-                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, cfg.aspectRatio),
+                    specialBlock,
+                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, cfg.aspectRatio, selectedCameraObj, cfg.specialDirectives),
                     matBlock,
                     lockLine
                 ].filter(Boolean).join('\n');
 
+                const coverFraming = customScale ? 'honor SPECIAL USER DIRECTIVES scale override' : '~62% frame';
                 const coverPrompt = [
-                    'TASK: CREATA Editorial Cover Scene (V8 Pro). Place [IMAGE 1] unaltered as hero centerpiece (~62% frame, ' + (cfg.aspectRatio || '1:1') + ' 2K, true proportions, natural daylight & soft floor contact shadows).',
+                    'TASK: CREATA Editorial Cover Scene (V8 Pro). Place [IMAGE 1] as hero centerpiece (' + coverFraming + ', ' + (cfg.aspectRatio || '1:1') + ' 2K, true proportions, natural daylight & soft floor contact shadows).',
                     modelBlock,
                     headerText,
                     slotBlock,
+                    specialBlock,
+                    optionalCameraLine,
                     'SCENE: ' + roomObj.en + '.',
                     matBlock,
                     lockLine
@@ -517,6 +592,7 @@
                     modelBlock,
                     headerText,
                     slotBlock,
+                    specialBlock,
                     cfg.dimensions
                         ? ('DIMENSIONS (EXACT): Label metric arrows with "' + cfg.dimensions + '" only.')
                         : 'DIMENSIONS: Clean proportional metric arrows (Width, Depth, Height).',
@@ -536,7 +612,8 @@
                     modelBlock,
                     headerText,
                     slotBlock,
-                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, true, cfg.aspectRatio),
+                    specialBlock,
+                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, cfg.aspectRatio, multiViewAngleObj, cfg.specialDirectives),
                     'VIEWS (2048x2048, ~78% proportional scale, NEVER mirrored): 1) 3/4 Right (front→right, backrest left) · 2) Front 0° · 3) 3/4 Left (opposite orbit, front→left) · 4) Right Profile 90° · 5) Left Profile -90° · 6) Back 180° · 7) Macro Texture/Stitching Detail.',
                     matBlock,
                     lockLine
@@ -550,9 +627,10 @@
                     modelBlock,
                     headerText,
                     slotBlock,
+                    specialBlock,
                     'ANGLE: ' + angleObj.en,
                     angleObj.exclude ? ('FORBIDDEN: ' + angleObj.exclude + '.') : '',
-                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, cfg.aspectRatio, angleObj),
+                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, cfg.aspectRatio, angleObj, cfg.specialDirectives),
                     matBlock,
                     lockLine
                 ].filter(Boolean).join('\n');
@@ -564,12 +642,13 @@
                     ? 'Solo Tela'
                     : (cfg.materialTarget === 'MADERA' ? 'Solo Madera' : 'Dual Tela + Madera');
                 const prompt = [
-                    'TASK: Photorealistic Material Swap on [IMAGE 1] — ' + targetLabel + ' (keep 100% geometry, seams, and perspective).',
+                    'TASK: Photorealistic Material Swap on [IMAGE 1] — ' + targetLabel + ' (keep 100% geometry, seams, and perspective' + (hasSpecial ? ' except where SPECIAL USER DIRECTIVES apply' : '') + ').',
                     modelBlock,
                     headerText,
                     slotBlock,
+                    specialBlock,
                     matBlock || 'Apply attached material swatch faithfully across 100% of target surfaces at natural micro-scale.',
-                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, cfg.aspectRatio),
+                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, cfg.aspectRatio, selectedCameraObj, cfg.specialDirectives),
                     lockLine
                 ].filter(Boolean).join('\n');
                 return [makeOutBlock('v8_material', '🧵🪵 Material — ' + targetLabel, 'MATERIAL', prompt, '')];
@@ -581,6 +660,8 @@
                     modelBlock,
                     headerText,
                     slotBlock,
+                    specialBlock,
+                    optionalCameraLine,
                     'SCENE: ' + roomObj.en + '.',
                     matBlock,
                     lockLine
@@ -594,7 +675,8 @@
                 modelBlock,
                 headerText,
                 slotBlock,
-                buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, cfg.aspectRatio),
+                specialBlock,
+                buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, cfg.aspectRatio, selectedCameraObj, cfg.specialDirectives),
                 matBlock,
                 lockLine
             ].filter(Boolean).join('\n');
@@ -604,6 +686,7 @@
                 modelBlock,
                 headerText,
                 slotBlock,
+                specialBlock,
                 cfg.dimensions ? ('EXACT MEASUREMENTS: ' + cfg.dimensions + '.') : 'Clean proportional metric arrows.'
             ].filter(Boolean).join('\n');
 
@@ -614,7 +697,7 @@
         }
 
         // ---------------------------------------------------------------------
-        // VERSIÓN 7 · ESTUDIO 9 MODOS + 2048×2048 + 3/4 DER/IZQ DIFERENCIADOS
+        // VERSIÓN 7 · ESTUDIO 9 MODOS + 2048×2048 + ÁNGULO OPCIONAL
         // ---------------------------------------------------------------------
         if (cfg.version === 'V7') {
             const m7 = cfg.v7Mode || '7_VISTAS';
@@ -624,8 +707,7 @@
             const slotBlock7 = formatSlotMapText(slots7);
             const matBlock7 = (includeFab7 || includeWood7) ? buildCascoMaterialRules(slots7, includeFab7, includeWood7) : '';
             const ar7 = cfg.aspectRatio || '1:1';
-            const base2048Format = buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, ar7);
-            const hero34 = buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, ar7);
+            const heroSpec = buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, ar7, selectedCameraObj, cfg.specialDirectives);
 
             let modeBody = '';
             let badge7 = 'V7';
@@ -633,29 +715,31 @@
 
             if (m7 === '7_VISTAS') {
                 badge7 = '7 VISTAS';
-                modeBody = 'TASK (V7 — 7 STUDIO VIEWS): Generate the complete 7-angle studio series of [IMAGE 1] (3/4 Facing Right, Front 0°, 3/4 Facing Left [opposite orbit, NEVER mirrored], Right Side 90°, Left Side -90°, Back 180°, Texture Close-up) keeping identical structure, proportions, seams, and finishes.\n' + hero34;
+                modeBody = 'TASK (V7 — 7 STUDIO VIEWS): Generate the complete 7-angle studio series of [IMAGE 1] (3/4 Facing Right, Front 0°, 3/4 Facing Left [opposite orbit, NEVER mirrored], Right Side 90°, Left Side -90°, Back 180°, Texture Close-up) keeping identical structure, proportions, seams, and finishes.\n' +
+                    buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, ar7, multiViewAngleObj, cfg.specialDirectives);
             } else if (m7 === '1_VISTA') {
                 badge7 = '1 VISTA';
                 title7 = 'V7 · 1 Vista — ' + angleObj.label;
                 modeBody = 'TASK (V7 — SINGLE VIEW): Render ONLY this exact camera view of [IMAGE 1]:\n' + angleObj.en +
                     (angleObj.exclude ? ('\nSTRICTLY EXCLUDE: ' + angleObj.exclude + '.') : '') +
-                    '\n' + buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, ar7, angleObj);
+                    '\n' + buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, ar7, angleObj, cfg.specialDirectives);
             } else if (m7 === 'CAMBIO_TELA' || m7 === 'CAMBIO_MADERA' || m7 === 'CAMBIO_DUAL') {
                 badge7 = m7.replace('CAMBIO_', '');
-                modeBody = 'TASK (V7 — MATERIAL SWAP): Replace the target material(s) on [IMAGE 1] with 100% fidelity to the attached swatch(es), covering 100% of the casco/frame with realistic micro-scale texture while locking exact furniture geometry.\n' + hero34;
+                modeBody = 'TASK (V7 — MATERIAL SWAP): Replace the target material(s) on [IMAGE 1] with 100% fidelity to the attached swatch(es), covering 100% of the casco/frame with realistic micro-scale texture while locking exact furniture geometry.\n' + heroSpec;
             } else if (m7 === 'ENTORNO') {
                 badge7 = 'ENTORNO';
                 title7 = 'V7 · Entorno — ' + roomObj.label;
-                modeBody = 'TASK (V7 — LIFESTYLE ROOM): Place [IMAGE 1] unaltered inside this interior (' + ar7 + ' 2K): ' + roomObj.en + '. Match natural daylight and subtle floor contact shadows while keeping the furniture design, real proportions, and colors 100% faithful.';
+                modeBody = 'TASK (V7 — LIFESTYLE ROOM): Place [IMAGE 1] inside this interior (' + ar7 + ' 2K): ' + roomObj.en + '. Match natural daylight and subtle floor contact shadows while keeping the furniture design, real proportions, and colors 100% faithful.' +
+                    (optionalCameraLine ? ('\n' + optionalCameraLine) : '');
             } else if (m7 === 'PLANO_CAD') {
                 badge7 = 'CAD';
                 modeBody = 'TASK (V7 — TECHNICAL CAD SHEET): Generate a ' + (ar7 === '1:1' ? '2048x2048' : (ar7 + ' 2K')) + ' orthographic technical CAD blueprint of [IMAGE 1] (Front, Side, Top views) on pure #FFFFFF white with crisp black architectural linework' + (cfg.dimensions ? (' and exact dimensions: ' + cfg.dimensions + '.') : ' and proportional metric dimension callouts.');
             } else if (m7 === 'FONDO_BLANCO') {
                 badge7 = '#FFFFFF';
-                modeBody = 'TASK (V7 — PURE WHITE EXTRACTION): Extract [IMAGE 1] cleanly onto a 100% solid pure white #FFFFFF background without distorting proportions, removing all store clutter, floor reflections, and cast shadows.\n' + hero34;
+                modeBody = 'TASK (V7 — PURE WHITE EXTRACTION): Extract [IMAGE 1] cleanly onto a 100% solid pure white #FFFFFF background without distorting proportions, removing all store clutter, floor reflections, and cast shadows.\n' + heroSpec;
             } else {
                 badge7 = 'HD 8K';
-                modeBody = 'TASK (V7 — HD 8K RESTORATION / COLOR CLONE): Restore sharpness, remove noise/compression artifacts, clean lighting to studio quality, and unify exact finish color across [IMAGE 1].\n' + hero34;
+                modeBody = 'TASK (V7 — HD 8K RESTORATION / COLOR CLONE): Restore sharpness, remove noise/compression artifacts, clean lighting to studio quality, and unify exact finish color across [IMAGE 1].\n' + heroSpec;
             }
 
             const prompt7 = [
@@ -663,9 +747,10 @@
                 modelBlock,
                 headerText,
                 slotBlock7,
+                specialBlock,
                 modeBody,
                 matBlock7,
-                'GEOMETRY LOCK: ' + catRule + ' Never invent extra pillows, props, logos, or text.'
+                'GEOMETRY LOCK: ' + catRule + ' Never invent extra pillows, props, logos, or text.' + specialLockNote
             ].filter(Boolean).join('\n\n');
 
             return [makeOutBlock('v7_main', title7, badge7, prompt7, '')];
@@ -685,11 +770,22 @@
             woodLabel ? ('with "' + woodLabel + '" wood finish from the attached swatch') : ''
         ].filter(Boolean).join(' and ');
 
+        const v1AngleRule = selectedCameraObj
+            ? ('Camera angle: ' + selectedCameraObj.en + (selectedCameraObj.exclude ? (' | EXCLUDE: ' + selectedCameraObj.exclude + '.') : ''))
+            : 'Camera angle: Keep exact original camera angle and viewing perspective of the reference photo (do NOT force 3/4 rotation).';
+        const v1FluxAngle = selectedCameraObj
+            ? (selectedCameraObj.en.split('.')[0] + ',')
+            : (m1 === 'MULTI_PERSPECTIVA' ? 'matching multi-angle studio elevations,' : 'exact original camera angle from the reference photo (no forced rotation),');
+        const v1FramingRule = customScale
+            ? 'honor SPECIAL USER DIRECTIVES scale/size override without distorting proportions'
+            : 'balanced 78% proportional framing (never deform sofa/armchair)';
+        const v1SpecialShort = cleanStr(cfg.specialDirectives);
+
         let taskEn = '';
         if (m1 === 'RESTAURAR_HD') {
             taskEn = 'Restore and enhance this photograph of ' + prodDesc + ' to ultra-sharp ' + dim1 + ' commercial furniture catalog quality, keeping exact silhouette, proportions (zero distortion), and craftsmanship.';
         } else if (m1 === 'EXTRAER_BLANCO') {
-            taskEn = 'Extract ' + prodDesc + ' cleanly onto a pure solid white #FFFFFF studio background (' + dim1 + ', ~78% proportional centered framing without warping, zero cast shadows, no background clutter).';
+            taskEn = 'Extract ' + prodDesc + ' cleanly onto a pure solid white #FFFFFF studio background (' + dim1 + ', ' + (customScale ? 'custom scale per SPECIAL USER DIRECTIVES' : '~78% proportional centered framing') + ' without warping, zero cast shadows, no background clutter).';
         } else if (m1 === 'CAMBIO_MATERIAL') {
             const targetFallback = cfg.materialTarget === 'TELA'
                 ? 'with the attached fabric swatch upholstered across 100% of the casco/body'
@@ -704,22 +800,27 @@
         const aiStudioV1 = [
             modelBlock,
             'Using the attached reference image(s), ' + taskEn,
+            specialBlock,
             cfg.dimensions ? ('Maintain exact proportions for dimensions: ' + cfg.dimensions + '.') : '',
-            'Studio rules: ' + dim1 + ' (' + ar1 + ', 2K), 85mm rectilinear lens, pure #FFFFFF seamless background, balanced 78% proportional framing (never deform sofa/armchair), zero drop shadows, ' + catRule,
+            v1AngleRule,
+            'Studio rules: ' + dim1 + ' (' + ar1 + ', 2K), 85mm rectilinear lens, pure #FFFFFF seamless background, ' + v1FramingRule + ', zero drop shadows, ' + catRule + specialLockNote,
             cfg.extraNotes ? ('Additional notes: ' + cfg.extraNotes) : ''
         ].filter(Boolean).join('\n');
 
         const fluxMjV1 = [
             'Commercial studio furniture photography of ' + prodDesc + (matClause ? (', ' + matClause) : '') + ',',
-            m1 === 'MULTI_PERSPECTIVA' ? '3/4 front-right hero angle (front facing right edge) and matching elevations,' : '3/4 front-right studio hero view (front facing right edge, backrest left),',
-            dim1 + ' pure solid white #FFFFFF seamless infinity background, zero cast shadows, 85mm rectilinear lens, true undistorted furniture proportions, ultra-detailed realistic fabric weave and wood grain, crisp softbox lighting, centered 78% catalog framing --ar ' + ar1 + ' --stylize 100'
-        ].join(' ');
+            v1SpecialShort ? ('SPECIAL USER DIRECTIVES (HIGHEST PRIORITY): ' + v1SpecialShort + ',') : '',
+            v1FluxAngle,
+            dim1 + ' pure solid white #FFFFFF seamless infinity background, zero cast shadows, 85mm rectilinear lens, true undistorted furniture proportions, ultra-detailed realistic fabric weave and wood grain, crisp softbox lighting, ' + (customScale ? 'custom framing per special directives' : 'centered 78% catalog framing') + ' --ar ' + ar1 + ' --stylize 100'
+        ].filter(Boolean).join(' ');
 
         const dalleV1 = [
             'Please edit/generate a ' + dim1 + ' studio e-commerce catalog photograph based on the uploaded furniture photo.',
             taskEn,
-            'Keep every structural detail and physical proportion identical to the original piece (do not stretch/compress sofas, do not add extra cushions, props, or text). Center the furniture proportionally at ~78% of a ' + ar1 + ' (' + dim1 + ') pure white (#FFFFFF) canvas with zero floor shadows and crisp natural studio lighting.'
-        ].join('\n\n');
+            specialBlock,
+            v1AngleRule,
+            'Keep every structural detail and physical proportion identical to the original piece (do not stretch/compress sofas, do not add extra cushions, props, or text)' + specialLockNote + ' Center the furniture proportionally ' + (customScale ? '(honoring SPECIAL USER DIRECTIVES scale/size)' : 'at ~78%') + ' of a ' + ar1 + ' (' + dim1 + ') pure white (#FFFFFF) canvas with zero floor shadows and crisp natural studio lighting.'
+        ].filter(Boolean).join('\n\n');
 
         return [
             makeOutBlock('v1_aistudio', 'V1 · Google AI Studio / Nano Banana 2.1 · Gemini 3 Pro', 'AI STUDIO', aiStudioV1, ''),
@@ -1033,6 +1134,7 @@
         state.outputName = '';
         state.dimensions = '';
         state.extraNotes = '';
+        state.specialDirectives = '';
         state.visionAnalysis = '';
         state.activeOutTab = 0;
         state.generatedBlocks = [];
@@ -1112,9 +1214,39 @@
         return '';
     }
 
+    function renderCameraAngleRowHtml() {
+        const showSingleAngle = (state.version === 'V8' && state.v8Mode === 'SINGLE_VIEW') || (state.version === 'V7' && state.v7Mode === '1_VISTA');
+        if (showSingleAngle) return '';
+        return '<div class="st-v7-row">' +
+            '<span class="st-v7-row-lbl">📷 Ángulo</span>' +
+            '<select id="stCameraAngleSelect" class="st-input st-v7-select st-v7-angle-select" aria-label="Ángulo opcional de cámara" onchange="CreataPromptsStudio.setField(\'cameraAngle\', this.value)">' +
+                CAMERA_ANGLE_OPTIONS.map((a) => '<option value="' + a.id + '"' + (state.cameraAngle === a.id ? ' selected' : '') + '>' + escapeHtml(a.label) + '</option>').join('') +
+            '</select>' +
+        '</div>';
+    }
+
+    function renderSpecialDirectivesBoxHtml() {
+        const current = cleanStr(state.specialDirectives);
+        const currentNorm = normSearch(current);
+        return '<div id="stSpecialDirectivesBox" class="st-special-box">' +
+            '<div class="st-special-head">' +
+                '<label class="st-special-title" for="stSpecialDirectivesInput">⚡ Indicaciones especiales (fuera de lo común)</label>' +
+                (current
+                    ? '<button type="button" class="st-mini-btn" onclick="CreataPromptsStudio.clearSpecialDirectives()" title="Limpiar indicaciones especiales">✕ Limpiar</button>'
+                    : '<span class="st-v7-preview-chip">Prioridad máxima</span>') +
+            '</div>' +
+            '<div class="st-special-chips">' +
+                SPECIAL_DIRECTIVE_PRESETS.map((p) => {
+                    const active = currentNorm.indexOf(normSearch(p.text)) !== -1;
+                    return '<button type="button" class="st-special-chip' + (active ? ' is-active' : '') + '" data-preset-id="' + p.id + '" onclick="CreataPromptsStudio.toggleSpecialPreset(\'' + p.id + '\')">' + escapeHtml(p.label) + '</button>';
+                }).join('') +
+            '</div>' +
+            '<textarea id="stSpecialDirectivesInput" class="st-input st-special-textarea" rows="2" placeholder="Ej. Solo dejar 1 módulo, colocarlo más grande, quitar cojines, cambiar solo patas, quitar extras..." oninput="CreataPromptsStudio.setSpecialDirectives(this.value)">' + escapeHtml(state.specialDirectives) + '</textarea>' +
+        '</div>';
+    }
+
     function renderAdvancedOptionsHtml(hasGeminiKey) {
         const curModel = getTargetModelObj(state.targetModel);
-        const showAngle = (state.version === 'V8' && state.v8Mode === 'SINGLE_VIEW') || (state.version === 'V7' && state.v7Mode === '1_VISTA');
         return '<details class="st-adv-details"' + (state.advancedOpen ? ' open' : '') + ' ontoggle="CreataPromptsStudio.setAdvancedOpen(this.open)">' +
             '<summary>⚙️ Opciones (' + escapeHtml(curModel.short) + ' · ' + escapeHtml(state.aspectRatio) + (state.forceCreataSpec ? ' · 2048 #FFF' : '') + (hasGeminiKey ? ' · Vision ✅' : '') + ')</summary>' +
             '<div class="st-adv-body">' +
@@ -1146,12 +1278,6 @@
                             '<input type="checkbox" ' + (state.forceCreataSpec ? 'checked' : '') + ' onchange="CreataPromptsStudio.setBool(\'forceCreataSpec\', this.checked)">' +
                             '<span>2048×2048 · 78% · #FFFFFF · 0% sombras</span>' +
                         '</label>' +
-                        (!showAngle
-                            ? ('<label class="st-check-pill">' +
-                                '<input type="checkbox" ' + (state.forceThreeQuarterRight ? 'checked' : '') + ' onchange="CreataPromptsStudio.setBool(\'forceThreeQuarterRight\', this.checked)">' +
-                                '<span>↘️ 3/4 Derecha</span>' +
-                              '</label>')
-                            : '') +
                       '</div>')
                     : '') +
                 '<div class="st-gemini-compact">' +
@@ -1281,7 +1407,7 @@
 
     function renderGeneratedOutputs() {
         if (!state.generatedBlocks.length) {
-            return '<div class="st-out-empty">👈 Elige o sube la foto del mueble (arrastra o <strong>Ctrl+V</strong>), opcionalmente Tela/Madera, escribe el <strong>Nombre de salida</strong> y pulsa <strong>🚀 Generar</strong> o <strong>↘️ 3/4 Derecha</strong>.</div>';
+            return '<div class="st-out-empty">👈 Elige o sube la foto del mueble (arrastra o <strong>Ctrl+V</strong>), opcionalmente Tela/Madera, ángulo o indicaciones especiales, escribe el <strong>Nombre de salida</strong> y pulsa <strong>🚀 Generar</strong>.</div>';
         }
         const safeIdx = Math.min(Math.max(0, Number(state.activeOutTab) || 0), state.generatedBlocks.length - 1);
         const activeBlk = state.generatedBlocks[safeIdx];
@@ -1375,7 +1501,10 @@
                         '</div>' +
                         renderMaterialPickerDrawer() +
 
-                        '<!-- 3) NOMBRE DE SALIDA + NOTAS / MEDIDAS -->' +
+                        '<!-- 3) ÁNGULO OPCIONAL (SIN FORZAR 3/4 POR DEFECTO) -->' +
+                        renderCameraAngleRowHtml() +
+
+                        '<!-- 4) NOMBRE DE SALIDA + NOTAS / MEDIDAS -->' +
                         '<div class="st-output-name-box">' +
                             '<div class="st-v7-name-head">' +
                                 '<label class="st-output-name-label" for="stOutputNameInput">🏷️ Nombre de salida</label>' +
@@ -1384,6 +1513,9 @@
                             '<input type="text" id="stOutputNameInput" class="st-input" placeholder="Ej. MESA SANTORINI 8P ROSA MORADA" value="' + escapeHtml(state.outputName) + '" oninput="CreataPromptsStudio.setOutputName(this.value)">' +
                         '</div>' +
 
+                        '<!-- 5) INDICACIONES ESPECIALES / FUERA DE LO COMÚN (PRIORIDAD MÁXIMA) -->' +
+                        renderSpecialDirectivesBoxHtml() +
+
                         '<div class="st-two-col">' +
                             '<input type="text" class="st-input" placeholder="📝 Notas opcionales" value="' + escapeHtml(state.extraNotes) + '" oninput="CreataPromptsStudio.setFieldSilent(\'extraNotes\', this.value)">' +
                             '<input type="text" class="st-input" placeholder="📐 Medidas (ej. 180x110x75 cm)" value="' + escapeHtml(state.dimensions) + '" oninput="CreataPromptsStudio.setFieldSilent(\'dimensions\', this.value)">' +
@@ -1391,14 +1523,13 @@
 
                         renderAdvancedOptionsHtml(hasGeminiKey) +
 
-                        '<!-- 4) 3 BOTONES PRINCIPALES ESTILO V7 -->' +
+                        '<!-- 6) ACCIONES PRINCIPALES ESTILO V7 (GENERAR | BORRAR) -->' +
                         '<div class="st-v7-action-bar">' +
                             '<button type="button" id="btnGeneratePromptsNow" class="st-btn-generate" onclick="CreataPromptsStudio.generateNow()">🚀 ' + escapeHtml(modeBtnLabel) + '</button>' +
-                            '<button type="button" class="st-btn-secondary st-v7-btn-34" onclick="CreataPromptsStudio.generateQuick34Right()" title="Generar directo vista 3/4 Derecha 2048×2048 #FFFFFF sin sombra">↘️ 3/4 Derecha</button>' +
                             '<button type="button" class="st-btn-secondary st-v7-btn-clr" onclick="CreataPromptsStudio.clearPhotos()" title="Borrar fotos y textos sin mover versión ni modo">🗑️ Borrar</button>' +
                         '</div>' +
 
-                        '<!-- 5) MINIATURAS CARGADAS (SOLO SI HAY FOTOS) -->' +
+                        '<!-- 7) MINIATURAS CARGADAS (SOLO SI HAY FOTOS) -->' +
                         renderSelectedThumbsStrip() +
                     '</section>' +
 
@@ -1472,6 +1603,8 @@
         IMAGE_MODELS: IMAGE_MODELS,
         ASPECT_RATIO_OPTIONS: ASPECT_RATIO_OPTIONS,
         SINGLE_ANGLES: SINGLE_ANGLES,
+        CAMERA_ANGLE_OPTIONS: CAMERA_ANGLE_OPTIONS,
+        SPECIAL_DIRECTIVE_PRESETS: SPECIAL_DIRECTIVE_PRESETS,
         VERSIONS: VERSIONS,
         V8_MODES: V8_MODES,
         V7_MODES: V7_MODES,
@@ -1533,6 +1666,51 @@
                 const outWrap = byId('stGeneratedOutputsWrap');
                 if (outWrap) outWrap.innerHTML = renderGeneratedOutputs();
             }
+        },
+        setSpecialDirectives: function (val) {
+            state.specialDirectives = String(val || '');
+            const box = byId('stSpecialDirectivesBox');
+            if (box && typeof box.querySelectorAll === 'function') {
+                const curNorm = normSearch(state.specialDirectives);
+                const chips = box.querySelectorAll('.st-special-chip');
+                for (let i = 0; i < chips.length; i++) {
+                    const pid = chips[i].getAttribute('data-preset-id');
+                    const preset = SPECIAL_DIRECTIVE_PRESETS.find((p) => p.id === pid);
+                    if (preset && chips[i].classList) {
+                        chips[i].classList.toggle('is-active', curNorm.indexOf(normSearch(preset.text)) !== -1);
+                    }
+                }
+            }
+            if (state.generatedBlocks.length) {
+                state.generatedBlocks = generatePrompts();
+                const outWrap = byId('stGeneratedOutputsWrap');
+                if (outWrap) outWrap.innerHTML = renderGeneratedOutputs();
+            }
+        },
+        toggleSpecialPreset: function (presetId) {
+            const preset = SPECIAL_DIRECTIVE_PRESETS.find((p) => p.id === presetId);
+            if (!preset) return;
+            const cur = cleanStr(state.specialDirectives);
+            const lines = cur ? cur.split(/\r?\n/).map((l) => cleanStr(l)).filter(Boolean) : [];
+            const targetNorm = normSearch(preset.text);
+            const idx = lines.findIndex((l) => normSearch(l) === targetNorm || normSearch(l).indexOf(targetNorm) !== -1);
+            if (idx !== -1) {
+                lines.splice(idx, 1);
+            } else {
+                lines.push(preset.text);
+            }
+            state.specialDirectives = lines.join('\n');
+            if (state.generatedBlocks.length) {
+                state.generatedBlocks = generatePrompts();
+            }
+            renderStudio();
+        },
+        clearSpecialDirectives: function () {
+            state.specialDirectives = '';
+            if (state.generatedBlocks.length) {
+                state.generatedBlocks = generatePrompts();
+            }
+            renderStudio();
         },
         setBool: function (key, val) {
             state[key] = Boolean(val);
