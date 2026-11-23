@@ -3778,6 +3778,15 @@
         }
         imgEl.onerror = null;
         imgEl.style.display = 'none';
+        const parentEl = imgEl.parentElement;
+        if (parentEl && parentEl.classList && parentEl.classList.contains('inv-fabric-choice-stage') && !parentEl.querySelector('.inv-fabric-choice-empty')) {
+            const zoomBtn = parentEl.querySelector('.inv-fabric-choice-zoom');
+            if (zoomBtn) zoomBtn.style.display = 'none';
+            const fbDiv = document.createElement('div');
+            fbDiv.className = 'inv-fabric-choice-empty';
+            fbDiv.innerHTML = '<span class="inv-fabric-choice-empty-ico" aria-hidden="true">🧵</span><span>Tela / Color</span>';
+            parentEl.appendChild(fbDiv);
+        }
     };
 
     function buildThumbHtml(it, opts) {
@@ -5672,12 +5681,12 @@
         }
         if (priceEl) priceEl.textContent = '';
         if (priceWrapEl) priceWrapEl.classList.add('hidden');
-        if (actionsRow) actionsRow.classList.toggle('hidden', guestModeGrp);
+        if (actionsRow) actionsRow.classList.add('hidden');
         if (addPillWrap) addPillWrap.classList.add('hidden');
         if (addBtn) addBtn.classList.add('hidden');
         if (subBtn) subBtn.classList.add('hidden');
         if (remAllBtn) remAllBtn.classList.add('hidden');
-        if (oosBtn) oosBtn.classList.toggle('hidden', guestModeGrp);
+        if (oosBtn) oosBtn.classList.add('hidden');
 
         function normWordForVariant(w) {
             return String(w || '')
@@ -17777,21 +17786,81 @@
         if (img) img.src = '';
     };
 
+    async function fetchProductOverridesLiveGviz() {
+        if (!META || !META.sheetId || typeof fetch !== 'function') return null;
+        const urls = [
+            'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(META.sheetId) + '/gviz/tq?tqx=out:csv&headers=0&gid=645650207&_t=' + Date.now(),
+            'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(META.sheetId) + '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent('_INV_PRODUCT_OVERRIDES') + '&_t=' + Date.now()
+        ];
+        for (let u = 0; u < urls.length; u++) {
+            try {
+                const resp = await fetch(urls[u], { cache: 'no-store' });
+                if (!resp || !resp.ok) continue;
+                const txt = await resp.text();
+                if (!txt || txt.trim().startsWith('<!DOCTYPE') || txt.trim().startsWith('<html')) continue;
+                const rows = parseCsvText(txt);
+                if (!Array.isArray(rows) || rows.length < 2) continue;
+                const firstSkuCell = cleanStr(rows[0] && rows[0][0]).toUpperCase();
+                if (firstSkuCell !== 'SKU' && firstSkuCell.indexOf('VFAB:') !== 0 && firstSkuCell.indexOf('VCOV:') !== 0) continue;
+                const startIdx = firstSkuCell === 'SKU' ? 1 : 0;
+                const mapOut = {};
+                for (let i = startIdx; i < rows.length; i++) {
+                    const r = rows[i] || [];
+                    const sku = cleanStr(r[0]).toUpperCase();
+                    if (!sku) continue;
+                    const statusRaw = cleanStr(r[1] || 'VISIBLE').toUpperCase();
+                    const noteStr = cleanStr(r[5]);
+                    if (/^V(?:FAB|COV):/i.test(sku) && (/^blob:/i.test(noteStr) || /^data:/i.test(noteStr))) continue;
+                    const pRaw = cleanStr(r[4]);
+                    const pNum = (pRaw !== '' && isFinite(Number(pRaw))) ? Number(pRaw) : null;
+                    mapOut[sku] = {
+                        sku: sku,
+                        status: (statusRaw === 'ARCHIVADO' || statusRaw === 'ELIMINADO') ? statusRaw : 'VISIBLE',
+                        name: cleanStr(r[2]),
+                        category: cleanStr(r[3]),
+                        price: pNum,
+                        note: noteStr,
+                        updatedBy: cleanStr(r[6]),
+                        updatedAt: cleanStr(r[7])
+                    };
+                }
+                if (Object.keys(mapOut).length > 0) return mapOut;
+            } catch (eGvizOv) {}
+        }
+        return null;
+    }
+
     async function syncProductOverridesFromCloud(forceNow) {
         if (settingsOverridesSyncedOnce && !forceNow) return;
-        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || !activeAdvisorSession.authToken) return;
-        settingsOverridesSyncedOnce = true;
+        let syncedAny = false;
         try {
-            const res = await callInvWebAppPost('inv_product_overrides_get', {
-                authToken: activeAdvisorSession.authToken || '',
-                advisorEmail: activeAdvisorSession.correo || ''
-            }, 15000);
-            if (res && res.ok && res.overrides && typeof res.overrides === 'object') {
-                saveLocalProductOverridesMap(res.overrides);
+            const gvizMap = await fetchProductOverridesLiveGviz();
+            if (gvizMap && Object.keys(gvizMap).length > 0) {
+                saveLocalProductOverridesMap(gvizMap);
                 rerenderCatalogAfterOverrideChange();
                 renderSettingsProductOverridesList();
+                syncedAny = true;
             }
-        } catch (e) {}
+        } catch (eGviz) {}
+
+        if (activeAdvisorSession && !activeAdvisorSession.mustChangeKey && activeAdvisorSession.authToken) {
+            try {
+                const res = await callInvWebAppPost('inv_product_overrides_get', {
+                    authToken: activeAdvisorSession.authToken || '',
+                    advisorEmail: activeAdvisorSession.correo || ''
+                }, 15000);
+                if (res && res.ok && res.overrides && typeof res.overrides === 'object' && Object.keys(res.overrides).length > 0) {
+                    saveLocalProductOverridesMap(res.overrides);
+                    rerenderCatalogAfterOverrideChange();
+                    renderSettingsProductOverridesList();
+                    syncedAny = true;
+                }
+            } catch (e) {}
+        }
+
+        if (syncedAny) {
+            settingsOverridesSyncedOnce = true;
+        }
     }
 
     function getUserMultiStoreList() {
@@ -18977,29 +19046,18 @@
         const skuEl = document.getElementById('oosReqSkuInput');
         const modelEl = document.getElementById('oosReqModelInput');
         const qtyEl = document.getElementById('oosReqQtyInput');
-        const varEl = document.getElementById('oosReqVariantInput');
         const comEl = document.getElementById('oosReqCommentsInput');
-        const metaEl = document.getElementById('oosReqMetaSummary');
         const btnEl = document.getElementById('btnOosReqSubmit');
 
         if (skuEl) skuEl.value = ctx.sku || '';
         if (modelEl) modelEl.value = ctx.modelName || '';
         if (qtyEl) qtyEl.value = '1';
-        if (varEl) varEl.value = ctx.variantInfo || '';
         if (comEl) comEl.value = '';
         if (btnEl) {
             btnEl.disabled = false;
-            btnEl.textContent = '📋 Registrar solicitud';
+            btnEl.textContent = 'Guardar';
         }
         setSettingsStatusBox('oosReqStatus', '', 'ok');
-
-        const activeStore = isKevinAdvisorPreviewActive()
-            ? getKevinAdvisorPreviewStore()
-            : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || 'Sin tienda');
-        const advName = cleanStr(activeAdvisorSession.nombre || activeAdvisorSession.correo || 'Asesor');
-        if (metaEl) {
-            metaEl.textContent = '📍 ' + activeStore + ' · 👤 ' + advName + ' · 📦 Stock actual: ' + ctx.stockSummary;
-        }
 
         modal.classList.add('open');
         notifyInvBackStatePush('out_of_stock_request_modal');
@@ -19020,7 +19078,6 @@
         const skuEl = document.getElementById('oosReqSkuInput');
         const modelEl = document.getElementById('oosReqModelInput');
         const qtyEl = document.getElementById('oosReqQtyInput');
-        const varEl = document.getElementById('oosReqVariantInput');
         const comEl = document.getElementById('oosReqCommentsInput');
         const btnEl = document.getElementById('btnOosReqSubmit');
 
@@ -19028,15 +19085,15 @@
         const modelName = cleanStr(modelEl ? modelEl.value : '').toUpperCase();
         const qtyRaw = Number(qtyEl ? qtyEl.value : 1);
         const qty = (isFinite(qtyRaw) && qtyRaw >= 1) ? Math.min(999, Math.round(qtyRaw)) : 1;
-        const variantInfo = cleanStr(varEl ? varEl.value : '');
+        const variantInfo = cleanStr(oosReqActiveContext && oosReqActiveContext.variantInfo);
         const comments = cleanStr(comEl ? comEl.value : '');
 
         if (!sku && !modelName) {
-            setSettingsStatusBox('oosReqStatus', 'Ingresa al menos el SKU o nombre del modelo.', 'err');
+            setSettingsStatusBox('oosReqStatus', 'Falta el SKU o modelo.', 'err');
             return;
         }
         if (!comments) {
-            setSettingsStatusBox('oosReqStatus', 'Escribe los comentarios de lo que solicita el cliente.', 'err');
+            setSettingsStatusBox('oosReqStatus', 'Escribe un comentario.', 'err');
             if (comEl && typeof comEl.focus === 'function') comEl.focus();
             return;
         }
@@ -19061,44 +19118,42 @@
         oosReqInFlight = true;
         if (btnEl) {
             btnEl.disabled = true;
-            btnEl.textContent = 'Registrando...';
+            btnEl.textContent = 'Guardando...';
         }
-        setSettingsStatusBox('oosReqStatus', 'Guardando en DEMANDA_SIN_STOCK...', 'warn');
+        setSettingsStatusBox('oosReqStatus', 'Guardando...', 'warn');
 
         try {
             const res = await callInvWebAppPost('inv_register_demand_request', payload, 18000, true);
             if (res && res.ok) {
                 const folio = cleanStr(res.requestId || '');
                 saveOutOfStockRequestLocalBackup(Object.assign({ synced: true, requestId: folio, savedAt: Date.now() }, payload));
-                setSettingsStatusBox('oosReqStatus', '✓ Solicitud registrada en DEMANDA_SIN_STOCK' + (folio ? (' (' + folio + ')') : '') + '.', 'ok');
+                setSettingsStatusBox('oosReqStatus', '✓ Guardado' + (folio ? (' · ' + folio) : ''), 'ok');
                 if (typeof showToast === 'function') {
-                    showToast('Solicitud sin stock registrada' + (folio ? (' · ' + folio) : '') + '.');
+                    showToast('Guardado en Sin stock' + (folio ? (' · ' + folio) : ''));
                 }
                 setTimeout(function () {
                     window.closeOutOfStockRequestModal();
-                }, 900);
+                }, 800);
             } else {
                 saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
-                const errMsg = (res && res.error)
-                    ? res.error
-                    : 'No se pudo conectar con Apps Script (actualiza la implementación de Control de Productos para guardar en DEMANDA_SIN_STOCK).';
+                const errMsg = (res && res.error) ? res.error : 'No se pudo conectar con Apps Script.';
                 setSettingsStatusBox('oosReqStatus', errMsg, 'warn');
             }
         } catch (err) {
             saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
-            setSettingsStatusBox('oosReqStatus', 'Error de red al guardar. Respaldo guardado en este dispositivo.', 'err');
+            setSettingsStatusBox('oosReqStatus', 'Error de red. Guardado local.', 'err');
         } finally {
             oosReqInFlight = false;
             if (btnEl) {
                 btnEl.disabled = false;
-                btnEl.textContent = '📋 Registrar solicitud';
+                btnEl.textContent = 'Guardar';
             }
         }
     };
 
     try {
         applyAllProductOverridesToCatalog();
-        setTimeout(() => { syncProductOverridesFromCloud(false); }, 1800);
+        setTimeout(() => { syncProductOverridesFromCloud(false); }, 250);
     } catch (eBootOvr) {}
 
     if (typeof window !== 'undefined') {

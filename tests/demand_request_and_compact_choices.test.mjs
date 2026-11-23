@@ -8,18 +8,19 @@ test('UI & CSS contracts: opposite-side Sin stock / Solicitar button, modal fiel
   const css = fs.readFileSync('inventario-ui.css', 'utf8');
   const js = fs.readFileSync('inventario-app.js', 'utf8');
 
-  // 1) Opposite-side button in #detHeaderActionsRow + dedicated #outOfStockRequestModal
+  // 1) Opposite-side compact button in #detHeaderActionsRow + concise #outOfStockRequestModal (sin texto automático)
   assert.match(html, /id="detHeaderActionsRow"[^>]*justify-between/);
   assert.ok(html.includes('id="detOutOfStockRequestBtn"'), 'Missing #detOutOfStockRequestBtn opposite Agregar');
+  assert.match(html, /id="detOutOfStockRequestBtn"[\s\S]*?class="hidden\s+inv-det-action-btn\s+inv-det-oos-btn[\s\S]*?>\s*Sin stock\s*<\/button>/, 'Button must use compact "Sin stock" label and start hidden');
   assert.ok(html.includes('onclick="openOutOfStockRequestModal()"'), 'Missing openOutOfStockRequestModal() handler');
   assert.ok(html.includes('id="outOfStockRequestModal"'), 'Missing #outOfStockRequestModal');
   assert.ok(html.includes('id="oosReqSkuInput"'), 'Missing #oosReqSkuInput');
   assert.ok(html.includes('id="oosReqModelInput"'), 'Missing #oosReqModelInput');
   assert.ok(html.includes('id="oosReqQtyInput"'), 'Missing #oosReqQtyInput');
-  assert.ok(html.includes('id="oosReqVariantInput"'), 'Missing #oosReqVariantInput');
   assert.ok(html.includes('id="oosReqCommentsInput"'), 'Missing #oosReqCommentsInput');
-  assert.ok(html.includes('id="oosReqMetaSummary"'), 'Missing #oosReqMetaSummary');
   assert.ok(html.includes('id="btnOosReqSubmit"'), 'Missing #btnOosReqSubmit');
+  assert.ok(!html.includes('id="oosReqMetaSummary"'), 'Auto-text summary chip must be removed from outOfStockRequestModal');
+  assert.ok(!html.includes('(automático)'), 'Verbose "(automático)" labels must be removed from outOfStockRequestModal');
 
   // 2) CSS: balanced braces + opposite-side button + 50% smaller choice card grid (2-col mobile / 3-col desktop)
   let depth = 0;
@@ -46,7 +47,18 @@ test('UI & CSS contracts: opposite-side Sin stock / Solicitar button, modal fiel
   const bedMaxH = Number((bedStageMatch[1].match(/max-height:\s*(\d+)px/) || [])[1]);
   assert.ok(bedMaxH > 0 && bedMaxH <= 115, `Expected .inv-bed-size-stage max-height <= 115px (50% smaller), got ${bedMaxH}`);
 
-  // 3) JS: back-nav registration, logout cleanup, compact-choice class toggle, and endpoint name
+  // 3) JS: hidden on group/variants chooser steps, visible ONLY in product detail sheet (renderDetailModal), instant GViz overrides sync
+  const varStepIdx = js.indexOf('function renderGroupVariantsStep(');
+  assert.ok(varStepIdx > 0);
+  const varStepHead = js.slice(varStepIdx, varStepIdx + 2200);
+  assert.match(varStepHead, /if\s*\(actionsRow\)\s*actionsRow\.classList\.add\('hidden'\)/, 'renderGroupVariantsStep must hide actionsRow');
+  assert.match(varStepHead, /if\s*\(oosBtn\)\s*oosBtn\.classList\.add\('hidden'\)/, 'renderGroupVariantsStep must hide Sin stock button outside product sheets');
+  const detModalIdx = js.indexOf('function renderDetailModal(');
+  assert.ok(detModalIdx > 0);
+  const detModalHead = js.slice(detModalIdx, detModalIdx + 4800);
+  assert.match(detModalHead, /if\s*\(oosBtn\)\s*\{\s*oosBtn\.classList\.remove\('hidden'\);/, 'renderDetailModal must show Sin stock button on product detail sheets for non-guests');
+  assert.ok(js.includes('async function fetchProductOverridesLiveGviz()'), 'Missing instant GViz _INV_PRODUCT_OVERRIDES loader');
+  assert.ok(js.includes('gid=645650207'), 'fetchProductOverridesLiveGviz must query _INV_PRODUCT_OVERRIDES gid=645650207');
   assert.ok(js.includes("id: 'out_of_stock_request_modal'"), 'out_of_stock_request_modal must be registered in creata-back-nav');
   assert.ok(js.includes('closeOutOfStockRequestModal'), 'Missing closeOutOfStockRequestModal');
   assert.ok(js.includes("inv-variants-compact-choices"), 'renderGroupVariantsStep must toggle inv-variants-compact-choices');
@@ -250,4 +262,169 @@ test('GAS backend: inv_register_demand_request saves auto-filled SKU, model, qty
   });
   assert.equal(guestDenied.ok, false);
   assert.equal(guestDenied.forbidden, true);
+});
+
+test('GAS _INV_PRODUCT_OVERRIDES hardening: rejects blob: URLs, filters legacy blob rows, and auto-shares Drive fabric/cover links', () => {
+  const gsSrc = fs.readFileSync('AppsScript_Creata_Drive_Sheets.gs', 'utf8');
+  const scriptProps = new Map([['INV_AUTH_SECRET', 'fabric-guard-secret-0123456789abcdef']]);
+  const scriptCache = new Map();
+  const sharedCalls = [];
+
+  const sheetsData = {
+    'CUENTAS ADMINISTRATIVAS': [
+      ['', 'USUARIOS Y CUENTAS ADMINISTRATIVAS'],
+      ['', 'AREA', 'Nombre', 'Puesto', 'Correo', 'Contraseña Temporal', 'Contraseña', 'Usuario / ID', 'Descuento',
+        'VER_COTIZADOR', 'VER_SEGUIMIENTO', 'VER_HISTORIAL', 'VER_FOTOS_APP', 'VER_PROMPTS_IA',
+        'VER_PANEL_SUITE', 'VER_EQUIPO_Y_INVITADOS', 'VER_CAMBIAR_ROL', 'VER_GESTION_PRODUCTOS',
+        'PERMITIR_SUBIR_FOTO', 'VER_CAMBIAR_TIENDA', 'NOTAS', 'COLOCIO', 'PLAYA', 'PTC', 'CASA CREATA', 'PROYECTOS'],
+      ['', 'ADMINISTRACIÓN GENERAL', 'Kevin Reyna', 'ADMINISTRADOR', 'kevin.reyna@grupoanipa.com', '', 'KevinKey1!', '', '100%',
+        'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', '', 'SI', 'SI', 'SI', 'SI', 'SI']
+    ],
+    '_INV_PRODUCT_OVERRIDES': [
+      ['SKU', 'ESTADO', 'NOMBRE_EDITADO', 'CATEGORIA_EDITADA', 'PRECIO_EDITADO', 'NOTA', 'ACTUALIZADO_POR', 'FECHA'],
+      ['VFAB:DISTRACTION NATURAL', 'VISIBLE', 'DISTRACTION NATURAL', 'FABRIC_SWATCH', '', 'blob:https://dead.local/123', 'kevin.reyna@grupoanipa.com', '20/11/2026'],
+      ['VFAB:OSI FLAX', 'VISIBLE', 'OSI FLAX', 'FABRIC_SWATCH', '', 'https://drive.google.com/file/d/1DylNeC6YzY6jxPtyP6o0EtFqzF_bynM4/view?usp=sharing', 'kevin.reyna@grupoanipa.com', '23/11/2026']
+    ]
+  };
+
+  function makeSheet(name, rows) {
+    return {
+      getName: () => name,
+      getLastRow: () => rows.length,
+      getMaxRows: () => Math.max(50, rows.length),
+      getLastColumn: () => rows.reduce((m, r) => Math.max(m, (r || []).length), 0),
+      getMaxColumns: () => Math.max(26, rows.reduce((m, r) => Math.max(m, (r || []).length), 0)),
+      getRange: (r, c, nr = 1, nc = 1) => {
+        const readVals = () => {
+          const out = [];
+          for (let i = 0; i < nr; i++) {
+            const srcRow = rows[r - 1 + i] || [];
+            const copy = [];
+            for (let j = 0; j < nc; j++) copy.push(srcRow[c - 1 + j] !== undefined ? srcRow[c - 1 + j] : '');
+            out.push(copy);
+          }
+          return out;
+        };
+        const api = {
+          getValues: readVals,
+          getDisplayValues: () => readVals().map((row) => row.map((v) => String(v === null || v === undefined ? '' : v))),
+          setValues: (vals) => {
+            for (let i = 0; i < vals.length; i++) {
+              while (rows.length < r + i) rows.push([]);
+              for (let j = 0; j < vals[i].length; j++) {
+                while (rows[r - 1 + i].length < c + j) rows[r - 1 + i].push('');
+                rows[r - 1 + i][c - 1 + j] = vals[i][j];
+              }
+            }
+            return api;
+          }
+        };
+        return api;
+      },
+      hideSheet: () => {}
+    };
+  }
+
+  const sheetsMap = new Map();
+  for (const [k, v] of Object.entries(sheetsData)) sheetsMap.set(k, makeSheet(k, v));
+  const mockSs = {
+    getSheets: () => Array.from(sheetsMap.values()),
+    getSheetByName: (n) => sheetsMap.get(n) || null,
+    insertSheet: (n) => { const rows = []; const s = makeSheet(n, rows); sheetsMap.set(n, s); sheetsData[n] = rows; return s; }
+  };
+
+  const ctx = {
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+    Logger: { log: () => {} },
+    Date, Math, JSON, RegExp, Array, Object, String, Number, Boolean, Error, Map, Set, parseInt, parseFloat, isNaN, isFinite,
+    Utilities: {
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { UTF_8: 'UTF_8' },
+      formatDate: () => '23/11/2026 12:00:00',
+      computeHmacSha256Signature: (msg, sec) => {
+        const out = [];
+        const s = String(msg) + '|' + String(sec);
+        for (let i = 0; i < 32; i++) out.push((s.charCodeAt(i % s.length) * (i + 13)) % 127);
+        return out;
+      },
+      base64EncodeWebSafe: (input) => typeof input === 'string'
+        ? Buffer.from(input, 'utf8').toString('base64url')
+        : Buffer.from((input || []).map((b) => (b < 0 ? b + 256 : b))).toString('base64url'),
+      base64DecodeWebSafe: (str) => Array.from(Buffer.from(String(str || ''), 'base64url')),
+      newBlob: (data) => ({
+        getBytes: () => Array.isArray(data) ? data : Array.from(Buffer.from(String(data || ''), 'utf8')),
+        getDataAsString: () => Array.isArray(data) ? Buffer.from(data).toString('utf8') : String(data || '')
+      })
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (k) => (scriptProps.has(k) ? scriptProps.get(k) : null),
+        setProperty: (k, v) => { scriptProps.set(k, String(v)); },
+        deleteProperty: (k) => { scriptProps.delete(k); }
+      })
+    },
+    CacheService: {
+      getScriptCache: () => ({
+        get: (k) => (scriptCache.has(k) ? scriptCache.get(k) : null),
+        put: (k, v) => { scriptCache.set(k, String(v)); },
+        remove: (k) => { scriptCache.delete(k); }
+      })
+    },
+    LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+    DriveApp: {
+      Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK', ANYONE: 'ANYONE', PRIVATE: 'PRIVATE' },
+      Permission: { VIEW: 'VIEW' },
+      getFileById: (id) => ({
+        getId: () => id,
+        getParents: () => ({ hasNext: () => false }),
+        getSharingAccess: () => 'PRIVATE',
+        setSharing: (acc, perm) => { sharedCalls.push({ id, acc, perm }); }
+      })
+    },
+    SpreadsheetApp: { openById: () => mockSs, getActiveSpreadsheet: () => mockSs, flush: () => {} },
+    Session: { getScriptTimeZone: () => 'America/Cancun' }
+  };
+
+  vm.runInNewContext(gsSrc, ctx, { filename: 'AppsScript_Creata_Drive_Sheets.gs' });
+  ctx.getSpreadsheet_ = () => mockSs;
+  ctx.readErpAdvisorsFromPlantilla_ = () => ({ advisors: [], stores: ['CEDIS'] });
+  ctx.registrarEventoHistorial_ = () => {};
+  ctx.ensureLiveErpSyncTrigger_ = () => {};
+
+  // 1) readProductOverridesMap_ skips dead blob: rows while returning valid Drive VFAB:OSI FLAX
+  const map = ctx.readProductOverridesMap_(mockSs);
+  assert.equal(map['VFAB:DISTRACTION NATURAL'], undefined, 'Legacy blob: VFAB row must be ignored');
+  assert.ok(map['VFAB:OSI FLAX'], 'Valid Drive VFAB:OSI FLAX must be returned');
+
+  // 2) Login as Kevin & try saving blob: URL -> rejected
+  const login = ctx.handleInvLogin_({ email: 'kevin.reyna@grupoanipa.com', accessKey: 'KevinKey1!' });
+  assert.equal(login.ok, true);
+  const tok = login.user.authToken;
+
+  const blobSave = ctx.handleInvProductOverrideSave_({
+    authToken: tok,
+    advisorEmail: 'kevin.reyna@grupoanipa.com',
+    sku: 'VFAB:OSI FLAX',
+    op: 'SAVE',
+    name: 'OSI FLAX',
+    category: 'FABRIC_SWATCH',
+    note: 'blob:https://ikerreyna3942-debug.github.io/dead'
+  });
+  assert.equal(blobSave.ok, false, 'Saving blob: URL to VFAB override must be rejected');
+
+  // 3) Saving a valid Drive URL automatically enforces public sharing on that Drive file
+  const goodSave = ctx.handleInvProductOverrideSave_({
+    authToken: tok,
+    advisorEmail: 'kevin.reyna@grupoanipa.com',
+    sku: 'VFAB:OSI FLAX',
+    op: 'SAVE',
+    name: 'OSI FLAX',
+    category: 'FABRIC_SWATCH',
+    note: 'https://drive.google.com/file/d/1DylNeC6YzY6jxPtyP6o0EtFqzF_bynM4/view?usp=sharing'
+  });
+  assert.equal(goodSave.ok, true);
+  assert.ok(
+    sharedCalls.some((c) => c.id === '1DylNeC6YzY6jxPtyP6o0EtFqzF_bynM4' && c.acc === 'ANYONE_WITH_LINK' && c.perm === 'VIEW'),
+    'handleInvProductOverrideSave_ must auto-share Drive files saved into _INV_PRODUCT_OVERRIDES'
+  );
 });
