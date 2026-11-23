@@ -1429,6 +1429,24 @@ main#invMainView.inv-main {
   color: #FFFFFF;
 }
 
+#invFabRoot .inv-fab-item-danger {
+  color: #9F2D2D;
+  border-top: 1px solid var(--inv-border-subtle, #EFEAE1);
+  border-radius: 0 0 9px 9px;
+  margin-top: 2px;
+  padding-top: 7px;
+}
+
+#invFabRoot .inv-fab-item-danger:hover {
+  background-color: #FEF2F2;
+  border-color: #FECACA;
+}
+
+#invFabRoot .inv-fab-item-danger .inv-fab-item-ico {
+  background-color: #FEE2E2;
+  color: #B91C1C;
+}
+
 #invFabRoot .inv-fab-item-ico svg {
   width: 14px;
   height: 14px;
@@ -1710,6 +1728,24 @@ main#invMainView.inv-main {
 
 #productDetailModal .inv-det-add-btn:hover {
   background: #8E6E42;
+}
+
+#productDetailModal .inv-det-oos-btn {
+  margin-left: auto;
+  border: 1px solid #C8B794;
+  background: #FAF6EE;
+  color: #252C32;
+  padding: 2px 10px;
+  height: 27px;
+  min-height: 27px;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+#productDetailModal .inv-det-oos-btn:hover {
+  border-color: #A38251;
+  background: #F4ECDD;
+  color: #1A1816;
 }
 
 #detPhotoWrap.inv-det-photo-stage {
@@ -3191,15 +3227,32 @@ body.inv-split-dragging .inv-split-iframe {
 }
 
 /* ============================================================================
- * 3-Click Flow: Color / Tela Selection Cards + Selected Fabric Modules Header
+ * 3-Click Flow: Color / Tela Selection Cards (50% compact grid) + Header
  * ============================================================================ */
+#detVariantsList.inv-det-variants-grid.inv-variants-compact-choices {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  #detVariantsList.inv-det-variants-grid.inv-variants-compact-choices {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+  }
+}
+
+body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants-grid.inv-variants-compact-choices {
+  grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)) !important;
+  gap: 7px !important;
+}
+
 #detVariantsList .inv-row.inv-fabric-choice-card {
   position: relative;
   display: flex;
   flex-direction: column;
   background: #FFFFFF;
   border: 1px solid #E1DBC5;
-  border-radius: 14px;
+  border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
   transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
@@ -3215,8 +3268,8 @@ body.inv-split-dragging .inv-split-iframe {
   position: relative;
   width: 100%;
   aspect-ratio: 4 / 3;
-  min-height: 170px;
-  max-height: 250px;
+  min-height: 76px;
+  max-height: 108px;
   background: #F7F5F0;
   border-bottom: 1px solid var(--inv-border-subtle);
   overflow: hidden;
@@ -3237,33 +3290,33 @@ body.inv-split-dragging .inv-split-iframe {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 3px;
   color: #9E7B4F;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  padding: 16px;
+  padding: 8px;
   text-align: center;
 }
 
 #detVariantsList .inv-fabric-choice-empty-ico {
-  font-size: 30px;
+  font-size: 18px;
   line-height: 1;
 }
 
 #detVariantsList .inv-fabric-choice-zoom {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 5px;
+  right: 5px;
   z-index: 4;
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   border-radius: 999px;
   border: 1px solid rgba(163, 130, 81, 0.45);
   background: rgba(255, 255, 255, 0.92);
   color: #1A1816;
-  font-size: 13px;
+  font-size: 11px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3272,46 +3325,52 @@ body.inv-split-dragging .inv-split-iframe {
 }
 
 #detVariantsList .inv-fabric-choice-body {
-  padding: 10px 12px 11px;
+  padding: 6px 8px 7px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
+  flex: 1;
 }
 
 #detVariantsList .inv-fabric-choice-meta {
   min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1.5px;
 }
 
 #detVariantsList .inv-fabric-choice-title {
-  font-size: 12.5px;
+  font-size: 10.5px;
   font-weight: 800;
   color: #1A1816;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  line-height: 1.25;
+  line-height: 1.2;
+  word-break: break-word;
 }
 
 #detVariantsList .inv-fabric-choice-sub {
-  font-size: 10.5px;
+  font-size: 9px;
   font-weight: 700;
   color: #9E7B4F;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
 #detVariantsList .inv-fabric-choice-arrow {
   flex-shrink: 0;
-  font-size: 12px;
+  align-self: flex-end;
+  font-size: 9.5px;
   font-weight: 800;
   color: #A38251;
   background: #FBF8F1;
   border: 1px solid #E1DBC5;
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 2px 7px;
   white-space: nowrap;
 }
 
@@ -3464,4 +3523,122 @@ body.inv-split-dragging .inv-split-iframe {
   padding: 4px 9px;
   white-space: nowrap;
 }
+
+/* ============================================================================
+ * Camas, Bases de Cama y Cabeceras: Selector de Tamaño -> Color / Madera (50% compacto)
+ * ============================================================================ */
+#detVariantsList .inv-row.inv-bed-size-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #FFFFFF;
+  border: 1px solid #E1DBC5;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+#detVariantsList .inv-row.inv-bed-size-card:hover {
+  border-color: #A38251;
+  box-shadow: 0 6px 18px rgba(26, 24, 22, 0.08);
+  transform: translateY(-1px);
+}
+
+#detVariantsList .inv-bed-size-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 76px;
+  max-height: 108px;
+  background: #FFFFFF;
+  padding: 5px;
+  border-bottom: 1px solid var(--inv-border-subtle);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#detVariantsList .inv-bed-size-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+#detVariantsList .inv-bed-size-pill {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #FAF6EE;
+  border: 1px solid #DFCCB2;
+  color: #9E7B4F;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(26, 24, 22, 0.06);
+}
+
+#detVariantsList .inv-bed-size-title {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #1A1816;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+#detVariantsList .inv-bed-size-chip {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #FBF6EE;
+  border: 1px solid #DFCCB2;
+  color: #7A5C30;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+#detVariantsList .inv-bed-selected-bar {
+  grid-column: 1 / -1;
+}
+
+/* ============================================================================
+ * Modal de Registro de Demanda / Piezas Solicitadas Sin Stock
+ * ============================================================================ */
+.inv-oos-modal-card {
+  width: 100%;
+  max-width: 470px;
+}
+
+.inv-oos-textarea {
+  min-height: 76px;
+  resize: vertical;
+  line-height: 1.38;
+}
+
+.inv-oos-meta-chip {
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: #FAF8F4;
+  border: 1px solid #E8E1D3;
+  color: #6B6359;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+
 

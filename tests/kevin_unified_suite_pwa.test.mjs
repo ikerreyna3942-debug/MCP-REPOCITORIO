@@ -562,11 +562,11 @@ test('Cotizador & Subir Fotos: Kevin-only FAB Prompts/Panel buttons and split-sc
   assert.match(invHtml, /id="fabPanelSuiteBtn"[^>]*class="inv-fab-item hidden"[^>]*openPanelFromCotizador\(\)/);
   assert.match(invHtml, /id="btnInvSplitTargetFotos"[^>]*setInvSplitTarget\('fotos'\)/);
   assert.match(invHtml, /id="btnInvSplitTargetPrompts"[^>]*setInvSplitTarget\('prompts'\)/);
-  assert.match(invJs, /if \(fabPromptsBtn\) fabPromptsBtn\.classList\.toggle\('hidden', !isOwnerFotos\);/);
-  assert.match(invJs, /if \(fabPanelSuiteBtn\) fabPanelSuiteBtn\.classList\.toggle\('hidden', !isOwnerFotos\);/);
+  assert.match(invJs, /if \(fabPromptsBtn\) fabPromptsBtn\.classList\.toggle\('hidden', !canSeePromptsIa\);/);
+  assert.match(invJs, /if \(fabPanelSuiteBtn\) fabPanelSuiteBtn\.classList\.toggle\('hidden', !canSeePanelSuite\);/);
   assert.match(invJs, /window\.setInvSplitTarget = function \(target\)\s*\{\s*if \(!isFotosAppOwner\(\)\)/);
-  assert.match(invJs, /window\.openPromptsFromCotizador = function \(\)\s*\{\s*if \(!isFotosAppOwner\(\)\) return;/);
-  assert.match(invJs, /window\.openPanelFromCotizador = function \(\)\s*\{\s*if \(!isFotosAppOwner\(\)\) return;/);
+  assert.match(invJs, /window\.openPromptsFromCotizador = function \(\)\s*\{\s*if \(!isEffectiveAdminSession\(\) \|\| !hasAdminPerm\('promptsIa'\)\) return;/);
+  assert.match(invJs, /window\.openPanelFromCotizador = function \(\)\s*\{\s*if \(!isEffectiveAdminSession\(\) \|\| !hasAdminPerm\('panelSuite'\)\) return;/);
 
   // Subir Fotos HTML + JS streamlined header & split switcher (Prompts accessible via split switcher)
   assert.match(fotosHtml, /id="btnSplitWithCotizador"/);

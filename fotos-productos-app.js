@@ -44,6 +44,7 @@
     const SHEET_GIDS = {
         '1': '620514545',
         'INVENTARIO_EN_VIVO': '690403633',
+        'CUENTAS ADMINISTRATIVAS': '1488878870',
         'PROYECTOS': '461542063'
     };
 
@@ -737,7 +738,7 @@
                 const nextObj = Object.assign({}, prev, {
                     correo: OWNER_EMAIL,
                     nombre: prev.nombre || OWNER_DISPLAY_NAME,
-                    sheetTab: prev.sheetTab || 'PROYECTOS',
+                    sheetTab: prev.sheetTab || 'CUENTAS ADMINISTRATIVAS',
                     authToken: tok,
                     verifiedAt: Date.now()
                 });
@@ -807,13 +808,15 @@
         const key = cleanStr(state.accessKey);
         if (!tok && !key) return;
         _fotosLastHeartbeatMs = now;
+        const activeEmail = cleanStr(state.activeEmail) || OWNER_EMAIL;
+        const activeName = cleanStr(state.activeDisplayName) || OWNER_DISPLAY_NAME;
         const payload = {
             authToken: tok,
-            advisorEmail: OWNER_EMAIL,
-            correo: OWNER_EMAIL,
-            nombre: OWNER_DISPLAY_NAME,
+            advisorEmail: activeEmail,
+            correo: activeEmail,
+            nombre: activeName,
             puesto: 'ADMINISTRADOR',
-            sheetTab: 'PROYECTOS',
+            sheetTab: cleanStr(state.activeSheetTab) || 'CUENTAS ADMINISTRATIVAS',
             erpStore: 'CEDIS',
             deviceId: getFotosPresenceDeviceId(),
             vista: 'fotos',
@@ -860,7 +863,7 @@
                 const loginRes = await sendRawWebAppPost('inv_login', {
                     email: OWNER_EMAIL,
                     accessKey: key,
-                    sheetTab: 'PROYECTOS'
+                    sheetTab: 'CUENTAS ADMINISTRATIVAS'
                 }, 10000);
                 const tok = extractAuthTokenFromLoginRes(loginRes);
                 if (tok) {
@@ -969,8 +972,8 @@
     function buildOwnerAuthPayload() {
         const payload = {
             authToken: state.authToken || '',
-            advisorEmail: OWNER_EMAIL,
-            sheetTab: 'PROYECTOS',
+            advisorEmail: cleanStr(state.activeEmail) || OWNER_EMAIL,
+            sheetTab: cleanStr(state.activeSheetTab) || 'CUENTAS ADMINISTRATIVAS',
             inboxFolderId: SUBIR_FOLDER_ID
         };
         if (state.accessKey) {
@@ -1450,6 +1453,9 @@
 
         const candidateKeys = [FOTOS_SESSION_KEY, PANEL_SESSION_KEY, HIST_SESSION_KEY, INV_SESSION_KEY];
         let matchedOwner = false;
+        let matchedEmail = OWNER_EMAIL;
+        let matchedName = OWNER_DISPLAY_NAME;
+        let matchedSheetTab = 'CUENTAS ADMINISTRATIVAS';
         let bestToken = '';
         let bestKey = cachedSecret;
         let otherInvEmail = '';
@@ -1461,14 +1467,20 @@
                 const parsed = JSON.parse(raw);
                 if (!parsed) continue;
                 const email = normalizeEmailInput(parsed.correo);
-                if (email && email !== OWNER_EMAIL) {
-                    if (candidateKeys[i] === INV_SESSION_KEY) {
+                const perms = (parsed.adminPermissions && typeof parsed.adminPermissions === 'object') ? parsed.adminPermissions : null;
+                const isKevinAllowed = (email === OWNER_EMAIL && !(perms && perms.fotosApp === false));
+                const isPermittedAdmin = Boolean(parsed.isAdmin === true && perms && perms.fotosApp === true);
+                if (!isKevinAllowed && !isPermittedAdmin) {
+                    if (email && candidateKeys[i] === INV_SESSION_KEY) {
                         otherInvEmail = email;
                     }
                     continue;
                 }
-                if (email === OWNER_EMAIL && !parsed.mustChangeKey) {
+                if (!parsed.mustChangeKey) {
                     matchedOwner = true;
+                    if (email) matchedEmail = email;
+                    if (cleanStr(parsed.nombre)) matchedName = cleanStr(parsed.nombre);
+                    if (cleanStr(parsed.sheetTab)) matchedSheetTab = cleanStr(parsed.sheetTab);
                     const tok = cleanStr(parsed.authToken);
                     const storedKey = cleanStr(parsed.accessKey);
                     if (tok && !bestToken) bestToken = tok;
@@ -1479,7 +1491,14 @@
 
         if (matchedOwner) {
             if (bestToken || bestKey) {
-                return { valid: true, authToken: bestToken, accessKey: bestKey };
+                return {
+                    valid: true,
+                    authToken: bestToken,
+                    accessKey: bestKey,
+                    email: matchedEmail,
+                    nombre: matchedName,
+                    sheetTab: matchedSheetTab
+                };
             }
             return { valid: false, otherEmail: '', needsReauth: true };
         }
@@ -1588,7 +1607,7 @@
             const cloudRes = await callWebAppPost('inv_login', {
                 email: OWNER_EMAIL,
                 accessKey: typedKey,
-                sheetTab: 'PROYECTOS'
+                sheetTab: 'CUENTAS ADMINISTRATIVAS'
             }, 8500);
 
             let verified = false;
@@ -1598,7 +1617,10 @@
                 setGateMessage(cloudRes.error, 'error');
                 return;
             } else {
-                const rows = await fetchSheetRows('PROYECTOS', 'A1:I40');
+                let rows = await fetchSheetRows('CUENTAS ADMINISTRATIVAS', 'A1:Z60');
+                if (!rows || rows.length < 2) {
+                    rows = await fetchSheetRows('PROYECTOS', 'A1:I40');
+                }
                 if (!rows || rows.length < 2) {
                     setGateMessage('Sin conexión con Google Sheets.', 'error');
                     return;
@@ -1631,7 +1653,7 @@
                 const payload = JSON.stringify({
                     correo: OWNER_EMAIL,
                     nombre: OWNER_DISPLAY_NAME,
-                    sheetTab: 'PROYECTOS',
+                    sheetTab: 'CUENTAS ADMINISTRATIVAS',
                     authToken: issuedToken,
                     accessKey: typedKey,
                     verifiedAt: Date.now()
@@ -7298,6 +7320,9 @@
         if (sess.valid) {
             state.authToken = sess.authToken || '';
             state.accessKey = sess.accessKey || '';
+            state.activeEmail = sess.email || OWNER_EMAIL;
+            state.activeDisplayName = sess.nombre || OWNER_DISPLAY_NAME;
+            state.activeSheetTab = sess.sheetTab || 'CUENTAS ADMINISTRATIVAS';
             unlockFotosPortal();
         } else {
             if (sess.otherEmail) {

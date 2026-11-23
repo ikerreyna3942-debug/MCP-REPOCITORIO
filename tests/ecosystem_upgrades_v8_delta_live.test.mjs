@@ -257,7 +257,7 @@ test('Fotos App Mobile CSS & Live Auto-Sync: balanced braces, authoritative phon
 // ============================================================================
 // 3. PROMPTS NATIVE STUDIO (V8 PRO + V7 + V1) & ALTA DE ODOO (RENDER)
 // ============================================================================
-test('Prompts Studio Native Engine: ONLY V8/V7/V1 versions, V8 CREATA Pro 2054x2054/78%/#FFFFFF/0% shadows + 100% casco, V7 9 modes, V1 3 engines, clearPhotos preserves settings, zero hardcoded API keys', () => {
+test('Prompts Studio Native Engine: ONLY V8/V7/V1 versions, V8 CREATA Pro 2048x2048/78%/#FFFFFF/0% shadows + 100% casco, V7 9 modes, V1 3 engines, clearPhotos preserves settings, zero hardcoded API keys', () => {
   const studioSrc = readRepoFile('prompts-studio-v8.js');
   const promptsJs = readRepoFile('prompts-app.js');
   const promptsCss = readRepoFile('prompts-styles.css');
@@ -305,7 +305,7 @@ test('Prompts Studio Native Engine: ONLY V8/V7/V1 versions, V8 CREATA Pro 2054x2
     woodSwatch: { name: 'TEKA_CLARO.jpg' }
   });
   assert.equal(v8Pack.length, 3, 'V8 PACK_CREATA must generate Catalog + Cover + CAD prompts');
-  assert.match(v8Pack[0].prompt, /2054x2054/);
+  assert.match(v8Pack[0].prompt, /2048x2048/);
   assert.match(v8Pack[0].prompt, /78%/);
   assert.match(v8Pack[0].prompt, /#FFFFFF/);
   assert.match(v8Pack[0].prompt, /0% shadow|ZERO cast shadows/);
@@ -315,7 +315,7 @@ test('Prompts Studio Native Engine: ONLY V8/V7/V1 versions, V8 CREATA Pro 2054x2
   assert.match(v8Pack[0].prompt, /100% FULL-BODY CASCO/);
   assert.match(v8Pack[2].prompt, /85 x 80 x 78 cm/);
 
-  // V7 has 9 modes and supports 3/4 right 2054x2054
+  // V7 has 9 modes and supports 3/4 right 2048x2048
   assert.equal(studio.V7_MODES.length, 9);
   const v7Out = studio.generatePrompts({
     version: 'V7',
@@ -326,7 +326,7 @@ test('Prompts Studio Native Engine: ONLY V8/V7/V1 versions, V8 CREATA Pro 2054x2
     woodSwatch: { name: 'PAROTA.jpg' }
   });
   assert.equal(v7Out.length, 1);
-  assert.match(v7Out[0].prompt, /2054x2054/);
+  assert.match(v7Out[0].prompt, /2048x2048/);
   assert.match(v7Out[0].prompt, /BOUCLE_IVORY\.jpg/);
   assert.match(v7Out[0].prompt, /PAROTA\.jpg/);
 
@@ -430,8 +430,8 @@ test('Ecosystem Safety & Cleanup: orphaned historial-styles.css deleted, advisor
   assert.ok(!/\bINV_SESSION_KEY\b/.test(invJs), 'inventario-app.js must not reference undeclared INV_SESSION_KEY');
   // Price override mutates it.pr, never it.p (provider code)
   assert.match(invJs, /it\.pr\s*=\s*formatPrice\(/);
-  // CreataLiveAlerts restricted to admin Kevin
-  assert.match(invJs, /if\s*\(!isFotosAppOwner\(\)\)\s*return;/);
+  // CreataLiveAlerts restricted to authorized admin
+  assert.match(invJs, /if\s*\(!\(typeof isFotosAppOwner === 'function' && isFotosAppOwner\(\)\)\)\s*return;/);
   // Split target for Prompts points to native ./prompts.html?embed=1
   assert.match(invJs, /target\s*===\s*'prompts'\s*\?\s*'\.\/prompts\.html\?embed=1'/);
   // Logout clears creata_seg_* keys to prevent shared-device bleed

@@ -65,8 +65,11 @@
     seguimientoEntries: [],
     photoRows: [],
     presenceUsers: [],
+    presenceGuests: [],
     presenceOnlineCount: 0,
     presenceOfflineCount: 0,
+    presenceGuestOnlineCount: 0,
+    presenceGuestOfflineCount: 0,
     presenceServerTimeMs: 0,
     presenceError: ''
   };
@@ -274,7 +277,7 @@
       correo,
       nombre: cleanStr(s.nombre) || correo,
       puesto,
-      sheetTab: cleanStr(s.sheetTab || s.sheet_tab) || primaryB || 'PROYECTOS',
+      sheetTab: cleanStr(s.sheetTab || s.sheet_tab) || (isAdmin ? 'CUENTAS ADMINISTRATIVAS' : (primaryB || 'PROYECTOS')),
       erpStore: cleanStr(s.erpStore || s.branchLabel || s.sheetTab || primaryB || ''),
       branchLabel: cleanStr(s.branchLabel || s.sucursal_label) || primaryB || 'Todas',
       branches,
@@ -282,6 +285,7 @@
       accessKey: cleanStr(s.accessKey || ''),
       isAdmin,
       isManager,
+      adminPermissions: (s.adminPermissions && typeof s.adminPermissions === 'object') ? s.adminPermissions : null,
       role: isAdmin ? 'admin' : (isManager ? 'manager' : 'advisor')
     };
   }
@@ -1355,6 +1359,50 @@
     state.presenceUsers = sanitized;
     state.presenceOnlineCount = onlineCount;
     state.presenceOfflineCount = sanitized.length - onlineCount;
+
+    const sanitizedGuests = [];
+    const rawGuests = Array.isArray(res.guests) ? res.guests : [];
+    const canSeeGuests = Boolean(state.session && (state.session.isAdmin || state.session.isManager));
+    if (canSeeGuests) {
+      for (let i = 0; i < rawGuests.length; i++) {
+        const g = rawGuests[i];
+        if (!g || typeof g !== 'object') continue;
+        const nombre = cleanStr(g.nombre) || 'Invitado';
+        const rol = cleanStr(g.rol) || 'INVITADO (SOLO VER)';
+        const vista = cleanStr(g.vista);
+        const deviceLabel = cleanStr(g.deviceLabel);
+        const slotLabel = cleanStr(g.slotLabel) || (
+          (typeof g.activePlaces === 'number' && Number(g.maxPlaces) > 0)
+            ? `${g.activePlaces} / ${g.maxPlaces}`
+            : ''
+        );
+        const lastSeenMs = Number(g.lastSeenMs) > 0 ? Number(g.lastSeenMs) : 0;
+        const online = typeof g.online === 'boolean'
+          ? g.online
+          : Boolean(lastSeenMs > 0 && (serverNow - lastSeenMs) <= thresholdMs);
+        sanitizedGuests.push({
+          nombre,
+          sucursal: 'INVITADOS (SOLO VER)',
+          rol,
+          vista,
+          deviceLabel,
+          slotLabel,
+          isGuest: true,
+          online,
+          lastSeenMs,
+          _search: normalizeSearchText([nombre, 'invitado', rol, vista, deviceLabel, slotLabel].join(' '))
+        });
+      }
+      sanitizedGuests.sort((a, b) => {
+        if (a.online !== b.online) return a.online ? -1 : 1;
+        if (b.lastSeenMs !== a.lastSeenMs) return b.lastSeenMs - a.lastSeenMs;
+        return a.nombre.localeCompare(b.nombre, 'es');
+      });
+    }
+    const guestOnlineCount = sanitizedGuests.filter(g => g.online).length;
+    state.presenceGuests = sanitizedGuests;
+    state.presenceGuestOnlineCount = guestOnlineCount;
+    state.presenceGuestOfflineCount = sanitizedGuests.length - guestOnlineCount;
     state.presenceServerTimeMs = serverNow;
   }
 
@@ -1476,11 +1524,15 @@
               <span class="cm-presence-dot is-offline" aria-hidden="true"></span>
               <strong id="hist_presenceOfflineCount" class="cm-tabular">0</strong> Desconectados
             </span>
+            <span class="cm-hist-presence-stat" id="hist_presenceGuestsStat">
+              <strong id="hist_presenceGuestOnlineCount" class="cm-tabular">0</strong> Invitados en línea
+            </span>
           </div>
           <div class="cm-hist-presence-filters" role="group" aria-label="Filtrar estado">
             <button type="button" class="cm-hist-filter-pill is-active" data-hist-presence-filter="ALL">Todos</button>
             <button type="button" class="cm-hist-filter-pill" data-hist-presence-filter="ONLINE">Conectados</button>
             <button type="button" class="cm-hist-filter-pill" data-hist-presence-filter="OFFLINE">Desconectados</button>
+            <button type="button" class="cm-hist-filter-pill" data-hist-presence-filter="GUESTS">Invitados</button>
           </div>
         </div>
         <div id="hist_presenceList" class="cm-hist-presence-grid"></div>
@@ -1817,7 +1869,10 @@
 
   function getFilteredPresenceUsers() {
     const q = normalizeSearchText(state.searchQuery);
-    return (state.presenceUsers || []).filter(u => {
+    const pool = state.presenceFilter === 'GUESTS'
+      ? (state.presenceGuests || [])
+      : (state.presenceUsers || []).concat(state.presenceGuests || []);
+    return pool.filter(u => {
       if (state.presenceFilter === 'ONLINE' && !u.online) return false;
       if (state.presenceFilter === 'OFFLINE' && u.online) return false;
       if (q && !u._search.includes(q)) return false;
@@ -1839,26 +1894,40 @@
   }
 
   function renderPresencePanel() {
+    const panelEl = $('hist_presencePanel');
+    const canViewPresence = !(state.session && state.session.isAdmin && state.session.adminPermissions && state.session.adminPermissions.equipoInvitados === false);
+    if (panelEl) panelEl.classList.toggle('hidden', !canViewPresence);
+    if (!canViewPresence) return;
     const onlineEl = $('hist_presenceOnlineCount');
     const offlineEl = $('hist_presenceOfflineCount');
+    const guestOnEl = $('hist_presenceGuestOnlineCount');
     const listEl = $('hist_presenceList');
     if (onlineEl) onlineEl.textContent = String(state.presenceOnlineCount);
     if (offlineEl) offlineEl.textContent = String(state.presenceOfflineCount);
+    if (guestOnEl) guestOnEl.textContent = String(state.presenceGuestOnlineCount || 0);
 
     rootEl?.querySelectorAll('[data-hist-presence-filter]').forEach(b => {
-      b.classList.toggle('is-active', b.getAttribute('data-hist-presence-filter') === state.presenceFilter);
+      const fKey = b.getAttribute('data-hist-presence-filter');
+      b.classList.toggle('is-active', fKey === state.presenceFilter);
+      if (fKey === 'GUESTS') {
+        const gTotal = (state.presenceGuests || []).length;
+        const gOn = state.presenceGuestOnlineCount || 0;
+        b.textContent = gTotal > 0 ? `Invitados (${gOn}/${gTotal})` : 'Invitados';
+      }
     });
 
     if (!listEl) return;
     const list = getFilteredPresenceUsers();
     if (!list.length) {
       let emptyMsg = 'Sin registros.';
-      if (!state.presenceUsers.length) {
+      if (!state.presenceUsers.length && !(state.presenceGuests && state.presenceGuests.length)) {
         if (state.presenceError === 'no_token' || state.presenceError === 'auth_failed') {
           emptyMsg = 'Tu sesión en este dispositivo no tiene token de presencia activo. Toca SALIR arriba y vuelve a iniciar sesión para ver quién está conectado.';
         } else if (state.presenceError === 'unavailable') {
           emptyMsg = 'No se pudo consultar el equipo en vivo. Toca ↻ para reintentar.';
         }
+      } else if (state.presenceFilter === 'GUESTS') {
+        emptyMsg = 'Sin invitados registrados en la hoja INVITADOS.';
       } else if (state.presenceFilter === 'ONLINE') {
         emptyMsg = 'Nadie conectado en los últimos 3 minutos.';
       }
@@ -1869,15 +1938,19 @@
     listEl.innerHTML = list.map(u => {
       const vistaLabel = formatPresenceVistaLabel(u.vista);
       const vistaPart = vistaLabel ? (u.online ? `En: ${vistaLabel}` : `Última vista: ${vistaLabel}`) : '';
-      const meta = [u.sucursal, u.rol, vistaPart].filter(Boolean).join(' · ') || '—';
+      const metaParts = u.isGuest
+        ? ['INVITADO', u.slotLabel ? `Lugares: ${u.slotLabel}` : '', u.deviceLabel ? `📱 ${u.deviceLabel}` : '', vistaPart]
+        : [u.sucursal, u.rol, vistaPart];
+      const meta = metaParts.filter(Boolean).join(' · ') || '—';
       const lastSeenLabel = formatPresenceLastSeen(u.lastSeenMs, u.online);
       const cls = u.online ? 'is-online' : 'is-offline';
+      const guestTag = u.isGuest ? ' <span class="cm-pill cm-pill-amber" style="font-size:10px;padding:1px 6px;">INVITADO</span>' : '';
       return `
         <div class="cm-hist-presence-item ${cls}">
           <div class="cm-hist-presence-main">
             <span class="cm-presence-dot ${cls}" aria-hidden="true"></span>
             <div class="cm-hist-presence-info">
-              <div class="cm-hist-presence-name">${escapeHtml(u.nombre)}</div>
+              <div class="cm-hist-presence-name">${escapeHtml(u.nombre)}${guestTag}</div>
               <div class="cm-hist-presence-meta">${escapeHtml(meta)}</div>
             </div>
           </div>

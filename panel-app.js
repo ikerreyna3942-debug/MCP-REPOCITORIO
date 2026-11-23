@@ -76,15 +76,23 @@
     }
 
     async function fetchProyectosRowsFallback() {
-        const csvUrl = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(SHEET_ID) +
-            '/gviz/tq?tqx=out:csv&headers=0&sheet=PROYECTOS&range=A1%3AI40&_t=' + Date.now();
-        try {
-            const resp = await fetch(csvUrl, { cache: 'no-store' });
-            if (resp && resp.ok) {
-                const txt = await resp.text();
-                if (txt && !txt.trim().startsWith('<')) return parseCsvSimple(txt);
-            }
-        } catch (e) {}
+        const tabs = ['CUENTAS ADMINISTRATIVAS', 'PROYECTOS'];
+        for (let i = 0; i < tabs.length; i++) {
+            const csvUrl = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(SHEET_ID) +
+                '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(tabs[i]) + '&range=A1%3AZ60&_t=' + Date.now();
+            try {
+                const resp = await fetch(csvUrl, { cache: 'no-store' });
+                if (resp && resp.ok) {
+                    const txt = await resp.text();
+                    if (txt && !txt.trim().startsWith('<')) {
+                        const rows = parseCsvSimple(txt);
+                        if (rows && rows.length >= 2 && rows.some(r => normalizeEmail(r && r[4]).includes('@'))) {
+                            return rows;
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
         return null;
     }
 
@@ -126,7 +134,7 @@
         return callPanelWebAppPost('inv_login', {
             email: OWNER_EMAIL,
             accessKey: typedKey,
-            sheetTab: 'PROYECTOS'
+            sheetTab: 'CUENTAS ADMINISTRATIVAS'
         }, 9000);
     }
 
@@ -203,7 +211,7 @@
             correo: OWNER_EMAIL,
             nombre: OWNER_DISPLAY_NAME,
             puesto: 'ADMINISTRADOR',
-            sheetTab: 'PROYECTOS',
+            sheetTab: 'CUENTAS ADMINISTRATIVAS',
             erpStore: 'CEDIS',
             deviceId: getPanelPresenceDeviceId(),
             vista: 'panel',
@@ -267,7 +275,16 @@
                 const raw = localStorage.getItem(keys[i]);
                 if (!raw) continue;
                 const obj = JSON.parse(raw);
-                if (obj && normalizeEmail(obj.correo) === OWNER_EMAIL && !obj.mustChangeKey) return true;
+                if (!obj || obj.mustChangeKey) continue;
+                const email = normalizeEmail(obj.correo);
+                const perms = (obj.adminPermissions && typeof obj.adminPermissions === 'object') ? obj.adminPermissions : null;
+                if (email === OWNER_EMAIL) {
+                    if (perms && perms.panelSuite === false) continue;
+                    return true;
+                }
+                if (obj.isAdmin === true && perms && perms.panelSuite === true) {
+                    return true;
+                }
             } catch (e) {}
         }
         return false;
@@ -894,7 +911,7 @@
                 const payload = JSON.stringify({
                     correo: OWNER_EMAIL,
                     nombre: OWNER_DISPLAY_NAME,
-                    sheetTab: 'PROYECTOS',
+                    sheetTab: 'CUENTAS ADMINISTRATIVAS',
                     authToken: tok,
                     accessKey: typedKey,
                     verifiedAt: Date.now()
