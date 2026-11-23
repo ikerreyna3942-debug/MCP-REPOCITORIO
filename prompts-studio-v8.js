@@ -167,6 +167,7 @@
         includeSpanishNotes: true,
         sku: '',
         productName: '',
+        outputName: '',
         dimensions: '',
         extraNotes: '',
         visionAnalysis: '',
@@ -185,7 +186,8 @@
         sourceFiles: [],
         sourceLoading: false,
         sourceError: '',
-        generatedBlocks: [] // [{ id, title, badge, prompt }]
+        geminiOpen: false,
+        generatedBlocks: [] // [{ id, title, badge, prompt, outputStem, outputFileName }]
     };
 
     let rootEl = null;
@@ -197,6 +199,10 @@
 
     function cleanStr(v) {
         return v === null || v === undefined ? '' : String(v).trim();
+    }
+
+    function isValidDriveId(id) {
+        return /^[a-zA-Z0-9_-]{10,}$/.test(cleanStr(id));
     }
 
     function escapeHtml(s) {
@@ -216,7 +222,32 @@
     }
 
     function stripFileExt(name) {
-        return cleanStr(name).replace(/\.(jpe?g|png|webp|gif|avif|bmp)$/i, '').replace(/[_-]+/g, ' ').trim();
+        return cleanStr(name).replace(/\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i, '').replace(/[_-]+/g, ' ').trim();
+    }
+
+    function sanitizeOutputStem(raw) {
+        return cleanStr(raw)
+            .replace(/\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i, '')
+            .replace(/[\\/:*?"<>|]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function resolveExactOutputStem(cfg) {
+        const c = cfg || state;
+        const fromExplicit = sanitizeOutputStem(c.outputName);
+        if (fromExplicit) return fromExplicit;
+        const fromProduct = sanitizeOutputStem(c.productName);
+        if (fromProduct) return fromProduct;
+        const fromSku = sanitizeOutputStem(c.sku);
+        if (fromSku) return fromSku.toUpperCase();
+        const fromPhoto = sanitizeOutputStem(c.furniturePhoto && c.furniturePhoto.name);
+        if (fromPhoto) return fromPhoto;
+        return 'MUEBLE_CREATA';
+    }
+
+    function buildExactOutputNameLine(outputFileName) {
+        return 'OUTPUT FILE / ASSET NAME (EXACT): "' + outputFileName + '" (use this exact name when saving/exporting the file — NEVER render text inside the image).';
     }
 
     function getBridge() {
@@ -446,6 +477,7 @@
             forceThreeQuarterRight: state.forceThreeQuarterRight,
             sku: state.sku,
             productName: state.productName,
+            outputName: state.outputName,
             dimensions: state.dimensions,
             extraNotes: state.extraNotes,
             visionAnalysis: state.visionAnalysis,
@@ -454,15 +486,36 @@
             woodSwatch: state.woodSwatch
         }, inputCfg || {});
 
-        const catKey = detectCategoryFromInputs(cfg.productName, cfg.sku, cfg.category);
+        const outStem = resolveExactOutputStem(cfg);
+        function makeOutBlock(id, title, badge, promptBody, suffixOpt, appendAtEnd) {
+            const outputStem = outStem + (suffixOpt || '');
+            const outputFileName = outputStem + '.png';
+            const directive = buildExactOutputNameLine(outputFileName);
+            const prompt = appendAtEnd
+                ? (promptBody + '\n\n' + directive)
+                : (directive + '\n\n' + promptBody);
+            return {
+                id: id,
+                title: title,
+                badge: badge,
+                outputStem: outputStem,
+                outputFileName: outputFileName,
+                prompt: prompt
+            };
+        }
+
+        const catKey = detectCategoryFromInputs(cfg.productName || cfg.outputName, cfg.sku, cfg.category);
         const catRule = CATEGORY_RULES[catKey] || CATEGORY_RULES.SALA_SOFA;
         const angleObj = getAngleObj(cfg.angleId);
         const roomObj = getRoomObj(cfg.roomId);
         const headerText = buildProductHeader(cfg, catKey);
         const modelBlock = buildModelTargetBlock(cfg);
 
-        const wantsFabric = Boolean(cfg.fabricSwatch) && (cfg.materialTarget === 'TELA' || cfg.materialTarget === 'DUAL');
-        const wantsWood = Boolean(cfg.woodSwatch) && (cfg.materialTarget === 'MADERA' || cfg.materialTarget === 'DUAL');
+        const usesMaterialTarget =
+            (cfg.version === 'V8' && (cfg.v8Mode || 'PACK_CREATA') === 'MATERIAL_SWAP') ||
+            (cfg.version === 'V1' && (cfg.v1Mode || 'RESTAURAR_HD') === 'CAMBIO_MATERIAL');
+        const wantsFabric = Boolean(cfg.fabricSwatch) && (!usesMaterialTarget || cfg.materialTarget === 'TELA' || cfg.materialTarget === 'DUAL');
+        const wantsWood = Boolean(cfg.woodSwatch) && (!usesMaterialTarget || cfg.materialTarget === 'MADERA' || cfg.materialTarget === 'DUAL');
 
         // ---------------------------------------------------------------------
         // VERSIÓN 8 · CREATA Pro (2048×2048 · Nano Banana 2.1 / Gemini 3 Pro)
@@ -520,9 +573,9 @@
                 ].filter(Boolean).join('\n\n');
 
                 return [
-                    { id: 'v8_catalog', title: '1. Foto Catálogo CREATA (2048×2048 · #FFFFFF · 0% Sombras)', badge: 'COTIZADOR', prompt: catalogPrompt },
-                    { id: 'v8_cover', title: '2. Portada Ambiente Editorial (' + roomObj.label.replace(/^[^\s]+\s/, '') + ')', badge: 'PORTADA', prompt: coverPrompt },
-                    { id: 'v8_cad', title: '3. Plano Técnico CAD Ortográfico', badge: 'FICHA CAD', prompt: cadPrompt }
+                    makeOutBlock('v8_catalog', '1. Foto Catálogo CREATA (2048×2048 · #FFFFFF · 0% Sombras)', 'COTIZADOR', catalogPrompt, ''),
+                    makeOutBlock('v8_cover', '2. Portada Ambiente Editorial (' + roomObj.label.replace(/^[^\s]+\s/, '') + ')', 'PORTADA', coverPrompt, '_PORTADA'),
+                    makeOutBlock('v8_cad', '3. Plano Técnico CAD Ortográfico', 'FICHA CAD', cadPrompt, '_CAD')
                 ];
             }
 
@@ -545,7 +598,7 @@
                     matBlock,
                     antiHallucination
                 ].filter(Boolean).join('\n\n');
-                return [{ id: 'v8_7views', title: 'V8 Pro · Serie 7 Vistas + 3/4 Der./Izq. (2048×2048)', badge: '7 VISTAS', prompt: prompt }];
+                return [makeOutBlock('v8_7views', 'V8 Pro · Serie 7 Vistas + 3/4 Der./Izq. (2048×2048)', '7 VISTAS', prompt, '')];
             }
 
             if (mode === 'SINGLE_VIEW') {
@@ -560,7 +613,7 @@
                     matBlock,
                     antiHallucination
                 ].filter(Boolean).join('\n\n');
-                return [{ id: 'v8_single', title: 'V8 Pro · ' + angleObj.label, badge: '1 VISTA', prompt: prompt }];
+                return [makeOutBlock('v8_single', 'V8 Pro · ' + angleObj.label, '1 VISTA', prompt, '')];
             }
 
             if (mode === 'MATERIAL_SWAP') {
@@ -577,7 +630,7 @@
                     buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, cfg.aspectRatio),
                     antiHallucination
                 ].filter(Boolean).join('\n\n');
-                return [{ id: 'v8_material', title: 'V8 Pro · Cambio de Material — ' + targetLabel, badge: '100% CASCO', prompt: prompt }];
+                return [makeOutBlock('v8_material', 'V8 Pro · Cambio de Material — ' + targetLabel, '100% CASCO', prompt, '')];
             }
 
             if (mode === 'ENVIRONMENT') {
@@ -592,7 +645,7 @@
                     matBlock,
                     antiHallucination
                 ].filter(Boolean).join('\n\n');
-                return [{ id: 'v8_env', title: 'V8 Pro · Ambiente — ' + roomObj.label, badge: 'AMBIENTE', prompt: prompt }];
+                return [makeOutBlock('v8_env', 'V8 Pro · Ambiente — ' + roomObj.label, 'AMBIENTE', prompt, '')];
             }
 
             // CAD_HD
@@ -619,8 +672,8 @@
             ].filter(Boolean).join('\n\n');
 
             return [
-                { id: 'v8_hd8k', title: '1. Restauración Estudio HD 8K (2048×2048 · #FFFFFF)', badge: 'HD 8K', prompt: hdPrompt },
-                { id: 'v8_cad2', title: '2. Plano Técnico CAD Ortográfico', badge: 'PLANO CAD', prompt: cadOnlyPrompt }
+                makeOutBlock('v8_hd8k', '1. Restauración Estudio HD 8K (2048×2048 · #FFFFFF)', 'HD 8K', hdPrompt, ''),
+                makeOutBlock('v8_cad2', '2. Plano Técnico CAD Ortográfico', 'PLANO CAD', cadOnlyPrompt, '_CAD')
             ];
         }
 
@@ -634,10 +687,9 @@
             const slots7 = buildSlotMap(Object.assign({}, cfg, { includeFabric: includeFab7, includeWood: includeWood7 }));
             const slotBlock7 = formatSlotMapText(slots7);
             const matBlock7 = (includeFab7 || includeWood7) ? buildCascoMaterialRules(slots7, includeFab7, includeWood7) : '';
-            const base2048Format = 'FORMAT & ANTI-DISTORTION: 2048x2048 px 1:1 square (image_size="2K"), furniture scaled proportionally with longest axis at ~78% centered evenly (NEVER stretch/squash sofas or armchairs), pure solid #FFFFFF background, 0% cast shadows, rectilinear 85mm lens.';
-            const hero34 = cfg.forceThreeQuarterRight
-                ? (base2048Format + '\nORIENTATION: ' + CANONICAL_34_RIGHT_PROMPT + '\nEXCLUDE: ' + CANONICAL_34_RIGHT_EXCLUDE + '.')
-                : base2048Format;
+            const ar7 = cfg.aspectRatio || '1:1';
+            const base2048Format = buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, ar7);
+            const hero34 = buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, ar7);
 
             let modeBody = '';
             let badge7 = 'V7';
@@ -651,20 +703,20 @@
                 title7 = 'V7 · 1 Vista — ' + angleObj.label;
                 modeBody = 'TASK (V7 — SINGLE VIEW): Render ONLY this exact camera view of [IMAGE 1]:\n' + angleObj.en +
                     (angleObj.exclude ? ('\nSTRICTLY EXCLUDE: ' + angleObj.exclude + '.') : '') +
-                    '\n' + base2048Format;
+                    '\n' + buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, ar7, angleObj);
             } else if (m7 === 'CAMBIO_TELA' || m7 === 'CAMBIO_MADERA' || m7 === 'CAMBIO_DUAL') {
                 badge7 = m7.replace('CAMBIO_', '');
                 modeBody = 'TASK (V7 — MATERIAL SWAP): Replace the target material(s) on [IMAGE 1] with 100% fidelity to the attached swatch(es), covering 100% of the casco/frame with realistic micro-scale texture while locking exact furniture geometry.\n' + hero34;
             } else if (m7 === 'ENTORNO') {
                 badge7 = 'ENTORNO';
                 title7 = 'V7 · Entorno — ' + roomObj.label;
-                modeBody = 'TASK (V7 — LIFESTYLE ROOM): Place [IMAGE 1] unaltered inside this interior: ' + roomObj.en + '. Match natural daylight and subtle floor contact shadows while keeping the furniture design, real proportions, and colors 100% faithful.';
+                modeBody = 'TASK (V7 — LIFESTYLE ROOM): Place [IMAGE 1] unaltered inside this interior (' + ar7 + ' 2K): ' + roomObj.en + '. Match natural daylight and subtle floor contact shadows while keeping the furniture design, real proportions, and colors 100% faithful.';
             } else if (m7 === 'PLANO_CAD') {
                 badge7 = 'CAD';
-                modeBody = 'TASK (V7 — TECHNICAL CAD SHEET): Generate a 2048x2048 orthographic technical CAD blueprint of [IMAGE 1] (Front, Side, Top views) on pure #FFFFFF white with crisp black architectural linework' + (cfg.dimensions ? (' and exact dimensions: ' + cfg.dimensions + '.') : ' and proportional metric dimension callouts.');
+                modeBody = 'TASK (V7 — TECHNICAL CAD SHEET): Generate a ' + (ar7 === '1:1' ? '2048x2048' : (ar7 + ' 2K')) + ' orthographic technical CAD blueprint of [IMAGE 1] (Front, Side, Top views) on pure #FFFFFF white with crisp black architectural linework' + (cfg.dimensions ? (' and exact dimensions: ' + cfg.dimensions + '.') : ' and proportional metric dimension callouts.');
             } else if (m7 === 'FONDO_BLANCO') {
                 badge7 = '#FFFFFF';
-                modeBody = 'TASK (V7 — PURE WHITE EXTRACTION): Extract [IMAGE 1] cleanly onto a 2048x2048 100% solid pure white #FFFFFF background without distorting proportions, removing all store clutter, floor reflections, and cast shadows.\n' + hero34;
+                modeBody = 'TASK (V7 — PURE WHITE EXTRACTION): Extract [IMAGE 1] cleanly onto a 100% solid pure white #FFFFFF background without distorting proportions, removing all store clutter, floor reflections, and cast shadows.\n' + hero34;
             } else {
                 badge7 = 'HD 8K';
                 modeBody = 'TASK (V7 — HD 8K RESTORATION / COLOR CLONE): Restore sharpness, remove noise/compression artifacts, clean lighting to studio quality, and unify exact finish color across [IMAGE 1].\n' + hero34;
@@ -680,16 +732,18 @@
                 'GEOMETRY LOCK: ' + catRule + ' Never invent extra pillows, props, logos, or text.'
             ].filter(Boolean).join('\n\n');
 
-            return [{ id: 'v7_main', title: title7, badge: badge7, prompt: prompt7 }];
+            return [makeOutBlock('v7_main', title7, badge7, prompt7, '')];
         }
 
         // ---------------------------------------------------------------------
         // VERSIÓN 1 · CLÁSICA ORIGINAL (AI Studio + Flux/Midjourney + ChatGPT)
         // ---------------------------------------------------------------------
         const m1 = cfg.v1Mode || 'RESTAURAR_HD';
-        const prodDesc = cfg.productName || 'luxury furniture piece shown in the reference photo';
-        const fabLabel = cfg.fabricSwatch ? stripFileExt(cfg.fabricSwatch.name) : '';
-        const woodLabel = cfg.woodSwatch ? stripFileExt(cfg.woodSwatch.name) : '';
+        const ar1 = cfg.aspectRatio || '1:1';
+        const dim1 = ar1 === '1:1' ? '2048x2048' : (ar1 + ' 2K (2048px long edge)');
+        const prodDesc = cfg.productName || cfg.outputName || 'luxury furniture piece shown in the reference photo';
+        const fabLabel = wantsFabric && cfg.fabricSwatch ? stripFileExt(cfg.fabricSwatch.name) : '';
+        const woodLabel = wantsWood && cfg.woodSwatch ? stripFileExt(cfg.woodSwatch.name) : '';
         const matClause = [
             fabLabel ? ('upholstered 100% in "' + fabLabel + '" fabric from the attached swatch') : '',
             woodLabel ? ('with "' + woodLabel + '" wood finish from the attached swatch') : ''
@@ -697,39 +751,44 @@
 
         let taskEn = '';
         if (m1 === 'RESTAURAR_HD') {
-            taskEn = 'Restore and enhance this photograph of ' + prodDesc + ' to ultra-sharp 2048x2048 (2K) commercial furniture catalog quality, keeping exact silhouette, proportions (zero distortion), and craftsmanship.';
+            taskEn = 'Restore and enhance this photograph of ' + prodDesc + ' to ultra-sharp ' + dim1 + ' commercial furniture catalog quality, keeping exact silhouette, proportions (zero distortion), and craftsmanship.';
         } else if (m1 === 'EXTRAER_BLANCO') {
-            taskEn = 'Extract ' + prodDesc + ' cleanly onto a pure solid white #FFFFFF studio background (2048x2048, ~78% proportional centered framing without warping, zero cast shadows, no background clutter).';
+            taskEn = 'Extract ' + prodDesc + ' cleanly onto a pure solid white #FFFFFF studio background (' + dim1 + ', ~78% proportional centered framing without warping, zero cast shadows, no background clutter).';
         } else if (m1 === 'CAMBIO_MATERIAL') {
-            taskEn = 'Keep the exact geometry and design of ' + prodDesc + ', re-rendering it ' + (matClause || 'with the attached material swatch applied uniformly across 100% of the target surface') + ' on a 2048x2048 pure white #FFFFFF studio background.';
+            const targetFallback = cfg.materialTarget === 'TELA'
+                ? 'with the attached fabric swatch upholstered across 100% of the casco/body'
+                : (cfg.materialTarget === 'MADERA'
+                    ? 'with the attached wood finish applied across all exposed wood/base elements'
+                    : 'with the attached material swatches applied uniformly across 100% of the target surfaces');
+            taskEn = 'Keep the exact geometry and design of ' + prodDesc + ', re-rendering it ' + (matClause || targetFallback) + ' on a ' + dim1 + ' pure white #FFFFFF studio background.';
         } else {
-            taskEn = 'Generate clean matching 2048x2048 studio catalog perspectives (Front 0°, 3/4 Facing Right, 3/4 Facing Left [opposite orbit, never mirrored], and Side Profile 90°) of ' + prodDesc + (matClause ? (' ' + matClause) : '') + ' on a pure white #FFFFFF background with zero shadows.';
+            taskEn = 'Generate clean matching ' + dim1 + ' studio catalog perspectives (Front 0°, 3/4 Facing Right, 3/4 Facing Left [opposite orbit, never mirrored], and Side Profile 90°) of ' + prodDesc + (matClause ? (' ' + matClause) : '') + ' on a pure white #FFFFFF background with zero shadows.';
         }
 
         const aiStudioV1 = [
             modelBlock,
             'Using the attached reference image(s), ' + taskEn,
             cfg.dimensions ? ('Maintain exact proportions for dimensions: ' + cfg.dimensions + '.') : '',
-            'Studio rules: 2048x2048 (1:1, 2K), 85mm rectilinear lens, pure #FFFFFF seamless background, balanced 78% proportional framing (never deform sofa/armchair), zero drop shadows, ' + catRule,
+            'Studio rules: ' + dim1 + ' (' + ar1 + ', 2K), 85mm rectilinear lens, pure #FFFFFF seamless background, balanced 78% proportional framing (never deform sofa/armchair), zero drop shadows, ' + catRule,
             cfg.extraNotes ? ('Additional notes: ' + cfg.extraNotes) : ''
         ].filter(Boolean).join('\n');
 
         const fluxMjV1 = [
             'Commercial studio furniture photography of ' + prodDesc + (matClause ? (', ' + matClause) : '') + ',',
             m1 === 'MULTI_PERSPECTIVA' ? '3/4 front-right hero angle (front facing right edge) and matching elevations,' : '3/4 front-right studio hero view (front facing right edge, backrest left),',
-            '2048x2048 square pure solid white #FFFFFF seamless infinity background, zero cast shadows, 85mm rectilinear lens, true undistorted furniture proportions, ultra-detailed realistic fabric weave and wood grain, crisp softbox lighting, centered 78% catalog framing --ar 1:1 --stylize 100'
+            dim1 + ' pure solid white #FFFFFF seamless infinity background, zero cast shadows, 85mm rectilinear lens, true undistorted furniture proportions, ultra-detailed realistic fabric weave and wood grain, crisp softbox lighting, centered 78% catalog framing --ar ' + ar1 + ' --stylize 100'
         ].join(' ');
 
         const dalleV1 = [
-            'Please edit/generate a 2048x2048 studio e-commerce catalog photograph based on the uploaded furniture photo.',
+            'Please edit/generate a ' + dim1 + ' studio e-commerce catalog photograph based on the uploaded furniture photo.',
             taskEn,
-            'Keep every structural detail and physical proportion identical to the original piece (do not stretch/compress sofas, do not add extra cushions, props, or text). Center the furniture proportionally at ~78% of a square 1:1 (2048x2048) pure white (#FFFFFF) canvas with zero floor shadows and crisp natural studio lighting.'
+            'Keep every structural detail and physical proportion identical to the original piece (do not stretch/compress sofas, do not add extra cushions, props, or text). Center the furniture proportionally at ~78% of a ' + ar1 + ' (' + dim1 + ') pure white (#FFFFFF) canvas with zero floor shadows and crisp natural studio lighting.'
         ].join('\n\n');
 
         return [
-            { id: 'v1_aistudio', title: 'V1 · Google AI Studio / Nano Banana 2.1 · Gemini 3 Pro', badge: 'AI STUDIO', prompt: aiStudioV1 },
-            { id: 'v1_flux', title: 'V1 · Flux / Midjourney', badge: 'FLUX / MJ', prompt: fluxMjV1 },
-            { id: 'v1_dalle', title: 'V1 · ChatGPT / DALL-E', badge: 'CHATGPT', prompt: dalleV1 }
+            makeOutBlock('v1_aistudio', 'V1 · Google AI Studio / Nano Banana 2.1 · Gemini 3 Pro', 'AI STUDIO', aiStudioV1, ''),
+            makeOutBlock('v1_flux', 'V1 · Flux / Midjourney', 'FLUX / MJ', fluxMjV1, '', true),
+            makeOutBlock('v1_dalle', 'V1 · ChatGPT / DALL-E', 'CHATGPT', dalleV1, '')
         ];
     }
 
@@ -810,6 +869,7 @@
         if (!bridge || typeof bridge.callScript !== 'function') {
             state.materialsError = 'Conecta primero AppsScript_Prompts_Odoo.gs en ☁️ Odoo / Sheet (arriba) para leer Maderas y Telas desde Drive.';
             renderStudio();
+            if (forceRefresh) showStudioToast(state.materialsError, 'err');
             return;
         }
         state.materialsLoading = true;
@@ -822,11 +882,16 @@
                 state.maderasList = Array.isArray(res.maderas) ? res.maderas : [];
                 state.materialsLoaded = true;
                 state.materialsError = '';
+                if (forceRefresh) {
+                    showStudioToast('🔄 Catálogo actualizado: ' + state.telasList.length + ' telas y ' + state.maderasList.length + ' maderas.', 'ok');
+                }
             } else {
                 state.materialsError = (res && res.error) || 'No se pudieron leer las carpetas TELAS y MADERAS.';
+                if (forceRefresh) showStudioToast(state.materialsError, 'err');
             }
         } catch (err) {
             state.materialsError = (err && err.message) || 'Configura primero la URL /exec y PIN en ☁️ Odoo / Sheet.';
+            if (forceRefresh) showStudioToast(state.materialsError, 'err');
         } finally {
             state.materialsLoading = false;
             renderStudio();
@@ -878,7 +943,7 @@
             if (res && res.ok && res.found && res.match) {
                 const m = res.match;
                 state.sku = cleanStr(m.sku || skuVal).toUpperCase();
-                state.productName = cleanStr(m.nombre_nuevo || m.modelo || m.tipo_mueble || state.productName);
+                state.productName = cleanStr(m.nombre || m.nombre_nuevo || m.modelo || m.tipo_mueble || state.productName);
                 state.dimensions = cleanStr(m.medidas || state.dimensions);
                 const detCat = detectCategoryFromInputs((m.categoria || '') + ' ' + (m.tipo_mueble || '') + ' ' + state.productName, state.sku, 'AUTO');
                 state.category = detCat;
@@ -990,7 +1055,7 @@
         }
     }
 
-    async function copyPromptText(text, btnEl) {
+    async function copyPromptText(text, btnEl, toastMsg) {
         let copied = false;
         try {
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
@@ -1011,11 +1076,14 @@
             } catch (e2) {}
         }
         if (btnEl) {
-            const orig = btnEl.textContent;
+            if (!btnEl.dataset) btnEl.dataset = {};
+            if (!btnEl.dataset.origLabel) btnEl.dataset.origLabel = btnEl.textContent || '📋 Copiar';
+            const orig = btnEl.dataset.origLabel;
             btnEl.textContent = copied ? '✅ Copiado' : '⚠️ Error';
-            setTimeout(() => { btnEl.textContent = orig; }, 1600);
+            clearTimeout(btnEl._copyResetTimer);
+            btnEl._copyResetTimer = setTimeout(() => { btnEl.textContent = orig; }, 1600);
         }
-        showStudioToast(copied ? '📋 Prompt copiado al portapapeles.' : 'No se pudo copiar automáticamente.', copied ? 'ok' : 'err');
+        showStudioToast(copied ? (toastMsg || '📋 Prompt copiado al portapapeles.') : 'No se pudo copiar automáticamente.', copied ? 'ok' : 'err');
         return copied;
     }
 
@@ -1026,6 +1094,7 @@
         state.woodSwatch = null;
         state.sku = '';
         state.productName = '';
+        state.outputName = '';
         state.dimensions = '';
         state.extraNotes = '';
         state.visionAnalysis = '';
@@ -1191,42 +1260,52 @@
         '</div>';
     }
 
-    function renderMaterialPickerDrawer() {
-        if (!state.activeMaterialPicker) return '';
+    function getFilteredMaterialsForPicker() {
         const isWood = state.activeMaterialPicker === 'MADERA';
         const rawList = isWood ? state.maderasList : state.telasList;
         const q = normSearch(state.materialSearch);
-        const filtered = q
+        return q
             ? rawList.filter((f) => normSearch((f.name || '') + ' ' + (f.subfolder || '')).indexOf(q) !== -1)
             : rawList;
+    }
 
-        let bodyHtml = '';
+    function renderMaterialPickerBodyHtml(isWood, filtered) {
         if (state.materialsLoading) {
-            bodyHtml = '<div class="st-empty-msg">Cargando muestras desde Google Drive (solo lectura)...</div>';
-        } else if (state.materialsError) {
-            bodyHtml = '<div class="st-empty-msg is-warn">' + escapeHtml(state.materialsError) +
-                ' <button type="button" class="st-mini-btn is-accent" onclick="toggleProptDrawer(true)">⚙️ Abrir configuración</button></div>';
-        } else if (!filtered.length) {
-            bodyHtml = '<div class="st-empty-msg">Sin coincidencias en ' + (isWood ? 'MADERAS' : 'TELAS / FOTOS TELAS') + '.</div>';
-        } else {
-            bodyHtml = '<div class="st-swatch-grid">' + filtered.slice(0, 120).map((f) => {
-                const fid = escapeHtml(f.id);
-                const fname = escapeHtml(f.name || 'muestra.jpg');
-                const thumb = escapeHtml(f.thumbUrl || ('https://lh3.googleusercontent.com/d/' + f.id + '=w400'));
-                return '<div class="st-swatch-card">' +
-                    '<button type="button" class="st-swatch-pick" onclick="CreataPromptsStudio.pickDriveMaterial(\'' + state.activeMaterialPicker + '\', \'' + fid + '\')">' +
-                        '<img src="' + thumb + '" alt="' + fname + '" loading="lazy" decoding="async" referrerpolicy="no-referrer">' +
-                        '<span class="st-swatch-lbl">' + fname + '</span>' +
-                    '</button>' +
-                    '<button type="button" class="st-swatch-cp" title="Copiar foto PNG" onclick="copyProptDrivePhotoImage(\'' + fid + '\', \'' + fname.replace(/'/g, '') + '\', this)">🖼️</button>' +
-                '</div>';
-            }).join('') + '</div>';
+            return '<div class="st-empty-msg">Cargando muestras desde Google Drive (solo lectura)...</div>';
         }
+        if (state.materialsError) {
+            return '<div class="st-empty-msg is-warn">' + escapeHtml(state.materialsError) +
+                ' <button type="button" class="st-mini-btn is-accent" onclick="toggleProptDrawer(true)">⚙️ Abrir configuración</button></div>';
+        }
+        if (!filtered.length) {
+            return '<div class="st-empty-msg">Sin coincidencias en ' + (isWood ? 'MADERAS' : 'TELAS / FOTOS TELAS') + '.</div>';
+        }
+        return '<div class="st-swatch-grid">' + filtered.filter((f) => f && isValidDriveId(f.id)).slice(0, 120).map((f) => {
+            const rawId = cleanStr(f.id);
+            const fid = escapeHtml(rawId);
+            const fname = escapeHtml(f.name || 'muestra.jpg');
+            const thumb = escapeHtml(f.thumbUrl || ('https://lh3.googleusercontent.com/d/' + rawId + '=w400'));
+            const fbThumb = escapeHtml('https://drive.google.com/thumbnail?id=' + rawId + '&sz=w480');
+            return '<div class="st-swatch-card">' +
+                '<button type="button" class="st-swatch-pick" data-pick-kind="' + escapeHtml(state.activeMaterialPicker) + '" data-pick-id="' + fid + '" onclick="CreataPromptsStudio.pickDriveMaterial(this.getAttribute(\'data-pick-kind\'), this.getAttribute(\'data-pick-id\'))">' +
+                    '<img src="' + thumb + '" data-fb-src="' + fbThumb + '" alt="' + fname + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fb){this.dataset.fb=\'1\';this.src=this.getAttribute(\'data-fb-src\')||\'\';}">' +
+                    '<span class="st-swatch-lbl">' + fname + '</span>' +
+                '</button>' +
+                '<button type="button" class="st-swatch-cp" title="Copiar foto PNG" data-cp-id="' + fid + '" data-cp-name="' + fname + '" onclick="copyProptDrivePhotoImage(this.getAttribute(\'data-cp-id\'), this.getAttribute(\'data-cp-name\'), this)">🖼️</button>' +
+            '</div>';
+        }).join('') + '</div>';
+    }
+
+    function renderMaterialPickerDrawer() {
+        if (!state.activeMaterialPicker) return '';
+        const isWood = state.activeMaterialPicker === 'MADERA';
+        const filtered = getFilteredMaterialsForPicker();
+        const bodyHtml = renderMaterialPickerBodyHtml(isWood, filtered);
 
         return '<div class="st-picker-panel">' +
             '<div class="st-picker-head">' +
                 '<div>' +
-                    '<strong>' + (isWood ? '🪵 Catálogo MADERAS' : '🧵 Catálogo TELAS + FOTOS TELAS') + ' (' + filtered.length + ')</strong>' +
+                    '<strong id="stMaterialPickerTitle">' + (isWood ? '🪵 Catálogo MADERAS' : '🧵 Catálogo TELAS + FOTOS TELAS') + ' (' + filtered.length + ')</strong>' +
                     '<span class="st-ro-badge">🔒 Solo lectura · nunca borra ni modifica</span>' +
                 '</div>' +
                 '<div class="st-picker-head-btns">' +
@@ -1235,7 +1314,7 @@
                 '</div>' +
             '</div>' +
             '<input type="search" id="stMaterialSearchInp" class="st-input st-picker-search" placeholder="Buscar por nombre o color..." value="' + escapeHtml(state.materialSearch) + '" oninput="CreataPromptsStudio.setMaterialSearch(this.value)">' +
-            bodyHtml +
+            '<div id="stMaterialPickerBody">' + bodyHtml + '</div>' +
         '</div>';
     }
 
@@ -1247,16 +1326,18 @@
         } else if (state.sourceError) {
             body = '<div class="st-empty-msg is-warn">' + escapeHtml(state.sourceError) + '</div>';
         } else {
-            body = '<div class="st-swatch-grid">' + state.sourceFiles.slice(0, 60).map((f) => {
-                const fid = escapeHtml(f.id);
+            body = '<div class="st-swatch-grid">' + state.sourceFiles.filter((f) => f && isValidDriveId(f.id)).slice(0, 60).map((f) => {
+                const rawId = cleanStr(f.id);
+                const fid = escapeHtml(rawId);
                 const fname = escapeHtml(f.name || 'foto.jpg');
-                const thumb = escapeHtml(f.thumbUrl || ('https://lh3.googleusercontent.com/d/' + f.id + '=w400'));
+                const thumb = escapeHtml(f.thumbUrl || ('https://lh3.googleusercontent.com/d/' + rawId + '=w400'));
+                const fbThumb = escapeHtml('https://drive.google.com/thumbnail?id=' + rawId + '&sz=w480');
                 return '<div class="st-swatch-card">' +
-                    '<button type="button" class="st-swatch-pick" onclick="CreataPromptsStudio.pickDriveFurniture(\'' + fid + '\')">' +
-                        '<img src="' + thumb + '" alt="' + fname + '" loading="lazy" decoding="async" referrerpolicy="no-referrer">' +
+                    '<button type="button" class="st-swatch-pick" data-pick-id="' + fid + '" onclick="CreataPromptsStudio.pickDriveFurniture(this.getAttribute(\'data-pick-id\'))">' +
+                        '<img src="' + thumb + '" data-fb-src="' + fbThumb + '" alt="' + fname + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fb){this.dataset.fb=\'1\';this.src=this.getAttribute(\'data-fb-src\')||\'\';}">' +
                         '<span class="st-swatch-lbl">' + fname + '</span>' +
                     '</button>' +
-                    '<button type="button" class="st-swatch-cp" title="Copiar foto PNG" onclick="copyProptDrivePhotoImage(\'' + fid + '\', \'' + fname.replace(/'/g, '') + '\', this)">🖼️</button>' +
+                    '<button type="button" class="st-swatch-cp" title="Copiar foto PNG" data-cp-id="' + fid + '" data-cp-name="' + fname + '" onclick="copyProptDrivePhotoImage(this.getAttribute(\'data-cp-id\'), this.getAttribute(\'data-cp-name\'), this)">🖼️</button>' +
                 '</div>';
             }).join('') + '</div>';
         }
@@ -1274,13 +1355,23 @@
             return '<div class="st-out-empty">Configura tus fotos o datos y pulsa <strong>⚡ Generar Prompt</strong>. Tu resultado aparecerá aquí en menos de 0.1 segundos, listo para pegar en AI Studio, Gemini o ChatGPT.</div>';
         }
         return state.generatedBlocks.map((b, idx) => {
+            const outFile = cleanStr(b.outputFileName) || (resolveExactOutputStem(state) + '.png');
             return '<article class="st-out-card">' +
                 '<div class="st-out-head">' +
                     '<div>' +
                         '<span class="st-out-badge">' + escapeHtml(b.badge) + '</span>' +
                         '<h3 class="st-out-title">' + escapeHtml(b.title) + '</h3>' +
                     '</div>' +
-                    '<button type="button" class="st-btn-primary st-btn-sm" onclick="CreataPromptsStudio.copyGenerated(' + idx + ', this)">📋 Copiar</button>' +
+                    '<div class="st-out-actions">' +
+                        '<button type="button" class="st-btn-primary st-btn-sm" onclick="CreataPromptsStudio.copyGenerated(' + idx + ', this)">📋 Copiar Prompt</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="st-out-filename-row">' +
+                    '<span class="st-out-filename-pill" title="Nombre exacto de salida para guardar / subir">🏷️ ' + escapeHtml(outFile) + '</span>' +
+                    '<div class="st-out-actions">' +
+                        '<button type="button" class="st-mini-btn is-accent" onclick="CreataPromptsStudio.copyOutputName(' + idx + ', this)">📋 Copiar nombre</button>' +
+                        '<button type="button" class="st-mini-btn is-odoo" onclick="CreataPromptsStudio.sendNameToOdooUpload(' + idx + ')">☁️ Subir con este nombre</button>' +
+                    '</div>' +
                 '</div>' +
                 '<textarea class="st-out-textarea" readonly rows="9">' + escapeHtml(b.prompt) + '</textarea>' +
             '</article>';
@@ -1291,6 +1382,7 @@
         if (!rootEl) return;
         const verObj = VERSIONS.find((v) => v.id === state.version) || VERSIONS[0];
         const hasGeminiKey = Boolean(getSavedGeminiKey());
+        const livePreviewStem = resolveExactOutputStem(state);
 
         rootEl.innerHTML =
             '<div class="st-wrap">' +
@@ -1303,7 +1395,8 @@
                         '<p class="st-ver-desc">' + escapeHtml(verObj.desc) + '</p>' +
                         '<div class="st-ver-quick-actions">' +
                             '<button type="button" class="st-mini-btn" onclick="CreataPromptsStudio.clearPhotos()" title="Limpia fotos y textos sin reiniciar tu versión ni modo">🧹 Borrar fotos</button>' +
-                            '<button type="button" class="st-mini-btn is-odoo" onclick="switchPromptsWorkspace(\'odoo\')" title="Abrir Render dedicado a Alta de Odoo">🚀 Alta de Odoo (Render)</button>' +
+                            '<button type="button" class="st-mini-btn is-accent" onclick="switchPromptsWorkspace(\'render\')" title="Abrir app Streamlit de Prompts en Render (buena-espero)">🤖 Prompts Render</button>' +
+                            '<button type="button" class="st-mini-btn is-odoo" onclick="switchPromptsWorkspace(\'odoo\')" title="Abrir Render dedicado a Alta de Odoo">🚀 Alta de Odoo</button>' +
                         '</div>' +
                     '</div>' +
                 '</section>' +
@@ -1312,12 +1405,12 @@
                     '<!-- COLUMNA IZQUIERDA: FOTOS + MATERIALES SOLO LECTURA + SKU -->' +
                     '<div class="st-col-left">' +
                         '<!-- 1. FOTO DEL MUEBLE -->' +
-                        '<section class="st-card">' +
+                        '<section id="stFurnitureDropCard" class="st-card st-drop-card">' +
                             '<div class="st-card-head">' +
                                 '<h2>1. Foto del mueble (IMAGE 1)</h2>' +
                                 '<span class="st-hint-chip">Ctrl+V · Arrastra · Cámara · Drive</span>' +
                             '</div>' +
-                            renderSelectedPhotoSlot('FURNITURE', state.furniturePhoto, 'Sube, pega (Ctrl+V) o elige una foto del mueble desde Drive.') +
+                            renderSelectedPhotoSlot('FURNITURE', state.furniturePhoto, 'Sube, arrastra, pega (Ctrl+V) o elige una foto del mueble desde Drive.') +
                             '<div class="st-upload-actions">' +
                                 '<label class="st-btn-secondary st-btn-sm">📷 Cámara<input type="file" accept="image/*" capture="environment" class="hidden" onchange="CreataPromptsStudio.onFurnitureFileInput(this)"></label>' +
                                 '<label class="st-btn-primary st-btn-sm">🖼️ Archivo / Galería<input type="file" accept="image/*" class="hidden" onchange="CreataPromptsStudio.onFurnitureFileInput(this)"></label>' +
@@ -1362,10 +1455,15 @@
                             renderMaterialPickerDrawer() +
                         '</section>' +
 
-                        '<!-- 3. DATOS DEL PRODUCTO Y SKU -->' +
+                        '<!-- 3. DATOS DEL PRODUCTO, SKU Y NOMBRE DE SALIDA -->' +
                         '<section class="st-card">' +
                             '<div class="st-card-head">' +
-                                '<h2>3. Producto, SKU y Medidas</h2>' +
+                                '<h2>3. Producto, SKU y Nombre de salida</h2>' +
+                            '</div>' +
+                            '<div class="st-output-name-box">' +
+                                '<label class="st-output-name-label" for="stOutputNameInput">🏷️ Nombre exacto de salida (para que el prompt y la foto salgan con este nombre)</label>' +
+                                '<input type="text" id="stOutputNameInput" class="st-input" placeholder="Ej. MESA SANTORINI 8P ROSA MORADA (o déjalo vacío para usar el nombre/SKU)" value="' + escapeHtml(state.outputName) + '" oninput="CreataPromptsStudio.setOutputName(this.value)">' +
+                                '<div class="st-mode-hint">Salida actual: <strong id="stOutputNamePreview">' + escapeHtml(livePreviewStem + '.png') + '</strong></div>' +
                             '</div>' +
                             '<div class="st-sku-lookup-row">' +
                                 '<input type="text" class="st-input" placeholder="SKU (ej. HAK1PLUM...)" value="' + escapeHtml(state.sku) + '" oninput="CreataPromptsStudio.setFieldSilent(\'sku\', this.value)" onkeydown="if(event.key===\'Enter\') CreataPromptsStudio.lookupSku()">' +
@@ -1381,7 +1479,7 @@
                                 '</select>' +
                                 '<input type="text" class="st-input" placeholder="Notas extra (ej. patas negras, sin cojines)" value="' + escapeHtml(state.extraNotes) + '" oninput="CreataPromptsStudio.setFieldSilent(\'extraNotes\', this.value)">' +
                             '</div>' +
-                            '<details class="st-gemini-details">' +
+                            '<details class="st-gemini-details"' + (state.geminiOpen ? ' open' : '') + ' ontoggle="CreataPromptsStudio.setGeminiOpen(this.open)">' +
                                 '<summary>⚙️ Gemini Vision opcional (' + (hasGeminiKey ? '✅ API Key guardada solo en este dispositivo' : 'Sin clave · generación instantánea offline') + ')</summary>' +
                                 '<div class="st-gemini-body">' +
                                     '<p class="st-mode-hint">Tu clave se guarda únicamente en este navegador (nunca en el repositorio). Si la agregas, puedes analizar la foto real del mueble con Gemini Vision antes de generar el prompt.</p>' +
@@ -1423,7 +1521,7 @@
                                 '<h2>5. Prompts Generados</h2>' +
                                 (state.generatedBlocks.length ? ('<span class="st-out-badge">' + state.generatedBlocks.length + ' listo(s)</span>') : '') +
                             '</div>' +
-                            renderGeneratedOutputs() +
+                            '<div id="stGeneratedOutputsWrap">' + renderGeneratedOutputs() + '</div>' +
                         '</section>' +
                     '</div>' +
                 '</div>' +
@@ -1450,6 +1548,44 @@
         });
     }
 
+    function bindFurnitureDragAndDrop() {
+        if (!rootEl || rootEl.__creataDropBound || typeof rootEl.addEventListener !== 'function') return;
+        rootEl.__creataDropBound = true;
+        const getDropCard = (ev) => {
+            const t = ev && ev.target;
+            if (t && typeof t.closest === 'function') return t.closest('#stFurnitureDropCard');
+            return byId('stFurnitureDropCard');
+        };
+        rootEl.addEventListener('dragover', (ev) => {
+            const card = getDropCard(ev);
+            if (!card) return;
+            ev.preventDefault();
+            if (card.classList) card.classList.add('is-drop-active');
+        });
+        rootEl.addEventListener('dragleave', (ev) => {
+            const card = getDropCard(ev);
+            if (!card) return;
+            if (!ev.relatedTarget || (typeof card.contains === 'function' && !card.contains(ev.relatedTarget))) {
+                if (card.classList) card.classList.remove('is-drop-active');
+            }
+        });
+        rootEl.addEventListener('drop', (ev) => {
+            const card = getDropCard(ev);
+            if (!card) return;
+            ev.preventDefault();
+            if (card.classList) card.classList.remove('is-drop-active');
+            const files = ev && ev.dataTransfer && ev.dataTransfer.files;
+            if (!files || !files.length) return;
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i];
+                if (f && (/^image\//i.test(f.type || '') || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i.test(f.name || ''))) {
+                    loadFurnitureFile(f, 'drop');
+                    break;
+                }
+            }
+        });
+    }
+
     const api = {
         CANONICAL_STUDIO_PX: CANONICAL_STUDIO_PX,
         IMAGE_MODELS: IMAGE_MODELS,
@@ -1465,6 +1601,7 @@
             if (!initialized) {
                 loadSavedPrefs();
                 bindGlobalPasteHandler();
+                bindFurnitureDragAndDrop();
                 initialized = true;
             }
             renderStudio();
@@ -1499,6 +1636,20 @@
         },
         setFieldSilent: function (key, val) {
             state[key] = String(val || '');
+            if (key === 'productName' || key === 'sku' || key === 'outputName') {
+                const prevEl = byId('stOutputNamePreview');
+                if (prevEl) prevEl.textContent = resolveExactOutputStem(state) + '.png';
+            }
+        },
+        setOutputName: function (val) {
+            state.outputName = String(val || '');
+            const prevEl = byId('stOutputNamePreview');
+            if (prevEl) prevEl.textContent = resolveExactOutputStem(state) + '.png';
+            if (state.generatedBlocks.length) {
+                state.generatedBlocks = generatePrompts();
+                const outWrap = byId('stGeneratedOutputsWrap');
+                if (outWrap) outWrap.innerHTML = renderGeneratedOutputs();
+            }
         },
         setBool: function (key, val) {
             state[key] = Boolean(val);
@@ -1507,6 +1658,9 @@
                 state.generatedBlocks = generatePrompts();
             }
             renderStudio();
+        },
+        setGeminiOpen: function (isOpen) {
+            state.geminiOpen = Boolean(isOpen);
         },
         onFurnitureFileInput: function (inputEl) {
             const f = inputEl && inputEl.files && inputEl.files[0];
@@ -1522,6 +1676,9 @@
             state.activeMaterialPicker = kind === 'MADERA' ? 'MADERA' : 'TELA';
             state.materialSearch = '';
             renderStudio();
+            if (typeof window !== 'undefined' && window.__CREATA_PROMPTS_BACK_NAV__ && typeof window.__CREATA_PROMPTS_BACK_NAV__.syncDepthOnUserAction === 'function') {
+                window.__CREATA_PROMPTS_BACK_NAV__.syncDepthOnUserAction('studio_picker');
+            }
             if (!state.materialsLoaded && !state.materialsLoading) {
                 fetchReadOnlyMaterials(false);
             }
@@ -1535,6 +1692,17 @@
         },
         setMaterialSearch: function (val) {
             state.materialSearch = String(val || '');
+            const bodyEl = byId('stMaterialPickerBody');
+            const titleEl = byId('stMaterialPickerTitle');
+            if (bodyEl && state.activeMaterialPicker) {
+                const isWood = state.activeMaterialPicker === 'MADERA';
+                const filtered = getFilteredMaterialsForPicker();
+                if (titleEl) {
+                    titleEl.textContent = (isWood ? '🪵 Catálogo MADERAS' : '🧵 Catálogo TELAS + FOTOS TELAS') + ' (' + filtered.length + ')';
+                }
+                bodyEl.innerHTML = renderMaterialPickerBodyHtml(isWood, filtered);
+                return;
+            }
             const scrollTop = rootEl ? rootEl.scrollTop : 0;
             renderStudio();
             const inp = byId('stMaterialSearchInp');
@@ -1565,10 +1733,29 @@
         },
         openDriveSource: function (sourceKey) {
             fetchDriveSource(sourceKey);
+            if (typeof window !== 'undefined' && window.__CREATA_PROMPTS_BACK_NAV__ && typeof window.__CREATA_PROMPTS_BACK_NAV__.syncDepthOnUserAction === 'function') {
+                window.__CREATA_PROMPTS_BACK_NAV__.syncDepthOnUserAction('studio_picker');
+            }
         },
         closeSourcePanel: function () {
             state.activeSourceTab = '';
             renderStudio();
+        },
+        hasActivePicker: function () {
+            return Boolean(state.activeMaterialPicker || state.activeSourceTab);
+        },
+        closeActivePickers: function () {
+            if (state.activeMaterialPicker) {
+                state.activeMaterialPicker = '';
+                renderStudio();
+                return true;
+            }
+            if (state.activeSourceTab) {
+                state.activeSourceTab = '';
+                renderStudio();
+                return true;
+            }
+            return false;
         },
         pickDriveFurniture: function (fileId) {
             const found = state.sourceFiles.find((f) => f && f.id === fileId);
@@ -1616,6 +1803,22 @@
             if (!blk) return Promise.resolve(false);
             return copyPromptText(blk.prompt, btnEl);
         },
+        copyOutputName: function (idx, btnEl) {
+            const blk = state.generatedBlocks[idx];
+            const outFile = (blk && blk.outputFileName) || (resolveExactOutputStem(state) + '.png');
+            return copyPromptText(outFile, btnEl, '🏷️ Nombre exacto copiado: ' + outFile);
+        },
+        sendNameToOdooUpload: function (idx) {
+            const blk = state.generatedBlocks[idx];
+            const stem = (blk && blk.outputStem) || resolveExactOutputStem(state);
+            if (typeof window !== 'undefined' && typeof window.openProptUploadWithName === 'function') {
+                window.openProptUploadWithName(stem, state.sku);
+                return stem;
+            }
+            showStudioToast('🏷️ Nombre listo: ' + stem + '.png', 'ok');
+            return stem;
+        },
+        resolveExactOutputStem: resolveExactOutputStem,
         generatePrompts: generatePrompts,
         detectCategoryFromInputs: detectCategoryFromInputs,
         getState: function () { return state; }

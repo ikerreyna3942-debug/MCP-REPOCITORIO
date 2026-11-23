@@ -5,8 +5,8 @@
  * - Estrategia "red primero" para HTML/JS/CSS y caché rápida para miniaturas de Google Drive.
  */
 const CACHE_PREFIX = 'creata-fotos-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v20';
-const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v20';
+const CACHE_NAME = CACHE_PREFIX + 'v22';
+const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v22';
 const MAX_CACHED_IMAGES = 350;
 const PAGE_URL = './fotos-productos.html';
 const NETWORK_TIMEOUT_MS = 4500;
@@ -114,9 +114,9 @@ self.addEventListener('fetch', (event) => {
                 return cached || Response.error();
             }
             const networkFetch = fetch(req).then((res) => {
-                // Solo guardar en caché si es respuesta válida (evitar fijar 403/404 permanentes tras reparar permisos)
+                // Guardar respuestas válidas u opacas (<img> cross-origin sin CORS en lh3.googleusercontent.com)
                 const ct = (res && res.headers && res.headers.get('content-type') || '').toLowerCase();
-                if (res && res.ok && (!ct || ct.startsWith('image/'))) {
+                if (res && (res.type === 'opaque' || (res.ok && (!ct || ct.startsWith('image/'))))) {
                     cache.put(req, res.clone()).then(() => trimImageCache(cache)).catch(() => {});
                 }
                 return res;

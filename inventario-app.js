@@ -170,8 +170,8 @@
             const k = String(rawKey || '').trim().toUpperCase();
             const ovr = rawMap[rawKey];
             if (!k || !ovr || typeof ovr !== 'object') continue;
-            const isVisual = k.indexOf('VFAB:') === 0 || k.indexOf('VCOV:') === 0 ||
-                ovr.category === 'FABRIC_SWATCH' || ovr.category === 'VISUAL_COVER';
+            const isVisual = k.indexOf('VFAB:') === 0 || k.indexOf('VCOV:') === 0 || k.indexOf('VWOD:') === 0 ||
+                ovr.category === 'FABRIC_SWATCH' || ovr.category === 'VISUAL_COVER' || ovr.category === 'WOOD_SWATCH';
             if (isVisual) {
                 const safeNote = sanitizeVisualOverrideUrl(ovr.note);
                 out[k] = Object.assign({}, ovr, { sku: k, note: safeNote });
@@ -2822,12 +2822,120 @@
         return compactVisualOverrideKey('VFAB:', fabricKey);
     }
 
+    function buildWoodSwatchOverrideKey(woodKey) {
+        return compactVisualOverrideKey('VWOD:', woodKey);
+    }
+
+    const DEFAULT_WOOD_SWATCHES_CATALOG = (function buildDefaultWoodSwatchesCatalog() {
+        const pairs = [
+            ['BELLOTA ARTEX', '1jmUL8QeEN7ZneS0Od9zd2O89yn1HJeNV'],
+            ['CAMEL ARTC', '1tvAuI_UncBB5g_gioiblyOkL7VxAVC0y'],
+            ['ESPIGA ATX', '1x7MiM15EuEDZ1JOiO3sg7Bm_xDefsR7n'],
+            ['GINGER SKANOR', '1hOlPkHT9G6snRpcCs83Vqj8x7ZkAvglY'],
+            ['HABANO ATX', '17wdbsUu5c2oIXGLFCmZ2_ijL9AXPzjtn'],
+            ['MADERA KASAM', '1lregsGb_cffKVFOO9INpSCUzTmv96Dnr'],
+            ['NOCHE ATX', '1rtGHK0czW7DIEX3uW-eTAb9wUt2347FW'],
+            ['NOGAL CHAVOYA', '1g79_faoLRWwXT-Xo3va33E8LqceOdK71'],
+            ['NOGAL SKANOR', '1S63fCXcQnciqACYzX4_c2O6GWjJDTnrM'],
+            ['NOGAL YOI', '1oV-AD6PW9KrZvSNHRcUDTkedcIEO_1I2'],
+            ['NUEZ MOBEL INN', '1bYK_yd_FxB068b6xa5lPnWywr7qKsrZS'],
+            ['PALO DE ROSA SKANOR', '17EPrJrIXuW8JiUajsZJXlyHgGt8Ur5dT'],
+            ['PAROTA BARSA', '1pTmpK3UJhRwVILV9jnwhfDM7VUG57fQ5'],
+            ['PAROTA BLOQUEART', '1_MqpkKNHRxTY60Q7z_yHe6mLSMMGAs0X'],
+            ['PAROTA CASA AURA', '1jzVG_TQb0vo3wqDVK_rG3eOpJPOfgD9k'],
+            ['PAROTA MOBEL INN', '1xe8pC3qjn6PwRMuOWuEvAAEGqsXS61gS'],
+            ['PAROTA REVICA', '15MFirKRhBxEI5a95ORFpPc5d3cFlImh3'],
+            ['PAROTA SKANOR', '1IIS0teeWDXTAvOjt_9wad16hgdKBr21L'],
+            ['PAROTA VANGARDI', '1ZNz_5OyESFMDTEGDCsSA9VajsJ_20niR'],
+            ['PAROTA YOI', '1PyY2qKpl0DcWSb-z9Ro0XHHGnhE-i61E'],
+            ['ROSA MORADA ACEITE WHITE LUX', '1F8BXPaq8c7hsHsceNBKcBn4qibtSfX-5'],
+            ['ROSA MORADA BARSA', '11mtWQdUDna0NY7H8ByqsDcirfM0vlc7J'],
+            ['ROSA MORADA CHAVOYA', '1VPiMBn-fkzTWUDXOfkZiflVpopMHB7A0'],
+            ['ROSA MORADA CLARA LUIS PEDRO', '1HsvWAhnrYYmh4onu1_MKaLCdq_ttvbEg'],
+            ['ROSA MORADA LUX FACTORI', '1bQAXEl8vKmHCNZrojNgiFpo1lYXtZEqT'],
+            ['ROSA MORADA MR FURNITURE', '1zwJMUcnJ-6HaL3YkfmTHBy9vEBnk4a2U'],
+            ['ROSA MORADA YOI', '1q9h-KKXsLWV1ayMsjnalnsGA5j5OVU-W'],
+            ['TABACO ARTEX', '1vmrA0h1ZS1fYHMCAgBuKX13jBvMowaK1'],
+            ['TABACO CLARO BARSA', '1MdGLIMP-TdIyuqUgCpflwO7K_8SXUA4V'],
+            ['TACUBA ARTEX', '1z6v5DsNBTui5-tqj8u17sj8H_bVRcnkm'],
+            ['TECA ENTINTADO SKANOR', '1ZnbTMhNvEKRLDst1qnvJD-gunLHeHlaF'],
+            ['TECA SKANOR', '1V-79ezpoTDDAd8cDwzp89lfoSMJoN9Ox'],
+            ['TZALAM BARSA', '1Ssl8rC2jS1geqEG_monA6EzjZ_1XNC-_'],
+            ['TZALAM CHAVOYA', '1GcCznfI3-X62IiV1Cz1wnE5H2hAuGZ7i']
+        ];
+        const map = {};
+        for (let i = 0; i < pairs.length; i++) {
+            const name = pairs[i][0];
+            const fid = pairs[i][1];
+            const key = compactVisualOverrideKey('VWOD:', name);
+            if (!key) continue;
+            map[key] = {
+                sku: key,
+                status: 'VISIBLE',
+                name: name,
+                category: 'WOOD_SWATCH',
+                note: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing'
+            };
+        }
+        return map;
+    })();
+
+    const WOOD_SPECIES_CORE_RE = /\b(ROSA\s+MORADA|PAROTA|TZALAM|NOGAL|TECA|ENCINO|ROBLE|CEDRO|PINO|CAOBA|FRESNO|HAYA|OKUME|MAPLE|ABEDUL|PALO\s+DE\s+ROSA|MADERA|CHAPA|MELAMINA|MDF|TRIPLAY|ALAMO|BANAK|PRIMAVERA|CEREZO|EBANO|WENGUE|BAMBU)\b/i;
+    const WOOD_FINISH_NAME_RE = /\b(TABACO|TACUBA|BELLOTA|ESPIGA|HABANO|CAMEL|GINGER|NOCHE|NUEZ)\b/i;
+    const WOOD_PROVIDER_RE = /\b(BARSA|YOI|SKANOR|CHAVOYA|ARTEX|ATX|ARTC|KASAM|MOBEL\s+INN|BLOQUEART|CASA\s+AURA|REVICA|VANGARDI|LUX\s+FACTOR[IY]|LUIS\s+PEDRO|MR\s+FURNITURE)\b/i;
+    const WOOD_DESCRIPTOR_ALLOWED_TOKENS = new Set([
+        'ROSA', 'MORADA', 'PAROTA', 'TZALAM', 'NOGAL', 'TECA', 'ENCINO', 'ROBLE', 'CEDRO', 'PINO',
+        'CAOBA', 'FRESNO', 'HAYA', 'OKUME', 'MAPLE', 'ABEDUL', 'PALO', 'TABACO', 'TACUBA', 'BELLOTA',
+        'ESPIGA', 'HABANO', 'MADERA', 'CHAPA', 'MELAMINA', 'MDF', 'TRIPLAY', 'ALAMO', 'BANAK',
+        'PRIMAVERA', 'CEREZO', 'EBANO', 'WENGUE', 'BAMBU', 'CAMEL', 'GINGER', 'NOCHE', 'NUEZ',
+        'TONO', 'NATURAL', 'CLARO', 'CLARA', 'OSCURO', 'OSCURA', 'MATE', 'SEMI', 'BRILLANTE',
+        'SATIN', 'SATINADO', 'SATINADA', 'ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'BLANCO',
+        'BLANCA', 'NEGRO', 'NEGRA', 'CAFE', 'CHOCOLATE', 'MIEL', 'AHUMADO', 'AHUMADA', 'NOGALADO',
+        'AVELLANA', 'CARAMELO', 'CENIZA', 'GRIS', 'BEIGE', 'DORADO', 'LACA', 'BARNIZ', 'ACABADO',
+        'CEPILLADO', 'RUSTICO', 'RUSTICA', 'SOLIDA', 'SOLIDO', 'MACIZA', 'MACIZO', 'EN', 'CON',
+        'SIN', 'DE', 'AL', 'DEL', 'LA', 'EL', 'Y', 'BASE', 'PATAS', 'CUBIERTA',
+        'BARSA', 'YOI', 'SKANOR', 'CHAVOYA', 'ARTEX', 'ATX', 'ARTC', 'KASAM', 'MOBEL', 'INN',
+        'BLOQUEART', 'CASA', 'AURA', 'REVICA', 'VANGARDI', 'LUX', 'FACTORI', 'FACTORY', 'LUIS',
+        'PEDRO', 'MR', 'FURNITURE', 'HAKO', 'KAI', 'CREATA', 'MOBA', 'MONTE'
+    ]);
+
+    function isPureWoodDescriptor(rawText) {
+        const norm = plainModelToken(rawText);
+        if (!norm) return false;
+        const hasCoreWood = WOOD_SPECIES_CORE_RE.test(norm) || (WOOD_FINISH_NAME_RE.test(norm) && WOOD_PROVIDER_RE.test(norm));
+        if (!hasCoreWood) return false;
+        const toks = norm.split(/\s+/).filter(Boolean);
+        if (!toks.length) return false;
+        for (let i = 0; i < toks.length; i++) {
+            if (!WOOD_DESCRIPTOR_ALLOWED_TOKENS.has(toks[i])) return false;
+        }
+        return true;
+    }
+
+    function isWoodOnlyProductForFabricGuard(it) {
+        if (!it) return false;
+        const hasFabricCols = Boolean(cleanStr(it.tl) || cleanStr(it.ct));
+        if (hasFabricCols) return false;
+        const catNorm = plainModelToken(it.c);
+        const typeNameNorm = plainModelToken(cleanStr(it.tp) + ' ' + cleanStr(it.n));
+        const hasUpholsteredHint = /\b(SILLA|SILLON|SOFA|SALA|LOVESEAT|LOVE\s+SEAT|MODULAR|CHAISE|COJIN|COJINES|CABECERA|CAMA|BANCO|TABURETE|PERIQUERA|POUF|PUF|OTTOMAN|OTOMAN|CAMASTRO|TAPIZ|TELA|PIEL|LINO|BOUCLE|VELVET|TERCIOPELO|CHENILLE|RECLINABLE|POLTRONA|BUTACA)\b/i.test(typeNameNorm);
+        if (hasUpholsteredHint) return false;
+        if (catNorm === 'MESAS' || catNorm === 'MESAS DE CENTRO LATERALES' || catNorm === 'BUFETERAS CREDENZAS') return true;
+        return /\b(MESA|COMEDOR|CREDENZA|BUFETERA|BURO|CONSOLA|ESCRITORIO|LIBRERO|MUEBLE\s+TV|PEDESTAL|BASE|CUBIERTA|ESPEJO|CUADRO|CAJONERA|COMODA|TOCADOR|VITRINA|CANTINA|BARRA|PERCHERO|REPISA)\b/i.test(typeNameNorm);
+    }
+
     function getVisualOverridePhotoUrl(overrideKey) {
         const k = String(overrideKey || '').trim().toUpperCase();
-        if (!k || !invProductOverridesMap || typeof invProductOverridesMap !== 'object') return '';
-        const ovr = invProductOverridesMap[k];
-        if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') return '';
-        return sanitizeVisualOverrideUrl(cleanStr(ovr.note));
+        if (!k) return '';
+        if (invProductOverridesMap && typeof invProductOverridesMap === 'object' && Object.prototype.hasOwnProperty.call(invProductOverridesMap, k)) {
+            const ovr = invProductOverridesMap[k];
+            if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') return '';
+            return sanitizeVisualOverrideUrl(cleanStr(ovr.note));
+        }
+        if (k.indexOf('VWOD:') === 0 && DEFAULT_WOOD_SWATCHES_CATALOG[k]) {
+            return sanitizeVisualOverrideUrl(cleanStr(DEFAULT_WOOD_SWATCHES_CATALOG[k].note));
+        }
+        return '';
     }
 
     function getGroupVisualCoverPhotoUrl(groupKey) {
@@ -2883,8 +2991,10 @@
     }
 
     function matchFabricTextAgainstUploadedSwatches(rawCandidateText) {
+        if (isPureWoodDescriptor(rawCandidateText)) return null;
         const rawNorm = canonicalizeFabricAliases(plainModelToken(rawCandidateText));
         let cleanCand = normalizeFabricLookupKey(rawCandidateText) || rawNorm;
+        if (isPureWoodDescriptor(cleanCand)) return null;
         const rawToks = rawNorm.split(/\s+/).filter(t => t.length >= 2);
         const cleanToks = cleanCand.split(/\s+/).filter(t => t.length >= 2);
         if (cleanToks.length === 1 && VFAB_GENERIC_SINGLE_TOKENS.has(cleanToks[0]) && rawToks.length >= 2) {
@@ -2934,7 +3044,8 @@
         }
 
         // 4) Candidate is a specific multi-word fabric name contained within an uploaded fabric name
-        if (candTokens.length >= 2) {
+        // Guardia anti-falso positivo: nunca emparejar si todos los tokens del candidato son de madera/acabado/genéricos
+        if (candTokens.length >= 2 && !candTokens.every(tok => WOOD_DESCRIPTOR_ALLOWED_TOKENS.has(tok) || VFAB_GENERIC_SINGLE_TOKENS.has(tok))) {
             for (let i = 0; i < entries.length; i++) {
                 const e = entries[i];
                 const eSet = new Set(e.tokens);
@@ -2948,10 +3059,11 @@
     }
 
     function getFabricSwatchPhotoUrl(fabricKey, itemOpt) {
+        if (isPureWoodDescriptor(fabricKey)) return '';
         const directUrl = getVisualOverridePhotoUrl(buildFabricSwatchOverrideKey(fabricKey));
         if (directUrl) return directUrl;
         const canonKey = normalizeFabricLookupKey(fabricKey);
-        if (canonKey) {
+        if (canonKey && !isPureWoodDescriptor(canonKey)) {
             const canonUrl = getVisualOverridePhotoUrl(buildFabricSwatchOverrideKey(canonKey));
             if (canonUrl) return canonUrl;
         }
@@ -2966,6 +3078,7 @@
 
     function findMatchingFabricSwatchForItem(it, groupObj) {
         if (!it) return null;
+        if (isWoodOnlyProductForFabricGuard(it)) return null;
         const entries = getUploadedFabricSwatchEntries();
         if (!entries.length) return null;
 
@@ -2980,16 +3093,18 @@
         if (tl && prov && plainModelToken(tl) === 'PIEL') {
             candidates.push('PIEL ' + prov);
         }
-        if (combinedTlCt) candidates.push(combinedTlCt);
-        if (tl && tl !== combinedTlCt) candidates.push(tl);
+        if (combinedTlCt && !isPureWoodDescriptor(combinedTlCt)) candidates.push(combinedTlCt);
+        if (tl && tl !== combinedTlCt && !isPureWoodDescriptor(tl)) candidates.push(tl);
         if (cleanStr(it.vr)) {
             const vrParts = String(it.vr).split(/\s*[·|\/]\s*/).map(cleanStr).filter(Boolean);
-            for (let i = 0; i < vrParts.length; i++) candidates.push(vrParts[i]);
-            candidates.push(cleanStr(it.vr));
+            for (let i = 0; i < vrParts.length; i++) {
+                if (!isPureWoodDescriptor(vrParts[i])) candidates.push(vrParts[i]);
+            }
+            if (!isPureWoodDescriptor(it.vr)) candidates.push(cleanStr(it.vr));
         }
-        if (ct && ct !== combinedTlCt) candidates.push(ct);
+        if (ct && ct !== combinedTlCt && !isPureWoodDescriptor(ct)) candidates.push(ct);
         const resolvedFab = resolveItemFabricVariation(it, groupObj || null);
-        if (resolvedFab && resolvedFab.key && resolvedFab.key !== 'ESTANDAR') {
+        if (resolvedFab && resolvedFab.key && resolvedFab.key !== 'ESTANDAR' && !isPureWoodDescriptor(resolvedFab.key)) {
             candidates.push(resolvedFab.key);
         }
 
@@ -3008,10 +3123,271 @@
             const nameSet = new Set(nameNorm.split(/\s+/).filter(Boolean));
             for (let i = 0; i < entries.length; i++) {
                 const e = entries[i];
+                if (isPureWoodDescriptor(e.normName)) continue;
                 if (e.tokens.length < 2 && (e.tokens[0].length < 5 || VFAB_GENERIC_SINGLE_TOKENS.has(e.tokens[0]))) continue;
                 if (e.tokens.every(tok => nameSet.has(tok))) {
                     return { overrideKey: e.overrideKey, label: e.label, url: e.url };
                 }
+            }
+        }
+        return null;
+    }
+
+    // ------------------------------------------------------------------------
+    // MUESTRAS DE MADERA (VWOD:) — Pre-cargadas de Drive MADERAS + Overrides en vivo
+    // ------------------------------------------------------------------------
+    let _vwodIndexMapRef = null;
+    let _vwodIndexEntries = [];
+    const NON_WOOD_MATERIAL_ONLY_RE = /^(MARMOL|MARBOL|TRAVERTINO|ONIX|PIEDRA|GRANITO|CUARZO|CRISTAL|VIDRIO|ESPEJO|METAL|ACERO|ALUMINIO|HIERRO|HERRERIA|LATON|BRONCE|COBRE|CERAMICA|PORCELANA|PORCELANATO|RESINA|PLASTICO|POLIPROPILENO|RATAN|RATTAN|MIMBRE|CUERDA|SOGA|FIBRA|CONCRETO|CEMENTO|N\/A|NA|NO APLICA|NINGUNA|NINGUNO|SIN MADERA|-)$/i;
+    const WOOD_FILLER_TOKENS = new Set(['MADERA', 'DE', 'EN', 'CON', 'TONO', 'NATURAL', 'ACABADO', 'LACA', 'BARNIZ', 'BASE', 'PATAS', 'CUBIERTA', 'SOLIDA', 'SOLIDO', 'MACIZA', 'MACIZO', 'CHAPA', 'LAMINADO', 'LAMINADA', 'ENCHAPADO', 'ENCHAPADA']);
+    const WOOD_SPECIAL_FINISH_TOKENS = new Set(['ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'CLARA', 'CLARO', 'OSCURO', 'OSCURA']);
+
+    function expandWoodProviderAliases(provRaw) {
+        const p = plainModelToken(provRaw);
+        if (!p) return [];
+        const out = new Set(p.split(/\s+/).filter(t => t.length >= 2));
+        if (p.indexOf('ARTEX') !== -1 || p === 'ATX' || p === 'ARTC') {
+            out.add('ARTEX');
+            out.add('ATX');
+            out.add('ARTC');
+        }
+        if (p.indexOf('LUX') !== -1) {
+            out.add('LUX');
+            out.add('FACTORI');
+            out.add('FACTORY');
+        }
+        if (p.indexOf('MOBEL') !== -1) {
+            out.add('MOBEL');
+            out.add('INN');
+        }
+        return Array.from(out);
+    }
+
+    function normalizeWoodCanonicalText(raw) {
+        return plainModelToken(raw)
+            .replace(/\bFACTORY\b/g, 'FACTORI')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function getUploadedWoodSwatchEntries() {
+        if (_vwodIndexMapRef === invProductOverridesMap && _vwodIndexEntries.length > 0) {
+            return _vwodIndexEntries;
+        }
+        const mergedByKey = new Map();
+        const defKeys = Object.keys(DEFAULT_WOOD_SWATCHES_CATALOG);
+        for (let i = 0; i < defKeys.length; i++) {
+            const k = defKeys[i];
+            const ovr = (invProductOverridesMap && Object.prototype.hasOwnProperty.call(invProductOverridesMap, k))
+                ? invProductOverridesMap[k]
+                : null;
+            if (ovr && (ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO')) continue;
+            const effective = (ovr && sanitizeVisualOverrideUrl(cleanStr(ovr.note))) ? ovr : DEFAULT_WOOD_SWATCHES_CATALOG[k];
+            mergedByKey.set(k, { ovr: effective, isDefault: !ovr });
+        }
+        if (invProductOverridesMap && typeof invProductOverridesMap === 'object') {
+            const ovKeys = Object.keys(invProductOverridesMap);
+            for (let i = 0; i < ovKeys.length; i++) {
+                const k = String(ovKeys[i] || '').trim().toUpperCase();
+                if (k.indexOf('VWOD:') !== 0 || mergedByKey.has(k)) continue;
+                const ovr = invProductOverridesMap[k];
+                if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') continue;
+                const url = sanitizeVisualOverrideUrl(cleanStr(ovr.note));
+                if (!url) continue;
+                mergedByKey.set(k, { ovr: ovr, isDefault: false });
+            }
+        }
+        const entries = [];
+        mergedByKey.forEach((meta, k) => {
+            const ovr = meta.ovr;
+            const url = sanitizeVisualOverrideUrl(cleanStr(ovr.note));
+            if (!url) return;
+            const rawLabel = cleanStr(ovr.name) || k.slice(5);
+            const normName = normalizeWoodCanonicalText(rawLabel);
+            const tokens = normName.split(/\s+/).filter(t => t.length >= 2);
+            if (!normName || !tokens.length) return;
+            const coreTokens = tokens.filter(t => !WOOD_FILLER_TOKENS.has(t));
+            entries.push({
+                overrideKey: k,
+                label: rawLabel.toUpperCase(),
+                normName: normName,
+                tokens: tokens,
+                tokenSet: new Set(tokens),
+                coreTokens: coreTokens.length ? coreTokens : tokens,
+                sortedSig: tokens.slice().sort().join(' '),
+                url: url,
+                isDefault: meta.isDefault
+            });
+        });
+        entries.sort((a, b) => (a.isDefault === b.isDefault ? 0 : (a.isDefault ? 1 : -1)) || (b.tokens.length - a.tokens.length) || a.label.localeCompare(b.label));
+        _vwodIndexMapRef = invProductOverridesMap;
+        _vwodIndexEntries = entries;
+        return entries;
+    }
+
+    function matchWoodTextAgainstUploadedSwatches(rawCandidateText, provHint) {
+        const cleanRaw = cleanStr(rawCandidateText);
+        if (!cleanRaw || NON_WOOD_MATERIAL_ONLY_RE.test(plainModelToken(cleanRaw))) return null;
+        const normCand = normalizeWoodCanonicalText(cleanRaw);
+        if (!normCand || normCand === 'ESTANDAR' || normCand === 'MADERA' || normCand === 'NATURAL' || normCand === 'TONO NATURAL') return null;
+
+        const provAliases = expandWoodProviderAliases(provHint);
+        const provNorm = plainModelToken(provHint);
+
+        // 1) Coincidencia directa por clave VWOD: (primero con proveedor si existe, luego directa)
+        const directTries = [];
+        if (provNorm && normCand.indexOf(provNorm) === -1) {
+            directTries.push(normCand + ' ' + provNorm);
+        }
+        directTries.push(cleanRaw, normCand);
+        for (let d = 0; d < directTries.length; d++) {
+            const dKey = buildWoodSwatchOverrideKey(directTries[d]);
+            if (!dKey) continue;
+            const dUrl = getVisualOverridePhotoUrl(dKey);
+            if (dUrl) {
+                const ovr = (invProductOverridesMap && invProductOverridesMap[dKey]) || DEFAULT_WOOD_SWATCHES_CATALOG[dKey];
+                return {
+                    overrideKey: dKey,
+                    label: cleanStr(ovr && ovr.name) ? cleanStr(ovr.name).toUpperCase() : normCand,
+                    url: dUrl
+                };
+            }
+        }
+
+        const entries = getUploadedWoodSwatchEntries();
+        if (!entries.length) return null;
+
+        const candTokens = normCand.split(/\s+/).filter(t => t.length >= 2);
+        const coreCandTokens = candTokens.filter(t => !WOOD_FILLER_TOKENS.has(t));
+        if (!coreCandTokens.length) return null;
+        const nonProvCoreTokens = coreCandTokens.filter(t => !provAliases.includes(t) && !WOOD_PROVIDER_RE.test(t));
+        if (!nonProvCoreTokens.length) return null;
+        const candSet = new Set(candTokens);
+        const candSortedSig = candTokens.slice().sort().join(' ');
+        const candWantsSpecial = candTokens.some(t => WOOD_SPECIAL_FINISH_TOKENS.has(t));
+
+        // 2) Igualdad exacta por nombre normalizado o conjunto de tokens (ej. "ROSA MORADA BARSA")
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            if (e.normName === normCand || e.sortedSig === candSortedSig) {
+                return { overrideKey: e.overrideKey, label: e.label, url: e.url };
+            }
+        }
+
+        // 3) Todos los tokens de la muestra están contenidos en el candidato (ej. candidato "ROSA MORADA BARSA NATURAL" -> "ROSA MORADA BARSA")
+        const subsetOfCand = [];
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            if (e.tokens.every(tok => candSet.has(tok))) {
+                subsetOfCand.push(e);
+            }
+        }
+        if (subsetOfCand.length) {
+            subsetOfCand.sort((a, b) => {
+                const aProv = provAliases.some(p => a.tokenSet.has(p)) ? 0 : 1;
+                const bProv = provAliases.some(p => b.tokenSet.has(p)) ? 0 : 1;
+                if (aProv !== bProv) return aProv - bProv;
+                return b.tokens.length - a.tokens.length;
+            });
+            const best = subsetOfCand[0];
+            return { overrideKey: best.overrideKey, label: best.label, url: best.url };
+        }
+
+        // 4) Todos los tokens núcleo del candidato están contenidos en la muestra (con prioridad de proveedor y acabado estándar)
+        const matchingEntries = [];
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            if (coreCandTokens.every(tok => e.tokenSet.has(tok))) {
+                matchingEntries.push(e);
+            }
+        }
+        if (matchingEntries.length) {
+            matchingEntries.sort((a, b) => {
+                const aProv = provAliases.length && provAliases.some(p => a.tokenSet.has(p)) ? 0 : 1;
+                const bProv = provAliases.length && provAliases.some(p => b.tokenSet.has(p)) ? 0 : 1;
+                if (aProv !== bProv) return aProv - bProv;
+                const aHasSpecial = a.tokens.some(t => WOOD_SPECIAL_FINISH_TOKENS.has(t));
+                const bHasSpecial = b.tokens.some(t => WOOD_SPECIAL_FINISH_TOKENS.has(t));
+                const aSpecPenalty = (!candWantsSpecial && aHasSpecial) ? 1 : 0;
+                const bSpecPenalty = (!candWantsSpecial && bHasSpecial) ? 1 : 0;
+                if (aSpecPenalty !== bSpecPenalty) return aSpecPenalty - bSpecPenalty;
+                return (a.isDefault === b.isDefault ? 0 : (a.isDefault ? 1 : -1)) || (a.tokens.length - b.tokens.length);
+            });
+            const best = matchingEntries[0];
+            return { overrideKey: best.overrideKey, label: best.label, url: best.url };
+        }
+
+        // 5) Si el candidato tenía proveedor no presente en la muestra (ej. "PAROTA HAKO"), reintentar solo especie
+        if (coreCandTokens.length >= 2) {
+            const speciesOnly = coreCandTokens.filter(t => !provAliases.includes(t) && !WOOD_PROVIDER_RE.test(t));
+            if (speciesOnly.length > 0 && speciesOnly.length < coreCandTokens.length) {
+                return matchWoodTextAgainstUploadedSwatches(speciesOnly.join(' '), provHint);
+            }
+        }
+
+        return null;
+    }
+
+    function getWoodSwatchPhotoUrl(woodKey, itemOpt) {
+        const prov = itemOpt ? cleanStr(itemOpt.p) : '';
+        const directUrl = getVisualOverridePhotoUrl(buildWoodSwatchOverrideKey(woodKey));
+        if (directUrl) return directUrl;
+        const matched = matchWoodTextAgainstUploadedSwatches(woodKey, prov);
+        if (matched && matched.url) return matched.url;
+        if (itemOpt) {
+            const fromItem = findMatchingWoodSwatchForItem(itemOpt, null);
+            if (fromItem && fromItem.url) return fromItem.url;
+        }
+        return '';
+    }
+
+    function findMatchingWoodSwatchForItem(it, groupObj) {
+        if (!it) return null;
+        const md = cleanStr(it.md);
+        const cm = cleanStr(it.cm);
+        const prov = cleanStr(it.p);
+        const mdNorm = plainModelToken(md);
+        const cmNorm = plainModelToken(cm);
+        if (mdNorm && NON_WOOD_MATERIAL_ONLY_RE.test(mdNorm) && (!cmNorm || NON_WOOD_MATERIAL_ONLY_RE.test(cmNorm))) {
+            return null;
+        }
+
+        const candidates = [];
+        if (cm && !NON_WOOD_MATERIAL_ONLY_RE.test(cmNorm)) {
+            if (prov && cmNorm.indexOf(plainModelToken(prov)) === -1) candidates.push(cm + ' ' + prov);
+            candidates.push(cm);
+        }
+        if (md && cm && !NON_WOOD_MATERIAL_ONLY_RE.test(mdNorm) && !NON_WOOD_MATERIAL_ONLY_RE.test(cmNorm) && cmNorm.indexOf(mdNorm) === -1) {
+            candidates.push(md + ' ' + cm);
+        }
+        if (md && !NON_WOOD_MATERIAL_ONLY_RE.test(mdNorm)) {
+            if (prov && mdNorm.indexOf(plainModelToken(prov)) === -1) candidates.push(md + ' ' + prov);
+            candidates.push(md);
+        }
+        if (cleanStr(it.vr)) {
+            const vrParts = String(it.vr).split(/\s*[·|\/]\s*/).map(cleanStr).filter(Boolean);
+            for (let i = 0; i < vrParts.length; i++) {
+                if (isPureWoodDescriptor(vrParts[i])) candidates.push(vrParts[i]);
+            }
+            if (isPureWoodDescriptor(it.vr)) candidates.push(cleanStr(it.vr));
+        }
+
+        const tried = new Set();
+        for (let i = 0; i < candidates.length; i++) {
+            const c = cleanStr(candidates[i]);
+            if (!c || tried.has(c)) continue;
+            tried.add(c);
+            const hit = matchWoodTextAgainstUploadedSwatches(c, prov);
+            if (hit && hit.url) return hit;
+        }
+
+        // Respaldo conservador: si no venían columnas MADERA/COLOR MADERA, buscar únicamente especies inequívocas en el nombre
+        if (!md && !cm && cleanStr(it.n)) {
+            const nameNorm = plainModelToken(stripDimensionsFromProductText(it.n));
+            const spMatch = nameNorm.match(/\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|ENCINO|ROBLE)\b/i);
+            if (spMatch && spMatch[1]) {
+                const hit = matchWoodTextAgainstUploadedSwatches(spMatch[1], prov);
+                if (hit && hit.url) return hit;
             }
         }
         return null;
@@ -4173,7 +4549,7 @@
             if (!skuKey) continue;
             it._cat = resolveItemSubcategory(it, resolveItemCategory(it));
             it._main = MAIN_OF_SUB[it._cat] || 'ESPEJOS Y ACCESORIOS';
-            if (!it._avail) continue;
+            if (!it._avail || !isQuotableItem(it)) continue;
 
             const pairMoKey = extractPlainModelKeyForPairing(it);
             if (!pairMoKey) continue;
@@ -4267,9 +4643,9 @@
             bySkuMap.set(skuKey, it);
 
             // Cotizador: solo se muestran piezas con al menos 1 pz en Bodega/Piso
-            // o piezas de LPPT con registro y precio en S Mueblería. El resto queda
-            // oculto (sigue en bySkuMap para conservar partidas previas).
-            if (!it._avail) continue;
+            // o piezas de LPPT con registro y precio en S Mueblería (excluyendo ARCHIVADO/ELIMINADO).
+            // El resto queda oculto (sigue en bySkuMap para conservar partidas previas).
+            if (!it._avail || !isQuotableItem(it)) continue;
 
             // Vista separada pieza por pieza para CATEGORÍAS
             const singleEntry = buildSinglePieceCoverGroup(it, skuKey, title);
@@ -4580,7 +4956,7 @@
     let activeSubCategory = 'ALL';
 
     function itemMatchesActiveFilter(it, cat, sub) {
-        if (!it || !it._avail) return false;
+        if (!it || !it._avail || !isQuotableItem(it)) return false;
         if (!cat || cat === 'ALL') return true;
         if (cat === 'STOCK') {
             if (getBodegaPisoStock(it) < 1) return false;
@@ -6100,17 +6476,19 @@
                             if (fb.items && fb.items.length === 1 && sampleIt && sampleIt.s) {
                                 currentGroupFabricSingleSkuMap.set(fb.key, sampleIt.s);
                             }
-                            const swatchUrl = fb.isWood ? '' : getFabricSwatchPhotoUrl(fb.key, sampleIt);
+                            const swatchUrl = fb.isWood ? getWoodSwatchPhotoUrl(fb.key, sampleIt) : getFabricSwatchPhotoUrl(fb.key, sampleIt);
                             const swatchSrc = swatchUrl ? resolveVisualImgSrc(swatchUrl, 600) : '';
                             const swatchFid = swatchUrl ? extractDriveFileId(swatchUrl) : '';
                             const pzCountTxt = fb.items.length === 1 ? '1 pieza disponible' : (fb.items.length + ' piezas disponibles');
-                            const subMeta = fb.colorHint ? (fb.colorHint + ' · ' + pzCountTxt) : (fb.isWood ? ('Madera · ' + pzCountTxt) : pzCountTxt);
+                            const subMeta = fb.colorHint ? (fb.colorHint + ' · ' + pzCountTxt) : (fb.isWood ? ('🪵 Acabado Madera · ' + pzCountTxt) : pzCountTxt);
+                            const zoomTitle = fb.isWood ? 'Ampliar foto de madera' : 'Ampliar foto de tela';
+                            const zoomPrefix = fb.isWood ? 'Madera · ' : 'Tela · ';
 
                             const stageInner = swatchSrc
                                 ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
                                    (swatchFid ? (' data-fid="' + escapeHtml(swatchFid) + '"') : '') +
                                    ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
-                                   '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + fb.label) + '" title="Ampliar foto de tela" aria-label="Ampliar foto de tela">🔍</button>')
+                                   '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml(zoomPrefix + fb.label) + '" title="' + zoomTitle + '" aria-label="' + zoomTitle + '">🔍</button>')
                                 : (fb.isWood
                                     ? '<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🪵</span><span>Acabado Madera</span></div>'
                                     : '<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🧵</span><span>Tela / Color</span></div>');
@@ -6155,19 +6533,21 @@
                         }
 
                         const sampleSelIt = (selectedFb.items && selectedFb.items[0] && selectedFb.items[0].it) || null;
-                        const swatchUrl = selectedFb.isWood ? '' : getFabricSwatchPhotoUrl(selectedFb.key, sampleSelIt);
+                        const swatchUrl = selectedFb.isWood ? getWoodSwatchPhotoUrl(selectedFb.key, sampleSelIt) : getFabricSwatchPhotoUrl(selectedFb.key, sampleSelIt);
                         const swatchThumb = swatchUrl ? resolveVisualImgSrc(swatchUrl, 160) : '';
                         const swatchSelFid = swatchUrl ? extractDriveFileId(swatchUrl) : '';
                         const pzCountTxt = selectedFb.items.length === 1 ? '1 pieza disponible' : (selectedFb.items.length + ' piezas disponibles');
-                        const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + pzCountTxt) : (selectedFb.isWood ? ('Acabado Madera · ' + pzCountTxt) : pzCountTxt);
+                        const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + pzCountTxt) : (selectedFb.isWood ? ('🪵 Acabado Madera · ' + pzCountTxt) : pzCountTxt);
                         const swatchInner = swatchThumb
                             ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
                               (swatchSelFid ? (' data-fid="' + escapeHtml(swatchSelFid) + '"') : '') +
                               ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">'
                             : '<span aria-hidden="true">' + (selectedFb.isWood ? '🪵' : '🧵') + '</span>';
                         const swatchClasses = 'inv-fabric-swatch' + (swatchThumb ? '' : ' is-empty is-readonly');
+                        const selZoomPrefix = selectedFb.isWood ? 'Madera · ' : 'Tela · ';
+                        const selZoomTitle = selectedFb.isWood ? 'Ver foto de la madera' : 'Ver foto de la tela';
                         const swatchAttrs = swatchUrl
-                            ? (' data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + selectedFb.label) + '" title="Ver foto de la tela"')
+                            ? (' data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml(selZoomPrefix + selectedFb.label) + '" title="' + selZoomTitle + '"')
                             : ' disabled';
                         let backBtnHtml = '';
                         if (hasMultiColorsInSize) {
@@ -6731,17 +7111,18 @@
         document.getElementById('detTotalStock').textContent = String(totalBodegaPiso);
         document.getElementById('detWarehousesGrid').innerHTML = whHtml.join('');
 
-        // Ficha de información limpia + muestra automática de tela si ya existe subida en Telas (VFAB:)
+        // Ficha de información limpia + muestras automáticas de Tela (VFAB:) y Madera (VWOD:)
         const specsWrap = document.getElementById('detSpecsWrap');
         const specsGrid = document.getElementById('detSpecsGrid');
         const specRows = buildCleanProductSpecRows(it);
         const matchedDetailFabric = findMatchingFabricSwatchForItem(it, currentGroup);
+        const matchedDetailWood = findMatchingWoodSwatchForItem(it, currentGroup);
         if (specsGrid) {
-            let fabricCardHtml = '';
+            let swatchCardsHtml = '';
             if (matchedDetailFabric && matchedDetailFabric.url) {
                 const fabThumb = resolveVisualImgSrc(matchedDetailFabric.url, 180);
                 const fabFid = extractDriveFileId(matchedDetailFabric.url);
-                fabricCardHtml =
+                swatchCardsHtml +=
                     '<button type="button" class="inv-det-fabric-swatch-card inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailFabric.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedDetailFabric.label) + '" title="Toca para ampliar la tela">' +
                         '<span class="inv-det-fabric-swatch-img-wrap">' +
                             '<img src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedDetailFabric.label) + '" loading="eager" decoding="async" referrerpolicy="no-referrer"' +
@@ -6755,24 +7136,43 @@
                         '<span class="inv-det-fabric-swatch-zoom">🔍 Ver</span>' +
                     '</button>';
             }
-            specsGrid.innerHTML = fabricCardHtml + specRows.map(r =>
+            if (matchedDetailWood && matchedDetailWood.url) {
+                const woodThumb = resolveVisualImgSrc(matchedDetailWood.url, 180);
+                const woodFid = extractDriveFileId(matchedDetailWood.url);
+                swatchCardsHtml +=
+                    '<button type="button" class="inv-det-fabric-swatch-card is-wood inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailWood.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Madera · ' + matchedDetailWood.label) + '" title="Toca para ampliar la madera">' +
+                        '<span class="inv-det-fabric-swatch-img-wrap">' +
+                            '<img src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedDetailWood.label) + '" loading="eager" decoding="async" referrerpolicy="no-referrer"' +
+                            (woodFid ? (' data-fid="' + escapeHtml(woodFid) + '"') : '') +
+                            ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
+                        '</span>' +
+                        '<span class="inv-det-fabric-swatch-meta">' +
+                            '<span class="inv-det-fabric-swatch-tag">🪵 Madera</span>' +
+                            '<span class="inv-det-fabric-swatch-name">' + escapeHtml(matchedDetailWood.label) + '</span>' +
+                        '</span>' +
+                        '<span class="inv-det-fabric-swatch-zoom">🔍 Ver</span>' +
+                    '</button>';
+            }
+            specsGrid.innerHTML = swatchCardsHtml + specRows.map(r =>
                 '<div class="inv-det-info-btn" style="border-color:#E8E4DE; background:#FAF9F6; color:#252C32;">' +
                     '<span class="inv-det-info-lbl" style="opacity:0.75;">' + escapeHtml(r[0]) + ':</span>' +
                     '<span class="inv-det-info-val">' + escapeHtml(r[1]) + '</span>' +
                 '</div>'
             ).join('');
-            const fabBtn = specsGrid.querySelector('[data-det-fabric-zoom-url]');
-            if (fabBtn) {
-                fabBtn.onclick = function (ev) {
-                    if (ev && ev.stopPropagation) ev.stopPropagation();
-                    openVisualPhotoLightbox(
-                        fabBtn.getAttribute('data-det-fabric-zoom-url') || '',
-                        fabBtn.getAttribute('data-det-fabric-zoom-label') || 'Tela'
-                    );
-                };
+            const zoomBtns = specsGrid.querySelectorAll('[data-det-fabric-zoom-url]');
+            if (zoomBtns && zoomBtns.length) {
+                zoomBtns.forEach(function (swatchBtn) {
+                    swatchBtn.onclick = function (ev) {
+                        if (ev && ev.stopPropagation) ev.stopPropagation();
+                        openVisualPhotoLightbox(
+                            swatchBtn.getAttribute('data-det-fabric-zoom-url') || '',
+                            swatchBtn.getAttribute('data-det-fabric-zoom-label') || 'Muestra'
+                        );
+                    };
+                });
             }
         }
-        if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0 && !matchedDetailFabric);
+        if (specsWrap) specsWrap.classList.toggle('hidden', specRows.length === 0 && !matchedDetailFabric && !matchedDetailWood);
 
         prepareRelatedInStockSection(it, sameSkuRefresh ? relatedStockExpanded : false);
         if (typeof notifyInvSplitFotosOfSku === 'function' && it && it.s) {
@@ -9604,11 +10004,25 @@
             if (hbRes && hbRes.renewedAuthToken) {
                 persistRenewedInvAuthToken(s, hbRes.renewedAuthToken);
             }
-            if (hbRes && hbRes.ok && hbRes.adminPermissions && typeof hbRes.adminPermissions === 'object' && activeAdvisorSession && !isGuestSession()) {
-                const prevJson = JSON.stringify(activeAdvisorSession.adminPermissions || null);
-                const nextJson = JSON.stringify(hbRes.adminPermissions);
-                if (prevJson !== nextJson) {
-                    activeAdvisorSession.adminPermissions = hbRes.adminPermissions;
+            if (hbRes && hbRes.ok && activeAdvisorSession && !isGuestSession()) {
+                let permsChanged = false;
+                if (hbRes.adminPermissions && typeof hbRes.adminPermissions === 'object') {
+                    const prevJson = JSON.stringify(activeAdvisorSession.adminPermissions || null);
+                    const nextJson = JSON.stringify(hbRes.adminPermissions);
+                    if (prevJson !== nextJson) {
+                        activeAdvisorSession.adminPermissions = hbRes.adminPermissions;
+                        permsChanged = true;
+                    }
+                }
+                if (hbRes.userPermissions && typeof hbRes.userPermissions === 'object') {
+                    const prevUserJson = JSON.stringify(activeAdvisorSession.userPermissions || null);
+                    const nextUserJson = JSON.stringify(hbRes.userPermissions);
+                    if (prevUserJson !== nextUserJson) {
+                        activeAdvisorSession.userPermissions = hbRes.userPermissions;
+                        permsChanged = true;
+                    }
+                }
+                if (permsChanged) {
                     saveAdvisorSession(activeAdvisorSession);
                     renderAdvisorHeaderBar();
                     if (typeof renderSettingsRoleAndSections === 'function') renderSettingsRoleAndSections();
@@ -9812,7 +10226,7 @@
             openAuthModalForStartup();
             return;
         }
-        if (isGuestSession() || !isFotosAppOwner()) return;
+        if (isGuestSession() || !isEffectiveAdminSession() || !hasAdminPerm('historial')) return;
         window.closeFabMenu();
         closeProductDetail();
         closeCartModal();
@@ -10900,6 +11314,15 @@
             if (Array.isArray(u.branchAdvisorEmails)) {
                 locObj.branchAdvisorEmails = u.branchAdvisorEmails;
             }
+            if (u.adminPermissions && typeof u.adminPermissions === 'object') {
+                locObj.adminPermissions = Object.assign({}, u.adminPermissions);
+            }
+            if (u.userPermissions && typeof u.userPermissions === 'object') {
+                locObj.userPermissions = Object.assign({}, u.userPermissions);
+            }
+            if (Array.isArray(u.assignedStores)) {
+                locObj.assignedStores = u.assignedStores.slice();
+            }
             return locObj;
         });
 
@@ -10933,6 +11356,15 @@
         };
         if (Array.isArray(enrichedChosen.branchAdvisorEmails)) {
             sessionObj.branchAdvisorEmails = enrichedChosen.branchAdvisorEmails;
+        }
+        if (enrichedChosen.adminPermissions && typeof enrichedChosen.adminPermissions === 'object') {
+            sessionObj.adminPermissions = Object.assign({}, enrichedChosen.adminPermissions);
+        }
+        if (enrichedChosen.userPermissions && typeof enrichedChosen.userPermissions === 'object') {
+            sessionObj.userPermissions = Object.assign({}, enrichedChosen.userPermissions);
+        }
+        if (Array.isArray(enrichedChosen.assignedStores)) {
+            sessionObj.assignedStores = enrichedChosen.assignedStores.slice();
         }
 
         lastSubmittedQuoteMeta = null;
@@ -11526,13 +11958,14 @@
     function filterAllowedGeneratedQuotesClient(rawList) {
         if (!activeAdvisorSession || isGuestSession() || !Array.isArray(rawList) || !rawList.length) return [];
         const sess = activeAdvisorSession;
-        const isAdmin = !!sess.isAdmin;
-        const isManager = !isAdmin && (!!sess.isManager || isManagerSessionUser(sess));
+        const isAdmin = isEffectiveAdminSession();
+        const isManager = !isAdmin && !isKevinAdvisorPreviewActive() && (!!sess.isManager || isManagerSessionUser(sess));
         const sessEmail = String(sess.correo || '').trim().toLowerCase();
+        const previewStore = isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
 
         const activeStoreNorm = isAdmin
             ? normalizeQuoteErpStoreClient(quoteDraftMeta.erpStore || sess.erpStore, '')
-            : normalizeQuoteErpStoreClient(sess.erpStore, sess.sheetTab);
+            : normalizeQuoteErpStoreClient(previewStore || sess.erpStore, previewStore ? '' : sess.sheetTab);
 
         const allowedManagerSet = new Set();
         if (sessEmail) allowedManagerSet.add(sessEmail);
@@ -11608,12 +12041,13 @@
         }
 
         const sess = activeAdvisorSession;
-        const isAdmin = !!sess.isAdmin;
-        const isManager = !isAdmin && (!!sess.isManager || isManagerSessionUser(sess));
+        const isAdmin = isEffectiveAdminSession();
+        const isManager = !isAdmin && !isKevinAdvisorPreviewActive() && (!!sess.isManager || isManagerSessionUser(sess));
         const sessEmail = String(sess.correo || '').trim().toLowerCase();
+        const previewStore = isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
         const activeStoreDisplay = isAdmin
             ? (cleanStr(quoteDraftMeta.erpStore) || cleanStr(sess.erpStore) || 'TIENDA ACTIVA')
-            : (cleanStr(sess.erpStore) || cleanStr(sess.branchLabel) || cleanStr(sess.sheetTab) || 'MI BODEGA');
+            : (previewStore || cleanStr(sess.erpStore) || cleanStr(sess.branchLabel) || cleanStr(sess.sheetTab) || 'MI BODEGA');
 
         if (titleEl) {
             if (isAdmin) {
@@ -11779,10 +12213,12 @@
             lastMultiStoreDirectorySyncMs = nowMs;
             fetchAllAdvisorRowsLiveGviz().catch(() => {});
         }
-        const activeTargetStore = (activeAdvisorSession.isAdmin && quoteDraftMeta.erpStore)
+        const effAdmin = isEffectiveAdminSession();
+        const previewStore = isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
+        const activeTargetStore = (effAdmin && quoteDraftMeta.erpStore)
             ? quoteDraftMeta.erpStore
-            : activeAdvisorSession.erpStore;
-        currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
+            : (previewStore || activeAdvisorSession.erpStore);
+        currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, previewStore ? '' : activeAdvisorSession.orderPrefix);
         const nextBadge = document.getElementById('quoteNextOrderBadge');
         if (nextBadge) nextBadge.textContent = 'Folio: ' + currentNextOrderCode;
 
@@ -11861,7 +12297,7 @@
         const advSel = document.getElementById('quoteAdminAdvisorSelect');
         if (!adminWrap || !storeSel || !advSel) return;
 
-        if (!sess || !sess.isAdmin) {
+        if (!sess || !isEffectiveAdminSession()) {
             adminWrap.classList.add('hidden');
             if (lockedGrid) lockedGrid.classList.remove('hidden');
             return;
@@ -11951,7 +12387,7 @@
 
     window.onAdminStoreChange = function () {
         const storeSel = document.getElementById('quoteAdminStoreSelect');
-        if (!storeSel || !activeAdvisorSession || !activeAdvisorSession.isAdmin) return;
+        if (!storeSel || !activeAdvisorSession || !isEffectiveAdminSession()) return;
         quoteDraftMeta.erpStore = storeSel.value;
         // Al cambiar de tienda/bodega, elegir automáticamente un usuario de esa tienda para que S Mueblería emita el folio de esa tienda
         quoteDraftMeta.erpAdvisorId = '';
@@ -11965,7 +12401,7 @@
 
     window.onAdminAdvisorChange = function () {
         const advSel = document.getElementById('quoteAdminAdvisorSelect');
-        if (!advSel || !activeAdvisorSession || !activeAdvisorSession.isAdmin) return;
+        if (!advSel || !activeAdvisorSession || !isEffectiveAdminSession()) return;
         const prevStore = cleanStr(quoteDraftMeta.erpStore);
         const opt = advSel.options[advSel.selectedIndex];
         if (opt) {
@@ -12021,12 +12457,13 @@
 
         populateAdminSelectorsUI(sess);
 
-        const isAdmin = !!(sess && sess.isAdmin);
+        const isAdmin = isEffectiveAdminSession();
+        const previewStore = isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
         const effectiveStore = isAdmin
             ? (cleanStr(quoteDraftMeta.erpStore) || (sess && sess.erpStore) || 'CEDIS')
-            : ((sess && sess.erpStore) || 'CREATA PUERTO CANCUN');
-        const isProy = /PROYECTO/i.test(effectiveStore) || (!isAdmin && !!(sess && sess.isProyecto));
-        const prefix = getStoreFolioPrefix(effectiveStore, sess && sess.orderPrefix);
+            : (previewStore || (sess && sess.erpStore) || 'CREATA PUERTO CANCUN');
+        const isProy = /PROYECTO/i.test(effectiveStore) || (!isAdmin && !previewStore && !!(sess && sess.isProyecto));
+        const prefix = getStoreFolioPrefix(effectiveStore, previewStore ? '' : (sess && sess.orderPrefix));
         const folioEstimate = getEstimatedStoreFolio(effectiveStore, prefix);
         currentNextOrderCode = folioEstimate;
 
@@ -12585,7 +13022,8 @@
         if (extraInp) extraInp.disabled = locked;
         const adminStoreSel = document.getElementById('quoteAdminStoreSelect');
         const adminAdvSel = document.getElementById('quoteAdminAdvisorSelect');
-        if (adminStoreSel) adminStoreSel.disabled = locked;
+        const canSwitchStore = typeof hasAdminPerm === 'function' ? hasAdminPerm('cambiarTienda') : true;
+        if (adminStoreSel) adminStoreSel.disabled = locked || !canSwitchStore;
         if (adminAdvSel) adminAdvSel.disabled = locked;
 
         const btnRev = document.getElementById('btnLoadPlantillaReview');
@@ -13123,6 +13561,7 @@
         const it = bySkuMap.get(key);
         if (!cart[key]) {
             if (stepDelta <= 0 || !it || !isQuotableItem(it)) return;
+            if (getBodegaPisoStock(it) < 1 && typeof hasValidErpPrice === 'function' && !hasValidErpPrice(it)) return;
             cart[key] = {
                 sku: it.s,
                 name: stripDimensionsFromProductText(it.n) || it.s,
@@ -13390,12 +13829,13 @@
         }
         const bd = computeQuoteBreakdown();
         const sess = activeAdvisorSession ? enrichAdvisorLocation(activeAdvisorSession) : null;
-        const isAdmin = !!(sess && sess.isAdmin);
+        const isAdmin = isEffectiveAdminSession();
+        const previewStore = isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
         const erpStore = isAdmin
             ? (cleanStr(quoteDraftMeta.erpStore) || (sess && sess.erpStore) || 'CEDIS')
-            : ((sess && sess.erpStore) || 'CREATA PUERTO CANCUN');
-        const isProy = /PROYECTO/i.test(erpStore) || (!isAdmin && !!(sess && sess.isProyecto));
-        const prefix = getStoreFolioPrefix(erpStore, sess && sess.orderPrefix);
+            : (previewStore || (sess && sess.erpStore) || 'CREATA PUERTO CANCUN');
+        const isProy = /PROYECTO/i.test(erpStore) || (!isAdmin && !previewStore && !!(sess && sess.isProyecto));
+        const prefix = getStoreFolioPrefix(erpStore, previewStore ? '' : (sess && sess.orderPrefix));
         const erpAdvisorLabel = isAdmin
             ? (cleanStr(quoteDraftMeta.erpAdvisorLabel) || (sess && sess.erpAdvisorLabel) || ((sess ? (sess.nombre || sess.correo).toUpperCase() : '') + ' | ' + erpStore))
             : ((sess && sess.erpAdvisorLabel) || (sess ? ((sess.nombre || sess.correo).toUpperCase() + ' | ' + erpStore) : ''));
@@ -13653,6 +14093,8 @@
 
     const ACCEPTED_QUOTE_MODAL_STORAGE_KEY = 'creata_inv_accepted_quote_modal_v1';
     let erpPdfDownloadPromise = null;
+    let erpPdfDownloadKey = '';
+    let erpPdfWantBrowserDownload = false;
 
     function base64ToPdfBlob(base64Str) {
         const cleanB64 = String(base64Str || '').replace(/\s+/g, '');
@@ -13713,9 +14155,6 @@
     window.downloadOriginalErpQuotePdf = async function (opts) {
         const o = opts || {};
         if (isGuestSession()) return false;
-        if (erpPdfDownloadInFlight && erpPdfDownloadPromise) {
-            return erpPdfDownloadPromise;
-        }
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
             if (!o.autoTriggered) openAuthModalForStartup();
             return false;
@@ -13728,12 +14167,28 @@
         const uid = cleanStr(o.erpUserId || activeAdvisorSession.erpAdvisorId);
         const cli = cleanStr(o.clientName);
         const store = cleanStr(o.erpStore || activeAdvisorSession.erpStore);
+        const reqKey = (qidClean ? ('ID:' + qidClean) : '') || (folio ? ('F:' + folio.toUpperCase()) : '');
 
         if (!qidClean && !folio) {
             if (!o.autoTriggered) {
                 setAcceptedModalPdfStatus('warn', '⏳ Cotización en proceso.');
             }
             return false;
+        }
+
+        if (erpPdfDownloadInFlight && erpPdfDownloadPromise) {
+            if (reqKey && reqKey === erpPdfDownloadKey) {
+                if (!o.skipBrowserDownload) {
+                    erpPdfWantBrowserDownload = true;
+                    const mEl = document.getElementById('quoteAcceptedModal');
+                    if (mEl && mEl.classList.contains('open')) {
+                        setAcceptedModalPdfStatus('warn', '⏳ Preparando descarga de PDF...');
+                    }
+                }
+                return erpPdfDownloadPromise;
+            }
+            if (o.skipBrowserDownload) return false;
+            try { await erpPdfDownloadPromise; } catch (ePrevPdf) {}
         }
 
         const modalEl = document.getElementById('quoteAcceptedModal');
@@ -13743,6 +14198,8 @@
         const prevBtnHtml = activeBtn ? activeBtn.innerHTML : '';
 
         erpPdfDownloadInFlight = true;
+        erpPdfDownloadKey = reqKey;
+        erpPdfWantBrowserDownload = !o.skipBrowserDownload;
         if (activeBtn && !o.skipBrowserDownload) {
             activeBtn.disabled = true;
             activeBtn.innerHTML = '⏳ Descargando PDF...';
@@ -13768,8 +14225,10 @@
                     erpStore: store
                 }, 45000);
 
+                const shouldDownloadNow = !o.skipBrowserDownload || erpPdfWantBrowserDownload;
+
                 if (res && res.authRequired) {
-                    if (!o.autoTriggered) {
+                    if (!o.autoTriggered || shouldDownloadNow) {
                         pendingPdfDownloadRetryOpts = {
                             quoteId: qidClean,
                             folio: folio,
@@ -13789,9 +14248,9 @@
 
                 if (res && res.ok && res.pdfBase64) {
                     const finalFile = buildFormalQuotePdfFileName(folio || ('ID-' + qidClean), cli);
-                    const pdfBlob = o.skipBrowserDownload
-                        ? base64ToPdfBlob(res.pdfBase64)
-                        : triggerBase64PdfBrowserDownload(res.pdfBase64, finalFile);
+                    const pdfBlob = shouldDownloadNow
+                        ? triggerBase64PdfBrowserDownload(res.pdfBase64, finalFile)
+                        : base64ToPdfBlob(res.pdfBase64);
                     let pdfFileObj = null;
                     try {
                         if (typeof File === 'function') {
@@ -13812,7 +14271,7 @@
                         persistAcceptedQuoteModalCheckpoint();
                     }
                     downloadedOk = true;
-                    if (!o.skipBrowserDownload) {
+                    if (shouldDownloadNow) {
                         if (modalOpen) {
                             setAcceptedModalPdfStatus('ok', '✓ PDF descargado: <strong>' + escapeHtml(finalFile) + '</strong>');
                         } else if (!o.triggerBtn) {
@@ -13831,7 +14290,7 @@
                 }
 
                 if (res && (res.needsRedeploy || res.unavailable)) {
-                    if (!o.skipBrowserDownload) {
+                    if (shouldDownloadNow) {
                         const msgHtml = '<div>PDF temporalmente no disponible.</div>';
                         if (modalOpen) setAcceptedModalPdfStatus('warn', msgHtml);
                         else renderQuoteStatusBanner('warn', msgHtml);
@@ -13839,14 +14298,14 @@
                     return false;
                 }
 
-                if (!o.skipBrowserDownload) {
+                if (shouldDownloadNow) {
                     const errMsg = cleanStr((res && res.error) || 'No se pudo obtener el PDF.');
                     if (modalOpen) setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(errMsg));
                     else renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(errMsg) + '</div>');
                 }
                 return false;
             } catch (dlErr) {
-                if (!o.skipBrowserDownload) {
+                if (!o.skipBrowserDownload || erpPdfWantBrowserDownload) {
                     const msg = cleanStr((dlErr && dlErr.message) || dlErr || 'Error de conexión al descargar el PDF.');
                     if (modalOpen) setAcceptedModalPdfStatus('err', '⚠️ ' + escapeHtml(msg));
                     else renderQuoteStatusBanner('err', '<div>⚠️ ' + escapeHtml(msg) + '</div>');
@@ -13855,6 +14314,8 @@
             } finally {
                 erpPdfDownloadInFlight = false;
                 erpPdfDownloadPromise = null;
+                erpPdfDownloadKey = '';
+                erpPdfWantBrowserDownload = false;
                 if (activeBtn && !o.skipBrowserDownload) {
                     activeBtn.disabled = false;
                     if (!downloadedOk) activeBtn.innerHTML = prevBtnHtml;
@@ -14487,13 +14948,17 @@
                                 advisorName: cleanStr((activeAdvisorSession && activeAdvisorSession.nombre) || payload.advisorName),
                                 clientName: cleanStr(payload.clientName),
                                 clientPhone: cleanStr(payload.clientPhone),
-                                items: Array.isArray(bd.lines) ? bd.lines.map(ln => ({
-                                    sku: cleanStr(ln.sku).toUpperCase(),
-                                    name: cleanStr(ln.name),
-                                    model: cleanStr(ln.model || ''),
-                                    qty: Math.max(1, Number(ln.qty) || 1),
-                                    price: Number(ln.unitDiscounted || ln.unitList || 0) || 0
-                                })) : []
+                                items: Array.isArray(bd.lines) ? bd.lines.map(ln => {
+                                    const lnSku = cleanStr(ln.sku).toUpperCase();
+                                    const catIt = bySkuMap.get(lnSku);
+                                    return {
+                                        sku: lnSku,
+                                        name: cleanStr(ln.name),
+                                        model: cleanStr(ln.model || (catIt && catIt.mo) || ''),
+                                        qty: Math.max(1, Number(ln.qty) || 1),
+                                        price: Number(ln.unitFinal !== undefined ? ln.unitFinal : (ln.unitDiscounted || ln.unitList || 0)) || 0
+                                    };
+                                }) : []
                             };
                             try {
                                 const bridgeKey = 'creata_live_app_quotes_bridge_v1';
@@ -14698,7 +15163,10 @@
             quoteSubmitInFlight = false;
             const lockedNow = isActiveQuoteCompleted();
             if (btnRev) btnRev.disabled = lockedNow;
-            if (btnSend) btnSend.disabled = lockedNow;
+            if (btnSend) {
+                btnSend.disabled = lockedNow;
+                btnSend.textContent = 'Crear Cotización';
+            }
         }
     };
 
@@ -14833,7 +15301,7 @@
                     else openProductDetail(g.items[0].s, false);
                 }
             }
-        } else if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+        } else if (typeof ev.key === 'string' && ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
             scanBuffer += ev.key;
         }
     });
@@ -14965,6 +15433,55 @@
         const stamp = formatLiveOkStamp(lastLiveOkMs);
         el.textContent = 'Sin conexión · mostrando el último inventario guardado' + (stamp ? ' (' + stamp + ')' : '');
         el.style.display = '';
+    }
+
+    function setErpLiveStatusBanner(rawBannerText) {
+        const txt = cleanStr(rawBannerText);
+        const isErpDown = /ERP\s+SIN\s+CONEXI[OÓ]N|SIN\s+CONEXI[OÓ]N\s+ERP/i.test(txt);
+        let el = document.getElementById('invErpHealthBanner');
+        if (!isErpDown) {
+            if (el) el.style.display = 'none';
+            return;
+        }
+        if (!el && typeof document !== 'undefined' && document.body) {
+            el = document.createElement('div');
+            el.id = 'invErpHealthBanner';
+            el.setAttribute('role', 'status');
+            el.style.cssText = 'position:fixed;left:12px;bottom:52px;z-index:69;max-width:calc(100vw - 24px);' +
+                'padding:7px 13px;border-radius:999px;background:#92400E;color:#FFFFFF;font-size:11px;font-weight:700;' +
+                'letter-spacing:.01em;box-shadow:0 4px 14px rgba(0,0,0,.22);pointer-events:none;';
+            document.body.appendChild(el);
+        }
+        if (el) {
+            el.textContent = '⚠️ ' + txt;
+            el.style.display = '';
+        }
+    }
+
+    let _invToastTimer = null;
+    function showToast(msg) {
+        const cleanMsg = cleanStr(msg);
+        if (!cleanMsg || typeof document === 'undefined' || !document.body) return;
+        let el = document.getElementById('invQuickToast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'invQuickToast';
+            el.setAttribute('role', 'status');
+            el.style.cssText = 'position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:9999;' +
+                'max-width:calc(100vw - 32px);padding:9px 16px;border-radius:999px;background:#1F2937;color:#FFFFFF;' +
+                'font-size:12px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.28);pointer-events:none;transition:opacity .2s;';
+            document.body.appendChild(el);
+        }
+        el.textContent = cleanMsg;
+        el.style.display = '';
+        el.style.opacity = '1';
+        if (_invToastTimer) clearTimeout(_invToastTimer);
+        _invToastTimer = setTimeout(() => {
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(() => { if (el) el.style.display = 'none'; }, 220);
+            }
+        }, 3200);
     }
 
     function normHeader(h) {
@@ -15338,15 +15855,25 @@
         const colPrecio = findCol(['PRECIO DE LISTA', 'PRECIO LISTA', 'PRECIO']);
         const colLt = findCol(['TIEMPO DE ENTREGA (DIAS)', 'TIEMPO DE ENTREGA']);
         const colFe = findCol(['FECHA ESTIMADA DE LLEGADA', 'FECHA ESTIMADA']);
+        const colLiveStatus = findCol(['ULTIMA ACTUALIZACION EN VIVO', 'ULTIMA ACTUALIZACION']);
         const whCols = WAREHOUSES.map(wh => resolveWarehouseCol(wh));
 
         const liveItems = [];
         const seenLiveSkus = new Set();
+        let erpBannerText = '';
 
         for (let i = startRowIdx; i < table.rows.length; i++) {
             const rowCells = (table.rows[i] && table.rows[i].c) || [];
             const sku = cleanStr(gvizCellRaw(rowCells, colSku));
-            if (!sku || sku.toUpperCase() === 'SKU') continue;
+            if (!sku || sku.toUpperCase() === 'SKU') {
+                if (!erpBannerText && colLiveStatus !== -1) {
+                    const candBanner = cleanStr(gvizCellFormatted(rowCells, colLiveStatus) || gvizCellRaw(rowCells, colLiveStatus));
+                    if (candBanner && /EN\s+VIVO|ERP|LPPT/i.test(candBanner)) {
+                        erpBannerText = candBanner;
+                    }
+                }
+                continue;
+            }
             const skuUpper = sku.toUpperCase();
             seenLiveSkus.add(skuUpper);
             const prevIt = bySkuMap.get(skuUpper);
@@ -15476,6 +16003,7 @@
         }
 
         if (liveItems.length === 0) return false;
+        setErpLiveStatusBanner(erpBannerText);
 
         liveItems.sort((a, b) =>
             compareAlphaEs(a.n || a.s, b.n || b.s) ||
@@ -15487,6 +16015,7 @@
             lastLiveSignature = nextSig;
             allItems = liveItems;
             window.CREATA_INV_DATA = liveItems;
+            applyAllProductOverridesToCatalog();
             indexItemsAndGroups();
             scheduleSaveLiveInventoryCache(liveItems);
 
@@ -17474,7 +18003,9 @@
     function rerenderCatalogAfterOverrideChange() {
         try {
             applyAllProductOverridesToCatalog();
-            if (Array.isArray(allGroups)) {
+            if (typeof indexItemsAndGroups === 'function') {
+                indexItemsAndGroups();
+            } else if (Array.isArray(allGroups)) {
                 for (let i = 0; i < allGroups.length; i++) {
                     const g = allGroups[i];
                     g._hasPhoto = (getGroupVisualCoverPhotoUrl(g.key) || firstPhotoItem(g.items)) ? 1 : 0;
@@ -17484,7 +18015,13 @@
             const inp = document.getElementById('invSearchInput');
             if (typeof applyFilter === 'function') applyFilter(inp ? inp.value : '', false);
             if (currentGroup && !currentDetailItem && isModalOpenById('productDetailModal')) {
-                renderGroupVariantsStep(currentGroup);
+                const updatedGroup = Array.isArray(allGroups) ? allGroups.find(g => g.key === currentGroup.key) : null;
+                if (updatedGroup) {
+                    currentGroup = updatedGroup;
+                    renderGroupVariantsStep(currentGroup);
+                } else if (typeof closeProductDetailModal === 'function') {
+                    closeProductDetailModal();
+                }
             }
         } catch (e) {}
     }
@@ -17561,7 +18098,7 @@
         if (op === 'SAVE' && !nextUrl) {
             return { ok: false, error: 'URL de imagen inválida (no se permiten enlaces temporales blob: ni data:).' };
         }
-        const categoryTag = kind === 'fabric' ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
+        const categoryTag = kind === 'fabric' ? 'FABRIC_SWATCH' : (kind === 'wood' ? 'WOOD_SWATCH' : 'VISUAL_COVER');
 
         // Actualizar de inmediato localmente para respuesta instantánea
         const nextMap = Object.assign({}, invProductOverridesMap || {});
@@ -17603,10 +18140,10 @@
 
     window.openVisualPhotoPicker = function (kind, targetKey, displayLabel) {
         if (!isVisualPhotoEditorAllowed()) return;
-        const kMode = kind === 'fabric' ? 'fabric' : 'cover';
+        const kMode = kind === 'fabric' ? 'fabric' : (kind === 'wood' ? 'wood' : 'cover');
         const overrideKey = kMode === 'fabric'
             ? buildFabricSwatchOverrideKey(targetKey)
-            : buildVisualCoverOverrideKey(targetKey);
+            : (kMode === 'wood' ? buildWoodSwatchOverrideKey(targetKey) : buildVisualCoverOverrideKey(targetKey));
         if (!overrideKey) return;
 
         visualPhotoPickerCtx = {
@@ -17627,15 +18164,17 @@
         if (eyebrow) {
             eyebrow.textContent = kMode === 'fabric'
                 ? 'TELA / COLOR · GLOBAL'
-                : 'SOLO VISUAL EN INICIO · NO ALTERA SKUS';
+                : (kMode === 'wood' ? 'MADERA / ACABADO · GLOBAL' : 'SOLO VISUAL EN INICIO · NO ALTERA SKUS');
         }
         if (titleEl) {
-            titleEl.textContent = (kMode === 'fabric' ? '🧵 Tela: ' : '📷 Portada: ') + visualPhotoPickerCtx.label;
+            titleEl.textContent = (kMode === 'fabric' ? '🧵 Tela: ' : (kMode === 'wood' ? '🪵 Madera: ' : '📷 Portada: ')) + visualPhotoPickerCtx.label;
         }
         if (hintEl) {
             hintEl.textContent = kMode === 'fabric'
                 ? 'Esta foto de tela aparecerá junto al color "' + visualPhotoPickerCtx.label + '" en este modelo y en cualquier otro modelo con la misma tela.'
-                : 'Esta foto se mostrará únicamente en la tarjeta inicial de "' + visualPhotoPickerCtx.label + '" sin modificar la foto individual de ningún módulo ni las cotizaciones.';
+                : (kMode === 'wood'
+                    ? 'Esta foto de madera aparecerá junto al acabado "' + visualPhotoPickerCtx.label + '" en mesas, recámaras y muebles con esta madera.'
+                    : 'Esta foto se mostrará únicamente en la tarjeta inicial de "' + visualPhotoPickerCtx.label + '" sin modificar la foto individual de ningún módulo ni las cotizaciones.');
         }
         if (urlInp) urlInp.value = existingUrl;
         if (fileInp) fileInp.value = '';
@@ -17674,7 +18213,7 @@
         setSettingsStatusBox('visualPhotoStatus', 'Optimizando y subiendo imagen a Drive...', 'warn');
 
         try {
-            const maxSide = ctx.kind === 'fabric' ? 640 : 1200;
+            const maxSide = (ctx.kind === 'fabric' || ctx.kind === 'wood') ? 640 : 1200;
             const dataUrl = await normalizeVisualPhotoDataUrl(file, maxSide, 0.84);
             updateVisualPhotoPickerPreview(dataUrl);
 
@@ -17814,7 +18353,7 @@
                 const rows = parseCsvText(txt);
                 if (!Array.isArray(rows) || rows.length < 2) continue;
                 const firstSkuCell = cleanStr(rows[0] && rows[0][0]).toUpperCase();
-                if (firstSkuCell !== 'SKU' && firstSkuCell.indexOf('VFAB:') !== 0 && firstSkuCell.indexOf('VCOV:') !== 0) continue;
+                if (firstSkuCell !== 'SKU' && firstSkuCell.indexOf('VFAB:') !== 0 && firstSkuCell.indexOf('VCOV:') !== 0 && firstSkuCell.indexOf('VWOD:') !== 0) continue;
                 const startIdx = firstSkuCell === 'SKU' ? 1 : 0;
                 const mapOut = {};
                 for (let i = startIdx; i < rows.length; i++) {
@@ -17823,7 +18362,7 @@
                     if (!sku) continue;
                     const statusRaw = cleanStr(r[1] || 'VISIBLE').toUpperCase();
                     const noteStr = cleanStr(r[5]);
-                    if (/^V(?:FAB|COV):/i.test(sku) && (/^blob:/i.test(noteStr) || /^data:/i.test(noteStr))) continue;
+                    if (/^V(?:FAB|COV|WOD):/i.test(sku) && (/^blob:/i.test(noteStr) || /^data:/i.test(noteStr))) continue;
                     const pRaw = cleanStr(r[4]);
                     const pNum = (pRaw !== '' && isFinite(Number(pRaw))) ? Number(pRaw) : null;
                     mapOut[sku] = {
@@ -18123,13 +18662,13 @@
             }
         } catch (e) {}
         renderAdvisorHeaderBar();
-        if (typeof syncCartQuoteMetaControls === 'function') {
-            try { syncCartQuoteMetaControls(); } catch (eSync) {}
+        if (typeof populateQuoteAdvisorControls === 'function') {
+            try { populateQuoteAdvisorControls(); } catch (eSync) {}
         }
-        if (typeof renderCartModal === 'function') {
+        if (typeof renderCartItems === 'function') {
             const cartM = document.getElementById('cartModal');
             if (cartM && cartM.classList.contains('open')) {
-                try { renderCartModal(); } catch (eCart) {}
+                try { renderCartItems(); } catch (eCart) {}
             }
         }
         renderSettingsRoleAndSections();
@@ -18156,6 +18695,15 @@
             }
         } catch (e) {}
         renderAdvisorHeaderBar();
+        if (typeof populateQuoteAdvisorControls === 'function') {
+            try { populateQuoteAdvisorControls(); } catch (eSync) {}
+        }
+        if (typeof renderCartItems === 'function') {
+            const cartM = document.getElementById('cartModal');
+            if (cartM && cartM.classList.contains('open')) {
+                try { renderCartItems(); } catch (eCart) {}
+            }
+        }
         renderSettingsRoleAndSections();
     };
 
@@ -18275,7 +18823,7 @@
                 try {
                     localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(activeAdvisorSession));
                     const pMap = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}') || {};
-                    pMap[activeAdvisorSession.correo] = { newKey: newPass, updatedAt: Date.now() };
+                    pMap[activeAdvisorSession.correo] = { newKey: newPass, prevKey: currPass, synced: true, updatedAt: Date.now() };
                     localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(pMap));
                 } catch (eSave) {}
                 if (currEl) currEl.value = '';
@@ -19209,8 +19757,16 @@
             matchFabricTextAgainstUploadedSwatches: matchFabricTextAgainstUploadedSwatches,
             getFabricSwatchPhotoUrl: getFabricSwatchPhotoUrl,
             findMatchingFabricSwatchForItem: findMatchingFabricSwatchForItem,
+            DEFAULT_WOOD_SWATCHES_CATALOG: DEFAULT_WOOD_SWATCHES_CATALOG,
+            isPureWoodDescriptor: isPureWoodDescriptor,
+            isWoodOnlyProductForFabricGuard: isWoodOnlyProductForFabricGuard,
+            getUploadedWoodSwatchEntries: getUploadedWoodSwatchEntries,
+            matchWoodTextAgainstUploadedSwatches: matchWoodTextAgainstUploadedSwatches,
+            getWoodSwatchPhotoUrl: getWoodSwatchPhotoUrl,
+            findMatchingWoodSwatchForItem: findMatchingWoodSwatchForItem,
             resolveVisualImgSrc: resolveVisualImgSrc,
             buildFabricSwatchOverrideKey: buildFabricSwatchOverrideKey,
+            buildWoodSwatchOverrideKey: buildWoodSwatchOverrideKey,
             buildVisualCoverOverrideKey: buildVisualCoverOverrideKey,
             saveLocalProductOverridesMap: saveLocalProductOverridesMap,
             persistVisualPhotoOverride: persistVisualPhotoOverride,

@@ -59,7 +59,9 @@ const ALLOWED_IMAGE_MIME_TYPES_ = {
   'image/webp': 'webp',
   'image/gif': 'gif',
   'image/avif': 'avif',
-  'image/bmp': 'bmp'
+  'image/bmp': 'bmp',
+  'image/heic': 'heic',
+  'image/heif': 'heif'
 };
 
 // Protección estricta de filas y fórmulas en "Base de Datos Generales"
@@ -563,6 +565,40 @@ function countImagesInFolder_(folderObj, opts) {
   return count;
 }
 
+function acquirePromptsScriptLockSafe_(timeoutMs) {
+  const lock = LockService.getScriptLock();
+  const waitMs = Math.max(1000, Math.min(Number(timeoutMs) || 25000, 30000));
+  try {
+    if (typeof lock.tryLock === 'function') {
+      const ok = lock.tryLock(waitMs);
+      if (!ok) {
+        return {
+          ok: false,
+          lock: null,
+          errorRes: {
+            ok: false,
+            retryable: true,
+            error: 'Otro proceso está modificando Drive o Sheets en este momento. Intenta de nuevo en unos segundos.'
+          }
+        };
+      }
+      return { ok: true, lock: lock };
+    }
+    lock.waitLock(waitMs);
+    return { ok: true, lock: lock };
+  } catch (eLock) {
+    return {
+      ok: false,
+      lock: null,
+      errorRes: {
+        ok: false,
+        retryable: true,
+        error: 'Otro proceso está modificando Drive o Sheets en este momento. Intenta de nuevo en unos segundos.'
+      }
+    };
+  }
+}
+
 function sanitizeUploadFilename_(rawFileName, ext, defaultPrefix) {
   const safeExt = String(ext || 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
   const prefix = String(defaultPrefix || 'subir_propt').replace(/[^a-zA-Z0-9_-]/g, '_') || 'subir_propt';
@@ -574,7 +610,7 @@ function sanitizeUploadFilename_(rawFileName, ext, defaultPrefix) {
     .replace(/\s+/g, ' ')
     .trim();
   cleaned = cleaned.replace(/^[.\s]+/, '').replace(/[.\s]+$/, '');
-  const extMatch = cleaned.match(/^(.*)\.(jpe?g|png|webp|gif|avif|bmp)$/i);
+  const extMatch = cleaned.match(/^(.*)\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i);
   let baseName = extMatch ? String(extMatch[1] || '').trim() : cleaned;
   const finalExt = extMatch ? String(extMatch[2] || safeExt).toLowerCase() : safeExt;
   baseName = baseName.replace(/^[.\s]+|[.\s]+$/g, '');
@@ -594,7 +630,7 @@ function parseAndValidateImageUpload_(payload, defaultPrefix) {
   if (!Object.prototype.hasOwnProperty.call(ALLOWED_IMAGE_MIME_TYPES_, mime)) {
     return {
       ok: false,
-      error: 'Tipo MIME no permitido (' + mime + '). Solo se aceptan imágenes (JPG, PNG, WEBP, GIF, AVIF, BMP).'
+      error: 'Tipo MIME no permitido (' + mime + '). Solo se aceptan imágenes (JPG, PNG, WEBP, GIF, AVIF, BMP, HEIC).'
     };
   }
   const cleanB64 = String(match[2] || '').replace(/\s+/g, '');
@@ -1194,8 +1230,9 @@ function handlePromptsProptUpload_(payload) {
   const auth = verifyPromptsOwnerAuth_(payload);
   if (!auth.ok) return auth;
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquirePromptsScriptLockSafe_(25000);
+  if (!lockState.ok) return lockState.errorRes;
+  const lock = lockState.lock;
   try {
     const parsed = parseAndValidateImageUpload_(payload, 'subir_propt');
     if (!parsed.ok) return parsed;
@@ -1240,8 +1277,9 @@ function handlePromptsProptDelete_(payload) {
   }
   assertNotForbiddenProjectAId_(fileId, 'prompts_propt_delete');
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquirePromptsScriptLockSafe_(25000);
+  if (!lockState.ok) return lockState.errorRes;
+  const lock = lockState.lock;
   try {
     const file = DriveApp.getFileById(fileId);
     if (!file) {
@@ -1619,8 +1657,9 @@ function handleOdooBuzonUpload_(payload) {
   const auth = verifyPromptsOwnerAuth_(payload);
   if (!auth.ok) return auth;
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquirePromptsScriptLockSafe_(25000);
+  if (!lockState.ok) return lockState.errorRes;
+  const lock = lockState.lock;
   try {
     const buzonCheck = getActiveBuzonOdooFolder_('odoo_buzon_upload');
     if (!buzonCheck.ok) return buzonCheck;
@@ -1748,14 +1787,18 @@ function handleOdooDirectUploadAndRegister_(payload) {
   }
 
   let createdMeta = null;
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquirePromptsScriptLockSafe_(25000);
+  if (!lockState.ok) return lockState.errorRes;
+  const lock = lockState.lock;
   try {
     const created = targetFolder.createFile(parsed.blob);
     try {
       created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (eShare) {}
     createdMeta = formatDriveFileMeta_(created, targetFolderId);
+    if (targetFolderKey === 'TELAS') {
+      try { CacheService.getScriptCache().remove(PROMPTS_MATERIALS_CACHE_KEY_); } catch (eClrCache) {}
+    }
   } finally {
     try { lock.releaseLock(); } catch (eRel) {}
   }
@@ -1766,22 +1809,38 @@ function handleOdooDirectUploadAndRegister_(payload) {
     const rawTipo = String((payload && payload.tipo) || 'MUEBLE').trim().toUpperCase();
     const validTipo = Object.prototype.hasOwnProperty.call(FOTOS_NORM_BLOCKS_, rawTipo) ? rawTipo : 'MUEBLE';
     const stemName = String(createdMeta.name || parsed.fileName || 'foto')
-      .replace(/\.(jpe?g|png|webp|gif|avif|bmp)$/i, '')
+      .replace(/\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i, '')
       .trim() || parsed.fileName;
     const skuClean = String((payload && payload.sku) || '').trim().toUpperCase();
 
-    const regPayload = {
-      ownerEmail: payload && payload.ownerEmail,
-      pin: payload && payload.pin,
+    const baseRegPayload = {
+      ownerEmail: payload && (payload.ownerEmail || payload.email || payload.correo),
+      email: payload && payload.email,
+      correo: payload && payload.correo,
+      pin: payload && (payload.pin || payload.promptsPin),
+      promptsPin: payload && payload.promptsPin,
       tipo: validTipo,
       nombre: stemName,
       link: createdMeta.viewUrl
     };
+    const regPayload = Object.assign({}, baseRegPayload);
     if (skuClean) {
       regPayload.sku = skuClean;
       regPayload.updateDatosGeneral = true;
     }
     sheetRegistration = handleOdooRegisterFoto_(regPayload);
+    if (
+      skuClean &&
+      sheetRegistration &&
+      !sheetRegistration.ok &&
+      /No se encontr[óo] una fila v[áa]lida.*DATOS GENERAL/i.test(String(sheetRegistration.error || ''))
+    ) {
+      const fallbackReg = handleOdooRegisterFoto_(Object.assign({}, baseRegPayload, { updateDatosGeneral: false }));
+      if (fallbackReg && fallbackReg.ok) {
+        fallbackReg.warning = 'Registrada en FOTOS NORMALIZADAS, pero el SKU "' + skuClean + '" no existía en DATOS GENERAL.';
+        sheetRegistration = fallbackReg;
+      }
+    }
   }
 
   return {
@@ -1813,8 +1872,9 @@ function handleOdooMoveToFinal_(payload) {
   }
   const requestedSubfolder = subKeyRaw || targetSubRaw;
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquirePromptsScriptLockSafe_(25000);
+  if (!lockState.ok) return lockState.errorRes;
+  const lock = lockState.lock;
   try {
     const dest = resolveOdooFinalDestFolder_(requestedSubfolder);
     if (!dest.ok) return dest;
@@ -1874,6 +1934,9 @@ function handleOdooMoveToFinal_(payload) {
     try {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (eShare) {}
+    if (dest.key === 'TELAS') {
+      try { CacheService.getScriptCache().remove(PROMPTS_MATERIALS_CACHE_KEY_); } catch (eClrCache) {}
+    }
 
     return {
       ok: true,
@@ -1977,8 +2040,9 @@ function handleOdooRegisterFoto_(payload) {
   const auth = verifyPromptsOwnerAuth_(payload);
   if (!auth.ok) return auth;
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquirePromptsScriptLockSafe_(25000);
+  if (!lockState.ok) return lockState.errorRes;
+  const lock = lockState.lock;
   try {
     const ss = getPromptsSpreadsheet_();
     const result = {
@@ -2240,8 +2304,9 @@ function handlePromptsRepairPermissions_(payload) {
   const auth = verifyPromptsOwnerAuth_(payload);
   if (!auth.ok) return auth;
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquirePromptsScriptLockSafe_(25000);
+  if (!lockState.ok) return lockState.errorRes;
+  const lock = lockState.lock;
   try {
     const folderIds = [
       SUBIR_PROPT_FOLDER_ID_,

@@ -573,7 +573,7 @@ test('Cotizador & Subir Fotos: Kevin-only FAB Prompts/Panel buttons and split-sc
   assert.match(fotosHtml, /id="btnFotosSplitTargetCotizador"[^>]*setFotosSplitTarget\('cotizador'\)/);
   assert.match(fotosHtml, /id="btnFotosSplitTargetPrompts"[^>]*setFotosSplitTarget\('prompts'\)/);
   assert.match(fotosJs, /window\.setFotosSplitTarget = function \(target\)/);
-  assert.match(fotosJs, /target === 'prompts' \? '\.\/prompts\.html' : '\.\/inventario\.html\?embed=1'/);
+  assert.match(fotosJs, /target === 'prompts' \? '\.\/prompts\.html\?embed=1' : '\.\/inventario\.html\?embed=1'/);
 });
 
 test('Split-screen responsive adaptation: modals stay inside split pane, header/grid adapt, resizer wraps, and dark thin chip scrollbars', () => {

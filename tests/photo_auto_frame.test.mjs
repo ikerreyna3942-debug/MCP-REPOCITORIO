@@ -226,7 +226,7 @@ test('CreataGuard, Fotos App, and Apps Script wiring cover Portadas/Telas auth, 
   assert.match(fotosJs, /op:\s*op === 'DELETE' \? 'DELETE' : 'RESTORE'/);
 
   const gasSrc = fs.readFileSync('AppsScript_Creata_Drive_Sheets.gs', 'utf8');
-  assert.match(gasSrc, /\^V\(\?:COV\|FAB\):\/i\.test\(sku\)/);
+  assert.match(gasSrc, /\^V\(\?:COV\|FAB\|WOD\):\/i\.test\(sku\)/);
 });
 
 test('Streamlined practical Fotos App UX: top 3-mode bar, collapsible filters & specs, single visual dropzone, direct stage drop, and Next Missing Photo', () => {

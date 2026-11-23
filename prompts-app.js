@@ -2,21 +2,43 @@
     'use strict';
 
     const RENDER_ORIGIN = 'https://buena-espero.onrender.com';
-    const RENDER_EMBED_URL = RENDER_ORIGIN + '/?embed=true&embed_options=dark_theme';
-    const RENDER_DIRECT_URL = RENDER_ORIGIN + '/';
-    const RENDER_HEALTH_URL = RENDER_ORIGIN + '/_stcore/health';
+    const ODOO_ORIGIN = 'https://app-1-3y7y.onrender.com';
+    const RENDER_TARGETS = {
+        render: {
+            origin: RENDER_ORIGIN,
+            embedUrl: RENDER_ORIGIN + '/?embed=true&embed_options=dark_theme',
+            directUrl: RENDER_ORIGIN + '/',
+            healthUrl: RENDER_ORIGIN + '/_stcore/health',
+            title: 'Prompts Render (buena-espero)',
+            onlineLabel: 'Prompts Render · En línea'
+        },
+        odoo: {
+            origin: ODOO_ORIGIN,
+            embedUrl: ODOO_ORIGIN + '/?embed=true&embed_options=dark_theme',
+            directUrl: ODOO_ORIGIN + '/',
+            healthUrl: ODOO_ORIGIN + '/_stcore/health',
+            title: 'Alta de Odoo (Render)',
+            onlineLabel: 'Alta Odoo · En línea'
+        }
+    };
     const BAR_COLLAPSED_KEY = 'creata_prompts_bar_collapsed_v1';
 
     let deferredInstallPrompt = null;
     let frameLoaded = false;
     let frameNavigationRequested = false;
+    let currentFrameTarget = ''; // '' | 'render' | 'odoo'
     let loadStartedAt = 0;
     let loadTimerInterval = null;
-    let wakeProbeDone = false;
+    const wakeProbeDoneByTarget = {};
     let promptsBackNav = null;
     let skuInputHadValue = false;
     let studioEnabled = false;
-    let activeWorkspace = 'odoo'; // 'studio' cuando promptsNativeStudio existe; 'odoo' para Render Alta de Odoo
+    let activeWorkspace = 'render'; // 'studio' | 'render' (buena-espero) | 'odoo' (app-1)
+
+    function getActiveRenderTargetMeta(targetKeyOpt) {
+        const key = (targetKeyOpt === 'odoo' || (!targetKeyOpt && activeWorkspace === 'odoo')) ? 'odoo' : 'render';
+        return RENDER_TARGETS[key];
+    }
 
     function byId(id) {
         return document.getElementById(id);
@@ -89,7 +111,7 @@
         }, 300);
     }
 
-    function showLoadingOverlay(isOffline) {
+    function showLoadingOverlay(isOffline, targetKeyOpt) {
         const overlay = byId('promptsLoadingOverlay');
         const spinner = byId('overlaySpinner');
         const title = byId('overlayTitle');
@@ -97,6 +119,7 @@
         const timerEl = byId('overlayTimer');
         const actions = byId('overlayActions');
         if (!overlay) return;
+        const meta = getActiveRenderTargetMeta(targetKeyOpt);
 
         overlay.classList.remove('hidden', 'is-fading');
 
@@ -104,7 +127,7 @@
             stopLoadTimer();
             if (spinner) spinner.classList.add('hidden');
             if (title) title.textContent = 'Sin conexión a internet';
-            if (sub) sub.textContent = 'El Generador de Prompts IA necesita conexión para comunicarse con Gemini y Google Drive.';
+            if (sub) sub.textContent = meta.title + ' necesita conexión a internet para cargar.';
             if (timerEl) timerEl.textContent = '';
             if (actions) actions.classList.remove('hidden');
             setConnectionStatus('offline', 'Sin red');
@@ -112,8 +135,8 @@
         }
 
         if (spinner) spinner.classList.remove('hidden');
-        if (title) title.textContent = 'Iniciando Generador de Prompts IA';
-        if (sub) sub.textContent = 'Conectando con Estudio IA en la nube...';
+        if (title) title.textContent = 'Conectando con ' + meta.title;
+        if (sub) sub.textContent = 'Despertando servidor en la nube...';
         if (timerEl) timerEl.textContent = '';
         if (actions) actions.classList.add('hidden');
         setConnectionStatus('loading', 'Conectando');
@@ -121,7 +144,7 @@
         loadStartedAt = Date.now();
         stopLoadTimer();
         loadTimerInterval = setInterval(() => {
-            if (frameLoaded) {
+            if (frameLoaded || activeWorkspace === 'studio') {
                 stopLoadTimer();
                 return;
             }
@@ -138,11 +161,12 @@
         }, 1000);
     }
 
-    function wakeRenderServerSilently() {
-        if (wakeProbeDone) return;
-        wakeProbeDone = true;
+    function wakeRenderServerSilently(targetKeyOpt) {
+        const key = (targetKeyOpt === 'odoo' || (!targetKeyOpt && activeWorkspace === 'odoo')) ? 'odoo' : 'render';
+        if (wakeProbeDoneByTarget[key]) return;
+        wakeProbeDoneByTarget[key] = true;
         try {
-            fetch(RENDER_HEALTH_URL, { method: 'GET', mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+            fetch(RENDER_TARGETS[key].healthUrl, { method: 'GET', mode: 'no-cors', cache: 'no-store' }).catch(() => {});
         } catch (e) {}
     }
 
@@ -151,32 +175,39 @@
         const currentSrc = currentFrame ? String(currentFrame.src || '') : '';
         if (!frameNavigationRequested && (!currentSrc || currentSrc === 'about:blank')) return;
         frameLoaded = true;
-        setConnectionStatus('online', 'En línea');
+        if (studioEnabled && activeWorkspace === 'studio') return;
+        setConnectionStatus('online', studioEnabled ? getActiveRenderTargetMeta(currentFrameTarget).onlineLabel : 'En línea');
         hideLoadingOverlay();
     }
 
     function onGeneratorFrameError() {
         frameLoaded = false;
-        showLoadingOverlay(typeof navigator !== 'undefined' && navigator.onLine === false);
+        if (studioEnabled && activeWorkspace === 'studio') return;
+        showLoadingOverlay(typeof navigator !== 'undefined' && navigator.onLine === false, currentFrameTarget);
     }
 
-    function loadGeneratorFrame(forceBust) {
+    function loadGeneratorFrame(forceBust, targetKeyOpt) {
         const frame = byId('promptsAppFrame');
         if (!frame) return;
+        const targetKey = (targetKeyOpt === 'odoo' || targetKeyOpt === 'render')
+            ? targetKeyOpt
+            : (activeWorkspace === 'odoo' ? 'odoo' : 'render');
+        const meta = RENDER_TARGETS[targetKey];
 
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             frameLoaded = false;
-            showLoadingOverlay(true);
+            showLoadingOverlay(true, targetKey);
             return;
         }
 
         frameLoaded = false;
-        showLoadingOverlay(false);
-        wakeRenderServerSilently();
+        currentFrameTarget = targetKey;
+        showLoadingOverlay(false, targetKey);
+        wakeRenderServerSilently(targetKey);
 
         const targetUrl = forceBust
-            ? RENDER_EMBED_URL + '&_r=' + Date.now()
-            : RENDER_EMBED_URL;
+            ? meta.embedUrl + '&_r=' + Date.now()
+            : meta.embedUrl;
         frameNavigationRequested = true;
         if (window.CreataBackNav && typeof window.CreataBackNav.replaceIframeUrl === 'function') {
             window.CreataBackNav.replaceIframeUrl(frame, targetUrl, {
@@ -236,18 +267,28 @@
     };
 
     window.switchPromptsWorkspace = function (modeRaw) {
-        const nextMode = (modeRaw === 'odoo' || !studioEnabled) ? 'odoo' : 'studio';
+        const norm = String(modeRaw || '').trim().toLowerCase();
+        const nextMode = !studioEnabled
+            ? (norm === 'odoo' ? 'odoo' : 'render')
+            : (norm === 'render' || norm === 'buena_espero'
+                ? 'render'
+                : (norm === 'odoo' ? 'odoo' : 'studio'));
         activeWorkspace = nextMode;
 
         const studioEl = byId('promptsNativeStudio');
         const frameEl = byId('promptsAppFrame');
         const overlayEl = byId('promptsLoadingOverlay');
         const btnStudio = byId('btnModePromptsNative');
+        const btnRender = byId('btnModePromptsRender');
         const btnOdoo = byId('btnModeAltaOdoo');
 
         if (btnStudio) {
             btnStudio.classList.toggle('is-active', nextMode === 'studio');
             btnStudio.setAttribute('aria-selected', nextMode === 'studio' ? 'true' : 'false');
+        }
+        if (btnRender) {
+            btnRender.classList.toggle('is-active', nextMode === 'render');
+            btnRender.setAttribute('aria-selected', nextMode === 'render' ? 'true' : 'false');
         }
         if (btnOdoo) {
             btnOdoo.classList.toggle('is-active', nextMode === 'odoo');
@@ -264,13 +305,14 @@
         } else {
             if (studioEl) studioEl.classList.add('hidden');
             if (frameEl) frameEl.classList.remove('hidden');
-            if (!frameLoaded && !frameNavigationRequested) {
-                loadGeneratorFrame(false);
+            const needSwitchTarget = currentFrameTarget !== nextMode;
+            if (needSwitchTarget || (!frameLoaded && !frameNavigationRequested)) {
+                loadGeneratorFrame(false, nextMode);
             } else if (frameLoaded) {
                 if (overlayEl) overlayEl.classList.add('hidden');
-                setConnectionStatus('online', 'Alta Odoo · En línea');
+                setConnectionStatus('online', getActiveRenderTargetMeta(nextMode).onlineLabel);
             } else {
-                showLoadingOverlay(typeof navigator !== 'undefined' && navigator.onLine === false);
+                showLoadingOverlay(typeof navigator !== 'undefined' && navigator.onLine === false, nextMode);
             }
         }
     };
@@ -282,12 +324,14 @@
             }
             return;
         }
-        wakeProbeDone = false;
-        loadGeneratorFrame(true);
+        const key = activeWorkspace === 'odoo' ? 'odoo' : 'render';
+        wakeProbeDoneByTarget[key] = false;
+        loadGeneratorFrame(true, key);
     };
 
     window.openPromptsDirectTab = function () {
-        window.open(RENDER_DIRECT_URL, '_blank', 'noopener');
+        const meta = getActiveRenderTargetMeta(activeWorkspace === 'odoo' ? 'odoo' : 'render');
+        window.open(meta.directUrl, '_blank', 'noopener');
     };
 
     window.selectPromptsInstallTab = function (tabKey) {
@@ -512,6 +556,11 @@
                 throw new Error('Respuesta no JSON del Apps Script (verifica el despliegue Web App).');
             }
             return parsed;
+        } catch (err) {
+            if (err && (err.name === 'AbortError' || /abort/i.test(String(err.message || '')))) {
+                throw new Error('Tiempo de espera agotado al conectar con Apps Script. Intenta de nuevo.');
+            }
+            throw err;
         } finally {
             clearTimeout(timer);
         }
@@ -570,7 +619,35 @@
     function readFileAsDataUrl(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onload = () => {
+                const rawUri = String(reader.result || '');
+                const mime = String((file && file.type) || '').toLowerCase();
+                const isHeic = /heic|heif/.test(mime) || /\.(heic|heif)$/i.test(String((file && file.name) || ''));
+                const isLarge = Number((file && file.size) || 0) > 2.5 * 1024 * 1024;
+                if ((!isLarge && !isHeic) || typeof Image === 'undefined' || typeof document === 'undefined') {
+                    resolve(rawUri);
+                    return;
+                }
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const maxEdge = 2048;
+                        const w = img.naturalWidth || img.width || 1;
+                        const h = img.naturalHeight || img.height || 1;
+                        const scale = Math.min(1, maxEdge / Math.max(w, h));
+                        const c = document.createElement('canvas');
+                        c.width = Math.max(1, Math.round(w * scale));
+                        c.height = Math.max(1, Math.round(h * scale));
+                        const ctx = c.getContext('2d');
+                        ctx.drawImage(img, 0, 0, c.width, c.height);
+                        resolve(c.toDataURL('image/jpeg', 0.90));
+                    } catch (eC) {
+                        resolve(rawUri);
+                    }
+                };
+                img.onerror = () => resolve(rawUri);
+                img.src = rawUri;
+            };
             reader.onerror = () => reject(new Error('No se pudo leer el archivo local.'));
             reader.readAsDataURL(file);
         });
@@ -966,13 +1043,60 @@
     };
 
 
-    function buildSafeUploadFileName(file, tipoChoice, index) {
+    function sanitizeCustomUploadStem(rawName) {
+        return String(rawName || '')
+            .replace(/\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i, '')
+            .replace(/[\\/:*?"<>|]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function extractUploadFileExtension(file, customNameRaw) {
+        const fromCustom = String(customNameRaw || '').trim().match(/\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i);
+        if (fromCustom) return fromCustom[0].toLowerCase();
+        const fromFile = String((file && file.name) || '').trim().match(/\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i);
+        if (fromFile) return fromFile[0].toLowerCase();
+        const mime = String((file && file.type) || '').toLowerCase();
+        if (mime === 'image/png') return '.png';
+        if (mime === 'image/webp') return '.webp';
+        return '.jpg';
+    }
+
+    function buildSafeUploadFileName(file, tipoChoice, index, totalFiles, customNameRaw) {
+        const cleanCustom = sanitizeCustomUploadStem(customNameRaw);
+        if (cleanCustom) {
+            const ext = extractUploadFileExtension(file, customNameRaw);
+            const suffix = Number(totalFiles || 1) > 1 && index > 0 ? ('_' + (index + 1)) : '';
+            return cleanCustom + suffix + ext;
+        }
         const rawName = String((file && file.name) || '').trim();
         if (rawName) return rawName;
         const prefix = String(tipoChoice || 'FOTO').toLowerCase().replace(/[^a-z0-9]+/g, '_') || 'foto';
         const stamp = Date.now().toString(36) + '_' + (index + 1);
         return prefix + '_' + stamp + '.jpg';
     }
+
+    window.openProptUploadWithName = function (desiredName, skuOpt) {
+        const cleanStem = sanitizeCustomUploadStem(desiredName);
+        window.toggleProptDrawer(true);
+        const nameInput = byId('proptCustomFileNameInput');
+        if (nameInput && cleanStem) {
+            nameInput.value = cleanStem;
+        }
+        const skuClean = String(skuOpt || '').trim().toUpperCase();
+        const skuInput = byId('proptSkuInput');
+        if (skuInput && skuClean) {
+            skuInput.value = skuClean;
+            skuInputHadValue = true;
+        }
+        if (cleanStem) {
+            showProptFeedback('🏷️ Nombre listo para subir: "' + cleanStem + '". Elige la foto y se guardará con ese nombre exacto.', true);
+        }
+        if (nameInput && typeof nameInput.focus === 'function') {
+            try { nameInput.focus(); } catch (e) {}
+        }
+        return cleanStem;
+    };
 
     window.uploadFilesToSubirPropt = async function (inputEl) {
         const rawFiles = inputEl && inputEl.files ? Array.from(inputEl.files) : [];
@@ -994,12 +1118,13 @@
         const destSelectEl = byId('proptDestSelect');
         const tipoSelectEl = byId('proptTipoSelect');
         const regCheckEl = byId('proptRegisterSheetCheck');
-        const skuInputEl = byId('proptSkuInput');
+        const customNameEl = byId('proptCustomFileNameInput');
 
         const destChoice = String((destSelectEl && destSelectEl.value) || 'MUEBLES').trim().toUpperCase();
         const tipoChoice = String((tipoSelectEl && tipoSelectEl.value) || (destChoice === 'TELAS' ? 'TELA' : 'MUEBLE')).trim().toUpperCase();
         const registerSheet = regCheckEl ? Boolean(regCheckEl.checked) : true;
-        const activeSku = String((lastSkuMatch && lastSkuMatch.sku) || (skuInputEl && skuInputEl.value) || '').trim().toUpperCase();
+        const customNameRaw = String((customNameEl && customNameEl.value) || '').trim();
+        const activeSku = String((lastSkuMatch && lastSkuMatch.sku) || '').trim().toUpperCase();
 
         const btn = byId('btnUploadSubirPropt');
         const camBtn = byId('btnCameraSubirPropt');
@@ -1007,12 +1132,13 @@
         if (camBtn) camBtn.disabled = true;
         let uploaded = 0;
         let registeredCount = 0;
+        let sheetIssues = [];
         let lastErr = '';
         let abortedForConfig = false;
         try {
             for (let i = 0; i < imageFiles.length; i++) {
                 const file = imageFiles[i];
-                const uploadName = buildSafeUploadFileName(file, tipoChoice, i);
+                const uploadName = buildSafeUploadFileName(file, tipoChoice, i, imageFiles.length, customNameRaw);
                 showProptFeedback('Subiendo ' + (i + 1) + '/' + imageFiles.length + ' (' + destChoice + ' · ' + tipoChoice + '): ' + uploadName + '...', true);
                 try {
                     const dataUrl = await readFileAsDataUrl(file);
@@ -1044,6 +1170,11 @@
                         uploaded++;
                         if (res.sheetRegistration && res.sheetRegistration.ok) {
                             registeredCount++;
+                            if (res.sheetRegistration.warning) {
+                                sheetIssues.push(String(res.sheetRegistration.warning));
+                            }
+                        } else if (registerSheet && res.sheetRegistration && res.sheetRegistration.ok === false) {
+                            sheetIssues.push(String(res.sheetRegistration.error || 'No se pudo registrar en Sheet.'));
                         }
                     } else {
                         const rawErr = (res && res.error) || ('No se pudo subir ' + uploadName);
@@ -1066,8 +1197,11 @@
                 await window.refreshProptDrawerData();
                 const sheetNote = registeredCount > 0
                     ? (' · Registrada(s) en Sheet (' + registeredCount + ' · ' + tipoChoice + ')')
-                    : '';
-                showProptFeedback('✅ ' + uploaded + ' foto(s) subida(s) a ' + destChoice + sheetNote + '.' + (lastErr ? (' · Aviso: ' + lastErr) : ''), true);
+                    : (registerSheet ? ' · ⚠️ Sin registro en Sheet' : '');
+                const issueSummary = sheetIssues.length ? (' · Aviso Sheet: ' + sheetIssues[0]) : '';
+                const errSummary = lastErr ? (' · Aviso: ' + lastErr) : '';
+                const allGood = !lastErr && (!registerSheet || (registeredCount === uploaded && sheetIssues.length === 0));
+                showProptFeedback((allGood ? '✅ ' : '⚠️ ') + uploaded + ' foto(s) subida(s) a ' + destChoice + sheetNote + '.' + issueSummary + errSummary, allGood);
             } else {
                 showProptFeedback(lastErr || (abortedForConfig ? 'Revisa la configuración de URL /exec y PROMPTS_PIN.' : 'No se pudo subir la imagen.'), false);
             }
@@ -1082,7 +1216,10 @@
         if (!isValidDriveId(cleanId)) return;
         const found = proptFilesCache.find((item) => item && item.id === cleanId);
         const label = (found && found.name) || cleanId;
-        if (typeof window.confirm === 'function' && !window.confirm('¿Enviar a la papelera de Drive "' + label + '" (solo en SUBIR PROPT)?')) {
+        const destSelectEl = byId('proptDestSelect');
+        const destChoice = String((destSelectEl && destSelectEl.value) || '').trim().toUpperCase();
+        const folderLabel = destChoice === 'BUZON' ? 'Buzón Alta de Odoo' : 'SUBIR PROPT';
+        if (typeof window.confirm === 'function' && !window.confirm('¿Enviar a la papelera de Drive "' + label + '" (solo en ' + folderLabel + ')?')) {
             return;
         }
         showProptFeedback('Eliminando ' + label + '...', true);
@@ -1094,7 +1231,7 @@
             }
             const nextList = proptFilesCache.filter((item) => item && item.id !== cleanId);
             renderProptGallery(nextList);
-            showProptFeedback('🗑 Archivo enviado a la papelera desde SUBIR PROPT.', true);
+            showProptFeedback('🗑 Archivo enviado a la papelera desde ' + folderLabel + '.', true);
         } catch (err) {
             showProptFeedback((err && err.message) || 'Error al eliminar.', false);
         }
@@ -1258,6 +1395,10 @@
         }
         if (proptDrawerOpen || !isElHidden('proptDrawer')) {
             window.toggleProptDrawer(false);
+            return;
+        }
+        if (window.CreataPromptsStudio && typeof window.CreataPromptsStudio.hasActivePicker === 'function' && window.CreataPromptsStudio.hasActivePicker()) {
+            window.CreataPromptsStudio.closeActivePickers();
         }
     }
 
@@ -1296,6 +1437,17 @@
                     undo: () => { window.toggleProptDrawer(false); },
                     escapeAllowed: true,
                     toast: 'Panel SUBIR PROPT cerrado'
+                },
+                {
+                    id: 'studio_picker',
+                    isActive: () => Boolean(window.CreataPromptsStudio && typeof window.CreataPromptsStudio.hasActivePicker === 'function' && window.CreataPromptsStudio.hasActivePicker()),
+                    undo: () => {
+                        if (window.CreataPromptsStudio && typeof window.CreataPromptsStudio.closeActivePickers === 'function') {
+                            window.CreataPromptsStudio.closeActivePickers();
+                        }
+                    },
+                    escapeAllowed: true,
+                    toast: 'Catálogo cerrado'
                 },
                 {
                     id: 'collapsed_topbar',
@@ -1409,25 +1561,35 @@
         });
     }
 
-    async function writePngBlobToClipboardHost(pngBlob) {
-        if (!pngBlob) return false;
+    async function writePngBlobToClipboardHost(pngBlobOrPromise) {
+        if (!pngBlobOrPromise) return false;
         if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof window.ClipboardItem === 'function') {
             try {
-                await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': pngBlob })]);
+                await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': pngBlobOrPromise })]);
                 return true;
             } catch (eSelf) {}
         }
         try {
+            const resolvedBlob = await pngBlobOrPromise;
+            if (!resolvedBlob) return false;
+            if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof window.ClipboardItem === 'function') {
+                try {
+                    await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': resolvedBlob })]);
+                    return true;
+                } catch (eSelf2) {}
+            }
             if (window.parent && window.parent !== window && window.parent.navigator && window.parent.navigator.clipboard && typeof window.parent.navigator.clipboard.write === 'function' && typeof window.parent.ClipboardItem === 'function') {
-                await window.parent.navigator.clipboard.write([new window.parent.ClipboardItem({ 'image/png': pngBlob })]);
+                await window.parent.navigator.clipboard.write([new window.parent.ClipboardItem({ 'image/png': resolvedBlob })]);
                 return true;
             }
         } catch (ePar) {}
         return false;
     }
 
+    const ALLOWED_RENDER_COPY_ORIGINS = [RENDER_ORIGIN, 'https://app-1-3y7y.onrender.com'];
+
     async function handlePromptsCopyImageMessage(ev) {
-        if (!ev || ev.origin !== RENDER_ORIGIN) return;
+        if (!ev || ALLOWED_RENDER_COPY_ORIGINS.indexOf(ev.origin) === -1) return;
         const data = ev.data;
         if (!data || data.type !== 'CREATA_PROMPTS_COPY_IMAGE') return;
         const reqId = String(data.requestId || '');
@@ -1452,6 +1614,28 @@
         } catch (eReply) {}
     }
 
+    async function fetchDrivePhotoAsPngBlobHost(cleanId) {
+        const candidates = [
+            'https://lh3.googleusercontent.com/d/' + encodeURIComponent(cleanId) + '=w1600',
+            'https://drive.google.com/thumbnail?id=' + encodeURIComponent(cleanId) + '&sz=w1600'
+        ];
+        for (let i = 0; i < candidates.length; i++) {
+            try {
+                const pngBlob = await imageUrlOrDataUriToPngBlobHost(candidates[i], true);
+                if (pngBlob) return pngBlob;
+            } catch (eCand) {}
+        }
+        const cfg = getProptConfig();
+        if (isValidAppsScriptUrl(cfg.scriptUrl) && cfg.pin) {
+            const b64Res = await callPromptsAppsScript('prompts_fetch_image_b64', { fileId: cleanId });
+            if (b64Res && b64Res.ok && b64Res.dataUri) {
+                const pngBlob = await imageUrlOrDataUriToPngBlobHost(b64Res.dataUri, false);
+                if (pngBlob) return pngBlob;
+            }
+        }
+        throw new Error('drive_photo_fetch_failed');
+    }
+
     window.copyProptDrivePhotoImage = async function (fileId, fileName, btnEl) {
         const cleanId = String(fileId || '').trim();
         if (!isValidDriveId(cleanId)) return false;
@@ -1461,29 +1645,10 @@
             btnEl.textContent = '…';
         }
         let copied = false;
-        const candidates = [
-            'https://lh3.googleusercontent.com/d/' + encodeURIComponent(cleanId) + '=w1600',
-            'https://drive.google.com/thumbnail?id=' + encodeURIComponent(cleanId) + '&sz=w1600'
-        ];
         try {
-            for (let i = 0; i < candidates.length && !copied; i++) {
-                try {
-                    const pngBlob = await imageUrlOrDataUriToPngBlobHost(candidates[i], true);
-                    copied = await writePngBlobToClipboardHost(pngBlob);
-                } catch (eCand) {}
-            }
-            if (!copied) {
-                try {
-                    const cfg = getProptConfig();
-                    if (isValidAppsScriptUrl(cfg.scriptUrl) && cfg.pin) {
-                        const b64Res = await callPromptsAppsScript('prompts_fetch_image_b64', { fileId: cleanId });
-                        if (b64Res && b64Res.ok && b64Res.dataUri) {
-                            const pngBlob = await imageUrlOrDataUriToPngBlobHost(b64Res.dataUri, false);
-                            copied = await writePngBlobToClipboardHost(pngBlob);
-                        }
-                    }
-                } catch (eGasB64) {}
-            }
+            // Pasar Promise<Blob> sincrónicamente a ClipboardItem preserva el gesto de usuario en Safari/iOS
+            const blobPromise = fetchDrivePhotoAsPngBlobHost(cleanId);
+            copied = await writePngBlobToClipboardHost(blobPromise);
             if (copied) {
                 if (btnEl) btnEl.textContent = '✅';
                 showProptFeedback('🖼️ Foto copiada como imagen (' + String(fileName || cleanId) + ').', true);
@@ -1493,6 +1658,10 @@
                 showProptFeedback('No se pudo copiar la imagen directamente (Drive bloqueó CORS). Conecta Apps Script con PIN o ábrela con ↗.', false);
             }
             return copied;
+        } catch (errCopy) {
+            if (btnEl) btnEl.textContent = '⚠️';
+            showProptFeedback('No se pudo copiar la imagen directamente (Drive bloqueó CORS). Conecta Apps Script con PIN o ábrela con ↗.', false);
+            return false;
         } finally {
             setTimeout(() => {
                 if (btnEl) {
@@ -1520,8 +1689,8 @@
         copyDataUriImage: async function (dataUriOrUrl) {
             try {
                 const useCors = !/^data:/i.test(String(dataUriOrUrl || ''));
-                const pngBlob = await imageUrlOrDataUriToPngBlobHost(dataUriOrUrl, useCors);
-                return await writePngBlobToClipboardHost(pngBlob);
+                const pngBlobPromise = imageUrlOrDataUriToPngBlobHost(dataUriOrUrl, useCors);
+                return await writePngBlobToClipboardHost(pngBlobPromise);
             } catch (e) {
                 return false;
             }
@@ -1601,6 +1770,7 @@
         // Estado de red
         window.addEventListener('offline', () => {
             frameLoaded = false;
+            frameNavigationRequested = false;
             if (studioEnabled && activeWorkspace === 'studio') {
                 setConnectionStatus('offline', 'Local · Sin red');
             } else {
@@ -1612,9 +1782,9 @@
             if (studioEnabled && activeWorkspace === 'studio') {
                 setConnectionStatus('online', 'Nativo · V8 Pro');
             } else if (!frameLoaded) {
-                loadGeneratorFrame(false);
+                loadGeneratorFrame(false, activeWorkspace === 'odoo' ? 'odoo' : 'render');
             } else {
-                setConnectionStatus('online', 'En línea');
+                setConnectionStatus('online', studioEnabled ? getActiveRenderTargetMeta(currentFrameTarget || activeWorkspace).onlineLabel : 'En línea');
             }
         });
 
@@ -1638,7 +1808,7 @@
 
         syncInstallControls();
 
-        // Si el Estudio Nativo (V8 · V7 · V1) está montado, arrancarlo en 0.1s y dejar Render solo para Alta de Odoo
+        // Si el Estudio Nativo (V8 · V7 · V1) está montado, arrancarlo en 0.1s; Render (buena-espero) y Alta Odoo quedan en pestañas dedicadas
         const studioContainer = byId('promptsNativeStudio');
         if (studioContainer && window.CreataPromptsStudio && typeof window.CreataPromptsStudio.init === 'function') {
             studioEnabled = true;
@@ -1646,8 +1816,8 @@
             window.switchPromptsWorkspace('studio');
         } else {
             studioEnabled = false;
-            activeWorkspace = 'odoo';
-            loadGeneratorFrame(false);
+            activeWorkspace = 'render';
+            loadGeneratorFrame(false, 'render');
         }
     }
 

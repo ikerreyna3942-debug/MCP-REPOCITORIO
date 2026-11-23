@@ -2579,7 +2579,7 @@
         if (sInp) sInp.value = cp.searchQuery;
         if (cBtn) cBtn.classList.toggle('cm-hidden', !cp.searchQuery);
       }
-      if (cp.presenceFilter && ['ALL', 'ONLINE', 'OFFLINE'].includes(cp.presenceFilter)) {
+      if (cp.presenceFilter && ['ALL', 'ONLINE', 'OFFLINE', 'GUESTS'].includes(cp.presenceFilter)) {
         state.presenceFilter = cp.presenceFilter;
       }
       if (cp.quotesStoreFilter) {
@@ -2698,7 +2698,7 @@
       const presenceFilterBtn = target.closest ? target.closest('[data-hist-presence-filter]') : null;
       if (presenceFilterBtn) {
         const nextF = presenceFilterBtn.getAttribute('data-hist-presence-filter') || 'ALL';
-        state.presenceFilter = ['ALL', 'ONLINE', 'OFFLINE'].includes(nextF) ? nextF : 'ALL';
+        state.presenceFilter = ['ALL', 'ONLINE', 'OFFLINE', 'GUESTS'].includes(nextF) ? nextF : 'ALL';
         if (state.presenceFilter !== 'ALL') notifyHistBackStatePush('hist_filter');
         renderPresencePanel();
         saveHistCheckpointNow();

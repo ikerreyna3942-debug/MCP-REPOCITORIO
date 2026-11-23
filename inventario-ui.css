@@ -3526,6 +3526,29 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   white-space: nowrap;
 }
 
+.inv-det-fabric-swatch-card.is-wood {
+  border-color: #D5BBA0;
+  background: linear-gradient(135deg, #FDF8F2 0%, #F5E9DA 100%);
+}
+
+.inv-det-fabric-swatch-card.is-wood:hover {
+  border-color: #8C5A2B;
+  box-shadow: 0 3px 10px rgba(124, 74, 34, 0.16);
+}
+
+.inv-det-fabric-swatch-card.is-wood .inv-det-fabric-swatch-img-wrap {
+  border-color: rgba(124, 74, 34, 0.38);
+}
+
+.inv-det-fabric-swatch-card.is-wood .inv-det-fabric-swatch-tag {
+  color: #7C4A22;
+}
+
+.inv-det-fabric-swatch-card.is-wood .inv-det-fabric-swatch-zoom {
+  color: #6B3E1B;
+  border-color: #D5BBA0;
+}
+
 /* ============================================================================
  * Camas, Bases de Cama y Cabeceras: Selector de Tamaño -> Color / Madera (50% compacto)
  * ============================================================================ */

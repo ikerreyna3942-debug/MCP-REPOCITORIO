@@ -966,6 +966,7 @@
     async function handleSuiteCopyImageMessage(ev) {
         const origin = ev && ev.origin;
         const isAllowedOrigin = origin === 'https://buena-espero.onrender.com' ||
+            origin === 'https://app-1-3y7y.onrender.com' ||
             (typeof location !== 'undefined' && location.origin && origin === location.origin);
         if (!isAllowedOrigin) return;
         const data = ev.data;

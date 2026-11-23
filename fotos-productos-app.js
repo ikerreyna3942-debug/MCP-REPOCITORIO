@@ -519,11 +519,17 @@
         const text = (tpNom + ' ' + cat).trim();
 
         if (/\bFUTON|\bFUTTON|SOFA\s*CAMA/.test(text)) return CATEGORIAS_DEST_FOLDERS[2];
-        if (/MESA\s+LATERAL|MESA\s+AUXILIAR/.test(text) || (cat.indexOf('MESAS DE CENTRO') !== -1 && /\bLATERAL|\bAUXILIAR/.test(text))) {
+        if (/MESA\s+LATERAL|MESA\s+AUXILIAR/.test(tpNom) || (cat.indexOf('MESAS DE CENTRO') !== -1 && /\bLATERAL(?:ES)?\b|\bAUXILIAR(?:ES)?\b/.test(tpNom))) {
             return CATEGORIAS_DEST_FOLDERS[4];
         }
-        if (/MESA\s+DE\s+CENTRO|MESA\s+CENTRAL|\bNIDO\b/.test(text) || cat === 'MESAS DE CENTRO & LATERALES') {
+        if (/MESA\s+DE\s+CENTRO|MESA\s+CENTRO|MESA\s+CENTRAL|MESA\s+NIDO/.test(tpNom) || cat === 'MESAS DE CENTRO & LATERALES') {
             return CATEGORIAS_DEST_FOLDERS[3];
+        }
+        const isModularSalaModule =
+            /\b(SIN\s+BRAZOS?|BRAZO\s+(?:DER(?:ECHO)?|IZQ(?:UIERDO)?)|MODULO\s+CENTRAL|ESQUINERO|CHAISE|LOVE\s*SEAT|MODULAR)\b/.test(tpNom) ||
+            (cat === 'SALAS & SOFAS' && /\bSILLON(?:ES)?\b/.test(tpNom) && /\b(DER(?:ECHO)?|IZQ(?:UIERDO)?|SIN\s+BRAZOS?|CENTRAL|MODULO)\b/.test(tpNom));
+        if (isModularSalaModule) {
+            return CATEGORIAS_DEST_FOLDERS[0];
         }
         if (/\bSILLAS?\b/.test(nomHead) && !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHead) && !/^SALA\b/.test(nomHead)) {
             return CATEGORIAS_DEST_FOLDERS[5];
@@ -714,10 +720,11 @@
         if (!cloudRes || typeof cloudRes !== 'object') return '';
         const direct = cleanStr(cloudRes.authToken || cloudRes.renewedAuthToken || (cloudRes.user && cloudRes.user.authToken));
         if (direct) return direct;
+        const activeEmail = normalizeEmailInput(state.activeEmail) || OWNER_EMAIL;
         if (Array.isArray(cloudRes.locations)) {
             for (let i = 0; i < cloudRes.locations.length; i++) {
                 const loc = cloudRes.locations[i];
-                if (loc && normalizeEmailInput(loc.correo) === OWNER_EMAIL && cleanStr(loc.authToken)) {
+                if (loc && normalizeEmailInput(loc.correo) === activeEmail && cleanStr(loc.authToken)) {
                     return cleanStr(loc.authToken);
                 }
             }
@@ -729,16 +736,19 @@
         const tok = cleanStr(newToken);
         if (!tok) return;
         state.authToken = tok;
+        const activeEmail = normalizeEmailInput(state.activeEmail) || OWNER_EMAIL;
+        const activeName = cleanStr(state.activeDisplayName) || OWNER_DISPLAY_NAME;
+        const activeTab = cleanStr(state.activeSheetTab) || 'CUENTAS ADMINISTRATIVAS';
         const keys = [FOTOS_SESSION_KEY, PANEL_SESSION_KEY, HIST_SESSION_KEY];
         for (let i = 0; i < keys.length; i++) {
             try {
                 const raw = localStorage.getItem(keys[i]);
                 const prev = raw ? (JSON.parse(raw) || {}) : {};
-                if (prev.correo && normalizeEmailInput(prev.correo) !== OWNER_EMAIL) continue;
+                if (prev.correo && normalizeEmailInput(prev.correo) !== activeEmail) continue;
                 const nextObj = Object.assign({}, prev, {
-                    correo: OWNER_EMAIL,
-                    nombre: prev.nombre || OWNER_DISPLAY_NAME,
-                    sheetTab: prev.sheetTab || 'CUENTAS ADMINISTRATIVAS',
+                    correo: activeEmail,
+                    nombre: prev.nombre || activeName,
+                    sheetTab: prev.sheetTab || activeTab,
                     authToken: tok,
                     verifiedAt: Date.now()
                 });
@@ -858,12 +868,14 @@
         const key = cleanStr(state.accessKey);
         if (!key) return '';
         if (_ownerTokenRenewPromise) return _ownerTokenRenewPromise;
+        const activeEmail = normalizeEmailInput(state.activeEmail) || OWNER_EMAIL;
+        const activeTab = cleanStr(state.activeSheetTab) || 'CUENTAS ADMINISTRATIVAS';
         _ownerTokenRenewPromise = (async () => {
             try {
                 const loginRes = await sendRawWebAppPost('inv_login', {
-                    email: OWNER_EMAIL,
+                    email: activeEmail,
                     accessKey: key,
-                    sheetTab: 'CUENTAS ADMINISTRATIVAS'
+                    sheetTab: activeTab
                 }, 10000);
                 const tok = extractAuthTokenFromLoginRes(loginRes);
                 if (tok) {
@@ -899,7 +911,7 @@
     function isTransientLockError(res) {
         if (!res || res.ok || res.authRequired || res.forbidden || res.forbiddenFolder) return false;
         const msg = cleanStr(res.error).toLowerCase();
-        return /candado|lock|tiempo de espera.*candado|waitlock|otro proceso.*modificando/.test(msg);
+        return !!res.retryable || /candado|bloqueo|bloquear|lock|tiempo de espera.*candado|waitlock|otro proceso.*modificando/.test(msg);
     }
 
     function isRetryablePhotoWriteAction(action) {
@@ -1885,7 +1897,7 @@
         if (!fid || (!isLocal && !/^[a-zA-Z0-9_-]{15,}$/.test(fid)) || (isLocal && !safeDataUrl)) return;
 
         const targetKey = cleanStr(entry.targetKey || entry.sku || entry.overrideKey).toUpperCase();
-        const targetKind = cleanStr(entry.targetKind) || (targetKey.indexOf('VFAB:') === 0 ? 'TELA' : (targetKey.indexOf('VCOV:') === 0 ? 'PORTADA' : 'SKU'));
+        const targetKind = cleanStr(entry.targetKind) || (targetKey.indexOf('VFAB:') === 0 ? 'TELA' : (targetKey.indexOf('VWOD:') === 0 ? 'MADERA' : (targetKey.indexOf('VCOV:') === 0 ? 'PORTADA' : 'SKU')));
         const targetLabel = cleanStr(entry.targetLabel || entry.productName || entry.label || targetKey);
         const fileName = cleanStr(entry.fileName || (state.loadedFileNamesById && state.loadedFileNamesById[fid]) || '');
         const viewUrl = (!/^blob:/i.test(rawUrl) && rawUrl) || (!isLocal ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '');
@@ -1897,7 +1909,7 @@
             fileName: fileName,
             viewUrl: viewUrl,
             localDataUrl: safeDataUrl,
-            destFolderName: cleanStr(entry.destFolderName || (targetKind === 'TELA' ? 'Tela' : (targetKind === 'PORTADA' ? 'Portada' : ''))),
+            destFolderName: cleanStr(entry.destFolderName || (targetKind === 'TELA' ? 'Tela' : (targetKind === 'MADERA' ? 'Madera' : (targetKind === 'PORTADA' ? 'Portada' : '')))),
             ts: Number(entry.ts || Date.now()) || Date.now()
         };
 
@@ -1983,25 +1995,26 @@
                 viewUrl: log.newUrl || (!isLocalTempPhotoId(fid) ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : ''),
                 localDataUrl: log.localDataUrl || '',
                 destFolderName: cleanStr(log.destFolderName || ''),
-                ts: parseMxDateTimestamp(log.timestamp) || (Date.now() - (s + 1) * 1000)
+                ts: Number(log.ts || 0) || parseMxDateTimestamp(log.timestamp) || (Date.now() - (s + 1) * 1000)
             });
         }
 
-        // 3) Portadas y Telas en la nube (_INV_PRODUCT_OVERRIDES)
+        // 3) Portadas, Telas y Maderas en la nube (_INV_PRODUCT_OVERRIDES)
         const ovMap = getVisualOverridesMapSafe();
         const ovKeys = Object.keys(ovMap);
         for (let i = 0; i < ovKeys.length; i++) {
             const ovKey = cleanStr(ovKeys[i]).toUpperCase();
-            if (ovKey.indexOf('VCOV:') !== 0 && ovKey.indexOf('VFAB:') !== 0) continue;
+            if (ovKey.indexOf('VCOV:') !== 0 && ovKey.indexOf('VFAB:') !== 0 && ovKey.indexOf('VWOD:') !== 0) continue;
             const ov = ovMap[ovKeys[i]];
-            if (!ov || cleanStr(ov.status).toUpperCase() === 'DELETED') continue;
+            const ovStatus = ov ? cleanStr(ov.status).toUpperCase() : '';
+            if (!ov || ovStatus === 'DELETED' || ovStatus === 'ELIMINADO' || ovStatus === 'ARCHIVADO') continue;
             const rawUrl = cleanStr(ov.note);
             if (!rawUrl || /^blob:/i.test(rawUrl)) continue;
             const isDataUri = rawUrl.indexOf('data:image/') === 0;
             const fid = isDataUri ? cleanStr(ov.localFileId) : extractDriveFileId(rawUrl);
             if (!fid) continue;
-            const kind = ovKey.indexOf('VFAB:') === 0 ? 'TELA' : 'PORTADA';
-            const label = cleanStr(ov.name) || ovKey.replace(/^V(?:COV|FAB):/, '');
+            const kind = ovKey.indexOf('VFAB:') === 0 ? 'TELA' : (ovKey.indexOf('VWOD:') === 0 ? 'MADERA' : 'PORTADA');
+            const label = cleanStr(ov.name) || ovKey.replace(/^V(?:COV|FAB|WOD):/, '');
             pushCandidate({
                 id: fid,
                 targetKey: ovKey,
@@ -2010,7 +2023,7 @@
                 fileName: cleanStr(fileNameMap[fid] || ''),
                 viewUrl: isDataUri ? '' : ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
                 localDataUrl: isDataUri ? rawUrl : '',
-                destFolderName: kind === 'TELA' ? 'Tela' : 'Portada',
+                destFolderName: kind === 'TELA' ? 'Tela' : (kind === 'MADERA' ? 'Madera' : 'Portada'),
                 ts: parseMxDateTimestamp(ov.updatedAt) || 0
             });
         }
@@ -2032,7 +2045,7 @@
         const items = [];
         const seenKey = new Set();
 
-        // 1) Recién cargadas primero (incluye SKUs, Portadas y Telas)
+        // 1) Recién cargadas primero (incluye SKUs, Portadas, Telas y Maderas)
         const recent = getRecentUploadedPhotosList();
         for (let r = 0; r < recent.length; r++) {
             const it = recent[r];
@@ -2041,7 +2054,7 @@
             const key = sku + '::' + fid;
             if (seenKey.has(key)) continue;
             seenKey.add(key);
-            const kindLabel = it.targetKind === 'TELA' ? '🧵 Tela' : (it.targetKind === 'PORTADA' ? '🖼️ Portada' : (it.destFolderName || '').replace(/^FOTOS\s+(DE\s+)?/i, ''));
+            const kindLabel = it.targetKind === 'TELA' ? '🧵 Tela' : (it.targetKind === 'MADERA' ? '🪵 Madera' : (it.targetKind === 'PORTADA' ? '🖼️ Portada' : (it.destFolderName || '').replace(/^FOTOS\s+(DE\s+)?/i, '')));
             items.push({
                 id: fid,
                 sku: sku,
@@ -3546,8 +3559,8 @@
                 const safeId = escapeHtml((item.id || '').replace(/'/g, "\\'"));
                 const cardKey = 'L::' + (item.sku || '') + '::' + item.id;
                 const primaryTitle = item.fileName || item.name || item.sku;
-                const isVisualItem = /^V(?:COV|FAB):/i.test(item.sku || '');
-                const displaySkuTag = isVisualItem ? (item.name || item.sku.replace(/^V(?:COV|FAB):/i, '')) : item.sku;
+                const isVisualItem = /^V(?:COV|FAB|WOD):/i.test(item.sku || '');
+                const displaySkuTag = isVisualItem ? (item.name || item.sku.replace(/^V(?:COV|FAB|WOD):/i, '')) : item.sku;
                 const subText = [displaySkuTag, item.shortFolder].filter(Boolean).join(' · ');
                 const titleTooltip = item.fileName
                     ? (item.fileName + (displaySkuTag ? (' · ' + displaySkuTag) : '') + (item.name && item.name !== item.fileName && item.name !== displaySkuTag ? (' · ' + item.name) : ''))
@@ -4361,6 +4374,7 @@
                     if (res && res.ok && res.file && res.file.id) {
                         uploadedCount++;
                         const realId = res.file.id;
+                        entry.realId = realId;
                         const newFile = enrichInboxFileItem(Object.assign({}, res.file, {
                             localDataUrl: entry.blobUrl || dataUrl,
                             thumbDataUrl: entry.blobUrl || dataUrl
@@ -4804,8 +4818,9 @@
                     showAssignFeedback('⚠️ Selecciona un SKU primero.', false);
                     return;
                 }
-                await window.uploadLocalFilesToSubir({ files: files }, { suppressSummaryFeedback: true });
-                await window.autoAssignMatchedInboxByCategory();
+                const stagedBatch = await window.uploadLocalFilesToSubir({ files: files }, { suppressSummaryFeedback: true });
+                const uploadedIds = new Set((stagedBatch || []).map((e) => cleanStr(e && (e.realId || e.localId))).filter(Boolean));
+                await window.autoAssignMatchedInboxByCategory(false, uploadedIds);
                 return;
             }
 
@@ -5023,8 +5038,9 @@
             }
 
             if (files.length > 1) {
-                await window.uploadLocalFilesToSubir({ files: files.slice(1) }, { suppressSummaryFeedback: true });
-                await window.autoAssignMatchedInboxByCategory(true);
+                const stagedRest = await window.uploadLocalFilesToSubir({ files: files.slice(1) }, { suppressSummaryFeedback: true });
+                const restIds = new Set((stagedRest || []).map((e) => cleanStr(e && (e.realId || e.localId))).filter(Boolean));
+                await window.autoAssignMatchedInboxByCategory(true, restIds);
             }
         } finally {
             if (inputEl && typeof inputEl.value === 'string') {
@@ -5033,16 +5049,18 @@
         }
     };
 
-    window.autoAssignMatchedInboxByCategory = async function (silentIfNone) {
+    window.autoAssignMatchedInboxByCategory = async function (silentIfNone, onlyFileIds) {
         if (!state.inboxFiles.length) {
             if (!silentIfNone) showAssignFeedback('ℹ️ Bandeja vacía.', true);
             return;
         }
+        const restrictIds = (onlyFileIds instanceof Set && onlyFileIds.size > 0) ? onlyFileIds : null;
         const candidates = [];
         for (let i = 0; i < state.inboxFiles.length; i++) {
             const f = state.inboxFiles[i];
             if (!f || !f.id) continue;
-            const sugSku = cleanStr(f._suggestedSku || findSuggestedSkuForFileName(f.name) || f.skuOrigin).toUpperCase();
+            if (restrictIds && !restrictIds.has(cleanStr(f.id))) continue;
+            const sugSku = cleanStr(findSuggestedSkuForFileName(f.name)).toUpperCase();
             if (sugSku && state.productBySku.has(sugSku)) {
                 candidates.push({ file: f, sku: sugSku });
             }
@@ -5612,10 +5630,11 @@
         let totalMoved = 0;
         let totalPublicFixed = 0;
         let startIndex = 0;
+        let lastRemaining = 0;
         let fallbackUsed = false;
 
         try {
-            for (let batch = 0; batch < 15; batch++) {
+            for (let batch = 0; batch < 80; batch++) {
                 if (btn) btn.textContent = '🔧 ' + (batch + 1) + '...';
                 const res = await callWebAppPost('fotos_reorganize_from_sheets', Object.assign({
                     startIndex: startIndex,
@@ -5653,8 +5672,10 @@
                 );
 
                 const remaining = Number(res.remaining || 0);
+                lastRemaining = remaining;
                 const nextIdx = Number(res.nextStartIndex != null ? res.nextStartIndex : (res.nextIndex || 0));
                 if (remaining <= 0 || !nextIdx || nextIdx <= startIndex) {
+                    lastRemaining = Math.max(0, remaining);
                     break;
                 }
                 startIndex = nextIdx;
@@ -5667,8 +5688,11 @@
                     true
                 );
             } else {
+                const remNote = lastRemaining > 0
+                    ? (' · Quedan ' + lastRemaining + ' pendientes (toca 🔧 Reparar otra vez para continuar).')
+                    : '.';
                 showAssignFeedback(
-                    '✅ ' + totalChecked + ' revisadas · ' + totalMoved + ' reubicadas · ' + totalPublicFixed + ' públicas.',
+                    '✅ ' + totalChecked + ' revisadas · ' + totalMoved + ' reubicadas · ' + totalPublicFixed + ' públicas' + remNote,
                     true
                 );
             }
@@ -5959,7 +5983,7 @@
                         sku: ovKey,
                         status: 'VISIBLE',
                         name: cleanStr(entry.label || ovKey).slice(0, 140),
-                        category: entry.categoryTag || (ovKey.indexOf('VFAB:') === 0 ? 'FABRIC_SWATCH' : 'VISUAL_COVER'),
+                        category: entry.categoryTag || (ovKey.indexOf('VFAB:') === 0 ? 'FABRIC_SWATCH' : (ovKey.indexOf('VWOD:') === 0 ? 'WOOD_SWATCH' : 'VISUAL_COVER')),
                         price: null,
                         note: previewUrl,
                         localFileId: entry.localFileId || '',
@@ -6101,8 +6125,9 @@
                     const ovKey = String(entry.overrideKey || '').trim().toUpperCase();
                     if (!ovKey) continue;
                     const isFabric = entry.categoryTag === 'FABRIC_SWATCH' || ovKey.indexOf('VFAB:') === 0;
+                    const isWood = entry.categoryTag === 'WOOD_SWATCH' || ovKey.indexOf('VWOD:') === 0;
                     const label = cleanStr(entry.label || ovKey);
-                    const categoryTag = entry.categoryTag || (isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER');
+                    const categoryTag = entry.categoryTag || (isFabric ? 'FABRIC_SWATCH' : (isWood ? 'WOOD_SWATCH' : 'VISUAL_COVER'));
                     const blobRec = entry.localFileId ? await getOfflinePhotoBlobIdb(entry.localFileId) : null;
                     const dataUrl = (blobRec && blobRec.dataUrl) || cleanStr(entry.dataUrl);
                     const directUrl = cleanStr(entry.directUrl);
@@ -6127,6 +6152,7 @@
                     } else {
                         res = await callWebAppPost('fotos_upload_visual_override', Object.assign({
                             overrideKey: ovKey,
+                            kind: isFabric ? 'fabric' : (isWood ? 'wood' : 'cover'),
                             label: label,
                             categoryTag: categoryTag,
                             fileName: cleanStr(entry.fileName || (blobRec && blobRec.fileName) || 'foto.jpg'),
@@ -6144,9 +6170,9 @@
                                     advisorName: 'Kevin Reyna',
                                     sku: ovKey,
                                     fileName: cleanStr(entry.fileName || (blobRec && blobRec.fileName) || 'foto.jpg'),
-                                    productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
-                                    categoria: isFabric ? 'TELAS' : 'SALAS',
-                                    tipo: isFabric ? 'TELA' : 'PORTADA',
+                                    productName: (isFabric ? 'TELA ' : (isWood ? 'MADERA ' : 'PORTADA ')) + label,
+                                    categoria: isFabric ? 'TELAS' : (isWood ? 'MADERAS' : 'SALAS'),
+                                    tipo: isFabric ? 'TELA' : (isWood ? 'MADERA' : 'PORTADA'),
                                     targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
                                     driveOnly: true,
                                     skipSheetWrite: true,
@@ -6253,9 +6279,17 @@
                         window.lockFotosPortal();
                         setGateMessage('Ingresa tu contraseña para subir las fotos pendientes.', 'warn');
                         break;
-                    } else {
+                    } else if (!res || res.unavailable) {
                         remaining.push(...queue.slice(i));
                         break;
+                    } else {
+                        entry.retryCount = (Number(entry.retryCount) || 0) + 1;
+                        entry.lastError = cleanStr(res && res.error);
+                        if (entry.retryCount < 10) {
+                            remaining.push(entry);
+                        } else {
+                            await deleteOfflinePhotoBlobIdb(entry.localFileId);
+                        }
                     }
                 } else if (entry.type === 'assign_photo') {
                     const resolvedFid = localToRealId[entry.driveFileId] || entry.driveFileId;
@@ -6681,7 +6715,7 @@
     let _fotosSplitTarget = 'cotizador';
 
     function getFotosSplitTargetUrl(target) {
-        return target === 'prompts' ? './prompts.html' : './inventario.html?embed=1';
+        return target === 'prompts' ? './prompts.html?embed=1' : './inventario.html?embed=1';
     }
 
     function loadFotosSplitPrefs() {
@@ -7401,20 +7435,21 @@
     }
 
     // ========================================================================
-    // GESTOR DE PORTADAS VISUALES (INICIO) Y FOTOS DE TELAS / COLORES (SOLO APP DE FOTOS)
-    // Persistido en _INV_PRODUCT_OVERRIDES (VCOV:... / VFAB:...) sin tocar SKUs ni Hoja 1
+    // GESTOR DE PORTADAS VISUALES (INICIO), TELAS Y MADERAS (SOLO APP DE FOTOS)
+    // Persistido en _INV_PRODUCT_OVERRIDES (VCOV:... / VFAB:... / VWOD:...) sin tocar SKUs ni Hoja 1
     // ========================================================================
     const VISUAL_OVERRIDES_STORAGE_KEY = 'creata_inv_product_overrides_v1';
     const VISUAL_TARGETS_INDEX_STORAGE_KEY = 'creata_visual_targets_index_v1';
     const VISUAL_UPLOAD_DRIVE_FOLDER_ID = '1rPFbjvovC5fSDPHS29yYpbLwM90c-5L9';
 
     const visualState = {
-        workMode: 'SKU', // 'SKU' | 'COVER' | 'FABRIC'
+        workMode: 'SKU', // 'SKU' | 'COVER' | 'FABRIC' | 'WOOD'
         filterMode: 'ALL', // 'ALL' | 'NO_PHOTO' | 'HAS_PHOTO'
         searchQuery: '',
         overridesMap: {},
         covers: [],
         fabrics: [],
+        woods: [],
         selectedOverrideKey: '',
         busy: false
     };
@@ -7438,6 +7473,89 @@
         const hash8 = (h >>> 0).toString(36).toUpperCase().padStart(7, '0').slice(0, 7);
         const maxStem = Math.max(8, 50 - prefix.length);
         return prefix + clean.slice(0, maxStem).trim() + '_' + hash8;
+    }
+
+    const DEFAULT_WOOD_SWATCHES_FOTOS = (function buildDefaultWoodSwatchesFotos() {
+        const pairs = [
+            ['BELLOTA ARTEX', '1jmUL8QeEN7ZneS0Od9zd2O89yn1HJeNV'],
+            ['CAMEL ARTC', '1tvAuI_UncBB5g_gioiblyOkL7VxAVC0y'],
+            ['ESPIGA ATX', '1x7MiM15EuEDZ1JOiO3sg7Bm_xDefsR7n'],
+            ['GINGER SKANOR', '1hOlPkHT9G6snRpcCs83Vqj8x7ZkAvglY'],
+            ['HABANO ATX', '17wdbsUu5c2oIXGLFCmZ2_ijL9AXPzjtn'],
+            ['MADERA KASAM', '1lregsGb_cffKVFOO9INpSCUzTmv96Dnr'],
+            ['NOCHE ATX', '1rtGHK0czW7DIEX3uW-eTAb9wUt2347FW'],
+            ['NOGAL CHAVOYA', '1g79_faoLRWwXT-Xo3va33E8LqceOdK71'],
+            ['NOGAL SKANOR', '1S63fCXcQnciqACYzX4_c2O6GWjJDTnrM'],
+            ['NOGAL YOI', '1oV-AD6PW9KrZvSNHRcUDTkedcIEO_1I2'],
+            ['NUEZ MOBEL INN', '1bYK_yd_FxB068b6xa5lPnWywr7qKsrZS'],
+            ['PALO DE ROSA SKANOR', '17EPrJrIXuW8JiUajsZJXlyHgGt8Ur5dT'],
+            ['PAROTA BARSA', '1pTmpK3UJhRwVILV9jnwhfDM7VUG57fQ5'],
+            ['PAROTA BLOQUEART', '1_MqpkKNHRxTY60Q7z_yHe6mLSMMGAs0X'],
+            ['PAROTA CASA AURA', '1jzVG_TQb0vo3wqDVK_rG3eOpJPOfgD9k'],
+            ['PAROTA MOBEL INN', '1xe8pC3qjn6PwRMuOWuEvAAEGqsXS61gS'],
+            ['PAROTA REVICA', '15MFirKRhBxEI5a95ORFpPc5d3cFlImh3'],
+            ['PAROTA SKANOR', '1IIS0teeWDXTAvOjt_9wad16hgdKBr21L'],
+            ['PAROTA VANGARDI', '1ZNz_5OyESFMDTEGDCsSA9VajsJ_20niR'],
+            ['PAROTA YOI', '1PyY2qKpl0DcWSb-z9Ro0XHHGnhE-i61E'],
+            ['ROSA MORADA ACEITE WHITE LUX', '1F8BXPaq8c7hsHsceNBKcBn4qibtSfX-5'],
+            ['ROSA MORADA BARSA', '11mtWQdUDna0NY7H8ByqsDcirfM0vlc7J'],
+            ['ROSA MORADA CHAVOYA', '1VPiMBn-fkzTWUDXOfkZiflVpopMHB7A0'],
+            ['ROSA MORADA CLARA LUIS PEDRO', '1HsvWAhnrYYmh4onu1_MKaLCdq_ttvbEg'],
+            ['ROSA MORADA LUX FACTORI', '1bQAXEl8vKmHCNZrojNgiFpo1lYXtZEqT'],
+            ['ROSA MORADA MR FURNITURE', '1zwJMUcnJ-6HaL3YkfmTHBy9vEBnk4a2U'],
+            ['ROSA MORADA YOI', '1q9h-KKXsLWV1ayMsjnalnsGA5j5OVU-W'],
+            ['TABACO ARTEX', '1vmrA0h1ZS1fYHMCAgBuKX13jBvMowaK1'],
+            ['TABACO CLARO BARSA', '1MdGLIMP-TdIyuqUgCpflwO7K_8SXUA4V'],
+            ['TACUBA ARTEX', '1z6v5DsNBTui5-tqj8u17sj8H_bVRcnkm'],
+            ['TECA ENTINTADO SKANOR', '1ZnbTMhNvEKRLDst1qnvJD-gunLHeHlaF'],
+            ['TECA SKANOR', '1V-79ezpoTDDAd8cDwzp89lfoSMJoN9Ox'],
+            ['TZALAM BARSA', '1Ssl8rC2jS1geqEG_monA6EzjZ_1XNC-_'],
+            ['TZALAM CHAVOYA', '1GcCznfI3-X62IiV1Cz1wnE5H2hAuGZ7i']
+        ];
+        const map = {};
+        for (let i = 0; i < pairs.length; i++) {
+            const name = pairs[i][0];
+            const fid = pairs[i][1];
+            const key = compactVisualOverrideKeyFotos('VWOD:', name);
+            if (!key) continue;
+            map[key] = {
+                sku: key,
+                status: 'VISIBLE',
+                name: name,
+                category: 'WOOD_SWATCH',
+                note: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing'
+            };
+        }
+        return map;
+    })();
+
+    const FOTOS_WOOD_SPECIES_CORE_RE = /\b(ROSA\s+MORADA|PAROTA|TZALAM|NOGAL|TECA|ENCINO|ROBLE|CEDRO|PINO|CAOBA|FRESNO|HAYA|OKUME|MAPLE|ABEDUL|PALO\s+DE\s+ROSA|MADERA|CHAPA|MELAMINA|MDF|TRIPLAY|ALAMO|BANAK|PRIMAVERA|CEREZO|EBANO|WENGUE|BAMBU)\b/i;
+    const FOTOS_WOOD_FINISH_RE = /\b(TABACO|TACUBA|BELLOTA|ESPIGA|HABANO|CAMEL|GINGER|NOCHE|NUEZ)\b/i;
+    const FOTOS_WOOD_PROVIDER_RE = /\b(BARSA|YOI|SKANOR|CHAVOYA|ARTEX|ATX|ARTC|KASAM|MOBEL\s+INN|BLOQUEART|CASA\s+AURA|REVICA|VANGARDI|LUX\s+FACTOR[IY]|LUIS\s+PEDRO|MR\s+FURNITURE)\b/i;
+    const FOTOS_NON_WOOD_ONLY_RE = /^(MARMOL|MARBOL|TRAVERTINO|ONIX|PIEDRA|GRANITO|CUARZO|CRISTAL|VIDRIO|ESPEJO|METAL|ACERO|ALUMINIO|HIERRO|HERRERIA|LATON|BRONCE|COBRE|CERAMICA|PORCELANA|PORCELANATO|RESINA|PLASTICO|POLIPROPILENO|RATAN|RATTAN|MIMBRE|CUERDA|SOGA|FIBRA|CONCRETO|CEMENTO|N\/A|NA|NO APLICA|NINGUNA|NINGUNO|SIN MADERA|-)$/i;
+    const FOTOS_WOOD_ALLOWED_TOKENS = new Set([
+        'ROSA', 'MORADA', 'PAROTA', 'TZALAM', 'NOGAL', 'TECA', 'ENCINO', 'ROBLE', 'CEDRO', 'PINO',
+        'CAOBA', 'FRESNO', 'HAYA', 'OKUME', 'MAPLE', 'ABEDUL', 'PALO', 'TABACO', 'TACUBA', 'BELLOTA',
+        'ESPIGA', 'HABANO', 'MADERA', 'CHAPA', 'MELAMINA', 'MDF', 'TRIPLAY', 'ALAMO', 'BANAK',
+        'PRIMAVERA', 'CEREZO', 'EBANO', 'WENGUE', 'BAMBU', 'CAMEL', 'GINGER', 'NOCHE', 'NUEZ',
+        'TONO', 'NATURAL', 'CLARO', 'CLARA', 'OSCURO', 'OSCURA', 'MATE', 'SEMI', 'BRILLANTE',
+        'SATIN', 'SATINADO', 'SATINADA', 'ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'BLANCO',
+        'BLANCA', 'NEGRO', 'NEGRA', 'CAFE', 'CHOCOLATE', 'MIEL', 'AHUMADO', 'AHUMADA', 'NOGALADO',
+        'AVELLANA', 'CARAMELO', 'CENIZA', 'GRIS', 'BEIGE', 'DORADO', 'LACA', 'BARNIZ', 'ACABADO',
+        'CEPILLADO', 'RUSTICO', 'RUSTICA', 'SOLIDA', 'SOLIDO', 'MACIZA', 'MACIZO', 'EN', 'CON',
+        'SIN', 'DE', 'AL', 'DEL', 'LA', 'EL', 'Y', 'BASE', 'PATAS', 'CUBIERTA',
+        'BARSA', 'YOI', 'SKANOR', 'CHAVOYA', 'ARTEX', 'ATX', 'ARTC', 'KASAM', 'MOBEL', 'INN',
+        'BLOQUEART', 'CASA', 'AURA', 'REVICA', 'VANGARDI', 'LUX', 'FACTORI', 'FACTORY', 'LUIS',
+        'PEDRO', 'MR', 'FURNITURE', 'HAKO', 'KAI', 'CREATA', 'MOBA', 'MONTE'
+    ]);
+
+    function isPureWoodDescriptorFotos(rawText) {
+        const norm = plainVisToken(rawText);
+        if (!norm) return false;
+        const hasCore = FOTOS_WOOD_SPECIES_CORE_RE.test(norm) || (FOTOS_WOOD_FINISH_RE.test(norm) && FOTOS_WOOD_PROVIDER_RE.test(norm));
+        if (!hasCore) return false;
+        const toks = norm.split(/\s+/).filter(Boolean);
+        return toks.length > 0 && toks.every((t) => FOTOS_WOOD_ALLOWED_TOKENS.has(t));
     }
 
     function plainVisToken(raw) {
@@ -7505,12 +7623,18 @@
 
     function getVisualOverridePhotoUrlInFotos(overrideKey) {
         const k = String(overrideKey || '').trim().toUpperCase();
-        if (!k || !visualState.overridesMap) return '';
-        const ovr = visualState.overridesMap[k];
-        if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') return '';
-        const rawUrl = cleanStr(ovr.note);
-        if (!rawUrl) return '';
-        return (/^https?:\/\//i.test(rawUrl) || /^data:image\//i.test(rawUrl)) ? rawUrl : '';
+        if (!k) return '';
+        if (visualState.overridesMap && Object.prototype.hasOwnProperty.call(visualState.overridesMap, k)) {
+            const ovr = visualState.overridesMap[k];
+            if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') return '';
+            const rawUrl = cleanStr(ovr.note);
+            if (!rawUrl) return '';
+            return (/^https?:\/\//i.test(rawUrl) || /^data:image\//i.test(rawUrl)) ? rawUrl : '';
+        }
+        if (k.indexOf('VWOD:') === 0 && DEFAULT_WOOD_SWATCHES_FOTOS[k]) {
+            return cleanStr(DEFAULT_WOOD_SWATCHES_FOTOS[k].note);
+        }
+        return '';
     }
 
     function resolveVisualThumbSrcInFotos(rawUrl, sizePx) {
@@ -7576,13 +7700,22 @@
 
     function findMatchingUploadedFabricForProduct(prod) {
         if (!prod) return null;
+        if (!cleanStr(prod.tl) && !cleanStr(prod.ct)) {
+            const catTok = plainVisToken(prod.categoria || '');
+            const typeNameTok = plainVisToken(cleanStr(prod.tipo || '') + ' ' + cleanStr(prod.displayName || prod.colBName || ''));
+            const hasUph = /\b(SILLA|SILLON|SOFA|SALA|LOVESEAT|LOVE\s+SEAT|MODULAR|CHAISE|COJIN|COJINES|CABECERA|CAMA|BANCO|TABURETE|PERIQUERA|POUF|PUF|OTTOMAN|OTOMAN|CAMASTRO|TAPIZ|TELA|PIEL|LINO|BOUCLE|VELVET|TERCIOPELO|CHENILLE)\b/i.test(typeNameTok);
+            if (!hasUph && (catTok === 'MESAS' || catTok === 'MESAS DE CENTRO LATERALES' || catTok === 'BUFETERAS CREDENZAS' || /\b(MESA|COMEDOR|CREDENZA|BUFETERA|BURO|CONSOLA|ESCRITORIO|LIBRERO|MUEBLE\s+TV|PEDESTAL|BASE|CUBIERTA|ESPEJO|CUADRO)\b/i.test(typeNameTok))) {
+                return null;
+            }
+        }
         const entries = getUploadedFabricEntriesInFotos();
         if (!entries.length) return null;
 
         const candidates = [];
         const addCand = (raw) => {
+            if (isPureWoodDescriptorFotos(raw)) return;
             const c = cleanFabricVariationNameFotos(raw);
-            if (c && candidates.indexOf(c) === -1) candidates.push(c);
+            if (c && !isPureWoodDescriptorFotos(c) && candidates.indexOf(c) === -1) candidates.push(c);
         };
         if (prod.tl && prod.ct) addCand(prod.tl + ' ' + prod.ct);
         addCand(prod.tl);
@@ -7616,6 +7749,7 @@
         for (let i = 0; i < candidates.length; i++) {
             const cTokens = plainVisToken(candidates[i]).split(' ').filter((w) => w.length >= 2);
             if (!cTokens.length) continue;
+            if (cTokens.every((t) => FOTOS_WOOD_ALLOWED_TOKENS.has(t))) continue;
             const cSet = new Set(cTokens);
             for (let j = 0; j < entries.length; j++) {
                 const e = entries[j];
@@ -7679,6 +7813,7 @@
     function buildFallbackVisualTargetsFromProducts() {
         const coversMap = new Map();
         const fabricsMap = new Map();
+        const woodsMap = new Map();
         const packItems = [];
         try {
             if (typeof window !== 'undefined' && Array.isArray(window.CREATA_INV_DATA)) {
@@ -7701,10 +7836,12 @@
                 c: p.categoria || '',
                 tp: p.tipo || '',
                 mo: p.modelo || '',
+                p: p.proveedor || '',
                 vr: p.variante || '',
                 tl: p.tl || '',
                 ct: p.ct || '',
                 md: p.md || '',
+                cm: p.cm || '',
                 f: p.photoUrl || ''
             });
         }
@@ -7717,9 +7854,53 @@
 
         const isPureDirection = (txt) => /^(?:(?:CON|SIN)\s+BRAZOS?|BRAZO\s+(?:DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?)|DER(?:ECHO|EHO)?|IZQ(?:UIERDO)?|CENTRAL|MODULAR|IND|INV|1P|2P|3P|4P|5P|SALA|SOFA|LOVE\s*SEAT|SILLON|ESQUINERO|CHAISE(?:\s+LONGUE)?|OTTOMAN|OTOMAN|TABURETE|REMATE)$/.test(txt);
 
+        const registerWoodEntry = (woodRaw, colorHintRaw, modelKey, modelTitle) => {
+            const cleanWood = plainVisToken(woodRaw);
+            if (!cleanWood || cleanWood.length < 3 || FOTOS_NON_WOOD_ONLY_RE.test(cleanWood) || cleanWood === 'MADERA' || cleanWood === 'NATURAL') return '';
+            const woodOvKey = compactVisualOverrideKeyFotos('VWOD:', cleanWood);
+            if (!woodOvKey) return '';
+            if (!woodsMap.has(woodOvKey)) {
+                woodsMap.set(woodOvKey, {
+                    woodKey: cleanWood,
+                    overrideKey: woodOvKey,
+                    label: cleanWood,
+                    colorHint: cleanStr(colorHintRaw).toUpperCase(),
+                    modelCount: 0,
+                    moduleCount: 0,
+                    sampleModels: [],
+                    _models: new Set()
+                });
+            }
+            const wRec = woodsMap.get(woodOvKey);
+            if (modelKey) {
+                wRec.moduleCount++;
+                if (!wRec._models.has(modelKey)) {
+                    wRec._models.add(modelKey);
+                    wRec.modelCount++;
+                    if (modelTitle && wRec.sampleModels.length < 4) wRec.sampleModels.push(modelTitle);
+                }
+            }
+            return cleanWood;
+        };
+
+        // Pre-sembrar las 34 muestras verificadas de la carpeta Drive MADERAS + cualquier VWOD: guardado en la nube
+        Object.keys(DEFAULT_WOOD_SWATCHES_FOTOS).forEach((wk) => {
+            const def = DEFAULT_WOOD_SWATCHES_FOTOS[wk];
+            if (def && def.name) registerWoodEntry(def.name, '', '', '');
+        });
+        const ovMapNow = visualState.overridesMap || {};
+        Object.keys(ovMapNow).forEach((ok) => {
+            const ku = String(ok || '').trim().toUpperCase();
+            if (ku.indexOf('VWOD:') !== 0) return;
+            const ov = ovMapNow[ok];
+            if (!ov || ov.status === 'ELIMINADO' || ov.status === 'ARCHIVADO') return;
+            registerWoodEntry(ov.name || ku.slice(5), '', '', '');
+        });
+
         const registerFabricEntry = (fabRaw, colorRaw, modelKey, modelTitle) => {
+            if (isPureWoodDescriptorFotos(fabRaw)) return '';
             const fab = cleanFabricVariationNameFotos(fabRaw);
-            if (!fab || fab.length < 2 || isPureDirection(fab)) return '';
+            if (!fab || fab.length < 2 || isPureDirection(fab) || isPureWoodDescriptorFotos(fab)) return '';
             const fabOvKey = compactVisualOverrideKeyFotos('VFAB:', fab);
             if (!fabOvKey) return '';
             if (!fabricsMap.has(fabOvKey)) {
@@ -7754,6 +7935,28 @@
 
             const isExt = /\bEXTERIOR\b/.test(fullTok);
             const isSala = /\b(SALA|SOFA|LOVE\s*SEAT|LOVESEAT|ESQUINERO|CHAISE|MODULAR|FUTON|FUTTON|SILLON)\b/.test(fullTok);
+
+            // Registrar maderas de todos los productos con MADERA o COLOR DE MADERA
+            const mdClean = cleanStr(it.md);
+            const cmClean = cleanStr(it.cm);
+            const provClean = cleanStr(it.p);
+            if (mdClean || cmClean) {
+                const woodTitle = (cleanStr(it.tp) || cleanStr(it.c) || 'MUEBLE') + (mo ? (' ' + mo) : '');
+                const woodModelKey = plainVisToken(woodTitle) || cleanStr(it.s);
+                const mdTok = plainVisToken(mdClean);
+                const cmTok = plainVisToken(cmClean);
+                let woodCand = '';
+                if (cmTok && !FOTOS_NON_WOOD_ONLY_RE.test(cmTok) && cmTok !== 'NATURAL' && cmTok !== 'TONO NATURAL') {
+                    woodCand = (mdTok && !FOTOS_NON_WOOD_ONLY_RE.test(mdTok) && cmTok.indexOf(mdTok) === -1 && mdTok !== 'MADERA')
+                        ? (mdTok + ' ' + cmTok)
+                        : cmTok;
+                } else if (mdTok && !FOTOS_NON_WOOD_ONLY_RE.test(mdTok)) {
+                    woodCand = provClean ? (mdTok + ' ' + plainVisToken(provClean)) : mdTok;
+                }
+                if (woodCand) {
+                    registerWoodEntry(woodCand, mdClean, woodModelKey, woodTitle.toUpperCase());
+                }
+            }
 
             // Registrar telas de TODOS los productos tapizados (Sillones, Sillas, Camas, Sofás, Salas, Exterior, etc.)
             if (cleanStr(it.tl)) {
@@ -7805,16 +8008,16 @@
             if (!cov.samplePhoto && it.f) cov.samplePhoto = it.f;
 
             let fab = cleanFabricVariationNameFotos(it.tl);
-            if (fab && isPureDirection(fab)) fab = '';
+            if (fab && (isPureDirection(fab) || isPureWoodDescriptorFotos(fab))) fab = '';
             if (!fab && cleanStr(it.vr)) {
                 const parts = String(it.vr).split(/\s*[·|\/]\s*/).map(cleanFabricVariationNameFotos).filter(Boolean);
                 for (let pIdx = 0; pIdx < parts.length; pIdx++) {
-                    if (!isPureDirection(parts[pIdx])) { fab = parts[pIdx]; break; }
+                    if (!isPureDirection(parts[pIdx]) && !isPureWoodDescriptorFotos(parts[pIdx])) { fab = parts[pIdx]; break; }
                 }
             }
             if (!fab) {
                 const ctC = cleanFabricVariationNameFotos(it.ct);
-                if (ctC && !isPureDirection(ctC)) fab = ctC;
+                if (ctC && !isPureDirection(ctC) && !isPureWoodDescriptorFotos(ctC)) fab = ctC;
             }
             if (fab) {
                 cov._fabrics.add(fab);
@@ -7851,12 +8054,29 @@
             }))
             .sort((a, b) => (b.moduleCount - a.moduleCount) || a.label.localeCompare(b.label, 'es'));
 
-        return { covers: covers, fabrics: fabrics };
+        const woods = Array.from(woodsMap.values())
+            .map((w) => ({
+                woodKey: w.woodKey,
+                overrideKey: w.overrideKey,
+                label: w.label,
+                colorHint: (w.colorHint && plainVisToken(w.colorHint) !== w.woodKey) ? w.colorHint : '',
+                modelCount: w.modelCount,
+                moduleCount: w.moduleCount,
+                sampleModels: w.sampleModels
+            }))
+            .sort((a, b) => {
+                const aHas = getVisualOverridePhotoUrlInFotos(a.overrideKey) ? 0 : 1;
+                const bHas = getVisualOverridePhotoUrlInFotos(b.overrideKey) ? 0 : 1;
+                return (b.moduleCount - a.moduleCount) || (aHas - bHas) || a.label.localeCompare(b.label, 'es');
+            });
+
+        return { covers: covers, fabrics: fabrics, woods: woods };
     }
 
     function rebuildVisualTargetsCatalog() {
         let covers = [];
         let fabrics = [];
+        let woods = [];
         try {
             const raw = localStorage.getItem(VISUAL_TARGETS_INDEX_STORAGE_KEY);
             if (raw) {
@@ -7867,13 +8087,17 @@
                 if (parsed && Array.isArray(parsed.fabrics) && parsed.fabrics.length > 0) {
                     fabrics = parsed.fabrics.slice();
                 }
+                if (parsed && Array.isArray(parsed.woods) && parsed.woods.length > 0) {
+                    woods = parsed.woods.slice();
+                }
             }
         } catch (e) {}
 
-        if (!covers.length || !fabrics.length) {
+        if (!covers.length || !fabrics.length || !woods.length) {
             const fb = buildFallbackVisualTargetsFromProducts();
             if (!covers.length) covers = fb.covers;
             if (!fabrics.length) fabrics = fb.fabrics;
+            if (!woods.length) woods = fb.woods;
         }
 
         // Priorizar Salas Modulares, Salas en L, Sofá Camas y Exterior primero en Portadas
@@ -7885,6 +8109,7 @@
 
         visualState.covers = covers;
         visualState.fabrics = fabrics;
+        visualState.woods = woods;
 
         if (visualState.workMode !== 'SKU') {
             renderVisualTargetsList();
@@ -7893,7 +8118,9 @@
     }
 
     function getActiveVisualTargetsList() {
-        return visualState.workMode === 'FABRIC' ? visualState.fabrics : visualState.covers;
+        if (visualState.workMode === 'FABRIC') return visualState.fabrics;
+        if (visualState.workMode === 'WOOD') return visualState.woods;
+        return visualState.covers;
     }
 
     function getSelectedVisualTargetObj() {
@@ -7925,7 +8152,7 @@
     };
 
     window.setFotosWorkMode = function (modeRaw) {
-        const nextMode = (modeRaw === 'COVER' || modeRaw === 'FABRIC') ? modeRaw : 'SKU';
+        const nextMode = (modeRaw === 'COVER' || modeRaw === 'FABRIC' || modeRaw === 'WOOD') ? modeRaw : 'SKU';
         visualState.workMode = nextMode;
         visualState.selectedOverrideKey = '';
         showVisualStageFeedback('', true);
@@ -7960,12 +8187,12 @@
         if (finderTitle) {
             finderTitle.textContent = nextMode === 'COVER'
                 ? 'Portadas'
-                : (nextMode === 'FABRIC' ? 'Telas' : 'Buscar SKU');
+                : (nextMode === 'FABRIC' ? 'Telas' : (nextMode === 'WOOD' ? 'Maderas' : 'Buscar SKU'));
         }
         if (stageTitle) {
             stageTitle.textContent = nextMode === 'COVER'
                 ? 'Portada'
-                : (nextMode === 'FABRIC' ? 'Tela' : 'Producto');
+                : (nextMode === 'FABRIC' ? 'Tela' : (nextMode === 'WOOD' ? 'Madera' : 'Producto'));
         }
         if (modeHint) {
             modeHint.textContent = '';
@@ -7978,21 +8205,21 @@
         if (visSearchInp) {
             visSearchInp.placeholder = nextMode === 'COVER'
                 ? 'Buscar modelo...'
-                : 'Buscar tela...';
+                : (nextMode === 'WOOD' ? 'Buscar madera...' : 'Buscar tela...');
         }
 
         const jumpFirstBtn = document.querySelector('#mobileFotosJumpBar .mobile-jump-btn[data-jump="secSkuFinder"]');
         if (jumpFirstBtn) {
             jumpFirstBtn.textContent = nextMode === 'COVER'
                 ? 'Portadas'
-                : (nextMode === 'FABRIC' ? 'Telas' : 'SKU');
+                : (nextMode === 'FABRIC' ? 'Telas' : (nextMode === 'WOOD' ? 'Maderas' : 'SKU'));
         }
 
         if (isSku) {
             applySkuFiltersAndRender();
             renderSelectedProductStage();
         } else {
-            if (rowBadge) rowBadge.textContent = nextMode === 'COVER' ? 'PORTADA' : 'TELA';
+            if (rowBadge) rowBadge.textContent = nextMode === 'COVER' ? 'PORTADA' : (nextMode === 'WOOD' ? 'MADERA' : 'TELA');
             loadVisualOverridesFromLocalStorage();
             rebuildVisualTargetsCatalog();
             // Seguridad: nunca pre-seleccionar automáticamente el primer elemento
@@ -8062,6 +8289,8 @@
         if (!listEl) return;
 
         const isFabric = visualState.workMode === 'FABRIC';
+        const isWood = visualState.workMode === 'WOOD';
+        const isSwatch = isFabric || isWood;
         const rawList = getActiveVisualTargetsList();
         const qNorm = normalizeSearchText(visualState.searchQuery || '');
 
@@ -8097,18 +8326,18 @@
             const photoUrl = getVisualOverridePhotoUrlInFotos(ovKey);
             const thumbSrc = photoUrl ? resolveVisualThumbSrcInFotos(photoUrl, 160) : '';
             const fid = extractDriveFileId(photoUrl);
-            const title = isFabric ? (item.label || item.fabricKey) : (item.title || item.groupKey);
-            const sub = isFabric
-                ? ((item.colorHint ? (item.colorHint + ' · ') : '') + item.moduleCount + ' pzas')
+            const title = isSwatch ? (item.label || item.fabricKey || item.woodKey) : (item.title || item.groupKey);
+            const sub = isSwatch
+                ? ((item.colorHint ? (item.colorHint + ' · ') : '') + (item.moduleCount ? (item.moduleCount + ' pzas') : (isWood ? 'Drive Maderas' : '0 pzas')))
                 : ((item.subCat ? (item.subCat + ' · ') : '') + item.itemCount + ' pzas');
 
             const thumbInner = thumbSrc
                 ? ('<img src="' + escapeHtml(thumbSrc) + '" alt="' + escapeHtml(title) + '" loading="lazy" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)">')
-                : ('<span aria-hidden="true">' + (isFabric ? '🧵' : '🖼️') + '</span>');
+                : ('<span aria-hidden="true">' + (isFabric ? '🧵' : (isWood ? '🪵' : '🖼️')) + '</span>');
 
             return (
                 '<button type="button" class="visual-target-item' + (active ? ' active' : '') + '" data-visual-key="' + escapeHtml(ovKey) + '" onclick="selectVisualTarget(\'' + escapeHtml(ovKey.replace(/'/g, "\\'")) + '\')">' +
-                    '<div class="visual-target-thumb' + (isFabric ? '' : ' is-cover') + '">' + thumbInner + '</div>' +
+                    '<div class="visual-target-thumb' + (isSwatch ? '' : ' is-cover') + '">' + thumbInner + '</div>' +
                     '<div class="visual-target-info">' +
                         '<div class="visual-target-title">' + escapeHtml(title) + '</div>' +
                         '<div class="visual-target-sub">' + escapeHtml(sub) + '</div>' +
@@ -8127,7 +8356,7 @@
         const badgeEl = document.getElementById('visualPreviewBadge');
         const selPhoto = getActiveSelectedPhotoObject();
         const target = getSelectedVisualTargetObj();
-        const isFabric = visualState.workMode === 'FABRIC';
+        const isSwatch = visualState.workMode === 'FABRIC' || visualState.workMode === 'WOOD';
 
         const canAssignGallery = !!(selPhoto && target);
         if (btn) {
@@ -8143,7 +8372,7 @@
             curCanvas.innerHTML =
                 '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Vista') + '" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)" ' +
-                'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '">';
+                'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '">';
         } else if (!canAssignGallery) {
             renderVisualTargetStage(true);
         }
@@ -8159,12 +8388,14 @@
         const clearBtn = document.getElementById('btnClearSelectedVisual');
         const urlInp = document.getElementById('visualTargetUrlInput');
         const isFabric = visualState.workMode === 'FABRIC';
+        const isWood = visualState.workMode === 'WOOD';
+        const isSwatch = isFabric || isWood;
         const target = getSelectedVisualTargetObj();
 
         if (!target) {
-            if (eyebrow) eyebrow.textContent = isFabric ? 'Tela' : 'Portada';
-            if (titleEl) titleEl.textContent = isFabric ? 'Elige tela' : 'Elige modelo';
-            if (subEl) subEl.textContent = isFabric ? 'Tela' : 'Solo inicio';
+            if (eyebrow) eyebrow.textContent = isFabric ? 'Tela' : (isWood ? 'Madera' : 'Portada');
+            if (titleEl) titleEl.textContent = isFabric ? 'Elige tela' : (isWood ? 'Elige madera' : 'Elige modelo');
+            if (subEl) subEl.textContent = isFabric ? 'Tela' : (isWood ? 'Madera' : 'Solo inicio');
             if (badgeEl) badgeEl.textContent = 'Foto';
             if (curCanvas) {
                 curCanvas.onclick = null;
@@ -8178,18 +8409,20 @@
         }
 
         if (clearBtn) clearBtn.classList.remove('hidden');
-        const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+        const label = isSwatch ? (target.label || target.fabricKey || target.woodKey) : (target.title || target.groupKey);
         const curUrl = getVisualOverridePhotoUrlInFotos(target.overrideKey);
         const curThumb = curUrl ? resolveVisualThumbSrcInFotos(curUrl, 700) : '';
         const curFid = extractDriveFileId(curUrl);
 
         if (eyebrow) {
-            eyebrow.textContent = isFabric ? 'Tela' : 'Portada';
+            eyebrow.textContent = isFabric ? 'Tela' : (isWood ? 'Madera' : 'Portada');
         }
         if (titleEl) titleEl.textContent = label;
         if (subEl) {
-            if (isFabric) {
-                subEl.textContent = target.moduleCount + ' pzas · ' + target.modelCount + (target.modelCount === 1 ? ' modelo' : ' modelos');
+            if (isSwatch) {
+                subEl.textContent = target.moduleCount
+                    ? (target.moduleCount + ' pzas · ' + target.modelCount + (target.modelCount === 1 ? ' modelo' : ' modelos'))
+                    : (isWood ? 'Catálogo Maderas Drive' : '0 pzas');
             } else {
                 subEl.textContent = (target.subCat ? (target.subCat + ' · ') : '') + target.itemCount + ' pzas';
             }
@@ -8201,7 +8434,7 @@
                 curCanvas.innerHTML =
                     '<img src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(curFid) + '" onerror="handlePhotoImgError(this)" ' +
-                    'style="' + (isFabric ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
+                    'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
                     'onclick="openPhotoLightbox(\'' + escapeHtml(curThumb.replace(/'/g, "\\'")) + '\')">';
             } else {
                 if (badgeEl) badgeEl.textContent = 'Sin foto';
@@ -8268,14 +8501,18 @@
     async function persistVisualPhotoOverrideFromFotos(target, photoUrl, opMode) {
         if (!target || !target.overrideKey) return { ok: false, error: 'Elige primero.' };
         const isFabric = visualState.workMode === 'FABRIC';
+        const isWood = visualState.workMode === 'WOOD';
+        const isSwatch = isFabric || isWood;
         const ovKey = String(target.overrideKey).trim().toUpperCase();
         const op = opMode === 'DELETE' ? 'DELETE' : 'SAVE';
         const nextUrl = op === 'DELETE' ? '' : cleanStr(photoUrl);
         if (op === 'SAVE' && /^blob:/i.test(nextUrl)) {
             return { ok: false, error: 'URL temporal inválida; vuelve a subir la imagen.' };
         }
-        const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
-        const categoryTag = isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
+        const label = isSwatch ? (target.label || target.fabricKey || target.woodKey) : (target.title || target.groupKey);
+        const categoryTag = isFabric ? 'FABRIC_SWATCH' : (isWood ? 'WOOD_SWATCH' : 'VISUAL_COVER');
+        const targetKindTag = isFabric ? 'TELA' : (isWood ? 'MADERA' : 'PORTADA');
+        const destFolderTag = isFabric ? 'Tela' : (isWood ? 'Madera' : 'Portada');
 
         const localEntry = op === 'DELETE' ? null : {
             sku: ovKey,
@@ -8289,7 +8526,23 @@
         };
 
         if (op === 'DELETE') {
-            delete visualState.overridesMap[ovKey];
+            const deletedPrev = visualState.overridesMap[ovKey];
+            const deletedPrevUrl = deletedPrev ? cleanStr(deletedPrev.note) : '';
+            const deletedPrevFid = deletedPrev ? (cleanStr(deletedPrev.localFileId) || extractDriveFileId(deletedPrevUrl)) : '';
+            if (isWood && DEFAULT_WOOD_SWATCHES_FOTOS[ovKey]) {
+                visualState.overridesMap[ovKey] = {
+                    sku: ovKey,
+                    status: 'ELIMINADO',
+                    name: cleanStr(label).slice(0, 140),
+                    category: 'WOOD_SWATCH',
+                    price: null,
+                    note: '',
+                    updatedBy: OWNER_EMAIL,
+                    updatedAt: new Date().toLocaleString('es-MX')
+                };
+            } else {
+                delete visualState.overridesMap[ovKey];
+            }
             const cleanedQ = readFotosOfflineOutbox().filter((it) => {
                 if (!it) return false;
                 if (it.type === 'visual_override_upload' && cleanStr(it.overrideKey).toUpperCase() === ovKey) {
@@ -8299,6 +8552,16 @@
                 return true;
             });
             writeFotosOfflineOutbox(cleanedQ);
+            const cleanedRecents = readRecentUploadsStore().filter((it) => {
+                if (!it) return false;
+                if (cleanStr(it.targetKey).toUpperCase() === ovKey) return false;
+                if (deletedPrevFid && cleanStr(it.id) === deletedPrevFid) return false;
+                return true;
+            });
+            writeRecentUploadsStore(cleanedRecents);
+            if (typeof renderRecentUploadedStrip === 'function') {
+                renderRecentUploadedStrip();
+            }
         } else {
             visualState.overridesMap[ovKey] = localEntry;
         }
@@ -8312,8 +8575,8 @@
                 viewUrl: nextUrl,
                 targetKey: ovKey,
                 targetLabel: label,
-                targetKind: isFabric ? 'TELA' : 'PORTADA',
-                destFolderName: isFabric ? 'Tela' : 'Portada',
+                targetKind: targetKindTag,
+                destFolderName: destFolderTag,
                 ts: Date.now()
             });
         } else {
@@ -8382,17 +8645,37 @@
             return;
         }
         const isFabric = visualState.workMode === 'FABRIC';
-        const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+        const isWood = visualState.workMode === 'WOOD';
+        const isSwatch = isFabric || isWood;
+        const label = isSwatch ? (target.label || target.fabricKey || target.woodKey) : (target.title || target.groupKey);
         const ovKey = String(target.overrideKey).trim().toUpperCase();
-        const categoryTag = isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
-        const safeFileName = cleanStr(file.name) || ((isFabric ? 'tela_' : 'portada_') + Date.now() + '.jpg');
+        const categoryTag = isFabric ? 'FABRIC_SWATCH' : (isWood ? 'WOOD_SWATCH' : 'VISUAL_COVER');
+        const kindParam = isFabric ? 'fabric' : (isWood ? 'wood' : 'cover');
+        const targetKindTag = isFabric ? 'TELA' : (isWood ? 'MADERA' : 'PORTADA');
+        const destFolderTag = isFabric ? 'Tela' : (isWood ? 'Madera' : 'Portada');
+        const safeFileName = cleanStr(file.name) || ((isFabric ? 'tela_' : (isWood ? 'madera_' : 'portada_')) + Date.now() + '.jpg');
         const localVisId = 'local_vis_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000);
+        const hasPrevOverride = Object.prototype.hasOwnProperty.call(visualState.overridesMap, ovKey);
+        const prevOverrideBeforeSave = hasPrevOverride ? visualState.overridesMap[ovKey] : null;
+        const rollbackVisualUpload = () => {
+            if (hasPrevOverride && prevOverrideBeforeSave) {
+                visualState.overridesMap[ovKey] = prevOverrideBeforeSave;
+            } else {
+                delete visualState.overridesMap[ovKey];
+            }
+            saveVisualOverridesToLocalStorage();
+            invalidateLoadedPhotosCache();
+            broadcastVisualOverrideUpdateToCotizador(ovKey, prevOverrideBeforeSave, !hasPrevOverride);
+            renderVisualTargetsList();
+            renderVisualTargetStage();
+            renderInboxGallery();
+        };
 
         visualState.busy = true;
         showVisualStageFeedback('⚡ Subiendo ' + label + '...', true);
 
         try {
-            const dataUrl = await optimizeVisualFileForMode(file, isFabric);
+            const dataUrl = await optimizeVisualFileForMode(file, isSwatch);
             const optimisticEntry = {
                 sku: ovKey,
                 status: 'VISIBLE',
@@ -8436,6 +8719,7 @@
             const auth = buildOwnerAuthPayload();
             let res = await callWebAppPost('fotos_upload_visual_override', Object.assign({
                 overrideKey: ovKey,
+                kind: kindParam,
                 label: label,
                 categoryTag: categoryTag,
                 fileName: safeFileName,
@@ -8447,9 +8731,9 @@
                     advisorName: 'Kevin Reyna',
                     sku: ovKey,
                     fileName: safeFileName,
-                    productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
-                    categoria: isFabric ? 'TELAS' : 'SALAS',
-                    tipo: isFabric ? 'TELA' : 'PORTADA',
+                    productName: (isFabric ? 'TELA ' : (isWood ? 'MADERA ' : 'PORTADA ')) + label,
+                    categoria: isFabric ? 'TELAS' : (isWood ? 'MADERAS' : 'SALAS'),
+                    tipo: targetKindTag,
                     targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
                     driveOnly: true,
                     skipSheetWrite: true,
@@ -8467,6 +8751,11 @@
             }
 
             if (!res || !res.ok) {
+                if (res && res.authRequired) {
+                    rollbackVisualUpload();
+                    window.lockFotosPortal();
+                    return;
+                }
                 if (res && res.unavailable) {
                     await putOfflinePhotoBlobIdb(localVisId, dataUrl, safeFileName);
                     enqueueFotosOfflineOutbox({
@@ -8482,7 +8771,8 @@
                     showVisualStageFeedback('⚡ Sin red · en cola: ' + label + '.', true);
                     return;
                 }
-                showVisualStageFeedback((res && res.error) || 'Error al subir.', false);
+                rollbackVisualUpload();
+                showVisualStageFeedback('❌ ' + ((res && res.error) || 'Error al subir.'), false);
                 return;
             }
             const finalDriveUrl = cleanStr(res.driveUrl || res.newUrl);
@@ -8497,9 +8787,9 @@
                 fileName: cleanStr(res.fileName || safeFileName),
                 targetKey: ovKey,
                 targetLabel: label,
-                targetKind: isFabric ? 'TELA' : 'PORTADA',
+                targetKind: targetKindTag,
                 localDataUrl: dataUrl,
-                destFolderName: isFabric ? 'Tela' : 'Portada',
+                destFolderName: destFolderTag,
                 ts: Date.now()
             });
             saveVisualOverridesToLocalStorage();
@@ -8509,7 +8799,8 @@
             renderInboxGallery();
             showVisualStageFeedback('✅ ' + label + ' guardada.', true);
         } catch (err) {
-            showVisualStageFeedback((err && err.message) || 'Error al subir.', false);
+            rollbackVisualUpload();
+            showVisualStageFeedback('❌ ' + ((err && err.message) || 'Error al subir.'), false);
         } finally {
             visualState.busy = false;
             if (inputEl) {
@@ -8526,9 +8817,14 @@
         if (!target || !selPhoto) return;
 
         const isFabric = visualState.workMode === 'FABRIC';
-        const label = isFabric ? (target.label || target.fabricKey) : (target.title || target.groupKey);
+        const isWood = visualState.workMode === 'WOOD';
+        const isSwatch = isFabric || isWood;
+        const label = isSwatch ? (target.label || target.fabricKey || target.woodKey) : (target.title || target.groupKey);
         const ovKey = String(target.overrideKey).trim().toUpperCase();
-        const categoryTag = isFabric ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
+        const categoryTag = isFabric ? 'FABRIC_SWATCH' : (isWood ? 'WOOD_SWATCH' : 'VISUAL_COVER');
+        const kindParam = isFabric ? 'fabric' : (isWood ? 'wood' : 'cover');
+        const targetKindTag = isFabric ? 'TELA' : (isWood ? 'MADERA' : 'PORTADA');
+        const destFolderTag = isFabric ? 'Tela' : (isWood ? 'Madera' : 'Portada');
         const fromLoaded = !!selPhoto.fromLoaded;
         const rawPhotoId = cleanStr(selPhoto.id);
         let activePhotoId = rawPhotoId;
@@ -8537,6 +8833,34 @@
         const optimisticPreview = (selPhoto.localDataUrl && String(selPhoto.localDataUrl).indexOf('data:image/') === 0)
             ? String(selPhoto.localDataUrl)
             : directUrl;
+
+        const hasPrevOverride = Object.prototype.hasOwnProperty.call(visualState.overridesMap, ovKey);
+        const prevOverrideBeforeSave = hasPrevOverride ? visualState.overridesMap[ovKey] : null;
+        const prevRawInboxItem = (!fromLoaded && rawPhotoId) ? (state.rawInboxFromDrive.find((f) => f && f.id === rawPhotoId) || null) : null;
+        const prevInboxItem = (!fromLoaded && rawPhotoId) ? (state.inboxFiles.find((f) => f && f.id === rawPhotoId) || null) : null;
+        const prevNuevasItem = (!fromLoaded && rawPhotoId) ? (state.fotosNuevasSheetItems.find((f) => f && f.id === rawPhotoId) || null) : null;
+        const rollbackVisualAssign = () => {
+            if (hasPrevOverride && prevOverrideBeforeSave) {
+                visualState.overridesMap[ovKey] = prevOverrideBeforeSave;
+            } else {
+                delete visualState.overridesMap[ovKey];
+            }
+            if (prevRawInboxItem && !state.rawInboxFromDrive.some((f) => f && f.id === rawPhotoId)) {
+                state.rawInboxFromDrive = [prevRawInboxItem].concat(state.rawInboxFromDrive);
+            }
+            if (prevInboxItem && !state.inboxFiles.some((f) => f && f.id === rawPhotoId)) {
+                state.inboxFiles = [prevInboxItem].concat(state.inboxFiles);
+            }
+            if (prevNuevasItem && !state.fotosNuevasSheetItems.some((f) => f && f.id === rawPhotoId)) {
+                state.fotosNuevasSheetItems = [prevNuevasItem].concat(state.fotosNuevasSheetItems);
+            }
+            saveVisualOverridesToLocalStorage();
+            invalidateLoadedPhotosCache();
+            broadcastVisualOverrideUpdateToCotizador(ovKey, prevOverrideBeforeSave, !hasPrevOverride);
+            renderInboxGallery();
+            renderVisualTargetsList();
+            renderVisualTargetStage();
+        };
 
         visualState.busy = true;
         showVisualStageFeedback('⚡ Guardando ' + label + '...', true);
@@ -8612,6 +8936,7 @@
             const auth = buildOwnerAuthPayload();
             let res = await callWebAppPost('fotos_upload_visual_override', Object.assign({
                 overrideKey: ovKey,
+                kind: kindParam,
                 label: label,
                 categoryTag: categoryTag,
                 fileName: cleanStr(selPhoto.name),
@@ -8628,9 +8953,9 @@
                         advisorName: 'Kevin Reyna',
                         sku: ovKey,
                         fileName: cleanStr(selPhoto.name),
-                        productName: (isFabric ? 'TELA ' : 'PORTADA ') + label,
-                        categoria: isFabric ? 'TELAS' : 'SALAS',
-                        tipo: isFabric ? 'TELA' : 'PORTADA',
+                        productName: (isFabric ? 'TELA ' : (isWood ? 'MADERA ' : 'PORTADA ')) + label,
+                        categoria: isFabric ? 'TELAS' : (isWood ? 'MADERAS' : 'SALAS'),
+                        tipo: targetKindTag,
                         targetFolderId: VISUAL_UPLOAD_DRIVE_FOLDER_ID,
                         driveOnly: true,
                         skipSheetWrite: true,
@@ -8647,6 +8972,11 @@
             }
 
             if (!res || !res.ok) {
+                if (res && res.authRequired) {
+                    rollbackVisualAssign();
+                    window.lockFotosPortal();
+                    return;
+                }
                 if (res && res.unavailable) {
                     let localVisId = isLocal ? activePhotoId : '';
                     if (!localVisId && optimisticPreview && optimisticPreview.indexOf('data:image/') === 0) {
@@ -8670,7 +9000,8 @@
                     showVisualStageFeedback('⚡ Sin red · en cola: ' + label + '.', true);
                     return;
                 }
-                showVisualStageFeedback((res && res.error) || 'Error al guardar.', false);
+                rollbackVisualAssign();
+                showVisualStageFeedback('❌ ' + ((res && res.error) || 'Error al guardar.'), false);
                 return;
             }
             const finalDriveUrl = cleanStr(res.driveUrl || res.newUrl || directUrl);
@@ -8685,9 +9016,9 @@
                 fileName: cleanStr(res.fileName || selPhoto.name),
                 targetKey: ovKey,
                 targetLabel: label,
-                targetKind: isFabric ? 'TELA' : 'PORTADA',
+                targetKind: targetKindTag,
                 localDataUrl: cleanStr(selPhoto.localDataUrl || ''),
-                destFolderName: isFabric ? 'Tela' : 'Portada',
+                destFolderName: destFolderTag,
                 ts: Date.now()
             });
             saveVisualOverridesToLocalStorage();
@@ -8698,7 +9029,8 @@
             renderInboxGallery();
             showVisualStageFeedback('✅ ' + label + ' guardada.', true);
         } catch (err) {
-            showVisualStageFeedback((err && err.message) || 'Error.', false);
+            rollbackVisualAssign();
+            showVisualStageFeedback('❌ ' + ((err && err.message) || 'Error.'), false);
         } finally {
             visualState.busy = false;
             syncVisualStageSelectedGalleryPreview();
@@ -8750,6 +9082,9 @@
     window.__CREATA_FOTOS_VISUAL_TEST__ = {
         compactVisualOverrideKeyFotos: compactVisualOverrideKeyFotos,
         cleanFabricVariationNameFotos: cleanFabricVariationNameFotos,
+        isPureWoodDescriptorFotos: isPureWoodDescriptorFotos,
+        DEFAULT_WOOD_SWATCHES_FOTOS: DEFAULT_WOOD_SWATCHES_FOTOS,
+        getVisualOverridePhotoUrlInFotos: getVisualOverridePhotoUrlInFotos,
         buildFallbackVisualTargetsFromProducts: buildFallbackVisualTargetsFromProducts,
         findMatchingUploadedFabricForProduct: findMatchingUploadedFabricForProduct,
         rebuildVisualTargetsCatalog: rebuildVisualTargetsCatalog,

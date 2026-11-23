@@ -24,7 +24,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./prompts-styles.css?v=9">
+    <link rel="stylesheet" href="./prompts-styles.css?v=11">
 </head>
 <body>
 
@@ -53,7 +53,16 @@
                         aria-selected="true"
                         onclick="switchPromptsWorkspace('studio')"
                         title="Generador Nativo Instantáneo (V8 CREATA Pro · V7 · V1)"
-                    >✨ Prompts</button>
+                    >✨ Prompts V8</button>
+                    <button
+                        type="button"
+                        id="btnModePromptsRender"
+                        class="tb-btn tb-btn-mode"
+                        role="tab"
+                        aria-selected="false"
+                        onclick="switchPromptsWorkspace('render')"
+                        title="Estudio IA Prompts en Render (buena-espero.onrender.com · V7–V1 + Gemini Vision)"
+                    >🤖 Prompts Render</button>
                     <button
                         type="button"
                         id="btnModeAltaOdoo"
@@ -61,7 +70,7 @@
                         role="tab"
                         aria-selected="false"
                         onclick="switchPromptsWorkspace('odoo')"
-                        title="Render dedicado exclusivamente a Alta de Odoo"
+                        title="Portal Alta de Odoo en Render (app-1-3y7y.onrender.com)"
                     >🚀 Alta Odoo</button>
                 </div>
                 <button
@@ -89,7 +98,7 @@
                     type="button"
                     class="tb-btn hide-xs"
                     onclick="openPromptsDirectTab()"
-                    title="Abrir Alta de Odoo (Render) en pestaña directa"
+                    title="Abrir la app Render activa en pestaña directa"
                 >↗ Render</button>
                 <a id="promptsKevinCotizadorLink" class="tb-btn hidden" href="./inventario.html" title="Ir al Cotizador CREATA">Cotizador</a>
                 <a id="promptsKevinFotosLink" class="tb-btn hidden" href="./fotos-productos.html" title="Ir a Subir Fotos CREATA">Fotos</a>
@@ -113,7 +122,7 @@
             title="Mostrar barra de Prompts IA"
         >▾ Prompts IA</button>
 
-        <!-- CONTENEDOR DEL GENERADOR DE PROMPTS (NATIVO V8/V7/V1) + ALTA DE ODOO (RENDER) -->
+        <!-- CONTENEDOR DEL GENERADOR DE PROMPTS (NATIVO V8/V7/V1) + PROMPTS RENDER (buena-espero) + ALTA DE ODOO (app-1) -->
         <main class="prompts-stage">
             <section
                 id="promptsNativeStudio"
@@ -124,19 +133,19 @@
             <iframe
                 id="promptsAppFrame"
                 class="prompts-iframe hidden"
-                title="CREATA · Alta de Odoo (Render)"
+                title="CREATA · Estudio IA / Alta de Odoo (Render)"
                 src="about:blank"
                 allow="clipboard-read; clipboard-write; camera; microphone; fullscreen; display-capture"
                 allowfullscreen
                 referrerpolicy="strict-origin-when-cross-origin"
             ></iframe>
 
-            <!-- OVERLAY DE CARGA / DESPERTAR RENDER / SIN CONEXIÓN (SOLO PARA ALTA DE ODOO RENDER) -->
+            <!-- OVERLAY DE CARGA / DESPERTAR RENDER / SIN CONEXIÓN (PARA PROMPTS RENDER Y ALTA DE ODOO) -->
             <div id="promptsLoadingOverlay" class="stage-overlay hidden" role="status" aria-live="polite">
                 <div class="overlay-card">
                     <img src="./prompts-icon-192.png" alt="Estudio IA" class="overlay-logo">
                     <div id="overlaySpinner" class="overlay-spinner" aria-hidden="true"></div>
-                    <h2 id="overlayTitle" class="overlay-title">Conectando con Alta de Odoo (Render)</h2>
+                    <h2 id="overlayTitle" class="overlay-title">Conectando con Estudio IA (Render)</h2>
                     <p id="overlaySub" class="overlay-sub">Despertando servidor en la nube...</p>
                     <div id="overlayTimer" class="overlay-timer"></div>
                     <div id="overlayActions" class="overlay-actions hidden">
@@ -331,6 +340,16 @@
                             <input type="checkbox" id="proptRegisterSheetCheck" checked>
                             <span>Registrar en <strong>FOTOS NORMALIZADAS</strong> (y vincular al SKU si buscaste uno arriba)</span>
                         </label>
+                        <div>
+                            <label class="propt-field-label" for="proptCustomFileNameInput">🏷️ Nombre de salida para la foto / Sheet (opcional)</label>
+                            <input
+                                type="text"
+                                id="proptCustomFileNameInput"
+                                class="propt-input"
+                                placeholder="Ej. MESA SANTORINI 8P ROSA MORADA (saldrá con este nombre)"
+                                autocomplete="off"
+                            >
+                        </div>
                         <input
                             type="file"
                             id="proptCameraInput"
@@ -457,7 +476,7 @@
     </div>
 
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./prompts-studio-v8.js?v=2"></script>
-    <script src="./prompts-app.js?v=11"></script>
+    <script src="./prompts-studio-v8.js?v=4"></script>
+    <script src="./prompts-app.js?v=13"></script>
 </body>
 </html>

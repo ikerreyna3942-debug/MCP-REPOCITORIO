@@ -1253,9 +1253,10 @@ function doPost(e) {
       const fotosMaxHits = action === 'fotos_sync_skus' ? 30 : 60;
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: fotosMaxHits, windowSec: 60 });
       let shouldMintFreshToken = false;
+      let mintTokenEmail = OWNER_FOTOS_EMAIL_;
       if (!gate.ok) {
-        const reqEmailNorm = String((body && body.advisorEmail) || '').trim().toLowerCase().replace(/,/g, '.');
-        const hasKeyFallback = Boolean(body && String(body.accessKey || '').trim() && reqEmailNorm === OWNER_FOTOS_EMAIL_);
+        const reqEmailNorm = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
+        const hasKeyFallback = Boolean(body && String(body.accessKey || '').trim() && reqEmailNorm && reqEmailNorm.indexOf('@') !== -1);
         if (!hasKeyFallback) {
           return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión expirada. Ingresa tu contraseña.' });
         }
@@ -1263,6 +1264,7 @@ function doPost(e) {
           return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
         }
         shouldMintFreshToken = true;
+        mintTokenEmail = reqEmailNorm;
       }
       let fotosRes;
       if (action === 'fotos_subir_list') fotosRes = handleFotosSubirList_(body);
@@ -1276,7 +1278,7 @@ function doPost(e) {
 
       if (shouldMintFreshToken && fotosRes && fotosRes.ok) {
         try {
-          fotosRes.renewedAuthToken = issueInvAuthToken_(OWNER_FOTOS_EMAIL_, TAB_CUENTAS_ADMIN_);
+          fotosRes.renewedAuthToken = issueInvAuthToken_(mintTokenEmail || OWNER_FOTOS_EMAIL_, TAB_CUENTAS_ADMIN_);
         } catch (eMint) {}
       }
       return jsonResponse_(fotosRes);
@@ -5813,9 +5815,37 @@ function readPlantillaProductCatalogMap_(shPlantilla) {
  * Procesa la cotización exigiendo identidad autenticada por correo, bloqueando Sucursal/Proyecto
  * y enviando EN VIVO directo a S Mueblería ERP (sistema.smuebleria.com).
  */
-function handleInvSubmitQuote_(body) {
+function acquireScriptLockSafe_(ms) {
   const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const waitMs = Math.max(1000, Number(ms) || 15000);
+  try {
+    if (typeof lock.tryLock === 'function') {
+      return { lock: lock, ok: !!lock.tryLock(waitMs) };
+    }
+    lock.waitLock(waitMs);
+    return { lock: lock, ok: true };
+  } catch (eLock) {
+    return { lock: lock, ok: false, error: (eLock && eLock.message) ? eLock.message : String(eLock) };
+  }
+}
+
+function safeSheetCellText_(raw, maxLen) {
+  let s = String(raw === null || raw === undefined ? '' : raw).replace(/[\r\n\t]+/g, ' ').trim();
+  if (maxLen && s.length > maxLen) s = s.slice(0, maxLen);
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
+  return s;
+}
+
+function handleInvSubmitQuote_(body) {
+  const lockState = acquireScriptLockSafe_(25000);
+  if (!lockState.ok) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'El servidor está procesando otra operación en este momento. Intenta de nuevo en unos segundos.'
+    };
+  }
+  const lock = lockState.lock;
   try {
     ensureLiveErpSyncTrigger_();
     const ss = getSpreadsheet_();
@@ -5836,6 +5866,13 @@ function handleInvSubmitQuote_(body) {
         error: 'Acceso de Solo Lectura (Hoja INVITADOS): tu correo tiene permiso únicamente para ver el inventario; no puede generar cotizaciones ni aplicar descuentos.'
       };
     }
+    if (verifiedUser.isAdmin && verifiedUser.adminPermissions && verifiedUser.adminPermissions.cotizador === false) {
+      return {
+        ok: false,
+        forbidden: true,
+        error: 'Tu cuenta tiene desactivado el permiso VER_COTIZADOR en CUENTAS ADMINISTRATIVAS.'
+      };
+    }
 
     const items = Array.isArray(body.items) ? body.items : [];
     if (!items.length) {
@@ -5845,13 +5882,14 @@ function handleInvSubmitQuote_(body) {
       return { ok: false, error: 'La plantilla admite máximo 15 partidas por cotización (tienes ' + items.length + ').' };
     }
 
-    // Administradores (Santiago y Kevin) pueden emitir y supervisar en cualquier tienda/bodega;
+    // Administradores (con VER_CAMBIAR_TIENDA activo) pueden emitir y supervisar en cualquier tienda/bodega;
     // Asesores y Gerentes quedan bloqueados estrictamente a la tienda/proyecto de su cuenta en sesión.
     let erpStore = verifiedUser.erpStore;
     let idUsuarioNum = parseInt(String(verifiedUser.erpAdvisorId || '').trim(), 10) || 0;
     let erpAdvisorLabel = verifiedUser.erpAdvisorLabel || '';
+    const canAdminSwitchStore = Boolean(verifiedUser.isAdmin && (!verifiedUser.adminPermissions || verifiedUser.adminPermissions.cambiarTienda !== false));
 
-    if (verifiedUser.isAdmin) {
+    if (canAdminSwitchStore) {
       const reqStore = String(body.erpStore || '').trim();
       if (reqStore) erpStore = reqStore;
       const reqAdvLabel = String(body.erpAdvisorLabel || '').trim();
@@ -6133,6 +6171,25 @@ function handleInvSubmitQuote_(body) {
         skusSummaryParts.push(sku + ' x' + cant);
       }
 
+      if (extraDiscount > 0 && partidasErp.length > 0) {
+        let sumListErp = 0;
+        let sumNetErp = 0;
+        for (let pIdx = 0; pIdx < partidasErp.length; pIdx++) {
+          const pItem = partidasErp[pIdx];
+          sumListErp += Math.max(0, Number(pItem.PrecioOriginal) || 0) * Math.max(1, Number(pItem.Cantidad) || 1);
+          sumNetErp += Math.max(0, Number(pItem.PrecioUnitario) || 0) * Math.max(1, Number(pItem.Cantidad) || 1);
+        }
+        if (sumListErp > 0) {
+          const effErpPct = ((sumListErp - Math.max(0, sumNetErp - extraDiscount)) / sumListErp) * 100;
+          if (effErpPct > maxDiscPct + 0.01) {
+            return {
+              ok: false,
+              error: 'El descuento total (' + effErpPct.toFixed(1) + '%) sobre precios ERP supera el máximo permitido para tu cuenta (' + maxDiscPct + '%).'
+            };
+          }
+        }
+      }
+
       const idCategoriaVenta = 2;
       const clientEmail = String(body.clientEmail || '').trim();
       let idCliente = 0;
@@ -6189,9 +6246,9 @@ function handleInvSubmitQuote_(body) {
         verifiedUser.nombre,
         erpAdvisorLabel,
         String(idUsuarioNum),
-        displayClientForErp,
-        clientPhone,
-        clientMode,
+        safeSheetCellText_(displayClientForErp, 160),
+        safeSheetCellText_(clientPhone, 60),
+        safeSheetCellText_(clientMode, 180),
         categoryLabel,
         deliveryDate,
         partidasErp.length,
@@ -6201,7 +6258,7 @@ function handleInvSubmitQuote_(body) {
         extraDiscount,
         erpResult.total,
         'COTIZACIÓN REGISTRADA',
-        rawNotes,
+        safeSheetCellText_(rawNotes, 500),
         'APP_COTIZACION'
       ]);
       const appendedRow = shQuotes.getLastRow();
@@ -6311,9 +6368,9 @@ function handleInvSubmitQuote_(body) {
           verifiedUser.nombre,
           erpAdvisorLabel,
           String(idUsuarioNum),
-          displayClientForErp,
-          clientPhone,
-          clientMode,
+          safeSheetCellText_(displayClientForErp, 160),
+          safeSheetCellText_(clientPhone, 60),
+          safeSheetCellText_(clientMode, 180),
           categoryLabel,
           deliveryDate,
           items.length,
@@ -6323,7 +6380,7 @@ function handleInvSubmitQuote_(body) {
           extraDiscount,
           totSheet,
           'COTIZACIÓN REGISTRADA (VÍA SERVICIO)',
-          rawNotes,
+          safeSheetCellText_(rawNotes, 500),
           'APP_COTIZACION'
         ]);
         const appRow = shQuotes.getLastRow();
@@ -7631,10 +7688,19 @@ function asegurarColumnaTotalInventario_(ss, shInvOpt) {
  */
 function sincronizarInventarioEnVivoDesdeERP(opts) {
   const silentUi = !opts || opts.silentUi !== false;
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) {
-    return { ok: true, skippedBusy: true };
-  }
+  const erpLeaseKey = 'CREATA_ERP_SYNC_IN_FLIGHT_V1';
+  let erpLeaseCache = null;
+  let erpLeaseId = '';
+  try {
+    if (typeof CacheService !== 'undefined' && CacheService && typeof CacheService.getScriptCache === 'function') {
+      erpLeaseCache = CacheService.getScriptCache();
+      if (erpLeaseCache.get(erpLeaseKey)) {
+        return { ok: true, skippedBusy: true };
+      }
+      erpLeaseId = 'sync_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+      erpLeaseCache.put(erpLeaseKey, erpLeaseId, 180);
+    }
+  } catch (eLease) {}
   try {
     const cfg = getErpRuntimeConfig_();
     const ss = getSpreadsheet_();
@@ -8070,7 +8136,11 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       timestamp: ahoraStr
     };
   } finally {
-    lock.releaseLock();
+    try {
+      if (erpLeaseCache && (!erpLeaseId || erpLeaseCache.get(erpLeaseKey) === erpLeaseId)) {
+        erpLeaseCache.remove(erpLeaseKey);
+      }
+    } catch (eLeaseRel) {}
   }
 }
 
@@ -9307,8 +9377,11 @@ function handleInvSearchErpClients_(body) {
 }
 
 function handleInvCreateErpClient_(body) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  const lockState = acquireScriptLockSafe_(20000);
+  if (!lockState.ok) {
+    return { ok: false, retryable: true, error: 'El servidor está ocupado con otro proceso. Intenta guardar el cliente de nuevo en unos segundos.' };
+  }
+  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const erpMeta = readErpAdvisorsFromPlantilla_(ss);
@@ -9570,8 +9643,15 @@ function handleInvCreateErpClient_(body) {
 }
 
 function handleInvUploadProductPhoto_(body) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquireScriptLockSafe_(25000);
+  if (!lockState.ok) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'El servidor está ocupado con otro proceso. Intenta subir la foto de nuevo en unos segundos.'
+    };
+  }
+  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const erpMeta = readErpAdvisorsFromPlantilla_(ss);
@@ -9648,10 +9728,10 @@ function handleInvUploadProductPhoto_(body) {
     const driveViewUrl = 'https://drive.google.com/file/d/' + fileId + '/view?usp=sharing';
     const folderUrl = 'https://drive.google.com/drive/folders/' + usedFolderId;
 
-    // Organizar copia automáticamente en la carpeta de categoría correspondiente (excepto Portadas/Telas que van en 1 sola carpeta sin duplicarse)
+    // Organizar copia automáticamente en la carpeta de categoría correspondiente (excepto Portadas/Telas/Maderas que van en 1 sola carpeta sin duplicarse)
     let categoryFolderId = '';
     let categoryFolderName = '';
-    const skipCategoryCopy = !!(body && body.skipCategoryCopy) || /^V(?:COV|FAB):/i.test(skuUpper);
+    const skipCategoryCopy = !!(body && body.skipCategoryCopy) || /^V(?:COV|FAB|WOD):/i.test(skuUpper);
     if (!skipCategoryCopy) {
       try {
         let catRaw = String((body && body.categoria) || '').trim();
@@ -9954,15 +10034,22 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
   const tp = normPlainFotoCat_(tipoRaw);
   const nom = normPlainFotoCat_(nombreRaw);
   const nomHead = nom.split(/\b(?:INCLUYE|INCL|CON\s+\d|CON\s+MESAS?\b|CON\s+SILLAS?\b|C\/\s*FUNDAS)\b/)[0].trim();
-  const text = (tp + ' ' + nom + ' ' + cat).trim();
+  const tpNom = (tp + ' ' + nom).trim();
+  const text = (tpNom + ' ' + cat).trim();
   const byKey = (k) => CATEGORIAS_DEST_FOLDERS_.find((f) => f.key === k) || CATEGORIAS_DEST_FOLDERS_[CATEGORIAS_DEST_FOLDERS_.length - 1];
 
   if (/\bFUTON|\bFUTTON|SOFA\s*CAMA/.test(text)) return byKey('SOFA_CAMA');
-  if (/MESA\s+LATERAL|MESA\s+AUXILIAR/.test(text) || (cat.indexOf('MESAS DE CENTRO') !== -1 && /\bLATERAL|\bAUXILIAR/.test(text))) {
+  if (/MESA\s+LATERAL|MESA\s+AUXILIAR/.test(tpNom) || (cat.indexOf('MESAS DE CENTRO') !== -1 && /\bLATERAL(?:ES)?\b|\bAUXILIAR(?:ES)?\b/.test(tpNom))) {
     return byKey('MESA_LATERAL');
   }
-  if (/MESA\s+DE\s+CENTRO|MESA\s+CENTRAL|\bNIDO\b/.test(text) || cat === 'MESAS DE CENTRO & LATERALES') {
+  if (/MESA\s+DE\s+CENTRO|MESA\s+CENTRO|MESA\s+CENTRAL|MESA\s+NIDO/.test(tpNom) || cat === 'MESAS DE CENTRO & LATERALES') {
     return byKey('MESA_CENTRO');
+  }
+  const isModularSalaModule =
+    /\b(SIN\s+BRAZOS?|BRAZO\s+(?:DER(?:ECHO)?|IZQ(?:UIERDO)?)|MODULO\s+CENTRAL|ESQUINERO|CHAISE|LOVE\s*SEAT|MODULAR)\b/.test(tpNom) ||
+    (cat === 'SALAS & SOFAS' && /\bSILLON(?:ES)?\b/.test(tpNom) && /\b(DER(?:ECHO)?|IZQ(?:UIERDO)?|SIN\s+BRAZOS?|CENTRAL|MODULO)\b/.test(tpNom));
+  if (isModularSalaModule) {
+    return byKey('SALAS');
   }
   if (/\bSILLAS?\b/.test(nomHead) && !/\b(SILLON(?:ES)?|MESAS?|COLGANTES?|COLUMPIOS?)\b/.test(nomHead) && !/^SALA\b/.test(nomHead)) {
     return byKey('COMEDORES');
@@ -9970,23 +10057,23 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
   if (/\b(SILLON(?:ES)?|POLTRONA|RECLINABLE|BUTACA)\b/.test(nomHead) && !/\bSILLAS?\b/.test(nomHead) && !/^SALA\b/.test(nomHead)) {
     return byKey('SILLONES');
   }
-  if (/\bSILLON|\bPOLTRONA|\bRECLINABLE|\bTABURETE|\bOTTOMAN|\bPUFF\b/.test(tp + ' ' + nom)) {
+  if (/\bSILLON|\bPOLTRONA|\bRECLINABLE|\bTABURETE|\bOTTOMAN|\bPUFF\b/.test(tpNom)) {
     return byKey('SILLONES');
   }
-  if (cat === 'SALAS & SOFAS' || /\bSALA\b|\bMODULAR\b|LOVE\s*SEAT|\bCHAISE\b|\bESQUINERO\b|\bSOFA\b/.test(tp + ' ' + nom)) {
+  if (cat === 'SALAS & SOFAS' || /\bSALA\b|\bMODULAR\b|LOVE\s*SEAT|\bCHAISE\b|\bESQUINERO\b|\bSOFA\b/.test(tpNom)) {
     return byKey('SALAS');
   }
   if (
     cat === 'OFICINA' ||
     cat === 'EXTERIOR & TERRAZA' ||
-    /\bOFICINA|\bOPERATIV[AO]|\bEJECUTIV[AO]|\bSECRETARIAL|\bESCRITORIO|\bCAMASTRO/.test(tp + ' ' + nom)
+    /\bOFICINA|\bOPERATIV[AO]|\bEJECUTIV[AO]|\bSECRETARIAL|\bESCRITORIO|\bCAMASTRO/.test(tpNom)
   ) {
     return byKey('AUXILIARES');
   }
-  if (cat === 'COMEDORES' || /\bCOMEDOR|MESA\s+DE\s+COMEDOR|\bSILLA\b|\bBANCO\b|\bBANCA\b/.test(tp + ' ' + nom)) {
+  if (cat === 'COMEDORES' || /\bCOMEDOR|MESA\s+DE\s+COMEDOR|\bSILLA\b|\bBANCO\b|\bBANCA\b/.test(tpNom)) {
     return byKey('COMEDORES');
   }
-  if (cat === 'RECAMARAS' || /\bCAMA\b|\bCABECERA|\bCOLCHON|\bBURO\b|\bCOMODA\b|\bCAJONERA|\bTOCADOR|PIE\s+DE\s+CAMA/.test(tp + ' ' + nom)) {
+  if (cat === 'RECAMARAS' || /\bCAMA\b|\bCABECERA|\bCOLCHON|\bBURO\b|\bCOMODA\b|\bCAJONERA|\bTOCADOR|PIE\s+DE\s+CAMA/.test(tpNom)) {
     return byKey('RECAMARAS');
   }
   if (
@@ -9994,14 +10081,14 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
     cat === 'COJINES & TEXTILES' ||
     cat === 'ESPEJOS & ARTE' ||
     cat === 'ILUMINACION' ||
-    /\bESPEJO|\bCUADRO|\bLAMPARA|\bCOJIN|\bFUNDA|\bPLANTA|\bFOLLAJE|\bFLORERO|\bJARRON|\bCHAROLA|\bTAPETE|\bVELA\b|\bFIGURA|\bACCESORIO/.test(tp + ' ' + nom)
+    /\bESPEJO|\bCUADRO|\bLAMPARA|\bCOJIN|\bFUNDA|\bPLANTA|\bFOLLAJE|\bFLORERO|\bJARRON|\bCHAROLA|\bTAPETE|\bVELA\b|\bFIGURA|\bACCESORIO/.test(tpNom)
   ) {
     return byKey('ACCESORIOS');
   }
   if (
     cat === 'BUFETERAS & CREDENZAS' ||
     cat === 'COMPLEMENTOS' ||
-    /\bCREDENZA|\bBUFETERA|\bLIBRERO|MUEBLE\s+PARA\s+TV|MESA\s+DE\s+TV|\bBAR\b|\bCONSOLA|\bAUXILIAR/.test(tp + ' ' + nom)
+    /\bCREDENZA|\bBUFETERA|\bLIBRERO|MUEBLE\s+PARA\s+TV|MESA\s+DE\s+TV|\bBAR\b|\bCONSOLA|\bAUXILIAR/.test(tpNom)
   ) {
     return byKey('AUXILIARES');
   }
@@ -10011,21 +10098,25 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
 const PROJECT_A_PUBLIC_FOLDERS_CACHE_KEY_ = 'CREATA_PA_PUBLIC_FOLDERS_OK_V1';
 const PROJECT_A_LOADED_NAMES_CACHE_KEY_ = 'CREATA_PA_LOADED_NAMES_V1';
 
-function ensurePublicSharingItem_(item) {
-  if (!item) return false;
+function ensurePublicSharingWithStatus_(item) {
+  if (!item) return { ok: false, changed: false };
   try {
     if (typeof item.getSharingAccess === 'function') {
       const access = item.getSharingAccess();
       if (access === DriveApp.Access.ANYONE_WITH_LINK || access === DriveApp.Access.ANYONE) {
-        return true;
+        return { ok: true, changed: false };
       }
     }
     if (typeof item.setSharing === 'function') {
       item.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      return true;
+      return { ok: true, changed: true };
     }
   } catch (eShare) {}
-  return false;
+  return { ok: false, changed: false };
+}
+
+function ensurePublicSharingItem_(item) {
+  return ensurePublicSharingWithStatus_(item).ok;
 }
 
 function ensureProjectAPublicFolders_(forceNow) {
@@ -10636,12 +10727,21 @@ function handleFotosSubirUploadInbox_(body) {
 }
 
 function handleFotosSubirAssign_(body) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquireScriptLockSafe_(25000);
+  if (!lockState.ok) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'El servidor está ocupado con otro proceso. Intenta guardar la foto de nuevo en unos segundos.'
+    };
+  }
+  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const auth = verifyExclusiveKevinOwner_(ss, body);
     if (!auth.ok) return auth;
+    const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
+    const actorName = String((auth.advisor && auth.advisor.nombre) || 'Kevin Reyna').trim();
 
     const skuUpper = String((body && body.sku) || '').trim().toUpperCase();
     const driveFileId = String((body && body.driveFileId) || '').trim();
@@ -10755,7 +10855,7 @@ function handleFotosSubirAssign_(body) {
         'SKU: ' + skuUpper +
         ' | Producto: ' + effectiveName +
         ' | Categoría Drive: ' + destMeta.name +
-        ' | Asignado por: ' + OWNER_FOTOS_EMAIL_ +
+        ' | Asignado por: ' + actorEmail +
         ' | Fecha: ' + formatCancunNow_()
       );
     } catch (eDesc) {}
@@ -10778,8 +10878,10 @@ function handleFotosSubirAssign_(body) {
       if (primaryRowNumber > sh1.getMaxRows()) {
         sh1.insertRowAfter(sh1.getMaxRows());
       }
-      // Solo escribir Columna A (SKU) y Columna D (LINK FOTO APP) para que B2 y C2 calculen solos
-      sh1.getRange(primaryRowNumber, 1).setValue(skuUpper);
+      // Solo escribir Columna A (SKU en formato texto '@') y Columna D (LINK FOTO APP) para que B2 y C2 calculen solos
+      const colACell = sh1.getRange(primaryRowNumber, 1);
+      if (typeof colACell.setNumberFormat === 'function') colACell.setNumberFormat('@');
+      colACell.setValue(skuUpper);
       sh1.getRange(primaryRowNumber, 4).setValue(driveViewUrl);
     }
 
@@ -10801,7 +10903,7 @@ function handleFotosSubirAssign_(body) {
           ? 'FOTO TOMADA DE CARGADAS Y ASIGNADA EN HOJA "1"'
           : (wasAppended ? 'NUEVO SKU + FOTO ASIGNADA DESDE SUBIR PREN' : 'FOTO ACTUALIZADA EN HOJA "1" DESDE SUBIR PREN'),
         estado: '✅ OK',
-        usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
+        usuario: actorName + ' (' + actorEmail + ')',
         sucursal: 'ADMINISTRACIÓN GENERAL',
         referencia: skuUpper + ' · Fila ' + primaryRowNumber,
         detalle: (reuseFromLoaded ? 'Tomada de fotos cargadas hacia "' : 'Movida de SUBIR PREN a "') + destMeta.name + '" conservando nombre "' + finalFileName + '" · Guardada en Hoja "1"!D' + primaryRowNumber + ': ' + driveViewUrl,
@@ -10835,7 +10937,7 @@ function handleFotosSubirAssign_(body) {
         modulo: 'AppsScript · handleFotosSubirAssign_',
         evento: 'ERROR AL ASIGNAR FOTO DESDE SUBIR A HOJA "1"',
         estado: '❌ ERROR',
-        usuario: OWNER_FOTOS_EMAIL_,
+        usuario: String((body && (body.advisorEmail || body.email)) || OWNER_FOTOS_EMAIL_),
         sucursal: 'ADMINISTRACIÓN GENERAL',
         referencia: String((body && body.sku) || ''),
         detalle: (errAssign && errAssign.message) ? errAssign.message : String(errAssign),
@@ -10852,12 +10954,21 @@ function handleFotosSubirAssign_(body) {
 }
 
 function handleFotosDirectUploadAssign_(body) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquireScriptLockSafe_(25000);
+  if (!lockState.ok) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'El servidor está ocupado con otro proceso. Intenta subir la foto de nuevo en unos segundos.'
+    };
+  }
+  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const auth = verifyExclusiveKevinOwner_(ss, body);
     if (!auth.ok) return auth;
+    const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
+    const actorName = String((auth.advisor && auth.advisor.nombre) || 'Kevin Reyna').trim();
 
     const skuUpper = String((body && body.sku) || '').trim().toUpperCase();
     if (!skuUpper) {
@@ -10892,7 +11003,7 @@ function handleFotosDirectUploadAssign_(body) {
         'SKU: ' + skuUpper +
         ' | Producto: ' + invMeta.nombre +
         ' | Categoría Drive: ' + destMeta.name +
-        ' | Subido directo por: ' + OWNER_FOTOS_EMAIL_ +
+        ' | Subido directo por: ' + actorEmail +
         ' | Fecha: ' + formatCancunNow_()
       );
     } catch (eDesc) {}
@@ -10947,7 +11058,9 @@ function handleFotosDirectUploadAssign_(body) {
       }
       primaryRowNumber = Math.max(3, lastNonEmptyA + 1);
       if (primaryRowNumber > sh1.getMaxRows()) sh1.insertRowAfter(sh1.getMaxRows());
-      sh1.getRange(primaryRowNumber, 1).setValue(skuUpper);
+      const colACell = sh1.getRange(primaryRowNumber, 1);
+      if (typeof colACell.setNumberFormat === 'function') colACell.setNumberFormat('@');
+      colACell.setValue(skuUpper);
       sh1.getRange(primaryRowNumber, 4).setValue(driveViewUrl);
     }
 
@@ -10960,7 +11073,7 @@ function handleFotosDirectUploadAssign_(body) {
         modulo: 'AppsScript · Gestor Fotos Hoja "1"',
         evento: 'SUBIDA DIRECTA RÁPIDA EN HOJA "1"',
         estado: '✅ OK',
-        usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
+        usuario: actorName + ' (' + actorEmail + ')',
         sucursal: 'ADMINISTRACIÓN GENERAL',
         referencia: skuUpper + ' · Fila ' + primaryRowNumber,
         detalle: 'Subida directa a "' + destMeta.name + '" conservando nombre "' + finalFileName + '" · Hoja "1"!D' + primaryRowNumber + ': ' + driveViewUrl,
@@ -11000,92 +11113,114 @@ function handleFotosUploadVisualOverride_(body) {
   const ss = getSpreadsheet_();
   const auth = verifyExclusiveKevinOwner_(ss, b);
   if (!auth.ok) return auth;
-
-  const ovKey = String(b.overrideKey || b.sku || '').trim().toUpperCase();
-  if (!ovKey || !/^V(?:COV|FAB):/i.test(ovKey) || ovKey.length > 60) {
-    return { ok: false, error: 'Clave de portada/tela inválida.' };
-  }
-  const kind = String(b.kind || (ovKey.indexOf('VFAB:') === 0 ? 'fabric' : 'cover')).trim().toLowerCase();
-  const label = String(b.label || b.name || ovKey).trim().slice(0, 140);
-  const categoryTag = kind === 'fabric' ? 'FABRIC_SWATCH' : 'VISUAL_COVER';
-
-  ensureProjectAPublicFolders_(false);
-  const targetFolder = DriveApp.getFolderById(FOTOS_NUEVAS_CARGADO_FOLDER_ID_);
-  ensurePublicSharingItem_(targetFolder);
-
-  let finalFileId = '';
-  let finalFileName = '';
-  const sourceInboxFileId = String(b.sourceInboxFileId || '').trim();
-  const fromLoaded = !!b.fromLoaded;
-
-  if (sourceInboxFileId) {
-    if (isForbiddenProjectBFolderId_(sourceInboxFileId)) {
-      return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: carpeta no permitida.' };
-    }
-    const srcFile = DriveApp.getFileById(sourceInboxFileId);
-    const srcCheck = validateProjectASourceFile_(srcFile, 'fotos_upload_visual_override');
-    if (!srcCheck.ok) return srcCheck;
-    finalFileName = String(srcFile.getName() || '').trim();
-    if (!fromLoaded) {
-      // Mover desde SUBIR PREN a FOTOS NUEVAS CARGADO conservando su nombre y sacándola de SUBIR PREN para no duplicar
-      srcFile.moveTo(targetFolder);
-      cleanDuplicatesInSubirInbox_(srcFile, finalFileName, b.shortcutId, null);
-    }
-    ensurePublicSharingItem_(srcFile);
-    finalFileId = srcFile.getId();
-  } else {
-    const parsed = parseUploadImageDataUrl_(b.dataUrl, b.fileName, label.replace(/[^a-zA-Z0-9_-]+/g, '_'));
-    if (!parsed.ok) return parsed;
-    const created = targetFolder.createFile(parsed.blob);
-    ensurePublicSharingItem_(created);
-    try {
-      created.setDescription(
-        'Visual: ' + ovKey +
-        ' | Etiqueta: ' + label +
-        ' | Tipo: ' + categoryTag +
-        ' | Subido por: ' + OWNER_FOTOS_EMAIL_ +
-        ' | Fecha: ' + formatCancunNow_()
-      );
-    } catch (eDesc) {}
-    finalFileId = created.getId();
-    finalFileName = String(created.getName() || parsed.fileName).trim();
-  }
-
-  const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
-  const saveRes = handleInvProductOverrideSave_({
-    authToken: b.authToken || '',
-    advisorEmail: b.advisorEmail || OWNER_FOTOS_EMAIL_,
-    accessKey: b.accessKey || '',
-    sheetTab: b.sheetTab || TAB_CUENTAS_ADMIN_,
-    sku: ovKey,
-    op: 'RESTORE',
-    name: label,
-    category: categoryTag,
-    price: '',
-    note: driveViewUrl
-  });
-  invalidateLoadedFileNamesCache_();
-
-  if (!saveRes || !saveRes.ok) {
+  if (auth.advisor && auth.advisor.adminPermissions && auth.advisor.adminPermissions.gestionProductos === false) {
     return {
       ok: false,
-      fileId: finalFileId,
-      driveUrl: driveViewUrl,
-      error: (saveRes && saveRes.error) || 'Foto subida, pero falló guardar el vínculo.'
+      forbidden: true,
+      error: 'Tu cuenta tiene desactivado VER_GESTION_PRODUCTOS en CUENTAS ADMINISTRATIVAS.'
     };
   }
+  const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
 
-  return {
-    ok: true,
-    overrideKey: ovKey,
-    fileId: finalFileId,
-    fileName: finalFileName,
-    driveUrl: driveViewUrl,
-    thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
-    override: saveRes.override,
-    removedFromInbox: !!(sourceInboxFileId && !fromLoaded),
-    timestamp: formatCancunNow_()
-  };
+  const ovKey = String(b.overrideKey || b.sku || '').trim().toUpperCase();
+  if (!ovKey || !/^V(?:COV|FAB|WOD):/i.test(ovKey) || ovKey.length > 80) {
+    return { ok: false, error: 'Clave de portada/tela/madera inválida.' };
+  }
+  const kind = String(b.kind || (ovKey.indexOf('VFAB:') === 0 ? 'fabric' : (ovKey.indexOf('VWOD:') === 0 ? 'wood' : 'cover'))).trim().toLowerCase();
+  const label = String(b.label || b.name || ovKey).trim().slice(0, 140);
+  const categoryTag = kind === 'fabric' ? 'FABRIC_SWATCH' : (kind === 'wood' ? 'WOOD_SWATCH' : 'VISUAL_COVER');
+
+  const lockState = acquireScriptLockSafe_(20000);
+  if (!lockState.ok) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'El servidor está ocupado con otro proceso. Intenta guardar la portada/tela/madera de nuevo en unos segundos.'
+    };
+  }
+  const lock = lockState.lock;
+  try {
+    ensureProjectAPublicFolders_(false);
+    const targetFolder = DriveApp.getFolderById(FOTOS_NUEVAS_CARGADO_FOLDER_ID_);
+    ensurePublicSharingItem_(targetFolder);
+
+    let finalFileId = '';
+    let finalFileName = '';
+    const sourceInboxFileId = String(b.sourceInboxFileId || '').trim();
+    const fromLoaded = !!b.fromLoaded;
+
+    if (sourceInboxFileId) {
+      if (isForbiddenProjectBFolderId_(sourceInboxFileId)) {
+        return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: carpeta no permitida.' };
+      }
+      const srcFile = DriveApp.getFileById(sourceInboxFileId);
+      const srcCheck = validateProjectASourceFile_(srcFile, 'fotos_upload_visual_override');
+      if (!srcCheck.ok) return srcCheck;
+      finalFileName = String(srcFile.getName() || '').trim();
+      if (!fromLoaded) {
+        // Mover desde SUBIR PREN a FOTOS NUEVAS CARGADO conservando su nombre y sacándola de SUBIR PREN para no duplicar
+        srcFile.moveTo(targetFolder);
+        cleanDuplicatesInSubirInbox_(srcFile, finalFileName, b.shortcutId, null);
+      }
+      ensurePublicSharingItem_(srcFile);
+      finalFileId = srcFile.getId();
+    } else {
+      const parsed = parseUploadImageDataUrl_(b.dataUrl, b.fileName, label.replace(/[^a-zA-Z0-9_-]+/g, '_'));
+      if (!parsed.ok) return parsed;
+      const created = targetFolder.createFile(parsed.blob);
+      ensurePublicSharingItem_(created);
+      try {
+        created.setDescription(
+          'Visual: ' + ovKey +
+          ' | Etiqueta: ' + label +
+          ' | Tipo: ' + categoryTag +
+          ' | Subido por: ' + actorEmail +
+          ' | Fecha: ' + formatCancunNow_()
+        );
+      } catch (eDesc) {}
+      finalFileId = created.getId();
+      finalFileName = String(created.getName() || parsed.fileName).trim();
+    }
+
+    const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
+    const saveRes = handleInvProductOverrideSave_({
+      authToken: b.authToken || '',
+      advisorEmail: b.advisorEmail || actorEmail,
+      accessKey: b.accessKey || '',
+      sheetTab: b.sheetTab || TAB_CUENTAS_ADMIN_,
+      sku: ovKey,
+      op: 'RESTORE',
+      name: label,
+      category: categoryTag,
+      price: '',
+      note: driveViewUrl,
+      _skipLock: true
+    });
+    invalidateLoadedFileNamesCache_();
+
+    if (!saveRes || !saveRes.ok) {
+      return {
+        ok: false,
+        fileId: finalFileId,
+        driveUrl: driveViewUrl,
+        error: (saveRes && saveRes.error) || 'Foto subida, pero falló guardar el vínculo.'
+      };
+    }
+
+    return {
+      ok: true,
+      overrideKey: ovKey,
+      fileId: finalFileId,
+      fileName: finalFileName,
+      driveUrl: driveViewUrl,
+      thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
+      override: saveRes.override,
+      removedFromInbox: !!(sourceInboxFileId && !fromLoaded),
+      timestamp: formatCancunNow_()
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
+  }
 }
 
 function reubicarFotosSegunSheets_(opts) {
@@ -11147,21 +11282,8 @@ function reubicarFotosSegunSheets_(opts) {
     fileEntriesById[fid].destIds[dest.id] = dest;
   };
 
-  if (sh1 && sh1.getLastRow() >= 3 && sh1.getLastColumn() >= 4) {
-    const vals1 = sh1.getRange(3, 1, sh1.getLastRow() - 2, 4).getDisplayValues();
-    for (let i = 0; i < vals1.length; i++) {
-      const sk = String(vals1[i][0] || '').trim().toUpperCase();
-      const colB = String(vals1[i][1] || '').trim();
-      const colD = String(vals1[i][3] || '').trim();
-      if (sk && colD) registerSkuFile(sk, colD, colB);
-    }
-  }
-
-  Object.keys(invBySku).forEach((sk) => {
-    if (invBySku[sk].photoUrl) registerSkuFile(sk, invBySku[sk].photoUrl, invBySku[sk].nombre);
-  });
-
-  // Incluir también Portadas (VCOV:) y Telas (VFAB:) guardadas en _INV_PRODUCT_OVERRIDES
+  // Priorizar primero Portadas (VCOV:) y Telas (VFAB:) guardadas en _INV_PRODUCT_OVERRIDES
+  // para que siempre queden reparadas en el primer lote sin quedar detrás de miles de SKUs.
   try {
     const ovMap = readProductOverridesMap_(ss);
     Object.keys(ovMap).forEach((k) => {
@@ -11178,6 +11300,20 @@ function reubicarFotosSegunSheets_(opts) {
       orderedIds.push(fid);
     });
   } catch (eOv) {}
+
+  if (sh1 && sh1.getLastRow() >= 3 && sh1.getLastColumn() >= 4) {
+    const vals1 = sh1.getRange(3, 1, sh1.getLastRow() - 2, 4).getDisplayValues();
+    for (let i = 0; i < vals1.length; i++) {
+      const sk = String(vals1[i][0] || '').trim().toUpperCase();
+      const colB = String(vals1[i][1] || '').trim();
+      const colD = String(vals1[i][3] || '').trim();
+      if (sk && colD) registerSkuFile(sk, colD, colB);
+    }
+  }
+
+  Object.keys(invBySku).forEach((sk) => {
+    if (invBySku[sk].photoUrl) registerSkuFile(sk, invBySku[sk].photoUrl, invBySku[sk].nombre);
+  });
 
   const resolvedInbox = resolveSubirInboxFolders_();
   const inboxMap = Object.assign({}, resolvedInbox.folderIdsMap || {});
@@ -11203,7 +11339,8 @@ function reubicarFotosSegunSheets_(opts) {
       if (!file || (file.isTrashed && file.isTrashed())) continue;
       if (isFileInForbiddenProjectBFolder_(file)) continue;
 
-      if (ensurePublicSharingItem_(file)) {
+      const shareRes = ensurePublicSharingWithStatus_(file);
+      if (shareRes && shareRes.changed) {
         summary.filesMadePublic++;
         if (rec.isVisual) summary.visualOverridesPublic++;
       }
@@ -11258,7 +11395,7 @@ function reubicarFotosSegunSheets_(opts) {
   summary.remaining = Math.max(0, orderedIds.length - idx);
   summary.checked = summary.filesChecked;
   summary.moved = summary.filesMoved;
-  summary.publicFixed = summary.filesMadePublic + summary.foldersPublicUpdated + summary.visualOverridesPublic;
+  summary.publicFixed = summary.filesMadePublic + summary.foldersPublicUpdated;
   summary.nextIndex = summary.nextStartIndex;
   return summary;
 }
@@ -11281,12 +11418,21 @@ function handleFotosReorganizeFromSheets_(body) {
 }
 
 function handleFotosDelete_(body) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  const lockState = acquireScriptLockSafe_(25000);
+  if (!lockState.ok) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'El servidor está ocupado con otro proceso. Intenta borrar la foto de nuevo en unos segundos.'
+    };
+  }
+  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const auth = verifyExclusiveKevinOwner_(ss, body);
     if (!auth.ok) return auth;
+    const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
+    const actorName = String((auth.advisor && auth.advisor.nombre) || 'Kevin Reyna').trim();
 
     const skuUpper = String((body && body.sku) || '').trim().toUpperCase();
     let driveFileId = String((body && body.driveFileId) || '').trim();
@@ -11303,6 +11449,7 @@ function handleFotosDelete_(body) {
     const clearedRows = [];
     let previousUrl = '';
     let usedByOtherSku = false;
+    let usedByVisualOverride = false;
     let vals1 = null;
 
     if (sh1 && sh1.getLastRow() >= 3) {
@@ -11339,10 +11486,27 @@ function handleFotosDelete_(body) {
       }
     }
 
+    // Proteger archivos que también están referenciados por Portadas (VCOV:) o Telas (VFAB:) activas en _INV_PRODUCT_OVERRIDES
+    if (driveFileId) {
+      try {
+        const ovMap = readProductOverridesMap_(ss);
+        const ovKeys = Object.keys(ovMap);
+        for (let oi = 0; oi < ovKeys.length; oi++) {
+          const ov = ovMap[ovKeys[oi]];
+          if (!ov || ov.status === 'ELIMINADO' || ov.status === 'ARCHIVADO') continue;
+          const ovNote = String(ov.note || '');
+          if (ovNote && ovNote.indexOf(driveFileId) !== -1) {
+            usedByVisualOverride = true;
+            break;
+          }
+        }
+      } catch (eOvCheck) {}
+    }
+
     // Guardia de aislamiento Proyecto A/B ANTES de modificar Drive o Hoja "1"
     const shortcutId = String((body && body.shortcutId) || '').trim();
     const deleteTargetId = (source === 'INBOX' && shortcutId) ? shortcutId : driveFileId;
-    const willTrashDrive = !!(deleteTargetId && !keepDriveFile && (source === 'INBOX' || forceTrash || !usedByOtherSku));
+    const willTrashDrive = !!(deleteTargetId && !keepDriveFile && !usedByVisualOverride && (source === 'INBOX' || forceTrash || !usedByOtherSku));
     let targetFile = null;
     if (deleteTargetId) {
       if (isForbiddenProjectBFolderId_(deleteTargetId)) {
@@ -11405,10 +11569,10 @@ function handleFotosDelete_(body) {
         modulo: 'AppsScript · Gestor Fotos Hoja "1"',
         evento: skuUpper ? 'FOTO BORRADA DE HOJA "1" (COLUMNA D)' : 'FOTO BORRADA DE SUBIR PREN',
         estado: '✅ OK',
-        usuario: 'Kevin Reyna (' + OWNER_FOTOS_EMAIL_ + ')',
+        usuario: actorName + ' (' + actorEmail + ')',
         sucursal: 'ADMINISTRACIÓN GENERAL',
         referencia: skuUpper ? (skuUpper + (clearedRows.length ? (' · Fila ' + clearedRows.join(',')) : '')) : (deletedFileName || driveFileId),
-        detalle: (skuUpper ? ('Limpiada Columna D en Hoja "1" para SKU ' + skuUpper + (previousUrl ? (' (' + previousUrl + ')') : '')) : ('Eliminado archivo Drive ' + (deletedFileName || driveFileId))) + (driveTrashed ? ' · Archivo enviado a papelera Drive.' : ''),
+        detalle: (skuUpper ? ('Limpiada Columna D en Hoja "1" para SKU ' + skuUpper + (previousUrl ? (' (' + previousUrl + ')') : '')) : ('Eliminado archivo Drive ' + (deletedFileName || driveFileId))) + (driveTrashed ? ' · Archivo enviado a papelera Drive.' : (usedByVisualOverride ? ' · Archivo conservado en Drive (usado por Portada/Tela).' : '')),
         analisis: 'Fórmulas maestras B2:F2 intactas.'
       });
     } catch (eHistDel) {}
@@ -11421,6 +11585,7 @@ function handleFotosDelete_(body) {
       deletedFileName: deletedFileName,
       driveTrashed: driveTrashed,
       usedByOtherSku: usedByOtherSku,
+      usedByVisualOverride: usedByVisualOverride,
       remainingFiles: (body && body.skipListReturn) ? [] : listSubirInboxFilesInternal_(),
       timestamp: formatCancunNow_()
     };
@@ -13505,8 +13670,11 @@ function handleInvRevokeSession_(body) {
   const currentDevId = String(b.deviceId || '').trim().replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 64);
   const now = Date.now();
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(5000);
+  const lockState = acquireScriptLockSafe_(5000);
+  if (!lockState.ok) {
+    return { ok: false, retryable: true, error: 'El servidor está ocupado. Intenta cerrar la sesión de nuevo en unos segundos.' };
+  }
+  const lock = lockState.lock;
   try {
     const map = readUserDevicesMap_(email);
     let revokedCount = 0;
@@ -13626,7 +13794,7 @@ function readProductOverridesMap_(ss) {
       ? Number(priceRaw)
       : null;
     const noteStr = String(vals[i][5] || '').trim();
-    if (/^V(?:FAB|COV):/i.test(sku) && (/^blob:/i.test(noteStr) || /^data:/i.test(noteStr))) continue;
+    if (/^V(?:FAB|COV|WOD):/i.test(sku) && (/^blob:/i.test(noteStr) || /^data:/i.test(noteStr))) continue;
     out[sku] = {
       sku: sku,
       status: (status === 'ARCHIVADO' || status === 'ELIMINADO') ? status : 'VISIBLE',
@@ -13678,7 +13846,7 @@ function handleInvProductOverrideSave_(body) {
   }
 
   const sku = String(b.sku || '').trim().toUpperCase();
-  if (!sku || sku.length > 60) {
+  if (!sku || sku.length > 80) {
     return { ok: false, error: 'SKU inválido.' };
   }
   const op = String(b.op || 'SAVE').trim().toUpperCase();
@@ -13686,16 +13854,22 @@ function handleInvProductOverrideSave_(body) {
     return { ok: false, error: 'Operación no permitida: ' + op };
   }
 
-  const isVisualOverrideKey = /^V(?:COV|FAB):/i.test(sku);
+  const isVisualOverrideKey = /^V(?:COV|FAB|WOD):/i.test(sku);
   if (isVisualOverrideKey && op !== 'DELETE' && op !== 'ARCHIVE' && b.note !== undefined) {
     const rawNoteCheck = String(b.note || '').trim();
     if (/^blob:/i.test(rawNoteCheck) || /^data:/i.test(rawNoteCheck)) {
-      return { ok: false, error: 'No se permiten enlaces temporales (blob:/data:) en fotos de tela o portada.' };
+      return { ok: false, error: 'No se permiten enlaces temporales (blob:/data:) en fotos de tela, madera o portada.' };
     }
   }
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  let lock = null;
+  if (!b._skipLock) {
+    const lockState = acquireScriptLockSafe_(15000);
+    if (!lockState.ok) {
+      return { ok: false, retryable: true, error: 'El servidor está ocupado con otro proceso. Intenta guardar de nuevo en unos segundos.' };
+    }
+    lock = lockState.lock;
+  }
   try {
     const sh = ensureProductOverridesSheet_(ss);
     const lastRow = sh.getLastRow();
@@ -13754,7 +13928,7 @@ function handleInvProductOverrideSave_(body) {
     const actorName = (auth && auth.advisor && auth.advisor.nombre) ? String(auth.advisor.nombre) : 'Kevin Reyna';
 
     const rowValues = [[
-      sanitizeOverrideTextCell_(sku, 60),
+      sanitizeOverrideTextCell_(sku, 80),
       nextStatus,
       nextName,
       nextCat,
@@ -13801,7 +13975,7 @@ function handleInvProductOverrideSave_(body) {
       }
     };
   } finally {
-    try { lock.releaseLock(); } catch (eRel) {}
+    if (lock) { try { lock.releaseLock(); } catch (eRel) {} }
   }
 }
 
@@ -13893,8 +14067,15 @@ function handleInvRegisterDemandRequest_(body) {
   const randSuffix = String(Math.floor(1000 + Math.random() * 9000));
   const requestId = 'DEM-' + stamp + '-' + randSuffix;
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  const lockState = acquireScriptLockSafe_(15000);
+  if (!lockState.ok) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'El servidor está ocupado con otro proceso. Intenta registrar la solicitud de nuevo en unos segundos.'
+    };
+  }
+  const lock = lockState.lock;
   try {
     const sh = ensureDemandaSinStockSheet_(ss);
     const nextRow = Math.max(3, sh.getLastRow() + 1);
