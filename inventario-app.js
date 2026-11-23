@@ -65,6 +65,7 @@
     let currentGroup = null;
     let currentGroupFabricKey = '';
     let currentGroupBedSizeKey = '';
+    let currentGroupFabricSingleSkuMap = new Map();
     let currentDetailItem = null;
     let cart = loadCart();
     let lastLiveSignature = '';
@@ -5826,10 +5827,14 @@
                         crumbEl.style.cursor = 'default';
                         crumbEl.classList.remove('hidden');
                     }
+                    currentGroupFabricSingleSkuMap = new Map();
                     const choiceHtml = [];
                     for (let fIdx = 0; fIdx < orderedFabrics.length; fIdx++) {
                         const fb = orderedFabrics[fIdx];
                         const sampleIt = (fb.items && fb.items[0] && fb.items[0].it) || null;
+                        if (fb.items && fb.items.length === 1 && sampleIt && sampleIt.s) {
+                            currentGroupFabricSingleSkuMap.set(fb.key, sampleIt.s);
+                        }
                         const swatchUrl = getFabricSwatchPhotoUrl(fb.key, sampleIt);
                         const swatchSrc = swatchUrl ? resolveVisualImgSrc(swatchUrl, 600) : '';
                         const swatchFid = swatchUrl ? extractDriveFileId(swatchUrl) : '';
@@ -5986,6 +5991,7 @@
                 if (hasMultiSizes && !effectiveSizeKey) {
                     // PASO 1 CAMAS: Selector de Tamaño (Individual, Matrimonial, Queen Size, King Size, etc.)
                     currentGroupFabricKey = '';
+                    currentGroupFabricSingleSkuMap = new Map();
                     if (nameEl) nameEl.textContent = grpHeadTitle;
                     if (crumbEl) {
                         const szTxt = orderedSizes.length + ' tamaños';
@@ -6087,9 +6093,13 @@
                             );
                         }
 
+                        currentGroupFabricSingleSkuMap = new Map();
                         for (let cIdx = 0; cIdx < selectedSb.orderedColors.length; cIdx++) {
                             const fb = selectedSb.orderedColors[cIdx];
                             const sampleIt = (fb.items && fb.items[0] && fb.items[0].it) || null;
+                            if (fb.items && fb.items.length === 1 && sampleIt && sampleIt.s) {
+                                currentGroupFabricSingleSkuMap.set(fb.key, sampleIt.s);
+                            }
                             const swatchUrl = fb.isWood ? '' : getFabricSwatchPhotoUrl(fb.key, sampleIt);
                             const swatchSrc = swatchUrl ? resolveVisualImgSrc(swatchUrl, 600) : '';
                             const swatchFid = swatchUrl ? extractDriveFileId(swatchUrl) : '';
@@ -6230,6 +6240,7 @@
             } else {
                 currentGroupFabricKey = '';
                 currentGroupBedSizeKey = '';
+                currentGroupFabricSingleSkuMap = new Map();
                 const baseLabels = grp.items.map(it => buildVariantLabel(it, grp, null));
                 const labelCounts = new Map();
                 for (let i = 0; i < baseLabels.length; i++) {
@@ -6321,7 +6332,13 @@
 
     window.selectGroupFabricStep = function (fabricKey) {
         if (!currentGroup || !fabricKey) return false;
-        currentGroupFabricKey = String(fabricKey).trim();
+        const cleanKey = String(fabricKey).trim();
+        const singleSku = currentGroupFabricSingleSkuMap.get(cleanKey) || '';
+        if (singleSku) {
+            currentGroupFabricKey = '';
+            return openProductDetail(singleSku, true);
+        }
+        currentGroupFabricKey = cleanKey;
         renderGroupVariantsStep(currentGroup, currentGroupFabricKey, currentGroupBedSizeKey);
         if (!invWorkspaceRestoring) notifyInvBackStatePush('product_fabric_modules');
         return true;
