@@ -288,10 +288,7 @@
   }
 
   function getWebAppUrl() {
-    if (global.CREATA_CLOUD_CONFIG && typeof global.CREATA_CLOUD_CONFIG.getApiUrl === 'function') {
-      const u = global.CREATA_CLOUD_CONFIG.getApiUrl();
-      if (u) return u;
-    }
+    // P0-02: usar siempre CANONICAL_WEBAPP_URL para evitar desvío de credenciales/acciones
     return CANONICAL_WEBAPP_URL;
   }
 
@@ -343,7 +340,7 @@
   }
 
   async function callWebAppPost(payload, timeoutMs) {
-    const primaryUrl = getWebAppUrl();
+    const targetUrl = getWebAppUrl();
     const invSess = readJsonStorage(INV_SESSION_KEY, null) || {};
     const token = cleanStr((APP_STATE.user && APP_STATE.user.authToken) || invSess.authToken || '');
     const email = normalizeEmail((APP_STATE.user && APP_STATE.user.correo) || invSess.correo || '');
@@ -352,33 +349,24 @@
       payload || {}
     );
 
-    const postOnce = async (targetUrl) => {
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 10000) : null;
-      try {
-        const resp = await fetch(targetUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(enriched),
-          signal: controller ? controller.signal : undefined
-        });
-        if (!resp || !resp.ok) return { ok: false, unavailable: true };
-        const json = await resp.json();
-        if (json && json.renewedAuthToken) persistSegRenewedToken(json.renewedAuthToken);
-        return json || { ok: false, unavailable: true };
-      } catch (e) {
-        return { ok: false, unavailable: true, error: String(e) };
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-    };
-
-    const res = await postOnce(primaryUrl);
-    if (CANONICAL_WEBAPP_URL && primaryUrl !== CANONICAL_WEBAPP_URL && (!res || res.unavailable)) {
-      const fb = await postOnce(CANONICAL_WEBAPP_URL);
-      if (fb && !fb.unavailable) return fb;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 10000) : null;
+    try {
+      const resp = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(enriched),
+        signal: controller ? controller.signal : undefined
+      });
+      if (!resp || !resp.ok) return { ok: false, unavailable: true };
+      const json = await resp.json();
+      if (json && json.renewedAuthToken) persistSegRenewedToken(json.renewedAuthToken);
+      return json || { ok: false, unavailable: true };
+    } catch (e) {
+      return { ok: false, unavailable: true, error: String(e) };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    return res;
   }
 
   function sendSegPresenceHeartbeat(forceNow) {
@@ -398,8 +386,8 @@
       correo: APP_STATE.user.correo,
       nombre: APP_STATE.user.nombre || APP_STATE.user.correo,
       puesto: APP_STATE.user.puesto || '',
-      sheetTab: APP_STATE.user.sheetTab || '',
-      erpStore: APP_STATE.user.erpStore || '',
+      sheetTab: cleanStr(APP_STATE.user.sheet_tab || invSess.sheetTab || ''),
+      erpStore: cleanStr(APP_STATE.user.sucursal_label || invSess.erpStore || APP_STATE.user.sucursal || ''),
       deviceId: getSegPresenceDeviceId(),
       vista: 'seguimiento',
       view: 'seguimiento',
@@ -483,6 +471,10 @@
     const isMaster = forcedAdvisor
       ? false
       : Boolean(s.isAdmin || s.is_master || s.es_admin || isMasterExecutive(correo, puesto, rawBranch));
+    // P1-07: verificar permiso VER_SEGUIMIENTO antes de montar el módulo
+    if (isMaster && s.adminPermissions && s.adminPermissions.seguimiento === false) return null;
+    if (!isMaster && s.userPermissions && s.userPermissions.seguimiento === false) return null;
+
     const allBranches = forcedAdvisor
       ? [mapTabToBranchKey(rawBranch)]
       : (Array.isArray(s.allLocations) && s.allLocations.length
@@ -491,9 +483,10 @@
           ? s.all_branches.map(mapTabToBranchKey).filter(b => b && b !== 'TODAS')
           : (isMaster ? [] : [mapTabToBranchKey(rawBranch)])));
     const primaryBranch = isMaster ? 'TODAS' : (mapTabToBranchKey(rawBranch) || allBranches[0] || 'PROYECTOS');
+    // P1-07: tener múltiples tiendas asignadas NO promueve automáticamente a Gerente
     const esGerente = forcedAdvisor
       ? false
-      : Boolean(s.isManager || s.es_gerente || isMaster || allBranches.length > 1 || isGerenteRole(puesto, isMaster));
+      : Boolean(s.isManager || s.es_gerente || isMaster || isGerenteRole(puesto, isMaster));
 
     return {
       nombre: cleanStr(s.nombre) || correo,
@@ -519,22 +512,14 @@
     if (!forceRefresh && _segDirCacheMem && _segDirFetchedAt > 0 && (Date.now() - _segDirFetchedAt) < SEG_DIR_TTL_MS) {
       return _segDirCacheMem;
     }
-    const segTabs = [
-      { tab: 'CUENTAS ADMINISTRATIVAS', branch: 'TODAS' },
-      { tab: 'PLAYA', branch: 'PLAYA' },
-      { tab: 'COLOCIO', branch: 'COLOSIO' },
-      { tab: 'PTC', branch: 'PUERTO CANCUN' },
-      { tab: 'CASA CREATA', branch: 'CASA CREATA' },
-      { tab: 'PROYECTOS', branch: 'PROYECTOS' }
-    ];
+    // P1-13: No consultar por GViz público el libro privado SHEET_SEG_ID; usar la fuente unificada CUENTAS ADMINISTRATIVAS
     const invTabs = [
       { tab: 'CUENTAS ADMINISTRATIVAS', branch: 'UNIFIED', range: 'A1:Z100' }
     ];
 
-    const [segResults, invResults] = await Promise.all([
-      Promise.all(segTabs.map(async t => ({ ...t, source: 'SEG', rows: await fetchSheetCsv(SHEET_SEG_ID, t.tab, 'A1:G40') }))),
-      Promise.all(invTabs.map(async t => ({ ...t, source: 'INV', rows: await fetchSheetCsv(SHEET_INV_ID, t.tab, t.range || 'A1:Z100') })))
-    ]);
+    const invResults = await Promise.all(
+      invTabs.map(async t => ({ ...t, source: 'INV', rows: await fetchSheetCsv(SHEET_INV_ID, t.tab, t.range || 'A1:Z100') }))
+    );
 
     const UNIFIED_SEG_STORE_COLS = [
       { colIndex: 21, headers: ['COLOCIO', 'COLOSIO', 'TIENDA_COLOCIO', 'TIENDA_COLOSIO'], branch: 'COLOSIO', tab: 'COLOCIO' },
@@ -545,7 +530,7 @@
     ];
 
     const records = [];
-    const allTabResults = [...segResults, ...invResults];
+    const allTabResults = invResults;
 
     for (const res of allTabResults) {
       const rows = res.rows || [];
@@ -649,7 +634,7 @@
           nombre,
           puesto,
           correo,
-          telefono: cleanPhone(cleanStr(r[5]).replace(/\.0$/, '')),
+          telefono: '',
           es_gerente: esGerente,
           es_admin: isMaster,
           is_master: isMaster,
@@ -1731,11 +1716,11 @@
       ] = await Promise.all([
         fetchUnifiedAdvisorsDirectory(false),
         (apiState && Array.isArray(apiState.invRows)) ? Promise.resolve(apiState.invRows) : (hasHostInv ? Promise.resolve(null) : fetchSheetCsv(SHEET_INV_ID, 'INVENTARIO_EN_VIVO')),
-        (apiState && Array.isArray(apiState.cotCreataRows)) ? Promise.resolve(apiState.cotCreataRows) : fetchSheetCsv(SHEET_SEG_ID, 'COTIZACIONES_CREATA'),
+        Promise.resolve((apiState && Array.isArray(apiState.cotCreataRows)) ? apiState.cotCreataRows : []),
         (apiState && Array.isArray(apiState.cotVivoRows)) ? Promise.resolve(apiState.cotVivoRows) : fetchSheetCsv(SHEET_INV_ID, 'COTIZACIONES_EN_VIVO'),
-        (apiState && Array.isArray(apiState.cierresRows)) ? Promise.resolve(apiState.cierresRows) : fetchSheetCsv(SHEET_SEG_ID, 'CIERRES_COTIZACIONES'),
-        (apiState && Array.isArray(apiState.cfgRows)) ? Promise.resolve(apiState.cfgRows) : fetchSheetCsv(SHEET_SEG_ID, 'CONFIG_CREATA'),
-        (apiState && Array.isArray(apiState.histMovRows)) ? Promise.resolve(apiState.histMovRows) : fetchSheetCsv(SHEET_SEG_ID, 'HISTORIAL_MOVIMIENTOS'),
+        Promise.resolve((apiState && Array.isArray(apiState.cierresRows)) ? apiState.cierresRows : []),
+        Promise.resolve((apiState && Array.isArray(apiState.cfgRows)) ? apiState.cfgRows : []),
+        Promise.resolve((apiState && Array.isArray(apiState.histMovRows)) ? apiState.histMovRows : []),
         (apiState && Array.isArray(apiState.histInvRows)) ? Promise.resolve(apiState.histInvRows) : fetchSheetCsv(SHEET_INV_ID, 'HISTORIAL')
       ]);
 
@@ -3602,11 +3587,16 @@
     const logs = AUDIT_STATE.logs || [];
     const header = ['FECHA_HORA', 'TIPO', 'USUARIO', 'EMAIL', 'SUCURSAL', 'ACCION', 'DETALLE', 'IP', 'ESTATUS'];
     const csvLines = [header.join(',')];
+    const escCsv = (val) => {
+      let s = String(val == null ? '' : val);
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return `"${s.replace(/"/g, '""')}"`;
+    };
     for (const l of logs) {
       const row = [
         l.fecha_hora || '', l.tipo || '', l.usuario || '', l.email || '',
         l.sucursal || '', l.accion || '', l.detalle || '', l.ip || 'Web', l.status || 'EXITOSO'
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`);
+      ].map(escCsv);
       csvLines.push(row.join(','));
     }
     const blob = new Blob(['\uFEFF' + csvLines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });

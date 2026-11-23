@@ -17,8 +17,8 @@ test('Settings UI & cache versions exist in inventario.html and inventario-ui.cs
   assert(html.includes('id="settingsPasswordSection"'), 'Missing password change section');
   assert(html.includes('id="settingsSessionsSection"'), 'Missing open sessions section');
   assert(html.includes('./inventario-ui.css?v=23'), 'inventario.html must load inventario-ui.css?v=23');
-  assert(html.includes('./historial-app.js?v=10'), 'inventario.html must load historial-app.js?v=10');
-  assert(html.includes('inventario-app.js?v=105'), 'inventario.html must load inventario-app.js?v=105');
+  assert(html.includes('./historial-app.js?v=11'), 'inventario.html must load historial-app.js?v=11');
+  assert(html.includes('inventario-app.js?v=106'), 'inventario.html must load inventario-app.js?v=106');
   const segJs = fs.readFileSync('seguimiento-app.js', 'utf8');
   assert(!segJs.includes('id="seg_btnKevinAuditHeader"'), 'Historial y Movimientos button must be removed from Seguimiento header');
   assert(segJs.includes('class="cm-seg-search-field"'), 'Seguimiento search bar must use full-width top field class');
@@ -255,8 +255,9 @@ test('Frontend inventario-app.js: Back-nav registration, PDF doc name sanitizati
   assert(src.includes('async function renewInvAuthTokenIfPossible('), 'Missing auto token renewal in inventario-app.js');
 
   const histJs = fs.readFileSync('historial-app.js', 'utf8');
-  assert(histJs.includes('async function callWebAppGetPresence('), 'historial-app.js must support GET ?action=inv_presence_list fallback');
-  assert(histJs.includes('async function renewSessionAuthToken('), 'historial-app.js must auto-renew expired authToken');
+  assert(!histJs.includes('async function callWebAppGetPresence('), 'historial-app.js must NOT pass credentials in GET ?action=inv_presence_list URL (P1-20)');
+  assert(histJs.includes("callWebAppPost('inv_presence_list'"), 'historial-app.js must fetch inv_presence_list over POST');
+  assert(histJs.includes('async function renewSessionAuthToken('), 'historial-app.js must support session token renewal');
   assert(histJs.includes('async function sendHistPresenceHeartbeat('), 'historial-app.js must send presence heartbeats');
 
   const segJs = fs.readFileSync('seguimiento-app.js', 'utf8');

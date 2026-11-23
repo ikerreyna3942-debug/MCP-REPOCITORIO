@@ -488,7 +488,7 @@ function createFotosVm(opts = {}) {
     postMessage(msg) {
       const arr = winListeners.get('message') || [];
       const cloned = structuredClone(msg);
-      for (const fn of arr.slice()) fn({ type: 'message', data: structuredClone(cloned) });
+      for (const fn of arr.slice()) fn({ type: 'message', origin: win.location.origin, data: structuredClone(cloned) });
     }
   };
   win.window = win;
@@ -648,7 +648,7 @@ async function createCotizadorVm(opts = {}) {
     postMessage(msg) {
       const arr = winListeners.get('message') || [];
       const cloned = structuredClone(msg);
-      for (const fn of arr.slice()) fn({ type: 'message', data: structuredClone(cloned) });
+      for (const fn of arr.slice()) fn({ type: 'message', origin: win.location.origin, data: structuredClone(cloned) });
     }
   };
   win.window = win;
@@ -1110,11 +1110,11 @@ test('LINK-4: Bidirectional SKU selection works in BOTH split-screen directions 
   );
 });
 
-test('LINK-5: App de Fotos auto-renews expired authToken to load Drive SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p) AND reads local PC folder (G:\\Mi unidad\\...\\SUBIR PREN) with deduplication', async () => {
+test('LINK-5: App de Fotos refuses legacy plaintext accessKey replay on expired token (P0-07), authenticates via inv_login to load Drive SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p), AND reads local PC folder with deduplication', async () => {
   const clock = createFakeClock();
   const sharedStorage = createSharedStorage();
 
-  // Simulate expired authToken in localStorage + stored accessKey (previously caused silent { ok: false } failure!)
+  // Simulate expired authToken + legacy plaintext accessKey in localStorage (P0-07: must NEVER auto-replay plaintext accessKey!)
   sharedStorage.map.set('creata_private_kevin_fotos_v1', JSON.stringify({
     correo: 'kevin.reyna@grupoanipa.com',
     nombre: 'Kevin Reyna',
@@ -1147,14 +1147,20 @@ test('LINK-5: App de Fotos auto-renews expired authToken to load Drive SUBIR PRE
             ok: true,
             json: async () => ({
               ok: true,
+              user: {
+                correo: 'kevin.reyna@grupoanipa.com',
+                nombre: 'Kevin Reyna',
+                isAdmin: true,
+                authToken: 'fresh_hmac_token_999',
+                adminPermissions: { fotosApp: true }
+              },
               locations: [{ correo: 'kevin.reyna@grupoanipa.com', authToken: 'fresh_hmac_token_999' }]
             })
           };
         }
         if (body.action === 'fotos_subir_list') {
-          // Simulate legacy deployed authorizePrivateTokenOrPin_ returning silent { ok: false } on stale token!
           if (body.authToken !== 'fresh_hmac_token_999') {
-            return { ok: true, json: async () => ({ ok: false }) };
+            return { ok: true, json: async () => ({ ok: false, authRequired: true }) };
           }
           return { ok: true, json: async () => ({ ok: true, inboxFolderId: '11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p', files: driveSubirPrenFiles }) };
         }
@@ -1179,11 +1185,22 @@ test('LINK-5: App de Fotos auto-renews expired authToken to load Drive SUBIR PRE
 
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
+  clock.advanceTime(200);
+
+  // 1) P0-07: Must NOT silently replay plaintext accessKey from localStorage on expired token
+  assert.equal(loginRenewCalls, 0, 'Must NOT replay legacy plaintext accessKey from localStorage (P0-07)');
+
+  // 2) Explicit login via form mints fresh HMAC token without persisting plaintext accessKey and loads Drive SUBIR PREN
+  fotosVm.doc.getElementById('ownerEmailInput').value = 'kevin.reyna@grupoanipa.com';
+  fotosVm.doc.getElementById('ownerPasswordInput').value = 'KEVIN2026';
+  await fotosVm.win.submitOwnerFotosLogin();
+  await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
   clock.advanceTime(200);
 
-  // 1) Silent token renewal succeeded and loaded the photo from Drive SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p)
-  assert.equal(loginRenewCalls, 1, 'Must silently renew expired authToken via inv_login');
+  assert.equal(loginRenewCalls, 1, 'Explicit login must authenticate via inv_login');
+  const savedRaw = sharedStorage.map.get('creata_private_kevin_fotos_v1') || '';
+  assert.ok(!savedRaw.includes('KEVIN2026'), 'Persisted session must NEVER contain plaintext accessKey (P0-07)');
   assert.equal(fotosVm.doc.getElementById('inboxHeaderBadge').textContent, '1');
   assert.match(fotosVm.doc.getElementById('inboxGalleryContainer').innerHTML, /16MjrOynaZahLUKU86UHPDxKX60YEaepH/);
   assert.equal(

@@ -81,11 +81,11 @@ test('Project A Apps Script: ERP sync uses CacheService lease (never ScriptLock)
   assert.equal(ctx.safe('@alert', 80), "'@alert");
   assert.equal(ctx.safe('Juan Perez', 80), 'Juan Perez');
 
-  // 3) handleFotosUploadVisualOverride_ acquires lock BEFORE creating Drive file and checks VER_GESTION_PRODUCTOS
+  // 3) P1-01: handleFotosUploadVisualOverride_ performs Drive createFile OUTSIDE ScriptLock (only locks Sheet write) and checks VER_GESTION_PRODUCTOS
   const visFn = extractFunctionSource(gsMain, 'handleFotosUploadVisualOverride_');
   const lockIdx = visFn.indexOf('acquireScriptLockSafe_');
   const createIdx = visFn.indexOf('.createFile(');
-  assert.ok(lockIdx > 0 && createIdx > lockIdx, 'handleFotosUploadVisualOverride_ must acquire ScriptLock BEFORE targetFolder.createFile');
+  assert.ok(createIdx > 0 && (lockIdx === -1 || createIdx < lockIdx), 'handleFotosUploadVisualOverride_ must keep Drive createFile outside ScriptLock (P1-01)');
   assert.match(visFn, /VER_GESTION_PRODUCTOS/, 'handleFotosUploadVisualOverride_ must enforce VER_GESTION_PRODUCTOS');
 
   // 4) handleFotosDelete_ checks _INV_PRODUCT_OVERRIDES via readProductOverridesMap_ before trashing Drive file
@@ -125,7 +125,7 @@ test('Cotizador, Historial & Panel fixes: no password self-lockout, ev.key guard
   assert.match(invJs, /typeof ev\.key === 'string' && ev\.key\.length === 1/);
   assert.match(invJs, /btnSend\.textContent = 'Crear Cotización'/);
   assert.match(invJs, /window\.openInAppHistorial\s*=\s*function\s*\(\)[\s\S]{0,320}isEffectiveAdminSession\(\)[\s\S]{0,80}hasAdminPerm\('historial'\)/);
-  assert.match(invJs, /function rerenderCatalogAfterOverrideChange\(\)[\s\S]{0,250}indexItemsAndGroups\(\)/);
+  assert.match(invJs, /function rerenderCatalogAfterOverrideChange\([^)]*\)[\s\S]{0,250}indexItemsAndGroups\(\)/);
   assert.ok(!invJs.includes('syncCartQuoteMetaControls('), 'Dead syncCartQuoteMetaControls call must be removed');
   assert.ok(!invJs.includes('renderCartModal('), 'Dead renderCartModal call must be removed');
 
@@ -588,7 +588,7 @@ test('Turn 5 — Salas/Sofás only show wood swatch when visible wood is named i
   // 7) fotos-productos-app.js mirrors the exact Sala/Sofá name-required guard & lone-modifier filter
   assert.match(fotosJs, /visibleWoodInNameRe/);
   assert.match(fotosJs, /PINO\\s\+ESTUFADO/);
-  assert.match(fotosJs, /modOnly/);
+  assert.match(fotosJs, /WOOD_MODIFIER_ONLY_TOKENS_FOTOS/);
 });
 
 test('Turn 6 — Strict Single-Source-of-Truth from CONTROL DE PRODUCTOS PRESENTACIÓN: zero cross-SKU propagation, zero zombie cache resurrection, exact NOMBRE preservation, and distinct SOFÁ/LOVE SEAT single titles', () => {

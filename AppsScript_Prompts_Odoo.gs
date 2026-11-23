@@ -348,6 +348,41 @@ function getAllowedOwnerEmails_() {
   return allowed;
 }
 
+function constantTimePromptsEquals_(aRaw, bRaw) {
+  const a = String(aRaw === null || aRaw === undefined ? '' : aRaw);
+  const b = String(bRaw === null || bRaw === undefined ? '' : bRaw);
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    diff |= ((i < a.length ? a.charCodeAt(i) : 0) ^ (i < b.length ? b.charCodeAt(i) : 0));
+  }
+  return diff === 0;
+}
+
+function checkPromptsPinThrottle_() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const fails = parseInt(cache.get('PROMPTS_PIN_FAILS_V1') || '0', 10) || 0;
+    return fails < 8;
+  } catch (e) {
+    return true;
+  }
+}
+
+function recordPromptsPinFailure_() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const fails = (parseInt(cache.get('PROMPTS_PIN_FAILS_V1') || '0', 10) || 0) + 1;
+    cache.put('PROMPTS_PIN_FAILS_V1', String(fails), 600);
+  } catch (e) {}
+}
+
+function clearPromptsPinFailures_() {
+  try {
+    CacheService.getScriptCache().remove('PROMPTS_PIN_FAILS_V1');
+  } catch (e) {}
+}
+
 function verifyPromptsOwnerAuth_(payload) {
   const body = payload || {};
   const expectedOwner = getConfiguredOwnerEmail_();
@@ -389,7 +424,7 @@ function verifyPromptsOwnerAuth_(payload) {
   if (isSameOwnerSession) {
     if (expectedPin && (body.pin !== undefined || body.promptsPin !== undefined)) {
       const providedPinSess = String(body.pin || body.promptsPin || '').trim();
-      if (providedPinSess && providedPinSess !== expectedPin) {
+      if (providedPinSess && !constantTimePromptsEquals_(providedPinSess, expectedPin)) {
         return {
           ok: false,
           authRequired: true,
@@ -402,7 +437,7 @@ function verifyPromptsOwnerAuth_(payload) {
   }
 
   // Llamadas externas al Web App (GitHub Pages / clientes externos):
-  // Exigir PROMPTS_PIN configurado en ScriptProperties (fail closed si falta)
+  // Exigir PROMPTS_PIN configurado en ScriptProperties (fail closed si falta) + límite de intentos
   if (!expectedPin) {
     return {
       ok: false,
@@ -413,8 +448,18 @@ function verifyPromptsOwnerAuth_(payload) {
     };
   }
 
+  if (!checkPromptsPinThrottle_()) {
+    return {
+      ok: false,
+      authRequired: true,
+      forbidden: true,
+      error: 'Demasiados intentos fallidos de PIN. Espera 10 minutos.'
+    };
+  }
+
   const providedPin = String(body.pin || body.promptsPin || '').trim();
-  if (!providedPin || providedPin !== expectedPin) {
+  if (!providedPin || !constantTimePromptsEquals_(providedPin, expectedPin)) {
+    recordPromptsPinFailure_();
     return {
       ok: false,
       authRequired: true,
@@ -423,6 +468,7 @@ function verifyPromptsOwnerAuth_(payload) {
     };
   }
 
+  clearPromptsPinFailures_();
   return { ok: true, ownerEmail: providedEmail || expectedOwner, authMode: 'pin' };
 }
 
@@ -709,6 +755,11 @@ function doGet(e) {
     if (action === 'prompts_health' || action === 'health' || action === 'ping') {
       const forbiddenErr = validateNoForbiddenProjectAIdsInPayload_(payload, action);
       if (forbiddenErr) return jsonResponse_(forbiddenErr);
+      const wantsFull = payload && (payload.fullScan === true || String(payload.fullScan || '').toLowerCase() === 'true' || String(payload.fullScan || '') === '1');
+      if (wantsFull) {
+        const authHealth = verifyPromptsOwnerAuth_(payload);
+        if (!authHealth.ok) return jsonResponse_(authHealth);
+      }
       return jsonResponse_(handlePromptsHealth_(payload));
     }
     return jsonResponse_({
@@ -2307,6 +2358,9 @@ function handlePromptsRepairPermissions_(payload) {
   const lockState = acquirePromptsScriptLockSafe_(25000);
   if (!lockState.ok) return lockState.errorRes;
   const lock = lockState.lock;
+  const startMs = Date.now();
+  const timeBudgetMs = Math.max(15000, Math.min(240000, Number((payload && payload.timeBudgetMs) || 120000)));
+  let timedOut = false;
   try {
     const folderIds = [
       SUBIR_PROPT_FOLDER_ID_,
@@ -2323,6 +2377,7 @@ function handlePromptsRepairPermissions_(payload) {
     const skippedTrashed = [];
 
     for (let i = 0; i < folderIds.length; i++) {
+      if ((Date.now() - startMs) >= timeBudgetMs) { timedOut = true; break; }
       const fid = folderIds[i];
       assertNotForbiddenProjectAId_(fid, 'prompts_repair_permissions');
       try {
@@ -2338,6 +2393,7 @@ function handlePromptsRepairPermissions_(payload) {
         let countInFolder = 0;
         const it = folder.getFiles();
         while (it && it.hasNext()) {
+          if ((Date.now() - startMs) >= timeBudgetMs) { timedOut = true; break; }
           const f = it.next();
           try {
             if (f.isTrashed && f.isTrashed()) continue;
@@ -2359,6 +2415,7 @@ function handlePromptsRepairPermissions_(payload) {
       ok: true,
       project: PROMPTS_PROJECT_TAG_,
       updatedFiles: updatedFiles,
+      partial: timedOut,
       foldersProcessed: foldersProcessed,
       skippedTrashed: skippedTrashed,
       timestamp: new Date().toISOString()
@@ -2459,7 +2516,7 @@ function menuConfigurePromptsPin() {
   const ui = SpreadsheetApp.getUi();
   const promptRes = ui.prompt(
     'Configurar PIN (PROMPTS_PIN)',
-    'Ingresa el PIN secreto (mínimo 4 caracteres) para autorizar llamadas externas desde GitHub Pages / Prompts PWA:',
+    'Ingresa el PIN secreto (mínimo 4 caracteres) para autorizar llamadas externas desde Prompts IA:',
     ui.ButtonSet.OK_CANCEL
   );
   if (promptRes.getSelectedButton() !== ui.Button.OK) return;
@@ -2472,7 +2529,7 @@ function menuConfigurePromptsPin() {
   props.setProperty('PROMPTS_PIN', newPin);
   ui.alert(
     'PROMPTS_PIN guardado',
-    'El PIN externo quedó guardado en ScriptProperties. Úsalo en prompts.html (panel SUBIR PROPT) para conectar de forma segura.',
+    'El PIN externo quedó guardado en ScriptProperties para conectar de forma segura.',
     ui.ButtonSet.OK
   );
 }

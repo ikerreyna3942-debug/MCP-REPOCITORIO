@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 
 test('Guest floating menu markup & CSS styles exist in inventario.html and inventario-ui.css', () => {
   const html = fs.readFileSync('inventario.html', 'utf8');
@@ -38,15 +39,15 @@ test('Frontend inventario-app.js: guest FAB controls, unified deviceId, and stri
   assert(src.includes('function syncGuestSlotMetaFromSessionResponse('), 'Missing syncGuestSlotMetaFromSessionResponse()');
   assert(src.includes("window.openSettingsModal = function (focusSection)"), 'openSettingsModal must accept focusSection');
 
-  // Verify canManageProductPhotos does not block authenticated guests
+  // Verify canManageProductPhotos blocks SOLO LECTURA guests (P1-04) and still requires completed login
   const cmpMatch = src.match(/function canManageProductPhotos\(\)\s*\{[\s\S]*?\n\s*\}/);
   assert(cmpMatch, 'Missing canManageProductPhotos()');
-  assert(!cmpMatch[0].includes('isGuestSession'), 'canManageProductPhotos must allow authenticated guests');
+  assert(cmpMatch[0].includes('isGuestSession'), 'canManageProductPhotos must block SOLO LECTURA guests (P1-04)');
   assert(cmpMatch[0].includes('activeAdvisorSession.mustChangeKey'), 'canManageProductPhotos must still require completed login');
 
-  // Verify renderAdvisorHeaderBar keeps quotes/seguimiento/admin controls hidden for guests
-  assert(src.includes('const canSeeCotizador = !guestMode && (!effectiveAdmin || hasAdminPerm(\'cotizador\'));'));
-  assert(src.includes('const canSeeSeguimiento = !guestMode && (!effectiveAdmin || hasAdminPerm(\'seguimiento\'));'));
+  // Verify renderAdvisorHeaderBar keeps quotes/seguimiento/admin/upload controls properly gated for guests and non-admin userPermissions (P1-05)
+  assert(src.includes("const canSeeCotizador = !guestMode && (effectiveAdmin ? hasAdminPerm('cotizador') : (!nonAdminUserPerms || nonAdminUserPerms.cotizador !== false));"));
+  assert(src.includes("const canSeeSeguimiento = !guestMode && (effectiveAdmin ? hasAdminPerm('seguimiento') : (!nonAdminUserPerms || nonAdminUserPerms.seguimiento !== false));"));
   assert(src.includes('if (fabQuoteBtn) fabQuoteBtn.classList.toggle(\'hidden\', !canSeeCotizador);'));
   assert(src.includes('if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle(\'hidden\', !canSeeSeguimiento);'));
   assert(src.includes('if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle(\'hidden\', !canUploadDrivePhotos);'));
@@ -139,14 +140,7 @@ test('Apps Script backend: guest sessions, Col J revocation, heartbeat kickout, 
     }
   });
 
-  const hmacFn = (payload, secret) => {
-    const combined = String(payload) + '::' + String(secret);
-    const out = [];
-    for (let i = 0; i < 16; i++) {
-      out.push((combined.charCodeAt(i % combined.length) + i * 31) & 0xff);
-    }
-    return out;
-  };
+  const hmacFn = (payload, secret) => Array.from(crypto.createHmac('sha256', String(secret || '')).update(String(payload || ''), 'utf8').digest());
 
   const sandbox = {
     Date, Math, JSON, String, Number, Boolean, Array, Object, RegExp, Error, isFinite, parseInt,
@@ -180,7 +174,8 @@ test('Apps Script backend: guest sessions, Col J revocation, heartbeat kickout, 
     },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'SHA_256' },
-      computeDigest: (_alg, txt) => Array.from(Buffer.from(String(txt))).slice(0, 16),
+      Charset: { UTF_8: 'UTF_8' },
+      computeDigest: (_alg, txt) => Array.from(crypto.createHash('sha256').update(String(txt || ''), 'utf8').digest()),
       computeHmacSha256Signature: hmacFn,
       base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
       base64DecodeWebSafe: (str) => Array.from(Buffer.from(String(str).replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
@@ -320,7 +315,7 @@ test('Apps Script backend: guest sessions, Col J revocation, heartbeat kickout, 
   assert.equal(invitadosRows[1][5], '');
   const updatedToken = updPassRes.authToken;
 
-  // 7) Guest uploads a product photo via inv_upload_product_photo (Drive only, tagged INVITADO)
+  // 7) P1-04: SOLO LECTURA guests are strictly blocked from uploading product photos to Drive
   const uploadRes = callPost({
     action: 'inv_upload_product_photo',
     authToken: updatedToken,
@@ -333,10 +328,9 @@ test('Apps Script backend: guest sessions, Col J revocation, heartbeat kickout, 
     skipSheetWrite: true,
     dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=='
   });
-  assert.equal(uploadRes.ok, true);
-  assert.equal(uploadRes.driveOnly, true);
-  assert(uploadedFiles.length >= 1, 'Expected photo uploaded to Drive');
-  assert(uploadedFiles[0].file._desc.includes('INVITADO · INVITADOS'), 'Uploaded file description must tag INVITADO');
+  assert.equal(uploadRes.ok, false, 'SOLO LECTURA guest MUST be blocked from inv_upload_product_photo (P1-04)');
+  assert.equal(uploadRes.forbidden, true);
+  assert.equal(uploadedFiles.length, 0, 'Blocked guest upload must write 0 files to Drive');
 
   // 8) Security boundaries: guests remain strictly blocked on quotes, PDF, clients, overrides, and live team presence
   const blockedActions = [

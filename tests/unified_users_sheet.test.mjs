@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 
 function buildUnifiedGasMockEnv(sheetsData) {
   const gsSrc = fs.readFileSync('AppsScript_Creata_Drive_Sheets.gs', 'utf8');
@@ -114,12 +115,8 @@ function buildUnifiedGasMockEnv(sheetsData) {
       DigestAlgorithm: { SHA_256: 'SHA_256' },
       Charset: { UTF_8: 'UTF_8' },
       formatDate: () => '23/11/2026 09:00:00',
-      computeHmacSha256Signature: (msg, sec) => {
-        const out = [];
-        const s = String(msg) + '|' + String(sec);
-        for (let i = 0; i < 32; i++) out.push((s.charCodeAt(i % s.length) * (i + 7)) % 127);
-        return out;
-      },
+      computeDigest: (_alg, val) => Array.from(crypto.createHash('sha256').update(String(val || ''), 'utf8').digest()),
+      computeHmacSha256Signature: (msg, sec) => Array.from(crypto.createHmac('sha256', String(sec || '')).update(String(msg || ''), 'utf8').digest()),
       base64EncodeWebSafe: (input) => {
         if (typeof input === 'string') return Buffer.from(input, 'utf8').toString('base64url');
         return Buffer.from((input || []).map((b) => (b < 0 ? b + 256 : b))).toString('base64url');
@@ -459,10 +456,10 @@ test('Frontend Unified Directory Contracts: inventario-app.js, seguimiento-app.j
   assert.match(segDirBody, /const invTabs = \[\s*\{\s*tab:\s*'CUENTAS ADMINISTRATIVAS',\s*branch:\s*'UNIFIED',\s*range:\s*'A1:Z100'\s*\}\s*\]/);
   assert.match(segDirBody, /UNIFIED_SEG_STORE_COLS/);
 
-  // fotos-productos-app.js, panel-app.js, historial-app.js read CUENTAS ADMINISTRATIVAS first
+  // fotos-productos-app.js, panel-app.js, historial-app.js use CUENTAS ADMINISTRATIVAS without public GViz password fallback or legacy PROYECTOS tab
   assert.match(fotosJs, /'CUENTAS ADMINISTRATIVAS':\s*'1488878870'/);
-  assert.match(fotosJs, /fetchSheetRows\('CUENTAS ADMINISTRATIVAS',\s*'A1:Z60'\)/);
-  assert.match(panelJs, /const tabs = \['CUENTAS ADMINISTRATIVAS',\s*'PROYECTOS'\]/);
+  assert.ok(!/fetchSheetRows\('CUENTAS ADMINISTRATIVAS',\s*'A1:Z60'\)/.test(fotosJs), 'fotos-productos-app.js must NOT verify passwords via public GViz (P0-01)');
+  assert.ok(!panelJs.includes("'PROYECTOS'"), 'panel-app.js must NOT reference deleted PROYECTOS tab (P2-11)');
   assert.match(panelJs, /sheetTab:\s*'CUENTAS ADMINISTRATIVAS'/);
   assert.match(histJs, /isAdmin \? 'CUENTAS ADMINISTRATIVAS'/);
 });

@@ -752,6 +752,7 @@
                     authToken: tok,
                     verifiedAt: Date.now()
                 });
+                delete nextObj.accessKey;
                 localStorage.setItem(keys[i], JSON.stringify(nextObj));
             } catch (e) {}
         }
@@ -760,36 +761,24 @@
     let _ownerTokenRenewPromise = null;
 
     async function sendRawWebAppPost(action, payloadObj, timeoutMs) {
-        const cfgUrl = (window.CREATA_CLOUD_CONFIG && typeof window.CREATA_CLOUD_CONFIG.getApiUrl === 'function')
-            ? cleanStr(window.CREATA_CLOUD_CONFIG.getApiUrl())
-            : '';
-        const primaryUrl = cfgUrl || CANONICAL_WEBAPP_URL;
-
-        const postOnce = async (targetUrl) => {
-            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 22000) : null;
-            try {
-                const resp = await fetch(targetUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(Object.assign({}, payloadObj || {}, { action: action })),
-                    signal: controller ? controller.signal : undefined
-                });
-                if (!resp || !resp.ok) return { ok: false, unavailable: true };
-                return (await resp.json()) || { ok: false, unavailable: true };
-            } catch (err) {
-                return { ok: false, unavailable: true };
-            } finally {
-                if (timer) clearTimeout(timer);
-            }
-        };
-
-        const res = await postOnce(primaryUrl);
-        if (CANONICAL_WEBAPP_URL && primaryUrl !== CANONICAL_WEBAPP_URL && (!res || res.unavailable)) {
-            const fb = await postOnce(CANONICAL_WEBAPP_URL);
-            if (fb && !fb.unavailable) return fb;
+        // P0-02: usar siempre CANONICAL_WEBAPP_URL para evitar desvío de credenciales/escrituras vía ?webapp= o localStorage
+        const targetUrl = CANONICAL_WEBAPP_URL;
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 22000) : null;
+        try {
+            const resp = await fetch(targetUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(Object.assign({}, payloadObj || {}, { action: action })),
+                signal: controller ? controller.signal : undefined
+            });
+            if (!resp || !resp.ok) return { ok: false, unavailable: true };
+            return (await resp.json()) || { ok: false, unavailable: true };
+        } catch (err) {
+            return { ok: false, unavailable: true };
+        } finally {
+            if (timer) clearTimeout(timer);
         }
-        return res;
     }
 
     const FOTOS_PRESENCE_DEVICE_KEY = 'creata_inv_presence_dev_v1';
@@ -919,11 +908,21 @@
             action === 'fotos_direct_upload_assign' ||
             action === 'fotos_subir_assign' ||
             action === 'fotos_subir_upload_inbox' ||
+            action === 'fotos_delete' ||
+            action === 'fotos_subir_delete' ||
             action === 'inv_product_override_save' ||
             action === 'inv_upload_product_photo';
     }
 
-    async function callWebAppPost(action, payloadObj, timeoutMs) {
+    // P1-01: Cola FIFO estricta (concurrencia = 1) para escrituras de fotos en Drive/Sheets, evitando colisiones de ScriptLock en toques rápidos
+    let _fotosWriteQueueTail = Promise.resolve();
+    function enqueueFotosWriteTask(taskFn) {
+        const next = _fotosWriteQueueTail.then(taskFn, taskFn);
+        _fotosWriteQueueTail = next.then(() => undefined, () => undefined);
+        return next;
+    }
+
+    async function executeCallWebAppPost(action, payloadObj, timeoutMs) {
         const isFotosAction = isOwnerFotosProtectedAction(action);
         if (isFotosAction && !cleanStr(state.authToken) && cleanStr(state.accessKey)) {
             const preRenewed = await renewOwnerAuthTokenSilently();
@@ -965,7 +964,7 @@
         }
 
         if (isRetryablePhotoWriteAction(action) && isTransientLockError(res)) {
-            const backoffs = [2200, 4200];
+            const backoffs = [1500, 3200];
             for (let attempt = 0; attempt < backoffs.length; attempt++) {
                 await new Promise((resolve) => setTimeout(resolve, backoffs[attempt]));
                 if (cleanStr(state.authToken) && activePayload && typeof activePayload === 'object') {
@@ -981,6 +980,13 @@
         return res;
     }
 
+    async function callWebAppPost(action, payloadObj, timeoutMs) {
+        if (isRetryablePhotoWriteAction(action)) {
+            return enqueueFotosWriteTask(() => executeCallWebAppPost(action, payloadObj, timeoutMs));
+        }
+        return executeCallWebAppPost(action, payloadObj, timeoutMs);
+    }
+
     function buildOwnerAuthPayload() {
         const payload = {
             authToken: state.authToken || '',
@@ -988,7 +994,7 @@
             sheetTab: cleanStr(state.activeSheetTab) || 'CUENTAS ADMINISTRATIVAS',
             inboxFolderId: SUBIR_FOLDER_ID
         };
-        if (state.accessKey) {
+        if (!state.authToken && state.accessKey) {
             payload.accessKey = state.accessKey;
         }
         return payload;
@@ -1290,7 +1296,10 @@
                     p.precio || '',
                     p.fe || '',
                     p.tl || '',
-                    p.ct || ''
+                    p.ct || '',
+                    p.md || '',
+                    p.cm || '',
+                    p.proveedor || ''
                 ];
             }
             const compactInbox = state.rawInboxFromDrive.slice(0, 220).map((f) => ({
@@ -1373,6 +1382,9 @@
                 const fe = cleanStr(r[16]);
                 const tl = cleanStr(r[17]);
                 const ct = cleanStr(r[18]);
+                const md = cleanStr(r[19]);
+                const cm = cleanStr(r[20]);
+                const proveedor = cleanStr(r[21]);
                 const searchSkuNorm = normalizeSearchText(sku);
                 const dispNorm = normalizeSearchText(displayName);
                 const cleanCat = cleanCategoryForPhotoSearch(r[7] || '', r[8] || '', displayName + ' ' + colBName);
@@ -1395,6 +1407,9 @@
                     variante: variante,
                     tl: tl,
                     ct: ct,
+                    md: md,
+                    cm: cm,
+                    proveedor: proveedor,
                     medidas: medidas,
                     acabado: acabado,
                     st: st,
@@ -1451,15 +1466,10 @@
             if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(MANUAL_LOCK_FLAG) === '1') {
                 return { valid: false, otherEmail: '', needsReauth: false };
             }
-        } catch (e) {}
-
-        let cachedSecret = '';
-        try {
+            // P0-07: limpiar cualquier clave en texto plano heredada de versiones anteriores
+            localStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
             if (typeof sessionStorage !== 'undefined') {
-                cachedSecret = cleanStr(sessionStorage.getItem(FOTOS_SECRET_SESSION_KEY));
-            }
-            if (!cachedSecret) {
-                cachedSecret = cleanStr(localStorage.getItem(FOTOS_SECRET_SESSION_KEY));
+                sessionStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
             }
         } catch (e) {}
 
@@ -1469,7 +1479,6 @@
         let matchedName = OWNER_DISPLAY_NAME;
         let matchedSheetTab = 'CUENTAS ADMINISTRATIVAS';
         let bestToken = '';
-        let bestKey = cachedSecret;
         let otherInvEmail = '';
 
         for (let i = 0; i < candidateKeys.length; i++) {
@@ -1478,6 +1487,14 @@
                 if (!raw) continue;
                 const parsed = JSON.parse(raw);
                 if (!parsed) continue;
+                // Purgar accessKey si quedara de una sesión antigua
+                if (parsed.accessKey) {
+                    try {
+                        const cleaned = Object.assign({}, parsed);
+                        delete cleaned.accessKey;
+                        localStorage.setItem(candidateKeys[i], JSON.stringify(cleaned));
+                    } catch (eStrip) {}
+                }
                 const email = normalizeEmailInput(parsed.correo);
                 const perms = (parsed.adminPermissions && typeof parsed.adminPermissions === 'object') ? parsed.adminPermissions : null;
                 const isKevinAllowed = (email === OWNER_EMAIL && !(perms && perms.fotosApp === false));
@@ -1494,19 +1511,17 @@
                     if (cleanStr(parsed.nombre)) matchedName = cleanStr(parsed.nombre);
                     if (cleanStr(parsed.sheetTab)) matchedSheetTab = cleanStr(parsed.sheetTab);
                     const tok = cleanStr(parsed.authToken);
-                    const storedKey = cleanStr(parsed.accessKey);
                     if (tok && !bestToken) bestToken = tok;
-                    if (storedKey && !bestKey) bestKey = storedKey;
                 }
             } catch (e) {}
         }
 
         if (matchedOwner) {
-            if (bestToken || bestKey) {
+            if (bestToken) {
                 return {
                     valid: true,
                     authToken: bestToken,
-                    accessKey: bestKey,
+                    accessKey: '',
                     email: matchedEmail,
                     nombre: matchedName,
                     sheetTab: matchedSheetTab
@@ -1564,8 +1579,13 @@
             _fotosBackNav.resetToBase();
         }
         try {
+            // P0-07: purgar todas las sesiones hermanas y secretos al cerrar sesión
             localStorage.removeItem(FOTOS_SESSION_KEY);
+            localStorage.removeItem(PANEL_SESSION_KEY);
+            localStorage.removeItem(HIST_SESSION_KEY);
+            localStorage.removeItem(INV_SESSION_KEY);
             localStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
+            localStorage.removeItem(PENDING_KEYS_STORAGE);
             if (typeof sessionStorage !== 'undefined') {
                 sessionStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
                 sessionStorage.setItem(MANUAL_LOCK_FLAG, '1');
@@ -1600,8 +1620,8 @@
         const typedEmail = normalizeEmailInput(emailInp ? emailInp.value : OWNER_EMAIL);
         const typedKey = cleanStr(pwdInp ? pwdInp.value : '');
 
-        if (typedEmail !== OWNER_EMAIL) {
-            setGateMessage('Solo autorizado para ' + OWNER_EMAIL, 'error');
+        if (!typedEmail || typedEmail.indexOf('@') === -1) {
+            setGateMessage('Ingresa un correo electrónico válido.', 'error');
             return;
         }
         if (!typedKey) {
@@ -1616,77 +1636,68 @@
         setGateMessage('', '');
 
         try {
+            // P0-01 / P1-10: autenticar siempre contra Apps Script (sin fallback público de contraseñas vía GViz)
             const cloudRes = await callWebAppPost('inv_login', {
-                email: OWNER_EMAIL,
+                email: typedEmail,
                 accessKey: typedKey,
                 sheetTab: 'CUENTAS ADMINISTRATIVAS'
-            }, 8500);
+            }, 12000);
 
-            let verified = false;
-            if (cloudRes && cloudRes.ok) {
-                verified = true;
-            } else if (cloudRes && !cloudRes.unavailable && cloudRes.error && !/Acci[óo]n no reconocida/i.test(cloudRes.error)) {
-                setGateMessage(cloudRes.error, 'error');
+            if (!cloudRes || cloudRes.unavailable) {
+                setGateMessage('Sin conexión con el servidor de autenticación. Intenta de nuevo en unos segundos.', 'error');
                 return;
-            } else {
-                let rows = await fetchSheetRows('CUENTAS ADMINISTRATIVAS', 'A1:Z60');
-                if (!rows || rows.length < 2) {
-                    rows = await fetchSheetRows('PROYECTOS', 'A1:I40');
-                }
-                if (!rows || rows.length < 2) {
-                    setGateMessage('Sin conexión con Google Sheets.', 'error');
-                    return;
-                }
-                let localKeyMap = {};
-                try { localKeyMap = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}') || {}; } catch (e) {}
-
-                for (let i = 0; i < rows.length; i++) {
-                    const r = rows[i] || [];
-                    if (normalizeEmailInput(r[4]) !== OWNER_EMAIL) continue;
-                    let tempKey = cleanKeyCellValue(r[5]);
-                    let defKey = cleanKeyCellValue(r[6]);
-                    const localUpd = localKeyMap[OWNER_EMAIL];
-                    if (!defKey && localUpd && localUpd.newKey) { defKey = localUpd.newKey; tempKey = ''; }
-                    if ((defKey && typedKey === defKey) || (!defKey && tempKey && typedKey === tempKey)) {
-                        verified = true;
-                        break;
-                    }
-                }
-                if (!verified) {
-                    setGateMessage('Contraseña incorrecta.', 'error');
-                    return;
-                }
+            }
+            if (!cloudRes.ok) {
+                setGateMessage(cloudRes.error || 'Correo o contraseña incorrectos.', 'error');
+                return;
             }
 
-            if (verified) {
-                const issuedToken = extractAuthTokenFromLoginRes(cloudRes);
-                state.authToken = issuedToken;
-                state.accessKey = typedKey;
-                const payload = JSON.stringify({
-                    correo: OWNER_EMAIL,
-                    nombre: OWNER_DISPLAY_NAME,
-                    sheetTab: 'CUENTAS ADMINISTRATIVAS',
-                    authToken: issuedToken,
-                    accessKey: typedKey,
-                    verifiedAt: Date.now()
-                });
-                try {
-                    localStorage.setItem(FOTOS_SESSION_KEY, payload);
-                    localStorage.setItem(PANEL_SESSION_KEY, payload);
-                    localStorage.setItem(HIST_SESSION_KEY, payload);
-                    if (typeof sessionStorage !== 'undefined') {
-                        sessionStorage.setItem(FOTOS_SECRET_SESSION_KEY, typedKey);
-                    }
-                    if (!issuedToken) {
-                        localStorage.setItem(FOTOS_SECRET_SESSION_KEY, typedKey);
-                    } else {
-                        localStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
-                    }
-                } catch (e) {}
-                if (pwdInp) pwdInp.value = '';
-                unlockFotosPortal();
-                syncFotosBackNav('unlock');
+            const usr = cloudRes.user || cloudRes.advisor || {};
+            const perms = (usr.adminPermissions && typeof usr.adminPermissions === 'object') ? usr.adminPermissions : null;
+            const resolvedEmail = normalizeEmailInput(usr.correo || typedEmail);
+            const isKevinAllowed = (resolvedEmail === OWNER_EMAIL && !(perms && perms.fotosApp === false));
+            const isPermittedAdmin = Boolean(usr.isAdmin === true && perms && perms.fotosApp === true);
+            if (!isKevinAllowed && !isPermittedAdmin) {
+                setGateMessage('Esta cuenta no tiene permiso VER_FOTOS_APP activo en CUENTAS ADMINISTRATIVAS.', 'error');
+                return;
             }
+
+            const issuedToken = extractAuthTokenFromLoginRes(cloudRes);
+            if (!issuedToken) {
+                setGateMessage('El servidor no emitió un token de sesión válido. Intenta de nuevo.', 'error');
+                return;
+            }
+
+            const resolvedName = cleanStr(usr.nombre) || (resolvedEmail === OWNER_EMAIL ? OWNER_DISPLAY_NAME : resolvedEmail);
+            const resolvedTab = cleanStr(usr.sheetTab) || 'CUENTAS ADMINISTRATIVAS';
+            state.authToken = issuedToken;
+            state.accessKey = '';
+            state.activeEmail = resolvedEmail;
+            state.activeDisplayName = resolvedName;
+            state.activeSheetTab = resolvedTab;
+
+            // P0-07: guardar únicamente token HMAC firmado (nunca contraseñas en texto plano)
+            const payload = JSON.stringify({
+                correo: resolvedEmail,
+                nombre: resolvedName,
+                sheetTab: resolvedTab,
+                isAdmin: true,
+                adminPermissions: perms || undefined,
+                authToken: issuedToken,
+                verifiedAt: Date.now()
+            });
+            try {
+                localStorage.setItem(FOTOS_SESSION_KEY, payload);
+                localStorage.setItem(PANEL_SESSION_KEY, payload);
+                localStorage.setItem(HIST_SESSION_KEY, payload);
+                localStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
+                if (typeof sessionStorage !== 'undefined') {
+                    sessionStorage.removeItem(FOTOS_SECRET_SESSION_KEY);
+                }
+            } catch (e) {}
+            if (pwdInp) pwdInp.value = '';
+            unlockFotosPortal();
+            syncFotosBackNav('unlock');
         } finally {
             if (submitBtn) {
                 submitBtn.disabled = false;
@@ -2284,9 +2295,10 @@
                     return parts.join(' · ');
                 };
 
-                // Resolver índices de columnas de las 11 ubicaciones, fecha LPPT y precio en INVENTARIO_EN_VIVO
+                // Resolver índices de columnas de las 11 ubicaciones, fecha LPPT, proveedor y precio en INVENTARIO_EN_VIVO
                 let whColIndices = FOTOS_WAREHOUSES.map((w) => w.defaultCol);
                 let colFeIdx = 16;
+                let colProvIdx = 13;
                 let colPrecioIdx = 49;
                 let hasStockColsInInv = false;
 
@@ -2302,6 +2314,7 @@
                     };
                     whColIndices = FOTOS_WAREHOUSES.map((w) => findHdrCol(w.colNames, w.defaultCol));
                     colFeIdx = findHdrCol(['FECHA ESTIMADA DE LLEGADA', 'FECHA ESTIMADA'], 16);
+                    colProvIdx = findHdrCol(['PROVEEDOR', 'MARCA'], 13);
                     colPrecioIdx = findHdrCol(['PRECIO DE LISTA', 'PRECIO LISTA', 'PRECIO'], 49);
                     hasStockColsInInv = whColIndices.some((idx, w) => w > 0 && idx !== -1 && hdrRow.length > idx);
                 }
@@ -2321,6 +2334,7 @@
                         const cm = cleanStr(r[10]);
                         const mt = cleanStr(r[11]);
                         const med = cleanStr(r[12]);
+                        const prov = (colProvIdx !== -1 && colProvIdx < r.length) ? cleanStr(r[colProvIdx]) : '';
                         const acabado = buildAcabadoSummary(tl, ct, md, cm, mt);
 
                         const st = emptyFotosStocks();
@@ -2360,6 +2374,7 @@
                                 ct: ct,
                                 md: md,
                                 cm: cm,
+                                proveedor: prov,
                                 medidas: med,
                                 acabado: acabado,
                                 st: st,
@@ -2371,6 +2386,7 @@
                             const prevInv = invMap.get(sku);
                             if (photoInvRaw && !prevInv.photoInv) prevInv.photoInv = photoInvRaw;
                             if (!prevInv.precio && precioFmt) prevInv.precio = precioFmt;
+                            if (!prevInv.proveedor && prov) prevInv.proveedor = prov;
                         }
                     }
                 }
@@ -2393,6 +2409,7 @@
                             ct: '',
                             md: '',
                             cm: '',
+                            proveedor: '',
                             medidas: '',
                             acabado: '',
                             st: st,
@@ -2451,6 +2468,7 @@
                                 ct: inv ? (inv.ct || '') : '',
                                 md: inv ? (inv.md || '') : '',
                                 cm: inv ? (inv.cm || '') : '',
+                                proveedor: inv ? (inv.proveedor || '') : ((prevCached && prevCached.proveedor) || ''),
                                 medidas: inv ? inv.medidas : '',
                                 acabado: inv ? inv.acabado : '',
                                 st: stArr,
@@ -2510,6 +2528,7 @@
                         ct: inv.ct || '',
                         md: inv.md || '',
                         cm: inv.cm || '',
+                        proveedor: inv.proveedor || '',
                         medidas: inv.medidas || '',
                         acabado: inv.acabado || '',
                         st: inv.st,
@@ -2664,7 +2683,7 @@
 
         const activeCatKey = state.skuCategoryFilter || 'ALL';
         const pills = [
-            '<button type="button" class="cat-filter-pill' + (activeCatKey === 'ALL' ? ' active' : '') + '" data-cat-key="ALL" onclick="setSkuCategoryFilter(\'ALL\')">' +
+            '<button type="button" class="cat-filter-pill' + (activeCatKey === 'ALL' ? ' active' : '') + '" data-cat-key="ALL" data-fotos-act="cat-filter">' +
                 '<span>Todas</span>' +
             '</button>'
         ];
@@ -2673,7 +2692,7 @@
             const cnt = countsByFolderId.get(f.id) || 0;
             const isAct = activeCatKey === f.key;
             pills.push(
-                '<button type="button" class="cat-filter-pill' + (isAct ? ' active' : '') + '" data-cat-key="' + escapeHtml(f.key) + '" onclick="setSkuCategoryFilter(\'' + escapeHtml(f.key) + '\')">' +
+                '<button type="button" class="cat-filter-pill' + (isAct ? ' active' : '') + '" data-cat-key="' + escapeHtml(f.key) + '" data-fotos-act="cat-filter">' +
                     '<span>' + escapeHtml(f.short || f.name.replace(/^FOTOS\s+(DE\s+)?/i, '')) + '</span>' +
                     '<span class="cat-cnt">' + cnt + '</span>' +
                 '</button>'
@@ -2724,10 +2743,10 @@
 
         const activeLocKey = state.skuLocationFilter || 'ALL';
         const pills = [
-            '<button type="button" class="cat-filter-pill' + (activeLocKey === 'ALL' ? ' active' : '') + '" data-loc-key="ALL" onclick="setSkuLocationFilter(\'ALL\')">' +
+            '<button type="button" class="cat-filter-pill' + (activeLocKey === 'ALL' ? ' active' : '') + '" data-loc-key="ALL" data-fotos-act="loc-filter">' +
                 '<span>Todas ubic.</span>' +
             '</button>',
-            '<button type="button" class="cat-filter-pill' + (activeLocKey === 'QUOTABLE' ? ' active' : '') + '" data-loc-key="QUOTABLE" onclick="setSkuLocationFilter(\'QUOTABLE\')" title="Visibles en Cotizador">' +
+            '<button type="button" class="cat-filter-pill' + (activeLocKey === 'QUOTABLE' ? ' active' : '') + '" data-loc-key="QUOTABLE" data-fotos-act="loc-filter" title="Visibles en Cotizador">' +
                 '<span>En Cotizador</span>' +
                 '<span class="cat-cnt">' + quotableCount + '</span>' +
             '</button>'
@@ -2738,7 +2757,7 @@
             const cnt = countsByWh[w] || 0;
             const isAct = activeLocKey === wh.key;
             pills.push(
-                '<button type="button" class="cat-filter-pill' + (isAct ? ' active' : '') + '" data-loc-key="' + escapeHtml(wh.key) + '" onclick="setSkuLocationFilter(\'' + escapeHtml(wh.key) + '\')" title="' + escapeHtml(wh.label) + '">' +
+                '<button type="button" class="cat-filter-pill' + (isAct ? ' active' : '') + '" data-loc-key="' + escapeHtml(wh.key) + '" data-fotos-act="loc-filter" title="' + escapeHtml(wh.label) + '">' +
                     '<span>' + escapeHtml(wh.short) + '</span>' +
                     '<span class="cat-cnt">' + cnt + '</span>' +
                 '</button>'
@@ -2892,10 +2911,10 @@
                 '<div class="photo-empty-placeholder" style="display:flex;flex-direction:column;gap:8px;padding:18px 12px;">' +
                     '<span>Sin resultados</span>' +
                     (rawTyped.length >= 3
-                        ? ('<button type="button" class="hdr-btn is-accent is-compact-btn" onclick="syncSkusNow(\'' + escapeHtml(rawTyped.replace(/'/g, "\\'")) + '\')">↻ ERP "' + escapeHtml(rawTyped) + '"</button>')
+                        ? ('<button type="button" class="hdr-btn is-accent is-compact-btn" data-fotos-act="sync-sku" data-raw="' + escapeHtml(rawTyped) + '">↻ ERP "' + escapeHtml(rawTyped) + '"</button>')
                         : '') +
                     (looksLikeSku
-                        ? ('<button type="button" class="hdr-btn is-neutral is-compact-btn" onclick="useNewManualSku(\'' + escapeHtml(rawTyped.replace(/'/g, "\\'")) + '\')">+ SKU "' + escapeHtml(rawTyped) + '"</button>')
+                        ? ('<button type="button" class="hdr-btn is-neutral is-compact-btn" data-fotos-act="manual-sku" data-raw="' + escapeHtml(rawTyped) + '">+ SKU "' + escapeHtml(rawTyped) + '"</button>')
                         : '') +
                 '</div>';
             return;
@@ -2909,8 +2928,6 @@
             const fid = p.photoFileId || '';
             const safeDriveFid = isLocalTempPhotoId(fid) ? '' : fid;
             const thumb = p.photoUrl ? buildPhotoThumbUrl(safeDriveFid || p.photoUrl, 160) : '';
-            const safeSku = escapeHtml(p.sku.replace(/'/g, "\\'"));
-            const safeFid = escapeHtml(fid.replace(/'/g, "\\'"));
             const destMeta = DEST_FOLDER_BY_ID.get(p.destFolderId);
             const catShort = destMeta ? (destMeta.short || destMeta.name.replace(/^FOTOS\s+(DE\s+)?/i, '')) : (p.destFolderName || '').replace(/^FOTOS\s+(DE\s+)?/i, '');
             const bodPiso = Number(p.totalBodegaPiso) || 0;
@@ -2931,7 +2948,7 @@
             if (p.locSummary) subParts.push(p.locSummary);
 
             htmlParts[i] =
-                '<div class="sku-item' + (isSel ? ' selected' : '') + '" data-sku="' + escapeHtml(p.sku) + '" onclick="selectSkuProduct(\'' + safeSku + '\')">' +
+                '<div class="sku-item' + (isSel ? ' selected' : '') + '" data-sku="' + escapeHtml(p.sku) + '" data-fotos-act="select-sku">' +
                     '<div class="sku-mini-thumb">' +
                         (thumb
                             ? ('<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(safeDriveFid) + '" onerror="handlePhotoImgError(this)">')
@@ -2947,8 +2964,8 @@
                             stockBadgeHtml +
                             (p.photoUrl
                                 ? ('<span class="sku-quick-actions">' +
-                                    '<button type="button" class="sku-quick-btn is-take" onclick="takePhotoFromSkuRow(\'' + safeSku + '\', event)">Tomar</button>' +
-                                    '<button type="button" class="sku-quick-btn is-del" onclick="deleteLoadedPhotoBySku(\'' + safeSku + '\', \'' + safeFid + '\', event)">🗑</button>' +
+                                    '<button type="button" class="sku-quick-btn is-take" data-fotos-act="take-sku-row" data-sku="' + escapeHtml(p.sku) + '">Tomar</button>' +
+                                    '<button type="button" class="sku-quick-btn is-del" data-fotos-act="del-loaded-sku" data-sku="' + escapeHtml(p.sku) + '" data-fid="' + escapeHtml(fid) + '">🗑</button>' +
                                    '</span>')
                                 : '') +
                         '</div>' +
@@ -3192,8 +3209,7 @@
                     const vLabel = (sItem.variante && sItem.variante !== 'ESTÁNDAR' && normPlainCat(sItem.variante) !== normPlainCat(sItem.modelo))
                         ? sItem.variante
                         : (sItem.acabado || sItem.medidas || sItem.sku);
-                    const safeSku = escapeHtml(sItem.sku.replace(/'/g, "\\'"));
-                    return '<button type="button" class="sib-var-pill' + (isAct ? ' active' : '') + '" onclick="selectSkuProduct(\'' + safeSku + '\')" title="' + escapeHtml(sItem.sku + ' · ' + sItem.displayName) + '">' +
+                    return '<button type="button" class="sib-var-pill' + (isAct ? ' active' : '') + '" data-fotos-act="select-sku" data-sku="' + escapeHtml(sItem.sku) + '" title="' + escapeHtml(sItem.sku + ' · ' + sItem.displayName) + '">' +
                         '<span class="sib-var-dot' + (sItem.photoUrl ? ' has-photo' : '') + '"></span>' +
                         '<span>' + escapeHtml(sItem.sku) + ' · ' + escapeHtml(vLabel.slice(0, 26)) + '</span>' +
                     '</button>';
@@ -3233,7 +3249,7 @@
                 curCanvas.innerHTML =
                     '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(prod.sku) + '" decoding="async" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(fid) + '" ' +
-                    'onclick="openPhotoLightbox(\'' + escapeHtml(previewSrc.replace(/'/g, "\\'")) + '\')" ' +
+                    'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(previewSrc) + '" ' +
                     'onerror="handlePhotoImgError(this)">';
             }
         } else {
@@ -3279,7 +3295,7 @@
             canvas.innerHTML =
                 '<img src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(selPhoto.name) + '" decoding="async" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(safeSelFid) + '" ' +
-                'onclick="openPhotoLightbox(\'' + escapeHtml(previewUrl.replace(/'/g, "\\'")) + '\')" ' +
+                'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(previewUrl) + '" ' +
                 'onerror="handlePhotoImgError(this)">';
             if (footWrap) footWrap.classList.remove('hidden');
             if (footText) footText.textContent = selPhoto.name;
@@ -3297,7 +3313,7 @@
             canvas.innerHTML =
                 '<img src="' + escapeHtml(savedPreview) + '" alt="' + escapeHtml(savedSession.sku) + '" decoding="async" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(safeSavedFid) + '" ' +
-                'onclick="openPhotoLightbox(\'' + escapeHtml(savedPreview.replace(/'/g, "\\'")) + '\')" ' +
+                'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(savedPreview) + '" ' +
                 'onerror="handlePhotoImgError(this)">';
             if (footWrap) footWrap.classList.remove('hidden');
             if (footText) {
@@ -3491,9 +3507,6 @@
             const isSel = !!(activeId && activeId === it.id && activePhoto && activePhoto.fromLoaded);
             const thumb = it.localDataUrl || buildPhotoThumbUrl(it.id || it.viewUrl, 320);
             const fullSrc = it.localDataUrl || buildPhotoThumbUrl(it.id || it.viewUrl, 1200);
-            const safeFid = escapeHtml((it.id || '').replace(/'/g, "\\'"));
-            const safeKey = escapeHtml((it.targetKey || '').replace(/'/g, "\\'"));
-            const safeFull = escapeHtml((fullSrc || '').replace(/'/g, "\\'"));
             const kindClass = it.targetKind === 'TELA' ? 'is-fabric' : (it.targetKind === 'PORTADA' ? 'is-cover' : 'is-sku');
             const kindTag = it.targetKind === 'TELA' ? '🧵 Tela' : (it.targetKind === 'PORTADA' ? '🖼️ Portada' : (it.targetKey || 'SKU'));
             const displayTitle = it.fileName || it.targetLabel || it.targetKey || 'Foto';
@@ -3501,9 +3514,9 @@
             const tooltip = [displayTitle, it.targetLabel, timeTxt].filter(Boolean).join(' · ');
 
             parts[i] =
-                '<div class="recent-upload-card' + (isSel ? ' selected' : '') + '" data-recent-id="' + escapeHtml(it.id) + '" onclick="selectRecentUploadedPhoto(\'' + safeFid + '\', \'' + safeKey + '\', event)" title="' + escapeHtml(tooltip) + '">' +
+                '<div class="recent-upload-card' + (isSel ? ' selected' : '') + '" data-recent-id="' + escapeHtml(it.id) + '" data-fotos-act="recent-select" data-fid="' + escapeHtml(it.id || '') + '" data-recent-key="' + escapeHtml(it.targetKey || '') + '" title="' + escapeHtml(tooltip) + '">' +
                     '<div class="recent-upload-thumb-wrap ' + kindClass + '">' +
-                        '<button type="button" class="recent-upload-eye-btn" title="Ver en grande" aria-label="Ver foto" onclick="previewRecentUploadedPhoto(\'' + safeFull + '\', event)">👁</button>' +
+                        '<button type="button" class="recent-upload-eye-btn" title="Ver en grande" aria-label="Ver foto" data-fotos-act="recent-preview" data-lightbox-src="' + escapeHtml(fullSrc || '') + '">👁</button>' +
                         '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(it.id) + '" onerror="handlePhotoImgError(this)">' +
                         '<span class="recent-upload-kind-tag">' + escapeHtml(kindTag) + '</span>' +
                     '</div>' +
@@ -3566,8 +3579,6 @@
                 const item = sliceLoaded[i];
                 const isSel = activeId === item.id && activePhoto && activePhoto.fromLoaded && activePhoto.skuOrigin === item.sku;
                 const thumb = item.localDataUrl || buildPhotoThumbUrl(item.id || item.viewUrl, 360);
-                const safeSku = escapeHtml((item.sku || '').replace(/'/g, "\\'"));
-                const safeId = escapeHtml((item.id || '').replace(/'/g, "\\'"));
                 const cardKey = 'L::' + (item.sku || '') + '::' + item.id;
                 const primaryTitle = item.fileName || item.name || item.sku;
                 const isVisualItem = /^V(?:COV|FAB|WOD):/i.test(item.sku || '');
@@ -3578,10 +3589,10 @@
                     : (displaySkuTag ? (displaySkuTag + (item.name && item.name !== displaySkuTag ? (' · ' + item.name) : '')) : item.name);
 
                 parts[i] =
-                    '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" onclick="takeLoadedPhotoForAssign(\'' + safeSku + '\', \'' + safeId + '\')">' +
+                    '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="take-loaded" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">' +
                         '<div class="inbox-thumb-box">' +
                             (!isVisualItem
-                                ? ('<button type="button" class="card-del-btn" title="Borrar" onclick="deleteLoadedPhotoBySku(\'' + safeSku + '\', \'' + safeId + '\', event)">🗑</button>')
+                                ? ('<button type="button" class="card-del-btn" title="Borrar" data-fotos-act="del-loaded-sku" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">🗑</button>')
                                 : '') +
                             '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
                         '</div>' +
@@ -3616,13 +3627,12 @@
             const thumb = f.localDataUrl || f.thumbDataUrl || buildPhotoThumbUrl(f.id, 360);
             const sz = f._sizeText || '';
             const suggestedSku = f._suggestedSku || '';
-            const safeFid = escapeHtml((f.id || '').replace(/'/g, "\\'"));
             const cardKey = 'I::' + f.id;
 
             parts[i] =
-                '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" onclick="selectInboxPhoto(\'' + safeFid + '\')">' +
+                '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="select-inbox" data-fid="' + escapeHtml(f.id || '') + '">' +
                     '<div class="inbox-thumb-box">' +
-                        '<button type="button" class="card-del-btn" title="Borrar" onclick="deleteInboxPhotoById(\'' + safeFid + '\', event)">🗑</button>' +
+                        '<button type="button" class="card-del-btn" title="Borrar" data-fotos-act="del-inbox" data-fid="' + escapeHtml(f.id || '') + '">🗑</button>' +
                         '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
                     '</div>' +
                     '<div class="inbox-card-meta">' +
@@ -3632,7 +3642,7 @@
                             '<span data-take-lbl="1" style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
                         '</div>' +
                         (suggestedSku
-                            ? ('<button type="button" class="suggest-sku-btn" onclick="applySuggestedSkuFromInbox(\'' + safeFid + '\', \'' + escapeHtml(suggestedSku.replace(/'/g, "\\'")) + '\', event)">SKU ' + escapeHtml(suggestedSku) + '</button>')
+                            ? ('<button type="button" class="suggest-sku-btn" data-fotos-act="suggest-sku" data-fid="' + escapeHtml(f.id || '') + '" data-suggested-sku="' + escapeHtml(suggestedSku) + '">SKU ' + escapeHtml(suggestedSku) + '</button>')
                             : '') +
                     '</div>' +
                 '</div>';
@@ -4179,16 +4189,16 @@
 
         const canvas = document.createElement('canvas');
         if (isStudio) {
-            const isWide = sw > sh * 1.15;
-            const outW = isWide ? Math.min(1200, maxDim) : Math.min(1080, maxDim);
-            const outH = isWide ? Math.round(outW * 0.75) : outW;
+            const outSize = Math.min(2048, maxDim || 2048);
+            const outW = outSize;
+            const outH = outSize;
             canvas.width = outW;
             canvas.height = outH;
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, outW, outH);
-            const padX = Math.round(outW * 0.11);
-            const padY = Math.round(outH * 0.11);
+            const padX = Math.round(outW * 0.08);
+            const padY = Math.round(outH * 0.08);
             const fitScale = Math.min((outW - padX * 2) / sw, (outH - padY * 2) / sh);
             const dw = Math.max(1, Math.round(sw * fitScale));
             const dh = Math.max(1, Math.round(sh * fitScale));
@@ -4219,8 +4229,8 @@
     }
 
     async function readFileAsOptimizedDataUrl(file) {
-        const MAX_DIM = 1200;
-        const JPEG_Q = 0.82;
+        const MAX_DIM = 2048;
+        const JPEG_Q = 0.86;
         const fileName = (file && file.name) || 'foto.jpg';
         if (typeof createImageBitmap === 'function' && file) {
             try {
@@ -5525,6 +5535,7 @@
             ct: (m && cleanStr(m.ct)) || '',
             md: (m && cleanStr(m.md)) || '',
             cm: (m && cleanStr(m.cm)) || '',
+            proveedor: (m && cleanStr(m.p || m.proveedor)) || '',
             medidas: medidas,
             acabado: acabado,
             st: stArr,
@@ -6669,6 +6680,7 @@
                     ct: cleanStr(it.ct),
                     md: cleanStr(it.md),
                     cm: cleanStr(it.cm),
+                    proveedor: cleanStr(it.p || it.proveedor),
                     medidas: cleanStr(it.m),
                     acabado: acabado,
                     st: stArr,
@@ -6731,7 +6743,7 @@
     let _fotosSplitTarget = 'cotizador';
 
     function getFotosSplitTargetUrl(target) {
-        return target === 'prompts' ? 'https://buena-espero.onrender.com/?embed=true' : './inventario.html?embed=1';
+        return target === 'prompts' ? 'https://buena-espero.onrender.com/?embed=true&embed_options=dark_theme' : './inventario.html?embed=1';
     }
 
     function loadFotosSplitPrefs() {
@@ -7148,12 +7160,59 @@
         }
     }
 
+    function handleDelegatedFotosClick(ev) {
+        if (!ev || !ev.target || typeof ev.target.closest !== 'function') return;
+        const el = ev.target.closest('[data-fotos-act]');
+        if (!el) return;
+        const act = el.getAttribute('data-fotos-act');
+        if (!act) return;
+        if (act === 'cat-filter') {
+            if (typeof window.setSkuCategoryFilter === 'function') window.setSkuCategoryFilter(el.getAttribute('data-cat-key') || 'ALL');
+        } else if (act === 'loc-filter') {
+            if (typeof window.setSkuLocationFilter === 'function') window.setSkuLocationFilter(el.getAttribute('data-loc-key') || 'ALL');
+        } else if (act === 'sync-sku') {
+            if (typeof window.syncSkusNow === 'function') window.syncSkusNow(el.getAttribute('data-raw') || '');
+        } else if (act === 'manual-sku') {
+            if (typeof window.useNewManualSku === 'function') window.useNewManualSku(el.getAttribute('data-raw') || '');
+        } else if (act === 'select-sku') {
+            if (typeof window.selectSkuProduct === 'function') window.selectSkuProduct(el.getAttribute('data-sku') || '');
+        } else if (act === 'take-sku-row') {
+            ev.stopPropagation();
+            if (typeof window.takePhotoFromSkuRow === 'function') window.takePhotoFromSkuRow(el.getAttribute('data-sku') || '', ev);
+        } else if (act === 'del-loaded-sku') {
+            ev.stopPropagation();
+            if (typeof window.deleteLoadedPhotoBySku === 'function') window.deleteLoadedPhotoBySku(el.getAttribute('data-sku') || '', el.getAttribute('data-fid') || '', ev);
+        } else if (act === 'lightbox') {
+            const src = el.getAttribute('data-lightbox-src') || '';
+            if (src && typeof window.openPhotoLightbox === 'function') window.openPhotoLightbox(src);
+        } else if (act === 'recent-select') {
+            if (typeof window.selectRecentUploadedPhoto === 'function') window.selectRecentUploadedPhoto(el.getAttribute('data-fid') || '', el.getAttribute('data-recent-key') || '', ev);
+        } else if (act === 'recent-preview') {
+            ev.stopPropagation();
+            if (typeof window.previewRecentUploadedPhoto === 'function') window.previewRecentUploadedPhoto(el.getAttribute('data-lightbox-src') || '', ev);
+        } else if (act === 'take-loaded') {
+            if (typeof window.takeLoadedPhotoForAssign === 'function') window.takeLoadedPhotoForAssign(el.getAttribute('data-sku') || '', el.getAttribute('data-fid') || '');
+        } else if (act === 'select-inbox') {
+            if (typeof window.selectInboxPhoto === 'function') window.selectInboxPhoto(el.getAttribute('data-fid') || '');
+        } else if (act === 'del-inbox') {
+            ev.stopPropagation();
+            if (typeof window.deleteInboxPhotoById === 'function') window.deleteInboxPhotoById(el.getAttribute('data-fid') || '', ev);
+        } else if (act === 'suggest-sku') {
+            ev.stopPropagation();
+            if (typeof window.applySuggestedSkuFromInbox === 'function') window.applySuggestedSkuFromInbox(el.getAttribute('data-fid') || '', el.getAttribute('data-suggested-sku') || '', ev);
+        } else if (act === 'select-visual') {
+            if (typeof window.selectVisualTarget === 'function') window.selectVisualTarget(el.getAttribute('data-visual-key') || '');
+        }
+    }
+
     function initFotosApp() {
         try {
             if ('serviceWorker' in navigator && /^https?:$/i.test(window.location.protocol)) {
                 navigator.serviceWorker.register('./fotos-sw.js', { scope: './fotos-productos' }).catch(() => {});
             }
         } catch (eSw) {}
+
+        document.addEventListener('click', handleDelegatedFotosClick);
 
         window.addEventListener('beforeinstallprompt', (ev) => {
             ev.preventDefault();
@@ -7170,9 +7229,36 @@
         bindFotosSplitResizerDrag();
         initFotosBackNav();
 
-        // Sincronización en vivo con el Cotizador y pestañas hermanas de Fotos
-        window.addEventListener('message', (ev) => {
-            handleIncomingPeerMessageInFotos(ev && ev.data);
+        // Sincronización en vivo con el Cotizador, pestañas hermanas y puente de portapapeles con Prompts IA (P1-20 / P1-28)
+        const PROMPTS_EMBED_ORIGIN = 'https://buena-espero.onrender.com';
+        window.addEventListener('message', async (ev) => {
+            if (!ev) return;
+            const curOrigin = (window.location && window.location.origin) || '';
+            const isSameOrigin = (ev.origin === curOrigin) || (!ev.origin && window.location && window.location.protocol === 'file:');
+            const isPromptsOrigin = ev.origin === PROMPTS_EMBED_ORIGIN;
+            if (!isSameOrigin && !isPromptsOrigin) return;
+            const data = ev.data;
+            if (!data || typeof data !== 'object') return;
+            if (isPromptsOrigin) {
+                if (data.type === 'CREATA_PROMPTS_COPY_IMAGE' && typeof data.dataUrl === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/i.test(data.dataUrl)) {
+                    try {
+                        if (navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof ClipboardItem === 'function') {
+                            const blob = await (await fetch(data.dataUrl)).blob();
+                            const pngBlob = blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
+                            await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+                            if (ev.source && typeof ev.source.postMessage === 'function') {
+                                ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: true, requestId: data.requestId || '' }, PROMPTS_EMBED_ORIGIN);
+                            }
+                        }
+                    } catch (eClip) {
+                        if (ev.source && typeof ev.source.postMessage === 'function') {
+                            ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: false, requestId: data.requestId || '' }, PROMPTS_EMBED_ORIGIN);
+                        }
+                    }
+                }
+                return;
+            }
+            handleIncomingPeerMessageInFotos(data);
         });
         try {
             if (typeof BroadcastChannel === 'function') {
@@ -7816,71 +7902,207 @@
         return best;
     }
 
+    const NON_WOOD_MATERIAL_ONLY_RE_FOTOS = /^(MARMOL|MARBOL|TRAVERTINO|ONIX|PIEDRA|GRANITO|CUARZO|CRISTAL|VIDRIO|ESPEJO|METAL|ACERO|ALUMINIO|HIERRO|HERRERIA|LATON|BRONCE|COBRE|CERAMICA|PORCELANA|PORCELANATO|RESINA|PLASTICO|POLIPROPILENO|RATAN|RATTAN|MIMBRE|CUERDA|SOGA|FIBRA|CONCRETO|CEMENTO|PINO|PINO\s+ESTUFADO|MADERA\s+DE\s+PINO|MDF|TRIPLAY|CONTRACHAPADO|AGLOMERADO|POLIESTER|ESPUMA|DELCRON|N\/A|NA|NO APLICA|NINGUNA|NINGUNO|SIN MADERA|-)$/i;
+    const WOOD_PROVIDER_RE_FOTOS = /^(?:BARSA|ARTEX|ATX|ARTC|BGA|COSTA|CRISS|DIANA|DILU|DISE|DUKE|HAKO|HEMA|INHABIT|KASA|KUA|LUX|FACTORI|FACTORY|MARMOL|MOBEL|INN|MUEBLES|NORDICO|NOVO|OAXACA|PACIFICO|PALMA|QUINTA|RIVIERA|SOLARIS|TULUM|VALENCIA|VENECIA)$/i;
+    const WOOD_FILLER_TOKENS_FOTOS = new Set(['MADERA', 'DE', 'EN', 'CON', 'TONO', 'NATURAL', 'ACABADO', 'LACA', 'BARNIZ', 'BASE', 'PATAS', 'CUBIERTA', 'SOLIDA', 'SOLIDO', 'MACIZA', 'MACIZO', 'CHAPA', 'LAMINADO', 'LAMINADA', 'ENCHAPADO', 'ENCHAPADA']);
+    const WOOD_SPECIAL_FINISH_TOKENS_FOTOS = new Set(['ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'CLARA', 'CLARO', 'OSCURO', 'OSCURA']);
+    const WOOD_MODIFIER_ONLY_TOKENS_FOTOS = new Set([
+        'CLARO', 'CLARA', 'OSCURO', 'OSCURA', 'OBSCURO', 'OBSCURA',
+        'ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'BLANCO', 'BLANCA',
+        'NEGRO', 'NEGRA', 'GRIS', 'BEIGE', 'CAFE', 'NATURAL', 'TONO',
+        'LACA', 'MATTE', 'MATE', 'BARNIZ', 'BRILLANTE', 'SEMI', 'CARDEADO', 'BLANQUEADO'
+    ]);
+
+    function expandWoodProviderAliasesFotos(provRaw) {
+        const p = plainVisToken(provRaw);
+        if (!p) return [];
+        const out = new Set(p.split(/\s+/).filter((t) => t.length >= 2));
+        if (p.indexOf('ARTEX') !== -1 || p === 'ATX' || p === 'ARTC') {
+            out.add('ARTEX');
+            out.add('ATX');
+            out.add('ARTC');
+        }
+        if (p.indexOf('LUX') !== -1) {
+            out.add('LUX');
+            out.add('FACTORI');
+            out.add('FACTORY');
+        }
+        if (p.indexOf('MOBEL') !== -1) {
+            out.add('MOBEL');
+            out.add('INN');
+        }
+        return Array.from(out);
+    }
+
+    function normalizeWoodCanonicalTextFotos(raw) {
+        return plainVisToken(raw)
+            .replace(/\bFACTORY\b/g, 'FACTORI')
+            .replace(/\b(?:TEKA|TEAK)\b/g, 'TECA')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
     function findMatchingUploadedWoodForProduct(prod) {
         if (!prod) return null;
         const catTok = plainVisToken(prod.categoria || '');
         const nameTok = plainVisToken(prod.displayName || prod.colBName || '');
         const typeNameTok = plainVisToken(cleanStr(prod.tipo || '') + ' ' + nameTok);
         const visibleWoodInNameRe = /\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|TEKA|TEAK|ENCINO|ROBLE|FRESNO|CEDRO|CAOBA|OLMO|HAYA|TABACO|TACUBA|BELLOTA|HABANO|ESPIGA|GINGER|CAMEL|NOCHE|NUEZ|MADERA|PATA(?:S)?\s+DE\s+MADERA|BASE\s+(?:EN\s+)?MADERA)\b/i;
-        if (/^(COJINES\s+TEXTILES|TEXTILES|ROPA\s+DE\s+CAMA|TAPETES|ALFOMBRAS|COLCHONES|BLANCOS)$/i.test(catTok) || /\b(COJIN|COJINES|FUNDA|FUNDAS|ALMOHADON|SABANA|DUVET|MANTEL|HILO|TOALLA|TAPETE|ALFOMBRA|COLCHON|CORTINA)\b/i.test(typeNameTok)) {
+        if (/^(COJINES\s+TEXTILES|TEXTILES|ROPA\s+DE\s+CAMA|TAPETES|ALFOMBRAS|COLCHONES|BLANCOS)$/i.test(catTok) || /\b(COJIN|COJINES|FUNDA|FUNDAS|ALMOHADON|SABANA|DUVET|MANTEL|HILO|CONO\s+DE\s+HILO|TOALLA|TAPETE|ALFOMBRA|COLCHON|CORTINA)\b/i.test(typeNameTok)) {
             return null;
         }
         if (/\b(SALA|SALAS|SOFA|SOFAS|SOFACAMA|SOFA\s+CAMA|MODULAR|SECCIONAL|ESCUADRA|LOVESEAT|LOVE\s+SEAT|CHAISE|ESQUINERO|FUTON|FUTTON)\b/i.test(catTok + ' ' + typeNameTok) && !visibleWoodInNameRe.test(nameTok)) {
             return null;
         }
 
+        const md = cleanStr(prod.md);
+        const cm = cleanStr(prod.cm);
+        const prov = cleanStr(prod.proveedor || prod.p);
+        const mdNorm = plainVisToken(md);
+        const cmNorm = plainVisToken(cm);
+        if (mdNorm && NON_WOOD_MATERIAL_ONLY_RE_FOTOS.test(mdNorm) && (!cmNorm || NON_WOOD_MATERIAL_ONLY_RE_FOTOS.test(cmNorm))) {
+            return null;
+        }
+        if (/^(?:LACA\s+)?(?:NEGR[OA]|BLANC[OA])$/i.test(cmNorm) && /\b(?:PATA(?:S)?\s+NEGR[OA]S?|LACA\s+(?:NEGR[OA]|BLANC[OA]))\b/i.test(nameTok) && !visibleWoodInNameRe.test(nameTok)) {
+            return null;
+        }
+
         const map = visualState.overridesMap || {};
         const woodEntries = [];
         const seenKeys = new Set();
-        const addWoodEntry = (k, ovr) => {
+        const addWoodEntry = (k, ovr, isDefault) => {
             if (!k || seenKeys.has(k)) return;
             if (!ovr || ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO') return;
             const rawUrl = cleanStr(ovr.note);
             if (!rawUrl || (!/^https?:\/\//i.test(rawUrl) && !/^data:image\//i.test(rawUrl))) return;
             const label = cleanStr(ovr.name || k.slice(5)).toUpperCase();
-            const tokens = plainVisToken(label).replace(/\b(?:TEKA|TEAK)\b/g, 'TECA').split(' ').filter((w) => w.length >= 2);
-            if (!tokens.length) return;
+            const normName = normalizeWoodCanonicalTextFotos(label);
+            const tokens = normName.split(/\s+/).filter((w) => w.length >= 2);
+            if (!normName || !tokens.length) return;
             seenKeys.add(k);
-            woodEntries.push({ overrideKey: k, label: label, url: rawUrl, plain: tokens.join(' '), tokens: tokens, tokenSet: new Set(tokens) });
+            woodEntries.push({
+                overrideKey: k,
+                label: label,
+                url: rawUrl,
+                normName: normName,
+                tokens: tokens,
+                tokenSet: new Set(tokens),
+                sortedSig: tokens.slice().sort().join(' '),
+                isDefault: !!isDefault
+            });
         };
         Object.keys(map).forEach((rk) => {
             const k = String(rk || '').trim().toUpperCase();
-            if (k.indexOf('VWOD:') === 0) addWoodEntry(k, map[rk]);
+            if (k.indexOf('VWOD:') === 0) addWoodEntry(k, map[rk], false);
         });
         Object.keys(DEFAULT_WOOD_SWATCHES_FOTOS).forEach((dk) => {
             const ovr = Object.prototype.hasOwnProperty.call(map, dk) ? map[dk] : null;
             if (ovr && (ovr.status === 'ELIMINADO' || ovr.status === 'ARCHIVADO')) return;
-            addWoodEntry(dk, (ovr && cleanStr(ovr.note)) ? ovr : DEFAULT_WOOD_SWATCHES_FOTOS[dk]);
+            addWoodEntry(dk, (ovr && cleanStr(ovr.note)) ? ovr : DEFAULT_WOOD_SWATCHES_FOTOS[dk], !ovr);
         });
         if (!woodEntries.length) return null;
+        woodEntries.sort((a, b) => (a.isDefault === b.isDefault ? 0 : (a.isDefault ? 1 : -1)) || (b.tokens.length - a.tokens.length) || a.label.localeCompare(b.label));
+
+        const provAliases = expandWoodProviderAliasesFotos(prov);
+        const provNorm = plainVisToken(prov);
+
+        const matchCandidate = (rawCand) => {
+            const cleanRaw = cleanStr(rawCand);
+            if (!cleanRaw || NON_WOOD_MATERIAL_ONLY_RE_FOTOS.test(plainVisToken(cleanRaw))) return null;
+            const normCand = normalizeWoodCanonicalTextFotos(cleanRaw);
+            if (!normCand || normCand === 'ESTANDAR' || normCand === 'MADERA' || normCand === 'NATURAL' || normCand === 'TONO NATURAL') return null;
+
+            const directTries = [];
+            if (provNorm && normCand.indexOf(provNorm) === -1) directTries.push(normCand + ' ' + provNorm);
+            directTries.push(cleanRaw, normCand);
+            for (let d = 0; d < directTries.length; d++) {
+                const dk = compactVisualOverrideKeyFotos('VWOD:', directTries[d]);
+                const exact = woodEntries.find((e) => e.overrideKey === dk);
+                if (exact) return exact;
+            }
+
+            const candTokens = normCand.split(/\s+/).filter((t) => t.length >= 2);
+            const coreCandTokens = candTokens.filter((t) => !WOOD_FILLER_TOKENS_FOTOS.has(t));
+            if (!coreCandTokens.length) return null;
+            const nonProvCore = coreCandTokens.filter((t) => !provAliases.includes(t) && !WOOD_PROVIDER_RE_FOTOS.test(t));
+            if (!nonProvCore.length || nonProvCore.every((t) => WOOD_MODIFIER_ONLY_TOKENS_FOTOS.has(t))) return null;
+
+            const candSet = new Set(candTokens);
+            const candSortedSig = candTokens.slice().sort().join(' ');
+            const candWantsSpecial = candTokens.some((t) => WOOD_SPECIAL_FINISH_TOKENS_FOTOS.has(t));
+
+            for (let i = 0; i < woodEntries.length; i++) {
+                const e = woodEntries[i];
+                if (e.normName === normCand || e.sortedSig === candSortedSig) return e;
+            }
+
+            const subsetOfCand = woodEntries.filter((e) => e.tokens.every((tok) => candSet.has(tok)));
+            if (subsetOfCand.length) {
+                subsetOfCand.sort((a, b) => {
+                    const aProv = provAliases.some((p) => a.tokenSet.has(p)) ? 0 : 1;
+                    const bProv = provAliases.some((p) => b.tokenSet.has(p)) ? 0 : 1;
+                    if (aProv !== bProv) return aProv - bProv;
+                    return b.tokens.length - a.tokens.length;
+                });
+                return subsetOfCand[0];
+            }
+
+            const matchingEntries = woodEntries.filter((e) => coreCandTokens.every((tok) => e.tokenSet.has(tok)));
+            if (matchingEntries.length) {
+                matchingEntries.sort((a, b) => {
+                    const aProv = provAliases.length && provAliases.some((p) => a.tokenSet.has(p)) ? 0 : 1;
+                    const bProv = provAliases.length && provAliases.some((p) => b.tokenSet.has(p)) ? 0 : 1;
+                    if (aProv !== bProv) return aProv - bProv;
+                    const aSpec = (!candWantsSpecial && a.tokens.some((t) => WOOD_SPECIAL_FINISH_TOKENS_FOTOS.has(t))) ? 1 : 0;
+                    const bSpec = (!candWantsSpecial && b.tokens.some((t) => WOOD_SPECIAL_FINISH_TOKENS_FOTOS.has(t))) ? 1 : 0;
+                    if (aSpec !== bSpec) return aSpec - bSpec;
+                    return (a.isDefault === b.isDefault ? 0 : (a.isDefault ? 1 : -1)) || (a.tokens.length - b.tokens.length);
+                });
+                return matchingEntries[0];
+            }
+
+            if (coreCandTokens.length >= 2) {
+                const speciesOnly = coreCandTokens.filter((t) => !provAliases.includes(t) && !WOOD_PROVIDER_RE_FOTOS.test(t));
+                if (speciesOnly.length > 0 && speciesOnly.length < coreCandTokens.length) {
+                    return matchCandidate(speciesOnly.join(' '));
+                }
+            }
+            return null;
+        };
 
         const cands = [];
-        const pushCand = (v) => {
-            const s = cleanStr(v);
-            if (s && !/^(PINO|PINO\s+ESTUFADO|MDF|TRIPLAY|CONTRACHAPADO|AGLOMERADO)$/i.test(plainVisToken(s)) && cands.indexOf(s) === -1) cands.push(s);
-        };
-        if (prod.md && prod.cm) pushCand(prod.md + ' ' + prod.cm);
-        if (prod.cm) pushCand(prod.cm);
-        if (prod.md) pushCand(prod.md);
-        if (prod.variante) String(prod.variante).split(/\s*[·|\/]\s*/).forEach((p) => { if (isPureWoodDescriptorFotos(p)) pushCand(p); });
-        if (prod.acabado) String(prod.acabado).split(/\s*[·|\/]\s*/).forEach((p) => { if (isPureWoodDescriptorFotos(p)) pushCand(p); });
-        if (!cands.length) return null;
-
-        const filler = new Set(['MADERA', 'DE', 'EN', 'CON', 'TONO', 'NATURAL', 'ACABADO', 'SOLIDA', 'SOLIDO', 'CHAPA', 'LAMINADO']);
-        const modOnly = new Set(['CLARO', 'CLARA', 'OSCURO', 'OSCURA', 'ENTINTADO', 'ENTINTADA', 'ACEITE', 'WHITE', 'BLANCO', 'BLANCA', 'NEGRO', 'NEGRA', 'GRIS', 'BEIGE', 'CAFE', 'LACA', 'MATTE', 'MATE', 'BARNIZ', 'CARDEADO', 'BLANQUEADO']);
-        for (let i = 0; i < cands.length; i++) {
-            const k = compactVisualOverrideKeyFotos('VWOD:', cands[i]);
-            const exact = woodEntries.find((e) => e.overrideKey === k);
-            if (exact) return exact;
+        const mdOk = Boolean(md && !NON_WOOD_MATERIAL_ONLY_RE_FOTOS.test(mdNorm));
+        const cmOk = Boolean(cm && !NON_WOOD_MATERIAL_ONLY_RE_FOTOS.test(cmNorm));
+        if (mdOk && cmOk && cmNorm.indexOf(mdNorm) === -1) {
+            if (provNorm && (mdNorm + ' ' + cmNorm).indexOf(provNorm) === -1) cands.push(md + ' ' + cm + ' ' + prov);
+            cands.push(md + ' ' + cm);
         }
+        if (cmOk) {
+            if (provNorm && cmNorm.indexOf(provNorm) === -1) cands.push(cm + ' ' + prov);
+            cands.push(cm);
+        }
+        if (mdOk) {
+            if (provNorm && mdNorm.indexOf(provNorm) === -1) cands.push(md + ' ' + prov);
+            cands.push(md);
+        }
+        if (prod.variante) String(prod.variante).split(/\s*[·|\/]\s*/).forEach((p) => { if (isPureWoodDescriptorFotos(p)) cands.push(p); });
+        if (prod.acabado) String(prod.acabado).split(/\s*[·|\/]\s*/).forEach((p) => { if (isPureWoodDescriptorFotos(p)) cands.push(p); });
+
+        const tried = new Set();
         for (let i = 0; i < cands.length; i++) {
-            const cToks = plainVisToken(cands[i]).replace(/\b(?:TEKA|TEAK)\b/g, 'TECA').split(' ').filter((w) => w.length >= 2 && !filler.has(w));
-            if (!cToks.length || cToks.every((t) => modOnly.has(t))) continue;
-            const cSet = new Set(cToks);
-            const sub = woodEntries.find((e) => e.tokens.every((t) => cSet.has(t)));
-            if (sub) return sub;
-            const sup = woodEntries.find((e) => cToks.every((t) => e.tokenSet.has(t)));
-            if (sup) return sup;
+            const c = cleanStr(cands[i]);
+            if (!c || tried.has(c)) continue;
+            tried.add(c);
+            const hit = matchCandidate(c);
+            if (hit && hit.url) return hit;
+        }
+
+        if (!md && !cm && nameTok) {
+            const spMatch = nameTok.match(/\b(ROSA\s+MORADA|PALO\s+DE\s+ROSA|PAROTA|TZALAM|NOGAL|TECA|TEKA|TEAK|ENCINO|ROBLE)\b/i);
+            if (spMatch && spMatch[1]) {
+                const hit = matchCandidate(spMatch[1]);
+                if (hit && hit.url) return hit;
+            }
         }
         return null;
     }
@@ -8453,7 +8675,7 @@
                 : ('<span aria-hidden="true">' + (isFabric ? '🧵' : (isWood ? '🪵' : '🖼️')) + '</span>');
 
             return (
-                '<button type="button" class="visual-target-item' + (active ? ' active' : '') + '" data-visual-key="' + escapeHtml(ovKey) + '" onclick="selectVisualTarget(\'' + escapeHtml(ovKey.replace(/'/g, "\\'")) + '\')">' +
+                '<button type="button" class="visual-target-item' + (active ? ' active' : '') + '" data-visual-key="' + escapeHtml(ovKey) + '" data-fotos-act="select-visual">' +
                     '<div class="visual-target-thumb' + (isSwatch ? '' : ' is-cover') + '">' + thumbInner + '</div>' +
                     '<div class="visual-target-info">' +
                         '<div class="visual-target-title">' + escapeHtml(title) + '</div>' +
@@ -8552,7 +8774,7 @@
                     '<img src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(curFid) + '" onerror="handlePhotoImgError(this)" ' +
                     'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
-                    'onclick="openPhotoLightbox(\'' + escapeHtml(curThumb.replace(/'/g, "\\'")) + '\')">';
+                    'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(curThumb) + '">';
             } else {
                 if (badgeEl) badgeEl.textContent = 'Sin foto';
                 curCanvas.innerHTML = '<div class="photo-empty-placeholder">Toca o arrastra</div>';

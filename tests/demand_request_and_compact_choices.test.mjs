@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 
 test('UI & CSS contracts: opposite-side Sin stock / Solicitar button, modal fields, and 50% compact choice cards (Color/Tela & Bed Size)', () => {
   const html = fs.readFileSync('inventario.html', 'utf8');
@@ -157,12 +158,8 @@ test('GAS backend: inv_register_demand_request saves auto-filled SKU, model, qty
       DigestAlgorithm: { SHA_256: 'SHA_256' },
       Charset: { UTF_8: 'UTF_8' },
       formatDate: (_d, _tz, fmt) => (fmt === 'yyyyMMdd' ? '20261121' : '21/11/2026 17:30:00'),
-      computeHmacSha256Signature: (msg, sec) => {
-        const out = [];
-        const s = String(msg) + '|' + String(sec);
-        for (let i = 0; i < 32; i++) out.push((s.charCodeAt(i % s.length) * (i + 7)) % 127);
-        return out;
-      },
+      computeDigest: (_alg, val) => Array.from(crypto.createHash('sha256').update(String(val || ''), 'utf8').digest()),
+      computeHmacSha256Signature: (msg, sec) => Array.from(crypto.createHmac('sha256', String(sec || '')).update(String(msg || ''), 'utf8').digest()),
       base64EncodeWebSafe: (input) => typeof input === 'string'
         ? Buffer.from(input, 'utf8').toString('base64url')
         : Buffer.from((input || []).map((b) => (b < 0 ? b + 256 : b))).toString('base64url'),
@@ -341,12 +338,8 @@ test('GAS _INV_PRODUCT_OVERRIDES hardening: rejects blob: URLs, filters legacy b
       DigestAlgorithm: { SHA_256: 'SHA_256' },
       Charset: { UTF_8: 'UTF_8' },
       formatDate: () => '23/11/2026 12:00:00',
-      computeHmacSha256Signature: (msg, sec) => {
-        const out = [];
-        const s = String(msg) + '|' + String(sec);
-        for (let i = 0; i < 32; i++) out.push((s.charCodeAt(i % s.length) * (i + 13)) % 127);
-        return out;
-      },
+      computeDigest: (_alg, val) => Array.from(crypto.createHash('sha256').update(String(val || ''), 'utf8').digest()),
+      computeHmacSha256Signature: (msg, sec) => Array.from(crypto.createHmac('sha256', String(sec || '')).update(String(msg || ''), 'utf8').digest()),
       base64EncodeWebSafe: (input) => typeof input === 'string'
         ? Buffer.from(input, 'utf8').toString('base64url')
         : Buffer.from((input || []).map((b) => (b < 0 ? b + 256 : b))).toString('base64url'),
@@ -370,13 +363,25 @@ test('GAS _INV_PRODUCT_OVERRIDES hardening: rejects blob: URLs, filters legacy b
         remove: (k) => { scriptCache.delete(k); }
       })
     },
-    LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {} }) },
     DriveApp: {
       Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK', ANYONE: 'ANYONE', PRIVATE: 'PRIVATE' },
       Permission: { VIEW: 'VIEW' },
       getFileById: (id) => ({
         getId: () => id,
-        getParents: () => ({ hasNext: () => false }),
+        getParents: () => {
+          const parentIds = id === '1DylNeC6YzY6jxPtyP6o0EtFqzF_bynM4'
+            ? ['1iSJztVhhrNvopTdX5sDcLSolhSnK_VAy']
+            : ['external_unrelated_private_folder_999'];
+          let idx = 0;
+          return {
+            hasNext: () => idx < parentIds.length,
+            next: () => {
+              const pid = parentIds[idx++];
+              return { getId: () => pid, getParents: () => ({ hasNext: () => false }) };
+            }
+          };
+        },
         getSharingAccess: () => 'PRIVATE',
         setSharing: (acc, perm) => { sharedCalls.push({ id, acc, perm }); }
       })
@@ -412,7 +417,7 @@ test('GAS _INV_PRODUCT_OVERRIDES hardening: rejects blob: URLs, filters legacy b
   });
   assert.equal(blobSave.ok, false, 'Saving blob: URL to VFAB override must be rejected');
 
-  // 3) Saving a valid Drive URL automatically enforces public sharing on that Drive file
+  // 3) Saving a valid Drive URL inside an allowed catalog/telas folder automatically enforces public sharing
   const goodSave = ctx.handleInvProductOverrideSave_({
     authToken: tok,
     advisorEmail: 'kevin.reyna@grupoanipa.com',
@@ -425,6 +430,23 @@ test('GAS _INV_PRODUCT_OVERRIDES hardening: rejects blob: URLs, filters legacy b
   assert.equal(goodSave.ok, true);
   assert.ok(
     sharedCalls.some((c) => c.id === '1DylNeC6YzY6jxPtyP6o0EtFqzF_bynM4' && c.acc === 'ANYONE_WITH_LINK' && c.perm === 'VIEW'),
-    'handleInvProductOverrideSave_ must auto-share Drive files saved into _INV_PRODUCT_OVERRIDES'
+    'handleInvProductOverrideSave_ must auto-share Drive files inside allowed folders'
+  );
+
+  // 4) P1-19: Saving an external private Drive file outside allowed folders must NOT auto-share it publicly
+  const extSave = ctx.handleInvProductOverrideSave_({
+    authToken: tok,
+    advisorEmail: 'kevin.reyna@grupoanipa.com',
+    sku: 'VFAB:EXTERNAL TEST',
+    op: 'SAVE',
+    name: 'EXTERNAL TEST',
+    category: 'FABRIC_SWATCH',
+    note: 'https://drive.google.com/file/d/9PrivateExternalFileId12345678/view?usp=sharing'
+  });
+  assert.equal(extSave.ok, true);
+  assert.equal(
+    sharedCalls.some((c) => c.id === '9PrivateExternalFileId12345678'),
+    false,
+    'handleInvProductOverrideSave_ must NEVER auto-share Drive files outside allowed folders (P1-19)'
   );
 });

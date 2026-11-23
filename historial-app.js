@@ -277,12 +277,12 @@
       correo,
       nombre: cleanStr(s.nombre) || correo,
       puesto,
-      sheetTab: cleanStr(s.sheetTab || s.sheet_tab) || (isAdmin ? 'CUENTAS ADMINISTRATIVAS' : (primaryB || 'PROYECTOS')),
+      sheetTab: cleanStr(s.sheetTab || s.sheet_tab) || (isAdmin ? 'CUENTAS ADMINISTRATIVAS' : (primaryB || '')),
       erpStore: cleanStr(s.erpStore || s.branchLabel || s.sheetTab || primaryB || ''),
       branchLabel: cleanStr(s.branchLabel || s.sucursal_label) || primaryB || 'Todas',
       branches,
       authToken: cleanStr(s.authToken || ''),
-      accessKey: cleanStr(s.accessKey || ''),
+      accessKey: '',
       isAdmin,
       isManager,
       adminPermissions: (s.adminPermissions && typeof s.adminPermissions === 'object') ? s.adminPermissions : null,
@@ -300,7 +300,7 @@
     const recBranch = rec.tiendaErp || rec.hojaUbicacion || rec.sucursal || '';
 
     if (sess.isManager) {
-      if (!sess.branches.length) return true;
+      if (!sess.branches.length) return false;
       return sess.branches.some(b => branchesMatch(b, recBranch));
     }
 
@@ -448,102 +448,29 @@
     return fetchSheetViaJsonp(sheetName, rangeStr, targetSheetId);
   }
 
-  async function callWebAppGetPresence(targetUrl, payloadObj, timeoutMs) {
-    const p = payloadObj || {};
-    const qs = new URLSearchParams();
-    qs.set('action', 'inv_presence_list');
-    if (cleanStr(p.authToken)) qs.set('authToken', cleanStr(p.authToken));
-    if (cleanStr(p.advisorEmail)) qs.set('advisorEmail', cleanStr(p.advisorEmail));
-    if (cleanStr(p.sheetTab)) qs.set('sheetTab', cleanStr(p.sheetTab));
-    if (cleanStr(p.accessKey)) qs.set('accessKey', cleanStr(p.accessKey));
-    const sep = targetUrl.indexOf('?') === -1 ? '?' : '&';
-    const fullUrl = targetUrl + sep + qs.toString();
+  async function callWebAppPost(action, payloadObj, timeoutMs) {
+    // P0-02 / P1-20: usar siempre POST contra CANONICAL_WEBAPP_URL (nunca GET con authToken/accessKey en query string)
+    const targetUrl = CANONICAL_WEBAPP_URL;
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 15000) : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
     try {
-      const resp = await fetch(fullUrl, {
-        method: 'GET',
-        cache: 'no-store',
+      const resp = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign({}, payloadObj || {}, { action })),
         signal: controller ? controller.signal : undefined
       });
       if (!resp || !resp.ok) return { ok: false, unavailable: true };
-      return (await resp.json()) || { ok: false, unavailable: true };
+      const json = await resp.json();
+      if (json && !json.ok && /PIN de administrador|Acci[óo]n no reconocida/i.test(String(json.error || ''))) {
+        return { ok: false, needsRedeploy: true, error: json.error };
+      }
+      return json || { ok: false, unavailable: true };
     } catch (err) {
       return { ok: false, unavailable: true };
     } finally {
       if (timer) clearTimeout(timer);
     }
-  }
-
-  async function callWebAppPost(action, payloadObj, timeoutMs) {
-    const cfgUrl = (global.CREATA_CLOUD_CONFIG && typeof global.CREATA_CLOUD_CONFIG.getApiUrl === 'function')
-      ? cleanStr(global.CREATA_CLOUD_CONFIG.getApiUrl())
-      : '';
-    const primaryUrl = cfgUrl || CANONICAL_WEBAPP_URL;
-
-    const postOnce = async (targetUrl) => {
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
-      try {
-        const resp = await fetch(targetUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(Object.assign({}, payloadObj || {}, { action })),
-          signal: controller ? controller.signal : undefined
-        });
-        if (!resp || !resp.ok) return { ok: false, unavailable: true };
-        const json = await resp.json();
-        if (json && !json.ok && /PIN de administrador|Acci[óo]n no reconocida/i.test(String(json.error || ''))) {
-          return { ok: false, needsRedeploy: true, error: json.error };
-        }
-        return json || { ok: false, unavailable: true };
-      } catch (err) {
-        return { ok: false, unavailable: true };
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-    };
-
-    let res = await postOnce(primaryUrl);
-    if (
-      CANONICAL_WEBAPP_URL &&
-      primaryUrl !== CANONICAL_WEBAPP_URL &&
-      (!res || res.unavailable || res.needsRedeploy)
-    ) {
-      const fallbackRes = await postOnce(CANONICAL_WEBAPP_URL);
-      if (fallbackRes && !fallbackRes.unavailable && !fallbackRes.needsRedeploy) {
-        if (fallbackRes.ok) {
-          try {
-            if (global.CREATA_CLOUD_CONFIG && typeof global.CREATA_CLOUD_CONFIG.setApiUrl === 'function') {
-              global.CREATA_CLOUD_CONFIG.setApiUrl('');
-            }
-          } catch (e) {}
-        }
-        return fallbackRes;
-      }
-      res = fallbackRes || res;
-    }
-
-    if (action === 'inv_presence_list' && (!res || res.unavailable || res.needsRedeploy)) {
-      const getUrl = CANONICAL_WEBAPP_URL || primaryUrl;
-      const getRes = await callWebAppGetPresence(getUrl, payloadObj, timeoutMs || 15000);
-      if (getRes && !getRes.unavailable) {
-        if (getRes.ok && primaryUrl !== CANONICAL_WEBAPP_URL) {
-          try {
-            if (global.CREATA_CLOUD_CONFIG && typeof global.CREATA_CLOUD_CONFIG.setApiUrl === 'function') {
-              global.CREATA_CLOUD_CONFIG.setApiUrl('');
-            }
-          } catch (e) {}
-        }
-        return getRes;
-      }
-      if (primaryUrl && primaryUrl !== getUrl) {
-        const getResPrimary = await callWebAppGetPresence(primaryUrl, payloadObj, timeoutMs || 15000);
-        if (getResPrimary && !getResPrimary.unavailable) return getResPrimary;
-      }
-    }
-
-    return res;
   }
 
   // ============================================================================
@@ -1293,7 +1220,7 @@
     const rawSuc = cleanStr(rawUser.sucursal || '');
     const rawEmail = normalizeEmail(rawUser.correo || '');
     if (sess.isManager) {
-      if (!sess.branches.length) return true;
+      if (!sess.branches.length) return false;
       return sess.branches.some(b => branchesMatch(b, rawSuc));
     }
     // Advisor: own record or own canonical branch only (no cross-branch leak)
@@ -1312,8 +1239,11 @@
         return;
       }
       state.presenceUsers = [];
+      state.presenceGuests = [];
       state.presenceOnlineCount = 0;
       state.presenceOfflineCount = 0;
+      state.presenceGuestOnlineCount = 0;
+      state.presenceGuestOfflineCount = 0;
       state.presenceServerTimeMs = 0;
       return;
     }
@@ -1440,19 +1370,30 @@
 
     try {
       const isAdmin = state.session.isAdmin;
+      const segAuthToken = cleanStr(state.session.authToken || '');
+      const segStateJob = segAuthToken
+        ? callWebAppPost('seg_get_state', {
+            authToken: segAuthToken,
+            advisorEmail: state.session.correo,
+            sheetTab: state.session.sheetTab || (isAdmin ? 'CUENTAS ADMINISTRATIVAS' : ''),
+            includeInventory: false
+          }, 18000).catch(() => null)
+        : Promise.resolve(null);
+
       const jobs = [
         fetchSheetRows('COTIZACIONES_EN_VIVO', 'A1:Z1500', SHEET_ID),
-        isAdmin ? fetchSheetRows('HISTORIAL', 'A1:J600', SHEET_ID) : Promise.resolve(null),
-        fetchSheetRows('CIERRES_COTIZACIONES', 'A1:L1000', SEG_SHEET_ID),
-        fetchSheetRows('HISTORIAL_MOVIMIENTOS', 'A1:I1000', SEG_SHEET_ID),
-        fetchSheetRows('COTIZACIONES_CREATA', 'A1:AA2000', SEG_SHEET_ID),
+        isAdmin ? fetchSheetRows('HISTORIAL', 'A:J', SHEET_ID) : Promise.resolve(null),
+        segStateJob,
         isAdmin ? fetchSheetRows('FOTOS NUEVAS CARGADO', 'A1:J500', SHEET_ID) : Promise.resolve(null),
-        isAdmin ? fetchSheetRows('INVENTARIO_EN_VIVO', 'AU1:AZ3', SHEET_ID) : Promise.resolve(null),
         fetchPresenceList()
       ];
 
-      const [quotesRaw, histRaw, cierresRaw, histMovRaw, cotCreataRaw, photosRaw, invStatusRaw, presenceRes] = await Promise.all(jobs);
+      const [quotesRaw, histRaw, segStateRes, photosRaw, presenceRes] = await Promise.all(jobs);
       if (!mounted || seq !== _histSyncSeq) return;
+
+      const cierresRaw = (segStateRes && segStateRes.ok && Array.isArray(segStateRes.cierresRows)) ? segStateRes.cierresRows : null;
+      const histMovRaw = (segStateRes && segStateRes.ok && Array.isArray(segStateRes.histMovRows)) ? segStateRes.histMovRows : null;
+      const cotCreataRaw = (segStateRes && segStateRes.ok && Array.isArray(segStateRes.cotCreataRows)) ? segStateRes.cotCreataRows : null;
 
       const parsedHist = Array.isArray(histRaw) ? parseHistorialSheetRows(histRaw) : [];
       const baseQuotes = Array.isArray(quotesRaw) ? parseQuotesSheetRows(quotesRaw) : [];
@@ -1468,14 +1409,6 @@
       if (isAdmin) {
         const basePhotos = Array.isArray(photosRaw) ? parsePhotosSheetRows(photosRaw) : [];
         state.photoRows = mergeDrivePhotosFromHistorial(basePhotos, parsedHist);
-        if (Array.isArray(invStatusRaw) && invStatusRaw.length >= 2) {
-          const hdrRow = invStatusRaw[0] || [];
-          const tsCol = hdrRow.findIndex(h => /ULTIMA\s+ACTUALIZACION/i.test(cleanStr(h)));
-          const cellVal = tsCol >= 0
-            ? cleanStr((invStatusRaw[1] && invStatusRaw[1][tsCol]) || (invStatusRaw[2] && invStatusRaw[2][tsCol]))
-            : '';
-          if (cellVal) state.erpLiveCellText = cellVal;
-        }
       } else {
         state.photoRows = [];
       }
@@ -1896,7 +1829,7 @@
   function renderPresencePanel() {
     const panelEl = $('hist_presencePanel');
     const canViewPresence = !(state.session && state.session.isAdmin && state.session.adminPermissions && state.session.adminPermissions.equipoInvitados === false);
-    if (panelEl) panelEl.classList.toggle('hidden', !canViewPresence);
+    if (panelEl) panelEl.classList.toggle('cm-hidden', !canViewPresence);
     if (!canViewPresence) return;
     const onlineEl = $('hist_presenceOnlineCount');
     const offlineEl = $('hist_presenceOfflineCount');
@@ -1922,7 +1855,7 @@
       let emptyMsg = 'Sin registros.';
       if (!state.presenceUsers.length && !(state.presenceGuests && state.presenceGuests.length)) {
         if (state.presenceError === 'no_token' || state.presenceError === 'auth_failed') {
-          emptyMsg = 'Tu sesión en este dispositivo no tiene token de presencia activo. Toca SALIR arriba y vuelve a iniciar sesión para ver quién está conectado.';
+          emptyMsg = 'Tu sesión en este dispositivo no tiene token de presencia activo. Toca Salir en el menú + y vuelve a iniciar sesión para ver quién está conectado.';
         } else if (state.presenceError === 'unavailable') {
           emptyMsg = 'No se pudo consultar el equipo en vivo. Toca ↻ para reintentar.';
         }
@@ -2297,9 +2230,7 @@
     try {
       const res = await callWebAppPost('inv_download_erp_quote_pdf', {
         authToken: state.session.authToken || '',
-        accessKey: state.session.accessKey || '',
-        advisorKey: state.session.accessKey || '',
-        sheetTab: state.session.sheetTab || 'PROYECTOS',
+        sheetTab: state.session.sheetTab || 'CUENTAS ADMINISTRATIVAS',
         advisorEmail: state.session.correo,
         quoteId: cleanStr(q.idErp),
         folio: (!/^(SIN FOLIO|EN PROCESO|PENDIENTE)$/i.test(cleanStr(q.folioErp))) ? cleanStr(q.folioErp) : '',
@@ -2497,7 +2428,8 @@
     }
 
     const esc = (v) => {
-      const s = String(v === null || v === undefined ? '' : v);
+      let s = String(v === null || v === undefined ? '' : v);
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
       return /[",\n\r]/.test(s) ? ('"' + s.replace(/"/g, '""') + '"') : s;
     };
 
@@ -2875,8 +2807,11 @@
     state.historialRows = [];
     state.photoRows = [];
     state.presenceUsers = [];
+    state.presenceGuests = [];
     state.presenceOnlineCount = 0;
     state.presenceOfflineCount = 0;
+    state.presenceGuestOnlineCount = 0;
+    state.presenceGuestOfflineCount = 0;
     state.presenceServerTimeMs = 0;
     state.erpLiveCellText = '';
     state.openModal = null;

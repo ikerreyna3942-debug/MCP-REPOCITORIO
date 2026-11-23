@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 
 function makeIterator(items) {
   let idx = 0;
@@ -284,21 +285,54 @@ export function createMockGasEnvironment(options = {}) {
             return rangeApi;
           },
           setNumberFormat: () => rangeApi,
+          setHorizontalAlignment: () => rangeApi,
           setFontWeight: () => rangeApi,
           setBackground: () => rangeApi,
           setFontColor: () => rangeApi
         };
         return rangeApi;
+      },
+      insertColumnsAfter: (afterPos, howMany) => {
+        ensureSize(grid.length || 1, afterPos + howMany);
+      },
+      deleteRow: (rowNum) => {
+        if (rowNum >= 1 && rowNum <= grid.length) grid.splice(rowNum - 1, 1);
+      },
+      appendRow: (rowVals) => {
+        const arr = Array.isArray(rowVals) ? rowVals.slice() : [rowVals];
+        const nextRow = api.getLastRow() + 1;
+        ensureSize(nextRow, Math.max(maxCols, arr.length));
+        for (let c = 0; c < arr.length; c++) {
+          grid[nextRow - 1][c] = arr[c];
+        }
+        writeLog.push({ row: nextRow, col: 1, numRows: 1, numCols: arr.length, values: [arr] });
+        return api;
+      },
+      setName: (newName) => {
+        const oldName = api._currentName || name;
+        api._currentName = newName;
+        if (api._parentSs && api._parentSs._sheets) {
+          api._parentSs._sheets.delete(oldName);
+          api._parentSs._sheets.set(newName, api);
+        }
+        return api;
+      },
+      copyTo: (targetSs) => {
+        const clonedRows = grid.map((r) => r.slice());
+        const copyName = 'Copy of ' + (api._currentName || name);
+        const copied = makeSheet(copyName, clonedRows);
+        copied._parentSs = targetSs;
+        if (targetSs && targetSs._sheets) targetSs._sheets.set(copyName, copied);
+        return copied;
       }
     };
+    api._currentName = name;
+    api.getName = () => api._currentName;
     return api;
   }
 
   function makeSpreadsheet(id, name, sheetsMap = {}) {
     const sheets = new Map();
-    for (const [tabName, rows] of Object.entries(sheetsMap)) {
-      sheets.set(tabName, makeSheet(tabName, rows));
-    }
     const ssApi = {
       _sheets: sheets,
       getId: () => id,
@@ -307,10 +341,19 @@ export function createMockGasEnvironment(options = {}) {
       getSheets: () => Array.from(sheets.values()),
       insertSheet: (tabName) => {
         const sh = makeSheet(tabName, []);
+        sh._parentSs = ssApi;
         sheets.set(tabName, sh);
         return sh;
+      },
+      deleteSheet: (sh) => {
+        if (sh && typeof sh.getName === 'function') sheets.delete(sh.getName());
       }
     };
+    for (const [tabName, rows] of Object.entries(sheetsMap)) {
+      const sh = makeSheet(tabName, rows);
+      sh._parentSs = ssApi;
+      sheets.set(tabName, sh);
+    }
     spreadsheetsById.set(id, ssApi);
     return ssApi;
   }
@@ -406,6 +449,7 @@ export function createMockGasEnvironment(options = {}) {
     },
     LockService: {
       getScriptLock: () => ({
+        tryLock: (ms) => { lockEvents.push({ type: 'tryAcquire', ms }); return true; },
         waitLock: (ms) => { lockEvents.push({ type: 'acquire', ms }); },
         releaseLock: () => { lockEvents.push({ type: 'release' }); }
       })
@@ -424,12 +468,15 @@ export function createMockGasEnvironment(options = {}) {
       }
     },
     Utilities: {
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { UTF_8: 'UTF_8' },
+      computeDigest: (_alg, val) => Array.from(crypto.createHash('sha256').update(String(val || ''), 'utf8').digest()),
       base64Decode: (b64) => Buffer.from(String(b64), 'base64'),
       base64Encode: (bytes) => Buffer.from(bytes).toString('base64'),
       base64DecodeWebSafe: (b64) => Buffer.from(String(b64).replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
       base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
-      computeHmacSha256Signature: (val, key) => Array.from(Buffer.from(String(val) + ':' + String(key)).subarray(0, 32)),
-      getUuid: () => 'mock-uuid-1234-5678',
+      computeHmacSha256Signature: (val, key) => Array.from(crypto.createHmac('sha256', String(key || '')).update(String(val || ''), 'utf8').digest()),
+      getUuid: () => crypto.randomUUID(),
       newBlob: (bytes, contentType, name) => {
         const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(typeof bytes === 'string' ? bytes : (bytes || []));
         return {

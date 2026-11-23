@@ -46,11 +46,11 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
 
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
   const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v26['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v26['"]/);
-  assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v5['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v27['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v27['"]/);
+  assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v6['"]/);
   assert.match(panelSwSrc, /panel-styles\.css\?v=6/);
-  assert.match(panelSwSrc, /panel-app\.js\?v=13/);
+  assert.match(panelSwSrc, /panel-app\.js\?v=14/);
   assert.match(panelSwSrc, /panel-manifest\.json\?v=2/);
 
   const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -64,9 +64,10 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
   }
 });
 
-test('robots.txt disallows /prompts.html, /*.gs, and /AppsScript_Prompts_Odoo.gs', () => {
+test('robots.txt disallows /*.gs, /AppsScript_Prompts_Odoo.gs, and internal apps without dead /suite/ or /prompts.html entries', () => {
   const robots = fs.readFileSync(path.join(REPO_ROOT, 'robots.txt'), 'utf8');
-  assert.match(robots, /^Disallow:\s*\/prompts\.html$/m);
+  assert.ok(!/^Disallow:\s*\/prompts\.html$/m.test(robots), 'Deleted /prompts.html entry removed from robots.txt (P3-10)');
+  assert.ok(!/^Disallow:\s*\/suite\//m.test(robots), 'Deleted /suite/ entry removed from robots.txt (P3-10)');
   assert.match(robots, /^Disallow:\s*\/\*\.gs$/m);
   assert.match(robots, /^Disallow:\s*\/AppsScript_Prompts_Odoo\.gs$/m);
 });
@@ -121,10 +122,10 @@ test('Static cross-project isolation invariants hold across Project A, Project B
     assert.equal(fs.existsSync(path.join(REPO_ROOT, deprecated)), false, `Removed deprecated file must not exist: ${deprecated}`);
   }
 
-  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=36
+  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=37
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
-  assert.match(fotosHtml, /fotos-productos-app\.js\?v=36/);
+  assert.match(fotosHtml, /fotos-productos-app\.js\?v=37/);
 });
 
 test('App #9 (Feature F8): Auto-acomodar por categoría button removed from fotos-productos.html while Guardar preserves automatic category folder resolution with zero dead DOM refs', () => {

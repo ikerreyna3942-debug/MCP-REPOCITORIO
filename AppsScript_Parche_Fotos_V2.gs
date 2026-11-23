@@ -65,7 +65,7 @@ function doPost(e) {
       return jsonResponse_(handleSegGetDelta_(body));
     }
     if (action === 'seg_sync_now') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
       try {
         const recentStamp = CacheService.getScriptCache().get('SEG_ERP_SYNC_COOLDOWN_V1');
@@ -89,8 +89,13 @@ function doPost(e) {
     }
     if (action === 'inv_guest_heartbeat') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_hb', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
-      return jsonResponse_(handleInvGuestHeartbeat_(body));
+      if (!gate.ok || !gate.tokenInfo || !gate.tokenInfo.email) return jsonResponse_({ ok: false });
+      const safeBody = Object.assign({}, body, {
+        authToken: extractAuthTokenFromRequest_(e, body),
+        email: gate.tokenInfo.email,
+        advisorEmail: gate.tokenInfo.email
+      });
+      return jsonResponse_(handleInvGuestHeartbeat_(safeBody));
     }
     if (action === 'inv_presence_heartbeat') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_pres_hb', maxHits: 60, windowSec: 60 });
@@ -196,9 +201,9 @@ function doPost(e) {
       }
     }
     if (action === 'inv_ensure_invitados') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
-      const shGuest = ensureInvitadosSheet_(getSpreadsheet_());
+      const shGuest = ensureInvitadosSheet_(typeof getAuthSpreadsheet_ === 'function' ? getAuthSpreadsheet_() : getSpreadsheet_());
       return jsonResponse_({ ok: true, sheetName: shGuest ? shGuest.getName() : 'INVITADOS' });
     }
     if (action === 'inv_update_key') {
@@ -234,8 +239,8 @@ function doPost(e) {
       return jsonResponse_(handleInvCreateErpClient_(body));
     }
     if (action === 'inv_upload_product_photo') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_photo', maxHits: 40, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_photo', maxHits: 40, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false, forbidden: true, error: 'Solo usuarios autorizados pueden subir fotografías.' });
       return jsonResponse_(handleInvUploadProductPhoto_(body));
     }
     if (action === 'inv_plantilla_status') {
@@ -254,20 +259,20 @@ function doPost(e) {
       return jsonResponse_(handleInvTopSearched_());
     }
     if (action === 'inv_ensure_precio_lista') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
       const resCol = asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true, force: true });
       return jsonResponse_(Object.assign({ ok: true }, resCol));
     }
     if (action === 'inv_erp_sync_now') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
       return jsonResponse_(Object.assign({ ok: true }, syncRes));
     }
     if (action === 'inv_autocomplete_sort') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
       const resAuto = autocompletarYOrdenarInventarioEnVivo_(getSpreadsheet_(), { silentUi: true, force: true });
       asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true });
@@ -328,9 +333,8 @@ function doPost(e) {
       return jsonResponse_(organizarCuentasYDescuentosEnHojas({ silentUi: true }));
     }
 
-    const adminPin = getProp_('ADMIN_PIN');
-    if (adminPin && String(body.pin || '') !== adminPin) {
-      return jsonResponse_({ ok: false, error: 'PIN de administrador incorrecto' });
+    if (!hasValidAdminPin_(body && body.pin)) {
+      return jsonResponse_({ ok: false, error: 'PIN de administrador incorrecto o no configurado' });
     }
 
     if (action === 'upload_photo') {
@@ -397,15 +401,6 @@ function safeSheetCellText_(raw, maxLen) {
 }
 
 function handleInvUploadProductPhoto_(body) {
-  const lockState = acquireScriptLockSafe_(25000);
-  if (!lockState.ok) {
-    return {
-      ok: false,
-      retryable: true,
-      error: 'El servidor está ocupado con otro proceso. Intenta subir la foto de nuevo en unos segundos.'
-    };
-  }
-  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const erpMeta = readErpAdvisorsFromPlantilla_(ss);
@@ -415,6 +410,23 @@ function handleInvUploadProductPhoto_(body) {
     }
     const verifiedUser = authCheck.advisor;
     const isGuestUploader = isGuestReadOnlyUser_(verifiedUser);
+    if (isGuestUploader) {
+      return {
+        ok: false,
+        forbidden: true,
+        error: 'Las cuentas de invitado son de solo lectura y no pueden subir fotografías.'
+      };
+    }
+    const canUploadPhoto = (typeof userHasEffectivePerm_ === 'function')
+      ? userHasEffectivePerm_(verifiedUser, 'subirFoto')
+      : !(verifiedUser && verifiedUser.adminPermissions && verifiedUser.adminPermissions.subirFoto === false);
+    if (!canUploadPhoto) {
+      return {
+        ok: false,
+        forbidden: true,
+        error: 'Tu cuenta tiene desactivado el permiso PUEDE_SUBIR_FOTO.'
+      };
+    }
 
     const skuUpper = String((body && body.sku) || '').trim().toUpperCase();
     const productName = String((body && body.productName) || skuUpper).trim();
@@ -430,11 +442,9 @@ function handleInvUploadProductPhoto_(body) {
 
     const ahoraStr = formatCancunNow_();
     const uploaderName = verifiedUser.nombre || verifiedUser.correo;
-    const roleStore = isGuestUploader
-      ? 'INVITADO · INVITADOS'
-      : [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'ASESOR'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
-          .filter(Boolean)
-          .join(' · ');
+    const roleStore = [verifiedUser.puesto || (verifiedUser.isAdmin ? 'ADMINISTRADOR' : 'ASESOR'), verifiedUser.erpStore || verifiedUser.sheetTab || '']
+      .filter(Boolean)
+      .join(' · ');
 
     const mime = m[1];
     const base64Body = m[2];
@@ -562,8 +572,6 @@ function handleInvUploadProductPhoto_(body) {
       ok: false,
       error: (errUp && errUp.message) ? errUp.message : String(errUp)
     };
-  } finally {
-    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
@@ -683,10 +691,22 @@ function ensurePublicSharingItem_(item) {
   return ensurePublicSharingWithStatus_(item).ok;
 }
 
+function getProjectAPublicFoldersCacheKey_() {
+  return (typeof PROJECT_A_PUBLIC_FOLDERS_CACHE_KEY_ !== 'undefined' && PROJECT_A_PUBLIC_FOLDERS_CACHE_KEY_)
+    ? String(PROJECT_A_PUBLIC_FOLDERS_CACHE_KEY_)
+    : 'CREATA_PROJ_A_PUBLIC_FOLDERS_V1';
+}
+
+function getProjectALoadedNamesCacheKey_() {
+  return (typeof PROJECT_A_LOADED_NAMES_CACHE_KEY_ !== 'undefined' && PROJECT_A_LOADED_NAMES_CACHE_KEY_)
+    ? String(PROJECT_A_LOADED_NAMES_CACHE_KEY_)
+    : 'CREATA_PROJ_A_LOADED_NAMES_V1';
+}
+
 function ensureProjectAPublicFolders_(forceNow) {
   try {
     if (!forceNow) {
-      const cached = CacheService.getScriptCache().get(PROJECT_A_PUBLIC_FOLDERS_CACHE_KEY_);
+      const cached = CacheService.getScriptCache().get(getProjectAPublicFoldersCacheKey_());
       if (cached === '1') return { ok: true, cached: true, updated: 0 };
     }
   } catch (eC) {}
@@ -731,7 +751,7 @@ function ensureProjectAPublicFolders_(forceNow) {
   }
 
   try {
-    CacheService.getScriptCache().put(PROJECT_A_PUBLIC_FOLDERS_CACHE_KEY_, '1', 600);
+    CacheService.getScriptCache().put(getProjectAPublicFoldersCacheKey_(), '1', 600);
   } catch (ePut) {}
   return { ok: true, cached: false, updated: updated };
 }
@@ -875,7 +895,7 @@ function cleanDuplicatesInSubirInbox_(movedFile, origName, shortcutFileId, resol
 function collectLoadedFileNamesMap_(forceRefresh) {
   try {
     if (!forceRefresh) {
-      const cached = CacheService.getScriptCache().get(PROJECT_A_LOADED_NAMES_CACHE_KEY_);
+      const cached = CacheService.getScriptCache().get(getProjectALoadedNamesCacheKey_());
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && typeof parsed === 'object') return parsed;
@@ -913,15 +933,16 @@ function collectLoadedFileNamesMap_(forceRefresh) {
 
   try {
     const serialized = JSON.stringify(map);
-    if (serialized.length < 95000) {
-      CacheService.getScriptCache().put(PROJECT_A_LOADED_NAMES_CACHE_KEY_, serialized, 300);
+    const byteLen = (typeof utf8ByteLength_ === 'function') ? utf8ByteLength_(serialized) : serialized.length;
+    if (byteLen < 95000) {
+      CacheService.getScriptCache().put(getProjectALoadedNamesCacheKey_(), serialized, 300);
     }
   } catch (ePut) {}
   return map;
 }
 
 function invalidateLoadedFileNamesCache_() {
-  try { CacheService.getScriptCache().remove(PROJECT_A_LOADED_NAMES_CACHE_KEY_); } catch (e) {}
+  try { CacheService.getScriptCache().remove(getProjectALoadedNamesCacheKey_()); } catch (e) {}
 }
 
 function resolveSubirInboxFolders_() {
@@ -1235,15 +1256,6 @@ function handleFotosSubirUploadInbox_(body) {
 }
 
 function handleFotosSubirAssign_(body) {
-  const lockState = acquireScriptLockSafe_(25000);
-  if (!lockState.ok) {
-    return {
-      ok: false,
-      retryable: true,
-      error: 'El servidor está ocupado con otro proceso. Intenta guardar la foto de nuevo en unos segundos.'
-    };
-  }
-  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const auth = verifyExclusiveKevinOwner_(ss, body);
@@ -1294,32 +1306,25 @@ function handleFotosSubirAssign_(body) {
     const destFolder = DriveApp.getFolderById(destMeta.id);
     ensurePublicSharingItem_(destFolder);
 
-    // Localizar fila(s) del SKU en la hoja "1" (respetando Fila 1 encabezados y Fila 2 ARRAYFORMULA)
-    const maxScanRows = Math.max(sh1.getLastRow(), 3);
-    const vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
-    const matchedRows = [];
-    let lastSkuRowInColA = 2; // Nunca escribir en fila 1 ni fila 2 (fórmulas maestras)
-    let sheetProductName = '';
-    let previousUrl = '';
+    // Lectura preliminar fuera de ScriptLock para detectar si el archivo ya está usado por otro SKU
+    let preSheetProductName = '';
     let isUsedByOtherSku = false;
-
-    for (let i = 2; i < vals1.length; i++) {
-      const rowNum = i + 1;
-      const cellSku = String(vals1[i][0] || '').trim().toUpperCase();
-      const cellUrl = String(vals1[i][3] || '').trim();
-      if (cellSku) {
-        lastSkuRowInColA = rowNum;
+    try {
+      const preScanRows = Math.max(sh1.getLastRow(), 3);
+      const preVals = sh1.getRange(1, 1, preScanRows, 4).getDisplayValues();
+      for (let i = 2; i < preVals.length; i++) {
+        const cellSku = String(preVals[i][0] || '').trim().toUpperCase();
+        const cellUrl = String(preVals[i][3] || '').trim();
+        if (!cellSku) continue;
         if (cellSku === skuUpper) {
-          matchedRows.push(rowNum);
-          if (!sheetProductName && vals1[i][1]) sheetProductName = String(vals1[i][1]).trim();
-          if (!previousUrl && cellUrl) previousUrl = cellUrl;
+          if (!preSheetProductName && preVals[i][1]) preSheetProductName = String(preVals[i][1]).trim();
         } else if (cellUrl && cellUrl.indexOf(driveFileId) !== -1) {
           isUsedByOtherSku = true;
         }
       }
-    }
+    } catch (ePreScan) {}
 
-    const effectiveName = sheetProductName || invMeta.nombre || providedName || skuUpper;
+    const effectiveName = preSheetProductName || invMeta.nombre || providedName || skuUpper;
 
     if (isForbiddenProjectBFolderId_(driveFileId)) {
       return {
@@ -1372,36 +1377,73 @@ function handleFotosSubirAssign_(body) {
     const finalFileName = String(file.getName() || preservedFileName).trim();
     const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
 
-    // Escribir URL en Columna D de la hoja "1" sin tocar jamás las fórmulas de Fila 2 (B2, C2, E2, F2)
+    // Adquirir ScriptLock corto ÚNICAMENTE para lectura/escritura atómica en Hoja "1" (sin bloquear Drive I/O)
     let primaryRowNumber = 0;
     let wasAppended = false;
-    if (matchedRows.length > 0) {
-      primaryRowNumber = matchedRows[0];
-      for (let m = 0; m < matchedRows.length; m++) {
-        sh1.getRange(matchedRows[m], 4).setValue(driveViewUrl);
+    let previousUrl = '';
+    let formulaResolvedName = effectiveName;
+    const lockState = acquireScriptLockSafe_(12000);
+    if (!lockState.ok) {
+      return {
+        ok: false,
+        retryable: true,
+        error: 'El servidor está ocupado escribiendo en Hoja "1". Intenta guardar de nuevo en unos segundos.'
+      };
+    }
+    const lock = lockState.lock;
+    try {
+      const maxScanRows = Math.max(sh1.getLastRow(), 3);
+      const vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
+      const matchedRows = [];
+      let lastSkuRowInColA = 2; // Nunca escribir en fila 1 ni fila 2 (fórmulas maestras)
+      let sheetProductName = preSheetProductName;
+
+      for (let i = 2; i < vals1.length; i++) {
+        const rowNum = i + 1;
+        const cellSku = String(vals1[i][0] || '').trim().toUpperCase();
+        const cellUrl = String(vals1[i][3] || '').trim();
+        if (cellSku) {
+          lastSkuRowInColA = rowNum;
+          if (cellSku === skuUpper) {
+            matchedRows.push(rowNum);
+            if (!sheetProductName && vals1[i][1]) sheetProductName = String(vals1[i][1]).trim();
+            if (!previousUrl && cellUrl) previousUrl = cellUrl;
+          }
+        }
       }
-    } else {
-      wasAppended = true;
-      primaryRowNumber = Math.max(3, lastSkuRowInColA + 1);
-      if (primaryRowNumber > sh1.getMaxRows()) {
-        sh1.insertRowAfter(sh1.getMaxRows());
+      if (sheetProductName) formulaResolvedName = sheetProductName;
+
+      // Escribir URL en Columna D de la hoja "1" sin tocar jamás las fórmulas de Fila 2 (B2, C2, E2, F2)
+      if (matchedRows.length > 0) {
+        primaryRowNumber = matchedRows[0];
+        for (let m = 0; m < matchedRows.length; m++) {
+          sh1.getRange(matchedRows[m], 4).setValue(driveViewUrl);
+        }
+      } else {
+        wasAppended = true;
+        primaryRowNumber = Math.max(3, lastSkuRowInColA + 1);
+        if (primaryRowNumber > sh1.getMaxRows()) {
+          sh1.insertRowAfter(sh1.getMaxRows());
+        }
+        // Solo escribir Columna A (SKU en formato texto '@') y Columna D (LINK FOTO APP) para que B2 y C2 calculen solos
+        const colACell = sh1.getRange(primaryRowNumber, 1);
+        if (typeof colACell.setNumberFormat === 'function') colACell.setNumberFormat('@');
+        colACell.setValue(skuUpper);
+        sh1.getRange(primaryRowNumber, 4).setValue(driveViewUrl);
       }
-      // Solo escribir Columna A (SKU en formato texto '@') y Columna D (LINK FOTO APP) para que B2 y C2 calculen solos
-      const colACell = sh1.getRange(primaryRowNumber, 1);
-      if (typeof colACell.setNumberFormat === 'function') colACell.setNumberFormat('@');
-      colACell.setValue(skuUpper);
-      sh1.getRange(primaryRowNumber, 4).setValue(driveViewUrl);
+
+      SpreadsheetApp.flush();
+      if (wasAppended) {
+        try {
+          const bVal = String(sh1.getRange(primaryRowNumber, 2).getDisplayValue() || '').trim();
+          if (bVal) formulaResolvedName = bVal;
+        } catch (eReadB) {}
+      }
+    } finally {
+      try { lock.releaseLock(); } catch (eRel) {}
     }
 
-    SpreadsheetApp.flush();
     invalidateLoadedFileNamesCache_();
-    let formulaResolvedName = effectiveName;
-    if (wasAppended) {
-      try {
-        const bVal = String(sh1.getRange(primaryRowNumber, 2).getDisplayValue() || '').trim();
-        if (bVal) formulaResolvedName = bVal;
-      } catch (eReadB) {}
-    }
 
     try {
       registrarEventoHistorial_(ss, {
@@ -1456,21 +1498,10 @@ function handleFotosSubirAssign_(body) {
       ok: false,
       error: (errAssign && errAssign.message) ? errAssign.message : String(errAssign)
     };
-  } finally {
-    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
 function handleFotosDirectUploadAssign_(body) {
-  const lockState = acquireScriptLockSafe_(25000);
-  if (!lockState.ok) {
-    return {
-      ok: false,
-      retryable: true,
-      error: 'El servidor está ocupado con otro proceso. Intenta subir la foto de nuevo en unos segundos.'
-    };
-  }
-  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const auth = verifyExclusiveKevinOwner_(ss, body);
@@ -1520,59 +1551,73 @@ function handleFotosDirectUploadAssign_(body) {
     const finalFileName = String(created.getName() || parsed.fileName).trim();
     const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
 
-    // Búsqueda rápida en Col A de Hoja "1" (protegiendo Fila 1 encabezados y Fila 2 fórmulas maestras)
-    const matchedRows = [];
+    // Adquirir ScriptLock corto ÚNICAMENTE para lectura/escritura en Hoja "1"
     let previousUrl = '';
     let primaryRowNumber = 0;
     let wasAppended = false;
-    const lastRow1 = Math.max(2, sh1.getLastRow());
-    const colARng = lastRow1 >= 3 ? sh1.getRange(3, 1, lastRow1 - 2, 1) : null;
-
-    if (colARng && typeof colARng.createTextFinder === 'function') {
-      const hits = colARng.createTextFinder(skuUpper).matchEntireCell(true).matchCase(false).findAll();
-      for (let h = 0; h < hits.length; h++) {
-        const rNum = hits[h].getRow();
-        if (rNum >= 3) {
-          matchedRows.push(rNum);
-          if (!previousUrl) previousUrl = String(sh1.getRange(rNum, 4).getDisplayValue() || '').trim();
-        }
-      }
-    } else if (lastRow1 >= 3) {
-      const vals1 = sh1.getRange(3, 1, lastRow1 - 2, 4).getValues();
-      for (let i = 0; i < vals1.length; i++) {
-        if (String(vals1[i][0] || '').trim().toUpperCase() === skuUpper) {
-          matchedRows.push(i + 3);
-          if (!previousUrl && vals1[i][3]) previousUrl = String(vals1[i][3]).trim();
-        }
-      }
+    const lockState = acquireScriptLockSafe_(12000);
+    if (!lockState.ok) {
+      return {
+        ok: false,
+        retryable: true,
+        error: 'El servidor está ocupado escribiendo en Hoja "1". Intenta subir la foto de nuevo en unos segundos.'
+      };
     }
+    const lock = lockState.lock;
+    try {
+      const matchedRows = [];
+      const lastRow1 = Math.max(2, sh1.getLastRow());
+      const colARng = lastRow1 >= 3 ? sh1.getRange(3, 1, lastRow1 - 2, 1) : null;
 
-    if (matchedRows.length > 0) {
-      primaryRowNumber = matchedRows[0];
-      for (let m = 0; m < matchedRows.length; m++) {
-        sh1.getRange(matchedRows[m], 4).setValue(driveViewUrl);
-      }
-    } else {
-      wasAppended = true;
-      let lastNonEmptyA = 2;
-      if (lastRow1 >= 3) {
-        const colAVals = sh1.getRange(3, 1, lastRow1 - 2, 1).getValues();
-        for (let k = colAVals.length - 1; k >= 0; k--) {
-          if (String(colAVals[k][0] || '').trim()) {
-            lastNonEmptyA = k + 3;
-            break;
+      if (colARng && typeof colARng.createTextFinder === 'function') {
+        const hits = colARng.createTextFinder(skuUpper).matchEntireCell(true).matchCase(false).findAll();
+        for (let h = 0; h < hits.length; h++) {
+          const rNum = hits[h].getRow();
+          if (rNum >= 3) {
+            matchedRows.push(rNum);
+            if (!previousUrl) previousUrl = String(sh1.getRange(rNum, 4).getDisplayValue() || '').trim();
+          }
+        }
+      } else if (lastRow1 >= 3) {
+        const vals1 = sh1.getRange(3, 1, lastRow1 - 2, 4).getValues();
+        for (let i = 0; i < vals1.length; i++) {
+          if (String(vals1[i][0] || '').trim().toUpperCase() === skuUpper) {
+            matchedRows.push(i + 3);
+            if (!previousUrl && vals1[i][3]) previousUrl = String(vals1[i][3]).trim();
           }
         }
       }
-      primaryRowNumber = Math.max(3, lastNonEmptyA + 1);
-      if (primaryRowNumber > sh1.getMaxRows()) sh1.insertRowAfter(sh1.getMaxRows());
-      const colACell = sh1.getRange(primaryRowNumber, 1);
-      if (typeof colACell.setNumberFormat === 'function') colACell.setNumberFormat('@');
-      colACell.setValue(skuUpper);
-      sh1.getRange(primaryRowNumber, 4).setValue(driveViewUrl);
+
+      if (matchedRows.length > 0) {
+        primaryRowNumber = matchedRows[0];
+        for (let m = 0; m < matchedRows.length; m++) {
+          sh1.getRange(matchedRows[m], 4).setValue(driveViewUrl);
+        }
+      } else {
+        wasAppended = true;
+        let lastNonEmptyA = 2;
+        if (lastRow1 >= 3) {
+          const colAVals = sh1.getRange(3, 1, lastRow1 - 2, 1).getValues();
+          for (let k = colAVals.length - 1; k >= 0; k--) {
+            if (String(colAVals[k][0] || '').trim()) {
+              lastNonEmptyA = k + 3;
+              break;
+            }
+          }
+        }
+        primaryRowNumber = Math.max(3, lastNonEmptyA + 1);
+        if (primaryRowNumber > sh1.getMaxRows()) sh1.insertRowAfter(sh1.getMaxRows());
+        const colACell = sh1.getRange(primaryRowNumber, 1);
+        if (typeof colACell.setNumberFormat === 'function') colACell.setNumberFormat('@');
+        colACell.setValue(skuUpper);
+        sh1.getRange(primaryRowNumber, 4).setValue(driveViewUrl);
+      }
+
+      SpreadsheetApp.flush();
+    } finally {
+      try { lock.releaseLock(); } catch (eRel) {}
     }
 
-    SpreadsheetApp.flush();
     invalidateLoadedFileNamesCache_();
 
     try {
@@ -1611,8 +1656,6 @@ function handleFotosDirectUploadAssign_(body) {
       ok: false,
       error: (errDirect && errDirect.message) ? errDirect.message : String(errDirect)
     };
-  } finally {
-    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
@@ -1638,97 +1681,84 @@ function handleFotosUploadVisualOverride_(body) {
   const label = String(b.label || b.name || ovKey).trim().slice(0, 140);
   const categoryTag = kind === 'fabric' ? 'FABRIC_SWATCH' : (kind === 'wood' ? 'WOOD_SWATCH' : 'VISUAL_COVER');
 
-  const lockState = acquireScriptLockSafe_(20000);
-  if (!lockState.ok) {
+  // Drive I/O fuera de ScriptLock; handleInvProductOverrideSave_ adquiere lock corto solo al escribir en Sheets
+  ensureProjectAPublicFolders_(false);
+  const targetFolder = DriveApp.getFolderById(FOTOS_NUEVAS_CARGADO_FOLDER_ID_);
+  ensurePublicSharingItem_(targetFolder);
+
+  let finalFileId = '';
+  let finalFileName = '';
+  const sourceInboxFileId = String(b.sourceInboxFileId || '').trim();
+  const fromLoaded = !!b.fromLoaded;
+
+  if (sourceInboxFileId) {
+    if (isForbiddenProjectBFolderId_(sourceInboxFileId)) {
+      return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: carpeta no permitida.' };
+    }
+    const srcFile = DriveApp.getFileById(sourceInboxFileId);
+    const srcCheck = validateProjectASourceFile_(srcFile, 'fotos_upload_visual_override');
+    if (!srcCheck.ok) return srcCheck;
+    finalFileName = String(srcFile.getName() || '').trim();
+    if (!fromLoaded) {
+      // Mover desde SUBIR PREN a FOTOS NUEVAS CARGADO conservando su nombre y sacándola de SUBIR PREN para no duplicar
+      srcFile.moveTo(targetFolder);
+      cleanDuplicatesInSubirInbox_(srcFile, finalFileName, b.shortcutId, null);
+    }
+    ensurePublicSharingItem_(srcFile);
+    finalFileId = srcFile.getId();
+  } else {
+    const parsed = parseUploadImageDataUrl_(b.dataUrl, b.fileName, label.replace(/[^a-zA-Z0-9_-]+/g, '_'));
+    if (!parsed.ok) return parsed;
+    const created = targetFolder.createFile(parsed.blob);
+    ensurePublicSharingItem_(created);
+    try {
+      created.setDescription(
+        'Visual: ' + ovKey +
+        ' | Etiqueta: ' + label +
+        ' | Tipo: ' + categoryTag +
+        ' | Subido por: ' + actorEmail +
+        ' | Fecha: ' + formatCancunNow_()
+      );
+    } catch (eDesc) {}
+    finalFileId = created.getId();
+    finalFileName = String(created.getName() || parsed.fileName).trim();
+  }
+
+  const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
+  const saveRes = handleInvProductOverrideSave_({
+    authToken: b.authToken || '',
+    advisorEmail: b.advisorEmail || actorEmail,
+    accessKey: b.accessKey || '',
+    sheetTab: b.sheetTab || TAB_CUENTAS_ADMIN_,
+    sku: ovKey,
+    op: 'RESTORE',
+    name: label,
+    category: categoryTag,
+    price: '',
+    note: driveViewUrl
+  }, { skipLock: false });
+  invalidateLoadedFileNamesCache_();
+
+  if (!saveRes || !saveRes.ok) {
     return {
       ok: false,
-      retryable: true,
-      error: 'El servidor está ocupado con otro proceso. Intenta guardar la portada/tela/madera de nuevo en unos segundos.'
-    };
-  }
-  const lock = lockState.lock;
-  try {
-    ensureProjectAPublicFolders_(false);
-    const targetFolder = DriveApp.getFolderById(FOTOS_NUEVAS_CARGADO_FOLDER_ID_);
-    ensurePublicSharingItem_(targetFolder);
-
-    let finalFileId = '';
-    let finalFileName = '';
-    const sourceInboxFileId = String(b.sourceInboxFileId || '').trim();
-    const fromLoaded = !!b.fromLoaded;
-
-    if (sourceInboxFileId) {
-      if (isForbiddenProjectBFolderId_(sourceInboxFileId)) {
-        return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: carpeta no permitida.' };
-      }
-      const srcFile = DriveApp.getFileById(sourceInboxFileId);
-      const srcCheck = validateProjectASourceFile_(srcFile, 'fotos_upload_visual_override');
-      if (!srcCheck.ok) return srcCheck;
-      finalFileName = String(srcFile.getName() || '').trim();
-      if (!fromLoaded) {
-        // Mover desde SUBIR PREN a FOTOS NUEVAS CARGADO conservando su nombre y sacándola de SUBIR PREN para no duplicar
-        srcFile.moveTo(targetFolder);
-        cleanDuplicatesInSubirInbox_(srcFile, finalFileName, b.shortcutId, null);
-      }
-      ensurePublicSharingItem_(srcFile);
-      finalFileId = srcFile.getId();
-    } else {
-      const parsed = parseUploadImageDataUrl_(b.dataUrl, b.fileName, label.replace(/[^a-zA-Z0-9_-]+/g, '_'));
-      if (!parsed.ok) return parsed;
-      const created = targetFolder.createFile(parsed.blob);
-      ensurePublicSharingItem_(created);
-      try {
-        created.setDescription(
-          'Visual: ' + ovKey +
-          ' | Etiqueta: ' + label +
-          ' | Tipo: ' + categoryTag +
-          ' | Subido por: ' + actorEmail +
-          ' | Fecha: ' + formatCancunNow_()
-        );
-      } catch (eDesc) {}
-      finalFileId = created.getId();
-      finalFileName = String(created.getName() || parsed.fileName).trim();
-    }
-
-    const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
-    const saveRes = handleInvProductOverrideSave_({
-      authToken: b.authToken || '',
-      advisorEmail: b.advisorEmail || actorEmail,
-      accessKey: b.accessKey || '',
-      sheetTab: b.sheetTab || TAB_CUENTAS_ADMIN_,
-      sku: ovKey,
-      op: 'RESTORE',
-      name: label,
-      category: categoryTag,
-      price: '',
-      note: driveViewUrl,
-      _skipLock: true
-    });
-    invalidateLoadedFileNamesCache_();
-
-    if (!saveRes || !saveRes.ok) {
-      return {
-        ok: false,
-        fileId: finalFileId,
-        driveUrl: driveViewUrl,
-        error: (saveRes && saveRes.error) || 'Foto subida, pero falló guardar el vínculo.'
-      };
-    }
-
-    return {
-      ok: true,
-      overrideKey: ovKey,
       fileId: finalFileId,
-      fileName: finalFileName,
       driveUrl: driveViewUrl,
-      thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
-      override: saveRes.override,
-      removedFromInbox: !!(sourceInboxFileId && !fromLoaded),
-      timestamp: formatCancunNow_()
+      error: (saveRes && saveRes.error) || 'Foto subida, pero falló guardar el vínculo.'
     };
-  } finally {
-    try { lock.releaseLock(); } catch (eRel) {}
   }
+
+  return {
+    ok: true,
+    overrideKey: ovKey,
+    fileId: finalFileId,
+    fileName: finalFileName,
+    driveUrl: driveViewUrl,
+    thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
+    override: saveRes.override,
+    removedFromInbox: !!(sourceInboxFileId && !fromLoaded),
+    timestamp: formatCancunNow_()
+  };
 }
 
 function reubicarFotosSegunSheets_(opts) {
@@ -1926,15 +1956,6 @@ function handleFotosReorganizeFromSheets_(body) {
 }
 
 function handleFotosDelete_(body) {
-  const lockState = acquireScriptLockSafe_(25000);
-  if (!lockState.ok) {
-    return {
-      ok: false,
-      retryable: true,
-      error: 'El servidor está ocupado con otro proceso. Intenta borrar la foto de nuevo en unos segundos.'
-    };
-  }
-  const lock = lockState.lock;
   try {
     const ss = getSpreadsheet_();
     const auth = verifyExclusiveKevinOwner_(ss, body);
@@ -1958,13 +1979,12 @@ function handleFotosDelete_(body) {
     let previousUrl = '';
     let usedByOtherSku = false;
     let usedByVisualOverride = false;
-    let vals1 = null;
 
+    // Lectura preliminar fuera de ScriptLock para determinar driveFileId y protecciones
     if (sh1 && sh1.getLastRow() >= 3) {
       const maxScanRows = Math.max(sh1.getLastRow(), 3);
-      vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
+      const vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
 
-      // Primera pasada (solo lectura): localizar filas del SKU y resolver driveFileId antes de mutar Drive/Sheets
       if (skuUpper) {
         for (let i = 2; i < vals1.length; i++) {
           const rowNum = i + 1;
@@ -1981,7 +2001,6 @@ function handleFotosDelete_(body) {
         }
       }
 
-      // Segunda pasada (solo lectura): verificar si otro SKU en Hoja "1" sigue usando ese driveFileId
       if (driveFileId) {
         for (let j = 2; j < vals1.length; j++) {
           const otherSku = String(vals1[j][0] || '').trim().toUpperCase();
@@ -2011,7 +2030,7 @@ function handleFotosDelete_(body) {
       } catch (eOvCheck) {}
     }
 
-    // Guardia de aislamiento Proyecto A/B ANTES de modificar Drive o Hoja "1"
+    // Guardia de aislamiento Proyecto A/B ANTES de modificar Drive o Hoja "1" (incluso si otro SKU comparte el archivo o keepDriveFile: true)
     const shortcutId = String((body && body.shortcutId) || '').trim();
     const deleteTargetId = (source === 'INBOX' && shortcutId) ? shortcutId : driveFileId;
     const willTrashDrive = !!(deleteTargetId && !keepDriveFile && !usedByVisualOverride && (source === 'INBOX' || forceTrash || !usedByOtherSku));
@@ -2037,12 +2056,33 @@ function handleFotosDelete_(body) {
       }
     }
 
-    if (sh1 && rowsToClear.length > 0) {
-      for (let r = 0; r < rowsToClear.length; r++) {
-        sh1.getRange(rowsToClear[r], 4).clearContent();
-        clearedRows.push(rowsToClear[r]);
+    // Adquirir ScriptLock corto ÚNICAMENTE para limpiar Columna D en Hoja "1"
+    if (sh1 && skuUpper && rowsToClear.length > 0) {
+      const lockState = acquireScriptLockSafe_(12000);
+      if (!lockState.ok) {
+        return {
+          ok: false,
+          retryable: true,
+          error: 'El servidor está ocupado modificando Hoja "1". Intenta borrar la foto de nuevo en unos segundos.'
+        };
       }
-      SpreadsheetApp.flush();
+      const lock = lockState.lock;
+      try {
+        const curLast = Math.max(sh1.getLastRow(), 3);
+        const curVals = sh1.getRange(1, 1, curLast, 4).getDisplayValues();
+        for (let i = 2; i < curVals.length; i++) {
+          const rowNum = i + 1;
+          const cellSku = String(curVals[i][0] || '').trim().toUpperCase();
+          const cellUrl = String(curVals[i][3] || '').trim();
+          if (cellSku === skuUpper && cellUrl) {
+            sh1.getRange(rowNum, 4).clearContent();
+            clearedRows.push(rowNum);
+          }
+        }
+        if (clearedRows.length > 0) SpreadsheetApp.flush();
+      } finally {
+        try { lock.releaseLock(); } catch (eRel) {}
+      }
     }
 
     let driveTrashed = false;
@@ -2102,8 +2142,6 @@ function handleFotosDelete_(body) {
       ok: false,
       error: (errDel && errDel.message) ? errDel.message : String(errDel)
     };
-  } finally {
-    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
@@ -2225,8 +2263,8 @@ function hacerPublicasFotosInventario_(opts) {
       for (let i = 0; i < colNote.length; i++) addFileId(colNote[i][0]);
     }
     const shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
-    if (shInv && shInv.getLastRow() >= 4) {
-      const colF = shInv.getRange(4, 6, shInv.getLastRow() - 3, 1).getDisplayValues();
+    if (shInv && shInv.getLastRow() >= 3) {
+      const colF = shInv.getRange(3, 6, shInv.getLastRow() - 2, 1).getDisplayValues();
       for (let i = 0; i < colF.length; i++) addFileId(colF[i][0]);
     }
     const sh1 = ss.getSheetByName('1');
@@ -2263,7 +2301,33 @@ function hacerPublicasFotosInventario_(opts) {
   return summary;
 }
 
-function handleInvProductOverrideSave_(body) {
+function isFileAllowedForOverrideShareParche_(drvFile) {
+  if (!drvFile) return false;
+  if (typeof isFileInAllowedOverrideShareFolder_ === 'function') {
+    return isFileInAllowedOverrideShareFolder_(drvFile);
+  }
+  if (isFileInForbiddenProjectBFolder_(drvFile)) return false;
+  if (typeof isFileInProjectAAllowedFolders_ === 'function' && isFileInProjectAAllowedFolders_(drvFile)) {
+    return true;
+  }
+  const extraAllowed = {
+    '1iSJztVhhrNvopTdX5sDcLSolhSnK_VAy': true, // TELAS ODOO
+    '1umQvzMJLXFiOwSyWL8d5v0aCWDpx8hQT': true, // CONFIG.DRIVE_FOLDER_ID
+    '1wRhGgjmvRdRG-uVM8WgULScn6hBDmksm': true, // FONDO BLANCO Y SISTEMA
+    '1h0EYNwxabLWFeWt_KECi18WMmdDGwSeh': true  // MUEBLES FALTANTES ODOO
+  };
+  try {
+    const pIt = drvFile.getParents();
+    while (pIt && pIt.hasNext()) {
+      const pf = pIt.next();
+      const pid = String((pf && pf.getId && pf.getId()) || '').trim();
+      if (pid && extraAllowed[pid]) return true;
+    }
+  } catch (ePar) {}
+  return false;
+}
+
+function handleInvProductOverrideSave_(body, optsInternal) {
   const b = body || {};
   const ss = getSpreadsheet_();
   let auth = verifyExclusiveKevinOwner_(ss, b);
@@ -2300,8 +2364,23 @@ function handleInvProductOverrideSave_(body) {
     }
   }
 
+  // Permiso de lectura Drive fuera de ScriptLock y restringido únicamente a carpetas autorizadas de Proyecto A / TELAS ODOO (P1-19)
+  const rawCandidateNote = (b.note !== undefined) ? sanitizeOverrideTextCell_(b.note, 220) : '';
+  if (op !== 'DELETE' && op !== 'ARCHIVE' && rawCandidateNote) {
+    try {
+      const noteFid = extractDriveFileIdFromCell_(rawCandidateNote);
+      if (noteFid && typeof DriveApp !== 'undefined' && DriveApp && typeof DriveApp.getFileById === 'function' && !isForbiddenProjectBFolderId_(noteFid)) {
+        const drvFile = DriveApp.getFileById(noteFid);
+        if (drvFile && isFileAllowedForOverrideShareParche_(drvFile)) {
+          ensurePublicSharingItem_(drvFile);
+        }
+      }
+    } catch (eEnsureVis) {}
+  }
+
   let lock = null;
-  if (!b._skipLock) {
+  const skipLockInternal = !!(optsInternal && optsInternal.skipLock === true);
+  if (!skipLockInternal) {
     const lockState = acquireScriptLockSafe_(15000);
     if (!lockState.ok) {
       return { ok: false, retryable: true, error: 'El servidor está ocupado con otro proceso. Intenta guardar de nuevo en unos segundos.' };
@@ -2345,22 +2424,9 @@ function handleInvProductOverrideSave_(body) {
       nextPrice = existingRow[4];
     }
     const nextNote = (b.note !== undefined)
-      ? sanitizeOverrideTextCell_(b.note, 220)
+      ? rawCandidateNote
       : (existingRow ? String(existingRow[5] || '').trim() : '');
     const nowStr = formatCancunNow_();
-
-    // Garantizar permiso público de lectura en Drive para cualquier foto de tela o portada guardada en _INV_PRODUCT_OVERRIDES
-    if (nextStatus === 'VISIBLE' && nextNote) {
-      try {
-        const noteFid = extractDriveFileIdFromCell_(nextNote);
-        if (noteFid && typeof DriveApp !== 'undefined' && DriveApp && typeof DriveApp.getFileById === 'function' && !isForbiddenProjectBFolderId_(noteFid)) {
-          const drvFile = DriveApp.getFileById(noteFid);
-          if (drvFile && !isFileInForbiddenProjectBFolder_(drvFile)) {
-            ensurePublicSharingItem_(drvFile);
-          }
-        }
-      } catch (eEnsureVis) {}
-    }
 
     const actorEmail = (auth && auth.advisor && auth.advisor.correo) ? String(auth.advisor.correo) : OWNER_FOTOS_EMAIL_;
     const actorName = (auth && auth.advisor && auth.advisor.nombre) ? String(auth.advisor.nombre) : 'Kevin Reyna';

@@ -1,0 +1,52 @@
+name: CI Tests & Syntax Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate JavaScript, Apps Script & JSON syntax
+        run: |
+          node -e "
+          const fs = require('fs');
+          const jsFiles = [
+            'creata-cloud.js',
+            'creata-back-nav.js',
+            'panel-app.js',
+            'panel-sw.js',
+            'fotos-productos-app.js',
+            'fotos-sw.js',
+            'inventario-app.js',
+            'seguimiento-app.js',
+            'historial-app.js',
+            'AppsScript_Creata_Drive_Sheets.gs',
+            'AppsScript_Parche_Fotos_V2.gs',
+            'AppsScript_Prompts_Odoo.gs'
+          ];
+          for (const f of jsFiles) {
+            new Function(fs.readFileSync(f, 'utf8'));
+            console.log('SYNTAX OK:', f);
+          }
+          for (const jf of ['fotos-manifest.json', 'panel-manifest.json', 'inventario-manifest.json']) {
+            if (fs.existsSync(jf)) {
+              JSON.parse(fs.readFileSync(jf, 'utf8'));
+              console.log('JSON OK:', jf);
+            }
+          }
+          "
+
+      - name: Run unit & security regression tests
+        run: node --test tests/*.test.mjs
