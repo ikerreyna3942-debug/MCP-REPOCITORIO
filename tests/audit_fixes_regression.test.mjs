@@ -648,4 +648,64 @@ test('Turn 3 — BARMESAN6PRM (MESA SANTORINI 6P ROSA MORADA) and generic-color 
   assert.equal(hooks.findMatchingFabricSwatchForItem(chairOtherFab, null), null);
 });
 
+test('Turn 4 — Prompts Studio V8 adopts compact 1-screen V7 aesthetic (tabs, 3/4 quick button, concise V8 prompts, V7 slate/sky palette)', () => {
+  const studioSrc = readRepo('prompts-studio-v8.js');
+  const promptsCss = readRepo('prompts-styles.css');
+
+  // V7 palette & compact classes in CSS
+  assert.match(promptsCss, /\.prompts-native-studio\s*\{[\s\S]*?background:\s*#1E293B/);
+  assert.match(promptsCss, /\.st-v7-topbar\s*\{/);
+  assert.match(promptsCss, /\.st-v7-out-tabs\s*\{/);
+  assert.match(promptsCss, /\.st-v7-action-bar\s*\{/);
+  assert.match(promptsCss, /#0284C7/);
+  assert.match(promptsCss, /#38BDF8/);
+
+  // Execute Studio V8 in VM and verify compact tabbed outputs + generateQuick34Right
+  const root = { innerHTML: '', classList: { contains: () => false }, addEventListener: () => {} };
+  const outWrap = { innerHTML: '' };
+  const sb = {
+    window: {},
+    document: {
+      getElementById: (id) => (id === 'promptsNativeStudio' ? root : (id === 'stGeneratedOutputsWrap' ? outWrap : null))
+    },
+    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    navigator: {},
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    console
+  };
+  sb.window = sb;
+  sb.window.addEventListener = () => {};
+  vm.runInNewContext(studioSrc, sb, { filename: 'prompts-studio-v8.js' });
+  const studio = sb.window.CreataPromptsStudio;
+  studio.init(root);
+
+  // Compact UI mounts 1-line V7 topbar, compact mode select, 3-button action strip, and collapsed options accordion
+  assert.match(root.innerHTML, /class="st-card st-v7-topbar"/);
+  assert.match(root.innerHTML, /id="stModeSelect"/);
+  assert.match(root.innerHTML, /id="stOutputNameInput"/);
+  assert.match(root.innerHTML, /class="st-adv-details"/);
+  assert.match(root.innerHTML, /generateQuick34Right\(\)/);
+
+  // PACK_CREATA produces 3 concise prompts rendered through V7 output tabs
+  studio.setOutputName('MESA SANTORINI 6P ROSA MORADA');
+  const pack = studio.generateNow();
+  assert.equal(pack.length, 3);
+  assert.ok(pack[0].prompt.length < 2200, `Concise V8 catalog prompt should stay under 2200 chars (got ${pack[0].prompt.length})`);
+  assert.match(root.innerHTML, /st-v7-out-tabs/);
+  assert.match(root.innerHTML, /setActiveOutTab\(1\)/);
+
+  // Switching to Portada tab (idx 1) updates output wrap to _PORTADA filename
+  studio.setActiveOutTab(1);
+  assert.match(outWrap.innerHTML, /MESA SANTORINI 6P ROSA MORADA_PORTADA\.png/);
+
+  // 1-click 3/4 Derecha button produces direct 3/4 right 2048x2048 #FFFFFF prompt
+  const q34 = studio.generateQuick34Right();
+  assert.equal(q34.length, 1);
+  assert.match(q34[0].prompt, /2048x2048/);
+  assert.match(q34[0].prompt, /FACING TOWARD THE RIGHT/i);
+  assert.match(q34[0].prompt, /#FFFFFF/);
+});
+
+
 

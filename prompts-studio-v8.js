@@ -37,37 +37,21 @@
     ];
 
     const ANTI_MIRROR_HANDEDNESS_LOCK =
-        'ANTI-MIRROR HANDEDNESS LOCK (3D ORBIT ONLY): NEVER horizontally mirror or flip [IMAGE 1]. ' +
-        'Orbit the camera physically in 3D space around the real furniture piece so asymmetric components ' +
-        '(chaise longue side, L-sectional corner, single armrest, offset drawers) preserve 100% of their true physical handedness.';
+        'ANTI-MIRROR HANDEDNESS LOCK (3D ORBIT ONLY): NEVER mirror/flip [IMAGE 1]; physically orbit camera in 3D so asymmetric parts (chaise, L-corner, single arm, drawers) keep 100% true handedness.';
 
     const CANONICAL_34_RIGHT_PROMPT =
-        'STRICT 3/4 VIEW FACING TOWARD THE RIGHT (viewer\'s screen-right orientation, CREATA Master Catalog standard): ' +
-        'Orbit the camera horizontally in 3D space so the furniture is angled ~35°–40° with its FRONT facade/seat ' +
-        'opening and pointing unmistakably toward the RIGHT edge of the image frame. ' +
-        'The BACKREST / rear mass sits on the LEFT side of the frame, the furniture\'s left flank visible on the LEFT side ' +
-        'recedes cleanly toward the left-rear, and the front edge projects forward toward the RIGHT edge of the frame. ' +
-        'Eye-level studio camera height (~110 cm), 85mm rectilinear studio lens (zero wide-angle distortion). ' +
-        'CAMERA ORBIT OVERRIDE: If [IMAGE 1] is shot straight-on (0°) or oriented the opposite way, physically orbit the camera ' +
-        'around the piece to achieve this exact right-facing 3/4 view (do NOT preserve an opposite or flat-frontal pose). ' +
+        '3/4 VIEW FACING TOWARD THE RIGHT (~35°–40°, 85mm rectilinear eye-level): front/seat opens toward RIGHT edge, backrest/left flank on LEFT. If [IMAGE 1] faces differently, physically orbit camera to achieve right-facing 3/4. ' +
         ANTI_MIRROR_HANDEDNESS_LOCK;
 
     const CANONICAL_34_RIGHT_EXCLUDE =
-        'NEVER facing left, NEVER pointing toward left edge of frame, backrest on right edge, NEVER flat 0-degree frontal view, horizontally mirrored or flipped geometry';
+        'NEVER facing left, backrest on right, flat 0° frontal, mirrored/flipped';
 
     const CANONICAL_34_LEFT_PROMPT =
-        'STRICT 3/4 VIEW FACING TOWARD THE LEFT (viewer\'s screen-left orientation): ' +
-        'Orbit the camera horizontally in 3D space so the furniture is angled ~35°–40° with its FRONT facade/seat ' +
-        'opening and pointing unmistakably toward the LEFT edge of the image frame. ' +
-        'The BACKREST / rear mass sits on the RIGHT side of the frame, the furniture\'s right flank visible on the RIGHT side ' +
-        'recedes cleanly toward the right-rear, and the front edge projects forward toward the LEFT edge of the frame. ' +
-        'Eye-level studio camera height (~110 cm), 85mm rectilinear studio lens (zero wide-angle distortion). ' +
-        'CAMERA ORBIT OVERRIDE: If [IMAGE 1] is shot straight-on (0°) or oriented the opposite way, physically orbit the camera ' +
-        'to the opposite side to achieve this exact left-facing 3/4 view (do NOT copy an opposite or flat-frontal pose). ' +
+        '3/4 VIEW FACING TOWARD THE LEFT (~35°–40°, 85mm rectilinear eye-level): front/seat opens toward LEFT edge, backrest/right flank on RIGHT. If [IMAGE 1] faces differently, physically orbit camera to achieve left-facing 3/4. ' +
         ANTI_MIRROR_HANDEDNESS_LOCK;
 
     const CANONICAL_34_LEFT_EXCLUDE =
-        'NEVER facing right, NEVER pointing toward right edge of frame, backrest on left edge, NEVER flat 0-degree frontal view, horizontally mirrored or flipped geometry';
+        'NEVER facing right, backrest on left, flat 0° frontal, mirrored/flipped';
 
     const VERSIONS = [
         { id: 'V8', label: 'V8 · CREATA Pro', badge: 'NUEVA', desc: 'Exclusiva CREATA: Paquete Cotizador 2048×2048 · 78% parejo sin deformar · #FFFFFF · 0% sombras · Nano Banana 2.1 / Gemini 3 Pro.' },
@@ -187,6 +171,8 @@
         sourceLoading: false,
         sourceError: '',
         geminiOpen: false,
+        advancedOpen: false,
+        activeOutTab: 0,
         generatedBlocks: [] // [{ id, title, badge, prompt, outputStem, outputFileName }]
     };
 
@@ -362,12 +348,7 @@
     }
 
     function formatSlotMapText(slots) {
-        const lines = ['ATTACHED IMAGE SLOT MAPPING (STRICT ORDER):'];
-        for (let i = 0; i < slots.length; i++) {
-            const s = slots[i];
-            lines.push('- [IMAGE ' + s.idx + ': "' + s.fileName + '"] -> ' + s.role + ': ' + s.desc);
-        }
-        return lines.join('\n');
+        return 'IMAGES: ' + slots.map((s) => '[IMAGE ' + s.idx + ': "' + s.fileName + '"] = ' + s.role).join(' | ');
     }
 
     function getAngleObj(angleId) {
@@ -381,50 +362,40 @@
     function buildModelTargetBlock(cfg) {
         const modelObj = getTargetModelObj(cfg.targetModel);
         const ar = cfg.aspectRatio || '1:1';
-        const pxLabel = ar === '1:1' ? '2048x2048 px (1:1 square, image_size="2K")' : (ar + ' at 2K resolution (image_size="2K")');
-        const lines = [
-            'AI STUDIO / GEMINI MODEL TARGET PROFILE:',
-            '- Model: ' + modelObj.id + ' (' + modelObj.short + ')',
-            '- Output Config: aspect_ratio="' + ar + '", image_size="' + modelObj.imageSize + '" -> ' + pxLabel
-        ];
-        if (modelObj.supportsThinkingLevel) {
-            lines.push('- Thinking: thinking_level="' + (cfg.thinkingLevel || modelObj.defaultThinking || 'medium') + '" (do NOT override temperature/top_p/seed).');
-        } else {
-            lines.push('- Thinking: built-in always-on Pro reasoning (omit thinking_config).');
-        }
-        return lines.join('\n');
+        const pxLabel = ar === '1:1' ? '2048x2048' : (ar + ' 2K');
+        const thinkPart = modelObj.supportsThinkingLevel
+            ? (' | thinking_level="' + (cfg.thinkingLevel || modelObj.defaultThinking || 'medium') + '"')
+            : '';
+        return 'MODEL: ' + modelObj.id + ' | aspect_ratio="' + ar + '", image_size="' + modelObj.imageSize + '" (' + pxLabel + ')' + thinkPart;
     }
 
     function buildProductHeader(cfg, catKey) {
         const parts = [];
         if (cfg.productName) parts.push('Product: ' + cfg.productName);
         if (cfg.sku) parts.push('SKU: ' + cfg.sku.toUpperCase());
-        if (cfg.dimensions) parts.push('Exact Dimensions: ' + cfg.dimensions);
-        parts.push('Category Profile: ' + catKey);
-        if (cfg.visionAnalysis) parts.push('Verified Visual Anatomy:\n' + cfg.visionAnalysis);
-        if (cfg.extraNotes) parts.push('Special Instructions: ' + cfg.extraNotes);
-        return parts.join('\n');
+        if (cfg.dimensions) parts.push('Dimensions: ' + cfg.dimensions);
+        parts.push('Category: ' + catKey);
+        if (cfg.extraNotes) parts.push('Notes: ' + cfg.extraNotes);
+        let line = parts.join(' | ');
+        if (cfg.visionAnalysis) line += '\nAnatomy:\n' + cfg.visionAnalysis;
+        return line;
     }
 
     function buildCreataCatalogSpecBlock(forceSpec, force34Right, aspectRatioOpt, explicitAngleObj) {
         const ar = aspectRatioOpt || '1:1';
-        const dimLine = ar === '1:1'
-            ? '- Output canvas: exact 1:1 square, 2048x2048 px (image_size="2K") ultra-sharp commercial studio quality.'
-            : '- Output canvas: ' + ar + ' commercial 2K studio quality (2048 px long edge, image_size="2K").';
+        const dimTxt = ar === '1:1' ? '2048x2048 (1:1, 2K)' : (ar + ' 2K (2048px)');
         if (!forceSpec) {
-            return 'STUDIO LIGHTING & FRAMING: Crisp commercial catalog lighting, clean seamless pure white background (#FFFFFF), centered balanced proportional framing (zero distortion).';
+            return 'STUDIO: Crisp catalog lighting, pure white #FFFFFF background, centered proportional framing (zero distortion).';
         }
         const angleLine = explicitAngleObj
-            ? ('- Camera Angle: ' + explicitAngleObj.en + (explicitAngleObj.exclude ? ('\n- STRICT ORIENTATION EXCLUSIONS: ' + explicitAngleObj.exclude + '.') : ''))
+            ? ('- Angle: ' + explicitAngleObj.en + (explicitAngleObj.exclude ? (' | EXCLUDE: ' + explicitAngleObj.exclude + '.') : ''))
             : (force34Right
-                ? ('- Camera Angle: ' + CANONICAL_34_RIGHT_PROMPT + '\n- STRICT ORIENTATION EXCLUSIONS: ' + CANONICAL_34_RIGHT_EXCLUDE + '.')
-                : '- Camera Angle: rectilinear 85mm commercial studio lens with zero wide-angle distortion.');
+                ? ('- Angle: ' + CANONICAL_34_RIGHT_PROMPT + ' | EXCLUDE: ' + CANONICAL_34_RIGHT_EXCLUDE + '.')
+                : '- Angle: 85mm rectilinear studio lens (zero wide-angle distortion).');
         return [
-            'CREATA MASTER CATALOG SPECIFICATION (NON-NEGOTIABLE · 2048×2048 ANTI-DISTORTION):',
-            dimLine,
-            '- Framing & Anti-Distortion Lock: scale the complete furniture piece UNIFORMLY (1:1 aspect-locked, NEVER stretch, compress, or warp wide sofas/armchairs/tables) so its LONGEST axis occupies ~78% of the 2048x2048 canvas centered evenly with clean balanced #FFFFFF white padding on all 4 sides (NEVER crop legs, armrests, or corners).',
-            '- Background: 100% uniform pure solid white #FFFFFF seamless infinity sweep from edge to edge (RGB 255,255,255 — zero gray tint, zero horizon line, zero vignette).',
-            '- Shadows: ZERO cast shadows, ZERO drop shadows, ZERO dark ambient occlusion smudges on the white floor (pure isolated 0% shadow e-commerce cutout look, preserving crisp natural 3D volume ONLY on the furniture itself).',
+            'CREATA CATALOG SPEC (NON-NEGOTIABLE · ' + dimTxt + '):',
+            '- Framing: uniform 1:1 aspect-locked scale (~78% longest axis centered, balanced #FFFFFF margins, zero stretching/cropping).',
+            '- Background & Shadows: 100% solid pure white #FFFFFF edge-to-edge, ZERO cast shadows / 0% shadow cutout on floor (keep natural 3D volume only on furniture).',
             angleLine
         ].join('\n');
     }
@@ -436,25 +407,16 @@
         if (includeFabric) {
             const fabRef = fabSlot
                 ? ('[IMAGE ' + fabSlot.idx + ': "' + fabSlot.fileName + '"] (' + (fabSlot.cleanName || fabSlot.fileName) + ')')
-                : 'the attached fabric swatch';
-            lines.push(
-                '100% FULL-BODY CASCO UPHOLSTERY RULE (' + fabRef + '):\n' +
-                '- Reupholster 100% of EVERY upholstered surface of the furniture in [IMAGE 1]: main seat cushions, backrests, armrests, inner/outer side panels, lower deck/apron, front/back casco body, welt/piping, and any included matching cushions — zero leftover patches of the original color.\n' +
-                '- MICRO-SCALE TEXTURE REALISM (~97% authentic scale): keep the textile weave, bouclé/linen/velvet grain, and yarn scale realistic relative to full-size furniture (never blown-up giant macro fibers and never flat plastic color).\n' +
-                '- Preserve realistic fabric tension, natural subtle creases, seams, and light falloff across curves while locking the exact hue and brightness of ' + fabRef + '.'
-            );
+                : 'attached fabric swatch';
+            lines.push('100% FULL-BODY CASCO UPHOLSTERY (' + fabRef + '): Reupholster 100% of cushions, backrests, arms, side panels, deck, piping, and casco with exact hue and realistic micro-scale weave (~97% natural scale, zero leftover original color).');
         }
         if (includeWood) {
             const woodRef = woodSlot
                 ? ('[IMAGE ' + woodSlot.idx + ': "' + woodSlot.fileName + '"] (' + (woodSlot.cleanName || woodSlot.fileName) + ')')
-                : 'the attached wood swatch';
-            lines.push(
-                'WOOD & SOLID STRUCTURE FINISH RULE (' + woodRef + '):\n' +
-                '- Apply the exact tone, wood grain species, open/closed pore texture, and matte/satin finish from ' + woodRef + ' to ALL exposed wood/base elements of [IMAGE 1] (legs, plinth, exposed frame, tabletop, aprons, arms).\n' +
-                '- Keep grain direction anatomically accurate along structural rails and legs without altering thickness or joinery.'
-            );
+                : 'attached wood swatch';
+            lines.push('WOOD FINISH (' + woodRef + '): Apply exact tone, natural wood grain direction, and matte/satin pore finish to ALL exposed wood/legs/plinth/top without altering thickness or joinery.');
         }
-        return lines.join('\n\n');
+        return lines.join('\n');
     }
 
     // =========================================================================
@@ -518,7 +480,7 @@
         const wantsWood = Boolean(cfg.woodSwatch) && (!usesMaterialTarget || cfg.materialTarget === 'MADERA' || cfg.materialTarget === 'DUAL');
 
         // ---------------------------------------------------------------------
-        // VERSIÓN 8 · CREATA Pro (2048×2048 · Nano Banana 2.1 / Gemini 3 Pro)
+        // VERSIÓN 8 · CREATA Pro (Resumida · 2048×2048 · Nano Banana 2.1 / Gemini 3 Pro)
         // ---------------------------------------------------------------------
         if (cfg.version === 'V8') {
             const mode = cfg.v8Mode || 'PACK_CREATA';
@@ -527,153 +489,127 @@
             const slots = buildSlotMap(Object.assign({}, cfg, { includeFabric: includeFab, includeWood: includeWood }));
             const slotBlock = formatSlotMapText(slots);
             const matBlock = (includeFab || includeWood) ? buildCascoMaterialRules(slots, includeFab, includeWood) : '';
-            const antiHallucination = [
-                'STRICT ANTI-HALLUCINATION & GEOMETRY LOCK:',
-                '- Treat [IMAGE 1] as the single source of truth for silhouette, proportions, dimensions, and part count.',
-                '- ' + catRule,
-                '- NEVER add decorative pillows, throws, rugs, plants, logos, watermarks, price tags, or text overlays unless explicitly requested.',
-                '- Remove all background clutter, store tags, cords, reflections, dust, and camera lens distortion.'
-            ].join('\n');
+            const lockLine = 'GEOMETRY LOCK: [IMAGE 1] is 100% source of truth. ' + catRule + ' No extra pillows, props, logos, text, or clutter.';
 
             if (mode === 'PACK_CREATA') {
                 const catalogPrompt = [
-                    'ROLE: Senior CREATA Luxury Furniture Studio Retoucher & CGI Product Photographer (V8 Pro).',
+                    'TASK: CREATA Master Catalog Photo (V8 Pro).',
                     modelBlock,
                     headerText,
                     slotBlock,
-                    'OBJECTIVE: Produce the FINAL MASTER CATALOG PHOTO for the CREATA Cotizador & Inventory System.',
                     buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, cfg.aspectRatio),
                     matBlock,
-                    antiHallucination
-                ].filter(Boolean).join('\n\n');
+                    lockLine
+                ].filter(Boolean).join('\n');
 
                 const coverPrompt = [
-                    'ROLE: Editorial Architectural Interior Photographer for CREATA Catalog Model Covers (V8 Pro).',
+                    'TASK: CREATA Editorial Cover Scene (V8 Pro). Place [IMAGE 1] unaltered as hero centerpiece (~62% frame, ' + (cfg.aspectRatio || '1:1') + ' 2K, true proportions, natural daylight & soft floor contact shadows).',
                     modelBlock,
                     headerText,
                     slotBlock,
-                    'OBJECTIVE: Place the EXACT furniture piece from [IMAGE 1] as the unmistakable hero centerpiece inside an aspirational interior scene for the CREATA Model Cover.',
-                    'ENVIRONMENT: ' + roomObj.en + '.',
-                    'COMPOSITION: ' + (cfg.aspectRatio || '1:1') + ' editorial 2K framing (2048px long edge), furniture occupying ~60–65% of the scene with true real-world proportions (zero distortion), natural architectural sunlight matching the piece, realistic floor contact and soft ambient shadows ONLY in this lifestyle scene.',
+                    'SCENE: ' + roomObj.en + '.',
                     matBlock,
-                    antiHallucination
-                ].filter(Boolean).join('\n\n');
+                    lockLine
+                ].filter(Boolean).join('\n');
 
                 const cadPrompt = [
-                    'ROLE: Industrial Furniture Technical Draftsman (V8 Pro CAD Spec Sheet).',
+                    'TASK: 2D Orthographic Technical CAD Sheet (V8 Pro) of [IMAGE 1] — Front, Side, Top views on pure #FFFFFF white with crisp #1E293B charcoal vector lines (2048x2048).',
                     modelBlock,
                     headerText,
                     slotBlock,
-                    'OBJECTIVE: Create a clean, high-contrast 2D orthographic architectural CAD dimension sheet of the EXACT furniture piece from [IMAGE 1].',
-                    'LAYOUT: 2048x2048 pure white background (#FFFFFF), crisp charcoal technical vector linework (#1E293B), showing 3 aligned views: Front Elevation, Side Profile, and Top Plan View.',
                     cfg.dimensions
-                        ? ('DIMENSION CALLOUTS (EXACT — DO NOT INVENT OTHER NUMBERS): Label clean metric arrow lines clearly with "' + cfg.dimensions + '".')
-                        : 'DIMENSION CALLOUTS: Draw clean proportional metric dimension arrows (Width, Depth, Height, Seat Height if applicable) with subtle placeholder guides.',
-                    'STYLE: Ultra-clean furniture specification sheet, zero clutter, zero photoreal shading, exact silhouette fidelity to [IMAGE 1].'
-                ].filter(Boolean).join('\n\n');
+                        ? ('DIMENSIONS (EXACT): Label metric arrows with "' + cfg.dimensions + '" only.')
+                        : 'DIMENSIONS: Clean proportional metric arrows (Width, Depth, Height).',
+                    'STYLE: Zero shading, zero clutter, exact silhouette fidelity.'
+                ].filter(Boolean).join('\n');
 
                 return [
-                    makeOutBlock('v8_catalog', '1. Foto Catálogo CREATA (2048×2048 · #FFFFFF · 0% Sombras)', 'COTIZADOR', catalogPrompt, ''),
-                    makeOutBlock('v8_cover', '2. Portada Ambiente Editorial (' + roomObj.label.replace(/^[^\s]+\s/, '') + ')', 'PORTADA', coverPrompt, '_PORTADA'),
-                    makeOutBlock('v8_cad', '3. Plano Técnico CAD Ortográfico', 'FICHA CAD', cadPrompt, '_CAD')
+                    makeOutBlock('v8_catalog', '📦 Catálogo (2048×2048)', 'CATÁLOGO', catalogPrompt, ''),
+                    makeOutBlock('v8_cover', '🛋️ Portada (' + roomObj.label.replace(/^[^\s]+\s/, '') + ')', 'PORTADA', coverPrompt, '_PORTADA'),
+                    makeOutBlock('v8_cad', '📐 Plano CAD', 'CAD', cadPrompt, '_CAD')
                 ];
             }
 
             if (mode === 'SEVEN_VIEWS') {
                 const prompt = [
-                    'ROLE: CREATA Luxury E-Commerce Studio CGI Director (V8 Pro — 7-View Series).',
+                    'TASK: Cohesive 7-View CREATA Studio Set of [IMAGE 1] (100% consistent structure, scale, and finish).',
                     modelBlock,
                     headerText,
                     slotBlock,
-                    'OBJECTIVE: Generate a cohesive 7-VIEW COMMERCIAL CATALOG SET of the EXACT furniture piece from [IMAGE 1] with 100% structural, proportional, and color consistency across every view.',
                     buildCreataCatalogSpecBlock(cfg.forceCreataSpec, true, cfg.aspectRatio),
-                    'REQUIRED 7 VIEWS (generate clean individual 2048x2048 studio frames maintaining identical ~78% proportional major-axis scale without stretching or mirroring):',
-                    '1) HERO 3/4 FACING RIGHT (screen-right: front opens toward RIGHT edge, backrest on LEFT, 35°–40°, 2048×2048, #FFFFFF, 0% shadows) — Primary CREATA Catalog View.',
-                    '2) STRAIGHT FRONT ELEVATION (0°, perfectly level).',
-                    '3) 3/4 FACING LEFT (screen-left: OPPOSITE orbit to View 1 — front opens toward LEFT edge, backrest on RIGHT, 35°–40°; NEVER mirrored).',
-                    '4) RIGHT SIDE PROFILE (90° strict flat profile showing full depth & armrest line).',
-                    '5) LEFT SIDE PROFILE (-90° strict flat opposite profile).',
-                    '6) STRAIGHT BACK VIEW (180° showing full continuous rear upholstery/panel).',
-                    '7) MACRO TEXTURE & CRAFTSMANSHIP DETAIL (100mm close-up of weave, stitching, and base/legs).',
+                    'VIEWS (2048x2048, ~78% proportional scale, NEVER mirrored): 1) 3/4 Right (front→right, backrest left) · 2) Front 0° · 3) 3/4 Left (opposite orbit, front→left) · 4) Right Profile 90° · 5) Left Profile -90° · 6) Back 180° · 7) Macro Texture/Stitching Detail.',
                     matBlock,
-                    antiHallucination
-                ].filter(Boolean).join('\n\n');
-                return [makeOutBlock('v8_7views', 'V8 Pro · Serie 7 Vistas + 3/4 Der./Izq. (2048×2048)', '7 VISTAS', prompt, '')];
+                    lockLine
+                ].filter(Boolean).join('\n');
+                return [makeOutBlock('v8_7views', '📸 7 Vistas (2048×2048)', '7 VISTAS', prompt, '')];
             }
 
             if (mode === 'SINGLE_VIEW') {
                 const prompt = [
-                    'ROLE: CREATA Studio Furniture Photographer (V8 Pro — Precision Single Angle).',
+                    'TASK: Precision Single Studio View of [IMAGE 1] (V8 Pro).',
                     modelBlock,
                     headerText,
                     slotBlock,
-                    'TARGET CAMERA ANGLE (STRICT): ' + angleObj.en,
-                    angleObj.exclude ? ('NEGATIVE ORIENTATION GUARD (STRICTLY FORBIDDEN): ' + angleObj.exclude + '.') : '',
+                    'ANGLE: ' + angleObj.en,
+                    angleObj.exclude ? ('FORBIDDEN: ' + angleObj.exclude + '.') : '',
                     buildCreataCatalogSpecBlock(cfg.forceCreataSpec, false, cfg.aspectRatio, angleObj),
                     matBlock,
-                    antiHallucination
-                ].filter(Boolean).join('\n\n');
-                return [makeOutBlock('v8_single', 'V8 Pro · ' + angleObj.label, '1 VISTA', prompt, '')];
+                    lockLine
+                ].filter(Boolean).join('\n');
+                return [makeOutBlock('v8_single', '🎯 ' + angleObj.label, '1 VISTA', prompt, '')];
             }
 
             if (mode === 'MATERIAL_SWAP') {
                 const targetLabel = cfg.materialTarget === 'TELA'
-                    ? 'Solo Tela (100% Casco)'
-                    : (cfg.materialTarget === 'MADERA' ? 'Solo Madera / Base' : 'Dual (Tela 100% Casco + Madera)');
+                    ? 'Solo Tela'
+                    : (cfg.materialTarget === 'MADERA' ? 'Solo Madera' : 'Dual Tela + Madera');
                 const prompt = [
-                    'ROLE: Master Furniture Re-Upholstery & Finish Visualization Artist (V8 Pro).',
+                    'TASK: Photorealistic Material Swap on [IMAGE 1] — ' + targetLabel + ' (keep 100% geometry, seams, and perspective).',
                     modelBlock,
                     headerText,
                     slotBlock,
-                    'OBJECTIVE: Perform a photorealistic material swap on the EXACT furniture piece in [IMAGE 1] WITHOUT altering a single millimeter of its shape, scale, seam layout, or camera perspective.',
-                    matBlock || 'Apply the attached material reference faithfully across 100% of the target surfaces with realistic micro-scale grain.',
+                    matBlock || 'Apply attached material swatch faithfully across 100% of target surfaces at natural micro-scale.',
                     buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, cfg.aspectRatio),
-                    antiHallucination
-                ].filter(Boolean).join('\n\n');
-                return [makeOutBlock('v8_material', 'V8 Pro · Cambio de Material — ' + targetLabel, '100% CASCO', prompt, '')];
+                    lockLine
+                ].filter(Boolean).join('\n');
+                return [makeOutBlock('v8_material', '🧵🪵 Material — ' + targetLabel, 'MATERIAL', prompt, '')];
             }
 
             if (mode === 'ENVIRONMENT') {
                 const prompt = [
-                    'ROLE: Architectural Digest / CREATA Interior Lifestyle Photographer (V8 Pro).',
+                    'TASK: Editorial Interior Integration of [IMAGE 1] (' + (cfg.aspectRatio || '1:1') + ' 2K, 50mm lens, natural daylight, soft floor contact shadow, true proportions).',
                     modelBlock,
                     headerText,
                     slotBlock,
-                    'OBJECTIVE: Integrate the EXACT furniture piece from [IMAGE 1] naturally into the specified luxury interior environment.',
                     'SCENE: ' + roomObj.en + '.',
-                    'PHOTOGRAPHY: Full-frame 50mm architectural lens, 2K output (' + (cfg.aspectRatio || '1:1') + '), natural soft directional daylight, accurate perspective floor-plane integration, realistic soft contact shadow under legs, rich editorial color grading while keeping the furniture fabric/wood color and real proportions 100% true to reference.',
                     matBlock,
-                    antiHallucination
-                ].filter(Boolean).join('\n\n');
-                return [makeOutBlock('v8_env', 'V8 Pro · Ambiente — ' + roomObj.label, 'AMBIENTE', prompt, '')];
+                    lockLine
+                ].filter(Boolean).join('\n');
+                return [makeOutBlock('v8_env', '🛋️ Ambiente — ' + roomObj.label.replace(/^[^\s]+\s/, ''), 'AMBIENTE', prompt, '')];
             }
 
             // CAD_HD
             const hdPrompt = [
-                'ROLE: Commercial Studio Furniture Retoucher — 8K HD Restoration (V8 Pro).',
+                'TASK: 8K Studio HD Restoration of [IMAGE 1] (2048x2048, remove noise/glare/clutter, sharpen weave & grain naturally).',
                 modelBlock,
                 headerText,
                 slotBlock,
-                'OBJECTIVE: Restore and upscale [IMAGE 1] into an ultra-crisp 2048x2048 (2K) commercial studio product photograph without distorting proportions.',
-                'RESTORATION RULES: Eliminate noise, compression artifacts, store clutter, uneven showroom lighting, glare, wrinkled floor mats, and skewed verticals. Sharpen stitching, fabric weave, and wood grain naturally without synthetic AI over-smoothing.',
                 buildCreataCatalogSpecBlock(cfg.forceCreataSpec, cfg.forceThreeQuarterRight, cfg.aspectRatio),
                 matBlock,
-                antiHallucination
-            ].filter(Boolean).join('\n\n');
+                lockLine
+            ].filter(Boolean).join('\n');
 
             const cadOnlyPrompt = [
-                'ROLE: Furniture Technical Draftsman (V8 Pro CAD).',
+                'TASK: 2D Orthographic CAD Drawing of [IMAGE 1] (Front, Side, Top views, 2048x2048, pure #FFFFFF white, crisp charcoal lines).',
                 modelBlock,
                 headerText,
                 slotBlock,
-                'OBJECTIVE: Produce a crisp 2048x2048 2D orthographic technical CAD drawing (Front, Side, Top views) on pure #FFFFFF white background matching [IMAGE 1] 100%.',
-                cfg.dimensions ? ('EXACT MEASUREMENTS: ' + cfg.dimensions + '.') : 'Include clean proportional metric dimension arrows.',
-                'Thin architectural charcoal lines, legible sans-serif metric numbers, zero background clutter.'
-            ].filter(Boolean).join('\n\n');
+                cfg.dimensions ? ('EXACT MEASUREMENTS: ' + cfg.dimensions + '.') : 'Clean proportional metric arrows.'
+            ].filter(Boolean).join('\n');
 
             return [
-                makeOutBlock('v8_hd8k', '1. Restauración Estudio HD 8K (2048×2048 · #FFFFFF)', 'HD 8K', hdPrompt, ''),
-                makeOutBlock('v8_cad2', '2. Plano Técnico CAD Ortográfico', 'PLANO CAD', cadOnlyPrompt, '_CAD')
+                makeOutBlock('v8_hd8k', '✨ Restaurar HD 8K', 'HD 8K', hdPrompt, ''),
+                makeOutBlock('v8_cad2', '📐 Plano CAD', 'CAD', cadOnlyPrompt, '_CAD')
             ];
         }
 
@@ -1098,6 +1034,7 @@
         state.dimensions = '';
         state.extraNotes = '';
         state.visionAnalysis = '';
+        state.activeOutTab = 0;
         state.generatedBlocks = [];
         renderStudio();
         showStudioToast('🧹 Fotos y textos limpiados (tu versión ' + state.version + ' y opciones siguen iguales).', 'ok');
@@ -1115,148 +1052,140 @@
     }
 
     // =========================================================================
-    // RENDERIZADO DE LA INTERFAZ NATIVA (MÓVIL + PC)
+    // RENDERIZADO DE LA INTERFAZ NATIVA — ESTÉTICA V7 ULTRA-RESUMIDA (1 PANTALLA)
     // =========================================================================
-    function renderVersionTabs() {
-        return VERSIONS.map((v) => {
-            const act = state.version === v.id;
-            return '<button type="button" class="st-ver-btn' + (act ? ' is-active' : '') + '" data-ver="' + v.id + '" onclick="CreataPromptsStudio.setVersion(\'' + v.id + '\')">' +
-                '<span class="st-ver-title">' + escapeHtml(v.label) + '</span>' +
-                '<span class="st-ver-badge">' + escapeHtml(v.badge) + '</span>' +
-            '</button>';
-        }).join('');
+    function renderVersionPills() {
+        return '<div class="st-v7-ver-seg" role="tablist" aria-label="Versión">' +
+            VERSIONS.map((v) => {
+                const act = state.version === v.id;
+                return '<button type="button" class="st-v7-ver-pill' + (act ? ' is-active' : '') + '" data-ver="' + v.id + '" onclick="CreataPromptsStudio.setVersion(\'' + v.id + '\')" title="' + escapeHtml(v.desc) + '">' +
+                    escapeHtml(v.id === 'V8' ? '✨ V8' : v.id) +
+                '</button>';
+            }).join('') +
+        '</div>';
     }
 
-    function renderModeControls() {
-        if (state.version === 'V8') {
-            const modeBtns = V8_MODES.map((m) =>
-                '<button type="button" class="st-mode-pill' + (state.v8Mode === m.id ? ' is-active' : '') + '" onclick="CreataPromptsStudio.setMode(\'' + m.id + '\')">' +
-                    escapeHtml(m.label) +
-                '</button>'
-            ).join('');
-            const curMode = V8_MODES.find((m) => m.id === state.v8Mode) || V8_MODES[0];
-            return '<div class="st-mode-grid">' + modeBtns + '</div>' +
-                '<p class="st-mode-hint">' + escapeHtml(curMode.hint) + '</p>';
-        }
-        if (state.version === 'V7') {
-            const modeBtns = V7_MODES.map((m) =>
-                '<button type="button" class="st-mode-pill' + (state.v7Mode === m.id ? ' is-active' : '') + '" onclick="CreataPromptsStudio.setMode(\'' + m.id + '\')">' +
-                    escapeHtml(m.label) +
-                '</button>'
-            ).join('');
-            return '<div class="st-mode-grid">' + modeBtns + '</div>';
-        }
-        const modeBtns = V1_MODES.map((m) =>
-            '<button type="button" class="st-mode-pill' + (state.v1Mode === m.id ? ' is-active' : '') + '" onclick="CreataPromptsStudio.setMode(\'' + m.id + '\')">' +
-                escapeHtml(m.label) +
-            '</button>'
-        ).join('');
-        return '<div class="st-mode-grid">' + modeBtns + '</div>';
+    function getCurrentModeList() {
+        if (state.version === 'V8') return { list: V8_MODES, active: state.v8Mode };
+        if (state.version === 'V7') return { list: V7_MODES, active: state.v7Mode };
+        return { list: V1_MODES, active: state.v1Mode };
     }
 
-    function renderContextualOptions() {
+    function getActiveModeShortLabel() {
+        const cur = getCurrentModeList();
+        const found = cur.list.find((m) => m.id === cur.active) || cur.list[0];
+        return (found && (found.short || found.label)) || 'Prompt';
+    }
+
+    function renderModeSelectHtml() {
+        const cur = getCurrentModeList();
+        return '<select id="stModeSelect" class="st-input st-v7-select" aria-label="Modo" onchange="CreataPromptsStudio.setMode(this.value)">' +
+            cur.list.map((m) => '<option value="' + m.id + '"' + (cur.active === m.id ? ' selected' : '') + '>' + escapeHtml(m.label) + '</option>').join('') +
+        '</select>';
+    }
+
+    function renderSubOptionSelectHtml() {
         const showAngle = (state.version === 'V8' && state.v8Mode === 'SINGLE_VIEW') || (state.version === 'V7' && state.v7Mode === '1_VISTA');
         const showRoom = (state.version === 'V8' && (state.v8Mode === 'ENVIRONMENT' || state.v8Mode === 'PACK_CREATA')) || (state.version === 'V7' && state.v7Mode === 'ENTORNO');
         const showMatTarget = (state.version === 'V8' && state.v8Mode === 'MATERIAL_SWAP') || (state.version === 'V1' && state.v1Mode === 'CAMBIO_MATERIAL');
 
-        const parts = [];
         if (showAngle) {
-            parts.push(
-                '<div class="st-field-group">' +
-                    '<label class="st-label" for="stAngleSelect">🎯 Ángulo exacto</label>' +
-                    '<select id="stAngleSelect" class="st-input" onchange="CreataPromptsStudio.setField(\'angleId\', this.value)">' +
-                        SINGLE_ANGLES.map((a) => '<option value="' + a.id + '"' + (state.angleId === a.id ? ' selected' : '') + '>' + escapeHtml(a.label) + '</option>').join('') +
-                    '</select>' +
-                '</div>'
-            );
+            return '<select id="stAngleSelect" class="st-input st-v7-select" aria-label="Ángulo" onchange="CreataPromptsStudio.setField(\'angleId\', this.value)">' +
+                SINGLE_ANGLES.map((a) => '<option value="' + a.id + '"' + (state.angleId === a.id ? ' selected' : '') + '>' + escapeHtml(a.label) + '</option>').join('') +
+            '</select>';
         }
         if (showRoom) {
-            parts.push(
-                '<div class="st-field-group">' +
-                    '<label class="st-label" for="stRoomSelect">🛋️ Habitación / Ambiente CREATA</label>' +
-                    '<select id="stRoomSelect" class="st-input" onchange="CreataPromptsStudio.setField(\'roomId\', this.value)">' +
-                        ROOM_ENVIRONMENTS.map((r) => '<option value="' + r.id + '"' + (state.roomId === r.id ? ' selected' : '') + '>' + escapeHtml(r.label) + '</option>').join('') +
-                    '</select>' +
-                '</div>'
-            );
+            return '<select id="stRoomSelect" class="st-input st-v7-select" aria-label="Ambiente" onchange="CreataPromptsStudio.setField(\'roomId\', this.value)">' +
+                ROOM_ENVIRONMENTS.map((r) => '<option value="' + r.id + '"' + (state.roomId === r.id ? ' selected' : '') + '>' + escapeHtml(r.label) + '</option>').join('') +
+            '</select>';
         }
         if (showMatTarget) {
-            parts.push(
-                '<div class="st-field-group">' +
-                    '<span class="st-label">🧵🪵 Qué material cambiar</span>' +
-                    '<div class="st-seg-row">' +
-                        ['TELA', 'MADERA', 'DUAL'].map((t) => {
-                            const lbl = t === 'TELA' ? '🧵 Solo Tela' : (t === 'MADERA' ? '🪵 Solo Madera' : '🧵🪵 Dual (Ambos)');
-                            return '<button type="button" class="st-seg-btn' + (state.materialTarget === t ? ' is-active' : '') + '" onclick="CreataPromptsStudio.setField(\'materialTarget\', \'' + t + '\')">' + lbl + '</button>';
-                        }).join('') +
-                    '</div>' +
-                '</div>'
-            );
+            const opts = [
+                { id: 'TELA', label: '🧵 Solo Tela' },
+                { id: 'MADERA', label: '🪵 Solo Madera' },
+                { id: 'DUAL', label: '🧵🪵 Dual (Ambos)' }
+            ];
+            return '<select id="stMatTargetSelect" class="st-input st-v7-select" aria-label="Material" onchange="CreataPromptsStudio.setField(\'materialTarget\', this.value)">' +
+                opts.map((o) => '<option value="' + o.id + '"' + (state.materialTarget === o.id ? ' selected' : '') + '>' + o.label + '</option>').join('') +
+            '</select>';
         }
+        return '';
+    }
 
+    function renderAdvancedOptionsHtml(hasGeminiKey) {
         const curModel = getTargetModelObj(state.targetModel);
-        parts.push(
-            '<div class="st-field-group">' +
-                '<label class="st-label" for="stModelSelect">🤖 Modelo IA (Google AI Studio / Gemini)</label>' +
-                '<select id="stModelSelect" class="st-input" onchange="CreataPromptsStudio.setField(\'targetModel\', this.value)">' +
-                    IMAGE_MODELS.map((m) => '<option value="' + m.id + '"' + (state.targetModel === m.id ? ' selected' : '') + '>' + escapeHtml(m.label) + '</option>').join('') +
-                '</select>' +
-            '</div>'
-        );
-
-        parts.push(
-            '<div class="st-two-col">' +
-                '<div class="st-field-group">' +
-                    '<label class="st-label" for="stAspectSelect">📐 Formato / Lienzo</label>' +
+        const showAngle = (state.version === 'V8' && state.v8Mode === 'SINGLE_VIEW') || (state.version === 'V7' && state.v7Mode === '1_VISTA');
+        return '<details class="st-adv-details"' + (state.advancedOpen ? ' open' : '') + ' ontoggle="CreataPromptsStudio.setAdvancedOpen(this.open)">' +
+            '<summary>⚙️ Opciones (' + escapeHtml(curModel.short) + ' · ' + escapeHtml(state.aspectRatio) + (state.forceCreataSpec ? ' · 2048 #FFF' : '') + (hasGeminiKey ? ' · Vision ✅' : '') + ')</summary>' +
+            '<div class="st-adv-body">' +
+                '<div class="st-two-col">' +
+                    '<input type="text" class="st-input" placeholder="Nombre del mueble" value="' + escapeHtml(state.productName) + '" oninput="CreataPromptsStudio.setFieldSilent(\'productName\', this.value)">' +
+                    '<select class="st-input" onchange="CreataPromptsStudio.setField(\'category\', this.value)">' +
+                        CATEGORIES.map((c) => '<option value="' + c.id + '"' + (state.category === c.id ? ' selected' : '') + '>' + escapeHtml(c.label) + '</option>').join('') +
+                    '</select>' +
+                '</div>' +
+                '<div class="st-two-col">' +
+                    '<select id="stModelSelect" class="st-input" onchange="CreataPromptsStudio.setField(\'targetModel\', this.value)">' +
+                        IMAGE_MODELS.map((m) => '<option value="' + m.id + '"' + (state.targetModel === m.id ? ' selected' : '') + '>' + escapeHtml(m.label) + '</option>').join('') +
+                    '</select>' +
                     '<select id="stAspectSelect" class="st-input" onchange="CreataPromptsStudio.setField(\'aspectRatio\', this.value)">' +
                         ASPECT_RATIO_OPTIONS.map((a) => '<option value="' + a.id + '"' + (state.aspectRatio === a.id ? ' selected' : '') + '>' + escapeHtml(a.label) + '</option>').join('') +
                     '</select>' +
                 '</div>' +
                 (curModel.supportsThinkingLevel
-                    ? ('<div class="st-field-group">' +
-                        '<label class="st-label" for="stThinkingSelect">🧠 Thinking (Nano Banana 2.1)</label>' +
-                        '<select id="stThinkingSelect" class="st-input" onchange="CreataPromptsStudio.setField(\'thinkingLevel\', this.value)">' +
+                    ? ('<div class="st-adv-inline">' +
+                        '<label class="st-mini-lbl" for="stThinkingSelect">🧠 Thinking:</label>' +
+                        '<select id="stThinkingSelect" class="st-input st-v7-select-sm" onchange="CreataPromptsStudio.setField(\'thinkingLevel\', this.value)">' +
                             curModel.thinkingLevels.map((lvl) => '<option value="' + lvl + '"' + (state.thinkingLevel === lvl ? ' selected' : '') + '>' + escapeHtml(lvl.toUpperCase()) + '</option>').join('') +
                         '</select>' +
                       '</div>')
-                    : '<div class="st-field-group"><span class="st-label">🧠 Thinking</span><div class="st-mode-hint">Gemini 3 Pro Image usa razonamiento Pro automático.</div></div>') +
-            '</div>'
-        );
-
-        if (state.version !== 'V1') {
-            parts.push(
-                '<div class="st-toggles-row">' +
-                    '<label class="st-check-pill">' +
-                        '<input type="checkbox" ' + (state.forceCreataSpec ? 'checked' : '') + ' onchange="CreataPromptsStudio.setBool(\'forceCreataSpec\', this.checked)">' +
-                        '<span>📐 2048×2048 · 78% parejo sin deformar · #FFFFFF · 0% sombras</span>' +
-                    '</label>' +
-                    (!showAngle
-                        ? ('<label class="st-check-pill">' +
-                            '<input type="checkbox" ' + (state.forceThreeQuarterRight ? 'checked' : '') + ' onchange="CreataPromptsStudio.setBool(\'forceThreeQuarterRight\', this.checked)">' +
-                            '<span>↘️ 3/4 Mirando a la Derecha</span>' +
-                          '</label>')
-                        : '') +
-                '</div>'
-            );
-        }
-        return parts.join('');
-    }
-
-    function renderSelectedPhotoSlot(slotKey, item, emptyLabel) {
-        if (!item) {
-            return '<div class="st-slot-empty">' + escapeHtml(emptyLabel) + '</div>';
-        }
-        return '<div class="st-slot-filled">' +
-            '<div class="st-slot-preview-wrap">' +
-                '<img src="' + escapeHtml(item.previewUrl) + '" alt="' + escapeHtml(item.name) + '" class="st-slot-img" referrerpolicy="no-referrer">' +
-            '</div>' +
-            '<div class="st-slot-meta">' +
-                '<div class="st-slot-name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + '</div>' +
-                '<div class="st-slot-actions">' +
-                    '<button type="button" class="st-mini-btn is-accent" onclick="CreataPromptsStudio.copySlotPhoto(\'' + slotKey + '\', this)">🖼️ Copiar foto</button>' +
-                    '<button type="button" class="st-mini-btn" onclick="CreataPromptsStudio.clearSlot(\'' + slotKey + '\')">✕ Quitar</button>' +
+                    : '') +
+                (state.version !== 'V1'
+                    ? ('<div class="st-toggles-row">' +
+                        '<label class="st-check-pill">' +
+                            '<input type="checkbox" ' + (state.forceCreataSpec ? 'checked' : '') + ' onchange="CreataPromptsStudio.setBool(\'forceCreataSpec\', this.checked)">' +
+                            '<span>2048×2048 · 78% · #FFFFFF · 0% sombras</span>' +
+                        '</label>' +
+                        (!showAngle
+                            ? ('<label class="st-check-pill">' +
+                                '<input type="checkbox" ' + (state.forceThreeQuarterRight ? 'checked' : '') + ' onchange="CreataPromptsStudio.setBool(\'forceThreeQuarterRight\', this.checked)">' +
+                                '<span>↘️ 3/4 Derecha</span>' +
+                              '</label>')
+                            : '') +
+                      '</div>')
+                    : '') +
+                '<div class="st-gemini-compact">' +
+                    '<div class="st-sku-lookup-row">' +
+                        '<input type="password" id="stGeminiKeyInput" class="st-input" placeholder="Gemini API Key opcional (AIza...)" value="' + escapeHtml(getSavedGeminiKey()) + '">' +
+                        '<button type="button" class="st-mini-btn" onclick="CreataPromptsStudio.saveKeyFromInput()">🔑 Guardar</button>' +
+                        (hasGeminiKey
+                            ? ('<button type="button" class="st-mini-btn is-accent" ' + (state.visionLoading ? 'disabled' : '') + ' onclick="CreataPromptsStudio.runGeminiVision()">' + (state.visionLoading ? '⏳' : '✨ Vision') + '</button>')
+                            : '') +
+                    '</div>' +
+                    (state.visionAnalysis ? ('<pre class="st-vision-pre">' + escapeHtml(state.visionAnalysis) + '</pre>') : '') +
                 '</div>' +
             '</div>' +
+        '</details>';
+    }
+
+    function renderSelectedThumbsStrip() {
+        const items = [];
+        if (state.furniturePhoto) items.push({ key: 'FURNITURE', badge: '🛋️ Mueble', item: state.furniturePhoto });
+        if (state.fabricSwatch) items.push({ key: 'TELA', badge: '🧵 Tela', item: state.fabricSwatch });
+        if (state.woodSwatch) items.push({ key: 'MADERA', badge: '🪵 Madera', item: state.woodSwatch });
+        if (!items.length) return '';
+        return '<div class="st-v7-thumbs-row">' +
+            items.map((x) =>
+                '<div class="st-v7-thumb-card">' +
+                    '<div class="st-v7-thumb-img-wrap">' +
+                        '<img src="' + escapeHtml(x.item.previewUrl) + '" alt="' + escapeHtml(x.item.name) + '" class="st-v7-thumb-img" referrerpolicy="no-referrer">' +
+                        '<span class="st-v7-thumb-tag">' + x.badge + '</span>' +
+                        '<button type="button" class="st-v7-thumb-del" title="Quitar" onclick="CreataPromptsStudio.clearSlot(\'' + x.key + '\')">✕</button>' +
+                    '</div>' +
+                    '<div class="st-v7-thumb-name" title="' + escapeHtml(x.item.name) + '">' + escapeHtml(x.item.name) + '</div>' +
+                    '<button type="button" class="st-mini-btn is-accent st-v7-thumb-cp" onclick="CreataPromptsStudio.copySlotPhoto(\'' + x.key + '\', this)">🖼️ Copiar foto</button>' +
+                '</div>'
+            ).join('') +
         '</div>';
     }
 
@@ -1305,8 +1234,8 @@
         return '<div class="st-picker-panel">' +
             '<div class="st-picker-head">' +
                 '<div>' +
-                    '<strong id="stMaterialPickerTitle">' + (isWood ? '🪵 Catálogo MADERAS' : '🧵 Catálogo TELAS + FOTOS TELAS') + ' (' + filtered.length + ')</strong>' +
-                    '<span class="st-ro-badge">🔒 Solo lectura · nunca borra ni modifica</span>' +
+                    '<strong id="stMaterialPickerTitle">' + (isWood ? '🪵 MADERAS' : '🧵 TELAS') + ' (' + filtered.length + ')</strong>' +
+                    ' <span class="st-ro-badge">🔒 Solo lectura</span>' +
                 '</div>' +
                 '<div class="st-picker-head-btns">' +
                     '<button type="button" class="st-mini-btn" onclick="CreataPromptsStudio.refreshMaterials()" title="Recargar de Drive">↻</button>' +
@@ -1343,7 +1272,7 @@
         }
         return '<div class="st-picker-panel">' +
             '<div class="st-picker-head">' +
-                '<strong>📂 Carpeta Drive · ' + escapeHtml(state.activeSourceTab) + ' (' + state.sourceFiles.length + ')</strong>' +
+                '<strong>📂 Drive · ' + escapeHtml(state.activeSourceTab) + ' (' + state.sourceFiles.length + ')</strong>' +
                 '<button type="button" class="st-mini-btn" onclick="CreataPromptsStudio.closeSourcePanel()">✕</button>' +
             '</div>' +
             body +
@@ -1352,178 +1281,130 @@
 
     function renderGeneratedOutputs() {
         if (!state.generatedBlocks.length) {
-            return '<div class="st-out-empty">Configura tus fotos o datos y pulsa <strong>⚡ Generar Prompt</strong>. Tu resultado aparecerá aquí en menos de 0.1 segundos, listo para pegar en AI Studio, Gemini o ChatGPT.</div>';
+            return '<div class="st-out-empty">👈 Elige o sube la foto del mueble (arrastra o <strong>Ctrl+V</strong>), opcionalmente Tela/Madera, escribe el <strong>Nombre de salida</strong> y pulsa <strong>🚀 Generar</strong> o <strong>↘️ 3/4 Derecha</strong>.</div>';
         }
-        return state.generatedBlocks.map((b, idx) => {
-            const outFile = cleanStr(b.outputFileName) || (resolveExactOutputStem(state) + '.png');
-            return '<article class="st-out-card">' +
-                '<div class="st-out-head">' +
-                    '<div>' +
-                        '<span class="st-out-badge">' + escapeHtml(b.badge) + '</span>' +
-                        '<h3 class="st-out-title">' + escapeHtml(b.title) + '</h3>' +
-                    '</div>' +
-                    '<div class="st-out-actions">' +
-                        '<button type="button" class="st-btn-primary st-btn-sm" onclick="CreataPromptsStudio.copyGenerated(' + idx + ', this)">📋 Copiar Prompt</button>' +
-                    '</div>' +
+        const safeIdx = Math.min(Math.max(0, Number(state.activeOutTab) || 0), state.generatedBlocks.length - 1);
+        const activeBlk = state.generatedBlocks[safeIdx];
+        const outFile = cleanStr(activeBlk.outputFileName) || (resolveExactOutputStem(state) + '.png');
+
+        const tabsHtml = state.generatedBlocks.length > 1
+            ? ('<div class="st-v7-out-tabs" role="tablist">' +
+                state.generatedBlocks.map((b, i) =>
+                    '<button type="button" role="tab" aria-selected="' + (i === safeIdx ? 'true' : 'false') + '" class="st-v7-out-tab' + (i === safeIdx ? ' is-active' : '') + '" onclick="CreataPromptsStudio.setActiveOutTab(' + i + ')">' +
+                        escapeHtml(b.title || b.badge) +
+                    '</button>'
+                ).join('') +
+              '</div>')
+            : '';
+
+        return '<div class="st-v7-out-header">' +
+                '<span class="st-out-filename-pill" title="Nombre exacto de salida">🏷️ ' + escapeHtml(outFile) + '</span>' +
+                '<div class="st-out-actions">' +
+                    '<button type="button" class="st-btn-primary st-v7-btn-xs" onclick="CreataPromptsStudio.copyGenerated(' + safeIdx + ', this)">📋 Copiar Prompt</button>' +
+                    '<button type="button" class="st-mini-btn is-accent" onclick="CreataPromptsStudio.copyOutputName(' + safeIdx + ', this)">🏷️ Nombre</button>' +
+                    '<button type="button" class="st-mini-btn is-odoo" onclick="CreataPromptsStudio.sendNameToOdooUpload(' + safeIdx + ')">☁️ Subir</button>' +
                 '</div>' +
-                '<div class="st-out-filename-row">' +
-                    '<span class="st-out-filename-pill" title="Nombre exacto de salida para guardar / subir">🏷️ ' + escapeHtml(outFile) + '</span>' +
-                    '<div class="st-out-actions">' +
-                        '<button type="button" class="st-mini-btn is-accent" onclick="CreataPromptsStudio.copyOutputName(' + idx + ', this)">📋 Copiar nombre</button>' +
-                        '<button type="button" class="st-mini-btn is-odoo" onclick="CreataPromptsStudio.sendNameToOdooUpload(' + idx + ')">☁️ Subir con este nombre</button>' +
-                    '</div>' +
-                '</div>' +
-                '<textarea class="st-out-textarea" readonly rows="9">' + escapeHtml(b.prompt) + '</textarea>' +
-            '</article>';
-        }).join('');
+            '</div>' +
+            tabsHtml +
+            '<textarea class="st-out-textarea" readonly rows="13">' + escapeHtml(activeBlk.prompt) + '</textarea>';
     }
 
     function renderStudio() {
         if (!rootEl) return;
-        const verObj = VERSIONS.find((v) => v.id === state.version) || VERSIONS[0];
         const hasGeminiKey = Boolean(getSavedGeminiKey());
         const livePreviewStem = resolveExactOutputStem(state);
+        const subOptHtml = renderSubOptionSelectHtml();
+        const modeBtnLabel = getActiveModeShortLabel();
 
         rootEl.innerHTML =
-            '<div class="st-wrap">' +
+            '<div class="st-wrap st-v7-wrap">' +
                 '<div id="studioToastBanner" class="studio-toast hidden" role="status" aria-live="polite"></div>' +
 
-                '<!-- BARRA DE VERSIONES: SOLO V8 PRO · V7 · V1 -->' +
-                '<section class="st-card st-ver-card">' +
-                    '<div class="st-ver-row">' + renderVersionTabs() + '</div>' +
-                    '<div class="st-ver-subrow">' +
-                        '<p class="st-ver-desc">' + escapeHtml(verObj.desc) + '</p>' +
-                        '<div class="st-ver-quick-actions">' +
-                            '<button type="button" class="st-mini-btn" onclick="CreataPromptsStudio.clearPhotos()" title="Limpia fotos y textos sin reiniciar tu versión ni modo">🧹 Borrar fotos</button>' +
-                            '<button type="button" class="st-mini-btn is-accent" onclick="switchPromptsWorkspace(\'render\')" title="Abrir app Streamlit de Prompts en Render (buena-espero)">🤖 Prompts Render</button>' +
-                            '<button type="button" class="st-mini-btn is-odoo" onclick="switchPromptsWorkspace(\'odoo\')" title="Abrir Render dedicado a Alta de Odoo">🚀 Alta de Odoo</button>' +
+                '<!-- ENCABEZADO COMPACTO V7 (1 SOLA LÍNEA: VERSIÓN + MODO + SUB-OPCIÓN + SKU + ENLACES) -->' +
+                '<section class="st-card st-v7-topbar">' +
+                    '<div class="st-v7-top-controls">' +
+                        renderVersionPills() +
+                        renderModeSelectHtml() +
+                        subOptHtml +
+                        '<div class="st-v7-sku-inline">' +
+                            '<input type="text" class="st-input" placeholder="SKU (autocompletar)" value="' + escapeHtml(state.sku) + '" oninput="CreataPromptsStudio.setFieldSilent(\'sku\', this.value)" onkeydown="if(event.key===\'Enter\') CreataPromptsStudio.lookupSku()">' +
+                            '<button type="button" class="st-mini-btn" title="Buscar SKU en Sheet" onclick="CreataPromptsStudio.lookupSku()">🔎</button>' +
                         '</div>' +
+                    '</div>' +
+                    '<div class="st-v7-top-links">' +
+                        '<a class="st-v7-link-pill is-folder" href="https://aistudio.google.com/prompts/new_chat" target="_blank" rel="noopener">⚡ AI Studio</a>' +
+                        '<a class="st-v7-link-pill" href="https://gemini.google.com/app" target="_blank" rel="noopener">♊ Gemini</a>' +
+                        '<a class="st-v7-link-pill" href="https://chatgpt.com/" target="_blank" rel="noopener">🤖 ChatGPT</a>' +
+                        '<button type="button" class="st-v7-link-pill is-folder" onclick="switchPromptsWorkspace(\'render\')" title="Abrir Prompts Render (V7 Streamlit)">🤖 Render</button>' +
+                        '<button type="button" class="st-v7-link-pill" onclick="switchPromptsWorkspace(\'odoo\')" title="Abrir Alta de Odoo">🚀 Odoo</button>' +
                     '</div>' +
                 '</section>' +
 
-                '<div class="st-grid">' +
-                    '<!-- COLUMNA IZQUIERDA: FOTOS + MATERIALES SOLO LECTURA + SKU -->' +
-                    '<div class="st-col-left">' +
-                        '<!-- 1. FOTO DEL MUEBLE -->' +
-                        '<section id="stFurnitureDropCard" class="st-card st-drop-card">' +
-                            '<div class="st-card-head">' +
-                                '<h2>1. Foto del mueble (IMAGE 1)</h2>' +
-                                '<span class="st-hint-chip">Ctrl+V · Arrastra · Cámara · Drive</span>' +
+                '<!-- WORKSPACE V7: 2 COLUMNAS COMPACTAS (INSUMOS IZQ | PROMPTS DER) -->' +
+                '<div class="st-grid st-v7-grid">' +
+                    '<section id="stFurnitureDropCard" class="st-card st-v7-work-card">' +
+                        '<!-- 1) MUEBLE (1 FILA) -->' +
+                        '<div class="st-v7-row">' +
+                            '<span class="st-v7-row-lbl">🛋️ Mueble</span>' +
+                            '<div class="st-v7-row-btns">' +
+                                '<button type="button" class="st-mini-btn' + (state.activeSourceTab === 'SM_MUEBLERIA' ? ' is-accent' : '') + '" onclick="CreataPromptsStudio.openDriveSource(\'SM_MUEBLERIA\')">SM</button>' +
+                                '<button type="button" class="st-mini-btn' + (state.activeSourceTab === 'COTIZACION' ? ' is-accent' : '') + '" onclick="CreataPromptsStudio.openDriveSource(\'COTIZACION\')">Cotiz.</button>' +
+                                '<button type="button" class="st-mini-btn' + (state.activeSourceTab === 'SUBIR_PROPT' ? ' is-accent' : '') + '" onclick="CreataPromptsStudio.openDriveSource(\'SUBIR_PROPT\')">PROPT</button>' +
+                                '<label class="st-mini-btn" title="Tomar foto">📷<input type="file" accept="image/*" capture="environment" class="hidden" onchange="CreataPromptsStudio.onFurnitureFileInput(this)"></label>' +
+                                '<label class="st-mini-btn is-accent">🖼️ Subir<input type="file" accept="image/*" class="hidden" onchange="CreataPromptsStudio.onFurnitureFileInput(this)"></label>' +
                             '</div>' +
-                            renderSelectedPhotoSlot('FURNITURE', state.furniturePhoto, 'Sube, arrastra, pega (Ctrl+V) o elige una foto del mueble desde Drive.') +
-                            '<div class="st-upload-actions">' +
-                                '<label class="st-btn-secondary st-btn-sm">📷 Cámara<input type="file" accept="image/*" capture="environment" class="hidden" onchange="CreataPromptsStudio.onFurnitureFileInput(this)"></label>' +
-                                '<label class="st-btn-primary st-btn-sm">🖼️ Archivo / Galería<input type="file" accept="image/*" class="hidden" onchange="CreataPromptsStudio.onFurnitureFileInput(this)"></label>' +
-                            '</div>' +
-                            '<div class="st-drive-src-bar">' +
-                                '<span class="st-mini-lbl">Drive (solo lectura):</span>' +
-                                '<button type="button" class="st-mini-btn' + (state.activeSourceTab === 'SM_MUEBLERIA' ? ' is-accent' : '') + '" onclick="CreataPromptsStudio.openDriveSource(\'SM_MUEBLERIA\')">SM S Mueblería</button>' +
-                                '<button type="button" class="st-mini-btn' + (state.activeSourceTab === 'COTIZACION' ? ' is-accent' : '') + '" onclick="CreataPromptsStudio.openDriveSource(\'COTIZACION\')">Cotización</button>' +
-                                '<button type="button" class="st-mini-btn' + (state.activeSourceTab === 'SUBIR_PROPT' ? ' is-accent' : '') + '" onclick="CreataPromptsStudio.openDriveSource(\'SUBIR_PROPT\')">SUBIR PROPT</button>' +
-                            '</div>' +
-                            renderDriveSourcePanel() +
-                        '</section>' +
+                        '</div>' +
+                        renderDriveSourcePanel() +
 
-                        '<!-- 2. TELAS Y MADERAS (DRIVE SOLO LECTURA) -->' +
-                        '<section class="st-card">' +
-                            '<div class="st-card-head">' +
-                                '<h2>2. Telas y Maderas (Solo Lectura)</h2>' +
-                                '<span class="st-ro-badge">🔒 Nunca borra ni modifica</span>' +
-                            '</div>' +
-                            '<div class="st-mat-dual-grid">' +
-                                '<div class="st-mat-box">' +
-                                    '<div class="st-mat-box-head">' +
-                                        '<strong>🧵 Tela (IMAGE 2)</strong>' +
-                                        '<div class="st-mat-box-btns">' +
-                                            '<button type="button" class="st-mini-btn is-accent" onclick="CreataPromptsStudio.openMaterialPicker(\'TELA\')">📂 Drive Telas</button>' +
-                                            '<label class="st-mini-btn">+ Local<input type="file" accept="image/*" class="hidden" onchange="CreataPromptsStudio.onSwatchFileInput(\'TELA\', this)"></label>' +
-                                        '</div>' +
-                                    '</div>' +
-                                    renderSelectedPhotoSlot('TELA', state.fabricSwatch, 'Opcional · elige muestra de TELAS / FOTOS TELAS') +
-                                '</div>' +
-                                '<div class="st-mat-box">' +
-                                    '<div class="st-mat-box-head">' +
-                                        '<strong>🪵 Madera (IMAGE 3)</strong>' +
-                                        '<div class="st-mat-box-btns">' +
-                                            '<button type="button" class="st-mini-btn is-accent" onclick="CreataPromptsStudio.openMaterialPicker(\'MADERA\')">📂 Drive Maderas</button>' +
-                                            '<label class="st-mini-btn">+ Local<input type="file" accept="image/*" class="hidden" onchange="CreataPromptsStudio.onSwatchFileInput(\'MADERA\', this)"></label>' +
-                                        '</div>' +
-                                    '</div>' +
-                                    renderSelectedPhotoSlot('MADERA', state.woodSwatch, 'Opcional · elige muestra de MADERAS') +
+                        '<!-- 2) TELA Y MADERA (2 FILAS COMPACTAS SOLO LECTURA) -->' +
+                        '<div class="st-v7-mat-rows">' +
+                            '<div class="st-v7-row">' +
+                                '<span class="st-v7-row-lbl">🧵 Tela' + (state.fabricSwatch ? (' <span class="st-v7-ok-dot" title="' + escapeHtml(state.fabricSwatch.name) + '">✓</span>') : '') + '</span>' +
+                                '<div class="st-v7-row-btns">' +
+                                    '<button type="button" class="st-mini-btn is-accent" onclick="CreataPromptsStudio.openMaterialPicker(\'TELA\')">📂 Drive Telas</button>' +
+                                    '<label class="st-mini-btn">+ Local<input type="file" accept="image/*" class="hidden" onchange="CreataPromptsStudio.onSwatchFileInput(\'TELA\', this)"></label>' +
                                 '</div>' +
                             '</div>' +
-                            renderMaterialPickerDrawer() +
-                        '</section>' +
-
-                        '<!-- 3. DATOS DEL PRODUCTO, SKU Y NOMBRE DE SALIDA -->' +
-                        '<section class="st-card">' +
-                            '<div class="st-card-head">' +
-                                '<h2>3. Producto, SKU y Nombre de salida</h2>' +
-                            '</div>' +
-                            '<div class="st-output-name-box">' +
-                                '<label class="st-output-name-label" for="stOutputNameInput">🏷️ Nombre exacto de salida (para que el prompt y la foto salgan con este nombre)</label>' +
-                                '<input type="text" id="stOutputNameInput" class="st-input" placeholder="Ej. MESA SANTORINI 8P ROSA MORADA (o déjalo vacío para usar el nombre/SKU)" value="' + escapeHtml(state.outputName) + '" oninput="CreataPromptsStudio.setOutputName(this.value)">' +
-                                '<div class="st-mode-hint">Salida actual: <strong id="stOutputNamePreview">' + escapeHtml(livePreviewStem + '.png') + '</strong></div>' +
-                            '</div>' +
-                            '<div class="st-sku-lookup-row">' +
-                                '<input type="text" class="st-input" placeholder="SKU (ej. HAK1PLUM...)" value="' + escapeHtml(state.sku) + '" oninput="CreataPromptsStudio.setFieldSilent(\'sku\', this.value)" onkeydown="if(event.key===\'Enter\') CreataPromptsStudio.lookupSku()">' +
-                                '<button type="button" class="st-btn-secondary st-btn-sm" onclick="CreataPromptsStudio.lookupSku()">🔎 Autocompletar SKU</button>' +
-                            '</div>' +
-                            '<div class="st-two-col">' +
-                                '<input type="text" class="st-input" placeholder="Nombre del mueble (ej. Sala Modular Milán)" value="' + escapeHtml(state.productName) + '" oninput="CreataPromptsStudio.setFieldSilent(\'productName\', this.value)">' +
-                                '<input type="text" class="st-input" placeholder="Medidas (ej. 240 x 95 x 82 cm)" value="' + escapeHtml(state.dimensions) + '" oninput="CreataPromptsStudio.setFieldSilent(\'dimensions\', this.value)">' +
-                            '</div>' +
-                            '<div class="st-two-col">' +
-                                '<select class="st-input" onchange="CreataPromptsStudio.setField(\'category\', this.value)">' +
-                                    CATEGORIES.map((c) => '<option value="' + c.id + '"' + (state.category === c.id ? ' selected' : '') + '>' + escapeHtml(c.label) + '</option>').join('') +
-                                '</select>' +
-                                '<input type="text" class="st-input" placeholder="Notas extra (ej. patas negras, sin cojines)" value="' + escapeHtml(state.extraNotes) + '" oninput="CreataPromptsStudio.setFieldSilent(\'extraNotes\', this.value)">' +
-                            '</div>' +
-                            '<details class="st-gemini-details"' + (state.geminiOpen ? ' open' : '') + ' ontoggle="CreataPromptsStudio.setGeminiOpen(this.open)">' +
-                                '<summary>⚙️ Gemini Vision opcional (' + (hasGeminiKey ? '✅ API Key guardada solo en este dispositivo' : 'Sin clave · generación instantánea offline') + ')</summary>' +
-                                '<div class="st-gemini-body">' +
-                                    '<p class="st-mode-hint">Tu clave se guarda únicamente en este navegador (nunca en el repositorio). Si la agregas, puedes analizar la foto real del mueble con Gemini Vision antes de generar el prompt.</p>' +
-                                    '<div class="st-sku-lookup-row">' +
-                                        '<input type="password" id="stGeminiKeyInput" class="st-input" placeholder="AIza..." value="' + escapeHtml(getSavedGeminiKey()) + '">' +
-                                        '<button type="button" class="st-btn-secondary st-btn-sm" onclick="CreataPromptsStudio.saveKeyFromInput()">Guardar clave</button>' +
-                                    '</div>' +
-                                    (hasGeminiKey
-                                        ? ('<button type="button" class="st-btn-secondary st-btn-sm" ' + (state.visionLoading ? 'disabled' : '') + ' onclick="CreataPromptsStudio.runGeminiVision()">' + (state.visionLoading ? '⏳ Analizando foto...' : '✨ Analizar foto con Gemini Vision') + '</button>')
-                                        : '') +
-                                    (state.visionAnalysis
-                                        ? ('<pre class="st-vision-pre">' + escapeHtml(state.visionAnalysis) + '</pre>')
-                                        : '') +
+                            '<div class="st-v7-row">' +
+                                '<span class="st-v7-row-lbl">🪵 Madera' + (state.woodSwatch ? (' <span class="st-v7-ok-dot" title="' + escapeHtml(state.woodSwatch.name) + '">✓</span>') : '') + '</span>' +
+                                '<div class="st-v7-row-btns">' +
+                                    '<button type="button" class="st-mini-btn is-accent" onclick="CreataPromptsStudio.openMaterialPicker(\'MADERA\')">📂 Drive Maderas</button>' +
+                                    '<label class="st-mini-btn">+ Local<input type="file" accept="image/*" class="hidden" onchange="CreataPromptsStudio.onSwatchFileInput(\'MADERA\', this)"></label>' +
                                 '</div>' +
-                            '</details>' +
-                        '</section>' +
-                    '</div>' +
+                            '</div>' +
+                        '</div>' +
+                        renderMaterialPickerDrawer() +
 
-                    '<!-- COLUMNA DERECHA: MODO + GENERAR + RESULTADOS -->' +
-                    '<div class="st-col-right">' +
-                        '<section class="st-card">' +
-                            '<div class="st-card-head">' +
-                                '<h2>4. Modo y Opciones (' + escapeHtml(state.version) + ')</h2>' +
+                        '<!-- 3) NOMBRE DE SALIDA + NOTAS / MEDIDAS -->' +
+                        '<div class="st-output-name-box">' +
+                            '<div class="st-v7-name-head">' +
+                                '<label class="st-output-name-label" for="stOutputNameInput">🏷️ Nombre de salida</label>' +
+                                '<span id="stOutputNamePreview" class="st-v7-preview-chip">' + escapeHtml(livePreviewStem + '.png') + '</span>' +
                             '</div>' +
-                            renderModeControls() +
-                            renderContextualOptions() +
-                            '<div class="st-generate-row">' +
-                                '<button type="button" id="btnGeneratePromptsNow" class="st-btn-generate" onclick="CreataPromptsStudio.generateNow()">⚡ Generar Prompt ' + escapeHtml(state.version) + '</button>' +
-                            '</div>' +
-                            '<div class="st-launch-bar">' +
-                                '<a class="st-launch-pill" href="https://aistudio.google.com/prompts/new_chat" target="_blank" rel="noopener">✨ Abrir AI Studio</a>' +
-                                '<a class="st-launch-pill" href="https://gemini.google.com/app" target="_blank" rel="noopener">💎 Abrir Gemini</a>' +
-                                '<a class="st-launch-pill" href="https://chatgpt.com/" target="_blank" rel="noopener">🤖 Abrir ChatGPT</a>' +
-                            '</div>' +
-                        '</section>' +
+                            '<input type="text" id="stOutputNameInput" class="st-input" placeholder="Ej. MESA SANTORINI 8P ROSA MORADA" value="' + escapeHtml(state.outputName) + '" oninput="CreataPromptsStudio.setOutputName(this.value)">' +
+                        '</div>' +
 
-                        '<section class="st-card st-results-card">' +
-                            '<div class="st-card-head">' +
-                                '<h2>5. Prompts Generados</h2>' +
-                                (state.generatedBlocks.length ? ('<span class="st-out-badge">' + state.generatedBlocks.length + ' listo(s)</span>') : '') +
-                            '</div>' +
-                            '<div id="stGeneratedOutputsWrap">' + renderGeneratedOutputs() + '</div>' +
-                        '</section>' +
-                    '</div>' +
+                        '<div class="st-two-col">' +
+                            '<input type="text" class="st-input" placeholder="📝 Notas opcionales" value="' + escapeHtml(state.extraNotes) + '" oninput="CreataPromptsStudio.setFieldSilent(\'extraNotes\', this.value)">' +
+                            '<input type="text" class="st-input" placeholder="📐 Medidas (ej. 180x110x75 cm)" value="' + escapeHtml(state.dimensions) + '" oninput="CreataPromptsStudio.setFieldSilent(\'dimensions\', this.value)">' +
+                        '</div>' +
+
+                        renderAdvancedOptionsHtml(hasGeminiKey) +
+
+                        '<!-- 4) 3 BOTONES PRINCIPALES ESTILO V7 -->' +
+                        '<div class="st-v7-action-bar">' +
+                            '<button type="button" id="btnGeneratePromptsNow" class="st-btn-generate" onclick="CreataPromptsStudio.generateNow()">🚀 ' + escapeHtml(modeBtnLabel) + '</button>' +
+                            '<button type="button" class="st-btn-secondary st-v7-btn-34" onclick="CreataPromptsStudio.generateQuick34Right()" title="Generar directo vista 3/4 Derecha 2048×2048 #FFFFFF sin sombra">↘️ 3/4 Derecha</button>' +
+                            '<button type="button" class="st-btn-secondary st-v7-btn-clr" onclick="CreataPromptsStudio.clearPhotos()" title="Borrar fotos y textos sin mover versión ni modo">🗑️ Borrar</button>' +
+                        '</div>' +
+
+                        '<!-- 5) MINIATURAS CARGADAS (SOLO SI HAY FOTOS) -->' +
+                        renderSelectedThumbsStrip() +
+                    '</section>' +
+
+                    '<section class="st-card st-results-card st-v7-out-card">' +
+                        '<div id="stGeneratedOutputsWrap">' + renderGeneratedOutputs() + '</div>' +
+                    '</section>' +
                 '</div>' +
             '</div>';
     }
@@ -1611,6 +1492,7 @@
             if (ver !== 'V8' && ver !== 'V7' && ver !== 'V1') return;
             state.version = ver;
             savePrefs();
+            state.activeOutTab = 0;
             if (state.generatedBlocks.length) {
                 state.generatedBlocks = generatePrompts();
             }
@@ -1621,6 +1503,7 @@
             else if (state.version === 'V7' && V7_MODES.some((m) => m.id === modeId)) state.v7Mode = modeId;
             else if (state.version === 'V1' && V1_MODES.some((m) => m.id === modeId)) state.v1Mode = modeId;
             savePrefs();
+            state.activeOutTab = 0;
             if (state.generatedBlocks.length) {
                 state.generatedBlocks = generatePrompts();
             }
@@ -1662,6 +1545,19 @@
         setGeminiOpen: function (isOpen) {
             state.geminiOpen = Boolean(isOpen);
         },
+        setAdvancedOpen: function (isOpen) {
+            state.advancedOpen = Boolean(isOpen);
+        },
+        setActiveOutTab: function (idx) {
+            const n = Number(idx) || 0;
+            state.activeOutTab = Math.min(Math.max(0, n), Math.max(0, state.generatedBlocks.length - 1));
+            const outWrap = byId('stGeneratedOutputsWrap');
+            if (outWrap) {
+                outWrap.innerHTML = renderGeneratedOutputs();
+            } else {
+                renderStudio();
+            }
+        },
         onFurnitureFileInput: function (inputEl) {
             const f = inputEl && inputEl.files && inputEl.files[0];
             if (f) loadFurnitureFile(f, 'local');
@@ -1698,7 +1594,7 @@
                 const isWood = state.activeMaterialPicker === 'MADERA';
                 const filtered = getFilteredMaterialsForPicker();
                 if (titleEl) {
-                    titleEl.textContent = (isWood ? '🪵 Catálogo MADERAS' : '🧵 Catálogo TELAS + FOTOS TELAS') + ' (' + filtered.length + ')';
+                    titleEl.textContent = (isWood ? '🪵 MADERAS' : '🧵 TELAS') + ' (' + filtered.length + ')';
                 }
                 bodyEl.innerHTML = renderMaterialPickerBodyHtml(isWood, filtered);
                 return;
@@ -1793,9 +1689,24 @@
         },
         runGeminiVision: analyzeFurnitureWithGeminiVision,
         generateNow: function () {
+            state.activeOutTab = 0;
             state.generatedBlocks = generatePrompts();
             renderStudio();
             showStudioToast('⚡ ' + state.generatedBlocks.length + ' prompt(s) ' + state.version + ' listos.', 'ok');
+            return state.generatedBlocks;
+        },
+        generateQuick34Right: function () {
+            state.activeOutTab = 0;
+            state.generatedBlocks = generatePrompts({
+                version: 'V8',
+                v8Mode: 'SINGLE_VIEW',
+                angleId: 'THREE_QUARTER_RIGHT',
+                aspectRatio: '1:1',
+                forceCreataSpec: true,
+                forceThreeQuarterRight: true
+            });
+            renderStudio();
+            showStudioToast('↘️ Prompt 3/4 Derecha (2048×2048 · #FFFFFF · 0% sombra) listo.', 'ok');
             return state.generatedBlocks;
         },
         copyGenerated: function (idx, btnEl) {
