@@ -44,6 +44,7 @@
     const SHEET_GIDS = {
         '1': '620514545',
         'INVENTARIO_EN_VIVO': '690403633',
+        'CUENTAS ADMINISTRATIVAS': '1488878870',
         'PROYECTOS': '461542063'
     };
 
@@ -737,7 +738,7 @@
                 const nextObj = Object.assign({}, prev, {
                     correo: OWNER_EMAIL,
                     nombre: prev.nombre || OWNER_DISPLAY_NAME,
-                    sheetTab: prev.sheetTab || 'PROYECTOS',
+                    sheetTab: prev.sheetTab || 'CUENTAS ADMINISTRATIVAS',
                     authToken: tok,
                     verifiedAt: Date.now()
                 });
@@ -815,7 +816,7 @@
             correo: activeEmail,
             nombre: activeName,
             puesto: 'ADMINISTRADOR',
-            sheetTab: cleanStr(state.activeSheetTab) || 'PROYECTOS',
+            sheetTab: cleanStr(state.activeSheetTab) || 'CUENTAS ADMINISTRATIVAS',
             erpStore: 'CEDIS',
             deviceId: getFotosPresenceDeviceId(),
             vista: 'fotos',
@@ -862,7 +863,7 @@
                 const loginRes = await sendRawWebAppPost('inv_login', {
                     email: OWNER_EMAIL,
                     accessKey: key,
-                    sheetTab: 'PROYECTOS'
+                    sheetTab: 'CUENTAS ADMINISTRATIVAS'
                 }, 10000);
                 const tok = extractAuthTokenFromLoginRes(loginRes);
                 if (tok) {
@@ -972,7 +973,7 @@
         const payload = {
             authToken: state.authToken || '',
             advisorEmail: cleanStr(state.activeEmail) || OWNER_EMAIL,
-            sheetTab: cleanStr(state.activeSheetTab) || 'PROYECTOS',
+            sheetTab: cleanStr(state.activeSheetTab) || 'CUENTAS ADMINISTRATIVAS',
             inboxFolderId: SUBIR_FOLDER_ID
         };
         if (state.accessKey) {
@@ -1454,7 +1455,7 @@
         let matchedOwner = false;
         let matchedEmail = OWNER_EMAIL;
         let matchedName = OWNER_DISPLAY_NAME;
-        let matchedSheetTab = 'PROYECTOS';
+        let matchedSheetTab = 'CUENTAS ADMINISTRATIVAS';
         let bestToken = '';
         let bestKey = cachedSecret;
         let otherInvEmail = '';
@@ -1606,7 +1607,7 @@
             const cloudRes = await callWebAppPost('inv_login', {
                 email: OWNER_EMAIL,
                 accessKey: typedKey,
-                sheetTab: 'PROYECTOS'
+                sheetTab: 'CUENTAS ADMINISTRATIVAS'
             }, 8500);
 
             let verified = false;
@@ -1616,7 +1617,10 @@
                 setGateMessage(cloudRes.error, 'error');
                 return;
             } else {
-                const rows = await fetchSheetRows('PROYECTOS', 'A1:I40');
+                let rows = await fetchSheetRows('CUENTAS ADMINISTRATIVAS', 'A1:Z60');
+                if (!rows || rows.length < 2) {
+                    rows = await fetchSheetRows('PROYECTOS', 'A1:I40');
+                }
                 if (!rows || rows.length < 2) {
                     setGateMessage('Sin conexión con Google Sheets.', 'error');
                     return;
@@ -1649,7 +1653,7 @@
                 const payload = JSON.stringify({
                     correo: OWNER_EMAIL,
                     nombre: OWNER_DISPLAY_NAME,
-                    sheetTab: 'PROYECTOS',
+                    sheetTab: 'CUENTAS ADMINISTRATIVAS',
                     authToken: issuedToken,
                     accessKey: typedKey,
                     verifiedAt: Date.now()
@@ -7318,7 +7322,7 @@
             state.accessKey = sess.accessKey || '';
             state.activeEmail = sess.email || OWNER_EMAIL;
             state.activeDisplayName = sess.nombre || OWNER_DISPLAY_NAME;
-            state.activeSheetTab = sess.sheetTab || 'PROYECTOS';
+            state.activeSheetTab = sess.sheetTab || 'CUENTAS ADMINISTRATIVAS';
             unlockFotosPortal();
         } else {
             if (sess.otherEmail) {

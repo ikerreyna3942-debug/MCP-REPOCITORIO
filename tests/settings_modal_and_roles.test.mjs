@@ -18,7 +18,7 @@ test('Settings UI & cache versions exist in inventario.html and inventario-ui.cs
   assert(html.includes('id="settingsSessionsSection"'), 'Missing open sessions section');
   assert(html.includes('./inventario-ui.css?v=20'), 'inventario.html must load inventario-ui.css?v=20');
   assert(html.includes('./historial-app.js?v=9'), 'inventario.html must load historial-app.js?v=9');
-  assert(html.includes('inventario-app.js?v=96'), 'inventario.html must load inventario-app.js?v=96');
+  assert(html.includes('inventario-app.js?v=97'), 'inventario.html must load inventario-app.js?v=97');
   const segJs = fs.readFileSync('seguimiento-app.js', 'utf8');
   assert(!segJs.includes('id="seg_btnKevinAuditHeader"'), 'Historial y Movimientos button must be removed from Seguimiento header');
   assert(segJs.includes('class="cm-seg-search-field"'), 'Seguimiento search bar must use full-width top field class');

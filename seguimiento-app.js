@@ -528,24 +528,47 @@
       { tab: 'PROYECTOS', branch: 'PROYECTOS' }
     ];
     const invTabs = [
-      { tab: 'PLAYA', branch: 'PLAYA' },
-      { tab: 'COLOCIO', branch: 'COLOSIO' },
-      { tab: 'OUTLET COLOSIO', branch: 'COLOSIO' },
-      { tab: 'PTC', branch: 'PUERTO CANCUN' },
-      { tab: 'CASA CREATA', branch: 'CASA CREATA' },
-      { tab: 'PROYECTOS', branch: 'PROYECTOS' }
+      { tab: 'CUENTAS ADMINISTRATIVAS', branch: 'UNIFIED', range: 'A1:Z100' }
     ];
 
     const [segResults, invResults] = await Promise.all([
       Promise.all(segTabs.map(async t => ({ ...t, source: 'SEG', rows: await fetchSheetCsv(SHEET_SEG_ID, t.tab, 'A1:G40') }))),
-      Promise.all(invTabs.map(async t => ({ ...t, source: 'INV', rows: await fetchSheetCsv(SHEET_INV_ID, t.tab, 'A1:I40') })))
+      Promise.all(invTabs.map(async t => ({ ...t, source: 'INV', rows: await fetchSheetCsv(SHEET_INV_ID, t.tab, t.range || 'A1:Z100') })))
     ]);
+
+    const UNIFIED_SEG_STORE_COLS = [
+      { colIndex: 21, headers: ['COLOCIO', 'COLOSIO', 'TIENDA_COLOCIO', 'TIENDA_COLOSIO'], branch: 'COLOSIO', tab: 'COLOCIO' },
+      { colIndex: 22, headers: ['PLAYA', 'TIENDA_PLAYA'], branch: 'PLAYA', tab: 'PLAYA' },
+      { colIndex: 23, headers: ['PTC', 'PUERTO_CANCUN', 'TIENDA_PTC'], branch: 'PUERTO CANCUN', tab: 'PTC' },
+      { colIndex: 24, headers: ['CASA_CREATA', 'TIENDA_CASA_CREATA'], branch: 'CASA CREATA', tab: 'CASA CREATA' },
+      { colIndex: 25, headers: ['PROYECTOS', 'TIENDA_PROYECTOS'], branch: 'PROYECTOS', tab: 'PROYECTOS' }
+    ];
 
     const records = [];
     const allTabResults = [...segResults, ...invResults];
 
     for (const res of allTabResults) {
       const rows = res.rows || [];
+      const isUnifiedInv = (res.source === 'INV' && res.branch === 'UNIFIED');
+      let unifiedHdr = [];
+      const colByBranch = {};
+      if (isUnifiedInv) {
+        for (let h = 0; h < Math.min(rows.length, 4); h++) {
+          const hr = rows[h] || [];
+          if (/^CORREO/i.test(cleanStr(hr[4])) || /^NOMBRE/i.test(cleanStr(hr[2]))) {
+            unifiedHdr = hr;
+            break;
+          }
+        }
+        for (let c = 0; c < unifiedHdr.length; c++) {
+          const norm = cleanStr(unifiedHdr[c]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+          if (!norm) continue;
+          UNIFIED_SEG_STORE_COLS.forEach(def => {
+            if (def.headers.includes(norm)) colByBranch[def.branch] = c;
+          });
+        }
+      }
+
       for (let idx = 0; idx < rows.length; idx++) {
         const r = rows[idx] || [];
         const nombre = cleanStr(r[2]);
@@ -553,6 +576,66 @@
         const correo = normalizeEmail(r[4]);
         if (!nombre || !correo || !correo.includes('@')) continue;
         if (['NOMBRE', 'ASESOR', 'EJECUTIVO'].includes(normalizeText(nombre))) continue;
+
+        if (isUnifiedInv) {
+          const colB = cleanStr(r[1]);
+          const areaUp = normalizeText(colB);
+          const puestoUp = normalizeText(puesto);
+          const isTrueAdmin = (
+            correo === 'kevin.reyna@grupoanipa.com' ||
+            correo === 'santiago.torres@grupoanipa.com' ||
+            /ADMINISTRACI[OÓ]N|ADMINISTRADOR|ADMIN GENERAL/.test(areaUp) ||
+            /ADMINISTRADOR|ADMINISTRACI[OÓ]N|DIRECCI[OÓ]N|GERENCIA GENERAL/.test(puestoUp)
+          );
+          const esGerente = isGerenteRole(puesto, isTrueAdmin);
+          const assigned = [];
+          for (let k = 0; k < UNIFIED_SEG_STORE_COLS.length; k++) {
+            const def = UNIFIED_SEG_STORE_COLS[k];
+            const cIdx = (colByBranch[def.branch] !== undefined) ? colByBranch[def.branch] : def.colIndex;
+            const rawFlag = cleanStr(r[cIdx]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+            if (/^(SI|YES|TRUE|1|X|OK)$/.test(rawFlag)) {
+              assigned.push(def);
+            }
+          }
+          if (isTrueAdmin) {
+            records.push({
+              source: res.source,
+              sheet_tab: 'CUENTAS ADMINISTRATIVAS',
+              sucursal: 'TODAS',
+              sucursal_label: getBranchLabel('TODAS'),
+              nombre,
+              puesto,
+              correo,
+              telefono: '',
+              es_gerente: false,
+              es_admin: true,
+              is_master: true,
+              tokens: normalizeText(nombre).split(' ').filter(t => t.length > 2)
+            });
+          } else {
+            const targets = assigned.length
+              ? assigned
+              : [{ branch: mapTabToBranchKey(colB) || 'PROYECTOS', tab: colB || 'PROYECTOS' }];
+            for (let tIdx = 0; tIdx < targets.length; tIdx++) {
+              const stDef = targets[tIdx];
+              records.push({
+                source: res.source,
+                sheet_tab: stDef.tab,
+                sucursal: stDef.branch,
+                sucursal_label: getBranchLabel(stDef.branch),
+                nombre,
+                puesto,
+                correo,
+                telefono: '',
+                es_gerente: esGerente,
+                es_admin: false,
+                is_master: false,
+                tokens: normalizeText(nombre).split(' ').filter(t => t.length > 2)
+              });
+            }
+          }
+          continue;
+        }
 
         const isMaster = isMasterExecutive(correo, puesto, res.tab);
         const esGerente = isGerenteRole(puesto, isMaster);

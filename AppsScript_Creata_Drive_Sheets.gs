@@ -1276,7 +1276,7 @@ function doPost(e) {
 
       if (shouldMintFreshToken && fotosRes && fotosRes.ok) {
         try {
-          fotosRes.renewedAuthToken = issueInvAuthToken_(OWNER_FOTOS_EMAIL_, 'PROYECTOS');
+          fotosRes.renewedAuthToken = issueInvAuthToken_(OWNER_FOTOS_EMAIL_, TAB_CUENTAS_ADMIN_);
         } catch (eMint) {}
       }
       return jsonResponse_(fotosRes);
@@ -2476,6 +2476,102 @@ function extractAdminPermissionsFromRow_(headerRowVals, rowVals, dispRowVals, em
   return perms;
 }
 
+const UNIFIED_STORE_COLUMNS_ = [
+  { colIndex: 21, headers: ['COLOCIO', 'COLOSIO', 'TIENDA_COLOCIO', 'TIENDA_COLOSIO'], tab: 'COLOCIO' },
+  { colIndex: 22, headers: ['PLAYA', 'TIENDA_PLAYA'], tab: 'PLAYA' },
+  { colIndex: 23, headers: ['PTC', 'PUERTO_CANCUN', 'TIENDA_PTC'], tab: 'PTC' },
+  { colIndex: 24, headers: ['CASA_CREATA', 'TIENDA_CASA_CREATA'], tab: 'CASA CREATA' },
+  { colIndex: 25, headers: ['PROYECTOS', 'TIENDA_PROYECTOS'], tab: 'PROYECTOS' }
+];
+
+function findStoreTabConfig_(tabKey) {
+  const up = String(tabKey || '').trim().toUpperCase().replace(/COLOSIO/g, 'COLOCIO');
+  for (let i = 0; i < INV_USER_TABS_.length; i++) {
+    const c = INV_USER_TABS_[i];
+    if (!c.isAdmin && !c.isGuest && (c.tab.toUpperCase() === up || c.branchKey.toUpperCase() === up)) {
+      return c;
+    }
+  }
+  return null;
+}
+
+function inferStoreTabFromAreaLabel_(areaRaw) {
+  const up = String(areaRaw || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+  if (!up) return '';
+  if (up.indexOf('COLOCIO') !== -1 || up.indexOf('COLOSIO') !== -1) return 'COLOCIO';
+  if (up.indexOf('PLAYA') !== -1) return 'PLAYA';
+  if (up.indexOf('PTC') !== -1 || up.indexOf('PUERTO') !== -1) return 'PTC';
+  if (up.indexOf('CASA') !== -1) return 'CASA CREATA';
+  if (up.indexOf('PROYECTO') !== -1) return 'PROYECTOS';
+  return '';
+}
+
+function isAdministrativeUnifiedRow_(correoRaw, areaColB, puestoColD, hasStoreCols) {
+  const correo = String(correoRaw || '').trim().toLowerCase().replace(/,/g, '.');
+  if (ADMIN_MASTER_EMAILS_[correo]) return true;
+  const areaUp = String(areaColB || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+  const puestoUp = String(puestoColD || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+  if (/ADMINISTRACI[OÓ]N|ADMINISTRADOR|ADMIN\s+GENERAL/.test(areaUp)) return true;
+  if (/ADMINISTRADOR|ADMINISTRACI[OÓ]N|DIRECCI[OÓ]N|GERENCIA\s+GENERAL/.test(puestoUp)) return true;
+  if (!hasStoreCols) {
+    // Compatibilidad con hojas legadas de CUENTAS ADMINISTRATIVAS sin columnas de tiendas V:Z
+    if (/(ASESOR|GERENTE\s+DE\s+TIENDA|GERENTE\s+COMERCIAL|COORDINADOR|ARQUITECT|INTERIORISTA)/.test(puestoUp)) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function extractAssignedStoresFromRow_(headerRowVals, rowVals, dispRowVals, areaColB) {
+  const hdr = Array.isArray(headerRowVals) ? headerRowVals : [];
+  const raw = Array.isArray(rowVals) ? rowVals : [];
+  const disp = Array.isArray(dispRowVals) ? dispRowVals : raw;
+
+  const colByTab = {};
+  let detectedStoreHeader = false;
+  for (let c = 0; c < hdr.length; c++) {
+    const norm = String(hdr[c] || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    if (!norm) continue;
+    for (let k = 0; k < UNIFIED_STORE_COLUMNS_.length; k++) {
+      const def = UNIFIED_STORE_COLUMNS_[k];
+      if (def.headers.indexOf(norm) !== -1) {
+        colByTab[def.tab] = c;
+        detectedStoreHeader = true;
+      }
+    }
+  }
+
+  const hasStoreCols = detectedStoreHeader || Math.max(disp.length, raw.length) >= 22;
+  const stores = [];
+  if (hasStoreCols) {
+    for (let k = 0; k < UNIFIED_STORE_COLUMNS_.length; k++) {
+      const def = UNIFIED_STORE_COLUMNS_[k];
+      const idx = (colByTab[def.tab] !== undefined) ? colByTab[def.tab] : def.colIndex;
+      if (idx < disp.length || idx < raw.length) {
+        const cellVal = (disp[idx] !== undefined && disp[idx] !== '') ? disp[idx] : raw[idx];
+        if (parseAdminPermCell_(cellVal, false) === true) {
+          stores.push(def.tab);
+        }
+      }
+    }
+  }
+  if (!stores.length) {
+    const inferred = inferStoreTabFromAreaLabel_(areaColB);
+    if (inferred) stores.push(inferred);
+  }
+  return { hasStoreCols: hasStoreCols, stores: stores };
+}
+
 function userHasAdminPerm_(advisor, permKey) {
   if (!advisor || isGuestReadOnlyUser_(advisor) || !advisor.isAdmin) return false;
   if (advisor.adminPermissions && typeof advisor.adminPermissions[permKey] === 'boolean') {
@@ -2492,29 +2588,30 @@ function ensureCuentasAdministrativasSheet_(ss) {
   if (!sh) {
     sh = book.insertSheet(TAB_CUENTAS_ADMIN_, book.getSheets().length);
   }
-  if (sh.getMaxColumns() < 21) {
-    sh.insertColumnsAfter(sh.getMaxColumns(), 21 - sh.getMaxColumns());
+  if (sh.getMaxColumns() < 26) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), 26 - sh.getMaxColumns());
   }
-  if (sh.getMaxRows() < 30) {
-    sh.insertRowsAfter(sh.getMaxRows(), 30 - sh.getMaxRows());
+  if (sh.getMaxRows() < 40) {
+    sh.insertRowsAfter(sh.getMaxRows(), 40 - sh.getMaxRows());
   }
   const hdrRow = findUserHeaderRow1Based_(sh);
   if (createdNew || hdrRow < 1) {
-    sh.getRange(1, 2, 1, 20).merge()
-      .setValue('CUENTAS ADMINISTRATIVAS — PERMISOS POR COLUMNA (CAMBIA SI / NO EN COLUMNAS J A T PARA CONFIGURAR QUÉ PUEDE VER CADA ADMINISTRATIVO)')
+    sh.getRange(1, 2, 1, 25).merge()
+      .setValue('USUARIOS Y CUENTAS ADMINISTRATIVAS — PERMISOS POR COLUMNA (J:T) Y TIENDAS ASIGNADAS (V:Z) · CAMBIA SI / NO')
       .setBackground('#252C32')
-      .setFontColor('#E1DBC5')
+      .setFontColor('#FFFFFF')
       .setFontWeight('bold')
-      .setHorizontalAlignment('center');
+      .setHorizontalAlignment('left');
     const hdrVals = [[
-      '', 'CUENTAS ADMINISTRATIVAS', 'Nombre', 'Puesto', 'Correo', 'Contraseña Temporal', 'Contraseña', 'Asesor ERP', 'Descuento',
+      '', 'TIPO / ÁREA', 'Nombre', 'Puesto', 'Correo', 'Contraseña Temporal', 'Contraseña', 'Asesor ERP', 'Descuento',
       'VER_COTIZADOR', 'VER_SEGUIMIENTO', 'VER_HISTORIAL', 'VER_FOTOS_APP', 'VER_PROMPTS_IA', 'VER_PANEL_SUITE',
-      'VER_EQUIPO_Y_INVITADOS', 'VER_CAMBIAR_ROL', 'VER_GESTION_PRODUCTOS', 'VER_SUBIR_FOTO', 'VER_CAMBIAR_TIENDA', 'NOTAS'
+      'VER_EQUIPO_Y_INVITADOS', 'VER_CAMBIAR_ROL', 'VER_GESTION_PRODUCTOS', 'VER_SUBIR_FOTO', 'VER_CAMBIAR_TIENDA', 'NOTAS',
+      'COLOCIO', 'PLAYA', 'PTC', 'CASA CREATA', 'PROYECTOS'
     ]];
-    sh.getRange(2, 1, 1, 21).setValues(hdrVals);
+    sh.getRange(2, 1, 1, 26).setValues(hdrVals);
     sh.getRange(2, 2, 1, 8).setBackground('#252C32').setFontColor('#FFFFFF').setFontWeight('bold').setHorizontalAlignment('center');
     sh.getRange(2, 10, 1, 11).setBackground('#A38251').setFontColor('#FFFFFF').setFontWeight('bold').setHorizontalAlignment('center');
-    sh.getRange(2, 21, 1, 1).setBackground('#252C32').setFontColor('#FFFFFF').setFontWeight('bold').setHorizontalAlignment('center');
+    sh.getRange(2, 21, 1, 6).setBackground('#252C32').setFontColor('#FFFFFF').setFontWeight('bold').setHorizontalAlignment('center');
     sh.setFrozenRows(2);
   }
   return sh;
@@ -3513,9 +3610,17 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
 
   const targetSs = ss || getSpreadsheet_();
   const list = [];
+  const seenEmailTab = {};
   const adminPermsByEmail = {};
-  for (let t = 0; t < INV_USER_TABS_.length; t++) {
-    const cfg = INV_USER_TABS_[t];
+  // Leer primero CUENTAS ADMINISTRATIVAS para priorizar la hoja unificada (A:Z) y luego cualquier hoja legada o INVITADOS
+  const orderedTabs = INV_USER_TABS_.slice().sort((a, b) => {
+    const ra = a.tab === TAB_CUENTAS_ADMIN_ ? 0 : (a.isGuest ? 2 : 1);
+    const rb = b.tab === TAB_CUENTAS_ADMIN_ ? 0 : (b.isGuest ? 2 : 1);
+    return ra - rb;
+  });
+
+  for (let t = 0; t < orderedTabs.length; t++) {
+    const cfg = orderedTabs[t];
     let sh = targetSs.getSheetByName(cfg.tab);
     if (!sh && cfg.tab === 'COLOCIO') sh = targetSs.getSheetByName('COLOSIO');
     if (!sh && cfg.isGuest) sh = findInvitadosSheet_(targetSs);
@@ -3530,9 +3635,10 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
     const numRows = sh.getLastRow() - startRow + 1;
     if (numRows <= 0) continue;
 
-    const maxReadCols = cfg.isAdmin ? 22 : 10;
+    const isUnifiedTab = (cfg.tab === TAB_CUENTAS_ADMIN_);
+    const maxReadCols = isUnifiedTab ? 26 : 10;
     const colsToRead = Math.min(sh.getMaxColumns(), maxReadCols);
-    const hdrVals = (cfg.isAdmin && hdrRow >= 1)
+    const hdrVals = (isUnifiedTab && hdrRow >= 1)
       ? (sh.getRange(hdrRow, 1, 1, colsToRead).getDisplayValues()[0] || [])
       : [];
     const vals = sh.getRange(startRow, 1, numRows, colsToRead).getValues();
@@ -3543,11 +3649,12 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
       const dr = dispVals[i] || [];
       const correo = cfg.isGuest
         ? extractEmailFromGuestRow_(r)
-        : String(r[4] || '').trim().toLowerCase();
+        : String(r[4] || '').trim().toLowerCase().replace(/,/g, '.');
       if (!correo || correo.indexOf('@') === -1) continue;
 
       const tempKey = colsToRead >= 6 ? cleanSheetKeyCell_(r[5]) : '';
       const defKey = colsToRead >= 7 ? cleanSheetKeyCell_(r[6]) : '';
+      const colB = colsToRead >= 2 ? String(dr[1] || r[1] || '').trim() : '';
       const colH = colsToRead >= 8 ? String(dr[7] || r[7] || '').trim() : '';
       const colI = colsToRead >= 9 ? String(dr[8] !== '' ? dr[8] : (r[8] !== undefined ? r[8] : '')).trim() : '';
 
@@ -3605,39 +3712,135 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
         }
       }
 
-      let matchedErp = null;
-      if (explicitAdvisorId && advisorsList.length > 0) {
-        for (let k = 0; k < advisorsList.length; k++) {
-          if (String(advisorsList[k].id) === String(explicitAdvisorId)) {
-            matchedErp = advisorsList[k];
-            break;
-          }
-        }
-      }
-      if (!matchedErp) {
-        matchedErp = matchBestErpAdvisor_(nombre, cfg.erpStore, advisorsList);
-      }
-
-      const resolvedErpLabel = (matchedErp && matchedErp.label) || explicitAdvisorLabel || '';
-      const resolvedErpId = (matchedErp && matchedErp.id) || explicitAdvisorId || '';
-      const resolvedErpBranch = (matchedErp && matchedErp.branch) || '';
       const isGuestRole = !ADMIN_MASTER_EMAILS_[correo] && isGuestReadOnlyUser_({
         puesto: puesto,
         sheetTab: actualTabName,
         isGuest: false,
         soloLectura: false
       });
-      const isAdminUser = !isGuestRole && (!!cfg.isAdmin || !!ADMIN_MASTER_EMAILS_[correo] || /ADMINISTRADOR/i.test(puesto));
-      const userErpStore = (isAdminUser && resolvedErpBranch) ? resolvedErpBranch : cfg.erpStore;
-      const userPrefix = getStoreFolioPrefix_(userErpStore, cfg.orderPrefix);
-      let rowAdminPerms = null;
-      if (cfg.isAdmin) {
-        rowAdminPerms = extractAdminPermissionsFromRow_(hdrVals, r, dr, correo);
-        adminPermsByEmail[correo] = rowAdminPerms;
+
+      const resolveErpForStore = (storeErpName) => {
+        let matched = null;
+        if (explicitAdvisorId && advisorsList.length > 0) {
+          for (let k = 0; k < advisorsList.length; k++) {
+            if (String(advisorsList[k].id) === String(explicitAdvisorId)) {
+              matched = advisorsList[k];
+              break;
+            }
+          }
+        }
+        if (!matched) {
+          matched = matchBestErpAdvisor_(nombre, storeErpName, advisorsList);
+        }
+        return {
+          label: (matched && matched.label) || explicitAdvisorLabel || '',
+          id: (matched && matched.id) || explicitAdvisorId || '',
+          branch: (matched && matched.branch) || ''
+        };
+      };
+
+      if (isUnifiedTab) {
+        const rowPerms = extractAdminPermissionsFromRow_(hdrVals, r, dr, correo);
+        const storeInfo = extractAssignedStoresFromRow_(hdrVals, r, dr, colB);
+        const isAdminUser = !isGuestRole && isAdministrativeUnifiedRow_(correo, colB, puesto, storeInfo.hasStoreCols);
+
+        if (isAdminUser) {
+          adminPermsByEmail[correo] = rowPerms;
+          const singleStCfg = storeInfo.stores.length === 1 ? findStoreTabConfig_(storeInfo.stores[0]) : null;
+          const defaultAdminErp = singleStCfg ? singleStCfg.erpStore : cfg.erpStore;
+          const erpInfo = resolveErpForStore(defaultAdminErp);
+          const userErpStore = erpInfo.branch || defaultAdminErp;
+          const userPrefix = getStoreFolioPrefix_(userErpStore, singleStCfg ? singleStCfg.orderPrefix : cfg.orderPrefix);
+          const dedupKey = correo + '::' + actualTabName.toUpperCase();
+          if (!seenEmailTab[dedupKey]) {
+            seenEmailTab[dedupKey] = true;
+            list.push({
+              sheetTab: actualTabName,
+              sourceSheetTab: actualTabName,
+              rowNum: startRow + i,
+              isAdmin: true,
+              isGuest: false,
+              soloLectura: false,
+              maxDiscountPct: explicitDiscountPct,
+              branchKey: 'ADMIN',
+              branchLabel: cfg.label,
+              erpStore: userErpStore,
+              orderPrefix: userPrefix,
+              quoteType: 'ADMINISTRATIVO',
+              isProyecto: false,
+              serieLabel: cfg.serieLabel,
+              nombre: nombre,
+              puesto: puesto,
+              correo: correo,
+              tempKey: tempKey,
+              defKey: defKey,
+              mustChangeKey: !defKey && !!tempKey,
+              erpAdvisorLabel: erpInfo.label,
+              erpAdvisorId: erpInfo.id,
+              erpAdvisorBranch: erpInfo.branch,
+              adminPermissions: rowPerms,
+              userPermissions: rowPerms,
+              assignedStores: storeInfo.stores.slice()
+            });
+          }
+          continue;
+        }
+
+        // Usuario de tienda / proyectos consolidado en CUENTAS ADMINISTRATIVAS -> expandir columnas V:Z (SI)
+        const targetStores = storeInfo.stores.length ? storeInfo.stores : ['PROYECTOS'];
+        for (let sIdx = 0; sIdx < targetStores.length; sIdx++) {
+          const stCfg = findStoreTabConfig_(targetStores[sIdx]) || findStoreTabConfig_('PROYECTOS');
+          if (!stCfg) continue;
+          const dedupKey = correo + '::' + stCfg.tab.toUpperCase();
+          if (seenEmailTab[dedupKey]) continue;
+          seenEmailTab[dedupKey] = true;
+          const erpInfo = resolveErpForStore(stCfg.erpStore);
+          const userPrefix = getStoreFolioPrefix_(stCfg.erpStore, stCfg.orderPrefix);
+          list.push({
+            sheetTab: stCfg.tab,
+            sourceSheetTab: actualTabName,
+            rowNum: startRow + i,
+            isAdmin: false,
+            isGuest: false,
+            soloLectura: isGuestRole,
+            maxDiscountPct: isGuestRole ? 0 : explicitDiscountPct,
+            branchKey: stCfg.branchKey,
+            branchLabel: stCfg.label,
+            erpStore: stCfg.erpStore,
+            orderPrefix: userPrefix,
+            quoteType: stCfg.quoteType,
+            isProyecto: !!stCfg.isProyecto,
+            serieLabel: stCfg.serieLabel,
+            nombre: nombre,
+            puesto: puesto,
+            correo: correo,
+            tempKey: tempKey,
+            defKey: defKey,
+            mustChangeKey: !defKey && !!tempKey,
+            erpAdvisorLabel: erpInfo.label,
+            erpAdvisorId: erpInfo.id,
+            erpAdvisorBranch: erpInfo.branch,
+            adminPermissions: null,
+            userPermissions: rowPerms,
+            assignedStores: targetStores.slice()
+          });
+        }
+        continue;
       }
+
+      // Compatibilidad con hojas legadas de tienda si aún existieran
+      const dedupKey = correo + '::' + actualTabName.toUpperCase().replace(/COLOSIO/g, 'COLOCIO');
+      if (seenEmailTab[dedupKey]) continue;
+      seenEmailTab[dedupKey] = true;
+
+      const erpInfo = resolveErpForStore(cfg.erpStore);
+      const isAdminUser = !isGuestRole && (!!ADMIN_MASTER_EMAILS_[correo] || /ADMINISTRADOR/i.test(puesto));
+      const userErpStore = (isAdminUser && erpInfo.branch) ? erpInfo.branch : cfg.erpStore;
+      const userPrefix = getStoreFolioPrefix_(userErpStore, cfg.orderPrefix);
 
       list.push({
         sheetTab: actualTabName,
+        sourceSheetTab: actualTabName,
         rowNum: startRow + i,
         isAdmin: isAdminUser,
         isGuest: false,
@@ -3656,10 +3859,10 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
         tempKey: tempKey,
         defKey: defKey,
         mustChangeKey: !defKey && !!tempKey,
-        erpAdvisorLabel: resolvedErpLabel,
-        erpAdvisorId: resolvedErpId,
-        erpAdvisorBranch: resolvedErpBranch,
-        adminPermissions: rowAdminPerms || (isAdminUser ? defaultAdminPermissionsForEmail_(correo) : null)
+        erpAdvisorLabel: erpInfo.label,
+        erpAdvisorId: erpInfo.id,
+        erpAdvisorBranch: erpInfo.branch,
+        adminPermissions: isAdminUser ? defaultAdminPermissionsForEmail_(correo) : null
       });
     }
   }
@@ -3719,6 +3922,12 @@ function sanitizeUserForClient_(u, includeSignedToken) {
   }
   if (!isGuest && out.isAdmin) {
     out.adminPermissions = u.adminPermissions || defaultAdminPermissionsForEmail_(u.correo);
+  }
+  if (!isGuest && u.userPermissions && typeof u.userPermissions === 'object') {
+    out.userPermissions = u.userPermissions;
+  }
+  if (!isGuest && Array.isArray(u.assignedStores) && u.assignedStores.length) {
+    out.assignedStores = u.assignedStores.slice();
   }
   if (!isGuest && Array.isArray(u.branchAdvisorEmails)) {
     out.branchAdvisorEmails = u.branchAdvisorEmails;
@@ -3959,16 +4168,28 @@ function handleInvUpdateKey_(body) {
     if (hdrRow < 1 || sh.getLastRow() <= hdrRow) continue;
     const startRow = hdrRow + 1;
     const numRows = sh.getLastRow() - hdrRow;
-    const vals = sh.getRange(startRow, 1, numRows, 7).getValues();
+    const isUnified = (cfg.tab === TAB_CUENTAS_ADMIN_);
+    const colsToRead = Math.min(sh.getMaxColumns(), isUnified ? 26 : 7);
+    const hdrVals = isUnified ? (sh.getRange(hdrRow, 1, 1, colsToRead).getDisplayValues()[0] || []) : [];
+    const vals = sh.getRange(startRow, 1, numRows, colsToRead).getValues();
+    const dispVals = isUnified ? sh.getRange(startRow, 1, numRows, colsToRead).getDisplayValues() : vals;
     for (let i = 0; i < vals.length; i++) {
-      const rowEmail = cfg.isGuest ? extractEmailFromGuestRow_(vals[i]) : String(vals[i][4] || '').trim().toLowerCase();
+      const rowEmail = cfg.isGuest ? extractEmailFromGuestRow_(vals[i]) : String(vals[i][4] || '').trim().toLowerCase().replace(/,/g, '.');
       if (rowEmail !== email) continue;
       const tempKey = cleanSheetKeyCell_(vals[i][5]);
       const defKey = cleanSheetKeyCell_(vals[i][6]);
       if (currentKey && (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey))) {
         anyAuthorized = true;
       }
-      matchedTargets.push({ sh: sh, rowNum: startRow + i, tabName: sh.getName() });
+      const extraTabs = [];
+      if (isUnified) {
+        const colB = String((dispVals[i] && dispVals[i][1]) || vals[i][1] || '').trim();
+        const stInfo = extractAssignedStoresFromRow_(hdrVals, vals[i], dispVals[i], colB);
+        for (let sIdx = 0; sIdx < stInfo.stores.length; sIdx++) {
+          extraTabs.push(stInfo.stores[sIdx]);
+        }
+      }
+      matchedTargets.push({ sh: sh, rowNum: startRow + i, tabName: sh.getName(), extraTabs: extraTabs });
     }
   }
 
@@ -3985,6 +4206,14 @@ function handleInvUpdateKey_(body) {
     tgt.sh.getRange(tgt.rowNum, 6).clearContent();
     tgt.sh.getRange(tgt.rowNum, 7).setNumberFormat('@').setValue(newKey);
     tokensByTab[tgt.tabName] = issueInvAuthToken_(email, tgt.tabName);
+    if (Array.isArray(tgt.extraTabs)) {
+      for (let eIdx = 0; eIdx < tgt.extraTabs.length; eIdx++) {
+        const stName = tgt.extraTabs[eIdx];
+        if (stName && !tokensByTab[stName]) {
+          tokensByTab[stName] = issueInvAuthToken_(email, stName);
+        }
+      }
+    }
   }
 
   SpreadsheetApp.flush();
@@ -6846,6 +7075,30 @@ function handleInvDownloadErpQuotePdf_(body) {
 function organizarCuentasYDescuentosEnHojas(opts) {
   const silentUi = !!(opts && opts.silentUi);
   const ss = getSpreadsheet_();
+
+  // Si la hoja unificada CUENTAS ADMINISTRATIVAS (A:Z con tiendas V:Z) ya está activa, protegerla y evitar recrear las hojas de tiendas eliminadas
+  const existingUnified = ss.getSheetByName(TAB_CUENTAS_ADMIN_);
+  if (existingUnified && existingUnified.getLastRow() >= 3 && existingUnified.getMaxColumns() >= 26) {
+    try { ensureCuentasAdministrativasSheet_(ss); } catch (eEnsureAdm) {}
+    try { ensureInvitadosSheet_(ss); } catch (eEnsureInv) {}
+    const totalUnifiedRows = Math.max(0, existingUnified.getLastRow() - 2);
+    if (!silentUi) {
+      try {
+        SpreadsheetApp.getUi().alert(
+          '¡Directorio unificado activo en CUENTAS ADMINISTRATIVAS!\n\n' +
+          '• Todos los usuarios (' + totalUnifiedRows + ' filas) se administran ahora en la hoja CUENTAS ADMINISTRATIVAS con permisos en J:T y tiendas asignadas en V:Z (SI/NO).\n' +
+          '• No se recrearon hojas individuales de sucursal ni se alteraron contraseñas.'
+        );
+      } catch (eUi) {}
+    }
+    return {
+      ok: true,
+      unified: true,
+      sheetsConfigured: [TAB_CUENTAS_ADMIN_, 'INVITADOS'],
+      totalAccounts: totalUnifiedRows,
+      removedEmptySheets: []
+    };
+  }
 
   // 1) Conservar las contraseñas temporales actuales por correo (o pasar la existente a temporal) para que todos queden con Contraseña Temporal activa
   const existingTempByEmail = {};
@@ -10803,7 +11056,7 @@ function handleFotosUploadVisualOverride_(body) {
     authToken: b.authToken || '',
     advisorEmail: b.advisorEmail || OWNER_FOTOS_EMAIL_,
     accessKey: b.accessKey || '',
-    sheetTab: b.sheetTab || 'PROYECTOS',
+    sheetTab: b.sheetTab || TAB_CUENTAS_ADMIN_,
     sku: ovKey,
     op: 'RESTORE',
     name: label,
@@ -11478,7 +11731,7 @@ function sincronizarPasswordEnHojaSeguimiento_(email, newKey) {
     if (!em || !nk) return;
     const ssSeg = getSpreadsheetSeguimiento_();
     if (!ssSeg) return;
-    const tabs = ['PLAYA', 'COLOCIO', 'COLOSIO', 'PTC', 'CASA CREATA', 'PROYECTOS', 'INVITADOS'];
+    const tabs = ['CUENTAS ADMINISTRATIVAS', 'PLAYA', 'COLOCIO', 'COLOSIO', 'PTC', 'CASA CREATA', 'PROYECTOS', 'INVITADOS'];
     for (let t = 0; t < tabs.length; t++) {
       const sh = ssSeg.getSheetByName(tabs[t]);
       if (!sh || sh.getLastRow() < 2) continue;
@@ -12740,6 +12993,9 @@ function handleInvPresenceHeartbeat_(body) {
   }
   if (!isGuestReadOnlyUser_(actor.advisor) && actor.advisor.isAdmin) {
     res.adminPermissions = actor.advisor.adminPermissions || defaultAdminPermissionsForEmail_(actor.advisor.correo);
+  }
+  if (!isGuestReadOnlyUser_(actor.advisor) && actor.advisor.userPermissions && typeof actor.advisor.userPermissions === 'object') {
+    res.userPermissions = actor.advisor.userPermissions;
   }
   return res;
 }

@@ -277,7 +277,7 @@
       correo,
       nombre: cleanStr(s.nombre) || correo,
       puesto,
-      sheetTab: cleanStr(s.sheetTab || s.sheet_tab) || primaryB || 'PROYECTOS',
+      sheetTab: cleanStr(s.sheetTab || s.sheet_tab) || (isAdmin ? 'CUENTAS ADMINISTRATIVAS' : (primaryB || 'PROYECTOS')),
       erpStore: cleanStr(s.erpStore || s.branchLabel || s.sheetTab || primaryB || ''),
       branchLabel: cleanStr(s.branchLabel || s.sucursal_label) || primaryB || 'Todas',
       branches,
