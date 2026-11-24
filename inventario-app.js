@@ -11150,6 +11150,7 @@
         const fabRoot = document.getElementById('invFabRoot');
         const fabQuoteBtn = document.getElementById('fabQuoteBtn');
         const fabSeguimientoBtn = document.getElementById('fabSeguimientoBtn');
+        const fabPurchaseSuggestionBtn = document.getElementById('fabPurchaseSuggestionBtn');
         const fabUploadPhotoBtn = document.getElementById('fabUploadPhotoBtn');
         const fabSplitFotosBtn = document.getElementById('fabSplitFotosBtn');
         const fabPromptsBtn = document.getElementById('fabPromptsBtn');
@@ -11194,6 +11195,7 @@
         }
         if (fabQuoteBtn) fabQuoteBtn.classList.toggle('hidden', !canSeeCotizador);
         if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', !canSeeSeguimiento);
+        if (fabPurchaseSuggestionBtn) fabPurchaseSuggestionBtn.classList.toggle('hidden', !isAuthed);
         if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canUploadDrivePhotos);
         if (fabSplitFotosBtn) fabSplitFotosBtn.classList.toggle('hidden', !isOwnerFotos);
         if (fabPromptsBtn) fabPromptsBtn.classList.toggle('hidden', !canSeePromptsIa);
@@ -11890,6 +11892,7 @@
         if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
         if (typeof window.closeSettingsModal === 'function') window.closeSettingsModal();
         if (typeof window.closeOutOfStockRequestModal === 'function') window.closeOutOfStockRequestModal();
+        if (typeof window.closePurchaseSuggestionModal === 'function') window.closePurchaseSuggestionModal();
         try {
             if (typeof sessionStorage !== 'undefined') {
                 sessionStorage.removeItem(KEVIN_ROLE_PREVIEW_KEY);
@@ -11906,6 +11909,7 @@
             localStorage.removeItem(QUOTE_META_STORAGE);
             localStorage.removeItem(QUOTE_META_STORAGE_ALT);
             localStorage.removeItem(INV_OOS_LOCAL_BACKUP_KEY);
+            localStorage.removeItem(INV_PURCHASE_SUG_LOCAL_BACKUP_KEY);
             localStorage.removeItem('creata_seg_closures_v1');
             localStorage.removeItem('creata_seg_phones_v1');
             localStorage.removeItem('creata_seg_contacted_v1');
@@ -17492,6 +17496,13 @@
                     undo: function () { window.closeOutOfStockRequestModal(); },
                     escapeAllowed: true
                 },
+                // Priority 2a-bis: Purchase Suggestion Modal (z-index: 93)
+                {
+                    id: 'purchase_suggestion_modal',
+                    isActive: function () { return isModalOpenById('purchaseSuggestionModal'); },
+                    undo: function () { window.closePurchaseSuggestionModal(); },
+                    escapeAllowed: true
+                },
                 // Priority 2b: Settings Modal (z-index: 86)
                 {
                     id: 'settings_modal',
@@ -19805,6 +19816,152 @@
             if (btnEl) {
                 btnEl.disabled = false;
                 btnEl.textContent = 'Guardar';
+            }
+        }
+    };
+
+    // ========================================================================
+    // REGISTRO DE SUGERENCIAS DE COMPRA (SUGERENCIAS_DE_COMPRA — PARA TODOS)
+    // ========================================================================
+    const INV_PURCHASE_SUG_LOCAL_BACKUP_KEY = 'creata_inv_purchase_suggestions_backup_v1';
+    let purchaseSugInFlight = false;
+    let purchaseSugSelectedAmbiente = '';
+
+    function savePurchaseSuggestionLocalBackup(entry) {
+        try {
+            const safeEntry = Object.assign({}, entry || {});
+            delete safeEntry.authToken;
+            delete safeEntry.accessKey;
+            const raw = localStorage.getItem(INV_PURCHASE_SUG_LOCAL_BACKUP_KEY);
+            const arr = raw ? (JSON.parse(raw) || []) : [];
+            if (Array.isArray(arr)) {
+                arr.unshift(safeEntry);
+                localStorage.setItem(INV_PURCHASE_SUG_LOCAL_BACKUP_KEY, JSON.stringify(arr.slice(0, 60)));
+            }
+        } catch (e) {}
+    }
+
+    function syncPurchaseSuggestionAmbienteUi(val) {
+        const norm = String(val || '').trim().toUpperCase();
+        purchaseSugSelectedAmbiente = (norm === 'INTERIOR' || norm === 'EXTERIOR') ? norm : '';
+        const intOpt = document.getElementById('purchaseSugOptInterior');
+        const extOpt = document.getElementById('purchaseSugOptExterior');
+        const intInp = document.getElementById('purchaseSugAmbInterior');
+        const extInp = document.getElementById('purchaseSugAmbExterior');
+        if (intOpt) intOpt.classList.toggle('is-selected', purchaseSugSelectedAmbiente === 'INTERIOR');
+        if (extOpt) extOpt.classList.toggle('is-selected', purchaseSugSelectedAmbiente === 'EXTERIOR');
+        if (intInp) intInp.checked = purchaseSugSelectedAmbiente === 'INTERIOR';
+        if (extInp) extInp.checked = purchaseSugSelectedAmbiente === 'EXTERIOR';
+    }
+
+    window.selectPurchaseSuggestionAmbiente = function (val) {
+        syncPurchaseSuggestionAmbienteUi(val);
+    };
+
+    window.openPurchaseSuggestionModal = function () {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return;
+        const modal = document.getElementById('purchaseSuggestionModal');
+        if (!modal) return;
+
+        syncPurchaseSuggestionAmbienteUi('');
+        const typeEl = document.getElementById('purchaseSugProductTypeInput');
+        const comEl = document.getElementById('purchaseSugCommentsInput');
+        const btnEl = document.getElementById('btnPurchaseSugSubmit');
+
+        if (typeEl) typeEl.value = '';
+        if (comEl) comEl.value = '';
+        if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.textContent = 'Enviar sugerencia';
+        }
+        setSettingsStatusBox('purchaseSugStatus', '', 'ok');
+
+        modal.classList.add('open');
+        notifyInvBackStatePush('purchase_suggestion_modal');
+    };
+
+    window.closePurchaseSuggestionModal = function () {
+        const modal = document.getElementById('purchaseSuggestionModal');
+        if (modal) modal.classList.remove('open');
+    };
+
+    window.submitPurchaseSuggestion = async function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        if (purchaseSugInFlight || !activeAdvisorSession || activeAdvisorSession.mustChangeKey) return;
+
+        const intInp = document.getElementById('purchaseSugAmbInterior');
+        const extInp = document.getElementById('purchaseSugAmbExterior');
+        const typeEl = document.getElementById('purchaseSugProductTypeInput');
+        const comEl = document.getElementById('purchaseSugCommentsInput');
+        const btnEl = document.getElementById('btnPurchaseSugSubmit');
+
+        let ambiente = purchaseSugSelectedAmbiente;
+        if (intInp && intInp.checked) ambiente = 'INTERIOR';
+        else if (extInp && extInp.checked) ambiente = 'EXTERIOR';
+
+        const tipoProducto = cleanStr(typeEl ? typeEl.value : '');
+        const comments = cleanStr(comEl ? comEl.value : '');
+
+        if (ambiente !== 'INTERIOR' && ambiente !== 'EXTERIOR') {
+            setSettingsStatusBox('purchaseSugStatus', 'Selecciona Interior o Exterior.', 'err');
+            return;
+        }
+        if (!tipoProducto) {
+            setSettingsStatusBox('purchaseSugStatus', 'Indica el tipo de producto.', 'err');
+            if (typeEl && typeof typeEl.focus === 'function') typeEl.focus();
+            return;
+        }
+        if (!comments) {
+            setSettingsStatusBox('purchaseSugStatus', 'Escribe tus comentarios.', 'err');
+            if (comEl && typeof comEl.focus === 'function') comEl.focus();
+            return;
+        }
+
+        const activeStore = isKevinAdvisorPreviewActive()
+            ? getKevinAdvisorPreviewStore()
+            : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || 'SIN ASIGNAR');
+        const payload = {
+            authToken: activeAdvisorSession.authToken || '',
+            advisorEmail: cleanStr(activeAdvisorSession.correo),
+            sheetTab: cleanStr(activeAdvisorSession.sheetTab),
+            erpStore: activeStore,
+            ambiente: ambiente,
+            tipoProducto: tipoProducto,
+            comments: comments
+        };
+
+        purchaseSugInFlight = true;
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.textContent = 'Enviando...';
+        }
+        setSettingsStatusBox('purchaseSugStatus', 'Guardando sugerencia...', 'warn');
+
+        try {
+            const res = await callInvWebAppPost('inv_register_purchase_suggestion', payload, 18000, true);
+            if (res && res.ok) {
+                const folio = cleanStr(res.suggestionId || '');
+                savePurchaseSuggestionLocalBackup(Object.assign({ synced: true, suggestionId: folio, savedAt: Date.now() }, payload));
+                setSettingsStatusBox('purchaseSugStatus', '✓ Sugerencia enviada' + (folio ? (' · ' + folio) : ''), 'ok');
+                if (typeof showToast === 'function') {
+                    showToast('Sugerencia de compra registrada' + (folio ? (' · ' + folio) : ''));
+                }
+                setTimeout(function () {
+                    window.closePurchaseSuggestionModal();
+                }, 800);
+            } else {
+                savePurchaseSuggestionLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                const errMsg = (res && res.error) ? res.error : 'No se pudo conectar con Apps Script.';
+                setSettingsStatusBox('purchaseSugStatus', errMsg, 'warn');
+            }
+        } catch (err) {
+            savePurchaseSuggestionLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+            setSettingsStatusBox('purchaseSugStatus', 'Error de red. Guardado local.', 'err');
+        } finally {
+            purchaseSugInFlight = false;
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.textContent = 'Enviar sugerencia';
             }
         }
     };

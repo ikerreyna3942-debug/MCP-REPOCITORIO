@@ -1302,6 +1302,16 @@ function doPost(e) {
         return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : 'Error al registrar solicitud sin stock.' });
       }
     }
+    if (action === 'inv_register_purchase_suggestion') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_purchase_sug', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión no válida.' });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvRegisterPurchaseSuggestion_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : 'Error al registrar sugerencia de compra.' });
+      }
+    }
     if (action === 'inv_ensure_invitados') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
       if (!gate.ok) return jsonResponse_({ ok: false });
@@ -7594,6 +7604,8 @@ function organizarCuentasYDescuentosEnHojas(opts) {
     'PLANTILLA': true,
     'COTIZACIONES_EN_VIVO': true,
     'HISTORIAL': true,
+    'DEMANDA_SIN_STOCK': true,
+    'SUGERENCIAS_DE_COMPRA': true,
     'FOTOS NUEVAS CARGADO': true,
     'FOTOS NUEVAS': true,
     '_CREATA_CONFIG': true
@@ -14484,6 +14496,149 @@ function handleInvRegisterDemandRequest_(body) {
   }
 }
 
+// ============================================================================
+// REGISTRO DE SUGERENCIAS DE COMPRA DE PRODUCTOS (SUGERENCIAS_DE_COMPRA)
+// ============================================================================
+const TAB_SUGERENCIAS_COMPRA_ = 'SUGERENCIAS_DE_COMPRA';
 
+function ensureSugerenciasCompraSheet_(ss) {
+  const book = ss || getSpreadsheet_();
+  let sh = book.getSheetByName(TAB_SUGERENCIAS_COMPRA_);
+  if (!sh) {
+    sh = book.insertSheet(TAB_SUGERENCIAS_COMPRA_);
+  }
+  const headers = [
+    'FECHA_HORA',
+    'ID_SUGERENCIA',
+    'INTERIOR_EXTERIOR',
+    'TIPO_DE_PRODUCTO',
+    'COMENTARIOS',
+    'ASESOR_USUARIO',
+    'PUESTO_ROL',
+    'TIENDA_SUCURSAL',
+    'ESTATUS'
+  ];
+  if (sh.getLastRow() < 2) {
+    sh.getRange(1, 1, 1, headers.length).setValues([[
+      'CREATA · SUGERENCIAS DE COMPRA DE PRODUCTOS (ASESORES Y GERENTES)',
+      '', '', '', '', '', '', '', ''
+    ]]);
+    sh.getRange(2, 1, 1, headers.length).setValues([headers]);
+    try {
+      sh.getRange(1, 1, 1, headers.length).merge().setFontWeight('bold').setBackground('#252C32').setFontColor('#FFFFFF');
+      sh.getRange(2, 1, 1, headers.length).setFontWeight('bold').setBackground('#A38251').setFontColor('#FFFFFF').setHorizontalAlignment('center');
+      sh.setFrozenRows(2);
+    } catch (eFmt) {}
+  }
+  return sh;
+}
 
+function handleInvRegisterPurchaseSuggestion_(body) {
+  const b = body || {};
+  const ss = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+  const auth = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, b);
+  if (!auth || !auth.ok || !auth.advisor) {
+    return {
+      ok: false,
+      authRequired: true,
+      error: (auth && auth.error) || 'Sesión no válida. Inicia sesión para registrar sugerencias de compra.'
+    };
+  }
+  const advisor = auth.advisor;
 
+  const ambRaw = String(b.ambiente || b.interiorExterior || b.area || '').trim().toUpperCase();
+  let ambienteNorm = '';
+  if (ambRaw === 'INTERIOR' || ambRaw === 'INT') ambienteNorm = 'INTERIOR';
+  else if (ambRaw === 'EXTERIOR' || ambRaw === 'EXT') ambienteNorm = 'EXTERIOR';
+
+  if (!ambienteNorm) {
+    return { ok: false, error: 'Selecciona si el producto es de Interior o Exterior.' };
+  }
+
+  const tipoProducto = sanitizeOverrideTextCell_(String(b.tipoProducto || b.productType || '').trim(), 120);
+  const comments = sanitizeOverrideTextCell_(String(b.comments || b.comentarios || '').trim(), 800);
+
+  if (!tipoProducto) {
+    return { ok: false, error: 'Indica el tipo de producto.' };
+  }
+  if (!comments) {
+    return { ok: false, error: 'Escribe tus comentarios sobre el producto sugerido.' };
+  }
+
+  const storeRaw = String(b.erpStore || b.sucursal || advisor.erpStore || advisor.branchLabel || advisor.sheetTab || '').trim();
+  const storeSafe = sanitizeOverrideTextCell_(storeRaw || 'SIN ASIGNAR', 80);
+  const advisorNameSafe = sanitizeOverrideTextCell_(String(advisor.nombre || advisor.correo || 'Usuario').trim(), 100);
+  const advisorRoleRaw = advisor.isGuest
+    ? (String(advisor.puesto || '').trim() || 'INVITADO')
+    : (String(advisor.puesto || advisor.rol || (advisor.isAdmin ? 'ADMINISTRADOR' : 'ASESOR')).trim());
+  const advisorRoleSafe = sanitizeOverrideTextCell_(advisorRoleRaw || 'ASESOR', 80);
+  const advisorEmailSafe = sanitizeOverrideTextCell_(String(advisor.correo || '').trim().toLowerCase(), 120);
+
+  const nowStr = formatCancunNow_();
+  const nowDt = new Date();
+  const stamp = Utilities.formatDate(nowDt, 'America/Cancun', 'yyyyMMdd');
+  const randSuffix = String(Math.floor(1000 + Math.random() * 9000));
+  const suggestionId = 'SUG-' + stamp + '-' + randSuffix;
+
+  const lockState = acquireScriptLockSafe_(15000);
+  if (!lockState.ok) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'El servidor está ocupado con otro proceso. Intenta enviar tu sugerencia de nuevo en unos segundos.'
+    };
+  }
+  const lock = lockState.lock;
+  try {
+    const sh = ensureSugerenciasCompraSheet_(ss);
+    const nextRow = Math.max(3, sh.getLastRow() + 1);
+    const rowValues = [[
+      nowStr,
+      suggestionId,
+      ambienteNorm,
+      tipoProducto,
+      comments,
+      advisorNameSafe,
+      advisorRoleSafe,
+      storeSafe,
+      'PENDIENTE'
+    ]];
+    sh.getRange(nextRow, 1, 1, 9).setValues(rowValues);
+    SpreadsheetApp.flush();
+
+    try {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'MOVIMIENTO',
+        modulo: 'Sugerencias de compra',
+        evento: 'SUGERENCIA DE COMPRA',
+        estado: '💡 PENDIENTE',
+        usuario: advisorNameSafe + (advisorEmailSafe ? (' (' + advisorEmailSafe + ')') : ''),
+        sucursal: storeSafe,
+        referencia: suggestionId,
+        detalle: ambienteNorm + ' · ' + tipoProducto.replace(/^'/, '') + ' · ' + comments.replace(/^'/, '').slice(0, 140),
+        analisis: 'Registrado en ' + TAB_SUGERENCIAS_COMPRA_ + ' (' + suggestionId + ') para evaluación de compras.'
+      });
+    } catch (eHist) {}
+
+    return {
+      ok: true,
+      suggestionId: suggestionId,
+      tabName: TAB_SUGERENCIAS_COMPRA_,
+      rowNum: nextRow,
+      record: {
+        fechaHora: nowStr,
+        suggestionId: suggestionId,
+        ambiente: ambienteNorm,
+        tipoProducto: tipoProducto.replace(/^'/, ''),
+        comments: comments.replace(/^'/, ''),
+        advisorName: advisorNameSafe.replace(/^'/, ''),
+        advisorRole: advisorRoleSafe.replace(/^'/, ''),
+        store: storeSafe.replace(/^'/, ''),
+        status: 'PENDIENTE'
+      }
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
+  }
+}

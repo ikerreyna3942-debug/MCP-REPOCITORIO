@@ -902,14 +902,15 @@
 
   function parsePhotosSheetRows(rawRows) {
     if (!Array.isArray(rawRows) || rawRows.length < 2) return [];
-    let headerIdx = 0;
+    let headerIdx = -1;
     for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
       const r = rawRows[i] || [];
-      if (/^SKU/i.test(cleanStr(r[0]))) {
+      if (/^SKU/i.test(cleanStr(r[0])) && /FOTO|URL|LINK/i.test(cleanStr(r[2]) + ' ' + cleanStr(r[3]) + ' ' + cleanStr(r[4]))) {
         headerIdx = i;
         break;
       }
     }
+    if (headerIdx < 0) return [];
     const out = [];
     for (let i = headerIdx + 1; i < rawRows.length; i++) {
       const r = rawRows[i] || [];
@@ -1384,7 +1385,7 @@
         fetchSheetRows('COTIZACIONES_EN_VIVO', 'A1:Z1500', SHEET_ID),
         isAdmin ? fetchSheetRows('HISTORIAL', 'A:J', SHEET_ID) : Promise.resolve(null),
         segStateJob,
-        isAdmin ? fetchSheetRows('FOTOS NUEVAS CARGADO', 'A1:J500', SHEET_ID) : Promise.resolve(null),
+        Promise.resolve(null),
         fetchPresenceList()
       ];
 

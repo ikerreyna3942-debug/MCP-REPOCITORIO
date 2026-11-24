@@ -3679,5 +3679,61 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   line-height: 1.35;
 }
 
+/* ============================================================================
+ * Modal de Sugerencias de Compra (Menú Flotante — Todos los Usuarios)
+ * ============================================================================ */
+.inv-psug-modal-card {
+  width: 100%;
+  max-width: 470px;
+}
 
+.inv-psug-amb-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
 
+.inv-psug-amb-opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #DDD5C7;
+  background: #FAF8F4;
+  color: #3E3934;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+  user-select: none;
+}
+
+.inv-psug-amb-opt:hover {
+  border-color: #A38251;
+  background: #F7F1E6;
+}
+
+.inv-psug-amb-opt input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.inv-psug-amb-opt.is-selected {
+  background: #252C32;
+  border-color: #252C32;
+  color: #FFFFFF;
+  box-shadow: 0 3px 10px rgba(37, 44, 50, 0.18);
+}
+
+.inv-psug-textarea {
+  min-height: 92px;
+  resize: vertical;
+  line-height: 1.42;
+}
