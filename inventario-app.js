@@ -13172,7 +13172,8 @@
         if (!badge) return;
         const cid = Number(quoteDraftMeta.erpClientId) || 0;
         const lid = Number(quoteDraftMeta.erpLeadId) || 0;
-        if (cid <= 0 && lid <= 0) {
+        const isLocalRef = cid <= 0 && lid <= 0 && cleanStr(quoteDraftMeta.erpClientSource).toUpperCase() === 'COTIZACION' && cleanStr(quoteDraftMeta.clientName);
+        if (cid <= 0 && lid <= 0 && !isLocalRef) {
             badge.innerHTML = '';
             badge.classList.add('hidden');
             return;
@@ -13180,16 +13181,18 @@
         const nm = cleanStr(quoteDraftMeta.clientName) || 'Cliente seleccionado';
         const tag = cid > 0
             ? ('Cliente #' + cid + (quoteDraftMeta.erpNoCliente ? (' · No. ' + quoteDraftMeta.erpNoCliente) : ''))
-            : ('Prospecto #' + lid);
+            : (lid > 0
+                ? ('Prospecto #' + lid)
+                : ('Cotización previa' + (quoteDraftMeta.erpNoCliente ? (' · ' + quoteDraftMeta.erpNoCliente) : '')));
         const extraInfo = [cleanStr(quoteDraftMeta.clientPhone), cleanStr(quoteDraftMeta.clientEmail), cleanStr(quoteDraftMeta.erpClientAddress)]
             .filter(Boolean)
             .join(' · ');
         badge.innerHTML =
             '<div class="min-w-0">' +
-                '<div class="font-extrabold uppercase truncate">✓ ' + escapeHtml(tag) + ': ' + escapeHtml(nm) + '</div>' +
-                (extraInfo ? ('<div class="text-[11px] font-semibold opacity-85 truncate">' + escapeHtml(extraInfo) + '</div>') : '') +
+                '<div class="font-extrabold uppercase leading-snug break-words">✓ ' + escapeHtml(tag) + ': ' + escapeHtml(nm) + '</div>' +
+                (extraInfo ? ('<div class="text-[11px] font-semibold opacity-85 break-words mt-0.5">' + escapeHtml(extraInfo) + '</div>') : '') +
             '</div>' +
-            '<button type="button" onclick="clearSelectedErpClient()" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border shrink-0" style="border-color:#065F46; background:#FFFFFF; color:#065F46;">Desvincular</button>';
+            '<button type="button" onclick="clearSelectedErpClient()" class="inv-erp-client-unlink-btn px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border shrink-0" style="border-color:#065F46; background:#FFFFFF; color:#065F46;">Desvincular</button>';
         badge.classList.remove('hidden');
     }
 
@@ -13205,6 +13208,7 @@
         quoteDraftMeta.erpLeadId = 0;
         quoteDraftMeta.erpNoCliente = '';
         quoteDraftMeta.erpClientAddress = '';
+        quoteDraftMeta.erpClientSource = '';
         quoteDraftMeta.clientMode = FIXED_QUOTE_CLIENT_MODE;
         quoteDraftMeta.categoryLabel = FIXED_QUOTE_CATEGORY_LABEL;
         const sel = document.getElementById('quoteClientModeSelect');
@@ -13224,8 +13228,9 @@
 
         quoteDraftMeta.erpClientId = cid;
         quoteDraftMeta.erpLeadId = lid;
-        quoteDraftMeta.erpNoCliente = cleanStr(cli.noCliente);
+        quoteDraftMeta.erpNoCliente = cleanStr(cli.noCliente || cli.lastFolio);
         quoteDraftMeta.erpClientAddress = addr;
+        quoteDraftMeta.erpClientSource = cleanStr(cli.type || (cid > 0 ? 'CLIENTE' : (lid > 0 ? 'LEAD' : 'COTIZACION')));
         if (fullName) quoteDraftMeta.clientName = fullName;
         if (phone) quoteDraftMeta.clientPhone = phone;
         if (email) quoteDraftMeta.clientEmail = email;
@@ -13244,6 +13249,10 @@
             resEl.innerHTML = '';
             resEl.classList.add('hidden');
         }
+        const searchInp = document.getElementById('quoteErpClientSearchInput');
+        if (searchInp && typeof searchInp.blur === 'function') {
+            try { searchInp.blur(); } catch (eB) {}
+        }
         saveQuoteDraftMeta();
     }
 
@@ -13253,16 +13262,91 @@
         if (cli) selectErpClientObject(cli);
     };
 
-    window.searchErpClientsLive = async function () {
-        if (isGuestSession() || erpClientSearchInFlight || isActiveQuoteCompleted()) return;
-        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
-            openAuthModalForStartup();
-            return;
+    function searchLocalRecentClientsInMemory(rawQuery) {
+        const qNorm = String(rawQuery || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+        const tokens = qNorm.split(/\s+/).filter(t => t.length >= 2);
+        const qDigits = String(rawQuery || '').replace(/\D+/g, '');
+        if (!qNorm && qDigits.length < 3) return [];
+        const list = Array.isArray(myRecentQuotesList) ? myRecentQuotesList : [];
+        const out = [];
+        const seen = new Set();
+        for (let i = 0; i < list.length; i++) {
+            const q = list[i] || {};
+            const nm = cleanStr(q.cliente || q.clientName || q.clienteProyecto || '');
+            const tel = cleanStr(q.telefono || q.clientPhone || '');
+            const em = cleanStr(q.correo || q.clientEmail || '');
+            const fol = cleanStr(q.folio || q.folioErp || q.ordenSucursal || '');
+            if (!nm && !tel) continue;
+            const hayPlain = (nm + ' ' + em + ' ' + fol).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+            const hayDig = (tel + ' ' + fol).replace(/\D+/g, '');
+            const matched = (qDigits.length >= 4 && hayDig.includes(qDigits)) ||
+                (qNorm && hayPlain.includes(qNorm)) ||
+                (tokens.length > 0 && tokens.every(tok => hayPlain.includes(tok)));
+            if (!matched) continue;
+            const key = hayPlain.slice(0, 60) + '|' + tel.replace(/\D+/g, '').slice(-10);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({
+                type: 'COTIZACION',
+                idCliente: 0,
+                idLead: 0,
+                noCliente: fol,
+                lastFolio: fol,
+                nombre: nm || tel,
+                telefono: tel,
+                celular: tel,
+                correo: em,
+                direccion: ''
+            });
+            if (out.length >= 10) break;
         }
+        return out;
+    }
+
+    function renderErpClientSearchResultsList(resEl, clients, warningMsg) {
+        if (!resEl) return;
+        const warnHtml = warningMsg
+            ? ('<div class="rounded-lg border px-3 py-1.5 text-[11px] font-bold sem-yellow">' + escapeHtml(warningMsg) + '</div>')
+            : '';
+        resEl.innerHTML = warnHtml + clients.map((c, idx) => {
+            const isCli = Number(c.idCliente) > 0;
+            const isLead = !isCli && Number(c.idLead) > 0;
+            const badgeTxt = isCli
+                ? ('CLIENTE #' + c.idCliente + (c.noCliente ? (' · No. ' + c.noCliente) : ''))
+                : (isLead
+                    ? ('PROSPECTO #' + c.idLead)
+                    : ('COTIZACIÓN PREVIA' + (c.lastFolio || c.noCliente ? (' · ' + (c.lastFolio || c.noCliente)) : '')));
+            const badgeBg = isCli ? '#1A1816' : (isLead ? '#9E7B4F' : '#475569');
+            const subParts = [cleanStr(c.telefono || c.celular), cleanStr(c.correo), cleanStr(c.direccion)].filter(Boolean);
+            return '<div class="inv-erp-client-card rounded-lg border px-3 py-2 bg-white flex items-center justify-between gap-2 hover:shadow-sm transition" style="border-color:#E6E1D8;">' +
+                '<div class="min-w-0 flex-1">' +
+                    '<div class="flex flex-wrap items-center gap-1.5">' +
+                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + badgeBg + '; color:#FFFFFF;">' + escapeHtml(badgeTxt) + '</span>' +
+                        '<span class="text-xs font-extrabold uppercase break-words leading-snug" style="color:#1A1816;">' + escapeHtml(c.nombre || '') + '</span>' +
+                    '</div>' +
+                    (subParts.length ? ('<div class="text-[11px] font-semibold opacity-80 break-words mt-0.5" style="color:#1A1816;">' + escapeHtml(subParts.join(' · ')) + '</div>') : '') +
+                '</div>' +
+                '<button type="button" onclick="selectErpClientFromSearch(' + idx + ')" class="inv-erp-client-pick-btn px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase shrink-0" style="background:#9E7B4F; color:#FFFFFF;">Elegir</button>' +
+            '</div>';
+        }).join('');
+    }
+
+    window.searchErpClientsLive = async function () {
+        if (isGuestSession() || erpClientSearchInFlight) return;
         const inp = document.getElementById('quoteErpClientSearchInput');
         const btn = document.getElementById('btnSearchErpClients');
         const resEl = document.getElementById('quoteErpClientResults');
         if (!resEl) return;
+
+        if (isActiveQuoteCompleted()) {
+            resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Esta cotización ya fue generada. Pulsa <strong>+ Nueva</strong> para crear otra y buscar cliente.</div>';
+            resEl.classList.remove('hidden');
+            return;
+        }
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            openAuthModalForStartup();
+            return;
+        }
 
         const q = cleanStr(inp ? inp.value : '');
         if (q.length < 2) {
@@ -13272,12 +13356,16 @@
             return;
         }
 
+        if (inp && typeof inp.blur === 'function') {
+            try { inp.blur(); } catch (eB) {}
+        }
+
         erpClientSearchInFlight = true;
         if (btn) {
             btn.disabled = true;
             btn.textContent = 'Buscando...';
         }
-        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-semibold bg-white" style="border-color:#E6E1D8; color:#1A1816;">Buscando cliente...</div>';
+        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-semibold bg-white" style="border-color:#E6E1D8; color:#1A1816;">Buscando cliente en S Mueblería...</div>';
         resEl.classList.remove('hidden');
 
         try {
@@ -13286,59 +13374,63 @@
                 sheetTab: activeAdvisorSession.sheetTab || '',
                 advisorEmail: activeAdvisorSession.correo || '',
                 query: q
-            }, 25000);
+            }, 40000, true);
 
-            if (res && res.authRequired) {
-                resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Confirma tu contraseña para consultar clientes.</div>';
-                promptSessionReauth(res.error || 'Confirma tu contraseña para buscar clientes.', null);
-                return;
-            }
-
-            if (!res || res.needsRedeploy || res.unavailable) {
+            const isSilentAuthReject = Boolean(res && !res.ok && !res.unavailable && !res.needsRedeploy && !cleanStr(res.error));
+            if ((res && res.authRequired) || isSilentAuthReject) {
+                const msg = (res && res.error) || 'Tu sesión requiere confirmación para buscar clientes.';
                 resEl.innerHTML =
-                    '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">' +
-                    'Búsqueda no disponible en este momento.' +
+                    '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow flex flex-wrap items-center justify-between gap-2">' +
+                        '<span>' + escapeHtml(msg) + '</span>' +
+                        '<button type="button" onclick="promptSessionReauth(\'Confirma tu contraseña para buscar clientes.\', function(){ searchErpClientsLive(); })" class="px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase" style="background:#1A1816; color:#FFFFFF;">Confirmar sesión</button>' +
                     '</div>';
+                promptSessionReauth(msg, () => { searchErpClientsLive(); });
                 return;
             }
 
-            if (!res.ok) {
-                resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-red">' + escapeHtml(res.error || 'No se pudo completar la búsqueda.') + '</div>';
+            if (!res || res.needsRedeploy || res.unavailable || !res.ok) {
+                const localHits = searchLocalRecentClientsInMemory(q);
+                if (localHits.length) {
+                    lastErpClientSearchResults = localHits;
+                    renderErpClientSearchResultsList(resEl, localHits, 'S Mueblería no respondió a tiempo; mostrando coincidencias de tus cotizaciones recientes.');
+                    return;
+                }
+                const errText = (res && res.error)
+                    ? res.error
+                    : 'No se pudo conectar con S Mueblería en este momento. Intenta de nuevo o registra el cliente.';
+                resEl.innerHTML =
+                    '<div class="rounded-lg border px-3 py-2.5 text-xs font-bold sem-red flex flex-wrap items-center justify-between gap-2">' +
+                        '<span class="min-w-0 flex-1">' + escapeHtml(errText) + '</span>' +
+                        '<div class="flex items-center gap-1.5 shrink-0">' +
+                            '<button type="button" onclick="searchErpClientsLive()" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase" style="background:#1A1816; color:#FFFFFF;">Reintentar</button>' +
+                            '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Nuevo cliente</button>' +
+                        '</div>' +
+                    '</div>';
                 return;
             }
 
             lastErpClientSearchResults = Array.isArray(res.clients) ? res.clients : [];
             if (!lastErpClientSearchResults.length) {
+                const localHits = searchLocalRecentClientsInMemory(q);
+                if (localHits.length) {
+                    lastErpClientSearchResults = localHits;
+                    renderErpClientSearchResultsList(resEl, localHits, 'Sin coincidencias exactas en S Mueblería; mostrando coincidencias de tus cotizaciones recientes.');
+                    return;
+                }
                 resEl.innerHTML =
                     '<div class="rounded-lg border px-3 py-2.5 text-xs font-semibold bg-white flex flex-wrap items-center justify-between gap-2" style="border-color:#E6E1D8; color:#1A1816;">' +
                         '<span>Sin coincidencias para <strong>' + escapeHtml(q) + '</strong>.</span>' +
-                        '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Nuevo cliente</button>' +
+                        '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Nuevo cliente</button>' +
                     '</div>';
                 return;
             }
 
-            resEl.innerHTML = lastErpClientSearchResults.map((c, idx) => {
-                const isCli = Number(c.idCliente) > 0;
-                const badgeTxt = isCli
-                    ? ('CLIENTE #' + c.idCliente + (c.noCliente ? (' · No. ' + c.noCliente) : ''))
-                    : ('PROSPECTO #' + c.idLead);
-                const subParts = [cleanStr(c.telefono || c.celular), cleanStr(c.correo), cleanStr(c.direccion)].filter(Boolean);
-                return '<div class="rounded-lg border px-3 py-2 bg-white flex items-center justify-between gap-2 hover:shadow-sm transition" style="border-color:#E6E1D8;">' +
-                    '<div class="min-w-0">' +
-                        '<div class="flex flex-wrap items-center gap-1.5">' +
-                            '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (isCli ? '#1A1816' : '#9E7B4F') + '; color:#FFFFFF;">' + escapeHtml(badgeTxt) + '</span>' +
-                            '<span class="text-xs font-extrabold uppercase truncate" style="color:#1A1816;">' + escapeHtml(c.nombre || '') + '</span>' +
-                        '</div>' +
-                        (subParts.length ? ('<div class="text-[11px] font-semibold opacity-80 truncate mt-0.5" style="color:#1A1816;">' + escapeHtml(subParts.join(' · ')) + '</div>') : '') +
-                    '</div>' +
-                    '<button type="button" onclick="selectErpClientFromSearch(' + idx + ')" class="px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase shrink-0" style="background:#9E7B4F; color:#FFFFFF;">Elegir</button>' +
-                '</div>';
-            }).join('');
+            renderErpClientSearchResultsList(resEl, lastErpClientSearchResults, cleanStr(res.warning || ''));
         } finally {
             erpClientSearchInFlight = false;
             if (btn) {
                 btn.disabled = isActiveQuoteCompleted();
-                btn.textContent = 'Buscar';
+                btn.textContent = 'Buscar cliente';
             }
         }
     };

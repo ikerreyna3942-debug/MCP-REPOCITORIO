@@ -3737,3 +3737,176 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   resize: vertical;
   line-height: 1.42;
 }
+
+/* ============================================================================
+ * Adaptación Nativa para Teléfonos App (Inventario + Cotizador + Buscador Clientes)
+ * ============================================================================ */
+body {
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+.inv-erp-client-search-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+
+.inv-erp-client-card {
+  gap: 10px;
+}
+
+.inv-erp-client-pick-btn {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+@media (max-width: 767px) {
+  /* Evitar zoom automático en iOS Safari en todos los campos de captura */
+  #invHeader #invSearchInput,
+  #cartModal input[type="text"],
+  #cartModal input[type="search"],
+  #cartModal input[type="tel"],
+  #cartModal input[type="email"],
+  #cartModal input[type="number"],
+  #cartModal input[type="date"],
+  #cartModal select,
+  #cartModal textarea,
+  #authModal input,
+  #authModal select,
+  #demandRequestModal input,
+  #demandRequestModal select,
+  #demandRequestModal textarea,
+  #purchaseSuggestionModal input,
+  #purchaseSuggestionModal select,
+  #purchaseSuggestionModal textarea,
+  #settingsModal input,
+  #settingsModal select,
+  #uploadPhotoModal input,
+  #uploadPhotoModal select {
+    font-size: 16px !important;
+  }
+
+  #cartModal input[type="text"],
+  #cartModal input[type="search"],
+  #cartModal input[type="tel"],
+  #cartModal input[type="email"],
+  #cartModal input[type="date"],
+  #cartModal select {
+    min-height: 42px;
+    padding: 8px 11px;
+  }
+
+  #btnSearchErpClients {
+    min-height: 42px;
+    padding: 0 14px;
+    font-size: 12px;
+  }
+
+  #quoteErpClientResults {
+    max-height: 42dvh;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .inv-erp-client-card {
+    padding: 10px 12px;
+    border-radius: 11px;
+  }
+
+  .inv-erp-client-pick-btn {
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 11.5px;
+  }
+
+  .inv-erp-client-unlink-btn {
+    min-height: 36px;
+    padding: 4px 12px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 639px) {
+  #invHeader .inv-search-box {
+    height: 38px;
+  }
+
+  #invHeader #invSearchInput {
+    padding: 0 30px 0 28px;
+  }
+
+  #invHeader .inv-search-icon {
+    left: 10px;
+    width: 14px;
+    height: 14px;
+  }
+
+  #invHeader #invClearBtn {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+
+  main#invMainView.inv-main {
+    padding: 10px 8px calc(98px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Modales principales tipo Bottom-Sheet en teléfonos */
+  #cartModal.inv-modal-backdrop,
+  #productDetailModal.inv-modal-backdrop,
+  #demandRequestModal.inv-modal-backdrop,
+  #purchaseSuggestionModal.inv-modal-backdrop {
+    align-items: flex-end;
+    padding: env(safe-area-inset-top, 0px) 0 0 0;
+  }
+
+  #cartModal > div,
+  #productDetailModal > .inv-det-modal-card,
+  #demandRequestModal > div,
+  #purchaseSuggestionModal > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 94dvh !important;
+    border-radius: 20px 20px 0 0 !important;
+    margin: 0 !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  #cartModal .overflow-y-auto,
+  #productDetailModal .inv-det-modal-card {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .inv-erp-client-search-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  #btnSearchErpClients {
+    width: 100%;
+    min-height: 44px;
+    font-size: 12.5px;
+    border-radius: 10px;
+  }
+
+  #btnToggleNewErpClient {
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 11px;
+  }
+
+  #btnSaveNewErpClient {
+    min-height: 44px;
+    font-size: 12px;
+  }
+}
+
