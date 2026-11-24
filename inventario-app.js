@@ -3617,7 +3617,100 @@
         'CAPRI', 'CHELSEA', 'OXFORD', 'VANCOUVER'
     ]);
 
-    const SOFA_CAMA_MODELS = new Set(['CITY']);
+    const SOFA_CAMA_MODELS = new Set(['CITY', 'ASHA']);
+
+    const MANUAL_SUBCATEGORY_ALIAS_MAP = (function buildManualSubcategoryAliasMap() {
+        const normKey = (s) => String(s || '')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+        const m = Object.create(null);
+        Object.keys(MAIN_OF_SUB).forEach((sub) => {
+            if (sub && sub !== 'OTROS') m[normKey(sub)] = sub;
+        });
+        const aliases = {
+            'SOFA CAMA': 'FUTONES & SOFÁ CAMAS',
+            'SOFA CAMAS': 'FUTONES & SOFÁ CAMAS',
+            'SOFACAMA': 'FUTONES & SOFÁ CAMAS',
+            'SOFACAMAS': 'FUTONES & SOFÁ CAMAS',
+            'FUTON': 'FUTONES & SOFÁ CAMAS',
+            'FUTONES': 'FUTONES & SOFÁ CAMAS',
+            'FUTTON': 'FUTONES & SOFÁ CAMAS',
+            'FUTTONES': 'FUTONES & SOFÁ CAMAS',
+            'FUTONES Y SOFA CAMAS': 'FUTONES & SOFÁ CAMAS',
+            'FUTONES SOFA CAMAS': 'FUTONES & SOFÁ CAMAS',
+            'SOFA CAMA Y FUTTONES': 'FUTONES & SOFÁ CAMAS',
+            'SALA MODULAR': 'SALAS MODULARES',
+            'SALA EN L': 'SALAS EN L',
+            'ESCUADRA': 'SALAS EN L',
+            'SOFA': 'SOFAS & LOVESEATS',
+            'SOFAS': 'SOFAS & LOVESEATS',
+            'LOVESEAT': 'SOFAS & LOVESEATS',
+            'LOVE SEAT': 'SOFAS & LOVESEATS',
+            'SOFAS Y LOVESEATS': 'SOFAS & LOVESEATS',
+            'SILLON': 'SILLONES',
+            'MESA DE CENTRO': 'MESAS DE CENTRO',
+            'MESA CENTRO': 'MESAS DE CENTRO',
+            'MESA LATERAL': 'MESAS LATERALES',
+            'MESA AUXILIAR': 'MESAS LATERALES',
+            'MESAS AUXILIARES': 'MESAS LATERALES',
+            'MESA': 'MESAS',
+            'MESAS DE COMEDOR': 'MESAS',
+            'MESA DE COMEDOR': 'MESAS',
+            'SILLA': 'SILLAS',
+            'SILLAS COMEDOR': 'SILLAS',
+            'SILLAS COMEDORES': 'SILLAS',
+            'BANCO': 'BANCOS & BANCAS',
+            'BANCOS': 'BANCOS & BANCAS',
+            'BANCA': 'BANCOS & BANCAS',
+            'BANCAS': 'BANCOS & BANCAS',
+            'BANCOS Y BANCAS': 'BANCOS & BANCAS',
+            'BUFETERA': 'BUFETERAS',
+            'CAMA': 'CAMAS',
+            'CABECERA': 'CABECERAS',
+            'COLCHON': 'COLCHONES',
+            'BASE': 'BASES',
+            'BASE DE CAMA': 'BASES',
+            'BURO': 'BURÓS',
+            'COMODA': 'COMODAS Y TOCADORES',
+            'COMODAS': 'COMODAS Y TOCADORES',
+            'TOCADOR': 'COMODAS Y TOCADORES',
+            'TOCADORES': 'COMODAS Y TOCADORES',
+            'MUEBLE PARA TV': 'MUEBLES PARA TV',
+            'MUEBLE DE TV': 'MUEBLES PARA TV',
+            'MESA DE TV': 'MUEBLES PARA TV',
+            'CREDENZA': 'CREDENZAS',
+            'MUEBLE DE BAR': 'MUEBLES DE BAR',
+            'BAR': 'MUEBLES DE BAR',
+            'CAVA': 'MUEBLES DE BAR',
+            'LIBRERO': 'LIBREROS',
+            'ESCRITORIO': 'ESCRITORIOS',
+            'OFICINA': 'ESCRITORIOS',
+            'EXTERIOR Y TERRAZA': 'EXTERIOR',
+            'EXTERIOR TERRAZA': 'EXTERIOR',
+            'TERRAZA': 'EXTERIOR',
+            'ESPEJO': 'ESPEJOS',
+            'CUADRO': 'CUADROS',
+            'LAMPARA': 'LÁMPARAS',
+            'ILUMINACION': 'LÁMPARAS',
+            'COJIN': 'COJINES & TEXTILES',
+            'COJINES': 'COJINES & TEXTILES',
+            'TEXTILES': 'COJINES & TEXTILES',
+            'COJINES Y TEXTILES': 'COJINES & TEXTILES',
+            'ACCESORIO': 'ACCESORIOS DECORATIVOS',
+            'ACCESORIOS': 'ACCESORIOS DECORATIVOS'
+        };
+        Object.keys(aliases).forEach((k) => { m[normKey(k)] = aliases[k]; });
+        return m;
+    })();
+
+    function resolveManualSubcategoryOverride(rawCat) {
+        const s = cleanStr(rawCat);
+        if (!s || /^(?:VISUAL_COVER|FABRIC_SWATCH|WOOD_SWATCH)$/i.test(s)) return '';
+        const normKey = s
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+        return MANUAL_SUBCATEGORY_ALIAS_MAP[normKey] || '';
+    }
 
     function isExteriorFurnitureItem(it, allTxt, prodTxt, mo, tp, nom, cat) {
         if (/\bINTERIOR\b/.test(nom) || /\bCUADRO\b/.test(prodTxt)) return false;
@@ -3668,6 +3761,12 @@
 
     function classifyItemSubcategory(it) {
         const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+        // Prioridad 0: categoría editada manualmente por Kevin en _INV_PRODUCT_OVERRIDES (ej. "Sofa camas" -> "FUTONES & SOFÁ CAMAS")
+        const manualOvr = getProductOverrideForSku(it && it.s);
+        if (manualOvr && manualOvr.category) {
+            const manualSub = resolveManualSubcategoryOverride(manualOvr.category);
+            if (manualSub) return manualSub;
+        }
         const cat = norm(cleanStr(it && it.c));
         const tp = norm(cleanStr(it && it.tp));
         const mo = norm(cleanStr(it && it.mo));
@@ -19390,7 +19489,7 @@
         if (skuLbl) skuLbl.textContent = 'SKU: ' + sku;
         if (stBadge) stBadge.textContent = status;
         if (nameInp) nameInp.value = (ovr && ovr.name) || (it && it.n) || '';
-        if (catInp) catInp.value = (ovr && ovr.category) || (it && it.c) || '';
+        if (catInp) catInp.value = (ovr && ovr.category) || (it && it._cat) || (it && it.c) || '';
         const parsedPr = it ? parsePriceNum(it.pr) : 0;
         const pVal = (ovr && ovr.price !== null && ovr.price !== undefined && ovr.price !== '') ? ovr.price : (parsedPr > 0 ? parsedPr : '');
         if (priceInp) priceInp.value = pVal !== '' ? String(pVal) : '';

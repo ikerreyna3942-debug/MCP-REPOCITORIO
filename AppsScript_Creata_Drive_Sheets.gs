@@ -181,6 +181,34 @@ function migrarCuentasALibroPrivadoYHash(targetAuthSheetId, enableHashFlag) {
   return { ok: true, authSpreadsheetId: authId, copiedTabs: copied, hashEnabled: !!enableHashFlag };
 }
 
+/**
+ * Activa un libro PRIVADO de cuentas que ya contiene CUENTAS ADMINISTRATIVAS e INVITADOS
+ * (por ejemplo, migrado previamente) sin sobrescribir sus pestañas ni contraseñas hasheadas.
+ */
+function activarLibroAuthPrivado(targetAuthSheetId) {
+  const authId = String(targetAuthSheetId || '').trim();
+  if (!authId || authId === CONFIG.SHEET_ID) {
+    return { ok: false, error: 'Indica el ID de un Google Sheet privado distinto al libro público.' };
+  }
+  const dstSs = SpreadsheetApp.openById(authId);
+  const shAdmin = dstSs.getSheetByName(TAB_CUENTAS_ADMIN_);
+  const shInv = findInvitadosSheet_(dstSs);
+  if (!shAdmin || shAdmin.getLastRow() < 3) {
+    return { ok: false, error: 'El libro privado no contiene filas válidas en CUENTAS ADMINISTRATIVAS.' };
+  }
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('AUTH_SPREADSHEET_ID', authId);
+  props.setProperty('HASH_USER_PASSWORDS', '1');
+  invalidateBranchUsersCache_();
+  return {
+    ok: true,
+    authSpreadsheetId: authId,
+    adminRows: Math.max(0, shAdmin.getLastRow() - 2),
+    guestRows: shInv ? Math.max(0, shInv.getLastRow() - 2) : 0,
+    hashEnabled: true
+  };
+}
+
 function publishWebAppUrlToConfigSheet_(ss) {
   try {
     const webUrl = (ScriptApp.getService().getUrl() || '').trim();
@@ -3765,7 +3793,7 @@ function readAllBranchUsers_(ss, erpAdvisors, opts) {
     } catch (eCacheRead) {}
   }
 
-  const targetSs = ss || getAuthSpreadsheet_();
+  const targetSs = getAuthSpreadsheet_(ss);
   const list = [];
   const seenEmailTab = {};
   const adminPermsByEmail = {};
@@ -10229,7 +10257,7 @@ function resolveCategoryDestFolderForProduct_(categoriaRaw, tipoRaw, nombreRaw) 
   const text = (tpNom + ' ' + cat).trim();
   const byKey = (k) => CATEGORIAS_DEST_FOLDERS_.find((f) => f.key === k) || CATEGORIAS_DEST_FOLDERS_[CATEGORIAS_DEST_FOLDERS_.length - 1];
 
-  if (/\bFUTON|\bFUTTON|SOFA\s*CAMA/.test(text)) return byKey('SOFA_CAMA');
+  if (/\bFUTON|\bFUTTON|SOFA\s*CAMAS?|\bSALA\s+ASHA\b/.test(text)) return byKey('SOFA_CAMA');
   if (/MESA\s+LATERAL|MESA\s+AUXILIAR/.test(tpNom) || (cat.indexOf('MESAS DE CENTRO') !== -1 && /\bLATERAL(?:ES)?\b|\bAUXILIAR(?:ES)?\b/.test(tpNom))) {
     return byKey('MESA_LATERAL');
   }

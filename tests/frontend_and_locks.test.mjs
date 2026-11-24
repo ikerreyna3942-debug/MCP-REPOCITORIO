@@ -46,8 +46,8 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
 
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
   const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v27['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v27['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v28['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v28['"]/);
   assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v6['"]/);
   assert.match(panelSwSrc, /panel-styles\.css\?v=6/);
   assert.match(panelSwSrc, /panel-app\.js\?v=14/);
@@ -122,10 +122,10 @@ test('Static cross-project isolation invariants hold across Project A, Project B
     assert.equal(fs.existsSync(path.join(REPO_ROOT, deprecated)), false, `Removed deprecated file must not exist: ${deprecated}`);
   }
 
-  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=37
+  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=38
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
-  assert.match(fotosHtml, /fotos-productos-app\.js\?v=37/);
+  assert.match(fotosHtml, /fotos-productos-app\.js\?v=38/);
 });
 
 test('App #9 (Feature F8): Auto-acomodar por categoría button removed from fotos-productos.html while Guardar preserves automatic category folder resolution with zero dead DOM refs', () => {

@@ -109,7 +109,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3', 'creata-panel-app-v4', 'creata-panel-app-v5', 'creata-panel-app-v6', 'creata-fotos-app-v27', 'creata-inventario-v1'];
+  const existingKeys = ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3', 'creata-panel-app-v4', 'creata-panel-app-v5', 'creata-panel-app-v6', 'creata-fotos-app-v28', 'creata-inventario-v1'];
   const swSandbox = {
     URL,
     AbortController,

@@ -518,7 +518,7 @@
         const tpNom = (tp + ' ' + nom).trim();
         const text = (tpNom + ' ' + cat).trim();
 
-        if (/\bFUTON|\bFUTTON|SOFA\s*CAMA/.test(text)) return CATEGORIAS_DEST_FOLDERS[2];
+        if (/\bFUTON|\bFUTTON|SOFA\s*CAMAS?|\bSALA\s+ASHA\b/.test(text)) return CATEGORIAS_DEST_FOLDERS[2];
         if (/MESA\s+LATERAL|MESA\s+AUXILIAR/.test(tpNom) || (cat.indexOf('MESAS DE CENTRO') !== -1 && /\bLATERAL(?:ES)?\b|\bAUXILIAR(?:ES)?\b/.test(tpNom))) {
             return CATEGORIAS_DEST_FOLDERS[4];
         }
@@ -8315,7 +8315,7 @@
                 else { typeKey = 'EXT_SALA_MODULAR'; typeLabel = 'SALA MODULAR EXTERIOR'; }
             } else if (/\bSALAS?\s+EN\s+L\b/.test(fullTok)) {
                 typeKey = 'SALA_EN_L'; typeLabel = 'SALA EN L';
-            } else if (/\bSOFA\s*CAMA\b/.test(fullTok)) {
+            } else if (/\bSOFA\s*CAMAS?\b/.test(fullTok) || mo === 'ASHA' || mo === 'CITY') {
                 typeKey = 'SOFA_CAMA'; typeLabel = 'SOFÁ CAMA';
             } else if (/\b(FUTON|FUTTON)\b/.test(fullTok)) {
                 typeKey = 'FUTON'; typeLabel = 'FUTÓN';

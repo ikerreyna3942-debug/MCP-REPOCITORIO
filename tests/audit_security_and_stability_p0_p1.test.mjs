@@ -156,7 +156,14 @@ test('P0-01: Salted SHA-256 hashing, private AUTH_SPREADSHEET_ID migration, cons
   assert.match(String(kevinHashed), /^sha256\$/, 'Kevin password must be stored as salted SHA-256 hash');
   assert.notEqual(String(kevinHashed), 'KevinAudit2026!');
 
-  // 3) Login still succeeds against the private hashed auth workbook!
+  // 3) Delete CUENTAS ADMINISTRATIVAS from public workbook, activate private workbook via activarLibroAuthPrivado,
+  //    and verify login + authenticated admin directory STILL succeed 100% from the private workbook!
+  rt.ssInv.deleteSheet(rt.ssInv.getSheetByName('CUENTAS ADMINISTRATIVAS'));
+  const actPriv = rt.env.context.activarLibroAuthPrivado(PRIVATE_AUTH_ID);
+  assert.equal(actPriv.ok, true);
+  assert.equal(actPriv.authSpreadsheetId, PRIVATE_AUTH_ID);
+  assert.ok(actPriv.adminRows >= 4);
+
   const loginRes = rt.post({
     action: 'inv_login',
     email: 'kevin.reyna@grupoanipa.com',
@@ -165,6 +172,21 @@ test('P0-01: Salted SHA-256 hashing, private AUTH_SPREADSHEET_ID migration, cons
   });
   assert.equal(loginRes.ok, true);
   assert.equal(loginRes.user.isAdmin, true);
+
+  const dirRes = rt.get({
+    action: 'inv_users_directory',
+    authToken: loginRes.user.authToken
+  });
+  assert.equal(dirRes.ok, true, 'Authenticated inv_users_directory must read private auth workbook after public tabs are deleted');
+  assert.ok(Array.isArray(dirRes.users) && dirRes.users.length >= 4);
+
+  const sessRes = rt.post({
+    action: 'inv_my_sessions',
+    authToken: loginRes.user.authToken,
+    advisorEmail: 'kevin.reyna@grupoanipa.com',
+    deviceId: 'dev_audit_kevin_1'
+  });
+  assert.equal(sessRes.ok, true, 'Authenticated POST actions must resolve users from private auth workbook after public tabs are deleted');
 
   // 4) Zero public GViz plaintext password fallback across frontends
   for (const rel of ['panel-app.js', 'fotos-productos-app.js', 'inventario-app.js']) {
