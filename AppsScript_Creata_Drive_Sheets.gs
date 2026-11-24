@@ -1349,12 +1349,24 @@ function doPost(e) {
     }
     if (action === 'inv_search_erp_clients') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_cli_s', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) {
+        const tokInfo = verifyInvAuthToken_(extractAuthTokenFromRequest_(e, body));
+        if (!tokInfo || !tokInfo.email) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Tu sesión expiró. Confirma tu contraseña para buscar clientes.' });
+        }
+        return jsonResponse_({ ok: false });
+      }
       return jsonResponse_(handleInvSearchErpClients_(body));
     }
     if (action === 'inv_create_erp_client') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_cli_c', maxHits: 20, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) {
+        const tokInfo = verifyInvAuthToken_(extractAuthTokenFromRequest_(e, body));
+        if (!tokInfo || !tokInfo.email) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Tu sesión expiró. Confirma tu contraseña para registrar clientes.' });
+        }
+        return jsonResponse_({ ok: false });
+      }
       return jsonResponse_(handleInvCreateErpClient_(body));
     }
     if (action === 'inv_upload_product_photo') {
@@ -9499,6 +9511,222 @@ function autocompletarYOrdenarInventarioEnVivo_(ss, opts) {
 // CLIENTES S MUEBLERÍA EN VIVO (BÚSQUEDA Y ALTA) + FOTOS NUEVAS (SOLO GERENTES)
 // ============================================================================
 
+function normalizeClientSearchText_(raw) {
+  return String(raw || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function extractErpClientEntitiesFromXml_(xmlText, kind) {
+  const xml = String(xmlText || '');
+  if (!xml) return [];
+  const isLead = String(kind || '').toUpperCase() === 'LEAD';
+  const idTag = isLead ? 'IdLead' : 'IdCliente';
+  // Quitar envoltorios SOAP/WCF de nivel superior para que ArrayOfCliente / Result nunca traguen toda la lista
+  let inner = xml;
+  const resTagRe = isLead
+    ? /<(?:[a-zA-Z0-9_]+:)?ObtenerLeadsResult\b[^>]*>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?ObtenerLeadsResult>/i
+    : /<(?:[a-zA-Z0-9_]+:)?ObtenerClientesResult\b[^>]*>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?ObtenerClientesResult>/i;
+  const resMatch = inner.match(resTagRe);
+  if (resMatch && resMatch[1]) {
+    inner = resMatch[1];
+  }
+  inner = inner.replace(/<\/?(?:[a-zA-Z0-9_]+:)?ArrayOf[a-zA-Z0-9_]+\b[^>]*>/gi, '');
+
+  const blocks = [];
+  const itemRe = isLead
+    ? /<((?:[a-zA-Z0-9_]+:)?(?:Lead\d*|Leads|DatosLead|LeadDTO))\b[^>]*>([\s\S]*?)<\/\1>/gi
+    : /<((?:[a-zA-Z0-9_]+:)?(?:Cliente\d*|Clientes|DatosCliente|ClienteDTO))\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while ((m = itemRe.exec(inner)) !== null) {
+    const blk = m[2] || '';
+    if (extractXmlTag_(blk, idTag)) {
+      blocks.push(blk);
+    }
+  }
+
+  // Respaldo genérico si S Mueblería cambia el nombre del elemento XML (cualquier bloque directo con <IdCliente> / <IdLead>)
+  if (!blocks.length && inner.indexOf(idTag) !== -1) {
+    const genericRe = /<([a-zA-Z0-9_:]+)\b[^>]*>([\s\S]*?)<\/\1>/g;
+    let gm;
+    while ((gm = genericRe.exec(inner)) !== null) {
+      const tagLocal = String(gm[1] || '').split(':').pop();
+      if (/^(?:ArrayOf|Obtener|Envelope|Body|Header)|(?:Response|Result)$/i.test(tagLocal)) continue;
+      const blk = gm[2] || '';
+      if (extractXmlTag_(blk, idTag)) {
+        blocks.push(blk);
+      }
+    }
+  }
+
+  const out = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const blk = blocks[i];
+    const idNum = parseInt(extractXmlTag_(blk, idTag) || '0', 10) || 0;
+    if (idNum <= 0) continue;
+
+    const nomComp = extractXmlTag_(blk, 'NombreCompleto') || extractXmlTag_(blk, 'NombreCliente');
+    const nomParts = [
+      extractXmlTag_(blk, 'Nombre'),
+      extractXmlTag_(blk, 'Paterno') || extractXmlTag_(blk, 'ApellidoPaterno'),
+      extractXmlTag_(blk, 'Materno') || extractXmlTag_(blk, 'ApellidoMaterno')
+    ].filter(Boolean).join(' ').trim();
+    const razon = extractXmlTag_(blk, 'RazonSocial') || extractXmlTag_(blk, 'Empresa');
+    const nombreFinal = String(nomComp || nomParts || razon || ((isLead ? 'PROSPECTO #' : 'CLIENTE #') + idNum))
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const tel = extractXmlTag_(blk, 'Telefono') || extractXmlTag_(blk, 'Telefono1') || extractXmlTag_(blk, 'Tel');
+    const cel = extractXmlTag_(blk, 'Celular') || extractXmlTag_(blk, 'Telefono2') || extractXmlTag_(blk, 'Movil');
+    const correo = extractXmlTag_(blk, 'Correo') || extractXmlTag_(blk, 'Email') || extractXmlTag_(blk, 'Mail') || '';
+    const dirDirect = extractXmlTag_(blk, 'Direccion') || '';
+    const dirParts = [
+      extractXmlTag_(blk, 'Calle'),
+      extractXmlTag_(blk, 'NumeroExterior') || extractXmlTag_(blk, 'NoExterior'),
+      extractXmlTag_(blk, 'Colonia'),
+      extractXmlTag_(blk, 'Ciudad') || extractXmlTag_(blk, 'Municipio')
+    ].filter(Boolean).join(', ').trim();
+
+    out.push({
+      type: isLead ? 'LEAD' : 'CLIENTE',
+      idCliente: isLead ? 0 : idNum,
+      idLead: isLead ? idNum : 0,
+      noCliente: extractXmlTag_(blk, 'NoCliente') || extractXmlTag_(blk, 'Clave') || '',
+      nombre: nombreFinal,
+      telefono: tel || cel || '',
+      celular: cel || tel || '',
+      correo: correo,
+      direccion: dirDirect || dirParts || ''
+    });
+  }
+  return out;
+}
+
+function scoreErpClientCandidate_(cand, normQuery, tokens, digitsQuery) {
+  if (!cand) return 0;
+  const hayPlain = normalizeClientSearchText_([
+    cand.nombre,
+    cand.noCliente,
+    cand.correo,
+    cand.direccion,
+    cand.idCliente ? String(cand.idCliente) : '',
+    cand.idLead ? String(cand.idLead) : ''
+  ].join(' '));
+  const hayDigits = String((cand.telefono || '') + ' ' + (cand.celular || '') + ' ' + (cand.noCliente || '')).replace(/\D+/g, '');
+
+  let matched = false;
+  let score = 0;
+
+  if (digitsQuery.length >= 4 && hayDigits && hayDigits.indexOf(digitsQuery) !== -1) {
+    matched = true;
+    score += 120;
+  }
+  if (normQuery && hayPlain.indexOf(normQuery) !== -1) {
+    matched = true;
+    score += hayPlain.indexOf(normQuery) === 0 ? 130 : 100;
+  }
+  if (!matched && tokens.length > 0) {
+    const allMatch = tokens.every(function (tok) {
+      if (hayPlain.indexOf(tok) !== -1) return true;
+      const tokDig = tok.replace(/\D+/g, '');
+      return tokDig.length >= 3 && hayDigits && hayDigits.indexOf(tokDig) !== -1;
+    });
+    if (allMatch) {
+      matched = true;
+      score += 80;
+    }
+  }
+  if (!matched) return 0;
+
+  if (cand.type === 'CLIENTE') score += 30;
+  else if (cand.type === 'LEAD') score += 20;
+  else score += 5;
+  if (cand.telefono || cand.celular) score += 5;
+  return score;
+}
+
+function searchLocalQuoteClientsFallback_(ssInv, normQuery, tokens, digitsQuery, seenKeys, maxItems) {
+  const found = [];
+  const limit = Math.max(5, Number(maxItems) || 12);
+  const localSeen = {};
+
+  function considerCandidate_(nombreRaw, telRaw, correoRaw, folioRaw) {
+    const nombre = String(nombreRaw || '').replace(/\s+/g, ' ').trim();
+    const tel = String(telRaw || '').trim();
+    const correo = String(correoRaw || '').trim();
+    const folio = String(folioRaw || '').trim().toUpperCase();
+    if (!nombre && !tel) return;
+    if (/^(?:PROSPECTO CREATA|CLIENTE GENERAL|PUBLICO EN GENERAL|MOSTRADOR)$/i.test(nombre)) return;
+
+    const cand = {
+      type: 'COTIZACION',
+      idCliente: 0,
+      idLead: 0,
+      noCliente: folio,
+      nombre: nombre || tel,
+      telefono: tel,
+      celular: tel,
+      correo: correo,
+      direccion: '',
+      lastFolio: folio
+    };
+    const sc = scoreErpClientCandidate_(cand, normQuery, tokens, digitsQuery);
+    if (sc <= 0) return;
+
+    const dedupKey = normalizeClientSearchText_(cand.nombre) + '|' + String(cand.telefono || '').replace(/\D+/g, '').slice(-10);
+    if (localSeen[dedupKey] || (seenKeys && seenKeys['N:' + dedupKey])) return;
+    localSeen[dedupKey] = true;
+    cand._score = sc;
+    found.push(cand);
+  }
+
+  // 1) COTIZACIONES_EN_VIVO (hoja principal de cotizaciones recientes de la app)
+  try {
+    const shLive = ssInv ? ssInv.getSheetByName(TAB_QUOTES_LIVE_) : null;
+    if (shLive && shLive.getLastRow() >= 2) {
+      const lastR = shLive.getLastRow();
+      const startR = Math.max(2, lastR - 400);
+      const lastC = Math.min(Math.max(shLive.getLastColumn(), 13), 20);
+      const vals = shLive.getRange(startR, 1, lastR - startR + 1, lastC).getDisplayValues();
+      for (let i = vals.length - 1; i >= 0; i--) {
+        const r = vals[i] || [];
+        // Esquema COTIZACIONES_EN_VIVO: col 1=FOLIO, col 11=CLIENTE_PROYECTO, col 12=TELEFONO, col 13=CORREO (o esquema corto col 3=CLIENTE, col 4=TEL)
+        const isLongSchema = lastC >= 12 && (String(r[11] || '').trim() || String(r[12] || '').trim());
+        const cliNom = isLongSchema ? r[11] : r[3];
+        const cliTel = isLongSchema ? r[12] : r[4];
+        const cliMail = isLongSchema && r.length > 13 ? r[13] : '';
+        considerCandidate_(cliNom, cliTel, cliMail, r[1] || r[0]);
+      }
+    }
+  } catch (eLive) {}
+
+  // 2) COTIZACIONES_CREATA y COTIZACIONES_ARCHIVADAS (Seguimiento)
+  try {
+    const ssSeg = getSpreadsheetSeguimiento_();
+    if (ssSeg) {
+      const tabs = ['COTIZACIONES_CREATA', TAB_COTIZACIONES_ARCHIVADAS_];
+      for (let t = 0; t < tabs.length; t++) {
+        const sh = ssSeg.getSheetByName(tabs[t]);
+        if (!sh || sh.getLastRow() < 2) continue;
+        const lastR = sh.getLastRow();
+        const startR = Math.max(2, lastR - 1500);
+        const cols = Math.min(Math.max(sh.getLastColumn(), 9), 10);
+        const vals = sh.getRange(startR, 1, lastR - startR + 1, cols).getDisplayValues();
+        for (let i = vals.length - 1; i >= 0; i--) {
+          const r = vals[i] || [];
+          considerCandidate_(r[7], r[8], '', r[1]);
+        }
+      }
+    }
+  } catch (eSeg) {}
+
+  found.sort(function (a, b) { return (b._score || 0) - (a._score || 0); });
+  return found.slice(0, limit);
+}
+
 function handleInvSearchErpClients_(body) {
   const ss = getSpreadsheet_();
   const erpMeta = readErpAdvisorsFromPlantilla_(ss);
@@ -9510,103 +9738,126 @@ function handleInvSearchErpClients_(body) {
     return { ok: false, error: 'Tu cuenta de Invitado (Solo Ver) no tiene permisos para consultar clientes ni cotizar.' };
   }
 
-  const query = String((body && body.query) || '').trim();
-  if (query.length < 2) {
+  const rawQuery = String((body && (body.query || body.q)) || '').trim();
+  if (rawQuery.length < 2) {
     return { ok: false, error: 'Escribe al menos 2 letras o dígitos para buscar en S Mueblería.' };
   }
+
+  const normQuery = normalizeClientSearchText_(rawQuery);
+  const tokens = normQuery.split(/\s+/).filter(function (t) { return t.length >= 2; });
+  const digitsQuery = rawQuery.replace(/\D+/g, '');
+  const isPhoneLike = digitsQuery.length >= 7 && digitsQuery.length >= rawQuery.replace(/\s+/g, '').length - 4;
+
+  // Caché breve de 90s para respuestas instantáneas en búsquedas repetidas
+  const cacheKey = makeShortCacheKey_('cli_s_', normQuery + '|' + digitsQuery);
+  try {
+    const cachedRaw = CacheService.getScriptCache().get(cacheKey);
+    if (cachedRaw) {
+      const cached = JSON.parse(cachedRaw);
+      if (cached && Array.isArray(cached.clients) && cached.clients.length > 0) {
+        return {
+          ok: true,
+          query: rawQuery,
+          cached: true,
+          clients: cached.clients
+        };
+      }
+    }
+  } catch (eCacheRead) {}
 
   const cfg = getErpRuntimeConfig_();
   const results = [];
   const seenKeys = {};
 
-  // 1) Clientes formales registrados en S Mueblería (ObtenerClientes -> Cliente2)
-  let clientErrMsg = '';
-  try {
-    const xmlCli = callSmuebleriaWcf_(
-      'ObtenerClientes',
-      '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro>' + xmlEscape_(query) + '</Filtro>'
-    );
-    const cliRe = /<([a-zA-Z0-9_:]*Cliente2?)\b[^>]*>([\s\S]*?)<\/\1>/g;
-    let m;
-    while ((m = cliRe.exec(xmlCli)) !== null) {
-      const blk = m[2];
-      const idCli = parseInt(extractXmlTag_(blk, 'IdCliente') || '0', 10) || 0;
-      if (idCli <= 0) continue;
-      const key = 'C:' + idCli;
-      if (seenKeys[key]) continue;
-      seenKeys[key] = true;
-
-      const nomComp = extractXmlTag_(blk, 'NombreCompleto');
-      const nomParts = [
-        extractXmlTag_(blk, 'Nombre'),
-        extractXmlTag_(blk, 'Paterno'),
-        extractXmlTag_(blk, 'Materno')
-      ].filter(Boolean).join(' ').trim();
-      const nombreFinal = String(nomComp || nomParts || ('CLIENTE #' + idCli)).replace(/\s+/g, ' ').trim();
-      const tel = extractXmlTag_(blk, 'Telefono');
-      const cel = extractXmlTag_(blk, 'Celular');
-
-      results.push({
-        type: 'CLIENTE',
-        idCliente: idCli,
-        idLead: 0,
-        noCliente: extractXmlTag_(blk, 'NoCliente') || '',
-        nombre: nombreFinal,
-        telefono: tel || cel || '',
-        celular: cel || tel || '',
-        correo: extractXmlTag_(blk, 'Correo') || '',
-        direccion: extractXmlTag_(blk, 'Direccion') || ''
-      });
-      if (results.length >= 30) break;
-    }
-  } catch (eCli) {
-    clientErrMsg = String((eCli && eCli.message) || eCli || '');
+  function addCandidate_(c, requireLocalFilter) {
+    if (!c) return;
+    const key = c.idCliente > 0 ? ('C:' + c.idCliente) : (c.idLead > 0 ? ('L:' + c.idLead) : ('Q:' + normalizeClientSearchText_(c.nombre) + '|' + String(c.telefono || '').replace(/\D+/g, '').slice(-10)));
+    if (seenKeys[key]) return;
+    const sc = scoreErpClientCandidate_(c, normQuery, tokens, digitsQuery);
+    if (requireLocalFilter && sc <= 0) return;
+    seenKeys[key] = true;
+    const nameDigKey = 'N:' + normalizeClientSearchText_(c.nombre) + '|' + String(c.telefono || '').replace(/\D+/g, '').slice(-10);
+    seenKeys[nameDigKey] = true;
+    c._score = sc > 0 ? sc : (c.type === 'CLIENTE' ? 60 : 50);
+    results.push(c);
   }
 
-  // 2) Prospectos / Leads activos en S Mueblería (ObtenerLeads -> Lead)
-  if (results.length < 25) {
+  function queryErpFilter_(filterText, requireLocalFilter) {
+    const cleanF = String(filterText || '').trim();
+    if (cleanF.length < 2) return { added: 0, err: '' };
+    let added = 0;
+    let errMsg = '';
+
+    // 1) Clientes formales (ObtenerClientes)
     try {
-      const xmlLeads = callSmuebleriaWcf_(
-        'ObtenerLeads',
-        '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro>' + xmlEscape_(query) + '</Filtro>'
+      const xmlCli = callSmuebleriaWcf_(
+        'ObtenerClientes',
+        '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro>' + xmlEscape_(cleanF) + '</Filtro>'
       );
-      const leadRe = /<([a-zA-Z0-9_:]*Lead)\b[^>]*>([\s\S]*?)<\/\1>/g;
-      let ml;
-      while ((ml = leadRe.exec(xmlLeads)) !== null) {
-        const blk = ml[2];
-        const idLead = parseInt(extractXmlTag_(blk, 'IdLead') || '0', 10) || 0;
-        if (idLead <= 0) continue;
-        const key = 'L:' + idLead;
-        if (seenKeys[key]) continue;
-        seenKeys[key] = true;
-
-        const nomComp = extractXmlTag_(blk, 'NombreCompleto');
-        const nomParts = [
-          extractXmlTag_(blk, 'Nombre'),
-          extractXmlTag_(blk, 'Paterno'),
-          extractXmlTag_(blk, 'Materno')
-        ].filter(Boolean).join(' ').trim();
-        const nombreFinal = String(nomComp || nomParts || ('PROSPECTO #' + idLead)).replace(/\s+/g, ' ').trim();
-        const tel = extractXmlTag_(blk, 'Telefono');
-        const cel = extractXmlTag_(blk, 'Celular');
-
-        results.push({
-          type: 'LEAD',
-          idCliente: 0,
-          idLead: idLead,
-          noCliente: '',
-          nombre: nombreFinal,
-          telefono: tel || cel || '',
-          celular: cel || tel || '',
-          correo: extractXmlTag_(blk, 'Correo') || '',
-          direccion: extractXmlTag_(blk, 'Direccion') || ''
-        });
-        if (results.length >= 30) break;
+      const parsedCli = extractErpClientEntitiesFromXml_(xmlCli, 'CLIENTE');
+      for (let i = 0; i < parsedCli.length; i++) {
+        const before = results.length;
+        addCandidate_(parsedCli[i], requireLocalFilter);
+        if (results.length > before) added++;
+        if (results.length >= 35) break;
       }
-    } catch (eLead) {
-      if (!results.length && !clientErrMsg) {
-        clientErrMsg = String((eLead && eLead.message) || eLead || '');
+    } catch (eCli) {
+      errMsg = String((eCli && eCli.message) || eCli || '');
+    }
+
+    // 2) Prospectos / Leads (ObtenerLeads)
+    if (results.length < 25) {
+      try {
+        const xmlLeads = callSmuebleriaWcf_(
+          'ObtenerLeads',
+          '<ClaveServicio>{TOKEN}</ClaveServicio><IdUsuario>' + cfg.masterUserId + '</IdUsuario><Filtro>' + xmlEscape_(cleanF) + '</Filtro>'
+        );
+        const parsedLeads = extractErpClientEntitiesFromXml_(xmlLeads, 'LEAD');
+        for (let i = 0; i < parsedLeads.length; i++) {
+          const before = results.length;
+          addCandidate_(parsedLeads[i], requireLocalFilter);
+          if (results.length > before) added++;
+          if (results.length >= 35) break;
+        }
+      } catch (eLead) {
+        if (!results.length && !errMsg) {
+          errMsg = String((eLead && eLead.message) || eLead || '');
+        }
       }
+    }
+    return { added: added, err: errMsg };
+  }
+
+  // Construir intentos ordenados: exacto/teléfono limpio -> sin acentos -> token más distintivo (para "Nombre Apellido")
+  const primaryFilter = isPhoneLike ? digitsQuery.slice(-10) : rawQuery;
+  const firstRun = queryErpFilter_(primaryFilter, false);
+  let clientErrMsg = firstRun.err;
+
+  if (!results.length && !isPhoneLike && normQuery && normQuery !== primaryFilter.toUpperCase()) {
+    const noAccRun = queryErpFilter_(normQuery, false);
+    if (!clientErrMsg && noAccRun.err) clientErrMsg = noAccRun.err;
+  }
+
+  if (!results.length && !isPhoneLike && tokens.length >= 2) {
+    // S Mueblería a veces busca por Nombre y Apellido en columnas separadas: consultar por el apellido/palabra más larga y filtrar localmente por todos los tokens
+    const sortedByLen = tokens.slice().sort(function (a, b) { return b.length - a.length; });
+    const tried = {};
+    tried[normQuery] = true;
+    for (let i = 0; i < sortedByLen.length && i < 2 && !results.length; i++) {
+      const tok = sortedByLen[i];
+      if (tok.length < 3 || tried[tok]) continue;
+      tried[tok] = true;
+      queryErpFilter_(tok, true);
+    }
+  }
+
+  // Respaldo inteligente con clientes de cotizaciones recientes en Sheets (si S Mueblería devolvió pocos resultados o falló)
+  let usedLocalFallback = false;
+  if (results.length < 10) {
+    const localHits = searchLocalQuoteClientsFallback_(ss, normQuery, tokens, digitsQuery, seenKeys, 12);
+    for (let i = 0; i < localHits.length; i++) {
+      results.push(localHits[i]);
+      usedLocalFallback = true;
     }
   }
 
@@ -9614,10 +9865,39 @@ function handleInvSearchErpClients_(body) {
     return { ok: false, error: 'No fue posible consultar S Mueblería en este momento: ' + clientErrMsg };
   }
 
+  results.sort(function (a, b) {
+    const sDiff = (b._score || 0) - (a._score || 0);
+    if (sDiff !== 0) return sDiff;
+    return String(a.nombre || '').localeCompare(String(b.nombre || ''));
+  });
+
+  const cleanOut = results.slice(0, 25).map(function (c) {
+    return {
+      type: c.type,
+      idCliente: c.idCliente,
+      idLead: c.idLead,
+      noCliente: c.noCliente || '',
+      nombre: c.nombre || '',
+      telefono: c.telefono || '',
+      celular: c.celular || '',
+      correo: c.correo || '',
+      direccion: c.direccion || '',
+      lastFolio: c.lastFolio || ''
+    };
+  });
+
+  if (cleanOut.length > 0) {
+    try {
+      CacheService.getScriptCache().put(cacheKey, JSON.stringify({ clients: cleanOut }), 90);
+    } catch (eCachePut) {}
+  }
+
   return {
     ok: true,
-    query: query,
-    clients: results.slice(0, 25)
+    query: rawQuery,
+    usedLocalFallback: usedLocalFallback,
+    warning: (clientErrMsg && usedLocalFallback) ? 'Mostrando coincidencias de cotizaciones recientes (S Mueblería tardó en responder).' : '',
+    clients: cleanOut
   };
 }
 
@@ -12734,6 +13014,23 @@ function buildSegRoleScopeInfo_(verifiedUser) {
   };
 }
 
+function namesMatchTokenAware_(aNormRaw, bNormRaw) {
+  const a = String(aNormRaw || '').trim();
+  const b = String(bNormRaw || '').trim();
+  if (!a || !b) return false;
+  if (a === b || a.indexOf(b) !== -1 || b.indexOf(a) !== -1) return true;
+  const tokA = a.split(/\s+/).filter(function (t) { return t.length >= 3; });
+  const tokB = b.split(/\s+/).filter(function (t) { return t.length >= 3; });
+  if (tokA.length < 2 || tokB.length < 2) return false;
+  const shorter = tokA.length <= tokB.length ? tokA : tokB;
+  const longerStr = tokA.length <= tokB.length ? b : a;
+  let hits = 0;
+  for (let i = 0; i < shorter.length; i++) {
+    if (longerStr.indexOf(shorter[i]) !== -1) hits++;
+  }
+  return hits >= 2 && hits === shorter.length;
+}
+
 function matchesSegScope_(scope, rowEmailRaw, rowNameRaw, rowBranchRaw, rowFolioRaw) {
   if (scope.isAdmin) return true;
   const rowEmail = String(rowEmailRaw || '').trim().toLowerCase();
@@ -12741,7 +13038,7 @@ function matchesSegScope_(scope, rowEmailRaw, rowNameRaw, rowBranchRaw, rowFolio
   const rowBranch = normPlainUpper_(mapErpStoreToSeguimientoBranch_(rowBranchRaw || '', rowFolioRaw || ''));
   const rawBranchNorm = normPlainUpper_(rowBranchRaw || '');
   const sameUser = (scope.userEmail && rowEmail && rowEmail === scope.userEmail) ||
-    (scope.userNameNorm && rowName && (rowName === scope.userNameNorm || rowName.indexOf(scope.userNameNorm) !== -1 || scope.userNameNorm.indexOf(rowName) !== -1));
+    namesMatchTokenAware_(scope.userNameNorm, rowName);
   if (scope.isManager) {
     const sameBranch = Boolean((rowBranch && scope.allowedBranches[rowBranch]) || (rawBranchNorm && scope.allowedBranches[rawBranchNorm]));
     return sameUser || sameBranch;

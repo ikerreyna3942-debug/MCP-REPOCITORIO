@@ -489,14 +489,27 @@ test('Static Contracts: 24/7 ERP sync hook in GAS, zero 25-day commercial cycle 
   assert.match(css, /\.cm-seg-card\.is-archived\s*\{/);
 
   // Cache versions in inventario.html
-  assert.ok(invHtml.includes('./creata-modules.css?v=8'));
-  assert.ok(invHtml.includes('./seguimiento-app.js?v=12'));
+  assert.ok(invHtml.includes('./creata-modules.css?v=9'));
+  assert.ok(invHtml.includes('./inventario-ui.css?v=25'));
+  assert.ok(invHtml.includes('./seguimiento-app.js?v=13'));
+  assert.ok(invHtml.includes('inventario-app.js?v=109'));
+
+  // Mobile Phone App Ergonomics (zero iOS auto-zoom, bottom sheets, segmented tabs, enterkeyhint)
+  const invCss = readRepoFile('inventario-ui.css');
+  assertBalancedCssBraces(invCss, 'inventario-ui.css');
+  assert.match(css, /font-size:\s*16px;/);
+  assert.match(css, /touch-action:\s*manipulation/);
+  assert.match(css, /border-radius:\s*20px 20px 0 0/);
+  assert.match(invCss, /font-size:\s*16px !important/);
+  assert.match(invCss, /\.inv-erp-client-search-row\s*\{/);
+  assert.ok(invHtml.includes('enterkeyhint="search"'), 'Search inputs must declare enterkeyhint="search" for mobile keyboards');
+  assert.match(invHtml, /<form class="inv-erp-client-search-row[^"]*" onsubmit="event\.preventDefault\(\);\s*searchErpClientsLive\(\);"/);
 });
 
 // ============================================================================
-// 4. FRONTEND RUNTIME DOM: ACTIVAS vs ARCHIVADAS TABS, ERP AUTO-ARCHIVE & BACK UNWIND
+// 4. FRONTEND RUNTIME DOM: ACTIVAS vs ARCHIVADAS TABS, ERP AUTO-ARCHIVE, CLIENT SEARCH & BACK UNWIND
 // ============================================================================
-test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido, renders Ver detalle modal, and Back unwinds Archivadas -> Activas', async () => {
+test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido, searches clients across tabs & filters, renders Ver detalle modal, and Back unwinds Archivadas -> Activas', async () => {
   const segJs = readRepoFile('seguimiento-app.js');
 
   class FakeClassList {
@@ -530,11 +543,13 @@ test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido,
       this.options = [];
       this.checked = false;
       this.scrollTop = 0;
+      this._blurred = false;
       this._textContent = '';
       this._innerHTML = '';
       this._listeners = {};
       this._byId = new Map();
     }
+    blur() { this._blurred = true; }
     setAttribute(k, v) {
       this.attributes[k] = String(v);
       if (k === 'class') this.classList.setFromString(v);
@@ -552,7 +567,6 @@ test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido,
     get textContent() { return this._textContent; }
     set innerHTML(html) {
       this._innerHTML = String(html ?? '');
-      // Index any element IDs declared in template markup so rootEl.querySelector('#id') finds them
       const idRe = /<([a-zA-Z0-9_-]+)([^>]*)id="([^"]+)"([^>]*)>/g;
       let m;
       while ((m = idRe.exec(this._innerHTML)) !== null) {
@@ -564,6 +578,8 @@ test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido,
         if (clsMatch) child.classList.setFromString(clsMatch[1]);
         const valMatch = attrs.match(/value="([^"]+)"/);
         if (valMatch) child.value = valMatch[1];
+        const dataInMatch = attrs.match(/data-seg-input="([^"]+)"/);
+        if (dataInMatch) child.setAttribute('data-seg-input', dataInMatch[1]);
         if (tag.toLowerCase() === 'select') {
           child.value = id === 'seg_filterSucursal' ? 'TODAS' : 'TODOS';
           child.options = [{ value: child.value }];
@@ -607,7 +623,6 @@ test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido,
           Cliente: 'Cliente Abierto',
           Estatus_ERP: 'Cotizado'
         }),
-        // Even if an ERP Vendido row lingers in COTIZACIONES_CREATA, frontend auto-classifies it as archived!
         makeRow27({
           ID_Partida: 'COT-ERP-SOLD_SKU-1',
           Folio_ERP: 'COT-ERP-SOLD',
@@ -655,7 +670,7 @@ test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido,
     scrollTo: () => {},
     addEventListener: () => {},
     removeEventListener: () => {},
-    setTimeout: (fn) => { return 1; },
+    setTimeout: () => 1,
     clearTimeout: () => {},
     setInterval: () => 1,
     clearInterval: () => {},
@@ -721,11 +736,9 @@ test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido,
   });
   assert.equal(okMount, true);
 
-  // Allow microtasks from async fetchDeltaState() to settle
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
 
-  // Verify counts on tabs: 1 active (COT-OPEN-1) vs 2 archived (COT-ERP-SOLD + COT-ARCH-1)
   assert.equal(rootEl.querySelector('#seg_countActivas').textContent, '1', 'Only 1 open quote should be in Activas');
   assert.equal(rootEl.querySelector('#seg_countArchivadas').textContent, '2', 'Both ERP-Vendido and COTIZACIONES_ARCHIVADAS should be in Archivadas');
 
@@ -755,6 +768,17 @@ test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido,
   assert.ok(listEl.innerHTML.includes('COT-ARCH-1'), 'Archivadas tab must show manually archived quote');
   assert.ok(listEl.innerHTML.includes('Ver detalle'), 'Archived cards must provide Ver detalle action');
   assert.ok(tableEl.innerHTML.includes('COT-ARCH-1'), 'Archived table must show archived quote');
+
+  // Searching an active client while on Archivadas tab STILL finds them immediately on Enter & blurs keyboard!
+  const searchEl = rootEl.querySelector('#seg_filterSearch');
+  searchEl.value = 'Cliente Abierto';
+  rootEl.dispatch('keydown', { key: 'Enter', target: searchEl, preventDefault: () => {} });
+  assert.equal(searchEl._blurred, true, 'Pressing Enter on mobile search should blur keyboard to show results');
+  assert.ok(listEl.innerHTML.includes('COT-OPEN-1'), 'Searching client while on Archivadas tab must still find matching active client');
+
+  // Clear search back to Archivadas view
+  searchEl.value = '';
+  rootEl.dispatch('search', { target: searchEl });
 
   // Open detail preview modal on archived quote COT-ARCH-1
   const fakePreviewBtn = {
@@ -789,3 +813,97 @@ test('Seguimiento Frontend Runtime: separates Activas vs Archivadas/ERP-Vendido,
 
   win.CreataSeguimientoModule.unmount();
 });
+
+// ============================================================================
+// 5. ADVISOR CLIENT SEARCH REPAIR (GAS inv_search_erp_clients + TOKEN-AWARE ADVISOR MATCHING)
+// ============================================================================
+test('GAS Client Search Repair: parses ArrayOfCliente2 & plural tags, retries multi-word/accented & phone queries, falls back to recent quotes, and signals authRequired on expired tokens', () => {
+  const env = buildTestGasEnv();
+  const USERS = {
+    'ana@grupoanipa.com': { correo: 'ana@grupoanipa.com', nombre: 'Ana Asesora', puesto: 'ASESOR', sheetTab: 'CASA CREATA', erpStore: 'CREATA CASA CREATA', isAdmin: false }
+  };
+  env.context.resolveAuthenticatedAdvisor_ = (_ss, _erp, body) => {
+    const email = String((body && body.advisorEmail) || '').trim().toLowerCase();
+    return USERS[email] ? { ok: true, advisor: USERS[email] } : { ok: false };
+  };
+
+  const post = (payload) => JSON.parse(env.context.doPost({ postData: { contents: JSON.stringify(payload) } }).getContent());
+  const anaTok = env.context.issueInvAuthToken_('ana@grupoanipa.com', 'CASA CREATA');
+
+  // 1) Expired / missing token returns authRequired: true so frontend prompts re-auth instead of silent error
+  const expiredRes = post({ action: 'inv_search_erp_clients', authToken: 'EXPIRED_OR_INVALID', advisorEmail: 'ana@grupoanipa.com', query: 'Juan' });
+  assert.equal(expiredRes.ok, false);
+  assert.equal(expiredRes.authRequired, true);
+
+  // 2) ArrayOfCliente2 wrapper MUST NOT swallow clients #2..N, AND multi-word accented query retries surname token!
+  const filtersReceived = [];
+  env.context.callSmuebleriaWcf_ = (method, innerXml) => {
+    const fMatch = innerXml.match(/<Filtro>([\s\S]*?)<\/Filtro>/);
+    const f = fMatch ? fMatch[1] : '';
+    filtersReceived.push(method + ':' + f);
+    if (method === 'ObtenerClientes' && f.toUpperCase() === 'MARIN') {
+      return `
+        <ObtenerClientesResponse>
+          <ObtenerClientesResult>
+            <a:ArrayOfCliente2>
+              <a:Cliente2>
+                <a:IdCliente>501</a:IdCliente>
+                <a:NoCliente>CL501</a:NoCliente>
+                <a:Nombre>RODRIGO</a:Nombre>
+                <a:Paterno>MARIN</a:Paterno>
+                <a:Celular>9981234567</a:Celular>
+                <a:Correo>rodrigo@ejemplo.com</a:Correo>
+              </a:Cliente2>
+              <a:Cliente2>
+                <a:IdCliente>502</a:IdCliente>
+                <a:NoCliente>CL502</a:NoCliente>
+                <a:Nombre>CARLOS</a:Nombre>
+                <a:Paterno>MARIN</a:Paterno>
+                <a:Celular>9987654321</a:Celular>
+              </a:Cliente2>
+            </a:ArrayOfCliente2>
+          </ObtenerClientesResult>
+        </ObtenerClientesResponse>
+      `;
+    }
+    return '<ObtenerClientesResponse><ObtenerClientesResult /></ObtenerClientesResponse>';
+  };
+
+  const multiRes = post({
+    action: 'inv_search_erp_clients',
+    authToken: anaTok,
+    advisorEmail: 'ana@grupoanipa.com',
+    sheetTab: 'CASA CREATA',
+    query: 'Rodrigo Marín'
+  });
+  assert.equal(multiRes.ok, true);
+  assert.ok(multiRes.clients.length >= 1, 'Multi-word accented search must find Rodrigo Marin via token retry');
+  assert.equal(multiRes.clients[0].idCliente, 501);
+  assert.equal(multiRes.clients[0].nombre, 'RODRIGO MARIN');
+  assert.ok(!multiRes.clients.some((c) => c.idCliente === 502), 'Local multi-token filter must exclude Carlos Marin when searching Rodrigo Marin');
+
+  // 3) Phone search with spaces/dashes normalizes to 10 digits AND falls back to local COTIZACIONES_CREATA when ERP returns 0
+  const fallbackRes = post({
+    action: 'inv_search_erp_clients',
+    authToken: anaTok,
+    advisorEmail: 'ana@grupoanipa.com',
+    sheetTab: 'CASA CREATA',
+    query: '998 999 0001'
+  });
+  assert.equal(fallbackRes.ok, true);
+  assert.equal(fallbackRes.usedLocalFallback, true);
+  assert.ok(fallbackRes.clients.some((c) => c.type === 'COTIZACION' && c.nombre === 'Cliente Activo'), 'Must find returning client from local COTIZACIONES_CREATA by normalized phone digits');
+
+  // 4) Token-order-independent advisor matching in matchesSegScope_ (Last-Name-First ERP names!)
+  assert.equal(
+    env.context.namesMatchTokenAware_('PALOMA IBAREZ', 'IBAREZ SALINAS STEPHANIE PALOMA'),
+    true,
+    'Advisor Paloma Ibarez must match Last-Name-First ERP name IBAREZ SALINAS STEPHANIE PALOMA'
+  );
+  assert.equal(
+    env.context.namesMatchTokenAware_('GRETA TAPIA', 'TAPIA MORALES HEYSER GRETA ARANZA'),
+    true,
+    'Advisor Greta Tapia must match Last-Name-First ERP name TAPIA MORALES HEYSER GRETA ARANZA'
+  );
+});
+
