@@ -393,7 +393,8 @@
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function extractDriveFileId(raw) {
@@ -5890,7 +5891,7 @@
 
     window.setInvCategory = function (cat) {
         const next = cat || 'ALL';
-        if (next !== activeCategory) activeSubCategory = 'ALL';
+        activeSubCategory = 'ALL';
         activeCategory = next;
         const inp = document.getElementById('invSearchInput');
         applyFilter(inp ? inp.value : '');
@@ -7064,6 +7065,7 @@
         currentGroup = null;
         currentGroupFabricKey = '';
         currentGroupBedSizeKey = '';
+        currentGroupFabricSingleSkuMap = new Map();
         relatedStockExpanded = false;
         const relPanel = document.getElementById('detRelatedStockPanel');
         if (relPanel) relPanel.classList.add('hidden');
@@ -7738,6 +7740,7 @@
 
     function canManageProductPhotos() {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) return false;
+        if (typeof isGuestSession === 'function' && isGuestSession()) return false;
         if (isEffectiveAdminSession() && !hasAdminPerm('subirFoto')) return false;
         if (!isEffectiveAdminSession() && activeAdvisorSession.userPermissions && activeAdvisorSession.userPermissions.subirFoto === false) return false;
         return true;
@@ -8016,7 +8019,7 @@
                     const vLbl = (cleanStr(sib.vr) && cleanStr(sib.vr) !== 'ESTÁNDAR') ? cleanStr(sib.vr) : (cleanStr(sib.tl) || cleanStr(sib.md) || sSku);
                     return '<button type="button" class="px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap" ' +
                         'style="' + (isCur ? 'background:#252C32;color:#FFFFFF;border-color:#252C32;' : 'background:#FFFFFF;color:#252C32;border-color:#D8CFAF;') + '" ' +
-                        'onclick="selectUploadPhotoModelOption(\'' + escapeHtml(sSku) + '\')">' +
+                        'data-inv-act="upload-model-opt" data-sku="' + escapeHtml(sSku) + '">' +
                         escapeHtml(sSku + ' · ' + vLbl.slice(0, 22)) +
                     '</button>';
                 }).join('');
@@ -8336,8 +8339,7 @@
             const fid = cleanStr(f && f.id);
             const isSel = fid && fid === uploadPhotoSelectedDriveFileId;
             const thumb = cleanStr(f.thumbDataUrl || f.thumbUrl) || ('https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w320');
-            const safeFid = escapeHtml(fid.replace(/'/g, "\\'"));
-            return '<button type="button" class="inv-subir-pren-item' + (isSel ? ' is-selected' : '') + '" onclick="selectDriveSubirPrenPhotoInCotizador(\'' + safeFid + '\')">' +
+            return '<button type="button" class="inv-subir-pren-item' + (isSel ? ' is-selected' : '') + '" data-inv-act="subir-pren-pick" data-fid="' + escapeHtml(fid) + '">' +
                 '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' +
                 '<span class="inv-subir-pren-item-name">' + escapeHtml(f.name || fid) + '</span>' +
             '</button>';
@@ -9857,56 +9859,40 @@
     }
 
     async function callInvWebAppPost(action, payloadObj, timeoutMs, skipOfflineQueue) {
-        const cfgUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
-            ? window.CREATA_CLOUD_CONFIG.getApiUrl()
-            : '';
-        const primaryUrl = cfgUrl || CANONICAL_WEBAPP_URL;
-        if (!primaryUrl) {
+        // P0-02: usar siempre CANONICAL_WEBAPP_URL para evitar desvío de credenciales/escrituras vía ?webapp= o localStorage
+        const targetUrl = CANONICAL_WEBAPP_URL;
+        if (!targetUrl) {
             if (!skipOfflineQueue) enqueueInvOfflineOutbox(action, payloadObj);
             return { ok: false, unavailable: true };
         }
 
-        const postOnce = async function (targetUrl) {
-            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
-            try {
-                const body = Object.assign({}, payloadObj || {}, { action: action });
-                const resp = await fetch(targetUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(body),
-                    signal: controller ? controller.signal : undefined
-                });
-                if (!resp.ok) return { ok: false, unavailable: true, httpStatus: resp.status };
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 12000) : null;
+        let res;
+        try {
+            const body = Object.assign({}, payloadObj || {}, { action: action });
+            const resp = await fetch(targetUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(body),
+                signal: controller ? controller.signal : undefined
+            });
+            if (!resp.ok) {
+                res = { ok: false, unavailable: true, httpStatus: resp.status };
+            } else {
                 const json = await resp.json();
                 if (json && !json.ok && /PIN de administrador|Acci[óo]n no reconocida/i.test(String(json.error || ''))) {
-                    return { ok: false, needsRedeploy: true, error: json.error };
+                    res = { ok: false, needsRedeploy: true, error: json.error };
+                } else {
+                    res = json || { ok: false, unavailable: true };
                 }
-                return json || { ok: false, unavailable: true };
-            } catch (err) {
-                return { ok: false, unavailable: true, error: err && err.message ? err.message : String(err) };
-            } finally {
-                if (timer) clearTimeout(timer);
             }
-        };
-
-        const res = await postOnce(primaryUrl);
-        if (
-            CANONICAL_WEBAPP_URL &&
-            primaryUrl !== CANONICAL_WEBAPP_URL &&
-            res &&
-            (res.unavailable || res.needsRedeploy)
-        ) {
-            const fallbackRes = await postOnce(CANONICAL_WEBAPP_URL);
-            if (fallbackRes && fallbackRes.ok) {
-                try {
-                    if (window.CREATA_CLOUD_CONFIG && typeof window.CREATA_CLOUD_CONFIG.setApiUrl === 'function') {
-                        window.CREATA_CLOUD_CONFIG.setApiUrl('');
-                    }
-                } catch (e) {}
-                return fallbackRes;
-            }
+        } catch (err) {
+            res = { ok: false, unavailable: true, error: err && err.message ? err.message : String(err) };
+        } finally {
+            if (timer) clearTimeout(timer);
         }
+
         if (res && res.unavailable && !skipOfflineQueue) {
             enqueueInvOfflineOutbox(action, payloadObj);
         }
@@ -10110,40 +10096,8 @@
     }
 
     async function callInvWebAppGetPresence(payloadObj, timeoutMs) {
-        const cfgUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
-            ? cleanStr(window.CREATA_CLOUD_CONFIG.getApiUrl())
-            : '';
-        const urls = [];
-        if (CANONICAL_WEBAPP_URL) urls.push(CANONICAL_WEBAPP_URL);
-        if (cfgUrl && urls.indexOf(cfgUrl) === -1) urls.push(cfgUrl);
-        const p = payloadObj || {};
-        for (let i = 0; i < urls.length; i++) {
-            const baseUrl = urls[i];
-            const qs = new URLSearchParams();
-            qs.set('action', 'inv_presence_list');
-            if (cleanStr(p.authToken)) qs.set('authToken', cleanStr(p.authToken));
-            if (cleanStr(p.advisorEmail)) qs.set('advisorEmail', cleanStr(p.advisorEmail));
-            if (cleanStr(p.sheetTab)) qs.set('sheetTab', cleanStr(p.sheetTab));
-            if (cleanStr(p.accessKey)) qs.set('accessKey', cleanStr(p.accessKey));
-            const sep = baseUrl.indexOf('?') === -1 ? '?' : '&';
-            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 15000) : null;
-            try {
-                const resp = await fetch(baseUrl + sep + qs.toString(), {
-                    method: 'GET',
-                    cache: 'no-store',
-                    signal: controller ? controller.signal : undefined
-                });
-                if (resp && resp.ok) {
-                    const json = await resp.json();
-                    if (json && !json.unavailable) return json;
-                }
-            } catch (e) {
-            } finally {
-                if (timer) clearTimeout(timer);
-            }
-        }
-        return { ok: false, unavailable: true };
+        // P1-20: nunca enviar authToken ni accessKey por URL GET; usar siempre POST
+        return callInvWebAppPost('inv_presence_list', payloadObj || {}, timeoutMs || 15000, true);
     }
 
     function sendInvPresenceHeartbeat(sessObj, forceNow, _isRetry) {
@@ -11214,9 +11168,13 @@
         const isOwnerFotos = isFotosAppOwner();
         const effectiveAdmin = isEffectiveAdminSession();
         const kevinAdvisorPreview = isKevinAdvisorPreviewActive();
+        const nonAdminUserPerms = (!effectiveAdmin && activeAdvisorSession && activeAdvisorSession.userPermissions && typeof activeAdvisorSession.userPermissions === 'object')
+            ? activeAdvisorSession.userPermissions
+            : null;
         const canSeeHistorial = isAuthed && !guestMode && effectiveAdmin && hasAdminPerm('historial');
-        const canSeeCotizador = !guestMode && (!effectiveAdmin || hasAdminPerm('cotizador'));
-        const canSeeSeguimiento = !guestMode && (!effectiveAdmin || hasAdminPerm('seguimiento'));
+        const canSeeCotizador = !guestMode && (effectiveAdmin ? hasAdminPerm('cotizador') : (!nonAdminUserPerms || nonAdminUserPerms.cotizador !== false));
+        const canSeeSeguimiento = !guestMode && (effectiveAdmin ? hasAdminPerm('seguimiento') : (!nonAdminUserPerms || nonAdminUserPerms.seguimiento !== false));
+        const canSwitchStorePerm = !nonAdminUserPerms || nonAdminUserPerms.cambiarTienda !== false;
         const canSeePromptsIa = isAuthed && !guestMode && effectiveAdmin && hasAdminPerm('promptsIa');
         const canSeePanelSuite = isAuthed && !guestMode && effectiveAdmin && hasAdminPerm('panelSuite');
 
@@ -11224,6 +11182,9 @@
             headerHistBtn.classList.toggle('hidden', !canSeeHistorial);
         }
         if (!canSeeHistorial && activeInAppModule === 'historial' && typeof window.closeInAppModules === 'function') {
+            window.closeInAppModules();
+        }
+        if (!canSeeSeguimiento && activeInAppModule === 'seguimiento' && typeof window.closeInAppModules === 'function') {
             window.closeInAppModules();
         }
 
@@ -11272,7 +11233,7 @@
             }
         }
 
-        const multiLocs = (isAuthed && !guestMode && !effectiveAdmin && !kevinAdvisorPreview && Array.isArray(activeAdvisorSession.allLocations))
+        const multiLocs = (isAuthed && !guestMode && !effectiveAdmin && !kevinAdvisorPreview && canSwitchStorePerm && Array.isArray(activeAdvisorSession.allLocations))
             ? activeAdvisorSession.allLocations.filter(l => l && !l.isGuest)
             : [];
         let showSwitch = false;
@@ -11632,34 +11593,6 @@
         const localKeyUpdates = loadUpdatedKeysMap();
         const hasPendingLocalNewKey = !!(localKeyUpdates[email] && localKeyUpdates[email].newKey);
 
-        // Verificar primero en vivo la hoja INVITADOS (Columna H: Dispositivos Permitidos)
-        let liveGuestRow = null;
-        try {
-            const allUsers = await fetchAllAdvisorRowsLiveGviz();
-            liveGuestRow = allUsers.find(u => u && u.correo === email && u.isGuest) || null;
-            if (liveGuestRow) {
-                const liveCheck = checkGuestDeviceLimitClient(liveGuestRow, deviceId, deviceLabel);
-                if (!liveCheck.ok && liveCheck.limitReached) {
-                    window.logoutAdvisorSession();
-                    showAuthBanner('authLoginMsg', liveCheck.error, 'err');
-                    return;
-                }
-                if (liveCheck.ok) {
-                    activeAdvisorSession.guestSlotNum = liveCheck.slotNumber;
-                    activeAdvisorSession.guestActivePlaces = liveCheck.activePlaces;
-                    activeAdvisorSession.guestMaxPlaces = liveCheck.maxPlaces;
-                }
-                if (liveGuestRow.mustChangeKey && !hasPendingLocalNewKey) {
-                    activeAdvisorSession.mustChangeKey = true;
-                    saveAdvisorSession(activeAdvisorSession);
-                    openAuthModalForStartup();
-                    return;
-                }
-                saveAdvisorSession(activeAdvisorSession);
-                renderAdvisorHeaderBar();
-            }
-        } catch (eGviz) {}
-
         try {
             const hbRes = await callInvWebAppPost('inv_guest_heartbeat', {
                 authToken: (activeAdvisorSession && activeAdvisorSession.authToken) || '',
@@ -11671,9 +11604,7 @@
             if (hbRes && hbRes.ok) {
                 if (hbRes.slotNumber) activeAdvisorSession.guestSlotNum = hbRes.slotNumber;
                 if (hbRes.activePlaces || hbRes.activeCount) activeAdvisorSession.guestActivePlaces = hbRes.activePlaces || hbRes.activeCount;
-                if (liveGuestRow && liveGuestRow.guestMaxPlaces) {
-                    activeAdvisorSession.guestMaxPlaces = liveGuestRow.guestMaxPlaces;
-                } else if (hbRes.maxPlaces) {
+                if (hbRes.maxPlaces) {
                     activeAdvisorSession.guestMaxPlaces = hbRes.maxPlaces;
                 }
                 if (hbRes.mustChangeKey && !hasPendingLocalNewKey) {
@@ -11687,10 +11618,6 @@
                 return;
             }
             if (hbRes && !hbRes.unavailable && !hbRes.needsRedeploy && (hbRes.authRequired || hbRes.limitReached || hbRes.revoked)) {
-                // Si la hoja en vivo tiene configurado un límite mayor en Columna H que una versión anterior del WebApp, respetar la Columna H en vivo
-                if (hbRes.limitReached && liveGuestRow && Number(liveGuestRow.guestMaxPlaces) > Number(hbRes.maxPlaces || 2)) {
-                    return;
-                }
                 const msg = hbRes.error || 'Tu acceso de Invitado alcanzó el límite de dispositivos permitidos o fue actualizado.';
                 window.logoutAdvisorSession();
                 showAuthBanner('authLoginMsg', msg, 'err');
@@ -11725,23 +11652,14 @@
         showAuthBanner('authLoginMsg', '', 'err');
 
         try {
-            // 1) Validación directa y emisión de token firmado vía Apps Script WebApp + lectura en vivo de hojas para multi-tienda y límite Columna H de INVITADOS
-            const [cloudRes, liveAllUsers] = await Promise.all([
-                callInvWebAppPost('inv_login', {
-                    email: email,
-                    accessKey: inputKey,
-                    sheetTab: preferredTab,
-                    deviceId: deviceId,
-                    deviceLabel: deviceLabel
-                }, 10000),
-                fetchAllAdvisorRowsLiveGviz().catch(() => [])
-            ]);
-
-            const liveEmailMatches = Array.isArray(liveAllUsers)
-                ? liveAllUsers.filter(u => u && u.correo === email)
-                : [];
-            const liveGuestRow = liveEmailMatches.find(u => u.isGuest) || null;
-            const liveStoreRows = liveEmailMatches.filter(u => !u.isGuest);
+            // P0-01: Autenticación y emisión de token firmado exclusivamente vía Apps Script WebApp (sin verificación de contraseñas en cliente vía GViz)
+            const cloudRes = await callInvWebAppPost('inv_login', {
+                email: email,
+                accessKey: inputKey,
+                sheetTab: preferredTab,
+                deviceId: deviceId,
+                deviceLabel: deviceLabel
+            }, 12000, true);
 
             if (cloudRes && cloudRes.ok) {
                 if (cloudRes.nextFolioByStore) {
@@ -11764,52 +11682,11 @@
                     }));
                 }
 
-                // Si es Invitado y la Columna H en vivo tiene un límite personalizado (ej. 1 dispositivo), validarlo en vivo
-                if (liveGuestRow && ((cloudRes.user && cloudRes.user.isGuest) || (Array.isArray(cloudRes.locations) && cloudRes.locations.every(l => l.isGuest)))) {
-                    const liveDevCheck = checkGuestDeviceLimitClient(liveGuestRow, deviceId, deviceLabel);
-                    if (!liveDevCheck.ok) {
-                        showAuthBanner('authLoginMsg', liveDevCheck.error, 'err');
-                        return;
-                    }
-                    if (cloudRes.user) {
-                        cloudRes.user.guestSlotNum = liveDevCheck.slotNumber;
-                        cloudRes.user.guestActivePlaces = liveDevCheck.activePlaces;
-                        cloudRes.user.guestMaxPlaces = liveDevCheck.maxPlaces;
-                    }
-                }
-
-                // Unir todas las tiendas donde esté dado de alta el correo en vivo (incluso si una pestaña nueva tenía clave distinta o vacía)
-                let mergedLocations = Array.isArray(cloudRes.locations)
+                const mergedLocations = Array.isArray(cloudRes.locations)
                     ? cloudRes.locations.slice()
                     : (Array.isArray(cloudRes.allLocationsForEmail)
                         ? cloudRes.allLocationsForEmail.slice()
                         : (cloudRes.user ? [cloudRes.user] : []));
-
-                if (liveStoreRows.length > 1 && mergedLocations.some(l => l && !l.isGuest)) {
-                    const byTab = {};
-                    let sampleToken = '';
-                    mergedLocations.forEach(l => {
-                        if (!l) return;
-                        const k = String(l.sheetTab || '').trim().toUpperCase().replace(/COLOSIO/g, 'COLOCIO');
-                        byTab[k] = l;
-                        if (l.authToken && !sampleToken) sampleToken = l.authToken;
-                    });
-                    const combined = [];
-                    liveStoreRows.forEach(liveLoc => {
-                        const k = String(liveLoc.sheetTab || '').trim().toUpperCase().replace(/COLOSIO/g, 'COLOCIO');
-                        if (byTab[k]) {
-                            combined.push(Object.assign({}, liveLoc, byTab[k], { mustChangeKey: !!byTab[k].mustChangeKey }));
-                        } else {
-                            combined.push(Object.assign({}, liveLoc, {
-                                mustChangeKey: false,
-                                authToken: sampleToken
-                            }));
-                        }
-                    });
-                    if (combined.length > mergedLocations.length) {
-                        mergedLocations = combined;
-                    }
-                }
 
                 if ((cloudRes.chooseBranch || mergedLocations.length > 1) && mergedLocations.length > 1 && !preferredTab) {
                     pendingAuthContext = {
@@ -11842,99 +11719,13 @@
                     );
                     return;
                 }
-            } else if (cloudRes && !cloudRes.unavailable && !cloudRes.needsRedeploy && cloudRes.error) {
-                // Si el WebApp devolvió limitReached con tope 2 pero en la hoja INVITADOS Columna H tiene un número mayor (ej. 3, 4, 5), continuar con la validación en vivo de la hoja
-                const hasHigherLiveGuestLimit = !!(cloudRes.limitReached && liveGuestRow && Number(liveGuestRow.guestMaxPlaces) > Number(cloudRes.maxPlaces || 2));
-                const isUnknownGuestInOldWebApp = /no est[aá] registrado/i.test(String(cloudRes.error || '')) || /Ingresa tu contrase/i.test(String(cloudRes.error || ''));
-                if (!hasHigherLiveGuestLimit && (!isUnknownGuestInOldWebApp || cloudRes.limitReached)) {
-                    showAuthBanner('authLoginMsg', cloudRes.error, 'err');
-                    return;
-                }
             }
 
-            // 2) Respaldo de lectura directa en vivo desde las hojas de usuarios, INVITADOS y plantilla
-            const allUsers = liveAllUsers.length ? liveAllUsers : await fetchAllAdvisorRowsLiveGviz();
-            if (!allUsers.length) {
-                showAuthBanner('authLoginMsg', 'No fue posible consultar las hojas de usuarios. Verifica tu conexión a internet.', 'err');
+            if (cloudRes && !cloudRes.unavailable && !cloudRes.needsRedeploy && cloudRes.error) {
+                showAuthBanner('authLoginMsg', cloudRes.error, 'err');
                 return;
             }
-
-            const emailMatches = allUsers.filter(u => u.correo === email);
-            if (!emailMatches.length) {
-                showAuthBanner('authLoginMsg', 'El correo ingresado no aparece registrado en ninguna hoja de sucursal ni en la hoja INVITADOS.', 'err');
-                return;
-            }
-
-            const validMatches = emailMatches.filter(u => {
-                if (u.isGuest && u.noPasswordRequired) return true;
-                if (!inputKey) return false;
-                if (u.defKey) return keysMatchNormalized(inputKey, u.defKey);
-                if (u.tempKey) return keysMatchNormalized(inputKey, u.tempKey);
-                return false;
-            });
-
-            if (!validMatches.length) {
-                if (!inputKey) {
-                    showAuthBanner('authLoginMsg', 'Ingresa tu contraseña (temporal o personal) para acceder con tu cuenta.', 'err');
-                } else {
-                    showAuthBanner('authLoginMsg', 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.', 'err');
-                }
-                return;
-            }
-
-            const hasValidNonGuest = validMatches.some(u => !u.isGuest);
-            const candidateMatches = hasValidNonGuest
-                ? emailMatches.filter(u => !u.isGuest)
-                : validMatches;
-            const matchedViaDefKey = validMatches.some(u => !!u.defKey && keysMatchNormalized(inputKey, u.defKey));
-            const hasAnyDefKeyForEmail = candidateMatches.some(u => !!u.defKey);
-
-            // Validar límite configurado en Columna H ("Dispositivos Permitidos") para cuentas de la hoja INVITADOS
-            const checkedMatches = [];
-            let guestLimitErr = '';
-            for (let mIdx = 0; mIdx < candidateMatches.length; mIdx++) {
-                const cand = candidateMatches[mIdx];
-                if (cand.isGuest) {
-                    const devRes = checkGuestDeviceLimitClient(cand, deviceId, deviceLabel);
-                    if (!devRes.ok) {
-                        guestLimitErr = devRes.error;
-                        continue;
-                    }
-                    cand.guestSlotNum = devRes.slotNumber;
-                    cand.guestActivePlaces = devRes.activePlaces;
-                    cand.guestMaxPlaces = devRes.maxPlaces;
-                }
-                checkedMatches.push(cand);
-            }
-
-            if (!checkedMatches.length && guestLimitErr) {
-                showAuthBanner('authLoginMsg', guestLimitErr, 'err');
-                return;
-            }
-
-            const preparedLocs = checkedMatches.map(u => {
-                const usedTemp = !matchedViaDefKey && !hasAnyDefKeyForEmail && !u.defKey && ((!!u.tempKey && keysMatchNormalized(inputKey, u.tempKey)) || (u.isGuest && u.noPasswordRequired));
-                return Object.assign({}, u, { mustChangeKey: usedTemp });
-            });
-
-            pendingAuthContext = {
-                email: email,
-                inputKey: inputKey,
-                locations: preparedLocs,
-                switchingFromActive: false
-            };
-
-            if (preparedLocs.length > 1 && !preferredTab) {
-                renderBranchChoicesStep(
-                    preparedLocs,
-                    'Hola ' + (preparedLocs[0].nombre || '') + '. Tu correo aparece en varias tiendas/bodegas; selecciona a qué tienda vas a cotizar:'
-                );
-            } else {
-                const picked = preferredTab
-                    ? (preparedLocs.find(u => u.sheetTab === preferredTab) || preparedLocs[0])
-                    : preparedLocs[0];
-                finalizeLocationChoice(picked, preparedLocs, '');
-            }
+            showAuthBanner('authLoginMsg', 'Sin conexión con el servidor de autenticación. Verifica tu internet e intenta de nuevo.', 'err');
         } finally {
             if (btnEl) {
                 btnEl.disabled = false;
@@ -11955,6 +11746,9 @@
 
     window.openSwitchBranchSelector = function () {
         if (!activeAdvisorSession || !Array.isArray(activeAdvisorSession.allLocations) || activeAdvisorSession.allLocations.length <= 1) {
+            return;
+        }
+        if (!isEffectiveAdminSession() && activeAdvisorSession.userPermissions && activeAdvisorSession.userPermissions.cambiarTienda === false) {
             return;
         }
         pendingAuthContext = {
@@ -12097,8 +11891,21 @@
         if (typeof window.closeSettingsModal === 'function') window.closeSettingsModal();
         if (typeof window.closeOutOfStockRequestModal === 'function') window.closeOutOfStockRequestModal();
         try {
-            if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(KEVIN_ROLE_PREVIEW_KEY);
+            if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.removeItem(KEVIN_ROLE_PREVIEW_KEY);
+                sessionStorage.removeItem('creata_private_kevin_fotos_sec_v1');
+            }
             localStorage.removeItem(INV_SESSION_STARTED_AT_KEY);
+            localStorage.removeItem(PENDING_KEYS_STORAGE);
+            localStorage.removeItem('creata_private_kevin_panel_v1');
+            localStorage.removeItem('creata_private_kevin_fotos_v1');
+            localStorage.removeItem('creata_private_kevin_hist_v1');
+            localStorage.removeItem('creata_private_kevin_fotos_sec_v1');
+            localStorage.removeItem(CART_KEY);
+            localStorage.removeItem(QUOTE_DRAFTS_KEY);
+            localStorage.removeItem(QUOTE_META_STORAGE);
+            localStorage.removeItem(QUOTE_META_STORAGE_ALT);
+            localStorage.removeItem(INV_OOS_LOCAL_BACKUP_KEY);
             localStorage.removeItem('creata_seg_closures_v1');
             localStorage.removeItem('creata_seg_phones_v1');
             localStorage.removeItem('creata_seg_contacted_v1');
@@ -13255,12 +13062,12 @@
 
             return '<div class="inline-flex items-center rounded-full border text-[11px] font-bold transition overflow-hidden" ' +
                 'style="background:' + bg + '; color:' + fg + '; border-color:' + brd + ';">' +
-                '<button type="button" onclick="switchQuoteDraft(\'' + escapeHtml(d.id) + '\')" class="px-2.5 py-1 flex items-center gap-1.5 text-left">' +
+                '<button type="button" data-inv-act="switch-draft" data-draft-id="' + escapeHtml(d.id) + '" class="px-2.5 py-1 flex items-center gap-1.5 text-left">' +
                     '<span class="font-extrabold uppercase truncate max-w-[130px]">' + escapeHtml(titleTxt) + '</span>' +
                     '<span class="text-[10px] font-bold" style="color:' + subColor + ';">(' + escapeHtml(statusPart) + ')</span>' +
                 '</button>' +
                 (canDiscard
-                    ? ('<button type="button" title="Cerrar / descartar esta cotización" onclick="discardQuoteDraft(\'' + escapeHtml(d.id) + '\')" ' +
+                    ? ('<button type="button" title="Cerrar / descartar esta cotización" data-inv-act="discard-draft" data-draft-id="' + escapeHtml(d.id) + '" ' +
                         'class="pr-2.5 pl-1 py-1 text-[11px] font-extrabold opacity-75 hover:opacity-100">✕</button>')
                     : '') +
             '</div>';
@@ -13976,7 +13783,7 @@
             const lineSubStr = ln.lineSubtotal > 0 ? formatPrice(ln.lineSubtotal) : '$0.00';
             return '<div class="rounded-xl border p-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2" style="border-color:#E6E1D8; background:#FFFFFF;">' +
                 (function () { const liveIt = bySkuMap.get(ln.key); return liveIt ? buildThumbHtml(liveIt, { compact: true }) : ''; })() +
-                '<div class="min-w-0 flex-1 cursor-pointer" onclick="closeCartModal(); openProductDetail(\'' + escapeHtml(ln.key) + '\', false, true)">' +
+                '<div class="min-w-0 flex-1 cursor-pointer" data-inv-act="cart-open-detail" data-sku="' + escapeHtml(ln.key) + '">' +
                     '<div class="text-[11px] font-extrabold uppercase leading-snug" style="color:#1A1816;">' +
                         '<span class="opacity-50 mr-1">' + (idx + 1) + '.</span>' +
                         escapeHtml(ln.name) +
@@ -13990,17 +13797,17 @@
                     '<div class="flex items-center gap-1" title="Descuento">' +
                         '<span class="text-[9.5px] font-bold uppercase opacity-70">Desc% (máx ' + bd.maxPct + ')</span>' +
                         '<input type="number" min="0" max="' + bd.maxPct + '" step="0.5" value="' + (ln.discountPct || 0) + '"' + disAttr + ' ' +
-                               'onchange="setCartItemDiscount(\'' + escapeHtml(ln.key) + '\', this.value)" ' +
+                               'data-inv-change="cart-discount" data-sku="' + escapeHtml(ln.key) + '" ' +
                                'class="w-12 rounded-lg border px-1 py-0.5 text-center text-[11px] font-bold outline-none" ' +
                                'style="border-color:#E6E1D8; color:#1A1816;">' +
                     '</div>' +
                     (locked
                         ? ('<span class="px-2 py-0.5 rounded-full text-[10.5px] font-extrabold border" style="border-color:#E6E1D8; color:#1A1816;">Cant: ' + ln.qty + '</span>')
                         : ('<div class="flex items-center gap-1">' +
-                            '<button type="button" title="Restar 1" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', -1)" class="w-7 h-7 rounded-full border text-xs font-bold hover:bg-red-50" style="border-color:#E6E1D8;">−</button>' +
+                            '<button type="button" title="Restar 1" data-inv-act="cart-qty" data-delta="-1" data-sku="' + escapeHtml(ln.key) + '" class="w-7 h-7 rounded-full border text-xs font-bold hover:bg-red-50" style="border-color:#E6E1D8;">−</button>' +
                             '<span class="w-5 text-center text-[11px] font-extrabold">' + ln.qty + '</span>' +
-                            '<button type="button" title="Sumar 1" onclick="addToCart(\'' + escapeHtml(ln.key) + '\', 1)" class="w-7 h-7 rounded-full border text-xs font-bold" style="border-color:#9E7B4F; background:#9E7B4F; color:#FFF;">+</button>' +
-                            '<button type="button" title="Quitar" onclick="removeFromCart(\'' + escapeHtml(ln.key) + '\')" class="ml-0.5 px-2 h-7 rounded-full border text-[9.5px] font-extrabold uppercase tracking-wider transition" style="border-color:#F5BCBC; background:#FEF1F1; color:#9E1F1F;">✕</button>' +
+                            '<button type="button" title="Sumar 1" data-inv-act="cart-qty" data-delta="1" data-sku="' + escapeHtml(ln.key) + '" class="w-7 h-7 rounded-full border text-xs font-bold" style="border-color:#9E7B4F; background:#9E7B4F; color:#FFF;">+</button>' +
+                            '<button type="button" title="Quitar" data-inv-act="cart-remove" data-sku="' + escapeHtml(ln.key) + '" class="ml-0.5 px-2 h-7 rounded-full border text-[9.5px] font-extrabold uppercase tracking-wider transition" style="border-color:#F5BCBC; background:#FEF1F1; color:#9E1F1F;">✕</button>' +
                         '</div>')) +
                 '</div>' +
             '</div>';
@@ -14165,7 +13972,7 @@
         const payload = collectQuoteSubmissionPayload(false);
         const text = buildFormattedQuoteText(payload);
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text);
+            Promise.resolve(navigator.clipboard.writeText(text)).catch(() => {});
         }
         const btn = document.getElementById('copyCartBtn');
         if (btn) {
@@ -14411,7 +14218,8 @@
                     folio: folio,
                     erpUserId: uid,
                     clientName: cli,
-                    erpStore: store
+                    erpStore: store,
+                    createShareLink: !!o.createShareLink
                 }, 45000);
 
                 const shouldDownloadNow = !o.skipBrowserDownload || erpPdfWantBrowserDownload;
@@ -14654,13 +14462,14 @@
                 '</tr>';
             }).join('');
 
+            const safeDocPdfUrl = sanitizeVisualOverrideUrl(cleanStr(doc.u));
             document.title = docHeading + ' — ' + folioTxt + ' — ' + cleanStr(doc.c || 'CREATA Muebles');
             document.body.innerHTML =
                 '<div style="max-width:920px;margin:24px auto;padding:0 16px;font-family:\'Plus Jakarta Sans\',sans-serif;color:#1A1816;font-size:12px;">' +
                     '<div class="no-print" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;background:#FFFFFF;border:1px solid #E6E1D8;padding:12px 16px;border-radius:14px;">' +
                         '<div style="font-weight:800;font-size:13px;color:#1A1816;">' + escapeHtml(docHeading) + '</div>' +
                         '<div style="display:flex;flex-wrap:wrap;gap:8px;">' +
-                            (doc.u ? ('<a href="' + escapeHtml(doc.u) + '" target="_blank" rel="noopener" style="background:#1A1816;color:#FFF;text-decoration:none;padding:9px 16px;border-radius:999px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">⬇ Descargar PDF</a>') : '') +
+                            (safeDocPdfUrl ? ('<a href="' + escapeHtml(safeDocPdfUrl) + '" target="_blank" rel="noopener noreferrer" style="background:#1A1816;color:#FFF;text-decoration:none;padding:9px 16px;border-radius:999px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">⬇ Descargar PDF</a>') : '') +
                             '<button type="button" onclick="window.print()" style="background:#9E7B4F;color:#FFF;border:none;padding:9px 18px;border-radius:999px;font-weight:800;font-size:11px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;">Imprimir / PDF</button>' +
                         '</div>' +
                     '</div>' +
@@ -16300,15 +16109,13 @@
 
     async function tryWebAppLiveSync() {
         try {
-            const apiUrl = (window.CREATA_CLOUD_CONFIG && window.CREATA_CLOUD_CONFIG.getApiUrl)
-                ? window.CREATA_CLOUD_CONFIG.getApiUrl()
-                : '';
-            if (!apiUrl) return false;
-            const tok = (activeAdvisorSession && activeAdvisorSession.authToken) ? ('&authToken=' + encodeURIComponent(activeAdvisorSession.authToken)) : '';
+            const tok = cleanStr(activeAdvisorSession && activeAdvisorSession.authToken);
             if (!tok) return false;
-            const res = await fetch(apiUrl + '?action=cm_inventory&sheetId=' + encodeURIComponent(META.sheetId) + '&tab=' + encodeURIComponent(META.tabName || 'INVENTARIO_EN_VIVO') + tok + '&_t=' + Date.now());
-            if (!res.ok) return false;
-            const json = await res.json();
+            const json = await callInvWebAppPost('cm_inventory', {
+                authToken: tok,
+                sheetId: META.sheetId,
+                tab: META.tabName || 'INVENTARIO_EN_VIVO'
+            }, 15000, true);
             if (json && json.ok && Array.isArray(json.rows) && json.rows.length > 1) {
                 const fakeTable = {
                     cols: json.rows[0].map(h => ({ label: String(h || '') })),
@@ -16400,7 +16207,7 @@
             }
             if (forceNow === true || (Date.now() - lastOverridesSyncMs) > 45000) {
                 lastOverridesSyncMs = Date.now();
-                syncProductOverridesFromCloud(true).catch(() => {});
+                syncProductOverridesFromCloud(true, { silent: forceNow !== true }).catch(() => {});
             }
             if (Date.now() - lastErpCatalogSyncMs > 60000) {
                 await loadErpCatalogLiveFromSheet().catch(() => {});
@@ -16512,7 +16319,7 @@
             const targetScroll = Number(cpObj.detailScrollTop);
             requestAnimationFrame(function () {
                 requestAnimationFrame(function () {
-                    const detScrollEl = document.querySelector('#productDetailModal > .inv-modal-card');
+                    const detScrollEl = document.querySelector('#productDetailModal > .inv-det-modal-card');
                     if (detScrollEl) detScrollEl.scrollTop = targetScroll;
                 });
             });
@@ -16568,7 +16375,7 @@
             const crumbEl = document.getElementById('detGroupCrumb');
             const catBar = document.getElementById('invCategoryBar');
             const subBar = document.getElementById('invSubCategoryBar');
-            const detScrollEl = document.querySelector('#productDetailModal > .inv-modal-card');
+            const detScrollEl = document.querySelector('#productDetailModal > .inv-det-modal-card');
             const detDiscInp = document.getElementById('detVisualDiscInput');
             const relPanel = document.getElementById('detRelatedStockPanel');
 
@@ -16807,7 +16614,7 @@
             const bar = document.getElementById(barId);
             if (bar) bar.addEventListener('scroll', scheduleSaveInvWorkspaceCheckpoint, { passive: true });
         });
-        const detScrollEl = document.querySelector('#productDetailModal > .inv-modal-card');
+        const detScrollEl = document.querySelector('#productDetailModal > .inv-det-modal-card');
         if (detScrollEl) detScrollEl.addEventListener('scroll', scheduleSaveInvWorkspaceCheckpoint, { passive: true });
 
         window.addEventListener('scroll', scheduleSaveInvWorkspaceCheckpoint, { passive: true });
@@ -17378,7 +17185,7 @@
     let _invSplitTarget = 'fotos';
 
     function getInvSplitTargetUrl(target) {
-        return target === 'prompts' ? 'https://buena-espero.onrender.com/?embed=true' : './fotos-productos.html?embed=1';
+        return target === 'prompts' ? 'https://buena-espero.onrender.com/?embed=true&embed_options=dark_theme' : './fotos-productos.html?embed=1';
     }
 
     function loadInvSplitPrefs() {
@@ -18113,8 +17920,74 @@
     if (typeof window !== 'undefined') {
         bindInvSplitResizerDrag();
 
-        window.addEventListener('message', function (ev) {
-            handleIncomingFotosPeerMessageInCotizador(ev && ev.data);
+        // P0-08: Delegación segura de clics/cambios para elementos renderizados dinámicamente (sin onclick inline interpolado)
+        if (typeof document !== 'undefined' && document.addEventListener) {
+            document.addEventListener('click', function (ev) {
+                if (!ev || !ev.target || typeof ev.target.closest !== 'function') return;
+                const el = ev.target.closest('[data-inv-act]');
+                if (!el) return;
+                const act = el.getAttribute('data-inv-act');
+                if (act === 'upload-model-opt') {
+                    if (typeof window.selectUploadPhotoModelOption === 'function') window.selectUploadPhotoModelOption(el.getAttribute('data-sku') || '');
+                } else if (act === 'subir-pren-pick') {
+                    if (typeof window.selectDriveSubirPrenPhotoInCotizador === 'function') window.selectDriveSubirPrenPhotoInCotizador(el.getAttribute('data-fid') || '');
+                } else if (act === 'switch-draft') {
+                    if (typeof window.switchQuoteDraft === 'function') window.switchQuoteDraft(el.getAttribute('data-draft-id') || '');
+                } else if (act === 'discard-draft') {
+                    if (typeof window.discardQuoteDraft === 'function') window.discardQuoteDraft(el.getAttribute('data-draft-id') || '');
+                } else if (act === 'cart-open-detail') {
+                    if (typeof window.closeCartModal === 'function') window.closeCartModal();
+                    if (typeof window.openProductDetail === 'function') window.openProductDetail(el.getAttribute('data-sku') || '', false, true);
+                } else if (act === 'cart-qty') {
+                    const delta = Number(el.getAttribute('data-delta')) || 0;
+                    if (delta && typeof window.addToCart === 'function') window.addToCart(el.getAttribute('data-sku') || '', delta);
+                } else if (act === 'cart-remove') {
+                    if (typeof window.removeFromCart === 'function') window.removeFromCart(el.getAttribute('data-sku') || '');
+                } else if (act === 'revoke-session') {
+                    if (typeof window.revokeSingleSettingsSession === 'function') window.revokeSingleSettingsSession(el.getAttribute('data-dev-id') || '');
+                } else if (act === 'edit-settings-prod') {
+                    if (typeof window.selectSettingsProductForEdit === 'function') window.selectSettingsProductForEdit(el.getAttribute('data-sku') || '');
+                }
+            });
+            document.addEventListener('change', function (ev) {
+                const el = ev && ev.target;
+                if (!el || typeof el.getAttribute !== 'function') return;
+                if (el.getAttribute('data-inv-change') === 'cart-discount') {
+                    if (typeof window.setCartItemDiscount === 'function') window.setCartItemDiscount(el.getAttribute('data-sku') || '', el.value);
+                }
+            });
+        }
+
+        // P1-20 / P1-28: Validar ev.origin en postMessage + puente de portapapeles PNG para Prompts IA embebido
+        const PROMPTS_EMBED_ORIGIN_INV = 'https://buena-espero.onrender.com';
+        window.addEventListener('message', async function (ev) {
+            if (!ev) return;
+            const curOrigin = (window.location && window.location.origin) || '';
+            const isSameOrigin = (ev.origin === curOrigin) || (!ev.origin && window.location && window.location.protocol === 'file:');
+            const isPromptsOrigin = ev.origin === PROMPTS_EMBED_ORIGIN_INV;
+            if (!isSameOrigin && !isPromptsOrigin) return;
+            const data = ev.data;
+            if (!data || typeof data !== 'object') return;
+            if (isPromptsOrigin) {
+                if (data.type === 'CREATA_PROMPTS_COPY_IMAGE' && typeof data.dataUrl === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/i.test(data.dataUrl)) {
+                    try {
+                        if (navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof ClipboardItem === 'function') {
+                            const blob = await (await fetch(data.dataUrl)).blob();
+                            const pngBlob = blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
+                            await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+                            if (ev.source && typeof ev.source.postMessage === 'function') {
+                                ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: true, requestId: data.requestId || '' }, PROMPTS_EMBED_ORIGIN_INV);
+                            }
+                        }
+                    } catch (eClip) {
+                        if (ev.source && typeof ev.source.postMessage === 'function') {
+                            ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: false, requestId: data.requestId || '' }, PROMPTS_EMBED_ORIGIN_INV);
+                        }
+                    }
+                }
+                return;
+            }
+            handleIncomingFotosPeerMessageInCotizador(data);
         });
 
         try {
@@ -18134,7 +18007,7 @@
                     if (parsedOvr && typeof parsedOvr === 'object' && !Array.isArray(parsedOvr)) {
                         invProductOverridesMap = sanitizeProductOverridesMap(parsedOvr);
                         _vfabIndexMapRef = null;
-                        rerenderCatalogAfterOverrideChange();
+                        rerenderCatalogAfterOverrideChange(true);
                     }
                 } catch (eOvrSync) {}
                 return;
@@ -18190,15 +18063,30 @@
         el.className = 'inv-settings-status ' + (tone === 'ok' ? 'is-ok' : (tone === 'warn' ? 'is-warn' : 'is-err'));
     }
 
+    let _lastOverridesFingerprintInv = '';
+
+    function computeOverridesFingerprintInv(mapObj) {
+        if (!mapObj || typeof mapObj !== 'object') return '';
+        const keys = Object.keys(mapObj).sort();
+        const parts = new Array(keys.length);
+        for (let i = 0; i < keys.length; i++) {
+            const k = keys[i];
+            const e = mapObj[k] || {};
+            parts[i] = k + '|' + (e.status || '') + '|' + (e.name || '') + '|' + (e.category || '') + '|' + (e.price == null ? '' : e.price) + '|' + (e.note || '') + '|' + (e.updatedAt || '');
+        }
+        return parts.join('\n');
+    }
+
     function saveLocalProductOverridesMap(mapObj) {
         invProductOverridesMap = sanitizeProductOverridesMap(mapObj);
         _vfabIndexMapRef = null;
+        _lastOverridesFingerprintInv = computeOverridesFingerprintInv(invProductOverridesMap);
         try {
             localStorage.setItem(INV_PRODUCT_OVERRIDES_STORAGE, JSON.stringify(invProductOverridesMap));
         } catch (e) {}
     }
 
-    function rerenderCatalogAfterOverrideChange() {
+    function rerenderCatalogAfterOverrideChange(preserveCount) {
         try {
             applyAllProductOverridesToCatalog();
             if (typeof indexItemsAndGroups === 'function') {
@@ -18211,14 +18099,14 @@
             }
             if (typeof renderCategoryBar === 'function') renderCategoryBar();
             const inp = document.getElementById('invSearchInput');
-            if (typeof applyFilter === 'function') applyFilter(inp ? inp.value : '', false);
+            if (typeof applyFilter === 'function') applyFilter(inp ? inp.value : '', !!preserveCount);
             if (currentGroup && !currentDetailItem && isModalOpenById('productDetailModal')) {
                 const updatedGroup = Array.isArray(allGroups) ? allGroups.find(g => g.key === currentGroup.key) : null;
                 if (updatedGroup) {
                     currentGroup = updatedGroup;
                     renderGroupVariantsStep(currentGroup);
-                } else if (typeof closeProductDetailModal === 'function') {
-                    closeProductDetailModal();
+                } else if (typeof window.closeProductDetail === 'function') {
+                    window.closeProductDetail();
                 }
             }
         } catch (e) {}
@@ -18315,7 +18203,7 @@
             };
         }
         saveLocalProductOverridesMap(nextMap);
-        rerenderCatalogAfterOverrideChange();
+        rerenderCatalogAfterOverrideChange(true);
 
         // Sincronizar a _INV_PRODUCT_OVERRIDES en Google Sheets (visible para todos los dispositivos y asesores)
         if (!activeAdvisorSession || !activeAdvisorSession.authToken) {
@@ -18411,8 +18299,8 @@
         setSettingsStatusBox('visualPhotoStatus', 'Optimizando y subiendo imagen a Drive...', 'warn');
 
         try {
-            const maxSide = (ctx.kind === 'fabric' || ctx.kind === 'wood') ? 640 : 1200;
-            const dataUrl = await normalizeVisualPhotoDataUrl(file, maxSide, 0.84);
+            const maxSide = (ctx.kind === 'fabric' || ctx.kind === 'wood') ? 640 : CANONICAL_SQUARE_UPLOAD_PX;
+            const dataUrl = await normalizeVisualPhotoDataUrl(file, maxSide, 0.86);
             updateVisualPhotoPickerPreview(dataUrl);
 
             const res = await callInvWebAppPost('inv_upload_product_photo', {
@@ -18580,29 +18468,37 @@
         return null;
     }
 
-    async function syncProductOverridesFromCloud(forceNow) {
+    async function syncProductOverridesFromCloud(forceNow, opts) {
         if (settingsOverridesSyncedOnce && !forceNow) return;
+        const isSilentPoll = !!(opts && opts.silent);
         let syncedAny = false;
+        const applyOverridesIfChanged = (rawMap) => {
+            if (!rawMap || typeof rawMap !== 'object' || Object.keys(rawMap).length === 0) return false;
+            const cleanMap = sanitizeProductOverridesMap(rawMap);
+            const nextFp = computeOverridesFingerprintInv(cleanMap);
+            if (_lastOverridesFingerprintInv && nextFp === _lastOverridesFingerprintInv) {
+                return true; // Sin cambios: evitar re-index y reset de paginación (P1-14)
+            }
+            saveLocalProductOverridesMap(cleanMap);
+            rerenderCatalogAfterOverrideChange(isSilentPoll);
+            renderSettingsProductOverridesList();
+            return true;
+        };
+
         try {
             const gvizMap = await fetchProductOverridesLiveGviz();
-            if (gvizMap && Object.keys(gvizMap).length > 0) {
-                saveLocalProductOverridesMap(gvizMap);
-                rerenderCatalogAfterOverrideChange();
-                renderSettingsProductOverridesList();
+            if (applyOverridesIfChanged(gvizMap)) {
                 syncedAny = true;
             }
         } catch (eGviz) {}
 
-        if (activeAdvisorSession && !activeAdvisorSession.mustChangeKey && activeAdvisorSession.authToken) {
+        if ((!syncedAny || !isSilentPoll) && activeAdvisorSession && !activeAdvisorSession.mustChangeKey && activeAdvisorSession.authToken) {
             try {
                 const res = await callInvWebAppPost('inv_product_overrides_get', {
                     authToken: activeAdvisorSession.authToken || '',
                     advisorEmail: activeAdvisorSession.correo || ''
                 }, 15000);
-                if (res && res.ok && res.overrides && typeof res.overrides === 'object' && Object.keys(res.overrides).length > 0) {
-                    saveLocalProductOverridesMap(res.overrides);
-                    rerenderCatalogAfterOverrideChange();
-                    renderSettingsProductOverridesList();
+                if (res && res.ok && applyOverridesIfChanged(res.overrides)) {
                     syncedAny = true;
                 }
             } catch (e) {}
@@ -19075,7 +18971,7 @@
                 badgeHtml = '<span class="inv-settings-pill-live">● Activa</span>';
             }
             const revokeBtnHtml = (!s.isCurrent && !s.revoked && s.active !== false)
-                ? ('<button type="button" class="inv-btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="revokeSingleSettingsSession(\'' + devIdEsc.replace(/'/g, '&#39;') + '\')">Cerrar</button>')
+                ? ('<button type="button" class="inv-btn-secondary" style="padding:4px 8px;font-size:11px;" data-inv-act="revoke-session" data-dev-id="' + devIdEsc + '">Cerrar</button>')
                 : '';
             return (
                 '<div class="inv-settings-session-item">' +
@@ -19269,7 +19165,7 @@
             let emptyMsg = 'Sin registros.';
             if (!total) {
                 if (settingsTeamPresenceState.error === 'no_token' || settingsTeamPresenceState.error === 'auth_failed') {
-                    emptyMsg = 'Tu sesión actual no tiene token de presencia. Toca Salir arriba y vuelve a iniciar sesión.';
+                    emptyMsg = 'Tu sesión actual no tiene token de presencia. Toca Salir en el menú + y vuelve a iniciar sesión.';
                 } else if (settingsTeamPresenceState.error === 'unavailable') {
                     emptyMsg = 'No se pudo consultar el equipo en vivo. Toca ↻ Actualizar para reintentar.';
                 }
@@ -19559,7 +19455,7 @@
             const ovr = getProductOverrideForSku(sku);
             const stTag = ovr && ovr.status !== 'VISIBLE' ? (' [' + ovr.status + ']') : '';
             return (
-                '<button type="button" class="inv-settings-suggest-btn" onclick="selectSettingsProductForEdit(\'' + escapeHtml(sku).replace(/'/g, '&#39;') + '\')">' +
+                '<button type="button" class="inv-settings-suggest-btn" data-inv-act="edit-settings-prod" data-sku="' + escapeHtml(sku) + '">' +
                     '<span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(sku + ' · ' + (it.n || '')) + '</span>' +
                     '<span style="font-size:10px;color:var(--inv-muted);flex-shrink:0;">' + escapeHtml((it.c || '') + stTag) + '</span>' +
                 '</button>'
@@ -19633,7 +19529,7 @@
                     '</div>' +
                     '<div style="display:flex;align-items:center;gap:5px;flex-shrink:0;">' +
                         '<span class="' + pillCls + '">' + escapeHtml(e.status) + '</span>' +
-                        '<button type="button" class="inv-btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="selectSettingsProductForEdit(\'' + skuEsc.replace(/'/g, '&#39;') + '\')">Editar</button>' +
+                        '<button type="button" class="inv-btn-secondary" style="padding:4px 8px;font-size:11px;" data-inv-act="edit-settings-prod" data-sku="' + skuEsc + '">Editar</button>' +
                     '</div>' +
                 '</div>'
             );
@@ -19785,10 +19681,13 @@
 
     function saveOutOfStockRequestLocalBackup(entry) {
         try {
+            const safeEntry = Object.assign({}, entry || {});
+            delete safeEntry.authToken;
+            delete safeEntry.accessKey;
             const raw = localStorage.getItem(INV_OOS_LOCAL_BACKUP_KEY);
             const arr = raw ? (JSON.parse(raw) || []) : [];
             if (Array.isArray(arr)) {
-                arr.unshift(entry);
+                arr.unshift(safeEntry);
                 localStorage.setItem(INV_OOS_LOCAL_BACKUP_KEY, JSON.stringify(arr.slice(0, 60)));
             }
         } catch (e) {}

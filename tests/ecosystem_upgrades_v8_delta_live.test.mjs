@@ -264,9 +264,9 @@ test('Official Prompts IA consolidated to https://buena-espero.onrender.com/ (de
   const invJs = readRepoFile('inventario-app.js');
   const fotosJs = readRepoFile('fotos-productos-app.js');
   const panelJs = readRepoFile('panel-app.js');
-  assert.match(invJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true'/);
-  assert.match(fotosJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true'/);
-  assert.match(panelJs, /id:\s*'prompts'[\s\S]*?https:\/\/buena-espero\.onrender\.com\/\?embed=true/);
+  assert.match(invJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true(?:&embed_options=dark_theme)?'/);
+  assert.match(fotosJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true(?:&embed_options=dark_theme)?'/);
+  assert.match(panelJs, /id:\s*'prompts'[\s\S]*?https:\/\/buena-espero\.onrender\.com\/\?embed=true(?:&embed_options=dark_theme)?/);
 });
 
 test('Project B Backend: prompts_materials_list scans TELAS + FOTOS TELAS + MADERAS strictly read-only with cache, and prompts_fetch_image_b64 blocks Project A files', () => {
@@ -344,7 +344,7 @@ test('Ecosystem Safety & Cleanup: orphaned historial-styles.css deleted, advisor
   // CreataLiveAlerts restricted to authorized admin
   assert.match(invJs, /if\s*\(!\(typeof isFotosAppOwner === 'function' && isFotosAppOwner\(\)\)\)\s*return;/);
   // Split target for Prompts points to official Buena Espero Render app
-  assert.match(invJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true'/);
+  assert.match(invJs, /target\s*===\s*'prompts'\s*\?\s*'https:\/\/buena-espero\.onrender\.com\/\?embed=true(?:&embed_options=dark_theme)?'/);
   // Logout clears creata_seg_* keys to prevent shared-device bleed
   assert.match(invJs, /creata_seg_/);
   // Historial skips admin-only CSV for non-admin advisors

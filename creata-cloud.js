@@ -75,14 +75,7 @@ hasGeminiApiKey: function () { return !!this.getGeminiApiKey();
 hasWriteApi: function () { return !!this.getApiUrl();
 },
 isConfigured: function () { return !!this.sheetId || !!this.getApiUrl(); } };
-try {
-if (global.location && global.location.search) { const params = new URLSearchParams(global.location.search);
-const paramUrl = params.get('webapp') || params.get('api');
-if (paramUrl && /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/i.test(paramUrl.trim())) { CREATA_CLOUD_CONFIG.setApiUrl(paramUrl.trim()); }
-const paramPin = params.get('pin');
-if (paramPin) CREATA_CLOUD_CONFIG.setAdminPin(paramPin.trim());
-const paramGem = params.get('gemini_key');
-if (paramGem) CREATA_CLOUD_CONFIG.setGeminiApiKey(paramGem.trim()); } } catch (e) {}
+// Seguridad (P0-02): nunca persistir ?webapp=, ?api=, ?pin= ni ?gemini_key= desde la URL en localStorage.
 function isValidPhotoUrl(val) { if (!val || typeof val !== 'string') return false;
 const s = val.trim();
 if (!s || s === 'undefined' || s === 'null' || s === '#') return false;
@@ -316,8 +309,9 @@ cleanup();
 resolve(null); };
 const sid = encodeURIComponent(CREATA_CLOUD_CONFIG.sheetId);
 const sname = encodeURIComponent(sheetName);
+const hdrParam = sheetName === '_CREATA_CONFIG' ? '' : '&headers=1';
 script.async = true;
-script.src = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=responseHandler:${cbName}&sheet=${sname}&_t=${Date.now()}`;
+script.src = `https://docs.google.com/spreadsheets/d/${sid}/gviz/tq?tqx=responseHandler:${cbName}${hdrParam}&sheet=${sname}&_t=${Date.now()}`;
 (global.document.head || global.document.body).appendChild(script); }); }
 function gvizCell(row, idx) { if (!row || !Array.isArray(row.c) || !row.c[idx]) return '';
 const c = row.c[idx];

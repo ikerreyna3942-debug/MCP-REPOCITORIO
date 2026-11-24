@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 
 function buildGasMockEnv(sheetsData) {
   const gsSrc = fs.readFileSync('AppsScript_Creata_Drive_Sheets.gs', 'utf8');
@@ -91,12 +92,8 @@ function buildGasMockEnv(sheetsData) {
       DigestAlgorithm: { SHA_256: 'SHA_256' },
       Charset: { UTF_8: 'UTF_8' },
       formatDate: () => '21/11/2026 12:00:00',
-      computeHmacSha256Signature: (msg, sec) => {
-        const out = [];
-        const s = String(msg) + '|' + String(sec);
-        for (let i = 0; i < 32; i++) out.push((s.charCodeAt(i % s.length) * (i + 7)) % 127);
-        return out;
-      },
+      computeDigest: (_alg, val) => Array.from(crypto.createHash('sha256').update(String(val || ''), 'utf8').digest()),
+      computeHmacSha256Signature: (msg, sec) => Array.from(crypto.createHmac('sha256', String(sec || '')).update(String(msg || ''), 'utf8').digest()),
       base64EncodeWebSafe: (input) => {
         if (typeof input === 'string') return Buffer.from(input, 'utf8').toString('base64url');
         return Buffer.from((input || []).map((b) => (b < 0 ? b + 256 : b))).toString('base64url');

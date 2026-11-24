@@ -7,7 +7,7 @@
  *   tráfico hacia script.google.com y *.onrender.com.
  */
 const CACHE_PREFIX = 'creata-panel-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v5';
+const CACHE_NAME = CACHE_PREFIX + 'v6';
 const PAGE_URL = './panel.html';
 const NETWORK_TIMEOUT_MS = 7000;
 
@@ -15,9 +15,9 @@ const SHELL_ASSETS = [
     './panel.html',
     './panel-styles.css?v=6',
     './creata-logo.js?v=33',
-    './creata-cloud.js?v=33',
+    './creata-cloud.js?v=34',
     './creata-back-nav.js?v=1',
-    './panel-app.js?v=13',
+    './panel-app.js?v=14',
     './panel-manifest.json?v=2',
     './inventario-icon-192.png',
     './inventario-icon-512.png',
@@ -39,11 +39,15 @@ async function precachePanelShell() {
         if (pageRes && pageRes.ok) {
             await cache.put(PAGE_URL, pageRes.clone());
             const html = await pageRes.text();
-            const re = /<(?:script|link)\b[^>]*?(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+            const re = /<(?:script|link)\b([^>]*?)>/gi;
             let m;
             while ((m = re.exec(html)) !== null) {
                 try {
-                    const u = new URL(m[1], self.location.href);
+                    const attrs = m[1] || '';
+                    if (/\brel\s*=\s*["'](?:preconnect|dns-prefetch)["']/i.test(attrs)) continue;
+                    const srcM = attrs.match(/(?:src|href)\s*=\s*["']([^"']+)["']/i);
+                    if (!srcM || !srcM[1]) continue;
+                    const u = new URL(srcM[1], self.location.href);
                     if (!/^https?:$/.test(u.protocol) || !isCacheableHost(u)) continue;
                     if (u.origin === self.location.origin && !/\.(?:js|css|json|png|svg|webp)$/i.test(u.pathname)) continue;
                     urls.add(u.href);
