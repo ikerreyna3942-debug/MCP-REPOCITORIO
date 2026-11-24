@@ -70,7 +70,7 @@
   let _segFetchSeq = 0;
   let _segDeltaVersion = 0;
   let _segDeltaInvVersion = '';
-  let _segRowWatermarks = { cotCreata: 0, cotArchivadas: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 };
+  let _segRowWatermarks = { cotCreata: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 };
   let _segDeltaUnsupported = false;
   let _segDirCacheMem = null;
   let _segDirFetchedAt = 0;
@@ -110,10 +110,10 @@
       UMBRAL_PIEZAS_CRITICO: 5,
       ALERTA_SOLO_PISO: 'SI'
     },
+    commercial_cycle: getCommercialCycleInfo(),
     last_erp_sync: 'En vivo'
   };
 
-  let ACTIVE_VIEW_MODE = 'ACTIVAS';
   let ACTIVE_MODAL_QUOTE = null;
   let ACTIVE_RECIPIENT = 'CLIENTE';
   let ACTIVE_MODAL_TPL_KEY = 'EMOCIONAL';
@@ -233,26 +233,18 @@
     return includeSeconds ? `${dd}/${mm}/${yyyy} ${hh}:${mi}:${ss}` : `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
   }
 
-  function isErpStatusClosed(statusRaw) {
-    const s = normalizeText(statusRaw || '').toUpperCase();
-    if (!s) return false;
-    return /(VENDID|FACTURAD|PEDIDO|CERRAD|CANCELAD|ANULAD|RECHAZAD|CONCRETAD|CONVERTID)/.test(s);
-  }
-
-  function resolveAutoClosureFromErpStatus(statusRaw) {
-    const s = normalizeText(statusRaw || '').toUpperCase();
-    if (!isErpStatusClosed(s)) return null;
-    if (/(CANCELAD|ANULAD|RECHAZAD)/.test(s)) {
-      return {
-        Estatus_Cierre: 'CANCELADA',
-        Motivo_Cierre: `Cancelada en S Mueblería (${cleanStr(statusRaw) || 'Cancelada'})`,
-        Archivo_Origen: 'ERP'
-      };
-    }
+  function getCommercialCycleInfo() {
+    const now = new Date();
+    const startDt = now.getDate() >= 25
+      ? new Date(now.getFullYear(), now.getMonth(), 25)
+      : new Date(now.getFullYear(), now.getMonth() - 1, 25);
+    const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const yyyy = startDt.getFullYear();
+    const mm = String(startDt.getMonth() + 1).padStart(2, '0');
+    const dd = String(startDt.getDate()).padStart(2, '0');
     return {
-      Estatus_Cierre: 'GANADA',
-      Motivo_Cierre: `Venta concretada en S Mueblería (${cleanStr(statusRaw) || 'Vendido'})`,
-      Archivo_Origen: 'ERP'
+      start_date: `${yyyy}-${mm}-${dd}`,
+      start_label: `25 de ${months[startDt.getMonth()]} ${yyyy}`
     };
   }
 
@@ -1002,8 +994,6 @@
           Total_Piezas: 0,
           Creada_En_App: isAppVerified,
           Cerrada: false,
-          Archivada: false,
-          Archivo_Origen: '',
           Estatus_Cierre: '',
           Motivo_Cierre: '',
           Comentarios_Cierre: '',
@@ -1016,14 +1006,6 @@
       g.Total_Productos = g.items.length;
       g.Total_Piezas += Math.max(1, parseInt(it.Cantidad_Cotizada || '1', 10) || 1);
       g.Creada_En_App = verifiedAppSet.has(folio);
-      if (isErpStatusClosed(it.Estatus_ERP) && !isErpStatusClosed(g.Estatus_ERP)) {
-        g.Estatus_ERP = it.Estatus_ERP;
-      }
-      if (it.Archivada) {
-        g.Archivada = true;
-        if (it.Motivo_Archivo && !g.Motivo_Cierre) g.Motivo_Cierre = it.Motivo_Archivo;
-        if (it.Fecha_Archivo && !g.Fecha_Cierre) g.Fecha_Cierre = it.Fecha_Archivo;
-      }
       if (!g.WhatsApp_Cliente && it.WhatsApp_Cliente) g.WhatsApp_Cliente = cleanPhone(it.WhatsApp_Cliente);
       if (!g.Fecha_Ultimo_Aviso && it.Fecha_Ultimo_Aviso) g.Fecha_Ultimo_Aviso = it.Fecha_Ultimo_Aviso;
       if (!g.Correo_Asesor && it.Correo_Asesor) g.Correo_Asesor = normalizeEmail(it.Correo_Asesor);
@@ -1039,26 +1021,12 @@
 
     for (const [folio, g] of grouped.entries()) {
       const cie = closuresMap && closuresMap[folio];
-      const erpAuto = resolveAutoClosureFromErpStatus(g.Estatus_ERP);
       if (cie) {
         g.Cerrada = true;
-        g.Archivada = true;
-        g.Archivo_Origen = /ERP|S MUEBLER/i.test(cleanStr(cie.Motivo_Cierre)) ? 'ERP' : 'MANUAL';
         g.Estatus_Cierre = cie.Estatus_Cierre || 'CERRADA';
-        g.Motivo_Cierre = cie.Motivo_Cierre || g.Motivo_Cierre || '';
+        g.Motivo_Cierre = cie.Motivo_Cierre || '';
         g.Comentarios_Cierre = cie.Comentarios || '';
-        g.Fecha_Cierre = cie.Fecha_Hora || g.Fecha_Cierre || '';
-      } else if (erpAuto) {
-        g.Cerrada = true;
-        g.Archivada = true;
-        g.Archivo_Origen = 'ERP';
-        g.Estatus_Cierre = erpAuto.Estatus_Cierre;
-        g.Motivo_Cierre = erpAuto.Motivo_Cierre;
-        g.Fecha_Cierre = g.Fecha_Cierre || g.Fecha_Cotizacion || '';
-      } else if (g.Archivada) {
-        g.Cerrada = true;
-        g.Archivo_Origen = g.Archivo_Origen || 'ARCHIVO';
-        g.Estatus_Cierre = g.Estatus_Cierre || 'CERRADA';
+        g.Fecha_Cierre = cie.Fecha_Hora || '';
       }
     }
 
@@ -1124,13 +1092,10 @@
       const cotCreataRows = Array.isArray(sh.COTIZACIONES_CREATA)
         ? sh.COTIZACIONES_CREATA
         : (Array.isArray(res.cotCreataRows) ? res.cotCreataRows : null);
-      const cotArchivadasRows = Array.isArray(sh.COTIZACIONES_ARCHIVADAS)
-        ? sh.COTIZACIONES_ARCHIVADAS
-        : (Array.isArray(res.cotArchivadasRows) ? res.cotArchivadasRows : null);
       const cotVivoRows = Array.isArray(sh.COTIZACIONES_EN_VIVO)
         ? sh.COTIZACIONES_EN_VIVO
         : (Array.isArray(res.cotVivoRows) ? res.cotVivoRows : null);
-      if (!Array.isArray(cotCreataRows) && !Array.isArray(cotArchivadasRows) && !Array.isArray(cotVivoRows)) {
+      if (!Array.isArray(cotCreataRows) && !Array.isArray(cotVivoRows)) {
         return null;
       }
       return {
@@ -1138,7 +1103,6 @@
         updatedAt: res.updatedAt || '',
         roleScope: res.roleScope || '',
         cotCreataRows,
-        cotArchivadasRows,
         cotVivoRows,
         cierresRows: Array.isArray(sh.CIERRES_COTIZACIONES)
           ? sh.CIERRES_COTIZACIONES
@@ -1567,55 +1531,6 @@
         touchedCount++;
       }
 
-      // 3b-bis) Nuevas filas agregadas en COTIZACIONES_ARCHIVADAS
-      for (const r of (appRows.COTIZACIONES_ARCHIVADAS || [])) {
-        if (!r || !r[0] || !r[1]) continue;
-        const idP = cleanStr(r[0]);
-        const folio = cleanStr(r[1]).toUpperCase();
-        const sucKey = mapTabToBranchKey(r[3] || folio);
-        const sku = cleanStr(r[9]).toUpperCase();
-        const advMatch = matchAdvisorInfo(r[4], r[5], sucKey);
-        const liveSt = calculateStockForBranch(sku, sucKey);
-        const prod = APP_STATE.inventoryBySku[sku];
-        if (cleanStr(r[26]).toUpperCase() === 'APP_COTIZACION' || cleanStr(r[25]).toLowerCase() === 'true') {
-          appCreatedFolios.add(folio);
-        }
-        const itemObj = {
-          ID_Partida: idP,
-          Folio_ERP: folio,
-          Fecha_Cotizacion: parseDateToIso(r[2]),
-          Sucursal: sucKey,
-          Asesor: (advMatch && advMatch.nombre) || cleanStr(r[4]),
-          Correo_Asesor: normalizeEmail(r[5]) || (advMatch && advMatch.correo) || '',
-          Tel_Asesor: cleanPhone(r[6]) || (advMatch && advMatch.telefono) || '',
-          Cliente: cleanStr(r[7]),
-          WhatsApp_Cliente: phoneByFolio[folio] || cleanPhone(r[8]),
-          Clave_Producto: sku,
-          Nombre_Producto: cleanStr(r[10]) || (prod && prod.nombre) || sku,
-          Modelo: cleanStr(r[11]) || (prod && prod.modelo) || '',
-          Precio_Unitario: cleanStr(r[12]) || (prod && prod.precio ? prod.precio.toFixed(2) : '0.00'),
-          Cantidad_Cotizada: cleanStr(r[13]) || '1',
-          Stock_Inicial_Total: cleanStr(r[14]) || (liveSt ? String(liveSt.total_disponible) : '0'),
-          Stock_Actual_CEDIS_Bodega: liveSt ? String(liveSt.cedis_bodega) : (cleanStr(r[15]) || '0'),
-          Stock_Actual_CEDIS_Piso: liveSt ? String(liveSt.cedis_piso) : (cleanStr(r[16]) || '0'),
-          Stock_Actual_Tienda_Bodega: liveSt ? String(liveSt.tienda_bodega) : (cleanStr(r[17]) || '0'),
-          Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : (cleanStr(r[18]) || '0'),
-          Stock_Actual_Total: liveSt ? String(liveSt.total_disponible) : (cleanStr(r[19]) || '0'),
-          Estatus_ERP: cleanStr(r[24]) || 'Cerrada',
-          Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || r[25]),
-          Foto_Url: (prod && prod.fotoUrl) || '',
-          Foto_Thumb: (prod && prod.fotoThumb) || '',
-          Foto_Drive_Id: (prod && prod.fotoId) || '',
-          Creada_En_App: appCreatedFolios.has(folio),
-          Archivada: true,
-          Motivo_Archivo: cleanStr(r[27]),
-          Fecha_Archivo: cleanStr(r[28])
-        };
-        evaluateItemUrgency(itemObj);
-        byPartida.set(idP, itemObj);
-        touchedCount++;
-      }
-
       // 3c) Nuevas filas agregadas en COTIZACIONES_EN_VIVO
       for (const r of (appRows.COTIZACIONES_EN_VIVO || [])) {
         if (!r || (!r[1] && !r[0])) continue;
@@ -1771,7 +1686,6 @@
       dirData,
       invRows: Array.isArray(sh.INVENTARIO_EN_VIVO) ? sh.INVENTARIO_EN_VIVO : null,
       cotCreataRows: Array.isArray(sh.COTIZACIONES_CREATA) ? sh.COTIZACIONES_CREATA : [],
-      cotArchivadasRows: Array.isArray(sh.COTIZACIONES_ARCHIVADAS) ? sh.COTIZACIONES_ARCHIVADAS : [],
       cotVivoRows: Array.isArray(sh.COTIZACIONES_EN_VIVO) ? sh.COTIZACIONES_EN_VIVO : [],
       cierresRows: Array.isArray(sh.CIERRES_COTIZACIONES) ? sh.CIERRES_COTIZACIONES : [],
       cfgRows: Array.isArray(sh.CONFIG_CREATA) ? sh.CONFIG_CREATA : [],
@@ -1794,7 +1708,6 @@
         dirData,
         invRows,
         cotCreataRows,
-        cotArchivadasRows,
         cotVivoRows,
         cierresRows,
         cfgRows,
@@ -1804,7 +1717,6 @@
         fetchUnifiedAdvisorsDirectory(false),
         (apiState && Array.isArray(apiState.invRows)) ? Promise.resolve(apiState.invRows) : (hasHostInv ? Promise.resolve(null) : fetchSheetCsv(SHEET_INV_ID, 'INVENTARIO_EN_VIVO')),
         Promise.resolve((apiState && Array.isArray(apiState.cotCreataRows)) ? apiState.cotCreataRows : []),
-        Promise.resolve((apiState && Array.isArray(apiState.cotArchivadasRows)) ? apiState.cotArchivadasRows : []),
         (apiState && Array.isArray(apiState.cotVivoRows)) ? Promise.resolve(apiState.cotVivoRows) : fetchSheetCsv(SHEET_INV_ID, 'COTIZACIONES_EN_VIVO'),
         Promise.resolve((apiState && Array.isArray(apiState.cierresRows)) ? apiState.cierresRows : []),
         Promise.resolve((apiState && Array.isArray(apiState.cfgRows)) ? apiState.cfgRows : []),
@@ -1814,7 +1726,7 @@
 
       if (!mounted || seq !== _segFetchSeq) return;
       await applyFullSheetsPayload({
-        dirData, invRows, cotCreataRows, cotArchivadasRows, cotVivoRows, cierresRows, cfgRows, histMovRows, histInvRows, apiState, isBackground
+        dirData, invRows, cotCreataRows, cotVivoRows, cierresRows, cfgRows, histMovRows, histInvRows, apiState, isBackground
       });
     } catch (err) {
       if (mounted) {
@@ -1829,7 +1741,7 @@
   }
 
   async function applyFullSheetsPayload(ctx) {
-    const { dirData, invRows, cotCreataRows, cotArchivadasRows, cotVivoRows, cierresRows, cfgRows, histMovRows, histInvRows, apiState, isBackground } = ctx;
+    const { dirData, invRows, cotCreataRows, cotVivoRows, cierresRows, cfgRows, histMovRows, histInvRows, apiState, isBackground } = ctx;
     try {
 
       // Enrich user phone/branches from live directory WITHOUT clobbering authToken / roles from opts.session
@@ -1852,7 +1764,6 @@
 
       const hasLiveQuoteSheets = Boolean(
         (cotCreataRows && cotCreataRows.length > 1) ||
-        (cotArchivadasRows && cotArchivadasRows.length > 1) ||
         (cotVivoRows && cotVivoRows.length > 1)
       );
       const rawSnapFallback = !hasLiveQuoteSheets ? readJsonStorage(SEG_LIVE_SNAPSHOT_KEY, null) : null;
@@ -2182,57 +2093,6 @@
         byPartida.set(idP, itemObj);
       }
 
-      // 1b. Source 1b: COTIZACIONES_ARCHIVADAS (cerradas / vendidas / canceladas auto-archivadas)
-      for (let i = 1; i < (cotArchivadasRows || []).length; i++) {
-        const r = cotArchivadasRows[i];
-        if (!r || !r[0] || !r[1]) continue;
-        const idP = cleanStr(r[0]);
-        const folio = cleanStr(r[1]).toUpperCase();
-        const sucKey = mapTabToBranchKey(r[3] || folio);
-        const sku = cleanStr(r[9]).toUpperCase();
-        const advMatch = matchAdvisorInfo(r[4], r[5], sucKey);
-        const liveSt = calculateStockForBranch(sku, sucKey);
-        const prod = APP_STATE.inventoryBySku[sku];
-
-        if (cleanStr(r[26]).toUpperCase() === 'APP_COTIZACION' || cleanStr(r[25]).toLowerCase() === 'true') {
-          appCreatedFolios.add(folio);
-        }
-
-        const itemObj = {
-          ID_Partida: idP,
-          Folio_ERP: folio,
-          Fecha_Cotizacion: parseDateToIso(r[2]),
-          Sucursal: sucKey,
-          Asesor: (advMatch && advMatch.nombre) || cleanStr(r[4]),
-          Correo_Asesor: normalizeEmail(r[5]) || (advMatch && advMatch.correo) || '',
-          Tel_Asesor: cleanPhone(r[6]) || (advMatch && advMatch.telefono) || '',
-          Cliente: cleanStr(r[7]),
-          WhatsApp_Cliente: phoneByFolio[folio] || cleanPhone(r[8]),
-          Clave_Producto: sku,
-          Nombre_Producto: cleanStr(r[10]) || (prod && prod.nombre) || sku,
-          Modelo: cleanStr(r[11]) || (prod && prod.modelo) || '',
-          Precio_Unitario: cleanStr(r[12]) || (prod && prod.precio ? prod.precio.toFixed(2) : '0.00'),
-          Cantidad_Cotizada: cleanStr(r[13]) || '1',
-          Stock_Inicial_Total: cleanStr(r[14]) || (liveSt ? String(liveSt.total_disponible) : '0'),
-          Stock_Actual_CEDIS_Bodega: liveSt ? String(liveSt.cedis_bodega) : (cleanStr(r[15]) || '0'),
-          Stock_Actual_CEDIS_Piso: liveSt ? String(liveSt.cedis_piso) : (cleanStr(r[16]) || '0'),
-          Stock_Actual_Tienda_Bodega: liveSt ? String(liveSt.tienda_bodega) : (cleanStr(r[17]) || '0'),
-          Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : (cleanStr(r[18]) || '0'),
-          Stock_Actual_Total: liveSt ? String(liveSt.total_disponible) : (cleanStr(r[19]) || '0'),
-          Estatus_ERP: cleanStr(r[24]) || 'Cerrada',
-          Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || r[25]),
-          Foto_Url: (prod && prod.fotoUrl) || '',
-          Foto_Thumb: (prod && prod.fotoThumb) || '',
-          Foto_Drive_Id: (prod && prod.fotoId) || '',
-          Creada_En_App: false,
-          Archivada: true,
-          Motivo_Archivo: cleanStr(r[27]),
-          Fecha_Archivo: cleanStr(r[28])
-        };
-        evaluateItemUrgency(itemObj);
-        byPartida.set(idP, itemObj);
-      }
-
       // 2. Source 2: COTIZACIONES_EN_VIVO (Col Y = r[24] ORIGEN_CREACION + controlled legacy fallback)
       for (let i = 1; i < (cotVivoRows || []).length; i++) {
         const r = cotVivoRows[i];
@@ -2297,15 +2157,12 @@
             Stock_Actual_Tienda_Bodega: liveSt ? String(liveSt.tienda_bodega) : ((prev && prev.Stock_Actual_Tienda_Bodega) || '0'),
             Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : ((prev && prev.Stock_Actual_Tienda_Piso) || '0'),
             Stock_Actual_Total: String(stActual),
-            Estatus_ERP: (prev && prev.Estatus_ERP) || 'Cotizado',
+            Estatus_ERP: 'Cotizado',
             Fecha_Ultimo_Aviso: contactedByFolio[folio] || (prev && prev.Fecha_Ultimo_Aviso) || '',
             Foto_Url: (prod && prod.fotoUrl) || (prev && prev.Foto_Url) || '',
             Foto_Thumb: (prod && prod.fotoThumb) || (prev && prev.Foto_Thumb) || '',
             Foto_Drive_Id: (prod && prod.fotoId) || (prev && prev.Foto_Drive_Id) || '',
-            Creada_En_App: false,
-            Archivada: Boolean(prev && prev.Archivada),
-            Motivo_Archivo: (prev && prev.Motivo_Archivo) || '',
-            Fecha_Archivo: (prev && prev.Fecha_Archivo) || ''
+            Creada_En_App: false
           };
           evaluateItemUrgency(itemObj);
           byPartida.set(idP, itemObj);
@@ -2363,15 +2220,12 @@
             Stock_Actual_Tienda_Bodega: liveSt ? String(liveSt.tienda_bodega) : '0',
             Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : '0',
             Stock_Actual_Total: String(stActual),
-            Estatus_ERP: (prev && prev.Estatus_ERP) || 'Cotizado',
+            Estatus_ERP: 'Cotizado',
             Fecha_Ultimo_Aviso: contactedByFolio[folio] || (prev && prev.Fecha_Ultimo_Aviso) || '',
             Foto_Url: bqPhoto.fullUrl || (prod && prod.fotoUrl) || (prev && prev.Foto_Url) || '',
             Foto_Thumb: bqPhoto.thumbUrl || (prod && prod.fotoThumb) || (prev && prev.Foto_Thumb) || '',
             Foto_Drive_Id: bqPhoto.driveId || (prod && prod.fotoId) || (prev && prev.Foto_Drive_Id) || '',
-            Creada_En_App: true,
-            Archivada: Boolean(prev && prev.Archivada),
-            Motivo_Archivo: (prev && prev.Motivo_Archivo) || '',
-            Fecha_Archivo: (prev && prev.Fecha_Archivo) || ''
+            Creada_En_App: true
           };
           evaluateItemUrgency(itemObj);
           byPartida.set(idP, itemObj);
@@ -2483,20 +2337,8 @@
         </section>
 
         <div class="cm-seg-meta-bar">
-          <div id="seg_viewTabsBar" class="cm-seg-view-tabs" role="tablist" aria-label="Vista de cotizaciones">
-            <button type="button" id="seg_tabActivas" class="cm-seg-view-tab is-active" role="tab" aria-selected="true" data-seg-action="set-view-mode" data-view="ACTIVAS">
-              <span>📋 Activas</span>
-              <span id="seg_countActivas" class="cm-seg-view-tab-count">0</span>
-            </button>
-            <button type="button" id="seg_tabArchivadas" class="cm-seg-view-tab" role="tab" aria-selected="false" data-seg-action="set-view-mode" data-view="ARCHIVADAS">
-              <span>📦 Archivadas / Cerradas</span>
-              <span id="seg_countArchivadas" class="cm-seg-view-tab-count">0</span>
-            </button>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <div id="seg_statsSummary">Cargando cotizaciones completas...</div>
-            <div id="seg_closuresMetricsSummary"></div>
-          </div>
+          <div id="seg_statsSummary">Cargando cotizaciones completas...</div>
+          <div id="seg_closuresMetricsSummary"></div>
         </div>
 
         <section id="seg_mobileCards" class="cm-seg-cards" aria-label="Cotizaciones"></section>
@@ -2789,32 +2631,12 @@
     }
   }
 
-  function setSegViewMode(mode) {
-    const nextMode = cleanStr(mode).toUpperCase() === 'ARCHIVADAS' ? 'ARCHIVADAS' : 'ACTIVAS';
-    if (ACTIVE_VIEW_MODE !== nextMode) {
-      if (nextMode === 'ARCHIVADAS') {
-        notifySegBackStatePush('seg_view_archivadas');
-      }
-      ACTIVE_VIEW_MODE = nextMode;
-    }
-    renderQuotes();
-    saveSegUiCheckpointNow();
-  }
-
   function renderBadge(q) {
-    if (q.Cerrada || q.Archivada) {
-      const est = cleanStr(q.Estatus_Cierre || '').toUpperCase();
-      const erpTag = q.Archivo_Origen === 'ERP' ? ' (ERP)' : '';
-      if (est === 'GANADA') {
-        return `<span class="cm-pill cm-pill-emerald">Ganada${erpTag}</span>`;
+    if (q.Cerrada) {
+      if (q.Estatus_Cierre === 'GANADA') {
+        return '<span class="cm-pill cm-pill-emerald">Ganada</span>';
       }
-      if (est === 'CANCELADA') {
-        return `<span class="cm-pill cm-pill-rose">Cancelada${erpTag}</span>`;
-      }
-      if (est === 'PERDIDA') {
-        return `<span class="cm-pill cm-pill-slate">Perdida${erpTag}</span>`;
-      }
-      return `<span class="cm-pill cm-pill-slate">${escapeHtml(q.Estatus_Cierre || 'Archivada')}${erpTag}</span>`;
+      return `<span class="cm-pill cm-pill-slate">${escapeHtml(q.Estatus_Cierre || 'Cerrada')}</span>`;
     }
 
     const items = q.items || [];
@@ -2854,7 +2676,6 @@
     const filterUrgencia = cleanStr($('seg_filterUrgencia')?.value || 'TODOS');
     const rawSearch = cleanStr($('seg_filterSearch')?.value || '');
     const search = rawSearch.toLowerCase();
-    const isArchivadasView = ACTIVE_VIEW_MODE === 'ARCHIVADAS';
 
     const clearBtn = $('seg_btnClearSearch');
     if (clearBtn) clearBtn.classList.toggle('cm-hidden', !search);
@@ -2863,41 +2684,13 @@
     const isMasterUser = Boolean(user && (user.is_master || user.es_admin));
     const isGerenteUser = Boolean(user && user.es_gerente);
 
-    const matchesBaseScope = (q) => {
+    const filtered = quotes.filter(q => {
+      if (q.Cerrada && !search) return false;
       if (filterSucursalKey !== 'TODAS' && mapTabToBranchKey(q.Sucursal) !== filterSucursalKey) return false;
       if ((isMasterUser || isGerenteUser) && filterAsesor !== 'TODOS') {
         if (normalizeText(q.Asesor) !== normalizeText(filterAsesor)) return false;
       }
-      return true;
-    };
-
-    const scopedQuotes = quotes.filter(matchesBaseScope);
-    const activeScopedCount = scopedQuotes.filter(q => !(q.Cerrada || q.Archivada)).length;
-    const archivedScopedCount = scopedQuotes.filter(q => Boolean(q.Cerrada || q.Archivada)).length;
-
-    const tabAct = $('seg_tabActivas');
-    const tabArch = $('seg_tabArchivadas');
-    const cntAct = $('seg_countActivas');
-    const cntArch = $('seg_countArchivadas');
-    if (tabAct) {
-      tabAct.classList.toggle('is-active', !isArchivadasView);
-      tabAct.setAttribute('aria-selected', !isArchivadasView ? 'true' : 'false');
-    }
-    if (tabArch) {
-      tabArch.classList.toggle('is-active', isArchivadasView);
-      tabArch.setAttribute('aria-selected', isArchivadasView ? 'true' : 'false');
-    }
-    if (cntAct) cntAct.textContent = String(activeScopedCount);
-    if (cntArch) cntArch.textContent = String(archivedScopedCount);
-
-    const filtered = scopedQuotes.filter(q => {
-      const isClosedOrArchived = Boolean(q.Cerrada || q.Archivada);
-      if (isArchivadasView) {
-        if (!isClosedOrArchived) return false;
-      } else {
-        if (isClosedOrArchived && !search) return false;
-        if (filterUrgencia !== 'TODOS' && q.Nivel_Urgencia !== filterUrgencia) return false;
-      }
+      if (filterUrgencia !== 'TODOS' && q.Nivel_Urgencia !== filterUrgencia) return false;
 
       if (search) {
         const normSearch = search.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -2909,7 +2702,6 @@
           ${q.Folio_ERP || ''} ${q.Cliente || ''} ${q.WhatsApp_Cliente || ''}
           ${q.Asesor || ''} ${q.Correo_Asesor || ''} ${q.Sucursal || ''}
           ${q.Sucursal_Label || ''} ${q.Estatus_ERP || ''} ${q.Estatus_Cierre || ''}
-          ${q.Motivo_Cierre || ''} ${q.Comentarios_Cierre || ''}
           ${q.Motivo_Urgencia || ''} ${q.Fecha_Cotizacion || ''} ${itemsText}
         `.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const compactHaystack = fullHaystack.replace(/[^a-z0-9]+/g, '');
@@ -2925,24 +2717,20 @@
 
     const statsEl = $('seg_statsSummary');
     if (statsEl) {
-      if (search) {
-        statsEl.innerHTML = `<strong>${filtered.length}</strong> resultados para “${escapeHtml(rawSearch)}”`;
-      } else if (isArchivadasView) {
-        statsEl.innerHTML = `<strong>${filtered.length}</strong> cotizaciones archivadas / cerradas`;
-      } else {
-        statsEl.innerHTML = `<strong>${filtered.length}</strong> cotizaciones activas`;
-      }
+      statsEl.innerHTML = search
+        ? `<strong>${filtered.length}</strong> resultados para “${escapeHtml(rawSearch)}”`
+        : `<strong>${filtered.length}</strong> cotizaciones activas`;
     }
 
     const closuresElem = $('seg_closuresMetricsSummary');
     if (closuresElem) {
       if (user && (user.es_gerente || user.is_master)) {
-        const closedQuotes = scopedQuotes.filter(q => q.Cerrada || q.Archivada);
+        const closedQuotes = quotes.filter(q => q.Cerrada);
         const ganadas = closedQuotes.filter(q => q.Estatus_Cierre === 'GANADA').length;
-        const perdidas = closedQuotes.filter(q => q.Estatus_Cierre === 'PERDIDA' || q.Estatus_Cierre === 'CANCELADA').length;
+        const perdidas = closedQuotes.filter(q => q.Estatus_Cierre === 'PERDIDA').length;
         if (closedQuotes.length > 0) {
           const pct = Math.round((ganadas / closedQuotes.length) * 100);
-          closuresElem.innerHTML = `<span class="cm-pill cm-pill-slate">Cierres: ${closedQuotes.length} · ${ganadas} ganadas (${pct}%) · ${perdidas} perdidas/canc.</span>`;
+          closuresElem.innerHTML = `<span class="cm-pill cm-pill-slate">Cierres: ${closedQuotes.length} · ${ganadas} ganadas (${pct}%) · ${perdidas} perdidas</span>`;
         } else {
           closuresElem.innerHTML = '';
         }
@@ -2955,14 +2743,11 @@
     const mobileCards = $('seg_mobileCards');
 
     if (!filtered.length) {
-      const emptyMsg = isArchivadasView
-        ? 'Sin cotizaciones archivadas para este filtro.'
-        : 'Sin cotizaciones activas para este filtro.';
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="7" class="cm-empty" style="border:none;">${emptyMsg}</td></tr>`;
+        tbody.innerHTML = '<tr><td colspan="7" class="cm-empty" style="border:none;">Sin cotizaciones para este filtro.</td></tr>';
       }
       if (mobileCards) {
-        mobileCards.innerHTML = `<div class="cm-empty">${emptyMsg}</div>`;
+        mobileCards.innerHTML = '<div class="cm-empty">Sin cotizaciones para este filtro.</div>';
       }
       return;
     }
@@ -2971,18 +2756,12 @@
     if (tbody) {
       tbody.innerHTML = filtered.map(q => {
         const sucRule = (APP_STATE.sucursales && APP_STATE.sucursales[q.Sucursal]) || {};
-        const isClosedOrArch = Boolean(q.Cerrada || q.Archivada);
         const avisoTag = q.Fecha_Ultimo_Aviso
           ? `<span class="cm-pill cm-pill-emerald cm-tabular">${escapeHtml(q.Fecha_Ultimo_Aviso)}</span>`
-          : (isClosedOrArch && q.Fecha_Cierre
-            ? `<span class="cm-pill cm-pill-slate cm-tabular">Cierre: ${escapeHtml(q.Fecha_Cierre)}</span>`
-            : '<span class="cm-pill cm-pill-slate">Sin aviso</span>');
+          : '<span class="cm-pill cm-pill-slate">Sin aviso</span>';
         // EXACT #6 stamp: "App/cotización" ONLY when q.Creada_En_App === true
         const appOriginTag = q.Creada_En_App
           ? '<div style="margin-top:4px;"><span class="cm-seg-app-stamp">App/cotización</span></div>'
-          : '';
-        const archiveDetailText = isClosedOrArch
-          ? [q.Motivo_Cierre, q.Comentarios_Cierre].filter(Boolean).join(' · ')
           : '';
 
         const itemsListHtml = (q.items || []).map(it => {
@@ -3027,15 +2806,15 @@
             <td>
               <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px;">
                 ${renderBadge(q)}
-                <span style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(isClosedOrArch ? (archiveDetailText || 'Archivada automáticamente') : q.Motivo_Urgencia)}</span>
+                <span style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(q.Motivo_Urgencia)}</span>
               </div>
             </td>
             <td>${avisoTag}</td>
             <td>
               <div style="display:flex;flex-direction:column;gap:6px;">
-                <button type="button" class="cm-btn ${isClosedOrArch ? 'cm-btn-ghost' : 'cm-btn-accent'}" data-seg-action="open-preview" data-folio="${escapeHtml(q.Folio_ERP)}">${isClosedOrArch ? '👁️ Ver detalle' : '📲 Seguimiento'}</button>
-                ${isClosedOrArch
-                  ? `<span class="cm-pill ${q.Estatus_Cierre === 'GANADA' ? 'cm-pill-emerald' : 'cm-pill-slate'}">📦 Archivada</span>`
+                <button type="button" class="cm-btn cm-btn-accent" data-seg-action="open-preview" data-folio="${escapeHtml(q.Folio_ERP)}">📲 Seguimiento</button>
+                ${q.Cerrada
+                  ? `<span class="cm-pill ${q.Estatus_Cierre === 'GANADA' ? 'cm-pill-emerald' : 'cm-pill-slate'}">${escapeHtml(q.Estatus_Cierre || 'Cerrada')}</span>`
                   : `<button type="button" class="cm-btn cm-btn-ghost" data-seg-action="open-cerrar" data-folio="${escapeHtml(q.Folio_ERP)}">🔒 Cerrar</button>`}
               </div>
             </td>
@@ -3048,13 +2827,9 @@
     if (mobileCards) {
       mobileCards.innerHTML = filtered.map(q => {
         const sucRule = (APP_STATE.sucursales && APP_STATE.sucursales[q.Sucursal]) || {};
-        const isClosedOrArch = Boolean(q.Cerrada || q.Archivada);
         // EXACT #6 stamp identical on desktop AND mobile
         const appOriginTag = q.Creada_En_App
           ? '<span class="cm-seg-app-stamp">App/cotización</span>'
-          : '';
-        const archiveNoteHtml = isClosedOrArch
-          ? `<div class="cm-seg-archive-note">📦 <strong>Archivada</strong>${q.Fecha_Cierre ? ` · ${escapeHtml(q.Fecha_Cierre)}` : ''}${q.Motivo_Cierre ? ` · ${escapeHtml(q.Motivo_Cierre)}` : ''}${q.Comentarios_Cierre ? ` — ${escapeHtml(q.Comentarios_Cierre)}` : ''}</div>`
           : '';
 
         const itemsListHtml = (q.items || []).map(it => {
@@ -3070,7 +2845,7 @@
         }).join('');
 
         return `
-          <article class="cm-seg-card${isClosedOrArch ? ' is-archived' : ''}" data-folio-card="${escapeHtml(q.Folio_ERP)}">
+          <article class="cm-seg-card" data-folio-card="${escapeHtml(q.Folio_ERP)}">
             <div class="cm-seg-card-top">
               <div style="min-width:0;flex:1;">
                 <div class="cm-seg-card-folio-row">
@@ -3090,7 +2865,6 @@
             </div>
 
             <div class="cm-seg-items-box">${itemsListHtml}</div>
-            ${archiveNoteHtml}
 
             <div class="cm-seg-card-foot">
               <span style="min-width:0;word-break:break-word;">${escapeHtml(q.Asesor)}</span>
@@ -3100,9 +2874,9 @@
             </div>
 
             <div class="cm-seg-card-actions">
-              <button type="button" class="cm-btn ${isClosedOrArch ? 'cm-btn-ghost' : 'cm-btn-accent'}" data-seg-action="open-preview" data-folio="${escapeHtml(q.Folio_ERP)}">${isClosedOrArch ? '👁️ Ver detalle' : '📲 Seguimiento'}</button>
-              ${isClosedOrArch
-                ? `<span class="cm-pill ${q.Estatus_Cierre === 'GANADA' ? 'cm-pill-emerald' : 'cm-pill-slate'}">📦 Archivada</span>`
+              <button type="button" class="cm-btn cm-btn-accent" data-seg-action="open-preview" data-folio="${escapeHtml(q.Folio_ERP)}">📲 Seguimiento</button>
+              ${q.Cerrada
+                ? `<span class="cm-pill ${q.Estatus_Cierre === 'GANADA' ? 'cm-pill-emerald' : 'cm-pill-slate'}">${escapeHtml(q.Estatus_Cierre || 'Cerrada')}</span>`
                 : `<button type="button" class="cm-btn" data-seg-action="open-cerrar" data-folio="${escapeHtml(q.Folio_ERP)}">🔒 Cerrar</button>`}
             </div>
           </article>
@@ -3135,18 +2909,9 @@
 
     const contactBox = $('seg_previewLastContacted');
     if (contactBox) {
-      if (q.Cerrada || q.Archivada) {
-        const cierreParts = [
-          `📦 Archivada (${q.Estatus_Cierre || 'Cerrada'}${q.Archivo_Origen === 'ERP' ? ' · ERP' : ''})`,
-          q.Motivo_Cierre || '',
-          q.Fecha_Cierre || ''
-        ].filter(Boolean);
-        contactBox.textContent = cierreParts.join(' · ');
-      } else {
-        contactBox.textContent = q.Fecha_Ultimo_Aviso
-          ? `🕒 Último aviso enviado: ${q.Fecha_Ultimo_Aviso}`
-          : '🕒 Sin registro de aviso previo';
-      }
+      contactBox.textContent = q.Fecha_Ultimo_Aviso
+        ? `🕒 Último aviso enviado: ${q.Fecha_Ultimo_Aviso}`
+        : '🕒 Sin registro de aviso previo';
     }
 
     SELECTED_ITEMS_SET.clear();
@@ -3561,8 +3326,6 @@
 
     if (q) {
       q.Cerrada = true;
-      q.Archivada = true;
-      q.Archivo_Origen = 'MANUAL';
       q.Estatus_Cierre = ACTIVE_CLOSE_STATUS;
       q.Motivo_Cierre = motivo;
       q.Comentarios_Cierre = comentarios;
@@ -3592,7 +3355,7 @@
     });
 
     closeModalCerrar();
-    showToast(`Cotización ${folio} cerrada (${ACTIVE_CLOSE_STATUS}) y archivada automáticamente`, '📦');
+    showToast(`Cotización ${folio}: ${ACTIVE_CLOSE_STATUS}`, '✓');
     renderQuotes();
   }
 
@@ -3879,7 +3642,6 @@
       const cp = {
         savedAt: Date.now(),
         userEmail: APP_STATE.user ? normalizeEmail(APP_STATE.user.correo) : '',
-        viewMode: ACTIVE_VIEW_MODE === 'ARCHIVADAS' ? 'ARCHIVADAS' : 'ACTIVAS',
         filterSucursal: (curSucVal === 'TODAS' && pend && pend.filterSucursal) ? pend.filterSucursal : curSucVal,
         filterAsesor: (curAdvVal === 'TODOS' && pend && pend.filterAsesor) ? pend.filterAsesor : curAdvVal,
         filterUrgencia: $('seg_filterUrgencia')?.value || 'TODOS',
@@ -3983,10 +3745,6 @@
       }
 
       const pending = {};
-
-      if (cp.viewMode === 'ARCHIVADAS' || cp.viewMode === 'ACTIVAS') {
-        ACTIVE_VIEW_MODE = cp.viewMode;
-      }
 
       const selSuc = $('seg_filterSucursal');
       if (selSuc && cp.filterSucursal) {
@@ -4130,9 +3888,6 @@
           break;
         case 'manual-sync':
           triggerManualSync();
-          break;
-        case 'set-view-mode':
-          setSegViewMode(btn.getAttribute('data-view') || 'ACTIVAS');
           break;
         case 'open-kevin-audit':
           openKevinAuditModal();
@@ -4341,10 +4096,9 @@
     _segFetchSeq++;
     _pendingSegCheckpointRestore = null;
     _segPrevSearchNonEmpty = false;
-    ACTIVE_VIEW_MODE = 'ACTIVAS';
     _segDeltaVersion = 0;
     _segDeltaInvVersion = '';
-    _segRowWatermarks = { cotCreata: 0, cotArchivadas: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 };
+    _segRowWatermarks = { cotCreata: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 };
     APP_STATE.user = null;
     APP_STATE.quotes = [];
     APP_STATE.rawPartidas = [];
@@ -4394,7 +4148,6 @@
   function getBackDepthWeight() {
     if (!mounted) return 0;
     let w = 1; // module view itself
-    if (ACTIVE_VIEW_MODE === 'ARCHIVADAS') w += 1;
     if (cleanStr($('seg_filterSearch')?.value || '')) w += 1;
     if (hasActiveSegFilters()) w += 1;
     return w;
@@ -4466,13 +4219,6 @@
         return { handled: true, action: 'seg_filters', toast: 'Filtros restablecidos' };
       }
 
-      if (ACTIVE_VIEW_MODE === 'ARCHIVADAS') {
-        ACTIVE_VIEW_MODE = 'ACTIVAS';
-        renderQuotes();
-        saveSegUiCheckpointNow();
-        return { handled: true, action: 'seg_view_activas', toast: 'Volviendo a cotizaciones activas' };
-      }
-
       if (mountOpts && typeof mountOpts.onClose === 'function') {
         mountOpts.onClose();
       } else if (mountOpts && typeof mountOpts.onGoHome === 'function') {
@@ -4525,6 +4271,7 @@
     _segUiCheckpointRestoredOnce = false;
     _segRestoringCheckpoint = false;
     APP_STATE.user = adoptedUser;
+    APP_STATE.commercial_cycle = getCommercialCycleInfo();
 
     rootEl.innerHTML = buildModuleMarkup();
     bindDelegatedListeners();
