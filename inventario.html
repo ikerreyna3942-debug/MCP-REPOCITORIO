@@ -23,8 +23,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="./creata-modules.css?v=8">
-    <link rel="stylesheet" href="./inventario-ui.css?v=24">
+    <link rel="stylesheet" href="./creata-modules.css?v=9">
+    <link rel="stylesheet" href="./inventario-ui.css?v=25">
 </head>
 <body>
 
@@ -46,6 +46,7 @@
                         </svg>
                         <input
                             type="search"
+                            enterkeyhint="search"
                             id="invSearchInput"
                             placeholder="Buscar o SKU..."
                             autocomplete="off"
@@ -472,18 +473,17 @@
 
                     <!-- BUSCADOR DE CLIENTES REGISTRADOS -->
                     <div class="rounded-xl border p-2 space-y-1.5" style="border-color:#E1DBC5; background:#FAF9F6;">
-                        <div class="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
-                            <input id="quoteErpClientSearchInput" type="search"
-                                   onkeydown="if(event.key==='Enter'){event.preventDefault();searchErpClientsLive();}"
-                                   placeholder="Buscar cliente en S Mueblería (nombre, teléfono, correo o No. cliente)..."
+                        <form class="inv-erp-client-search-row flex flex-wrap sm:flex-nowrap items-center gap-1.5" onsubmit="event.preventDefault(); searchErpClientsLive();">
+                            <input id="quoteErpClientSearchInput" type="search" enterkeyhint="search" autocomplete="off"
+                                   placeholder="Buscar cliente (nombre, teléfono, correo o No. cliente)..."
                                    class="flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
-                            <button type="button" id="btnSearchErpClients" onclick="searchErpClientsLive()"
+                            <button type="submit" id="btnSearchErpClients"
                                     class="px-3 py-1.5 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider shrink-0 transition"
                                     style="background:#252C32; color:#FFFFFF;">
                                 Buscar cliente
                             </button>
-                        </div>
+                        </form>
                         <div id="quoteSelectedErpClientBadge" class="hidden rounded-lg border px-2.5 py-1.5 text-[11px] font-bold flex items-center justify-between gap-2 sem-green"></div>
                         <div id="quoteErpClientResults" class="hidden space-y-1 max-h-40 overflow-y-auto pt-1"></div>
                     </div>
@@ -1413,8 +1413,8 @@
     <script src="inventario-data-2.js?v=45"></script>
     <script src="inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./seguimiento-app.js?v=12"></script>
+    <script src="./seguimiento-app.js?v=13"></script>
     <script src="./historial-app.js?v=12"></script>
-    <script src="inventario-app.js?v=108"></script>
+    <script src="inventario-app.js?v=109"></script>
 </body>
 </html>

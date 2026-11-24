@@ -2447,7 +2447,7 @@
           <div class="cm-seg-search-field">
             <label class="cm-field-label" for="seg_filterSearch">🔍 Buscar Folio, Cliente, Teléfono o Mueble</label>
             <div class="cm-seg-search-wrap">
-              <input id="seg_filterSearch" type="search" class="cm-input" placeholder="Ej. Mariana, PTC32001, 9981234567, Sofá..." autocomplete="off" data-seg-input="search">
+              <input id="seg_filterSearch" type="search" enterkeyhint="search" class="cm-input" placeholder="Buscar cliente, folio, teléfono o mueble..." autocomplete="off" data-seg-input="search">
               <button type="button" id="seg_btnClearSearch" class="cm-seg-clear-btn cm-hidden" data-seg-action="clear-search" aria-label="Limpiar">✕</button>
             </div>
           </div>
@@ -2892,11 +2892,13 @@
 
     const filtered = scopedQuotes.filter(q => {
       const isClosedOrArchived = Boolean(q.Cerrada || q.Archivada);
-      if (isArchivadasView) {
-        if (!isClosedOrArchived) return false;
-      } else {
-        if (isClosedOrArchived && !search) return false;
-        if (filterUrgencia !== 'TODOS' && q.Nivel_Urgencia !== filterUrgencia) return false;
+      if (!search) {
+        if (isArchivadasView) {
+          if (!isClosedOrArchived) return false;
+        } else {
+          if (isClosedOrArchived) return false;
+          if (filterUrgencia !== 'TODOS' && q.Nivel_Urgencia !== filterUrgencia) return false;
+        }
       }
 
       if (search) {
@@ -2926,7 +2928,7 @@
     const statsEl = $('seg_statsSummary');
     if (statsEl) {
       if (search) {
-        statsEl.innerHTML = `<strong>${filtered.length}</strong> resultados para “${escapeHtml(rawSearch)}”`;
+        statsEl.innerHTML = `<strong>${filtered.length}</strong> resultados para “${escapeHtml(rawSearch)}” (activas y archivadas)`;
       } else if (isArchivadasView) {
         statsEl.innerHTML = `<strong>${filtered.length}</strong> cotizaciones archivadas / cerradas`;
       } else {
@@ -4294,6 +4296,26 @@
       fetchDeltaState({ background: true });
       sendSegPresenceHeartbeat(false);
     };
+    const onSearch = (ev) => {
+      const el = ev.target;
+      if (!el || !el.getAttribute || el.getAttribute('data-seg-input') !== 'search') return;
+      if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
+      _segPrevSearchNonEmpty = Boolean(cleanStr(el.value));
+      renderQuotes();
+      saveSegUiCheckpointNow();
+    };
+    const onRootKeyDown = (ev) => {
+      const el = ev.target;
+      if (!el || !el.getAttribute || el.getAttribute('data-seg-input') !== 'search') return;
+      if (ev.key === 'Enter' || ev.keyCode === 13) {
+        if (typeof ev.preventDefault === 'function') ev.preventDefault();
+        if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
+        _segPrevSearchNonEmpty = Boolean(cleanStr(el.value));
+        renderQuotes();
+        saveSegUiCheckpointNow();
+        if (typeof el.blur === 'function') { try { el.blur(); } catch (eB) {} }
+      }
+    };
     const onKeyDown = (ev) => {
       if (!mounted || ev.key !== 'Escape' || ev.__creataEscapeHandled) return;
       if ((mountOpts && mountOpts.backNavManaged) || Boolean(global.__CREATA_INV_BACK_NAV__)) return;
@@ -4305,6 +4327,8 @@
     rootEl.addEventListener('click', onClick);
     rootEl.addEventListener('change', onChange);
     rootEl.addEventListener('input', onInput);
+    rootEl.addEventListener('search', onSearch);
+    rootEl.addEventListener('keydown', onRootKeyDown);
     rootEl.addEventListener('scroll', onScroll, { passive: true });
     global.addEventListener('scroll', onScroll, { passive: true });
     global.addEventListener('pagehide', onPageHide);
@@ -4315,7 +4339,7 @@
     document.addEventListener('keydown', onKeyDown);
 
     boundHandlers = {
-      onClick, onChange, onInput, onScroll, onPageHide, onBeforeUnload, onWindowFocus, onVisibilityChange, onOnline, onKeyDown
+      onClick, onChange, onInput, onSearch, onRootKeyDown, onScroll, onPageHide, onBeforeUnload, onWindowFocus, onVisibilityChange, onOnline, onKeyDown
     };
   }
 
@@ -4325,6 +4349,8 @@
       rootEl.removeEventListener('click', boundHandlers.onClick);
       rootEl.removeEventListener('change', boundHandlers.onChange);
       rootEl.removeEventListener('input', boundHandlers.onInput);
+      rootEl.removeEventListener('search', boundHandlers.onSearch);
+      rootEl.removeEventListener('keydown', boundHandlers.onRootKeyDown);
       rootEl.removeEventListener('scroll', boundHandlers.onScroll);
     }
     global.removeEventListener('scroll', boundHandlers.onScroll);
