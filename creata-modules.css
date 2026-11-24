@@ -1856,3 +1856,69 @@
   white-space: nowrap;
 }
 
+/* ============================================================================
+ * Seguimiento: Pestañas Activas / Archivadas y Detalle de Archivo Automático
+ * ============================================================================ */
+#inAppSeguimientoRoot .cm-seg-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+#inAppSeguimientoRoot .cm-seg-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 5px 12px;
+  border-radius: var(--cm-radius-pill);
+  border: 1px solid var(--cm-border);
+  background: var(--cm-surface);
+  color: var(--cm-ink-2);
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+#inAppSeguimientoRoot .cm-seg-view-tab:hover {
+  background: var(--cm-surface-subtle);
+  border-color: var(--cm-accent);
+}
+
+#inAppSeguimientoRoot .cm-seg-view-tab.is-active {
+  background: var(--cm-dark);
+  border-color: var(--cm-dark);
+  color: #FFFFFF;
+}
+
+#inAppSeguimientoRoot .cm-seg-view-tab-count {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: var(--cm-radius-pill);
+  background: rgba(26, 24, 22, 0.08);
+  color: inherit;
+}
+
+#inAppSeguimientoRoot .cm-seg-view-tab.is-active .cm-seg-view-tab-count {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+#inAppSeguimientoRoot .cm-seg-archive-note {
+  margin-top: 4px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--cm-surface-subtle);
+  border: 1px solid var(--cm-border-subtle);
+  font-size: 0.71rem;
+  color: var(--cm-ink-2);
+  line-height: 1.35;
+}
+
+#inAppSeguimientoRoot .cm-seg-card.is-archived {
+  border-color: var(--cm-border-subtle);
+  background: #FCFBF9;
+}

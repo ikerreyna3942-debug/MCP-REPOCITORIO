@@ -48,6 +48,7 @@ function onOpen() {
       .addSeparator()
       .addItem('4. Crear / Actualizar Pestaña INVENTARIO_EN_VIVO', 'sincronizarPestanaInventarioEnVivo')
       .addItem('5. Sincronizar Stock S Mueblería + LPPT En Vivo (Ahora)', 'sincronizarInventarioEnVivoDesdeERP')
+      .addItem('5b. Sincronizar Cotizaciones Seguimiento S Mueblería (Ahora)', 'sincronizarCotizacionesSeguimientoDesdeERP')
       .addItem('6. Activar Sincronización S Mueblería 24/7 (Cada 5 min)', 'instalarTriggerErpEnVivo')
       .addSeparator()
       .addItem('7. Organizar Cuentas, Contraseñas Temporales y Columna Descuento', 'organizarCuentasYDescuentosEnHojas')
@@ -1176,11 +1177,17 @@ function doPost(e) {
         }
       } catch (eCool) {}
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
+      let segQuotesRes = null;
+      try {
+        segQuotesRes = sincronizarCotizacionesSeguimientoDesdeERP({ silentUi: true, throttled: false });
+      } catch (eSegSync) {
+        segQuotesRes = { ok: false, error: (eSegSync && eSegSync.message) ? eSegSync.message : String(eSegSync) };
+      }
       ensureLiveErpSyncTrigger_();
       try {
         CacheService.getScriptCache().put('SEG_ERP_SYNC_COOLDOWN_V1', String((syncRes && syncRes.timestamp) || new Date().toISOString()), 60);
       } catch (eCoolSet) {}
-      return jsonResponse_(Object.assign({ ok: true }, syncRes));
+      return jsonResponse_(Object.assign({ ok: true, segQuotesSync: segQuotesRes }, syncRes));
     }
     if (action === 'inv_login') {
       const loginEmailKey = String((body && body.email) || 'anon').trim().toLowerCase();
@@ -8344,6 +8351,13 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
 
     if (erpOk) {
       try { bumpSegInvVersion_(ahoraStr); } catch (eBumpInv) {}
+      try {
+        if (!opts || opts.skipSeguimientoQuotesSync !== true) {
+          sincronizarCotizacionesSeguimientoDesdeERP({ silentUi: true, throttled: true });
+        }
+      } catch (eSegQuotesPiggy) {
+        Logger.log('Aviso sync automático Seguimiento ERP: ' + eSegQuotesPiggy);
+      }
     }
 
     return {
@@ -12526,6 +12540,17 @@ function handleSegAction_(body) {
       if (shCierres && !alreadyRecorded) {
         shCierres.appendRow(closureRow);
       }
+      try {
+        archiveFolioRowsInSeguimiento_(
+          ssSeg,
+          folio,
+          statusNorm + (payload.motivo ? (': ' + String(payload.motivo).trim()) : ''),
+          statusNorm,
+          closureRow[0]
+        );
+      } catch (eArchCie) {
+        Logger.log('Aviso auto-archivo en SEG_CIERRE: ' + eArchCie);
+      }
       recordSegDeltaChange_('CIERRE', {
         folio: folio,
         branch: actorBranch,
@@ -12773,12 +12798,14 @@ function handleSegGetState_(body) {
   const scope = buildSegRoleScopeInfo_(verifiedUser);
   const ssSeg = getSpreadsheetSeguimiento_();
   const cotCreataRaw = readSheetDisplayMatrixSafe_(ssSeg, 'COTIZACIONES_CREATA', 0);
+  const cotArchRaw = readSheetDisplayMatrixSafe_(ssSeg, TAB_COTIZACIONES_ARCHIVADAS_, 0);
   const cotVivoRaw = readSheetDisplayMatrixSafe_(ssInv, TAB_QUOTES_LIVE_, 0);
   const cierresRaw = readSheetDisplayMatrixSafe_(ssSeg, 'CIERRES_COTIZACIONES', 0);
   const configCreata = filterSafeSegConfigMatrix_(readSheetDisplayMatrixSafe_(ssSeg, 'CONFIG_CREATA', 0));
   const histMovRaw = readSheetDisplayMatrixSafe_(ssSeg, 'HISTORIAL_MOVIMIENTOS', 500);
 
   const cotCreata = filterSegMatrixByScope_(cotCreataRaw, scope, { email: 5, name: 4, branch: 3, folio: 1 }, true);
+  const cotArch = filterSegMatrixByScope_(cotArchRaw, scope, { email: 5, name: 4, branch: 3, folio: 1 }, true);
   const cotVivo = filterSegMatrixByScope_(cotVivoRaw, scope, { email: 7, name: 8, branch: 6, folio: 1 }, true);
   const cierres = filterSegMatrixByScope_(cierresRaw, scope, { email: 4, name: 3, branch: 2, folio: 1 }, true);
   const histMov = filterSegMatrixByScope_(histMovRaw, scope, { email: 3, name: 2, branch: 4, folio: -1 }, true);
@@ -12801,10 +12828,14 @@ function handleSegGetState_(body) {
     histSeg = [hdrRow].concat(matchedSeg.slice(-500));
   }
 
-  // Leer inventario solo para los SKUs presentes en cotizaciones visibles (o todo si includeInventory)
+  // Leer inventario solo para los SKUs presentes en cotizaciones visibles (activas + archivadas)
   const neededSkus = {};
   for (let i = 1; i < cotCreata.length; i++) {
     const sku = String((cotCreata[i] && cotCreata[i][9]) || '').trim().toUpperCase();
+    if (sku) neededSkus[sku] = true;
+  }
+  for (let i = 1; i < cotArch.length; i++) {
+    const sku = String((cotArch[i] && cotArch[i][9]) || '').trim().toUpperCase();
     if (sku) neededSkus[sku] = true;
   }
   const invRes = readInventoryMapForSkus_(ssInv, b.includeInventory ? null : (Object.keys(neededSkus).length ? neededSkus : null));
@@ -12819,6 +12850,7 @@ function handleSegGetState_(body) {
 
   const sheetsOut = {
     COTIZACIONES_CREATA: cotCreata,
+    COTIZACIONES_ARCHIVADAS: cotArch,
     COTIZACIONES_EN_VIVO: cotVivo,
     CIERRES_COTIZACIONES: cierres,
     CONFIG_CREATA: configCreata,
@@ -12844,7 +12876,7 @@ function handleSegGetState_(body) {
  * - Fast path (mode: 'noop'): si no cambió versión, inventario ni filas nuevas -> 0 lecturas de matrices.
  * - Delta path (mode: 'delta'): devuelve únicamente cambios en ring-buffer, filas recién agregadas
  *   después de los watermarks y stock actualizado solo para los SKUs activos de seguimiento.
- * - Bootstrap path (mode: 'full'): primera carga o tras borrado/reordenamiento de filas.
+ * - Bootstrap path (mode: 'full'): primera carga o tras borrado/reordenamiento/archivo de filas.
  */
 function handleSegGetDelta_(body) {
   const b = body || {};
@@ -12867,6 +12899,7 @@ function handleSegGetDelta_(body) {
 
   const ssSeg = getSpreadsheetSeguimiento_();
   const shCotCreata = ssSeg ? ssSeg.getSheetByName('COTIZACIONES_CREATA') : null;
+  const shCotArch = ssSeg ? ssSeg.getSheetByName(TAB_COTIZACIONES_ARCHIVADAS_) : null;
   const shCotVivo = ssInv ? ssInv.getSheetByName(TAB_QUOTES_LIVE_) : null;
   const shCierres = ssSeg ? ssSeg.getSheetByName('CIERRES_COTIZACIONES') : null;
   const shHistMov = ssSeg ? ssSeg.getSheetByName('HISTORIAL_MOVIMIENTOS') : null;
@@ -12874,6 +12907,7 @@ function handleSegGetDelta_(body) {
 
   const curWatermarks = {
     cotCreata: shCotCreata ? shCotCreata.getLastRow() : 0,
+    cotArchivadas: shCotArch ? shCotArch.getLastRow() : 0,
     cotVivo: shCotVivo ? shCotVivo.getLastRow() : 0,
     cierres: shCierres ? shCierres.getLastRow() : 0,
     histMov: shHistMov ? shHistMov.getLastRow() : 0,
@@ -12891,14 +12925,16 @@ function handleSegGetDelta_(body) {
   const liveInvBanner = [aw2Banner, deltaState.invVersion || ''].filter(Boolean).join('|');
 
   const prevCotCreata = parseInt(String(wm.cotCreata || 0), 10) || 0;
+  const prevCotArch = parseInt(String(wm.cotArchivadas || 0), 10) || 0;
   const prevCotVivo = parseInt(String(wm.cotVivo || 0), 10) || 0;
   const prevCierres = parseInt(String(wm.cierres || 0), 10) || 0;
   const prevHistMov = parseInt(String(wm.histMov || 0), 10) || 0;
 
-  const hasClientWatermarks = (prevCotCreata > 0 || prevCotVivo > 0 || prevCierres > 0) &&
+  const hasClientWatermarks = (prevCotCreata > 0 || prevCotArch > 0 || prevCotVivo > 0 || prevCierres > 0) &&
     (b.sinceVersion !== undefined && b.sinceVersion !== null && String(b.sinceVersion).trim() !== '');
   const oldestLoggedV = deltaState.changes.length ? Number(deltaState.changes[0].v || 0) : deltaState.version;
   const anyShrunk = (curWatermarks.cotCreata < prevCotCreata) ||
+    (curWatermarks.cotArchivadas < prevCotArch) ||
     (curWatermarks.cotVivo < prevCotVivo) ||
     (curWatermarks.cierres < prevCierres);
   const bufferOverflowed = (sinceVersion > 0 && sinceVersion < deltaState.version && deltaState.changes.length >= SEG_DELTA_MAX_LOG_ && sinceVersion < oldestLoggedV - 1);
@@ -12926,6 +12962,7 @@ function handleSegGetDelta_(body) {
   const versionChanged = deltaState.version !== sinceVersion;
   const invChanged = Boolean(liveInvBanner && liveInvBanner !== sinceInvVersion);
   const rowsAppended = (curWatermarks.cotCreata > prevCotCreata) ||
+    (curWatermarks.cotArchivadas > prevCotArch) ||
     (curWatermarks.cotVivo > prevCotVivo) ||
     (curWatermarks.cierres > prevCierres) ||
     (curWatermarks.histMov > prevHistMov);
@@ -12952,14 +12989,38 @@ function handleSegGetDelta_(body) {
     for (let i = 0; i < deltaState.changes.length; i++) {
       const ch = deltaState.changes[i];
       if (!ch || Number(ch.v || 0) <= sinceVersion) continue;
-      if (matchesSegScope_(scope, ch.advisorEmail, ch.advisorName, ch.branch, ch.folio)) {
+      if (ch.kind === 'ERP_SYNC' || matchesSegScope_(scope, ch.advisorEmail, ch.advisorName, ch.branch, ch.folio)) {
         filteredChanges.push(ch);
       }
     }
   }
 
+  // Si hubo un ERP_SYNC completo de cotizaciones desde la última lectura, refrescar con full limpio
+  if (filteredChanges.some(function (c) { return c.kind === 'ERP_SYNC'; })) {
+    const fullAfterErp = handleSegGetState_(Object.assign({}, b, { includeInventory: false }));
+    if (fullAfterErp && fullAfterErp.ok) {
+      return {
+        ok: true,
+        mode: 'full',
+        unchanged: false,
+        version: deltaState.version,
+        invVersion: liveInvBanner,
+        rowWatermarks: curWatermarks,
+        roleScope: scope.roleScope,
+        updatedAt: fullAfterErp.updatedAt,
+        syncBanner: liveInvBanner,
+        sheets: fullAfterErp.sheets,
+        stockDeltaBySku: fullAfterErp.inventoryPhotosBySku || {},
+        summary: { erpQuotesRefresh: true }
+      };
+    }
+  }
+
   const appCotCreata = curWatermarks.cotCreata > prevCotCreata
     ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, 'COTIZACIONES_CREATA', prevCotCreata).rows, scope, { email: 5, name: 4, branch: 3, folio: 1 }, false)
+    : [];
+  const appCotArch = curWatermarks.cotArchivadas > prevCotArch
+    ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, TAB_COTIZACIONES_ARCHIVADAS_, prevCotArch).rows, scope, { email: 5, name: 4, branch: 3, folio: 1 }, false)
     : [];
   const appCotVivo = curWatermarks.cotVivo > prevCotVivo
     ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssInv, TAB_QUOTES_LIVE_, prevCotVivo).rows, scope, { email: 7, name: 8, branch: 6, folio: 1 }, false)
@@ -12983,14 +13044,18 @@ function handleSegGetDelta_(body) {
     const sk = String((appCotCreata[i] && appCotCreata[i][9]) || '').trim().toUpperCase();
     if (sk) activeSkusSet[sk] = true;
   }
+  for (let i = 0; i < appCotArch.length; i++) {
+    const sk = String((appCotArch[i] && appCotArch[i][9]) || '').trim().toUpperCase();
+    if (sk) activeSkusSet[sk] = true;
+  }
 
   let stockDeltaBySku = {};
-  if ((invChanged || appCotCreata.length > 0 || appCotVivo.length > 0) && Object.keys(activeSkusSet).length > 0) {
+  if ((invChanged || appCotCreata.length > 0 || appCotArch.length > 0 || appCotVivo.length > 0) && Object.keys(activeSkusSet).length > 0) {
     const invDeltaRes = readInventoryMapForSkus_(ssInv, activeSkusSet);
     stockDeltaBySku = invDeltaRes.bySku || {};
   }
 
-  const newQuotesCount = appCotCreata.length + appCotVivo.length;
+  const newQuotesCount = appCotCreata.length + appCotArch.length + appCotVivo.length;
   const newClosuresCount = appCierres.length;
   const updatedQuotesCount = filteredChanges.filter(function (c) { return c.kind !== 'CIERRE'; }).length;
   const stockUpdatesCount = Object.keys(stockDeltaBySku).length;
@@ -13009,6 +13074,7 @@ function handleSegGetDelta_(body) {
     changes: filteredChanges,
     appendedRows: {
       COTIZACIONES_CREATA: appCotCreata,
+      COTIZACIONES_ARCHIVADAS: appCotArch,
       COTIZACIONES_EN_VIVO: appCotVivo,
       CIERRES_COTIZACIONES: appCierres,
       HISTORIAL_MOVIMIENTOS: appHistMov
@@ -13022,6 +13088,729 @@ function handleSegGetDelta_(body) {
       stockUpdates: stockUpdatesCount
     }
   };
+}
+
+// ============================================================================
+// SINCRONIZACIÓN EN VIVO 24/7 DE COTIZACIONES (S MUEBLERÍA ERP -> SEGUIMIENTO)
+// Y ARCHIVO AUTOMÁTICO DE COTIZACIONES CERRADAS / VENDIDAS (SIN CORTE DÍA 25)
+// ============================================================================
+const TAB_COTIZACIONES_ARCHIVADAS_ = 'COTIZACIONES_ARCHIVADAS';
+const SEG_QUOTES_SYNC_THROTTLE_KEY_ = 'SEG_QUOTES_CLOUD_SYNC_THROTTLE_V1';
+const SEG_QUOTES_SYNC_THROTTLE_SEC_ = 600; // 10 min entre syncs automáticos en el trigger 24/7
+
+const SEG_COTIZACIONES_HEADERS_27_ = [
+  'ID_Partida', 'Folio_ERP', 'Fecha_Cotizacion', 'Sucursal', 'Asesor', 'Correo_Asesor',
+  'Tel_Asesor', 'Cliente', 'WhatsApp_Cliente', 'Clave_Producto', 'Nombre_Producto', 'Modelo',
+  'Precio_Unitario', 'Cantidad_Cotizada', 'Stock_Inicial_Total', 'Stock_Actual_CEDIS_Bodega',
+  'Stock_Actual_CEDIS_Piso', 'Stock_Actual_Tienda_Bodega', 'Stock_Actual_Tienda_Piso',
+  'Stock_Actual_Total', 'Variacion_Stock', 'Porcentaje_Caida', 'Nivel_Urgencia',
+  'Motivo_Urgencia', 'Estatus_ERP', 'Fecha_Ultimo_Aviso', 'ORIGEN_CREACION'
+];
+
+function isSegErpStatusClosed_(statusRaw) {
+  const s = normPlainUpper_(statusRaw || '');
+  if (!s) return false;
+  return /(VENDID|FACTURAD|PEDIDO|CERRAD|CANCELAD|ANULAD|RECHAZAD|CONCRETAD|CONVERTID)/.test(s);
+}
+
+function resolveSegAutoClosureFromErpStatus_(statusRaw) {
+  const s = normPlainUpper_(statusRaw || '');
+  if (!isSegErpStatusClosed_(s)) return null;
+  if (/(CANCELAD|ANULAD|RECHAZAD)/.test(s)) {
+    return {
+      estatus: 'CANCELADA',
+      motivo: 'Cancelada en S Mueblería (' + String(statusRaw || 'Cancelada').trim() + ')'
+    };
+  }
+  return {
+    estatus: 'GANADA',
+    motivo: 'Venta concretada en S Mueblería (' + String(statusRaw || 'Vendido').trim() + ')'
+  };
+}
+
+function ensureSheetGridCapacity_(sh, minRows, minCols) {
+  if (!sh) return;
+  try {
+    const curMaxR = typeof sh.getMaxRows === 'function' ? sh.getMaxRows() : 0;
+    if (curMaxR > 0 && minRows > curMaxR && typeof sh.insertRowsAfter === 'function') {
+      sh.insertRowsAfter(curMaxR, (minRows - curMaxR) + 500);
+    }
+  } catch (eR) {}
+  try {
+    const curMaxC = typeof sh.getMaxColumns === 'function' ? sh.getMaxColumns() : 0;
+    if (curMaxC > 0 && minCols > curMaxC && typeof sh.insertColumnsAfter === 'function') {
+      sh.insertColumnsAfter(curMaxC, minCols - curMaxC);
+    }
+  } catch (eC) {}
+}
+
+function ensureCotizacionesArchivadasSheet_(ssSeg) {
+  const book = ssSeg || getSpreadsheetSeguimiento_();
+  if (!book) return null;
+  let sh = book.getSheetByName(TAB_COTIZACIONES_ARCHIVADAS_);
+  if (!sh) {
+    sh = book.insertSheet(TAB_COTIZACIONES_ARCHIVADAS_);
+  }
+  const archHeaders = SEG_COTIZACIONES_HEADERS_27_.concat(['MOTIVO_ARCHIVO', 'FECHA_ARCHIVO']);
+  ensureSheetGridCapacity_(sh, 200, archHeaders.length);
+  if (sh.getLastRow() < 1) {
+    sh.getRange(1, 1, 1, archHeaders.length).setValues([archHeaders]);
+    try {
+      sh.getRange(1, 1, 1, archHeaders.length)
+        .setFontWeight('bold')
+        .setBackground('#252C32')
+        .setFontColor('#FFFFFF')
+        .setHorizontalAlignment('center');
+      sh.setFrozenRows(1);
+    } catch (eFmt) {}
+  }
+  return sh;
+}
+
+function archiveFolioRowsInSeguimiento_(ssSeg, folioRaw, reasonRaw, closedStatusRaw, closedDateStr) {
+  const folio = String(folioRaw || '').trim().toUpperCase();
+  if (!ssSeg || !folio) return { archivedCount: 0 };
+  const shCot = ssSeg.getSheetByName('COTIZACIONES_CREATA');
+  if (!shCot || shCot.getLastRow() < 2) return { archivedCount: 0 };
+
+  const lastR = shCot.getLastRow();
+  const lastC = Math.max(27, shCot.getLastColumn());
+  const allVals = shCot.getRange(1, 1, lastR, lastC).getValues();
+  const header27 = SEG_COTIZACIONES_HEADERS_27_.slice();
+  if (allVals[0] && allVals[0].length) {
+    for (let c = 0; c < 27; c++) {
+      if (String(allVals[0][c] || '').trim()) header27[c] = allVals[0][c];
+    }
+  }
+
+  const remaining = [];
+  const toArchive = [];
+  const motivoArch = safeSheetCellText_(reasonRaw || closedStatusRaw || 'CERRADA', 180);
+  const fechaArch = safeSheetCellText_(closedDateStr || formatCancunNow_().slice(0, 16), 40);
+
+  for (let i = 1; i < allVals.length; i++) {
+    const r = allVals[i] || [];
+    const rowFol = String(r[1] || '').trim().toUpperCase();
+    if (!rowFol && !String(r[0] || '').trim()) continue;
+    const padded = new Array(27);
+    for (let c = 0; c < 27; c++) padded[c] = r[c] !== undefined ? r[c] : '';
+    if (rowFol === folio) {
+      if (closedStatusRaw && !isSegErpStatusClosed_(padded[24])) {
+        padded[24] = String(closedStatusRaw).trim().toUpperCase() === 'GANADA' ? 'Vendido' : String(closedStatusRaw).trim();
+      }
+      toArchive.push(padded.concat([motivoArch, fechaArch]));
+    } else {
+      remaining.push(padded);
+    }
+  }
+
+  if (!toArchive.length) return { archivedCount: 0 };
+
+  const shArch = ensureCotizacionesArchivadasSheet_(ssSeg);
+  if (shArch) {
+    const archLastR = shArch.getLastRow();
+    const existingIds = {};
+    if (archLastR >= 2) {
+      const colA = shArch.getRange(2, 1, archLastR - 1, 1).getValues();
+      for (let i = 0; i < colA.length; i++) {
+        const idP = String(colA[i][0] || '').trim().toUpperCase();
+        if (idP) existingIds[idP] = true;
+      }
+    }
+    const freshToAppend = toArchive.filter(function (row) {
+      const idP = String(row[0] || '').trim().toUpperCase();
+      if (!idP || existingIds[idP]) return false;
+      existingIds[idP] = true;
+      return true;
+    });
+    if (freshToAppend.length > 0) {
+      const startWriteR = Math.max(2, shArch.getLastRow() + 1);
+      ensureSheetGridCapacity_(shArch, startWriteR + freshToAppend.length, 29);
+      shArch.getRange(startWriteR, 1, freshToAppend.length, 29).setValues(freshToAppend);
+    }
+  }
+
+  // Reescribir COTIZACIONES_CREATA sin las filas recién archivadas
+  ensureSheetGridCapacity_(shCot, remaining.length + 2, 27);
+  if (remaining.length > 0) {
+    shCot.getRange(2, 1, remaining.length, 27).setValues(remaining);
+  }
+  const tailStart = remaining.length + 2;
+  if (tailStart <= lastR) {
+    shCot.getRange(tailStart, 1, lastR - tailStart + 1, Math.min(lastC, 27)).clearContent();
+  }
+  return { archivedCount: toArchive.length, activeRemaining: remaining.length };
+}
+
+function parseObtenerReporteCotizacionesXml_(xmlText) {
+  const xml = String(xmlText || '');
+  if (!xml) return [];
+  const quotes = [];
+  const excludedSkus = {
+    FLETE: true,
+    SERVICIO: true,
+    DESCUENTO: true,
+    ENVIO: true,
+    MANIOBRA: true,
+    INSTALACION: true
+  };
+  const quoteRe = /<(?:[a-zA-Z0-9_]+:)?ReporteCotizaciones(?:\s[^>]*)?>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?ReporteCotizaciones>/g;
+  const detRe = /<(?:[a-zA-Z0-9_]+:)?ReporteVentasDetalle(?:\s[^>]*)?>([\s\S]*?)<\/(?:[a-zA-Z0-9_]+:)?ReporteVentasDetalle>/g;
+  let qm;
+  while ((qm = quoteRe.exec(xml)) !== null) {
+    const qBlk = qm[1] || '';
+    const folio = String(extractXmlTag_(qBlk, 'FolioCotizacion') || extractXmlTag_(qBlk, 'Folio') || '').trim().toUpperCase();
+    if (!folio) continue;
+    const sucursalErp = String(extractXmlTag_(qBlk, 'Sucursal') || '').trim();
+    const vendedorErp = String(extractXmlTag_(qBlk, 'Vendedor') || extractXmlTag_(qBlk, 'Usuario') || '').trim();
+    const clienteErp = String(extractXmlTag_(qBlk, 'Cliente') || extractXmlTag_(qBlk, 'NombreCliente') || 'Prospecto CREATA').trim();
+    const fechaRaw = String(extractXmlTag_(qBlk, 'FechaCotizacion') || extractXmlTag_(qBlk, 'Fecha') || '').trim();
+    const fechaIso = /^\d{4}-\d{2}-\d{2}/.test(fechaRaw) ? fechaRaw.slice(0, 10) : '';
+    const statusErp = String(extractXmlTag_(qBlk, 'Status') || extractXmlTag_(qBlk, 'Estatus') || 'Cotizado').trim() || 'Cotizado';
+    const telefonoCliente = String(extractXmlTag_(qBlk, 'Celular') || extractXmlTag_(qBlk, 'Telefono') || '').replace(/\D+/g, '');
+
+    const items = [];
+    const seenSkus = {};
+    detRe.lastIndex = 0;
+    let dm;
+    while ((dm = detRe.exec(qBlk)) !== null) {
+      const dBlk = dm[1] || '';
+      const sku = String(extractXmlTag_(dBlk, 'Clave') || extractXmlTag_(dBlk, 'SKU') || '').trim().toUpperCase();
+      if (!sku || excludedSkus[sku]) continue;
+      const nombreProd = String(extractXmlTag_(dBlk, 'Nombre') || extractXmlTag_(dBlk, 'Descripcion') || sku).trim();
+      const modeloProd = String(extractXmlTag_(dBlk, 'Modelo') || '').trim();
+      const cantNum = Math.max(1, parseFloat(String(extractXmlTag_(dBlk, 'Cantidad') || '1').replace(/,/g, '')) || 1);
+      const precioNum = parseFloat(String(extractXmlTag_(dBlk, 'Precio') || '0').replace(/[^0-9.-]/g, '')) || 0;
+      if (seenSkus[sku]) {
+        seenSkus[sku].cantidad += cantNum;
+        if (precioNum > 0 && !seenSkus[sku].precio) seenSkus[sku].precio = precioNum;
+      } else {
+        const entry = {
+          sku: sku,
+          nombre: nombreProd,
+          modelo: modeloProd,
+          cantidad: cantNum,
+          precio: precioNum
+        };
+        seenSkus[sku] = entry;
+        items.push(entry);
+      }
+    }
+    if (!items.length) continue;
+    quotes.push({
+      folio: folio,
+      sucursalErp: sucursalErp,
+      vendedorErp: vendedorErp,
+      cliente: clienteErp,
+      telefonoCliente: telefonoCliente,
+      fechaIso: fechaIso,
+      statusErp: statusErp,
+      items: items
+    });
+  }
+  return quotes;
+}
+
+function buildSegLiveStockMetricsForBranch_(invItem, branchKey, stockInicialPrev, cantCotizada, umbralPct) {
+  let cb = 0, cp = 0, tb = 0, tp = 0, tot = 0;
+  if (invItem) {
+    cb = Number(invItem.cedis_bod || 0) || 0;
+    cp = Number(invItem.cedis_pis || 0) || 0;
+    if (branchKey === 'PLAYA') {
+      tb = Number(invItem.pla_bod || 0) || 0;
+      tp = Number(invItem.pla_pis || 0) || 0;
+      tot = cb + cp + tb + tp;
+    } else if (branchKey === 'COLOSIO') {
+      tb = (Number(invItem.col_bod || 0) || 0) + (Number(invItem.out_bod || 0) || 0);
+      tp = (Number(invItem.col_pis || 0) || 0) + (Number(invItem.out_pis || 0) || 0);
+      tot = cb + cp + tb + tp;
+    } else if (branchKey === 'PTC') {
+      tb = Number(invItem.ptc_bod || 0) || 0;
+      tp = Number(invItem.ptc_pis || 0) || 0;
+      tot = cb + cp + tb + tp;
+    } else if (branchKey === 'CASA CREATA') {
+      tb = Number(invItem.casa_bod || 0) || 0;
+      tp = Number(invItem.casa_pis || 0) || 0;
+      tot = cb + cp + tb + tp;
+    } else {
+      // PROYECTOS: solo CEDIS
+      tb = 0;
+      tp = 0;
+      tot = cb + cp;
+    }
+  }
+  const stockIni = (stockInicialPrev !== null && stockInicialPrev !== undefined && stockInicialPrev !== '' && !isNaN(Number(stockInicialPrev)))
+    ? Math.max(0, Number(stockInicialPrev))
+    : tot;
+  const variacion = tot - stockIni;
+  const pctCaida = stockIni > 0 ? Math.max(0, Math.round(((stockIni - tot) / stockIni) * 100)) : 0;
+  let nivel = 'ESTABLE';
+  let motivo = 'Stock disponible';
+  const cant = Math.max(1, Number(cantCotizada || 1) || 1);
+  if (tot <= 0 || tot < cant) {
+    nivel = 'CRITICO';
+    motivo = tot <= 0 ? 'Agotado' : ('Stock insuficiente (' + tot + '/' + cant + ')');
+  } else if (cb <= 0 && tb <= 0 && (cp + tp) > 0) {
+    nivel = 'SOLO_PISO';
+    motivo = 'Solo en piso de exhibición';
+  } else if (tot <= 3 || pctCaida >= (umbralPct || 30)) {
+    nivel = 'BAJADA';
+    motivo = pctCaida >= (umbralPct || 30) ? ('Cayó ' + pctCaida + '% stock') : ('Quedan ' + tot + ' pzas');
+  }
+  return {
+    stockIni: stockIni,
+    cb: cb,
+    cp: cp,
+    tb: tb,
+    tp: tp,
+    tot: tot,
+    variacion: variacion,
+    pctCaida: pctCaida,
+    nivel: nivel,
+    motivo: motivo
+  };
+}
+
+/**
+ * Sincronizador en vivo 24/7 de cotizaciones desde S Mueblería ERP (ObtenerReporteCotizaciones)
+ * hacia COTIZACIONES_CREATA (activas) y COTIZACIONES_ARCHIVADAS (cerradas / vendidas / canceladas).
+ * - Sin reinicio ni borrado en el día 25 de cada mes (ventana continua configurable).
+ * - Preserva Stock_Inicial_Total, WhatsApp_Cliente, Fecha_Ultimo_Aviso y ORIGEN_CREACION.
+ * - Archiva automáticamente cotizaciones cerradas en ERP o en CIERRES_COTIZACIONES.
+ */
+function sincronizarCotizacionesSeguimientoDesdeERP(opts) {
+  const o = opts || {};
+  const silentUi = !!o.silentUi;
+  const throttled = !!o.throttled;
+
+  if (throttled) {
+    try {
+      const lastStamp = CacheService.getScriptCache().get(SEG_QUOTES_SYNC_THROTTLE_KEY_);
+      if (lastStamp) {
+        return { ok: true, skippedThrottle: true, lastSync: lastStamp };
+      }
+    } catch (eThr) {}
+  }
+
+  const ssInv = getSpreadsheet_();
+  const ssSeg = getSpreadsheetSeguimiento_();
+  if (!ssSeg) {
+    return { ok: false, error: 'No se pudo abrir COTIZACIONES BASE DE DATOS.' };
+  }
+
+  // Leer configuración de ventana continua (sin corte día 25)
+  let lookbackDays = 45;
+  let umbralPct = 30;
+  try {
+    const shCfg = ssSeg.getSheetByName('CONFIG_CREATA');
+    if (shCfg && shCfg.getLastRow() >= 2) {
+      const cfgVals = shCfg.getRange(2, 1, shCfg.getLastRow() - 1, 2).getDisplayValues();
+      for (let i = 0; i < cfgVals.length; i++) {
+        const k = String(cfgVals[i][0] || '').trim().toUpperCase();
+        const v = parseInt(String(cfgVals[i][1] || '').trim(), 10);
+        if (k === 'DIAS_HISTORIAL_ERP' && isFinite(v) && v >= 15 && v <= 180) lookbackDays = v;
+        if (k === 'UMBRAL_CAIDA_PORCENTAJE' && isFinite(v) && v >= 5 && v <= 95) umbralPct = v;
+      }
+    }
+  } catch (eCfg) {}
+  if (o.lookbackDays && Number(o.lookbackDays) >= 1) {
+    lookbackDays = Math.min(180, Math.max(1, Math.round(Number(o.lookbackDays))));
+  }
+
+  const nowDt = new Date();
+  const startDt = new Date(nowDt.getTime() - lookbackDays * 86400000);
+  const fechaIniIso = Utilities.formatDate(startDt, 'America/Cancun', 'yyyy-MM-dd').slice(0, 10) + 'T00:00:00';
+  const fechaFinIso = Utilities.formatDate(nowDt, 'America/Cancun', 'yyyy-MM-dd').slice(0, 10) + 'T23:59:59';
+  const ahoraStr = formatCancunNow_();
+
+  const cfgErp = getErpRuntimeConfig_();
+  const innerXml =
+    '<ClaveServicio>{TOKEN}</ClaveServicio>' +
+    '<IdUsuario>' + cfgErp.masterUserId + '</IdUsuario>' +
+    '<Proveedor></Proveedor>' +
+    '<TipoMueble></TipoMueble>' +
+    '<Modelo></Modelo>' +
+    '<Producto></Producto>' +
+    '<Empleado></Empleado>' +
+    '<Cliente></Cliente>' +
+    '<FechaInicio>' + fechaIniIso + '</FechaInicio>' +
+    '<FechaFin>' + fechaFinIso + '</FechaFin>' +
+    '<Sucursal></Sucursal>';
+
+  let xmlResp = '';
+  try {
+    xmlResp = callSmuebleriaWcf_('ObtenerReporteCotizaciones', innerXml);
+  } catch (wcfErr) {
+    return {
+      ok: false,
+      error: 'Error al consultar ObtenerReporteCotizaciones en S Mueblería: ' + ((wcfErr && wcfErr.message) ? wcfErr.message : String(wcfErr))
+    };
+  }
+
+  const erpQuotes = parseObtenerReporteCotizacionesXml_(xmlResp);
+  if (!erpQuotes.length) {
+    return {
+      ok: false,
+      error: 'S Mueblería devolvió 0 cotizaciones en ObtenerReporteCotizaciones; se conservaron intactas las hojas actuales.'
+    };
+  }
+
+  // Directorio unificado de asesores para completar correo / teléfono
+  const advisorByNameNorm = {};
+  try {
+    const users = readAllBranchUsers_(ssInv, []);
+    for (let i = 0; i < users.length; i++) {
+      const u = users[i];
+      if (!u || u.isGuest) continue;
+      const nKey = normPlainUpper_(u.nombre || '');
+      if (nKey && !advisorByNameNorm[nKey]) {
+        advisorByNameNorm[nKey] = {
+          nombre: String(u.nombre || '').trim(),
+          correo: String(u.correo || '').trim().toLowerCase(),
+          telefono: String(u.telefono || '').replace(/\D+/g, '')
+        };
+      }
+    }
+  } catch (eDir) {}
+
+  function resolveAdvisorMeta_(rawName) {
+    const clean = String(rawName || '').trim();
+    const normN = normPlainUpper_(clean);
+    if (!normN) return { nombre: '', correo: '', telefono: '' };
+    if (advisorByNameNorm[normN]) return advisorByNameNorm[normN];
+    const keys = Object.keys(advisorByNameNorm);
+    const toks = normN.split(/\s+/).filter(function (t) { return t.length > 2; });
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (k.indexOf(normN) >= 0 || normN.indexOf(k) >= 0) return advisorByNameNorm[k];
+      if (toks.length >= 2 && toks.every(function (t) { return k.indexOf(t) >= 0; })) {
+        return advisorByNameNorm[k];
+      }
+    }
+    return { nombre: clean, correo: '', telefono: '' };
+  }
+
+  // Inventario en vivo para stock actual por sucursal
+  const invRes = readInventoryMapForSkus_(ssInv, null);
+  const invBySku = invRes.bySku || {};
+
+  const lockState = acquireScriptLockSafe_(20000);
+  if (!lockState.ok) {
+    return { ok: false, retryable: true, error: 'Servidor ocupado; intenta sincronizar Seguimiento en unos segundos.' };
+  }
+  const lock = lockState.lock;
+  try {
+    let shCot = ssSeg.getSheetByName('COTIZACIONES_CREATA');
+    if (!shCot) {
+      shCot = ssSeg.insertSheet('COTIZACIONES_CREATA');
+      ensureSheetGridCapacity_(shCot, 200, 27);
+      shCot.getRange(1, 1, 1, 27).setValues([SEG_COTIZACIONES_HEADERS_27_]);
+    }
+    const shArch = ensureCotizacionesArchivadasSheet_(ssSeg);
+    const shCierres = ssSeg.getSheetByName('CIERRES_COTIZACIONES');
+
+    // 1) Leer cierres manuales / previos en CIERRES_COTIZACIONES
+    const closuresByFolio = {};
+    if (shCierres && shCierres.getLastRow() >= 2) {
+      const cCols = Math.min(Math.max(shCierres.getLastColumn(), 10), 12);
+      const cVals = shCierres.getRange(2, 1, shCierres.getLastRow() - 1, cCols).getDisplayValues();
+      for (let i = 0; i < cVals.length; i++) {
+        const r = cVals[i] || [];
+        const fol = String(r[1] || '').trim().toUpperCase();
+        if (!fol) continue;
+        closuresByFolio[fol] = {
+          fecha: String(r[0] || '').trim(),
+          estatus: String(r[7] || 'CERRADA').trim().toUpperCase() || 'CERRADA',
+          motivo: String(r[8] || '').trim()
+        };
+      }
+    }
+
+    // 2) Leer filas existentes en COTIZACIONES_CREATA y COTIZACIONES_ARCHIVADAS para preservar memoria
+    const existingActiveById = {};
+    const existingActiveRows = [];
+    if (shCot.getLastRow() >= 2) {
+      const prevCols = Math.max(27, shCot.getLastColumn());
+      const prevVals = shCot.getRange(2, 1, shCot.getLastRow() - 1, prevCols).getValues();
+      for (let i = 0; i < prevVals.length; i++) {
+        const r = prevVals[i] || [];
+        const idP = String(r[0] || '').trim().toUpperCase();
+        const fol = String(r[1] || '').trim().toUpperCase();
+        if (!idP || !fol) continue;
+        const pad = new Array(27);
+        for (let c = 0; c < 27; c++) pad[c] = r[c] !== undefined ? r[c] : '';
+        existingActiveById[idP] = pad;
+        existingActiveRows.push(pad);
+      }
+    }
+
+    const existingArchById = {};
+    const existingArchRows = [];
+    if (shArch && shArch.getLastRow() >= 2) {
+      const aCols = Math.max(29, shArch.getLastColumn());
+      const aVals = shArch.getRange(2, 1, shArch.getLastRow() - 1, aCols).getValues();
+      for (let i = 0; i < aVals.length; i++) {
+        const r = aVals[i] || [];
+        const idP = String(r[0] || '').trim().toUpperCase();
+        const fol = String(r[1] || '').trim().toUpperCase();
+        if (!idP || !fol) continue;
+        const pad = new Array(29);
+        for (let c = 0; c < 29; c++) pad[c] = r[c] !== undefined ? r[c] : '';
+        existingArchById[idP] = pad;
+        existingArchRows.push(pad);
+      }
+    }
+
+    // 3) Procesar cotizaciones en vivo desde ERP: actualizar activas y auto-archivar cerradas/vendidas
+    const activeById = {};
+    const archById = {};
+    for (let i = 0; i < existingArchRows.length; i++) {
+      const idP = String(existingArchRows[i][0] || '').trim().toUpperCase();
+      if (idP) archById[idP] = existingArchRows[i];
+    }
+
+    const erpSeenFolios = {};
+    const newErpClosuresToAppend = [];
+    let autoArchivedFoliosCount = 0;
+    const autoArchivedFoliosSet = {};
+
+    for (let qIdx = 0; qIdx < erpQuotes.length; qIdx++) {
+      const q = erpQuotes[qIdx];
+      const folio = q.folio;
+      erpSeenFolios[folio] = true;
+      const sucKey = mapErpStoreToSeguimientoBranch_(q.sucursalErp, folio);
+      const advMeta = resolveAdvisorMeta_(q.vendedorErp);
+      const erpAutoClose = resolveSegAutoClosureFromErpStatus_(q.statusErp);
+      const manualClose = closuresByFolio[folio] || null;
+      const isClosed = Boolean(erpAutoClose || manualClose);
+
+      // Si se cerró en S Mueblería ERP (Vendido/Cancelado) y no estaba en CIERRES_COTIZACIONES, registrarlo
+      if (erpAutoClose && !manualClose) {
+        closuresByFolio[folio] = {
+          fecha: ahoraStr.slice(0, 16),
+          estatus: erpAutoClose.estatus,
+          motivo: erpAutoClose.motivo
+        };
+        const piezasTxt = q.items.map(function (it) { return it.nombre + ' (' + it.cantidad + ' pza)'; }).join(' | ');
+        newErpClosuresToAppend.push([
+          safeSheetCellText_(ahoraStr.slice(0, 16), 40),
+          safeSheetCellText_(folio, 60),
+          safeSheetCellText_(sucKey, 80),
+          safeSheetCellText_(advMeta.nombre || q.vendedorErp, 140),
+          safeSheetCellText_(advMeta.correo, 140),
+          safeSheetCellText_(q.cliente, 160),
+          safeSheetCellText_(q.telefonoCliente, 40),
+          safeSheetCellText_(erpAutoClose.estatus, 40),
+          safeSheetCellText_(erpAutoClose.motivo, 240),
+          safeSheetCellText_('Archivado automáticamente al detectar estatus "' + q.statusErp + '" en S Mueblería ERP.', 500),
+          String(q.items.length),
+          safeSheetCellText_(piezasTxt, 500)
+        ]);
+      }
+
+      for (let j = 0; j < q.items.length; j++) {
+        const it = q.items[j];
+        const idP = (folio + '_' + it.sku).toUpperCase();
+        const prev = existingActiveById[idP] || existingArchById[idP] || null;
+        const invItem = invBySku[it.sku] || null;
+        const prevStockIni = prev && String(prev[14] || '').trim() !== '' ? prev[14] : null;
+        const m = buildSegLiveStockMetricsForBranch_(invItem, sucKey, prevStockIni, it.cantidad, umbralPct);
+
+        const telCli = String((prev && prev[8]) || q.telefonoCliente || '').replace(/\D+/g, '');
+        const avisoPrev = prev ? String(prev[25] || '').trim() : '';
+        const origenPrev = prev ? String(prev[26] || '').trim() : '';
+
+        const row27 = [
+          safeSheetCellText_(idP, 100),
+          safeSheetCellText_(folio, 60),
+          safeSheetCellText_(q.fechaIso || (prev && prev[2]) || ahoraStr.slice(0, 10), 24),
+          safeSheetCellText_(sucKey, 60),
+          safeSheetCellText_((prev && prev[4]) || advMeta.nombre || q.vendedorErp, 140),
+          safeSheetCellText_((prev && prev[5]) || advMeta.correo, 140),
+          safeSheetCellText_((prev && prev[6]) || advMeta.telefono, 40),
+          safeSheetCellText_(q.cliente || (prev && prev[7]) || 'Prospecto CREATA', 160),
+          safeSheetCellText_(telCli, 40),
+          safeSheetCellText_(it.sku, 80),
+          safeSheetCellText_(it.nombre || (invItem && invItem.nombre) || it.sku, 240),
+          safeSheetCellText_(it.modelo || (invItem && invItem.modelo) || '', 120),
+          Number(it.precio || (invItem && invItem.precio) || 0).toFixed(2),
+          String(it.cantidad),
+          String(m.stockIni),
+          String(m.cb),
+          String(m.cp),
+          String(m.tb),
+          String(m.tp),
+          String(m.tot),
+          String(m.variacion),
+          String(m.pctCaida) + '%',
+          m.nivel,
+          m.motivo,
+          safeSheetCellText_(q.statusErp, 60),
+          safeSheetCellText_(avisoPrev, 40),
+          safeSheetCellText_(origenPrev, 40)
+        ];
+
+        if (isClosed) {
+          const cieInfo = closuresByFolio[folio] || { estatus: 'CERRADA', motivo: q.statusErp, fecha: ahoraStr.slice(0, 16) };
+          const motArch = safeSheetCellText_(cieInfo.estatus + (cieInfo.motivo ? (': ' + cieInfo.motivo) : ''), 180);
+          const fArch = safeSheetCellText_((existingArchById[idP] && existingArchById[idP][28]) || cieInfo.fecha || ahoraStr.slice(0, 16), 40);
+          archById[idP] = row27.concat([motArch, fArch]);
+          if (!autoArchivedFoliosSet[folio]) {
+            autoArchivedFoliosSet[folio] = true;
+            autoArchivedFoliosCount++;
+          }
+        } else {
+          activeById[idP] = row27;
+        }
+      }
+    }
+
+    // 4) Preservar cotizaciones abiertas previas que están fuera de la ventana ERP (sin borrarlas el día 25!)
+    //    y auto-archivar cualquier fila previa cerrada en ERP o CIERRES_COTIZACIONES
+    for (let i = 0; i < existingActiveRows.length; i++) {
+      const prevRow = existingActiveRows[i];
+      const idP = String(prevRow[0] || '').trim().toUpperCase();
+      const fol = String(prevRow[1] || '').trim().toUpperCase();
+      if (!idP || !fol || activeById[idP] || archById[idP]) continue;
+
+      const prevEstClosed = resolveSegAutoClosureFromErpStatus_(prevRow[24]);
+      const manualClose = closuresByFolio[fol] || null;
+      if (prevEstClosed || manualClose) {
+        const cieInfo = manualClose || prevEstClosed;
+        const motArch = safeSheetCellText_(cieInfo.estatus + (cieInfo.motivo ? (': ' + cieInfo.motivo) : ''), 180);
+        const fArch = safeSheetCellText_((manualClose && manualClose.fecha) || ahoraStr.slice(0, 16), 40);
+        archById[idP] = prevRow.concat([motArch, fArch]);
+        if (!autoArchivedFoliosSet[fol]) {
+          autoArchivedFoliosSet[fol] = true;
+          autoArchivedFoliosCount++;
+        }
+      } else {
+        // Actualizar stock en vivo también en cotizaciones abiertas previas
+        const sku = String(prevRow[9] || '').trim().toUpperCase();
+        const sucKey = mapErpStoreToSeguimientoBranch_(prevRow[3], fol);
+        const invItem = invBySku[sku] || null;
+        if (invItem) {
+          const m = buildSegLiveStockMetricsForBranch_(invItem, sucKey, prevRow[14], prevRow[13], umbralPct);
+          prevRow[15] = String(m.cb);
+          prevRow[16] = String(m.cp);
+          prevRow[17] = String(m.tb);
+          prevRow[18] = String(m.tp);
+          prevRow[19] = String(m.tot);
+          prevRow[20] = String(m.variacion);
+          prevRow[21] = String(m.pctCaida) + '%';
+          prevRow[22] = m.nivel;
+          prevRow[23] = m.motivo;
+        }
+        activeById[idP] = prevRow;
+      }
+    }
+
+    // Ordenar más recientes primero
+    const finalActive = Object.keys(activeById).map(function (k) { return activeById[k]; });
+    finalActive.sort(function (a, b) {
+      const dCmp = String(b[2] || '').localeCompare(String(a[2] || ''));
+      if (dCmp !== 0) return dCmp;
+      return String(b[1] || '').localeCompare(String(a[1] || ''));
+    });
+
+    const finalArch = Object.keys(archById).map(function (k) { return archById[k]; });
+    finalArch.sort(function (a, b) {
+      const dCmp = String(b[2] || '').localeCompare(String(a[2] || ''));
+      if (dCmp !== 0) return dCmp;
+      return String(b[1] || '').localeCompare(String(a[1] || ''));
+    });
+
+    // 5) Escribir en COTIZACIONES_CREATA (activas) con expansión automática de filas
+    const prevActiveLastR = shCot.getLastRow();
+    ensureSheetGridCapacity_(shCot, finalActive.length + 5, 27);
+    shCot.getRange(1, 1, 1, 27).setValues([SEG_COTIZACIONES_HEADERS_27_]);
+    if (finalActive.length > 0) {
+      shCot.getRange(2, 1, finalActive.length, 27).setValues(finalActive);
+    }
+    const activeTailStart = finalActive.length + 2;
+    if (activeTailStart <= prevActiveLastR) {
+      shCot.getRange(activeTailStart, 1, prevActiveLastR - activeTailStart + 1, 27).clearContent();
+    }
+
+    // 6) Escribir en COTIZACIONES_ARCHIVADAS
+    if (shArch && finalArch.length > 0) {
+      const prevArchLastR = shArch.getLastRow();
+      ensureSheetGridCapacity_(shArch, finalArch.length + 5, 29);
+      shArch.getRange(2, 1, finalArch.length, 29).setValues(finalArch);
+      const archTailStart = finalArch.length + 2;
+      if (archTailStart <= prevArchLastR) {
+        shArch.getRange(archTailStart, 1, prevArchLastR - archTailStart + 1, 29).clearContent();
+      }
+    }
+
+    // 7) Anexar cierres automáticos detectados en ERP a CIERRES_COTIZACIONES
+    if (shCierres && newErpClosuresToAppend.length > 0) {
+      const startCieR = Math.max(2, shCierres.getLastRow() + 1);
+      ensureSheetGridCapacity_(shCierres, startCieR + newErpClosuresToAppend.length, 12);
+      shCierres.getRange(startCieR, 1, newErpClosuresToAppend.length, 12).setValues(newErpClosuresToAppend);
+    }
+
+    // 8) Registrar bitácora en HISTORIAL_MOVIMIENTOS y notificar delta
+    try {
+      const shHist = ssSeg.getSheetByName('HISTORIAL_MOVIMIENTOS');
+      if (shHist) {
+        shHist.appendRow([
+          ahoraStr,
+          'SYNC',
+          'AppsScript Cloud 24/7',
+          'erp@smuebleria.com',
+          'TODAS',
+          'Sincronización En Vivo ERP S Mueblería',
+          'ERP: ' + erpQuotes.length + ' folios · Activas: ' + finalActive.length + ' partidas · Archivadas: ' + finalArch.length + ' partidas (Auto-cerradas ERP: ' + newErpClosuresToAppend.length + ')',
+          'AppsScript-Cloud',
+          'EXITOSO'
+        ]);
+      }
+    } catch (eHist) {}
+
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().put(SEG_QUOTES_SYNC_THROTTLE_KEY_, ahoraStr, SEG_QUOTES_SYNC_THROTTLE_SEC_); } catch (eC) {}
+    try { bumpSegInvVersion_(ahoraStr); } catch (eB) {}
+    try {
+      recordSegDeltaChange_('ERP_SYNC', {
+        folio: 'ERP_SYNC',
+        branch: 'TODAS',
+        advisorEmail: '',
+        advisorName: 'AppsScript Cloud 24/7',
+        data: {
+          timestamp: ahoraStr,
+          erpQuotesCount: erpQuotes.length,
+          activeRows: finalActive.length,
+          archivedRows: finalArch.length
+        }
+      });
+    } catch (eD) {}
+
+    if (!silentUi) {
+      try {
+        SpreadsheetApp.getUi().alert(
+          'Seguimiento sincronizado en vivo desde S Mueblería ERP (' + ahoraStr + ').\n\n' +
+          '• Cotizaciones recibidas del ERP (' + lookbackDays + ' días): ' + erpQuotes.length + '\n' +
+          '• Partidas activas en COTIZACIONES_CREATA: ' + finalActive.length + '\n' +
+          '• Partidas archivadas en COTIZACIONES_ARCHIVADAS: ' + finalArch.length + '\n' +
+          '• Cierres automáticos ERP registrados: ' + newErpClosuresToAppend.length
+        );
+      } catch (eUi) {}
+    }
+
+    return {
+      ok: true,
+      timestamp: ahoraStr,
+      lookbackDays: lookbackDays,
+      erpQuotesCount: erpQuotes.length,
+      activeRows: finalActive.length,
+      archivedRows: finalArch.length,
+      autoArchivedFolios: autoArchivedFoliosCount,
+      erpAutoClosuresAdded: newErpClosuresToAppend.length
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
+  }
 }
 
 /**
