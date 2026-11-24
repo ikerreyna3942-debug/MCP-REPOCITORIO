@@ -24,7 +24,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=7">
-    <link rel="stylesheet" href="./inventario-ui.css?v=23">
+    <link rel="stylesheet" href="./inventario-ui.css?v=24">
 </head>
 <body>
 
@@ -130,6 +130,13 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
                 </span>
                 <span class="inv-fab-item-label">Seguimiento de cotización</span>
+            </button>
+
+            <button type="button" id="fabPurchaseSuggestionBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openPurchaseSuggestionModal();">
+                <span class="inv-fab-item-ico" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                </span>
+                <span class="inv-fab-item-label">Sugerencias de compra</span>
             </button>
 
             <button type="button" id="fabUploadPhotoBtn" class="inv-fab-item hidden" role="menuitem" onclick="closeFabMenu(); openUploadPhotoModal();">
@@ -1333,6 +1340,72 @@
         </div>
     </div>
 
+    <!-- MODAL SUGERENCIAS DE COMPRA (SUGERENCIAS_DE_COMPRA — PARA TODOS) -->
+    <div id="purchaseSuggestionModal" class="modal-backdrop" style="z-index:93;" onclick="if(event.target===this) closePurchaseSuggestionModal()">
+        <div class="inv-modal-card inv-psug-modal-card" role="dialog" aria-modal="true" aria-labelledby="purchaseSugModalTitle" onclick="event.stopPropagation()">
+            <div class="inv-modal-head">
+                <h3 id="purchaseSugModalTitle" class="inv-modal-title truncate">Sugerencias de compra</h3>
+                <button type="button" onclick="closePurchaseSuggestionModal()" class="inv-modal-close" aria-label="Cerrar">✕</button>
+            </div>
+            <form id="purchaseSugForm" class="inv-modal-body space-y-3" onsubmit="submitPurchaseSuggestion(event)">
+                <div class="inv-field">
+                    <span class="inv-field-label">1. Interior o Exterior</span>
+                    <div id="purchaseSugAmbienteGroup" class="inv-psug-amb-grid" role="radiogroup" aria-label="Interior o Exterior">
+                        <label id="purchaseSugOptInterior" class="inv-psug-amb-opt">
+                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbInterior" value="INTERIOR" onchange="selectPurchaseSuggestionAmbiente('INTERIOR')" required>
+                            <span>Interior</span>
+                        </label>
+                        <label id="purchaseSugOptExterior" class="inv-psug-amb-opt">
+                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbExterior" value="EXTERIOR" onchange="selectPurchaseSuggestionAmbiente('EXTERIOR')" required>
+                            <span>Exterior</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="inv-field">
+                    <label for="purchaseSugProductTypeInput" class="inv-field-label">2. Tipo de producto</label>
+                    <input id="purchaseSugProductTypeInput" type="text" list="purchaseSugProductTypesList" class="inv-input" placeholder="Ej. Sala modular, Comedor, Silla, Cama, Camastro..." maxlength="120" required>
+                    <datalist id="purchaseSugProductTypesList">
+                        <option value="Sala modular"></option>
+                        <option value="Sala en L"></option>
+                        <option value="Sofá"></option>
+                        <option value="Love seat"></option>
+                        <option value="Sofá cama / Futón"></option>
+                        <option value="Sillón"></option>
+                        <option value="Mesa de centro"></option>
+                        <option value="Mesa lateral"></option>
+                        <option value="Comedor"></option>
+                        <option value="Mesa de comedor"></option>
+                        <option value="Silla"></option>
+                        <option value="Banco / Banca"></option>
+                        <option value="Bufetera"></option>
+                        <option value="Cama"></option>
+                        <option value="Cabecera"></option>
+                        <option value="Base de cama"></option>
+                        <option value="Buró"></option>
+                        <option value="Cómoda / Tocador"></option>
+                        <option value="Credenza"></option>
+                        <option value="Mueble para TV"></option>
+                        <option value="Librero"></option>
+                        <option value="Escritorio"></option>
+                        <option value="Sala de exterior"></option>
+                        <option value="Camastro"></option>
+                        <option value="Comedor de exterior"></option>
+                        <option value="Accesorios / Decoración"></option>
+                    </datalist>
+                </div>
+                <div class="inv-field">
+                    <label for="purchaseSugCommentsInput" class="inv-field-label">3. Comentarios</label>
+                    <textarea id="purchaseSugCommentsInput" rows="4" class="inv-input inv-psug-textarea" placeholder="Describe qué producto sugieres comprar (estilo, colores, materiales, medidas, motivo)..." maxlength="800" required></textarea>
+                </div>
+                <div id="purchaseSugStatus" class="inv-settings-status hidden"></div>
+                <div class="inv-modal-foot" style="padding:8px 0 0; border-top:1px solid #ECE7DE; justify-content:flex-end; gap:8px;">
+                    <button type="button" onclick="closePurchaseSuggestionModal()" class="inv-btn-secondary">Cancelar</button>
+                    <button type="submit" id="btnPurchaseSugSubmit" class="inv-btn-primary">Enviar sugerencia</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script src="creata-finishes.js?v=33"></script>
     <script src="creata-img.js?v=33"></script>
     <script src="creata-cloud.js?v=34"></script>
@@ -1341,7 +1414,7 @@
     <script src="inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
     <script src="./seguimiento-app.js?v=11"></script>
-    <script src="./historial-app.js?v=11"></script>
-    <script src="inventario-app.js?v=107"></script>
+    <script src="./historial-app.js?v=12"></script>
+    <script src="inventario-app.js?v=108"></script>
 </body>
 </html>
