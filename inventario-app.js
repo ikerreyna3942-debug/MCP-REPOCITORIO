@@ -10775,6 +10775,17 @@
 
     async function fetchAllAdvisorRowsLiveGviz() {
         await loadErpCatalogLiveFromSheet();
+        const activeToken = recoverStoredInvAuthToken(activeAdvisorSession);
+        if (activeToken && activeAdvisorSession && !isGuestSession(activeAdvisorSession)) {
+            try {
+                const apiDir = await callInvWebAppPost('inv_my_directory', { authToken: activeToken }, 10000, true);
+                if (apiDir && apiDir.ok && Array.isArray(apiDir.users) && apiDir.users.length > 0) {
+                    const normalizedUsers = apiDir.users.map(u => enrichAdvisorLocation(u));
+                    syncMultiStoreLocationsForActiveSession(normalizedUsers);
+                    return normalizedUsers;
+                }
+            } catch (eApiDir) {}
+        }
         const localKeyUpdates = loadUpdatedKeysMap();
         const tabsToFetch = USER_BRANCH_TABS.filter(c => c.tab === 'CUENTAS ADMINISTRATIVAS' || c.isGuest);
         const results = await Promise.all(tabsToFetch.map(async (cfg) => {
@@ -11813,36 +11824,46 @@
         showAuthBanner('authNewKeyMsg', '', 'err');
 
         try {
-            const res = await callInvWebAppPost('inv_update_key', {
+            const authTokenForKey = recoverStoredInvAuthToken(activeAdvisorSession) || activeAdvisorSession.authToken || '';
+            const reqBody = {
                 email: activeAdvisorSession.correo,
                 currentKey: prevTempKey,
                 newKey: newKey,
                 sheetTab: activeAdvisorSession.sheetTab || '',
-                authToken: activeAdvisorSession.authToken || ''
-            }, 12000);
+                authToken: authTokenForKey
+            };
 
-            if (res && res.ok) {
-                if (res.authToken) {
-                    activeAdvisorSession.authToken = res.authToken;
-                }
-                if (res.tokensByTab && Array.isArray(activeAdvisorSession.allLocations)) {
-                    activeAdvisorSession.allLocations = activeAdvisorSession.allLocations.map(l =>
-                        Object.assign({}, l, {
-                            mustChangeKey: false,
-                            authToken: res.tokensByTab[l.sheetTab] || l.authToken || res.authToken || ''
-                        })
-                    );
-                }
-            } else {
-                // Guardar actualización pendiente para sincronizar apenas responda el WebApp y reemplazar la temporal de inmediato
-                const mapObj = loadUpdatedKeysMap();
-                mapObj[activeAdvisorSession.correo] = {
-                    prevKey: prevTempKey,
-                    newKey: newKey,
-                    updatedAt: new Date().toISOString()
-                };
-                saveUpdatedKeysMap(mapObj);
+            let res = await callInvWebAppPost('inv_update_key', reqBody, 25000, true);
+            if (!res || res.unavailable) {
+                res = await callInvWebAppPost('inv_update_key', reqBody, 25000, true);
             }
+
+            if (!res || !res.ok) {
+                const errText = (res && res.error)
+                    ? res.error
+                    : 'No se pudo guardar tu nueva contraseña en el servidor. Verifica tu conexión y presiona Guardar de nuevo.';
+                showAuthBanner('authNewKeyMsg', errText, 'err');
+                return;
+            }
+
+            if (res.authToken) {
+                activeAdvisorSession.authToken = res.authToken;
+            }
+            if (res.tokensByTab && Array.isArray(activeAdvisorSession.allLocations)) {
+                activeAdvisorSession.allLocations = activeAdvisorSession.allLocations.map(l =>
+                    Object.assign({}, l, {
+                        mustChangeKey: false,
+                        authToken: (l && l.sheetTab && res.tokensByTab[l.sheetTab]) || l.authToken || res.authToken || ''
+                    })
+                );
+            }
+            try {
+                const mapObj = loadUpdatedKeysMap();
+                if (mapObj && mapObj[activeAdvisorSession.correo]) {
+                    delete mapObj[activeAdvisorSession.correo];
+                    saveUpdatedKeysMap(mapObj);
+                }
+            } catch (eCleanPend) {}
 
             activeAdvisorSession.mustChangeKey = false;
             if (Array.isArray(activeAdvisorSession.allLocations)) {
