@@ -10461,9 +10461,19 @@ function isDestCategoryFolderId_(folderId) {
   return false;
 }
 
-function isFolderOrAncestorForbiddenProjectB_(folderObj, maxDepth) {
+function isFolderOrAncestorForbiddenProjectB_(folderObj, maxDepth, ancestorMemo) {
   if (!folderObj) return false;
   const limit = (typeof maxDepth === 'number' && maxDepth > 0) ? Math.floor(maxDepth) : 8;
+  const memo = (ancestorMemo && typeof ancestorMemo === 'object') ? ancestorMemo : null;
+  let rootId = '';
+  try {
+    rootId = String((folderObj.getId && folderObj.getId()) || '').trim();
+  } catch (eRootId) {
+    return true; // Fail closed
+  }
+  if (rootId && memo && Object.prototype.hasOwnProperty.call(memo, rootId)) {
+    return Boolean(memo[rootId]);
+  }
   const visited = {};
   const queue = [{ folder: folderObj, depth: 0 }];
   while (queue.length > 0) {
@@ -10475,9 +10485,21 @@ function isFolderOrAncestorForbiddenProjectB_(folderObj, maxDepth) {
     try {
       fid = String((cur.getId && cur.getId()) || '').trim();
     } catch (eId) {
+      if (rootId && memo) memo[rootId] = true;
       return true; // Fail closed
     }
-    if (isForbiddenProjectBFolderId_(fid)) return true;
+    if (isForbiddenProjectBFolderId_(fid)) {
+      if (fid && memo) memo[fid] = true;
+      if (rootId && memo) memo[rootId] = true;
+      return true;
+    }
+    if (fid && memo && Object.prototype.hasOwnProperty.call(memo, fid)) {
+      if (memo[fid]) {
+        if (rootId) memo[rootId] = true;
+        return true;
+      }
+      continue;
+    }
     if (fid) {
       if (visited[fid]) continue;
       visited[fid] = true;
@@ -10490,13 +10512,15 @@ function isFolderOrAncestorForbiddenProjectB_(folderObj, maxDepth) {
         if (pf) queue.push({ folder: pf, depth: depth + 1 });
       }
     } catch (eParWalk) {
+      if (rootId && memo) memo[rootId] = true;
       return true; // Fail closed if getParents() throws
     }
   }
+  if (rootId && memo) memo[rootId] = false;
   return false;
 }
 
-function isFileInForbiddenProjectBFolder_(file) {
+function isFileInForbiddenProjectBFolder_(file, ancestorMemo) {
   if (!file) return false;
   try {
     const selfId = String((file.getId && file.getId()) || '').trim();
@@ -10504,7 +10528,7 @@ function isFileInForbiddenProjectBFolder_(file) {
     const pIt = file.getParents();
     while (pIt && pIt.hasNext()) {
       const pf = pIt.next();
-      if (isFolderOrAncestorForbiddenProjectB_(pf, 8)) return true;
+      if (isFolderOrAncestorForbiddenProjectB_(pf, 8, ancestorMemo)) return true;
     }
   } catch (ePar) {
     return true; // Fail closed if getParents() throws
@@ -10512,18 +10536,20 @@ function isFileInForbiddenProjectBFolder_(file) {
   return false;
 }
 
-function isFileInProjectAAllowedFolders_(file, precomputedInboxMap) {
+function isFileInProjectAAllowedFolders_(file, precomputedInboxMap, ancestorMemo) {
   if (!file) return false;
-  if (isFileInForbiddenProjectBFolder_(file)) return false;
   try {
-    const inboxMap = precomputedInboxMap || ((resolveSubirInboxFolders_() || {}).folderIdsMap) || {};
+    const selfId = String((file.getId && file.getId()) || '').trim();
+    if (isForbiddenProjectBFolderId_(selfId)) return false;
+    const inboxMap = precomputedInboxMap || ((resolveSubirInboxFolders_(ancestorMemo) || {}).folderIdsMap) || {};
     const pIt = file.getParents();
     let hasAllowedParent = false;
     while (pIt && pIt.hasNext()) {
       const pf = pIt.next();
       const pid = String((pf && pf.getId && pf.getId()) || '').trim();
       if (!pid) continue;
-      if (isFolderOrAncestorForbiddenProjectB_(pf, 8)) return false;
+      if (isForbiddenProjectBFolderId_(pid)) return false;
+      if (isFolderOrAncestorForbiddenProjectB_(pf, 8, ancestorMemo)) return false;
       if (
         pid === SUBIR_INBOX_FOLDER_ID_ ||
         inboxMap[pid] ||
@@ -10961,7 +10987,7 @@ function invalidateLoadedFileNamesCache_() {
   try { CacheService.getScriptCache().remove(PROJECT_A_LOADED_NAMES_CACHE_KEY_); } catch (e) {}
 }
 
-function resolveSubirInboxFolders_() {
+function resolveSubirInboxFolders_(ancestorMemo) {
   const folders = [];
   const folderIdsMap = {};
   let primaryFolder = null;
@@ -10972,7 +10998,7 @@ function resolveSubirInboxFolders_() {
       if (folderObj.isTrashed && folderObj.isTrashed()) return;
       const fid = String(folderObj.getId() || '').trim();
       if (!fid || folderIdsMap[fid]) return;
-      if (isForbiddenProjectBFolderId_(fid) || isFolderOrAncestorForbiddenProjectB_(folderObj, 8)) return;
+      if (isForbiddenProjectBFolderId_(fid) || isFolderOrAncestorForbiddenProjectB_(folderObj, 8, ancestorMemo)) return;
       if (isDestCategoryFolderId_(fid)) return;
       folderIdsMap[fid] = true;
       folders.push(folderObj);
@@ -11010,8 +11036,9 @@ function resolveSubirInboxFolders_() {
 function listSubirInboxFilesInternal_(opts) {
   const includeThumbs = !!(opts && opts.includeThumbs);
   const startListMs = Date.now();
+  const ancestorMemo = {};
   ensureProjectAPublicFolders_(false);
-  const resolved = resolveSubirInboxFolders_();
+  const resolved = resolveSubirInboxFolders_(ancestorMemo);
   const inboxFolders = resolved.folders || [];
   const inboxMap = resolved.folderIdsMap || {};
   const seenFileIds = {};
@@ -11048,13 +11075,12 @@ function listSubirInboxFilesInternal_(opts) {
         }
         const fid = String(f.getId() || '').trim();
         if (!fid || seenFileIds[fid]) continue;
-        if (isFileInForbiddenProjectBFolder_(f)) continue;
-        if (!isFileInProjectAAllowedFolders_(f, inboxMap)) continue;
+        if (!isFileInProjectAAllowedFolders_(f, inboxMap, ancestorMemo)) continue;
         const name = String(f.getName() || '').trim();
         const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif|tiff?)$/i.test(name);
         if (!isImg) continue;
         seenFileIds[fid] = true;
-        if ((Date.now() - startListMs) < 2500) {
+        if ((Date.now() - startListMs) < 900) {
           ensurePublicSharingItem_(f);
         }
         const updated = f.getLastUpdated();

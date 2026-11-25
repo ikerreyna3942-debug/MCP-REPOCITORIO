@@ -537,4 +537,48 @@ test('Project A (User Requirements 2, 3, 5, 7): preserves exact original filenam
   assert.equal(propt1._state.sharing && propt1._state.sharing.access, 'PRIVATE', 'Project B files in SUBIR PROPT must NEVER be touched');
 });
 
+test('Project A Performance & Timeout Fix: listSubirInboxFilesInternal_ memoizes ancestor walks across 60+ SUBIR PREN files and fotos-productos-app.js prevents silent 30s aborts', () => {
+  const env = setupProjectAEnv();
+
+  // Build 4-level ancestor chain above SUBIR PREN matching real Drive (SUBIR PREN -> Fotos proyecto -> Fotos general -> DOC ANIPA -> Root)
+  const docAnipa = env.makeFolder('doc_anipa_root', 'DOC ANIPA');
+  const fotosGen = env.makeFolder('fotos_general_01', 'Fotos general', { parentId: 'doc_anipa_root' });
+  const fotosProy = env.makeFolder('fotos_proy_01', 'Fotos de del proyeto', { parentId: 'fotos_general_01' });
+  const subirPren = env.foldersById.get(IDS.SUBIR_PREN);
+  subirPren._state.parentIds.add('fotos_proy_01');
+
+  // Spy on subirPren.getParents() calls to guarantee O(1) ancestor memoization instead of 3x per file (180+ calls)
+  let subirPrenParentWalks = 0;
+  const origGetParents = subirPren.getParents.bind(subirPren);
+  subirPren.getParents = function () {
+    subirPrenParentWalks++;
+    return origGetParents();
+  };
+
+  // Seed 60 valid photos + 1 forbidden multi-parent photo inside SUBIR PREN
+  for (let i = 1; i <= 60; i++) {
+    env.makeFile('pren_bulk_photo_' + String(i).padStart(3, '0'), 'FOTO_' + i + '.jpg', { parentId: IDS.SUBIR_PREN });
+  }
+  env.makeFolder('10UIhDWLKL0ySmzdcMemA5K5831YozuBa', 'FOTOS MUEBLES', { parentId: IDS.FOTOS_ODOO });
+  env.makeFile('multi_bulk_bad_001', 'LEAK.jpg', {
+    parentIds: [IDS.SUBIR_PREN, '10UIhDWLKL0ySmzdcMemA5K5831YozuBa']
+  });
+
+  const listed = env.context.listSubirInboxFilesInternal_();
+  const ids = listed.map((f) => f.id);
+  assert.ok(ids.includes('pren_bulk_photo_001') && ids.includes('pren_bulk_photo_060'), 'All 60 SUBIR PREN photos must be returned');
+  assert.ok(!ids.includes('multi_bulk_bad_001'), 'Multi-parent Project B file must still be blocked');
+  assert.ok(subirPrenParentWalks <= 4, `Expected O(1) memoized ancestor checks (<= 4 walks across 60 files), got ${subirPrenParentWalks}`);
+
+  // Verify frontend fotos-productos-app.js uses >= 60s timeout, conditional includeLoadedNames, and honest Reconnecting state
+  const fotosAppSrc = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'fotos-productos-app.js'), 'utf8');
+  const fotosHtmlSrc = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'fotos-productos.html'), 'utf8');
+  assert.match(fotosAppSrc, /const inboxTimeoutMs\s*=\s*75000;/, 'fotos_subir_list timeout must be raised to 75s to prevent aborting large Drive folders');
+  assert.match(fotosAppSrc, /const needLoadedNames\s*=\s*Boolean\(manualRefresh \|\| loadedCountKnown === 0\);/, 'Silent polls must skip redundant includeLoadedNames scanning');
+  assert.match(fotosAppSrc, /_inboxConsecutiveSyncFails\+\+;\s*setFotosLiveStatus\('offline',\s*'Reconectando'\);/, 'Inbox timeout must surface Reconectando status instead of silently staying En vivo');
+  assert.ok(fotosHtmlSrc.includes('./fotos-productos-app.js?v=39'), 'fotos-productos.html must load fotos-productos-app.js?v=39');
+  assert.ok(docAnipa && fotosGen && fotosProy);
+});
+
+
 
