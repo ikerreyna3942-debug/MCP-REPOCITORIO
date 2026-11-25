@@ -46,8 +46,8 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
 
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
   const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v29['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v29['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v30['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v30['"]/);
   assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v6['"]/);
   assert.match(panelSwSrc, /panel-styles\.css\?v=6/);
   assert.match(panelSwSrc, /panel-app\.js\?v=14/);

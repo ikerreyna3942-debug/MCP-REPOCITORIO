@@ -3997,7 +3997,7 @@ body.fotos-studio-v2 .fotos-work-mode-btn.active {
 
 /* --- Workbench 2 Columnas Compacto --- */
 body.fotos-studio-v2 .workbench-grid {
-    grid-template-columns: minmax(255px, 310px) minmax(0, 1fr);
+    grid-template-columns: minmax(290px, 355px) minmax(0, 1fr);
     gap: 10px;
 }
 
@@ -4156,15 +4156,19 @@ body.fotos-studio-v2 .cat-filter-pill .cat-cnt {
 
 /* --- Lista Densa de SKUs / Portadas / Telas --- */
 body.fotos-studio-v2 .sku-list {
-    gap: 4px;
+    gap: 5px;
     max-height: 600px;
 }
 
 body.fotos-studio-v2 .sku-item,
 body.fotos-studio-v2 .visual-target-item {
-    padding: 5px 7px;
-    gap: 7px;
-    border-radius: 7px;
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+    align-items: center;
+    padding: 6px 8px;
+    gap: 8px;
+    border-radius: 8px;
     border: 1px solid var(--border-hairline);
     background: var(--bg-surface);
 }
@@ -4184,9 +4188,10 @@ body.fotos-studio-v2 .visual-target-item.active {
 
 body.fotos-studio-v2 .sku-mini-thumb,
 body.fotos-studio-v2 .visual-target-thumb {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
     border-radius: 6px;
     border: 1px solid var(--border-hairline);
     background: #FAF9F6;
@@ -4198,13 +4203,28 @@ body.fotos-studio-v2 .sku-mini-thumb img {
     background: #FFFFFF;
 }
 
+body.fotos-studio-v2 .sku-item-info,
+body.fotos-studio-v2 .visual-target-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
 body.fotos-studio-v2 .sku-code-row {
-    gap: 4px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    row-gap: 3px;
+    column-gap: 4px;
+    line-height: 1.2;
 }
 
 body.fotos-studio-v2 .sku-code {
     font-size: 9.5px;
     color: var(--gold-light);
+    line-height: 1.2;
 }
 
 body.fotos-studio-v2 .sku-status-badge,
@@ -4214,6 +4234,7 @@ body.fotos-studio-v2 .visual-target-pill {
     font-size: 8px;
     padding: 1px 5px;
     line-height: 1.2;
+    white-space: nowrap;
 }
 
 body.fotos-studio-v2 .sku-cat-chip {
@@ -4230,23 +4251,40 @@ body.fotos-studio-v2 .sku-name,
 body.fotos-studio-v2 .visual-target-title {
     font-size: 10.5px;
     font-weight: 700;
-    line-height: 1.22;
-    margin-top: 1px;
+    line-height: 1.25;
+    margin-top: 0;
     color: var(--ink-primary);
+    overflow-wrap: anywhere;
 }
 
 body.fotos-studio-v2 .sku-submeta,
 body.fotos-studio-v2 .visual-target-sub {
     font-size: 9px;
-    margin-top: 1px;
+    line-height: 1.25;
+    margin-top: 0;
     color: var(--ink-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body.fotos-studio-v2 .sku-quick-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 body.fotos-studio-v2 .sku-quick-btn {
-    height: 17px;
+    height: 18px;
+    min-height: 18px;
+    min-width: 18px;
     padding: 0 5px;
     font-size: 8.5px;
+    line-height: 1;
     border-radius: 4px;
+    white-space: nowrap;
 }
 
 body.fotos-studio-v2 .sku-quick-btn.is-take {
@@ -4729,7 +4767,11 @@ body.fotos-studio-v2 .fotos-install-body {
     font-size: 11px;
 }
 
-/* --- MÓVIL Y TABLET COMPACTO (<= 1024px, <= 768px, <= 640px, <= 400px) --- */
+/* --- MÓVIL, TABLET Y PANTALLA DIVIDIDA COMPACTO (<= 1024px, <= 768px, <= 640px, <= 400px) --- */
+body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-grid {
+    grid-template-columns: 1fr !important;
+}
+
 @media (max-width: 1024px) {
     body.fotos-studio-v2 {
         --creata-back-toast-bottom: calc(54px + env(safe-area-inset-bottom, 0px));
@@ -4741,6 +4783,11 @@ body.fotos-studio-v2 .fotos-install-body {
 
     body.fotos-studio-v2 .workspace-shell {
         padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    }
+
+    body.fotos-studio-v2 .workbench-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
     }
 
     body.fotos-studio-v2 .mobile-jump-bar {
@@ -4830,7 +4877,11 @@ body.fotos-studio-v2 .fotos-install-body {
         gap: 7px;
     }
 
-    body.fotos-studio-v2 .workbench-grid,
+    body.fotos-studio-v2 .workbench-grid {
+        grid-template-columns: 1fr;
+        gap: 7px;
+    }
+
     body.fotos-studio-v2 .right-column-stack {
         gap: 7px;
     }
@@ -4870,7 +4921,7 @@ body.fotos-studio-v2 .fotos-install-body {
         border-radius: 6px;
     }
 
-    /* Entradas slim (mantiene 16px en móvil para evitar zoom automático de iOS Safari) */
+    /* Entradas slim (mantiene 16px en pantallas táctiles para evitar zoom automático de iOS Safari) */
     body.fotos-studio-v2 .search-input,
     body.fotos-studio-v2 .inbox-search-input,
     body.fotos-studio-v2 .visual-url-row .search-input,
@@ -4880,6 +4931,7 @@ body.fotos-studio-v2 .fotos-install-body {
         height: 34px;
         padding-top: 0;
         padding-bottom: 0;
+        font-weight: 500;
         border-radius: 7px;
     }
 
@@ -4923,23 +4975,26 @@ body.fotos-studio-v2 .fotos-install-body {
 
     body.fotos-studio-v2 .sku-list {
         max-height: min(44svh, 340px);
-        gap: 4px;
+        gap: 5px;
     }
 
     body.fotos-studio-v2 .sku-item,
     body.fotos-studio-v2 .visual-target-item {
-        min-height: 44px;
-        padding: 5px 7px;
-        gap: 7px;
-        border-radius: 7px;
+        flex: 0 0 auto;
+        height: auto;
+        min-height: 0;
+        padding: 6px 8px;
+        gap: 8px;
+        border-radius: 8px;
     }
 
     body.fotos-studio-v2 .sku-mini-thumb,
     body.fotos-studio-v2 .sku-thumb-mini,
     body.fotos-studio-v2 .visual-target-thumb {
-        width: 34px;
-        height: 34px;
-        min-width: 34px;
+        flex: 0 0 auto;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
         border-radius: 6px;
     }
 
@@ -4947,7 +5002,7 @@ body.fotos-studio-v2 .fotos-install-body {
     body.fotos-studio-v2 .sku-item-name,
     body.fotos-studio-v2 .visual-target-title {
         font-size: 10.5px;
-        line-height: 1.22;
+        line-height: 1.25;
     }
 
     body.fotos-studio-v2 .sku-code,
@@ -4967,11 +5022,12 @@ body.fotos-studio-v2 .fotos-install-body {
     }
 
     body.fotos-studio-v2 .sku-quick-btn {
-        min-height: 23px;
-        min-width: 23px;
-        height: 23px;
+        min-height: 21px;
+        min-width: 21px;
+        height: 21px;
         padding: 0 6px;
-        font-size: 9px;
+        font-size: 8.5px;
+        line-height: 1;
     }
 
     body.fotos-studio-v2 .sku-quick-banner,
@@ -5051,12 +5107,21 @@ body.fotos-studio-v2 .fotos-install-body {
         gap: 6px;
     }
 
+    body.fotos-studio-v2 .visual-stage-actions-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+        width: 100%;
+        gap: 6px;
+    }
+
     body.fotos-studio-v2 .assign-btns-cluster .btn-secondary-upload,
     body.fotos-studio-v2 .assign-btns-cluster .btn-primary-gold,
+    body.fotos-studio-v2 .assign-btns-cluster #btnAssignPhotoNow,
     body.fotos-studio-v2 .visual-stage-actions-row .btn-primary-gold,
     body.fotos-studio-v2 .visual-stage-actions-row .btn-secondary-upload,
     body.fotos-studio-v2 .visual-stage-actions-row .visual-upload-primary,
     body.fotos-studio-v2 .visual-stage-actions-row #btnAssignVisualGalleryPhoto {
+        width: 100%;
         min-height: 32px;
         height: 32px;
         font-size: 10.5px;
@@ -5085,15 +5150,22 @@ body.fotos-studio-v2 .fotos-install-body {
     }
 
     body.fotos-studio-v2 .inbox-toolbar-actions {
-        grid-template-columns: minmax(0, 1fr) 36px 36px;
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
         gap: 5px;
+        width: 100%;
+    }
+
+    body.fotos-studio-v2 .inbox-toolbar-actions .is-upload-lbl {
+        flex: 1 1 auto;
     }
 
     body.fotos-studio-v2 .inbox-toolbar-actions .hdr-btn,
     body.fotos-studio-v2 .inbox-toolbar-actions .is-upload-lbl {
         min-height: 29px;
         height: 29px;
-        padding: 0 7px;
+        padding: 0 8px;
         font-size: 9.5px;
     }
 
@@ -5156,6 +5228,27 @@ body.fotos-studio-v2 .fotos-install-body {
         width: 20px;
         height: 20px;
         font-size: 9.5px;
+    }
+}
+
+/* En PC con ventana estrecha / pantalla dividida (ratón fino), mantener inputs ultra-compactos */
+@media (max-width: 768px) and (pointer: fine) {
+    body.fotos-studio-v2 .search-input,
+    body.fotos-studio-v2 .inbox-search-input,
+    body.fotos-studio-v2 .visual-url-row .search-input,
+    body.fotos-studio-v2 .dest-select,
+    body.fotos-studio-v2 .field-input {
+        font-size: 11px !important;
+        min-height: 30px;
+        height: 30px;
+    }
+}
+
+@media (max-width: 640px) {
+    body.fotos-studio-v2 .selected-sheet-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 5px;
+        padding: 6px;
     }
 }
 
