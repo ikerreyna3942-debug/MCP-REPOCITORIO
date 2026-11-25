@@ -732,7 +732,7 @@
     </div>
 
     <!-- MODAL DE INGRESO DE USUARIO, SELECCIÓN DE UBICACIÓN Y CAMBIO DE CONTRASEÑA TEMPORAL -->
-    <div id="authModal" class="modal-backdrop" style="z-index:85; background:rgba(37, 44, 50, 0.90);">
+    <div id="authModal" class="modal-backdrop" style="z-index:96; background:rgba(37, 44, 50, 0.90);">
         <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-6 py-5 text-center border-b" style="background:#252C32; border-color:#A38251;">
                 <img id="authLogoImg" src="" alt="CREATA MUEBLES" class="h-14 mx-auto object-contain mb-2" style="filter:brightness(0) invert(1);" draggable="false">
@@ -1350,16 +1350,16 @@
                 <h3 id="purchaseSugModalTitle" class="inv-modal-title truncate">Sugerencias de compra</h3>
                 <button type="button" onclick="closePurchaseSuggestionModal()" class="inv-modal-close" aria-label="Cerrar">✕</button>
             </div>
-            <form id="purchaseSugForm" class="inv-modal-body space-y-3" onsubmit="submitPurchaseSuggestion(event)">
+            <form id="purchaseSugForm" class="inv-modal-body space-y-3" onsubmit="submitPurchaseSuggestion(event)" novalidate>
                 <div class="inv-field">
                     <span class="inv-field-label">1. Interior o Exterior</span>
                     <div id="purchaseSugAmbienteGroup" class="inv-psug-amb-grid" role="radiogroup" aria-label="Interior o Exterior">
-                        <label id="purchaseSugOptInterior" class="inv-psug-amb-opt">
-                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbInterior" value="INTERIOR" onchange="selectPurchaseSuggestionAmbiente('INTERIOR')" required>
+                        <label id="purchaseSugOptInterior" class="inv-psug-amb-opt" onclick="selectPurchaseSuggestionAmbiente('INTERIOR')">
+                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbInterior" value="INTERIOR" onchange="selectPurchaseSuggestionAmbiente('INTERIOR')">
                             <span>Interior</span>
                         </label>
-                        <label id="purchaseSugOptExterior" class="inv-psug-amb-opt">
-                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbExterior" value="EXTERIOR" onchange="selectPurchaseSuggestionAmbiente('EXTERIOR')" required>
+                        <label id="purchaseSugOptExterior" class="inv-psug-amb-opt" onclick="selectPurchaseSuggestionAmbiente('EXTERIOR')">
+                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbExterior" value="EXTERIOR" onchange="selectPurchaseSuggestionAmbiente('EXTERIOR')">
                             <span>Exterior</span>
                         </label>
                     </div>

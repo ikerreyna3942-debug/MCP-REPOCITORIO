@@ -19905,8 +19905,12 @@
         const activeStore = isKevinAdvisorPreviewActive()
             ? getKevinAdvisorPreviewStore()
             : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || 'SIN ASIGNAR');
+        const resolvedOosToken = recoverStoredInvAuthToken(activeAdvisorSession);
+        if (resolvedOosToken && !activeAdvisorSession.authToken) {
+            activeAdvisorSession.authToken = resolvedOosToken;
+        }
         const payload = {
-            authToken: activeAdvisorSession.authToken || '',
+            authToken: resolvedOosToken || '',
             advisorEmail: cleanStr(activeAdvisorSession.correo),
             sheetTab: cleanStr(activeAdvisorSession.sheetTab),
             erpStore: activeStore,
@@ -19938,6 +19942,20 @@
                 setTimeout(function () {
                     window.closeOutOfStockRequestModal();
                 }, 800);
+            } else if (res && res.needsRedeploy) {
+                saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                setSettingsStatusBox(
+                    'oosReqStatus',
+                    'Falta publicar una "Nueva versión" en Google Apps Script (Implementar → Administrar implementaciones → Editar).',
+                    'err'
+                );
+            } else if (res && res.authRequired) {
+                saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                const authMsg = (res && res.error) ? res.error : 'Tu sesión expiró. Confirma tu contraseña y presiona Guardar de nuevo.';
+                setSettingsStatusBox('oosReqStatus', authMsg, 'warn');
+                if (typeof promptSessionReauth === 'function') {
+                    promptSessionReauth(authMsg, null);
+                }
             } else {
                 saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
                 const errMsg = (res && res.error) ? res.error : 'No se pudo conectar con Apps Script.';
@@ -20055,8 +20073,12 @@
         const activeStore = isKevinAdvisorPreviewActive()
             ? getKevinAdvisorPreviewStore()
             : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || 'SIN ASIGNAR');
+        const resolvedSugToken = recoverStoredInvAuthToken(activeAdvisorSession);
+        if (resolvedSugToken && !activeAdvisorSession.authToken) {
+            activeAdvisorSession.authToken = resolvedSugToken;
+        }
         const payload = {
-            authToken: activeAdvisorSession.authToken || '',
+            authToken: resolvedSugToken || '',
             advisorEmail: cleanStr(activeAdvisorSession.correo),
             sheetTab: cleanStr(activeAdvisorSession.sheetTab),
             erpStore: activeStore,
@@ -20084,6 +20106,20 @@
                 setTimeout(function () {
                     window.closePurchaseSuggestionModal();
                 }, 800);
+            } else if (res && res.needsRedeploy) {
+                savePurchaseSuggestionLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                setSettingsStatusBox(
+                    'purchaseSugStatus',
+                    'Falta publicar una "Nueva versión" en Google Apps Script (Implementar → Administrar implementaciones → Editar) para activar Sugerencias de compra.',
+                    'err'
+                );
+            } else if (res && res.authRequired) {
+                savePurchaseSuggestionLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                const authMsg = (res && res.error) ? res.error : 'Tu sesión expiró. Confirma tu contraseña y vuelve a enviar tu sugerencia.';
+                setSettingsStatusBox('purchaseSugStatus', authMsg, 'warn');
+                if (typeof promptSessionReauth === 'function') {
+                    promptSessionReauth(authMsg, null);
+                }
             } else {
                 savePurchaseSuggestionLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
                 const errMsg = (res && res.error) ? res.error : 'No se pudo conectar con Apps Script.';

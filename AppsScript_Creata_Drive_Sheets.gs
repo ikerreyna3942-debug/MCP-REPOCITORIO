@@ -4543,7 +4543,7 @@ function resolveAuthenticatedAdvisor_(ss, erpAdvisors, body) {
   }
 
   const hasAnyDefKey = userMatches.some((u) => !!u.defKey);
-  if (chosen.mustChangeKey && !hasAnyDefKey) {
+  if (chosen.mustChangeKey && !chosen.noPasswordRequired && !hasAnyDefKey) {
     return {
       ok: false,
       authRequired: true,
@@ -15604,6 +15604,9 @@ function ensureSugerenciasCompraSheet_(ss) {
     'TIENDA_SUCURSAL',
     'ESTATUS'
   ];
+  if (sh.getMaxColumns && sh.getMaxColumns() < headers.length && typeof sh.insertColumnsAfter === 'function') {
+    sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
+  }
   if (sh.getLastRow() < 2) {
     sh.getRange(1, 1, 1, headers.length).setValues([[
       'CREATA · SUGERENCIAS DE COMPRA DE PRODUCTOS (ASESORES Y GERENTES)',
@@ -15679,6 +15682,9 @@ function handleInvRegisterPurchaseSuggestion_(body) {
   try {
     const sh = ensureSugerenciasCompraSheet_(ss);
     const nextRow = Math.max(3, sh.getLastRow() + 1);
+    if (sh.getMaxRows && sh.getMaxRows() < nextRow && typeof sh.insertRowAfter === 'function') {
+      sh.insertRowAfter(sh.getMaxRows());
+    }
     const rowValues = [[
       nowStr,
       suggestionId,

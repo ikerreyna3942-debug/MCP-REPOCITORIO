@@ -3783,9 +3783,9 @@ button, a, input, select, textarea {
   #cartModal textarea,
   #authModal input,
   #authModal select,
-  #demandRequestModal input,
-  #demandRequestModal select,
-  #demandRequestModal textarea,
+  #outOfStockRequestModal input,
+  #outOfStockRequestModal select,
+  #outOfStockRequestModal textarea,
   #purchaseSuggestionModal input,
   #purchaseSuggestionModal select,
   #purchaseSuggestionModal textarea,
@@ -3861,10 +3861,10 @@ button, a, input, select, textarea {
   }
 
   /* Modales principales tipo Bottom-Sheet en teléfonos (Android e iPhone) */
-  #cartModal.inv-modal-backdrop,
-  #productDetailModal.inv-modal-backdrop,
-  #demandRequestModal.inv-modal-backdrop,
-  #purchaseSuggestionModal.inv-modal-backdrop,
+  #cartModal.modal-backdrop,
+  #productDetailModal.modal-backdrop,
+  #outOfStockRequestModal.modal-backdrop,
+  #purchaseSuggestionModal.modal-backdrop,
   #installAppModal.modal-backdrop {
     align-items: flex-end;
     padding: env(safe-area-inset-top, 0px) 0 0 0;
@@ -3872,7 +3872,7 @@ button, a, input, select, textarea {
 
   #cartModal > div,
   #productDetailModal > .inv-det-modal-card,
-  #demandRequestModal > div,
+  #outOfStockRequestModal > div,
   #purchaseSuggestionModal > div,
   #installAppModal > div {
     width: 100% !important;
@@ -3887,6 +3887,10 @@ button, a, input, select, textarea {
   #cartModal input[type="text"],
   #cartModal input[type="tel"],
   #cartModal input[type="email"],
+  #purchaseSuggestionModal input[type="text"],
+  #purchaseSuggestionModal textarea,
+  #outOfStockRequestModal input,
+  #outOfStockRequestModal textarea,
   #invHeader #invSearchInput {
     -webkit-appearance: none;
     appearance: none;
