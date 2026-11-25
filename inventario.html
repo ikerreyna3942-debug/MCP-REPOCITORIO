@@ -26,7 +26,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=10">
-    <link rel="stylesheet" href="./inventario-ui.css?v=26">
+    <link rel="stylesheet" href="./inventario-ui.css?v=27">
 </head>
 <body>
 
@@ -75,6 +75,15 @@
                 </div>
 
                 <div class="inv-header-utils">
+                    <button type="button" onclick="openBarcodeScanner('bt')" id="headerBtScanBtn"
+                            class="inv-hdr-btn inv-hdr-btn-bt"
+                            title="Escáner Bluetooth P2300L / Cámara" aria-label="Escáner Bluetooth">
+                        <span id="headerBtScanDot" class="inv-bt-hdr-dot" aria-hidden="true"></span>
+                        <svg class="inv-hdr-ico" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M7 8v8M11 8v8M14 8v8M17 8v8"></path>
+                        </svg>
+                        <span class="inv-hdr-lbl inv-hdr-lbl-bt">Escáner BT</span>
+                    </button>
                     <button type="button" onclick="openInAppHistorial()" id="headerHistorialBtn"
                             class="hidden inv-hdr-btn"
                             title="Historial" aria-label="Historial">
@@ -121,11 +130,11 @@
                 <span id="headerCartCount" class="inv-fab-item-badge">0</span>
             </button>
 
-            <button type="button" id="fabScanBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openBarcodeScanner();">
+            <button type="button" id="fabScanBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openBarcodeScanner('bt');">
                 <span class="inv-fab-item-ico" aria-hidden="true">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M7 8v8M11 8v8M14 8v8M17 8v8"></path></svg>
                 </span>
-                <span class="inv-fab-item-label">Escanear</span>
+                <span class="inv-fab-item-label">Escanear (BT / Cámara)</span>
             </button>
 
             <button type="button" id="fabSeguimientoBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openInAppSeguimiento();">
@@ -371,10 +380,10 @@
             </div>
 
             <!-- BARRA DE MÚLTIPLES COTIZACIONES ABIERTAS SIN GUARDAR (VIGENCIA MÁXIMA: 3 HORAS) -->
-            <div id="quoteDraftsBar" class="px-3 py-1.5 border-b flex flex-wrap items-center justify-between gap-1.5"
+            <div id="quoteDraftsBar" class="inv-quote-drafts-bar px-3 py-1.5 border-b flex flex-wrap items-center justify-between gap-1.5"
                  style="background:#FAF9F6; border-color:#E1DBC5;">
-                <div id="quoteDraftsTabsList" class="flex flex-wrap items-center gap-1 min-w-0"></div>
-                <div class="flex items-center gap-1.5 shrink-0 ml-auto">
+                <div id="quoteDraftsTabsList" class="inv-quote-drafts-tabs flex flex-wrap items-center gap-1 min-w-0"></div>
+                <div class="inv-quote-drafts-actions flex items-center gap-1.5 shrink-0 ml-auto">
                     <span class="text-[10px] font-bold opacity-75 hidden sm:inline" style="color:#252C32;">Tiempo máx. sin guardar: 3 h</span>
                     <button type="button" id="quoteJumpToPdfsBtn" onclick="scrollToGeneratedQuotePdfs()"
                             class="hidden px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
@@ -577,15 +586,15 @@
                                    class="w-full rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
                                    style="border-color:#E1DBC5; color:#252C32;">
                         </div>
-                        <div class="grid grid-cols-2 gap-1.5">
-                            <div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            <div class="min-w-0">
                                 <label class="block text-[10px] font-bold uppercase mb-0.5" style="color:#252C32;">Teléfono (Opcional)</label>
                                 <input id="quoteClientPhoneInput" type="tel" oninput="saveQuoteDraftMeta()"
                                        placeholder="998 000 0000"
                                        class="w-full rounded-lg border px-2 py-1.5 text-[11px] font-semibold outline-none"
                                        style="border-color:#E1DBC5; color:#252C32;">
                             </div>
-                            <div>
+                            <div class="min-w-0">
                                 <label class="block text-[10px] font-bold uppercase mb-0.5" style="color:#252C32;">Entrega Tentativa</label>
                                 <input id="quoteDeliveryDateInput" type="date" onchange="saveQuoteDraftMeta()"
                                        class="w-full rounded-lg border px-2 py-1.5 text-[11px] font-semibold outline-none"
@@ -610,12 +619,47 @@
                 </div>
 
                 <!-- SECCIÓN 3: PARTIDAS SELECCIONADAS -->
-                <div class="space-y-1.5">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[10.5px] font-extrabold uppercase tracking-wider" style="color:#A38251;">3. Productos en la Cotización (Máx. 15 partidas)</span>
-                        <span id="quoteItemsCountLabel" class="text-[10.5px] font-bold" style="color:#252C32;">0 partidas</span>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-[10.5px] font-extrabold uppercase tracking-wider min-w-0" style="color:#A38251;">3. Productos en la Cotización (Máx. 15 partidas)</span>
+                        <span id="quoteItemsCountLabel" class="text-[10.5px] font-bold shrink-0 whitespace-nowrap" style="color:#252C32;">0 partidas</span>
                     </div>
-                    <div id="cartItemsContainer" class="space-y-1.5"></div>
+
+                    <!-- BARRA RÁPIDA DE ESCÁNER BLUETOOTH P2300L EN COTIZACIÓN (ANDROID / APPLE iOS) -->
+                    <div id="cartBtScanBar" class="inv-cart-bt-bar">
+                        <div class="inv-cart-bt-row">
+                            <span class="inv-cart-bt-ico" aria-hidden="true">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2M7 8v8M11 8v8M14 8v8M17 8v8"></path></svg>
+                            </span>
+                            <input
+                                id="cartBtScanInput"
+                                type="text"
+                                inputmode="none"
+                                enterkeyhint="search"
+                                autocomplete="off"
+                                autocorrect="off"
+                                autocapitalize="off"
+                                spellcheck="false"
+                                placeholder="Escanea SKU (P2300L)..."
+                                aria-label="Escanear código con lector Bluetooth P2300L"
+                                class="inv-cart-bt-input"
+                            >
+                            <button type="button" id="cartBtKbdToggleBtn" onclick="toggleBtInputSoftKeyboard('cartBtScanInput', this)"
+                                    class="inv-cart-bt-mini-btn" title="Mostrar u ocultar teclado táctil" aria-label="Alternar teclado">⌨️</button>
+                            <button type="button" onclick="openBarcodeScanner('bt')"
+                                    class="inv-cart-bt-open-btn" title="Abrir panel completo del escáner Bluetooth y cámara">BT / 📷</button>
+                        </div>
+                        <div class="inv-cart-bt-meta">
+                            <label class="inv-cart-bt-autoadd">
+                                <input type="checkbox" id="cartBtAutoAddToggle" checked>
+                                <span>Agregar automáticamente a cotización al escanear</span>
+                            </label>
+                            <span id="cartBtFocusPill" class="inv-cart-bt-pill">Toca el campo para escanear</span>
+                        </div>
+                        <div id="cartBtScanFeedback" class="inv-cart-bt-feedback hidden"></div>
+                    </div>
+
+                    <div id="cartItemsContainer" class="space-y-2"></div>
                 </div>
 
                 <!-- SECCIÓN 4: TOTALES Y DESCUENTO EXTRA -->
@@ -623,7 +667,7 @@
                     <div id="quoteDiscountLimitInfo" class="text-[10.5px] font-bold rounded-lg px-2 py-1" style="background:#FFFFFF; border:1px solid #E1DBC5; color:#252C32;"></div>
                     <div class="flex items-center justify-between gap-2 text-[11px]">
                         <label for="quoteExtraDiscountInput" class="font-bold uppercase">Descuento Extra ($):</label>
-                        <input id="quoteExtraDiscountInput" type="number" min="0" step="1" value="0" oninput="onExtraDiscountChange()"
+                        <input id="quoteExtraDiscountInput" type="number" inputmode="decimal" min="0" step="1" value="0" oninput="onExtraDiscountChange()"
                                class="w-28 rounded-lg border px-2 py-1 text-right text-[11px] font-extrabold outline-none"
                                style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
                     </div>
@@ -659,8 +703,8 @@
                 </div>
             </div>
 
-            <div class="px-3 py-2.5 border-t flex flex-wrap items-center justify-between gap-1.5" style="border-color:#E8E4DE; background:#FFFFFF;">
-                <div class="flex items-center gap-1.5">
+            <div class="inv-cart-modal-footer px-3 py-2.5 border-t flex flex-wrap items-center justify-between gap-1.5" style="border-color:#E8E4DE; background:#FFFFFF;">
+                <div class="inv-cart-footer-secondary flex items-center gap-1.5">
                     <button type="button" onclick="clearCart()" class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border" style="border-color:#E1DBC5; color:#252C32;">
                         Vaciar
                     </button>
@@ -671,7 +715,7 @@
                         Copiar
                     </button>
                 </div>
-                <div class="flex flex-wrap items-center gap-1.5 ml-auto">
+                <div class="inv-cart-footer-primary flex flex-wrap items-center gap-1.5 ml-auto">
                     <button type="button" id="btnLoadPlantillaReview" onclick="submitQuoteToSystem(false)"
                             class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border transition"
                             style="border-color:#252C32; background:#FFFFFF; color:#252C32;">
@@ -869,21 +913,106 @@
         </div>
     </div>
 
-    <!-- MODAL DE ESCÁNER CON LA CÁMARA DEL TELÉFONO -->
+    <!-- MODAL DE ESCÁNER BLUETOOTH P2300L (ANDROID / APPLE iOS) Y CÁMARA -->
     <div id="scanModal" class="modal-backdrop" style="z-index:90;" onclick="if(event.target===this) closeBarcodeScanner()">
-        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
-            <div class="px-5 py-3.5 flex items-center justify-between" style="background:#252C32; color:#FFFFFF;">
-                <h2 class="text-sm font-extrabold uppercase tracking-wider">Escanear código / SKU</h2>
-                <button type="button" onclick="closeBarcodeScanner()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg">✕</button>
+        <div class="inv-scan-modal-card bg-white rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
+            <div class="px-4 py-3 flex items-center justify-between gap-2 shrink-0" style="background:#252C32; color:#FFFFFF;">
+                <div class="min-w-0">
+                    <h2 class="text-xs sm:text-sm font-extrabold uppercase tracking-wider">Escáner · Bluetooth P2300L & Cámara</h2>
+                    <div id="scanModalSubtitle" class="text-[10px] font-semibold opacity-80" style="color:#E1DBC5;">Android · iPhone / iPad · PC</div>
+                </div>
+                <button type="button" onclick="closeBarcodeScanner()" class="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white text-lg shrink-0" aria-label="Cerrar">✕</button>
             </div>
-            <div class="p-4 space-y-3">
-                <div id="scanReader" class="w-full rounded-xl overflow-hidden" style="min-height:240px; background:#111;"></div>
-                <div id="scanStatus" class="text-xs font-semibold text-center" style="color:#252C32;">Apunta la cámara al código de barras o QR del producto.</div>
-                <label class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider border cursor-pointer"
-                       style="border-color:#A38251; color:#252C32; background:#FFFFFF;">
-                    📷 Tomar foto del código
-                    <input type="file" accept="image/*" capture="environment" class="hidden" onchange="scanBarcodeFromPhoto(this)">
-                </label>
+
+            <!-- PESTAÑAS DE MODO: BLUETOOTH P2300L vs CÁMARA -->
+            <div class="inv-scan-tabs px-3.5 pt-2.5 pb-2 border-b shrink-0" style="border-color:#EFECE6; background:#FAF9F6;">
+                <button type="button" id="scanTabBt" class="inv-scan-tab is-active" onclick="switchScannerModalTab('bt')">
+                    📡 Bluetooth (P2300L)
+                </button>
+                <button type="button" id="scanTabCam" class="inv-scan-tab" onclick="switchScannerModalTab('cam')">
+                    📷 Cámara
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-3.5 space-y-3">
+                <!-- PANEL 1: ESCÁNER BLUETOOTH P2300L (HID + BLE) -->
+                <div id="scanPanelBt" class="space-y-2.5">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span id="btScanStatusBadge" class="inv-bt-status-pill is-ready">
+                            <span class="inv-bt-status-dot"></span>
+                            <span id="btScanStatusText">Listo para leer escáner Bluetooth P2300L</span>
+                        </span>
+                        <button type="button" id="btnConnectBleScanner" onclick="toggleBleBarcodeScannerConnection()"
+                                class="hidden inv-bt-ble-btn" title="Conectar P2300L en modo Bluetooth BLE (Android / PC)">
+                            🔗 Conectar BLE
+                        </button>
+                    </div>
+
+                    <div class="inv-bt-capture-wrap" id="btScanCaptureWrap">
+                        <label for="btScanCaptureInput" class="inv-bt-capture-label">
+                            Dispara el escáner P2300L hacia el código de barras o QR
+                        </label>
+                        <div class="inv-bt-capture-row">
+                            <input
+                                id="btScanCaptureInput"
+                                type="text"
+                                inputmode="none"
+                                enterkeyhint="search"
+                                autocomplete="off"
+                                autocorrect="off"
+                                autocapitalize="off"
+                                spellcheck="false"
+                                placeholder="Escanea código P2300L..."
+                                aria-label="Campo receptor del escáner Bluetooth P2300L"
+                                class="inv-bt-capture-input"
+                            >
+                            <button type="button" id="btScanKbdToggleBtn" onclick="toggleBtInputSoftKeyboard('btScanCaptureInput', this)"
+                                    class="inv-cart-bt-mini-btn" title="Mostrar u ocultar teclado en pantalla" aria-label="Alternar teclado">⌨️</button>
+                            <button type="button" id="btScanManualSubmitBtn" onclick="submitBtCaptureInputNow()"
+                                    class="inv-bt-submit-btn">Leer</button>
+                        </div>
+                        <div class="inv-bt-options-row">
+                            <label class="inv-bt-check-opt">
+                                <input type="checkbox" id="btScanContinuousToggle" checked onchange="onBtContinuousToggleChange()">
+                                <span>Modo continuo (mostrar info aquí sin cerrar)</span>
+                            </label>
+                            <span id="btScanPlatformHint" class="inv-bt-platform-tag">HID Bluetooth</span>
+                        </div>
+                    </div>
+
+                    <!-- RESULTADO EN VIVO DE LA INFORMACIÓN LEÍDA POR EL P2300L -->
+                    <div id="btScanResultCard" class="inv-bt-result-card hidden"></div>
+
+                    <!-- HISTORIAL RECIENTE DE LECTURAS -->
+                    <div id="btScanHistoryWrap" class="hidden space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider" style="color:#6F6860;">Últimas lecturas</span>
+                            <button type="button" onclick="clearBtScanHistory()" class="text-[10px] font-bold underline" style="color:#9E7B4F;">Limpiar</button>
+                        </div>
+                        <div id="btScanHistoryList" class="inv-bt-history-list"></div>
+                    </div>
+
+                    <!-- GUÍA RÁPIDA DE CONEXIÓN P2300L (ANDROID Y APPLE iOS) -->
+                    <details class="inv-bt-guide">
+                        <summary>¿Cómo vincular el Pocket 2D P2300L en Android o Apple iPhone/iPad?</summary>
+                        <div class="inv-bt-guide-body">
+                            <p><strong>1. Emparejar P2300L (Modo HID — Android y Apple):</strong> Mantén presionado el botón principal del P2300L durante <strong>10 segundos</strong> hasta que parpadee la luz verde/azul. En <em>Ajustes → Bluetooth</em> de tu celular selecciona el lector (<code>P2300</code> / <code>Barcode Scanner HID</code>). Cuando quede luz <strong>azul fija</strong> ya está listo.</p>
+                            <p><strong>2. Apple iPhone / iPad:</strong> Mantén activo este cuadro (o la barra BT dentro de Cotización) y dispara el lector. Si necesitas escribir con el teclado en pantalla mientras el P2300L sigue conectado, presiona dos veces rápido el botón del escáner o usa el botón <strong>⌨️</strong>.</p>
+                            <p><strong>3. Android (HID o BLE):</strong> Funciona inmediato en modo HID sin abrir el teclado en pantalla. Si configuraste tu P2300L en modo <strong>BLE</strong>, toca <strong>Conectar BLE</strong> arriba.</p>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- PANEL 2: CÁMARA DEL TELÉFONO -->
+                <div id="scanPanelCam" class="hidden space-y-3">
+                    <div id="scanReader" class="w-full rounded-xl overflow-hidden" style="min-height:240px; background:#111;"></div>
+                    <div id="scanStatus" class="text-xs font-semibold text-center" style="color:#252C32;">Apunta la cámara al código de barras o QR del producto.</div>
+                    <label class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider border cursor-pointer"
+                           style="border-color:#A38251; color:#252C32; background:#FFFFFF;">
+                        📷 Tomar foto del código
+                        <input type="file" accept="image/*" capture="environment" class="hidden" onchange="scanBarcodeFromPhoto(this)">
+                    </label>
+                </div>
             </div>
         </div>
     </div>
@@ -1418,6 +1547,6 @@
     <script src="./creata-back-nav.js?v=1"></script>
     <script src="./seguimiento-app.js?v=15"></script>
     <script src="./historial-app.js?v=12"></script>
-    <script src="inventario-app.js?v=111"></script>
+    <script src="inventario-app.js?v=112"></script>
 </body>
 </html>

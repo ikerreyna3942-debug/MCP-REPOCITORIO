@@ -3792,7 +3792,8 @@ button, a, input, select, textarea {
   #settingsModal input,
   #settingsModal select,
   #uploadPhotoModal input,
-  #uploadPhotoModal select {
+  #uploadPhotoModal select,
+  #scanModal input {
     font-size: 16px !important;
   }
 
@@ -3804,6 +3805,11 @@ button, a, input, select, textarea {
   #cartModal select {
     min-height: 42px;
     padding: 8px 11px;
+  }
+
+  #cartModal input.inv-cart-bt-input {
+    min-height: 38px;
+    padding: 6px 10px;
   }
 
   #btnSearchErpClients {
@@ -3865,7 +3871,8 @@ button, a, input, select, textarea {
   #productDetailModal.modal-backdrop,
   #outOfStockRequestModal.modal-backdrop,
   #purchaseSuggestionModal.modal-backdrop,
-  #installAppModal.modal-backdrop {
+  #installAppModal.modal-backdrop,
+  #scanModal.modal-backdrop {
     align-items: flex-end;
     padding: env(safe-area-inset-top, 0px) 0 0 0;
   }
@@ -3874,7 +3881,8 @@ button, a, input, select, textarea {
   #productDetailModal > .inv-det-modal-card,
   #outOfStockRequestModal > div,
   #purchaseSuggestionModal > div,
-  #installAppModal > div {
+  #installAppModal > div,
+  #scanModal > .inv-scan-modal-card {
     width: 100% !important;
     max-width: 100% !important;
     max-height: 94dvh !important;
@@ -3887,17 +3895,20 @@ button, a, input, select, textarea {
   #cartModal input[type="text"],
   #cartModal input[type="tel"],
   #cartModal input[type="email"],
+  #cartModal input[type="date"],
   #purchaseSuggestionModal input[type="text"],
   #purchaseSuggestionModal textarea,
   #outOfStockRequestModal input,
   #outOfStockRequestModal textarea,
+  #scanModal input[type="text"],
   #invHeader #invSearchInput {
     -webkit-appearance: none;
     appearance: none;
   }
 
   #cartModal .overflow-y-auto,
-  #productDetailModal .inv-det-modal-card {
+  #productDetailModal .inv-det-modal-card,
+  #scanModal .overflow-y-auto {
     -webkit-overflow-scrolling: touch;
   }
 
@@ -3930,5 +3941,866 @@ button, a, input, select, textarea {
   background: #FBF6EE !important;
   box-shadow: 0 2px 10px rgba(158, 123, 79, 0.14);
 }
+
+/* ============================================================================
+ * Partidas de Cotización Responsivas (Android, iPhone/iPad y PC)
+ * ============================================================================ */
+#cartItemsContainer .inv-cart-item-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #E6E1D8;
+  background-color: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(26, 24, 22, 0.04);
+}
+
+#cartItemsContainer .inv-cart-item-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+  cursor: pointer;
+}
+
+#cartItemsContainer .inv-cart-item-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+#cartItemsContainer .inv-cart-item-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  line-height: 1.32;
+  color: #1A1816;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+#cartItemsContainer .inv-cart-item-num {
+  color: #8C8378;
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+#cartItemsContainer .inv-cart-item-sku {
+  display: inline-block;
+  font-family: var(--inv-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #6F6860;
+}
+
+#cartItemsContainer .inv-cart-item-prices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1px;
+}
+
+#cartItemsContainer .inv-cart-price-list {
+  color: #9E7B4F;
+  white-space: nowrap;
+}
+
+#cartItemsContainer .inv-cart-price-sub {
+  color: #1A1816;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+#cartItemsContainer .inv-cart-item-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px solid #F0ECE4;
+}
+
+#cartItemsContainer .inv-cart-item-disc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+#cartItemsContainer .inv-cart-disc-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #4A453F;
+  white-space: nowrap;
+}
+
+#cartItemsContainer .inv-cart-disc-max {
+  font-weight: 600;
+  color: #7D7469;
+  font-size: 9.5px;
+}
+
+#cartItemsContainer .inv-cart-disc-input {
+  width: 58px;
+  min-height: 34px;
+  padding: 3px 6px;
+  border-radius: 8px;
+  border: 1px solid #D9D1C3;
+  background-color: #FAF9F6;
+  color: #1A1816;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+#cartItemsContainer .inv-cart-disc-input::-webkit-outer-spin-button,
+#cartItemsContainer .inv-cart-disc-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+#cartItemsContainer .inv-cart-disc-input:focus {
+  border-color: #9E7B4F;
+  background-color: #FFFFFF;
+}
+
+#cartItemsContainer .inv-cart-item-qty-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+#cartItemsContainer .inv-cart-qty-btn {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 999px;
+  border: 1px solid #D9D1C3;
+  background-color: #FFFFFF;
+  color: #1A1816;
+  font-size: 15px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+  transition: background-color 130ms ease, transform 100ms ease;
+}
+
+#cartItemsContainer .inv-cart-qty-btn:active {
+  transform: scale(0.94);
+}
+
+#cartItemsContainer .inv-cart-qty-btn.is-plus {
+  border-color: #9E7B4F;
+  background-color: #9E7B4F;
+  color: #FFFFFF;
+}
+
+#cartItemsContainer .inv-cart-qty-val {
+  min-width: 24px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1A1816;
+  font-variant-numeric: tabular-nums;
+}
+
+#cartItemsContainer .inv-cart-remove-btn {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  margin-left: 4px;
+  border-radius: 999px;
+  border: 1px solid #F5BCBC;
+  background-color: #FEF1F1;
+  color: #9E1F1F;
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 130ms ease, transform 100ms ease;
+}
+
+#cartItemsContainer .inv-cart-remove-btn:active {
+  transform: scale(0.94);
+}
+
+#cartItemsContainer .inv-cart-locked-qty {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #E6E1D8;
+  background-color: #FAF9F6;
+  color: #1A1816;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+@media (min-width: 720px) {
+  #cartItemsContainer .inv-cart-item-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 11px;
+  }
+
+  #cartItemsContainer .inv-cart-item-main {
+    flex: 1 1 260px;
+    width: auto;
+    align-items: center;
+  }
+
+  #cartItemsContainer .inv-cart-item-controls {
+    width: auto;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    border-top: none;
+    padding-top: 0;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  #cartItemsContainer .inv-cart-disc-input {
+    width: 52px;
+    min-height: 30px;
+    font-size: 11.5px;
+  }
+
+  #cartItemsContainer .inv-cart-qty-btn,
+  #cartItemsContainer .inv-cart-remove-btn {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    font-size: 12px;
+  }
+
+  #cartItemsContainer .inv-cart-qty-val {
+    min-width: 20px;
+    font-size: 11.5px;
+  }
+}
+
+@media (max-width: 639px) {
+  #cartModal .inv-quote-drafts-bar {
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  #cartModal .inv-quote-drafts-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    max-width: 100%;
+    padding-bottom: 1px;
+  }
+
+  #cartModal .inv-quote-drafts-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  #cartModal .inv-quote-drafts-tabs > * {
+    flex-shrink: 0;
+  }
+
+  #cartModal .inv-cart-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  #cartModal .inv-cart-footer-secondary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+  }
+
+  #cartModal .inv-cart-footer-secondary button {
+    min-height: 38px;
+    width: 100%;
+    text-align: center;
+    font-size: 11.5px;
+    border-radius: 10px;
+  }
+
+  #cartModal .inv-cart-footer-primary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    gap: 8px;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  #cartModal .inv-cart-footer-primary button {
+    min-height: 44px;
+    width: 100%;
+    text-align: center;
+    font-size: 11.5px;
+    border-radius: 10px;
+    padding: 8px 10px;
+  }
+
+  #cartItemsContainer .inv-thumb {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+  }
+
+  #cartModal input[type="date"] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+}
+
+/* ============================================================================
+ * Escáner Bluetooth Pocket 2D P2300L (HID + BLE) & Cámara — Android / Apple iOS
+ * ============================================================================ */
+#invHeader .inv-hdr-btn-bt {
+  position: relative;
+  border-color: rgba(158, 123, 79, 0.78);
+  background-color: rgba(158, 123, 79, 0.24);
+  color: #FAF8F3;
+}
+
+#invHeader .inv-hdr-btn-bt.is-bt-connected {
+  border-color: #10B981;
+  background-color: rgba(16, 185, 129, 0.24);
+  color: #ECFDF5;
+}
+
+#invHeader .inv-bt-hdr-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background-color: #A38251;
+  flex-shrink: 0;
+}
+
+#invHeader .inv-hdr-btn-bt.is-bt-connected .inv-bt-hdr-dot {
+  background-color: #10B981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);
+}
+
+@media (max-width: 429px) {
+  #invHeader .inv-hdr-lbl-bt {
+    display: none;
+  }
+  #invHeader .inv-hdr-btn-bt {
+    padding: 2px 7px;
+  }
+}
+
+/* Barra rápida Bluetooth P2300L dentro de Cotización (#cartModal) */
+.inv-cart-bt-bar {
+  border: 1px solid #DFCCB2;
+  background-color: #FAF6EE;
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inv-cart-bt-bar.is-armed {
+  border-color: #10B981;
+  background-color: #F0FDF7;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.14);
+}
+
+.inv-cart-bt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.inv-cart-bt-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background-color: #252C32;
+  color: #FFFFFF;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.inv-cart-bt-ico svg {
+  width: 15px;
+  height: 15px;
+}
+
+.inv-cart-bt-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  padding: 4px 10px;
+  border-radius: 9px;
+  border: 1px solid #D9CEBC;
+  background-color: #FFFFFF;
+  color: #1A1816;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+}
+
+.inv-cart-bt-input:focus {
+  border-color: #10B981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.16);
+}
+
+.inv-cart-bt-mini-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 9px;
+  border: 1px solid #D9CEBC;
+  background-color: #FFFFFF;
+  color: #252C32;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.inv-cart-bt-mini-btn.is-kbd-open {
+  border-color: #9E7B4F;
+  background-color: #FBF6EE;
+}
+
+.inv-cart-bt-open-btn {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: none;
+  background-color: #252C32;
+  color: #FFFFFF;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.inv-cart-bt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #4A453F;
+}
+
+.inv-cart-bt-autoadd {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.inv-cart-bt-autoadd input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #9E7B4F;
+  margin: 0;
+}
+
+.inv-cart-bt-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: #FFFFFF;
+  border: 1px solid #E1DBC5;
+  color: #6F6860;
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.inv-cart-bt-bar.is-armed .inv-cart-bt-pill {
+  border-color: #86EFAC;
+  background-color: #ECFDF5;
+  color: #065F46;
+}
+
+.inv-cart-bt-feedback {
+  border-radius: 10px;
+  border: 1px solid #E1DBC5;
+  background-color: #FFFFFF;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: #1A1816;
+}
+
+.inv-cart-bt-feedback.is-ok {
+  border-color: #A7F3D0;
+  background-color: #ECFDF5;
+}
+
+.inv-cart-bt-feedback.is-warn {
+  border-color: #FDE68A;
+  background-color: #FFFBEB;
+}
+
+/* Modal Escáner (#scanModal) — Pestañas Bluetooth P2300L & Cámara */
+.inv-scan-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.inv-scan-tab {
+  min-height: 38px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #E1DBC5;
+  background-color: #FFFFFF;
+  color: #4A453F;
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.inv-scan-tab.is-active {
+  background-color: #252C32;
+  border-color: #252C32;
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(37, 44, 50, 0.18);
+}
+
+.inv-bt-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #E1DBC5;
+  background-color: #FAF9F6;
+  color: #4A453F;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.inv-bt-status-pill.is-ready {
+  border-color: #A7F3D0;
+  background-color: #ECFDF5;
+  color: #065F46;
+}
+
+.inv-bt-status-pill.is-ble {
+  border-color: #93C5FD;
+  background-color: #EFF6FF;
+  color: #1E40AF;
+}
+
+.inv-bt-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background-color: #9CA3AF;
+  flex-shrink: 0;
+}
+
+.inv-bt-status-pill.is-ready .inv-bt-status-dot {
+  background-color: #10B981;
+}
+
+.inv-bt-status-pill.is-ble .inv-bt-status-dot {
+  background-color: #2563EB;
+}
+
+.inv-bt-ble-btn {
+  min-height: 32px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid #252C32;
+  background-color: #FFFFFF;
+  color: #252C32;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.inv-bt-ble-btn.is-connected {
+  border-color: #2563EB;
+  background-color: #2563EB;
+  color: #FFFFFF;
+}
+
+.inv-bt-capture-wrap {
+  border: 1.5px solid #DFCCB2;
+  background-color: #FAF6EE;
+  border-radius: 13px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.inv-bt-capture-wrap.is-focused {
+  border-color: #10B981;
+  background-color: #F0FDF7;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.inv-bt-capture-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #252C32;
+}
+
+.inv-bt-capture-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inv-bt-capture-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  border: 1px solid #D9CEBC;
+  background-color: #FFFFFF;
+  color: #1A1816;
+  font-family: var(--inv-font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  outline: none;
+}
+
+.inv-bt-capture-input:focus {
+  border-color: #10B981;
+}
+
+.inv-bt-submit-btn {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: none;
+  background-color: #9E7B4F;
+  color: #FFFFFF;
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.inv-bt-options-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.inv-bt-check-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #252C32;
+  cursor: pointer;
+}
+
+.inv-bt-check-opt input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #9E7B4F;
+  margin: 0;
+}
+
+.inv-bt-platform-tag {
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: #FFFFFF;
+  border: 1px solid #E1DBC5;
+  color: #6F6860;
+}
+
+.inv-bt-result-card {
+  border-radius: 13px;
+  border: 1px solid #E1DBC5;
+  background-color: #FFFFFF;
+  padding: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  box-shadow: 0 2px 10px rgba(26, 24, 22, 0.06);
+}
+
+.inv-bt-result-card.is-hit {
+  border-color: #A7F3D0;
+  background-color: #FFFFFF;
+}
+
+.inv-bt-result-card.is-warn {
+  border-color: #F5D59B;
+  background-color: #FFFDF7;
+}
+
+.inv-bt-result-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.inv-bt-result-thumb {
+  width: 68px;
+  height: 68px;
+  min-width: 68px;
+  border-radius: 10px;
+  border: 1px solid #EFECE6;
+  background-color: #FFFFFF;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.inv-bt-result-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.inv-bt-result-wh-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.inv-bt-wh-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid #E6E1D8;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.inv-bt-wh-chip.is-full {
+  grid-column: 1 / -1;
+}
+
+.inv-bt-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inv-bt-result-actions button {
+  flex: 1 1 120px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.inv-bt-history-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inv-bt-history-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid #E1DBC5;
+  background-color: #FAF9F6;
+  color: #252C32;
+  font-family: var(--inv-font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inv-bt-history-chip:hover {
+  border-color: #9E7B4F;
+  background-color: #FBF6EE;
+}
+
+.inv-bt-guide {
+  border-radius: 11px;
+  border: 1px solid #E8E4DE;
+  background-color: #FAF9F6;
+  padding: 8px 11px;
+  font-size: 11px;
+  color: #4A453F;
+}
+
+.inv-bt-guide summary {
+  font-weight: 800;
+  color: #252C32;
+  cursor: pointer;
+  user-select: none;
+}
+
+.inv-bt-guide-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.45;
+}
+
+.inv-bt-guide-body p {
+  margin: 0;
+}
+
 
 
