@@ -18243,6 +18243,19 @@
         return false;
     }
 
+    function applyIosNoAutoZoomViewportGuard() {
+        try {
+            if (!isIosMobileDevice() || typeof document === 'undefined' || !document.querySelector) return;
+            const vp = document.querySelector('meta[name="viewport"]');
+            if (!vp) return;
+            const content = String(vp.getAttribute('content') || '');
+            if (!/maximum-scale\s*=/i.test(content)) {
+                vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover');
+            }
+        } catch (e) {}
+    }
+    applyIosNoAutoZoomViewportGuard();
+
     function syncPwaInstallButtonState() {
         const fabBtn = document.getElementById('fabInstallAppBtn');
         const headerBtn = document.getElementById('headerInstallAppBtn');

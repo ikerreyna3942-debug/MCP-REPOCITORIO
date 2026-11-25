@@ -484,15 +484,15 @@
 
                     <!-- BUSCADOR DE CLIENTES REGISTRADOS -->
                     <div class="rounded-xl border p-2 space-y-1.5" style="border-color:#E1DBC5; background:#FAF9F6;">
-                        <form class="inv-erp-client-search-row flex flex-wrap sm:flex-nowrap items-center gap-1.5" onsubmit="event.preventDefault(); searchErpClientsLive();">
+                        <form class="inv-erp-client-search-row flex flex-nowrap items-stretch gap-1.5" onsubmit="event.preventDefault(); searchErpClientsLive();">
                             <input id="quoteErpClientSearchInput" type="search" enterkeyhint="search" autocomplete="off"
-                                   placeholder="Buscar cliente (nombre, teléfono, correo o No. cliente)..."
-                                   class="flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
+                                   placeholder="Buscar cliente (nombre, tel., correo o No.)..."
+                                   class="flex-1 min-w-0 w-full rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
                                    style="border-color:#E1DBC5; background:#FFFFFF; color:#252C32;">
                             <button type="submit" id="btnSearchErpClients"
-                                    class="px-3 py-1.5 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider shrink-0 transition"
+                                    class="px-3 py-1.5 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider shrink-0 transition whitespace-nowrap"
                                     style="background:#252C32; color:#FFFFFF;">
-                                Buscar cliente
+                                Buscar<span class="hidden sm:inline"> cliente</span>
                             </button>
                         </form>
                         <div id="quoteSelectedErpClientBadge" class="hidden rounded-lg border px-2.5 py-1.5 text-[11px] font-bold flex items-center justify-between gap-2 sem-green"></div>
@@ -586,7 +586,7 @@
                                    class="w-full rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold outline-none"
                                    style="border-color:#E1DBC5; color:#252C32;">
                         </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <div class="grid grid-cols-2 gap-1.5">
                             <div class="min-w-0">
                                 <label class="block text-[10px] font-bold uppercase mb-0.5" style="color:#252C32;">Teléfono (Opcional)</label>
                                 <input id="quoteClientPhoneInput" type="tel" oninput="saveQuoteDraftMeta()"

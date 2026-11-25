@@ -295,9 +295,12 @@ test('Static Contracts: Mobile Cotización card layout, balanced footer, iOS ant
   assert.match(INV_CSS, /#cartModal\s+\.inv-cart-footer-secondary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(INV_CSS, /#cartModal\s+\.inv-cart-footer-primary\s*\{[\s\S]*?grid-template-columns:/);
 
-  // iOS Safari anti-zoom & bottom-sheet coverage includes #scanModal
-  assert.match(INV_CSS, /#scanModal\s+input\s*\{[\s\S]*?font-size:\s*16px\s*!important;/);
+  // Mobile Cotización proportional typography, 1-line client search bar, and iOS viewport anti-zoom guard
+  assert.match(INV_CSS, /#cartModal\s+select\s*\{[\s\S]*?font-size:\s*11px\s*!important;/);
+  assert.match(INV_CSS, /#cartModal\s+\.inv-erp-client-search-row\s*\{[\s\S]*?flex-direction:\s*row\s*!important;/);
+  assert.match(INV_CSS, /#scanModal\s+input\s*\{[\s\S]*?font-size:\s*13px\s*!important;/);
   assert.match(INV_CSS, /#scanModal\.modal-backdrop\s*\{[\s\S]*?align-items:\s*flex-end;/);
+  assert.match(INV_JS, /function applyIosNoAutoZoomViewportGuard\(/);
 
   // HTML elements for P2300L Bluetooth scanner & mobile Cotización
   assert.ok(INV_HTML.includes('id="headerBtScanBtn"'), 'Header must include quick BT scanner button');
