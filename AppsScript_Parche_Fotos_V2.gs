@@ -945,7 +945,7 @@ function invalidateLoadedFileNamesCache_() {
   try { CacheService.getScriptCache().remove(getProjectALoadedNamesCacheKey_()); } catch (e) {}
 }
 
-function resolveSubirInboxFolders_() {
+function resolveSubirInboxFolders_(ancestorMemo) {
   const folders = [];
   const folderIdsMap = {};
   let primaryFolder = null;
@@ -956,7 +956,7 @@ function resolveSubirInboxFolders_() {
       if (folderObj.isTrashed && folderObj.isTrashed()) return;
       const fid = String(folderObj.getId() || '').trim();
       if (!fid || folderIdsMap[fid]) return;
-      if (isForbiddenProjectBFolderId_(fid) || isFolderOrAncestorForbiddenProjectB_(folderObj, 8)) return;
+      if (isForbiddenProjectBFolderId_(fid) || isFolderOrAncestorForbiddenProjectB_(folderObj, 8, ancestorMemo)) return;
       if (isDestCategoryFolderId_(fid)) return;
       folderIdsMap[fid] = true;
       folders.push(folderObj);
@@ -994,8 +994,9 @@ function resolveSubirInboxFolders_() {
 function listSubirInboxFilesInternal_(opts) {
   const includeThumbs = !!(opts && opts.includeThumbs);
   const startListMs = Date.now();
+  const ancestorMemo = {};
   ensureProjectAPublicFolders_(false);
-  const resolved = resolveSubirInboxFolders_();
+  const resolved = resolveSubirInboxFolders_(ancestorMemo);
   const inboxFolders = resolved.folders || [];
   const inboxMap = resolved.folderIdsMap || {};
   const seenFileIds = {};
@@ -1032,13 +1033,12 @@ function listSubirInboxFilesInternal_(opts) {
         }
         const fid = String(f.getId() || '').trim();
         if (!fid || seenFileIds[fid]) continue;
-        if (isFileInForbiddenProjectBFolder_(f)) continue;
-        if (!isFileInProjectAAllowedFolders_(f, inboxMap)) continue;
+        if (!isFileInProjectAAllowedFolders_(f, inboxMap, ancestorMemo)) continue;
         const name = String(f.getName() || '').trim();
         const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif|tiff?)$/i.test(name);
         if (!isImg) continue;
         seenFileIds[fid] = true;
-        if ((Date.now() - startListMs) < 2500) {
+        if ((Date.now() - startListMs) < 900) {
           ensurePublicSharingItem_(f);
         }
         const updated = f.getLastUpdated();

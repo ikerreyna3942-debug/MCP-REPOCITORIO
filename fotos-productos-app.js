@@ -362,6 +362,8 @@
         return false;
     }
 
+    let _inboxConsecutiveSyncFails = 0;
+
     async function runSilentFotosLiveTick(kind) {
         if (isFotosBusyForLivePoll()) return;
         _liveSyncPendingCount++;
@@ -393,7 +395,11 @@
         } finally {
             _liveSyncPendingCount = Math.max(0, _liveSyncPendingCount - 1);
             if (_liveSyncPendingCount === 0) {
-                setFotosLiveStatus('live');
+                if (_inboxConsecutiveSyncFails > 0) {
+                    setFotosLiveStatus('offline', 'Reconectando');
+                } else {
+                    setFotosLiveStatus('live');
+                }
             }
         }
     }
@@ -3411,12 +3417,16 @@
             container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">Cargando...</div>';
         }
 
+        const loadedCountKnown = Object.keys(state.loadedFileNamesById || {}).length;
+        const needLoadedNames = Boolean(manualRefresh || loadedCountKnown === 0);
+        const inboxTimeoutMs = 75000;
         let res = null;
         try {
-            const listPayload = Object.assign({ includeLoadedNames: true }, buildOwnerAuthPayload());
-            res = await callWebAppPost('fotos_subir_list', listPayload, 30000);
+            const listPayload = Object.assign({ includeLoadedNames: needLoadedNames }, buildOwnerAuthPayload());
+            res = await callWebAppPost('fotos_subir_list', listPayload, inboxTimeoutMs);
             if ((!res || res.unavailable) && !isSilent && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
-                res = await callWebAppPost('fotos_subir_list', listPayload, 30000);
+                const retryPayload = Object.assign({ includeLoadedNames: false }, buildOwnerAuthPayload());
+                res = await callWebAppPost('fotos_subir_list', retryPayload, inboxTimeoutMs);
             }
         } finally {
             state.inboxLoading = false;
@@ -3424,6 +3434,8 @@
         }
 
         if (res && res.ok && Array.isArray(res.files)) {
+            _inboxConsecutiveSyncFails = 0;
+            if (_liveSyncPendingCount === 0) setFotosLiveStatus('live');
             let loadedNamesChanged = false;
             if (res.loadedFileNames && typeof res.loadedFileNames === 'object' && !Array.isArray(res.loadedFileNames)) {
                 const prevCount = Object.keys(state.loadedFileNamesById || {}).length;
@@ -3471,6 +3483,15 @@
             state.inboxFiles = filterAndMergeInboxFiles(state.rawInboxFromDrive);
             if (!isSilent) renderInboxGallery();
             return;
+        }
+
+        _inboxConsecutiveSyncFails++;
+        setFotosLiveStatus('offline', 'Reconectando');
+        if (manualRefresh) {
+            showAssignFeedback(
+                '⚠️ ' + escapeHtml(errMsg || 'Google Drive tardó en responder al actualizar SUBIR PREN. Intenta de nuevo en unos segundos.'),
+                false
+            );
         }
 
         if (!isSilent && container && state.galleryMode === 'INBOX' && !state.inboxFiles.length) {
@@ -7213,6 +7234,16 @@
         } catch (eSw) {}
 
         document.addEventListener('click', handleDelegatedFotosClick);
+        const livePillEl = document.getElementById('fotosLiveStatusPill');
+        if (livePillEl) {
+            livePillEl.style.cursor = 'pointer';
+            livePillEl.title = 'Toca para actualizar SUBIR PREN y catálogo ahora';
+            livePillEl.addEventListener('click', () => {
+                if (state.unlocked && typeof window.refreshAllPhotoWorkspace === 'function') {
+                    window.refreshAllPhotoWorkspace(true);
+                }
+            });
+        }
 
         window.addEventListener('beforeinstallprompt', (ev) => {
             ev.preventDefault();
