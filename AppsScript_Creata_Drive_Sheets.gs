@@ -69,14 +69,17 @@ function getSpreadsheet_() {
   return SpreadsheetApp.openById(CONFIG.SHEET_ID);
 }
 
+const DEFAULT_AUTH_SPREADSHEET_ID_ = '1CqZyNaHUU5YiOFrN-8hXuTvJqoD_IgSvULhiffSF_lQ';
+
 /**
- * Seguridad (P0-01): Permite alojar CUENTAS ADMINISTRATIVAS e INVITADOS en un libro PRIVADO
- * configurado en ScriptProperties ("AUTH_SPREADSHEET_ID"), con respaldo transparente al libro
- * actual mientras se realiza la migración sin interrumpir producción.
+ * Seguridad (P0-01): Aloja CUENTAS ADMINISTRATIVAS e INVITADOS en un único libro PRIVADO
+ * ("CREATA_AUTH_PRIVADO_NO_COMPARTIR" / ScriptProperties "AUTH_SPREADSHEET_ID"), con respaldo
+ * transparente solo si el libro privado no está disponible en entornos de prueba.
  */
 function getAuthSpreadsheet_(fallbackSs) {
   try {
-    const authId = getProp_('AUTH_SPREADSHEET_ID');
+    const configuredId = getProp_('AUTH_SPREADSHEET_ID');
+    const authId = configuredId || DEFAULT_AUTH_SPREADSHEET_ID_;
     if (authId && authId !== CONFIG.SHEET_ID) {
       return SpreadsheetApp.openById(authId);
     }
@@ -1111,7 +1114,7 @@ function doGet(e) {
   try {
     const ss = getSpreadsheet_();
     publishWebAppUrlToConfigSheet_(ss);
-    try { ensureInvitadosSheet_(ss); } catch (eInvInit) {}
+    try { ensureInvitadosSheet_(getAuthSpreadsheet_(ss)); } catch (eInvInit) {}
     const shProd = ss.getSheetByName(CONFIG.TAB_PRODUCTS);
     if (!shProd || shProd.getLastRow() <= 1) {
       try {
@@ -1195,6 +1198,25 @@ function doPost(e) {
         return jsonResponse_({ ok: false });
       }
       return jsonResponse_(handleInvLogin_(body));
+    }
+    if (action === 'inv_users_directory') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_users_dir', maxHits: 30, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false });
+      try {
+        return jsonResponse_(handleInvUsersDirectory_());
+      } catch (err) {
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : String(err) });
+      }
+    }
+    if (action === 'inv_my_directory') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_my_dir', maxHits: 45, windowSec: 60 });
+      if (!gate.ok) return jsonResponse_({ ok: false, authRequired: true });
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleInvMyDirectory_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : String(err) });
+      }
     }
     if (action === 'inv_guest_heartbeat') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_hb', maxHits: 30, windowSec: 60 });
@@ -3062,7 +3084,7 @@ function ensureInvitadosSheet_(ss) {
 }
 
 function crearVerificarHojaInvitados() {
-  const ss = getSpreadsheet_();
+  const ss = getAuthSpreadsheet_(getSpreadsheet_());
   const sh = ensureInvitadosSheet_(ss);
   try {
     SpreadsheetApp.getUi().alert(
@@ -4154,7 +4176,7 @@ function sanitizeUserForClient_(u, includeSignedToken) {
 
 function handleInvUsersDirectory_() {
   const ss = getSpreadsheet_();
-  try { ensureInvitadosSheet_(ss); } catch (e) {}
+  try { ensureInvitadosSheet_(getAuthSpreadsheet_(ss)); } catch (e) {}
   const erpMeta = readErpAdvisorsFromPlantilla_(ss);
   const users = readAllBranchUsers_(ss, erpMeta.advisors);
   return {
@@ -4162,6 +4184,52 @@ function handleInvUsersDirectory_() {
     stores: erpMeta.stores,
     advisors: erpMeta.advisors.map((a) => ({ label: a.label, branch: a.branch, id: a.id })),
     users: users.map((u) => sanitizeUserForClient_(u, false))
+  };
+}
+
+function filterScopedDirectoryUsers_(allUsers, verifiedUser, userMatchesOpt) {
+  const list = Array.isArray(allUsers) ? allUsers : [];
+  if (!verifiedUser || isGuestReadOnlyUser_(verifiedUser)) return [];
+  const cleanSelf = String(verifiedUser.correo || '').trim().toLowerCase();
+  const nonGuests = list.filter((u) => u && !isGuestReadOnlyUser_(u));
+  if (verifiedUser.isAdmin) {
+    return nonGuests.map((u) => sanitizeUserForClient_(u, false));
+  }
+  if (isManagerUserRole_(verifiedUser)) {
+    const allowedStores = {};
+    const selfRows = Array.isArray(userMatchesOpt) && userMatchesOpt.length ? userMatchesOpt : [verifiedUser];
+    for (let i = 0; i < selfRows.length; i++) {
+      const sr = selfRows[i];
+      if (!sr || isGuestReadOnlyUser_(sr)) continue;
+      const stNorm = normalizeQuoteErpStore_(sr.erpStore, sr.sheetTab);
+      if (stNorm) allowedStores[stNorm] = true;
+    }
+    return nonGuests
+      .filter((u) => {
+        const em = String(u.correo || '').trim().toLowerCase();
+        if (em === cleanSelf) return true;
+        if (u.isAdmin) return false;
+        const uSt = normalizeQuoteErpStore_(u.erpStore, u.sheetTab);
+        return !!(uSt && allowedStores[uSt]);
+      })
+      .map((u) => sanitizeUserForClient_(u, false));
+  }
+  return nonGuests
+    .filter((u) => String(u.correo || '').trim().toLowerCase() === cleanSelf)
+    .map((u) => sanitizeUserForClient_(u, false));
+}
+
+function handleInvMyDirectory_(body) {
+  const b = body || {};
+  const ss = getSpreadsheet_();
+  const erpMeta = readErpAdvisorsFromPlantilla_(ss);
+  const auth = resolveAuthenticatedAdvisor_(ss, erpMeta.advisors, b);
+  if (!auth || !auth.ok || !auth.advisor || isGuestReadOnlyUser_(auth.advisor)) {
+    return { ok: false, authRequired: true };
+  }
+  return {
+    ok: true,
+    users: filterScopedDirectoryUsers_(auth.allUsers, auth.advisor, auth.userMatches)
   };
 }
 
@@ -4401,15 +4469,20 @@ function handleInvUpdateKey_(body) {
       const defKey = cleanSheetKeyCell_(vals[i][6]);
       if (currentKey && (keysEqualNormalized_(currentKey, tempKey) || keysEqualNormalized_(currentKey, defKey))) {
         anyAuthorized = true;
-      } else if (tokenMatchesEmail && cfg.isGuest && !defKey && !tempKey) {
+      } else if (tokenMatchesEmail && !defKey && (!!tempKey || cfg.isGuest)) {
+        // Permite completar el cambio obligatorio de contraseña temporal con token HMAC válido incluso si el teléfono recargó la vista
         anyAuthorized = true;
       }
       const extraTabs = [];
       if (isUnified) {
         const colB = String((dispVals[i] && dispVals[i][1]) || vals[i][1] || '').trim();
         const stInfo = extractAssignedStoresFromRow_(hdrVals, vals[i], dispVals[i], colB);
-        for (let sIdx = 0; sIdx < stInfo.stores.length; sIdx++) {
-          extraTabs.push(stInfo.stores[sIdx]);
+        if (stInfo.stores.length) {
+          for (let sIdx = 0; sIdx < stInfo.stores.length; sIdx++) {
+            extraTabs.push(stInfo.stores[sIdx]);
+          }
+        } else {
+          extraTabs.push('PROYECTOS');
         }
       }
       matchedTargets.push({ sh: sh, rowNum: startRow + i, tabName: sh.getName(), extraTabs: extraTabs });
@@ -4441,6 +4514,9 @@ function handleInvUpdateKey_(body) {
         }
       }
     }
+  }
+  if (activeTab && !tokensByTab[activeTab]) {
+    tokensByTab[activeTab] = issueInvAuthToken_(email, activeTab);
   }
 
   SpreadsheetApp.flush();
@@ -7371,7 +7447,7 @@ function handleInvDownloadErpQuotePdf_(body) {
  */
 function organizarCuentasYDescuentosEnHojas(opts) {
   const silentUi = !!(opts && opts.silentUi);
-  const ss = getSpreadsheet_();
+  const ss = getAuthSpreadsheet_(getSpreadsheet_());
 
   // Si la hoja unificada CUENTAS ADMINISTRATIVAS (A:Z con tiendas V:Z) ya está activa, protegerla y evitar recrear las hojas de tiendas eliminadas
   const existingUnified = ss.getSheetByName(TAB_CUENTAS_ADMIN_);
@@ -7951,7 +8027,7 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
       return { ok: false, error: 'Hoja INVENTARIO_EN_VIVO no inicializada.' };
     }
     asegurarColumnaTotalInventario_(ss, shInv);
-    try { ensureInvitadosSheet_(ss); } catch (eInvEnsure) {}
+    try { ensureInvitadosSheet_(getAuthSpreadsheet_(ss)); } catch (eInvEnsure) {}
     try { ensureProjectAPublicFolders_(false); } catch (ePubFolders) {}
 
     // 1) Obtener existencias Bodega y Piso en vivo desde S Mueblería ERP.
@@ -12447,26 +12523,9 @@ function readInventoryMapForSkus_(ssInv, targetSkusSet) {
 }
 
 function sincronizarPasswordEnHojaSeguimiento_(email, newKey) {
-  try {
-    const em = String(email || '').trim().toLowerCase();
-    const nk = String(newKey || '').trim();
-    if (!em || !nk) return;
-    const ssSeg = getSpreadsheetSeguimiento_();
-    if (!ssSeg) return;
-    const tabs = ['CUENTAS ADMINISTRATIVAS', 'PLAYA', 'COLOCIO', 'COLOSIO', 'PTC', 'CASA CREATA', 'PROYECTOS', 'INVITADOS'];
-    for (let t = 0; t < tabs.length; t++) {
-      const sh = ssSeg.getSheetByName(tabs[t]);
-      if (!sh || sh.getLastRow() < 2) continue;
-      const vals = sh.getRange(1, 1, sh.getLastRow(), Math.max(7, sh.getLastColumn())).getValues();
-      for (let r = 0; r < vals.length; r++) {
-        const rowEm = String(vals[r][4] || '').trim().toLowerCase();
-        if (rowEm === em) {
-          sh.getRange(r + 1, 6).clearContent();
-          sh.getRange(r + 1, 7).setNumberFormat('@').setValue(nk);
-        }
-      }
-    }
-  } catch (eSegPwd) {}
+  // Directorio unificado de cuentas y contraseñas exclusivamente en el libro privado CREATA_AUTH_PRIVADO_NO_COMPARTIR (getAuthSpreadsheet_).
+  // No replicar contraseñas hacia pestañas legadas de COTIZACIONES BASE DE DATOS.
+  return;
 }
 
 function extractPreSuppliedStockBreakdown_(pt) {
@@ -13158,13 +13217,16 @@ function handleSegGetState_(body) {
     sheetsOut.INVENTARIO_EN_VIVO = invFullRows;
   }
 
+  const advisorsDirectory = filterScopedDirectoryUsers_(authCheck.allUsers, verifiedUser, authCheck.userMatches);
+
   return {
     ok: true,
     updatedAt: new Date().toISOString(),
     roleScope: scope.roleScope,
     syncBanner: invRes.syncBanner || '',
     sheets: sheetsOut,
-    inventoryPhotosBySku: inventoryPhotosBySku
+    inventoryPhotosBySku: inventoryPhotosBySku,
+    advisorsDirectory: advisorsDirectory
   };
 }
 
@@ -13252,6 +13314,7 @@ function handleSegGetDelta_(body) {
       syncBanner: liveInvBanner,
       sheets: fullState.sheets,
       stockDeltaBySku: fullState.inventoryPhotosBySku || {},
+      advisorsDirectory: fullState.advisorsDirectory || [],
       summary: { fullBootstrap: true }
     };
   }

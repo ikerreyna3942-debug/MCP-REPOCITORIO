@@ -516,11 +516,125 @@
     };
   }
 
-  async function fetchUnifiedAdvisorsDirectory(forceRefresh) {
+  function buildSegDirectoryFromApiUsers(apiUsers) {
+    if (!Array.isArray(apiUsers) || !apiUsers.length) return [];
+    const out = [];
+    for (const u of apiUsers) {
+      if (!u) continue;
+      const correo = normalizeEmail(u.correo);
+      const nombre = cleanStr(u.nombre);
+      if (!correo || !correo.includes('@') || !nombre) continue;
+      if (u.isGuest || u.is_guest || u.soloLectura) continue;
+      const puesto = cleanStr(u.puesto) || 'Asesor Interiorista';
+      const isAdmin = !!(u.isAdmin || u.is_admin || u.es_admin || u.is_master);
+      const esGerente = isGerenteRole(puesto, isAdmin);
+      const rawBranch = cleanStr(u.sucursal || u.branchKey || u.erpStore || u.sheetTab || u.sheet_tab);
+      const sucursal = isAdmin ? 'TODAS' : (mapTabToBranchKey(rawBranch) || 'PROYECTOS');
+      out.push({
+        source: 'API',
+        sheet_tab: cleanStr(u.sheetTab || u.sheet_tab) || (isAdmin ? 'CUENTAS ADMINISTRATIVAS' : sucursal),
+        sucursal,
+        sucursal_label: getBranchLabel(sucursal),
+        nombre,
+        puesto,
+        correo,
+        telefono: '',
+        es_gerente: esGerente,
+        es_admin: isAdmin,
+        is_master: isAdmin,
+        tokens: normalizeText(nombre).split(' ').filter(t => t.length > 2)
+      });
+    }
+    return out;
+  }
+
+  function finalizeSegDirectoryFromRecords(records) {
+    if (records.length > 0) {
+      writeJsonStorage(SEG_DIRECTORY_CACHE_KEY, records);
+    } else {
+      const cachedDirRecords = readJsonStorage(SEG_DIRECTORY_CACHE_KEY, []);
+      if (Array.isArray(cachedDirRecords)) {
+        for (const cr of cachedDirRecords) {
+          if (!cr || !cr.correo) continue;
+          records.push({
+            ...cr,
+            correo: normalizeEmail(cr.correo),
+            tokens: Array.isArray(cr.tokens) ? cr.tokens : normalizeText(cr.nombre).split(' ').filter(t => t.length > 2)
+          });
+        }
+      }
+    }
+
+    const byEmail = {};
+    for (const rec of records) {
+      if (!byEmail[rec.correo]) {
+        byEmail[rec.correo] = { primary: rec, branches: new Set(), phones: new Set() };
+      }
+      const g = byEmail[rec.correo];
+      if (rec.sucursal && rec.sucursal !== 'TODAS') g.branches.add(rec.sucursal);
+      if (rec.telefono) g.phones.add(rec.telefono);
+    }
+
+    const advisors = [];
+    const seenAdvKey = new Set();
+    for (const rec of records) {
+      const info = byEmail[rec.correo];
+      rec.all_branches = Array.from(info.branches);
+      if (!rec.telefono && info.phones.size > 0) {
+        rec.telefono = Array.from(info.phones)[0];
+      }
+      if (rec.sucursal !== 'TODAS') {
+        const k = `${rec.sucursal}::${rec.correo}`;
+        if (!seenAdvKey.has(k)) {
+          seenAdvKey.add(k);
+          advisors.push(rec);
+        }
+      }
+    }
+
+    APP_STATE.directoryRecords = records;
+    APP_STATE.advisors = advisors;
+    const out = { records, advisors, byEmail };
+    if (records.length > 0) {
+      _segDirCacheMem = out;
+      _segDirFetchedAt = Date.now();
+    }
+    return out;
+  }
+
+  async function fetchUnifiedAdvisorsDirectory(forceRefresh, preSuppliedApiUsers) {
+    if (Array.isArray(preSuppliedApiUsers) && preSuppliedApiUsers.length > 0) {
+      const apiRecords = buildSegDirectoryFromApiUsers(preSuppliedApiUsers);
+      if (apiRecords.length > 0) {
+        return finalizeSegDirectoryFromRecords(apiRecords);
+      }
+    }
     if (!forceRefresh && _segDirCacheMem && _segDirFetchedAt > 0 && (Date.now() - _segDirFetchedAt) < SEG_DIR_TTL_MS) {
       return _segDirCacheMem;
     }
-    // P1-13: No consultar por GViz público el libro privado SHEET_SEG_ID; usar la fuente unificada CUENTAS ADMINISTRATIVAS
+
+    // 1) Preferir directorio autenticado desde Apps Script (libro privado CREATA_AUTH_PRIVADO_NO_COMPARTIR, cero contraseñas)
+    const activeToken = cleanStr((APP_STATE.user && APP_STATE.user.authToken) || '');
+    if (activeToken && typeof fetch === 'function') {
+      try {
+        const resp = await fetch(getApiUrl(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'inv_my_directory', authToken: activeToken })
+        });
+        if (resp && resp.ok) {
+          const json = await resp.json();
+          if (json && json.ok && Array.isArray(json.users) && json.users.length > 0) {
+            const apiRecords = buildSegDirectoryFromApiUsers(json.users);
+            if (apiRecords.length > 0) {
+              return finalizeSegDirectoryFromRecords(apiRecords);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2) Respaldo de transición por GViz público únicamente si el libro público aún conserva CUENTAS ADMINISTRATIVAS
     const invTabs = [
       { tab: 'CUENTAS ADMINISTRATIVAS', branch: 'UNIFIED', range: 'A1:Z100' }
     ];
@@ -651,57 +765,7 @@
       }
     }
 
-    if (records.length > 0) {
-      writeJsonStorage(SEG_DIRECTORY_CACHE_KEY, records);
-    } else {
-      const cachedDirRecords = readJsonStorage(SEG_DIRECTORY_CACHE_KEY, []);
-      if (Array.isArray(cachedDirRecords)) {
-        for (const cr of cachedDirRecords) {
-          if (!cr || !cr.correo) continue;
-          records.push({
-            ...cr,
-            correo: normalizeEmail(cr.correo),
-            tokens: Array.isArray(cr.tokens) ? cr.tokens : normalizeText(cr.nombre).split(' ').filter(t => t.length > 2)
-          });
-        }
-      }
-    }
-
-    const byEmail = {};
-    for (const rec of records) {
-      if (!byEmail[rec.correo]) {
-        byEmail[rec.correo] = { primary: rec, branches: new Set(), phones: new Set() };
-      }
-      const g = byEmail[rec.correo];
-      if (rec.sucursal && rec.sucursal !== 'TODAS') g.branches.add(rec.sucursal);
-      if (rec.telefono) g.phones.add(rec.telefono);
-    }
-
-    const advisors = [];
-    const seenAdvKey = new Set();
-    for (const rec of records) {
-      const info = byEmail[rec.correo];
-      rec.all_branches = Array.from(info.branches);
-      if (!rec.telefono && info.phones.size > 0) {
-        rec.telefono = Array.from(info.phones)[0];
-      }
-      if (rec.sucursal !== 'TODAS') {
-        const k = `${rec.sucursal}::${rec.correo}`;
-        if (!seenAdvKey.has(k)) {
-          seenAdvKey.add(k);
-          advisors.push(rec);
-        }
-      }
-    }
-
-    APP_STATE.directoryRecords = records;
-    APP_STATE.advisors = advisors;
-    const out = { records, advisors, byEmail };
-    if (records.length > 0) {
-      _segDirCacheMem = out;
-      _segDirFetchedAt = Date.now();
-    }
-    return out;
+    return finalizeSegDirectoryFromRecords(records);
   }
 
   function hydrateDirectoryFromCacheSync() {
@@ -1161,7 +1225,8 @@
           : (Array.isArray(res.invRows) ? res.invRows : null),
         inventoryPhotosBySku: (res.inventoryPhotosBySku && typeof res.inventoryPhotosBySku === 'object')
           ? res.inventoryPhotosBySku
-          : null
+          : null,
+        advisorsDirectory: Array.isArray(res.advisorsDirectory) ? res.advisorsDirectory : null
       };
     } catch (e) {}
     return null;
@@ -1764,7 +1829,7 @@
     if (apiRes.stockDeltaBySku) {
       ingestStockDeltaMap(apiRes.stockDeltaBySku);
     }
-    const dirData = await fetchUnifiedAdvisorsDirectory(false);
+    const dirData = await fetchUnifiedAdvisorsDirectory(false, apiRes.advisorsDirectory || null);
     if (!mounted) return;
     const sh = apiRes.sheets || {};
     await applyFullSheetsPayload({
@@ -1801,7 +1866,7 @@
         histMovRows,
         histInvRows
       ] = await Promise.all([
-        fetchUnifiedAdvisorsDirectory(false),
+        fetchUnifiedAdvisorsDirectory(false, apiState && apiState.advisorsDirectory ? apiState.advisorsDirectory : null),
         (apiState && Array.isArray(apiState.invRows)) ? Promise.resolve(apiState.invRows) : (hasHostInv ? Promise.resolve(null) : fetchSheetCsv(SHEET_INV_ID, 'INVENTARIO_EN_VIVO')),
         Promise.resolve((apiState && Array.isArray(apiState.cotCreataRows)) ? apiState.cotCreataRows : []),
         Promise.resolve((apiState && Array.isArray(apiState.cotArchivadasRows)) ? apiState.cotArchivadasRows : []),

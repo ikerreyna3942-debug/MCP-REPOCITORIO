@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
+import { createMockGasEnvironment } from './gas_mock_env.mjs';
 
 function buildUnifiedGasMockEnv(sheetsData) {
   const gsSrc = fs.readFileSync('AppsScript_Creata_Drive_Sheets.gs', 'utf8');
@@ -439,20 +440,30 @@ test('Frontend Unified Directory Contracts: inventario-app.js, seguimiento-app.j
   const panelJs = fs.readFileSync('panel-app.js', 'utf8');
   const histJs = fs.readFileSync('historial-app.js', 'utf8');
 
-  // inventario-app.js: fetchAllAdvisorRowsLiveGviz only queries CUENTAS ADMINISTRATIVAS + INVITADOS
+  // inventario-app.js: fetchAllAdvisorRowsLiveGviz prefers role-scoped inv_my_directory and only queries CUENTAS ADMINISTRATIVAS + INVITADOS as fallback
   const gvizFnStart = invJs.indexOf('async function fetchAllAdvisorRowsLiveGviz(');
   assert.ok(gvizFnStart > 0, 'fetchAllAdvisorRowsLiveGviz must exist');
-  const gvizFnBody = invJs.slice(gvizFnStart, gvizFnStart + 900);
+  const gvizFnBody = invJs.slice(gvizFnStart, gvizFnStart + 1400);
+  assert.match(gvizFnBody, /'inv_my_directory'/);
   assert.match(gvizFnBody, /[a-zA-Z_]\w*\.tab === 'CUENTAS ADMINISTRATIVAS' \|\| [a-zA-Z_]\w*\.isGuest/, 'GViz loader must only fetch CUENTAS ADMINISTRATIVAS and INVITADOS');
   assert.match(invJs, /UNIFIED_STORE_COLUMNS_CLIENT/);
   assert.match(invJs, /function isAdministrativeUnifiedRowClient\(/);
   assert.match(invJs, /function extractAssignedStoresFromRowClient\(/);
   assert.match(invJs, /userPermissions\.subirFoto === false/, 'canManageProductPhotos must honor userPermissions.subirFoto === false');
 
-  // seguimiento-app.js: invTabs only queries CUENTAS ADMINISTRATIVAS A1:Z100 and parses V:Z store columns
+  // submitNewPersonalKey must NEVER silently close modal or clear mustChangeKey if inv_update_key fails
+  const keyFnStart = invJs.indexOf('window.submitNewPersonalKey = async function');
+  assert.ok(keyFnStart > 0, 'submitNewPersonalKey must exist');
+  const keyFnBody = invJs.slice(keyFnStart, keyFnStart + 2400);
+  assert.match(keyFnBody, /if \(!res \|\| !res\.ok\)\s*\{[\s\S]*?showAuthBanner\('authNewKeyMsg'[\s\S]*?return;/, 'submitNewPersonalKey must abort and show error banner when inv_update_key fails');
+  assert.match(keyFnBody, /recoverStoredInvAuthToken\(activeAdvisorSession\)/);
+
+  // seguimiento-app.js: prefers authenticated advisorsDirectory / inv_my_directory and only queries CUENTAS ADMINISTRATIVAS A1:Z100 as transition fallback
   const segDirStart = segJs.indexOf('async function fetchUnifiedAdvisorsDirectory(');
   assert.ok(segDirStart > 0, 'fetchUnifiedAdvisorsDirectory must exist');
-  const segDirBody = segJs.slice(segDirStart, segDirStart + 1600);
+  const segDirBody = segJs.slice(segDirStart, segDirStart + 2800);
+  assert.match(segDirBody, /buildSegDirectoryFromApiUsers/);
+  assert.match(segDirBody, /'inv_my_directory'/);
   assert.match(segDirBody, /const invTabs = \[\s*\{\s*tab:\s*'CUENTAS ADMINISTRATIVAS',\s*branch:\s*'UNIFIED',\s*range:\s*'A1:Z100'\s*\}\s*\]/);
   assert.match(segDirBody, /UNIFIED_SEG_STORE_COLS/);
 
@@ -463,3 +474,118 @@ test('Frontend Unified Directory Contracts: inventario-app.js, seguimiento-app.j
   assert.match(panelJs, /sheetTab:\s*'CUENTAS ADMINISTRATIVAS'/);
   assert.match(histJs, /isAdmin \? 'CUENTAS ADMINISTRATIVAS'/);
 });
+
+test('Single private auth workbook (CREATA_AUTH_PRIVADO_NO_COMPARTIR) default routing + Paula first-time password upgrade persistence + role-scoped directory', () => {
+  const PUBLIC_INV_ID = '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8';
+  const PRIVATE_AUTH_ID = '1CqZyNaHUU5YiOFrN-8hXuTvJqoD_IgSvULhiffSF_lQ';
+  const SEG_ID = '1_XBmM6WPJ2kI89RvzPO7JchHu_xL1zSnssUfUHRQ-cg';
+
+  const env = createMockGasEnvironment({
+    activeSpreadsheetId: PUBLIC_INV_ID,
+    scriptProperties: { INV_AUTH_SECRET: 'single-private-vault-secret-2026-abcdef' }
+  });
+
+  const publicBook = env.makeSpreadsheet(PUBLIC_INV_ID, 'CONTROL DE PRODUCTOS PRESENTACIÓN', {
+    HISTORIAL: [['FECHA', 'CLAS', 'MOD', 'EV', 'EST', 'USR', 'SUC', 'REF', 'DET', 'ANA']],
+    COTIZACIONES_EN_VIVO: [['ORDEN', 'FOLIO', 'ID', 'FECHA', 'MOD', 'HOJA', 'TIENDA', 'CORREO', 'NOMBRE', 'USR', 'IDU', 'CLI', 'TEL', 'MC', 'CAT', 'ENT', 'PC', 'SKU', 'SUB', 'IVA', 'DESC', 'TOT', 'EST', 'NOTAS', 'ORIGEN']],
+    INVENTARIO_EN_VIVO: [['BANNER'], ['SKU', 'NOMBRE'], ['SKU1', 'SILLA']]
+  });
+
+  const privateAuthBook = env.makeSpreadsheet(PRIVATE_AUTH_ID, 'CREATA_AUTH_PRIVADO_NO_COMPARTIR', {
+    'CUENTAS ADMINISTRATIVAS': [
+      ['USUARIOS Y CUENTAS ADMINISTRATIVAS'],
+      [
+        'NO', 'TIPO / ÁREA', 'Nombre', 'Puesto', 'Correo', 'CLAVE TEMPORAL', 'CLAVE DEFINITIVA', 'Asesor ERP', 'Descuento',
+        'VER_COTIZADOR', 'VER_SEGUIMIENTO', 'VER_HISTORIAL', 'VER_FOTOS_APP', 'VER_PROMPTS_IA', 'VER_PANEL_SUITE',
+        'VER_EQUIPO_Y_INVITADOS', 'VER_CAMBIAR_ROL', 'VER_GESTION_PRODUCTOS', 'VER_SUBIR_FOTO', 'VER_CAMBIAR_TIENDA',
+        'NOTAS', 'COLOCIO', 'PLAYA', 'PTC', 'CASA CREATA', 'PROYECTOS'
+      ],
+      [
+        '1', 'ADMINISTRACIÓN GENERAL', 'Irvin Kevin Reyna', 'ADMINISTRADOR GENERAL', 'kevin.reyna@grupoanipa.com', '', 'Kevin2026!', '', '100%',
+        'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', 'SI', '', 'SI', 'SI', 'SI', 'SI', 'SI'
+      ],
+      [
+        '32', 'GARANTIAS', 'PAULA', 'PRUEBAS', 'paula.bri@creatamuebles.com', '123', '', '', '0%',
+        'SI', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'SI', 'SI', '', 'NO', 'NO', 'NO', 'NO', 'NO'
+      ]
+    ],
+    INVITADOS: [
+      ['INVITADOS'],
+      ['NO', 'INVITADOS (SOLO VER)', 'Nombre', 'Puesto', 'Correo', 'CLAVE TEMPORAL', 'CLAVE DEFINITIVA', 'DISPOSITIVOS PERMITIDOS', 'LUGARES ACTIVOS', 'DISPOSITIVOS AUTORIZADOS']
+    ]
+  });
+
+  env.makeSpreadsheet(SEG_ID, 'COTIZACIONES BASE DE DATOS', {
+    COTIZACIONES_CREATA: [['H1', 'Folio', 'Fecha', 'Sucursal', 'Asesor', 'Correo', 'Cliente', 'Tel', 'Estatus', 'SKU']],
+    COTIZACIONES_ARCHIVADAS: [['H1', 'Folio', 'Fecha', 'Sucursal', 'Asesor', 'Correo', 'Cliente', 'Tel', 'Estatus', 'SKU']],
+    CIERRES_COTIZACIONES: [['Fecha', 'Folio', 'Sucursal', 'Asesor', 'Correo']],
+    CONFIG_CREATA: [['CLAVE', 'VALOR'], ['DIAS_SEGUIMIENTO', '3']],
+    HISTORIAL_MOVIMIENTOS: [['FECHA', 'TIPO', 'USUARIO', 'EMAIL', 'SUCURSAL', 'ACCION', 'DETALLE']]
+  });
+
+  env.loadScript('AppsScript_Creata_Drive_Sheets.gs');
+  env.context.readErpAdvisorsFromPlantilla_ = () => ({ advisors: [], stores: ['PROYECTOS ANIPA INTERIOR'] });
+  env.context.ensureLiveErpSyncTrigger_ = () => {};
+
+  const post = (payload) => JSON.parse(env.context.doPost({ postData: { contents: JSON.stringify(payload) } }).getContent());
+
+  // 1) Even WITHOUT ScriptProperties AUTH_SPREADSHEET_ID set AND WITHOUT auth tabs in public book,
+  //    Paula logs in seamlessly from CREATA_AUTH_PRIVADO_NO_COMPARTIR!
+  const paulaLogin1 = post({ action: 'inv_login', email: 'paula.bri@creatamuebles.com', accessKey: '123', deviceId: 'dev_paula_1' });
+  assert.equal(paulaLogin1.ok, true, 'Paula must log in from default private auth workbook');
+  assert.equal(paulaLogin1.user.mustChangeKey, true, 'Temp key login must require personal password setup');
+  assert.equal(paulaLogin1.user.sheetTab, 'PROYECTOS');
+  assert.equal(publicBook.getSheetByName('CUENTAS ADMINISTRATIVAS'), null, 'Public workbook must remain free of CUENTAS ADMINISTRATIVAS');
+  assert.equal(publicBook.getSheetByName('INVITADOS'), null, 'Public workbook must remain free of INVITADOS');
+
+  // 2) Paula updates her password EVEN IF currentKey is empty (e.g. after mobile page reload) using her valid HMAC token!
+  const updRes = post({
+    action: 'inv_update_key',
+    email: 'paula.bri@creatamuebles.com',
+    currentKey: '',
+    newKey: 'PaulaFirme2026!',
+    sheetTab: 'PROYECTOS',
+    authToken: paulaLogin1.user.authToken
+  });
+  assert.equal(updRes.ok, true, 'First-time temp-key upgrade must succeed with valid HMAC token even if currentKey is empty');
+  assert.ok(updRes.tokensByTab && updRes.tokensByTab.PROYECTOS, 'Update must mint renewed token for PROYECTOS');
+
+  // Verify Col F cleared & Col G saved strictly in CREATA_AUTH_PRIVADO_NO_COMPARTIR
+  const privSheet = privateAuthBook.getSheetByName('CUENTAS ADMINISTRATIVAS');
+  assert.equal(privSheet.getRange(4, 6).getValue(), '', 'Col F (temp key) must be cleared in private auth workbook');
+  assert.equal(privSheet.getRange(4, 7).getValue(), 'PaulaFirme2026!', 'Col G (definitive key) must be saved in private auth workbook');
+
+  // 3) Old temp key now fails, new definitive password logs in cleanly with mustChangeKey=false
+  const oldKeyAttempt = post({ action: 'inv_login', email: 'paula.bri@creatamuebles.com', accessKey: '123', deviceId: 'dev_paula_1' });
+  assert.equal(oldKeyAttempt.ok, false, 'Old temp key must be rejected after password update');
+  const newKeyLogin = post({ action: 'inv_login', email: 'paula.bri@creatamuebles.com', accessKey: 'PaulaFirme2026!', deviceId: 'dev_paula_1' });
+  assert.equal(newKeyLogin.ok, true, 'New personal password must log in cleanly');
+  assert.equal(newKeyLogin.user.mustChangeKey, false);
+
+  // 4) Non-admin Paula stays blocked from admin-only inv_users_directory (P0-03),
+  //    while role-scoped inv_my_directory & seg_get_state return ONLY her own sanitized profile (zero passwords!)
+  const blockedFullDir = post({ action: 'inv_users_directory', authToken: newKeyLogin.user.authToken });
+  assert.equal(blockedFullDir.ok, false, 'Non-admin must remain blocked from full inv_users_directory');
+
+  const myDirRes = post({ action: 'inv_my_directory', authToken: newKeyLogin.user.authToken });
+  assert.equal(myDirRes.ok, true, 'Role-scoped inv_my_directory must succeed for Paula');
+  assert.equal(myDirRes.users.length, 1);
+  assert.equal(myDirRes.users[0].correo, 'paula.bri@creatamuebles.com');
+  assert.equal(myDirRes.users[0].tempKey, undefined);
+  assert.equal(myDirRes.users[0].defKey, undefined);
+
+  const segRes = post({ action: 'seg_get_state', authToken: newKeyLogin.user.authToken });
+  assert.equal(segRes.ok, true, 'seg_get_state must succeed from private auth workbook');
+  assert.equal(segRes.advisorsDirectory.length, 1);
+  assert.equal(segRes.advisorsDirectory[0].correo, 'paula.bri@creatamuebles.com');
+  assert.equal(segRes.advisorsDirectory[0].defKey, undefined);
+
+  // 5) Admin Kevin receives full sanitized directory from private auth workbook
+  const kevinLogin = post({ action: 'inv_login', email: 'kevin.reyna@grupoanipa.com', accessKey: 'Kevin2026!', deviceId: 'dev_kev_1' });
+  assert.equal(kevinLogin.ok, true);
+  const kevinDir = post({ action: 'inv_my_directory', authToken: kevinLogin.user.authToken });
+  assert.equal(kevinDir.ok, true);
+  assert.equal(kevinDir.users.length, 2);
+});
+
+
