@@ -1622,13 +1622,13 @@ test('UX-5: Mobile inputs & selects enforce font-size: 16px (anti-iOS auto-zoom)
   assert.ok(!/<(?:input|select)\b[^>]*style=["'][^"']*font-size/i.test(FOTOS_HTML_SRC));
 });
 
-test('UX-6: Cache version consistency (v28/img-v28, CSS?v=27, JS?v=38, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
+test('UX-6: Cache version consistency (v29/img-v29, CSS?v=28, JS?v=38, manifest?v=3, back-nav?v=1) & fotos-sw.js VM lifecycle', async () => {
   assert.match(FOTOS_HTML_SRC, /fotos-manifest\.json\?v=3/);
-  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=27/);
+  assert.match(FOTOS_HTML_SRC, /fotos-productos-styles\.css\?v=28/);
   assert.match(FOTOS_HTML_SRC, /creata-back-nav\.js\?v=1/);
   assert.match(FOTOS_HTML_SRC, /fotos-productos-app\.js\?v=38/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v28['"]/);
-  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v28['"]/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]v29['"]/);
+  assert.match(FOTOS_SW_SRC, /CACHE_PREFIX\s*\+\s*['"]img-v29['"]/);
   assert.match(FOTOS_APP_SRC, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
 
   // Execute fotos-sw.js inside node:vm
@@ -1684,6 +1684,8 @@ test('UX-6: Cache version consistency (v28/img-v28, CSS?v=27, JS?v=38, manifest?
     'creata-fotos-app-img-v27',
     'creata-fotos-app-v28',
     'creata-fotos-app-img-v28',
+    'creata-fotos-app-v29',
+    'creata-fotos-app-img-v29',
     'creata-inventario-v1'
   ];
 
@@ -1721,7 +1723,7 @@ test('UX-6: Cache version consistency (v28/img-v28, CSS?v=27, JS?v=38, manifest?
   };
   vm.runInNewContext(FOTOS_SW_SRC, swSandbox, { filename: 'fotos-sw.js' });
 
-  // Activate evicts v5..v27 while preserving v28, img-v28, and sibling app caches
+  // Activate evicts v5..v28 while preserving v29, img-v29, and sibling app caches
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
@@ -1744,6 +1746,7 @@ test('UX-6: Cache version consistency (v28/img-v28, CSS?v=27, JS?v=38, manifest?
     'creata-fotos-app-img-v25',
     'creata-fotos-app-img-v26',
     'creata-fotos-app-img-v27',
+    'creata-fotos-app-img-v28',
     'creata-fotos-app-img-v5',
     'creata-fotos-app-img-v6',
     'creata-fotos-app-img-v7',
@@ -1767,6 +1770,7 @@ test('UX-6: Cache version consistency (v28/img-v28, CSS?v=27, JS?v=38, manifest?
     'creata-fotos-app-v25',
     'creata-fotos-app-v26',
     'creata-fotos-app-v27',
+    'creata-fotos-app-v28',
     'creata-fotos-app-v5',
     'creata-fotos-app-v6',
     'creata-fotos-app-v7',
@@ -1794,8 +1798,19 @@ test('UX-6: Cache version consistency (v28/img-v28, CSS?v=27, JS?v=38, manifest?
   assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/fotos-productos-app.js?v=38', 'POST'), false);
   assert.equal(await checkFetch('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/creata-back-nav.js?v=1', 'GET'), true);
   assert.equal(await checkFetch('https://lh3.googleusercontent.com/d/abc12345=w400', 'GET'), true);
-  assert.ok(openedCaches.includes('creata-fotos-app-img-v28'));
-  assert.ok(openedCaches.includes('creata-fotos-app-v28'));
+  assert.ok(openedCaches.includes('creata-fotos-app-img-v29'));
+  assert.ok(openedCaches.includes('creata-fotos-app-v29'));
+});
+
+test('UX-6d: Compact editorial studio redesign (body.fotos-studio-v2): 4-column single-row mode switcher, smaller buttons/typography, and balanced CSS braces', () => {
+  assert.match(FOTOS_HTML_SRC, /<body\s+class="fotos-studio-v2">/);
+  assert.match(FOTOS_CSS_SRC, /body\.fotos-studio-v2\s*\{[\s\S]*?--bg-canvas:\s*#F3F1EC/);
+  assert.match(FOTOS_CSS_SRC, /body\.fotos-studio-v2\s+\.fotos-work-mode-bar\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(FOTOS_CSS_SRC, /body\.fotos-studio-v2\s+\.exec-header\s+\.hdr-btn\s*\{[^}]*height:\s*23px[^}]*font-size:\s*9\.5px/);
+  assert.match(FOTOS_CSS_SRC, /body\.fotos-studio-v2\s+\.btn-primary-gold,\s*body\.fotos-studio-v2\s+#btnAssignPhotoNow\s*\{[^}]*height:\s*29px[^}]*font-size:\s*10px/);
+  const opens = (FOTOS_CSS_SRC.match(/\{/g) || []).length;
+  const closes = (FOTOS_CSS_SRC.match(/\}/g) || []).length;
+  assert.equal(opens, closes, `Unbalanced CSS braces in fotos-productos-styles.css (${opens} open vs ${closes} close)`);
 });
 
 test('UX-6b: Streamlined Fotos UI (100% live without manual refresh buttons, recent uploads reuse strip, clear selection, auto-dest pill, repair button, offline status bar, and intact product DOM IDs)', () => {
