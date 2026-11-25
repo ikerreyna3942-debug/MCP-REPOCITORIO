@@ -6059,48 +6059,18 @@
     };
 
     // ------------------------------------------------------------------------
-    // ESCÁNER BLUETOOTH P2300L (HID + BLE · ANDROID / APPLE iOS / PC) Y CÁMARA
+    // ESCÁNER DE CÁMARA Y LECTURA SILENCIOSA BLUETOOTH HID (P2300L · ANDROID / APPLE iOS / PC)
     // ------------------------------------------------------------------------
     const SCAN_LIB_URLS = [
         'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js',
         'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'
     ];
-    const BLE_SCANNER_SERVICE_UUIDS = [
-        '0000ffe0-0000-1000-8000-00805f9b34fb',
-        '0000fff0-0000-1000-8000-00805f9b34fb',
-        '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
-        '49535343-fe7d-4ae5-8fa9-9fafd205e455',
-        '0000feea-0000-1000-8000-00805f9b34fb',
-        '0000fee0-0000-1000-8000-00805f9b34fb',
-        '0000ae30-0000-1000-8000-00805f9b34fb',
-        '0000ff00-0000-1000-8000-00805f9b34fb',
-        '0000180a-0000-1000-8000-00805f9b34fb',
-        '0000180f-0000-1000-8000-00805f9b34fb'
-    ];
-    const BT_SCAN_CONTINUOUS_PREF_KEY = 'creata_inv_bt_continuous_v1';
     let scanLibPromise = null;
     let scanInstance = null;
     let scanHandled = false;
-    let activeScannerModalTab = 'bt';
-    let btScanHistory = [];
     let btLastProcessedCode = '';
     let btLastProcessedTs = 0;
     let btLastResultObj = null;
-    let bleScannerDevice = null;
-    let bleScannerServer = null;
-    let bleScannerChars = [];
-    let blePacketBuffer = '';
-    let blePacketFlushTimer = null;
-    let btInputsBound = false;
-
-    function isWebBluetoothSupported() {
-        try {
-            if (typeof isIosMobileDevice === 'function' && isIosMobileDevice()) return false;
-            return typeof navigator !== 'undefined' && !!navigator.bluetooth && typeof navigator.bluetooth.requestDevice === 'function';
-        } catch (e) {
-            return false;
-        }
-    }
 
     function loadScanLib() {
         if (window.Html5Qrcode) return Promise.resolve();
@@ -6286,7 +6256,7 @@
         };
     }
 
-    function playBtScanFeedbackFeedback() {
+    function playBtScanFeedback() {
         try {
             if (navigator && typeof navigator.vibrate === 'function') {
                 navigator.vibrate(65);
@@ -6294,261 +6264,12 @@
         } catch (e) {}
     }
 
-    function updateBtScannerHeaderBadge() {
-        const hdrBtn = document.getElementById('headerBtScanBtn');
-        const statusPill = document.getElementById('btScanStatusBadge');
-        const statusText = document.getElementById('btScanStatusText');
-        const bleBtn = document.getElementById('btnConnectBleScanner');
-        const platformTag = document.getElementById('btScanPlatformHint');
-        const isIos = typeof isIosMobileDevice === 'function' && isIosMobileDevice();
-        const bleConnected = !!(bleScannerDevice && bleScannerDevice.gatt && bleScannerDevice.gatt.connected);
-        const capInp = document.getElementById('btScanCaptureInput');
-        const capFocused = !!(capInp && document.activeElement === capInp);
-        const capWrap = document.getElementById('btScanCaptureWrap');
-
-        if (capWrap) capWrap.classList.toggle('is-focused', capFocused);
-
-        if (hdrBtn) {
-            hdrBtn.classList.toggle('is-bt-connected', bleConnected || capFocused);
-        }
-
-        if (platformTag) {
-            if (bleConnected) platformTag.textContent = 'BLE: ' + (bleScannerDevice.name || 'P2300L');
-            else if (isIos) platformTag.textContent = 'Apple iOS · HID BT';
-            else if (isWebBluetoothSupported()) platformTag.textContent = 'Android/PC · HID + BLE';
-            else platformTag.textContent = 'HID Bluetooth';
-        }
-
-        if (bleBtn) {
-            if (isWebBluetoothSupported()) {
-                bleBtn.classList.remove('hidden');
-                bleBtn.classList.toggle('is-connected', bleConnected);
-                bleBtn.textContent = bleConnected ? '✓ BLE Conectado' : '🔗 Conectar BLE';
-            } else {
-                bleBtn.classList.add('hidden');
-            }
-        }
-
-        if (statusPill && statusText) {
-            statusPill.classList.remove('is-ready', 'is-ble');
-            if (bleConnected) {
-                statusPill.classList.add('is-ble');
-                statusText.textContent = 'BLE conectado (' + (bleScannerDevice.name || 'P2300L') + ') — Listo para escanear';
-            } else if (capFocused) {
-                statusPill.classList.add('is-ready');
-                statusText.textContent = 'Escáner Bluetooth P2300L activo — Dispara al código';
-            } else {
-                statusText.textContent = isIos
-                    ? 'Toca el campo de abajo para leer tu P2300L en iPhone/iPad'
-                    : 'Listo (HID) — Toca el campo o dispara el P2300L';
-            }
-        }
-    }
-
-    function renderBtScanHistory() {
-        const wrap = document.getElementById('btScanHistoryWrap');
-        const listEl = document.getElementById('btScanHistoryList');
-        if (!wrap || !listEl) return;
-        if (!btScanHistory.length) {
-            wrap.classList.add('hidden');
-            listEl.innerHTML = '';
-            return;
-        }
-        wrap.classList.remove('hidden');
-        listEl.innerHTML = btScanHistory.map((entry, idx) => {
-            const dot = entry.status === 'quotable' ? '🟢' : (entry.status === 'out_of_stock' ? '🟠' : '🔵');
-            return '<button type="button" class="inv-bt-history-chip" data-inv-act="bt-history-pick" data-idx="' + idx + '" title="Ver lectura">' +
-                '<span>' + dot + '</span>' +
-                '<span>' + escapeHtml(entry.matchedCode || entry.rawCode) + '</span>' +
-            '</button>';
-        }).join('');
-    }
-
-    function buildBtStockSummaryChipsHtml(it) {
-        const stocks = Array.isArray(it.st) ? it.st : emptyStocks();
-        const chips = [];
-        for (let i = 0; i < WAREHOUSES.length; i++) {
-            const whName = WAREHOUSES[i];
-            const qty = Math.max(0, Number(stocks[i]) || 0);
-            if (qty <= 0) continue;
-            const isLppt = isLpptWarehouse(whName);
-            const sem = qty <= DEFAULT_MIN_STOCK ? 'sem-yellow' : 'sem-green';
-            const lbl = isLppt ? formatLpptArrivalText(it, qty) : whName;
-            chips.push(
-                '<div class="inv-bt-wh-chip ' + sem + (isLppt ? ' is-full' : '') + '">' +
-                    '<span class="' + (isLppt ? 'leading-snug' : 'truncate') + '">' + escapeHtml(lbl) + '</span>' +
-                    '<span class="shrink-0">' + qty + ' pz</span>' +
-                '</div>'
-            );
-        }
-        return chips.length ? ('<div class="inv-bt-result-wh-grid">' + chips.join('') + '</div>') : '';
-    }
-
-    function renderBtScanResultCard(res) {
-        const card = document.getElementById('btScanResultCard');
-        if (!card) return;
-        if (!res) {
-            card.classList.add('hidden');
-            card.innerHTML = '';
-            return;
-        }
-        btLastResultObj = res;
-        card.classList.remove('hidden', 'is-hit', 'is-warn');
-        const guestMode = typeof isGuestSession === 'function' && isGuestSession();
-        const srcLabel = res.source || 'Bluetooth P2300L';
-        const timeStr = res.timeStr || '';
-
-        if (res.status === 'quotable' && res.item) {
-            const it = res.item;
-            const skuKey = String(it.s || '').toUpperCase();
-            const qInCart = (!guestMode && cart[skuKey]) ? (Number(cart[skuKey].qty) || 0) : 0;
-            const totalPhys = getBodegaPisoStock(it);
-            const priceStr = (!guestMode && it.pr) ? formatPrice(it.pr) : '';
-            const titleText = cleanStr(it.n) || cleanStr(it._singleTitle) || it.s;
-            card.classList.add('is-hit');
-            card.innerHTML =
-                '<div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-extrabold uppercase">' +
-                    '<span style="color:#065F46;">✓ ' + escapeHtml(srcLabel) + '</span>' +
-                    '<span style="color:#6F6860;">' + escapeHtml(timeStr) + '</span>' +
-                '</div>' +
-                '<div class="inv-bt-result-top">' +
-                    '<div class="inv-bt-result-thumb">' + buildThumbHtml(it, { compact: true }) + '</div>' +
-                    '<div class="min-w-0 flex-1 space-y-0.5">' +
-                        '<div class="text-[10.5px] font-extrabold tracking-wider uppercase" style="color:#9E7B4F; font-family:var(--inv-font-mono);">' + escapeHtml(it.s) + '</div>' +
-                        '<div class="text-xs font-extrabold uppercase leading-snug break-words" style="color:#1A1816;">' + escapeHtml(titleText) + '</div>' +
-                        '<div class="flex flex-wrap items-center gap-2 pt-0.5 text-[11px] font-extrabold">' +
-                            (priceStr ? ('<span style="color:#9E7B4F;">' + escapeHtml(priceStr) + '</span>') : '') +
-                            '<span style="color:#252C32;">Stock físico: ' + totalPhys + ' pz</span>' +
-                        '</div>' +
-                    '</div>' +
-                '</div>' +
-                buildBtStockSummaryChipsHtml(it) +
-                '<div class="inv-bt-result-actions">' +
-                    '<button type="button" data-inv-act="bt-open-detail" data-sku="' + escapeHtml(skuKey) + '" ' +
-                            'style="border:1px solid #252C32; background:#FFFFFF; color:#252C32;">Ver ficha completa</button>' +
-                    (!guestMode
-                        ? ('<button type="button" data-inv-act="bt-add-cart" data-sku="' + escapeHtml(skuKey) + '" ' +
-                                'style="border:none; background:#9E7B4F; color:#FFFFFF;">' +
-                                (qInCart > 0 ? ('+ Agregar (' + qInCart + ' en cot.)') : '+ Agregar a cotización') +
-                           '</button>')
-                        : '') +
-                '</div>';
-            if (window.CreataGuard && typeof window.CreataGuard.protectImages === 'function') {
-                window.CreataGuard.protectImages(card);
-            }
-            return;
-        }
-
-        if (res.status === 'out_of_stock' && res.item) {
-            card.classList.add('is-warn');
-            card.innerHTML =
-                '<div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-extrabold uppercase">' +
-                    '<span style="color:#8E5409;">⚠ ' + escapeHtml(srcLabel) + ' · Sin stock disponible</span>' +
-                    '<span style="color:#6F6860;">' + escapeHtml(timeStr) + '</span>' +
-                '</div>' +
-                '<div class="space-y-1">' +
-                    '<div class="text-xs font-extrabold uppercase" style="color:#1A1816; font-family:var(--inv-font-mono);">SKU leído: ' + escapeHtml(res.item.s) + '</div>' +
-                    '<div class="text-[11px] font-semibold" style="color:#4A453F;">Este SKU tiene <strong>0 piezas en Bodega/Piso y 0 en LPPT</strong>, por lo que no está disponible para cotizar.</div>' +
-                '</div>' +
-                '<div class="inv-bt-result-actions">' +
-                    '<button type="button" data-inv-act="bt-copy-raw" data-raw="' + escapeHtml(res.item.s) + '" ' +
-                            'style="border:1px solid #D9CEBC; background:#FFFFFF; color:#252C32;">📋 Copiar SKU</button>' +
-                '</div>';
-            return;
-        }
-
-        if (res.status === 'search_group' || res.status === 'search_multi') {
-            card.classList.add('is-hit');
-            const msg = res.status === 'search_group'
-                ? ('Modelo encontrado: ' + (res.group && (res.group.displayTitle || res.group.title) || res.rawCode))
-                : ('Se encontraron ' + res.count + ' coincidencias en inventario');
-            card.innerHTML =
-                '<div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-extrabold uppercase">' +
-                    '<span style="color:#065F46;">✓ ' + escapeHtml(srcLabel) + '</span>' +
-                    '<span style="color:#6F6860;">' + escapeHtml(timeStr) + '</span>' +
-                '</div>' +
-                '<div class="space-y-1">' +
-                    '<div class="text-xs font-extrabold break-all" style="color:#1A1816; font-family:var(--inv-font-mono);">' + escapeHtml(res.rawCode) + '</div>' +
-                    '<div class="text-[11px] font-bold" style="color:#4A453F;">' + escapeHtml(msg) + '</div>' +
-                '</div>' +
-                '<div class="inv-bt-result-actions">' +
-                    '<button type="button" data-inv-act="bt-search-raw" data-raw="' + escapeHtml(res.rawCode) + '" ' +
-                            'style="border:none; background:#252C32; color:#FFFFFF;">Ver en inventario</button>' +
-                '</div>';
-            return;
-        }
-
-        // raw_only: código o QR externo no registrado en catálogo — mostrar toda la información leída
-        card.classList.add('is-warn');
-        card.innerHTML =
-            '<div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-extrabold uppercase">' +
-                '<span style="color:#8E5409;">📡 Información leída · ' + escapeHtml(srcLabel) + '</span>' +
-                '<span style="color:#6F6860;">' + escapeHtml(timeStr) + '</span>' +
-            '</div>' +
-            '<div class="rounded-lg border px-2.5 py-2 text-xs font-extrabold break-all" style="border-color:#E1DBC5; background:#FAF9F6; color:#1A1816; font-family:var(--inv-font-mono);">' +
-                escapeHtml(res.rawCode) +
-            '</div>' +
-            '<div class="text-[11px] font-semibold" style="color:#6F6860;">Código leído correctamente del escáner, pero no coincide con un SKU con stock disponible.</div>' +
-            '<div class="inv-bt-result-actions">' +
-                '<button type="button" data-inv-act="bt-copy-raw" data-raw="' + escapeHtml(res.rawCode) + '" ' +
-                        'style="border:1px solid #D9CEBC; background:#FFFFFF; color:#252C32;">📋 Copiar lectura</button>' +
-                '<button type="button" data-inv-act="bt-search-raw" data-raw="' + escapeHtml(res.rawCode) + '" ' +
-                        'style="border:none; background:#252C32; color:#FFFFFF;">🔍 Buscar texto</button>' +
-            '</div>';
-    }
-
-    function renderCartBtScanFeedback(res, autoAdded) {
-        const fb = document.getElementById('cartBtScanFeedback');
-        if (!fb) return;
-        if (!res) {
-            fb.classList.add('hidden');
-            fb.innerHTML = '';
-            return;
-        }
-        fb.classList.remove('hidden', 'is-ok', 'is-warn');
-        if (res.status === 'quotable' && res.item) {
-            const it = res.item;
-            const skuKey = String(it.s || '').toUpperCase();
-            const q = cart[skuKey] ? (Number(cart[skuKey].qty) || 0) : 0;
-            const titleText = cleanStr(it.n) || it.s;
-            const priceStr = formatPrice(it.pr) || 'Sin precio';
-            const stockTotal = getBodegaPisoStock(it);
-            fb.classList.add('is-ok');
-            fb.innerHTML =
-                '<div class="flex flex-wrap items-center justify-between gap-2">' +
-                    '<div class="min-w-0 flex-1">' +
-                        '<div class="text-[10px] font-extrabold uppercase" style="color:#065F46;">' +
-                            (autoAdded ? ('✓ Agregado a cotización (' + q + ' pz)') : '📡 Leído con P2300L') +
-                            ' · ' + escapeHtml(it.s) +
-                        '</div>' +
-                        '<div class="text-[11px] font-extrabold uppercase leading-snug break-words" style="color:#1A1816;">' + escapeHtml(titleText) + '</div>' +
-                        '<div class="text-[10.5px] font-bold" style="color:#4A453F;">' + escapeHtml(priceStr) + ' · Stock físico: ' + stockTotal + ' pz</div>' +
-                    '</div>' +
-                    '<div class="flex items-center gap-1.5 shrink-0">' +
-                        '<button type="button" data-inv-act="cart-bt-detail" data-sku="' + escapeHtml(skuKey) + '" ' +
-                                'class="px-2.5 py-1.5 rounded-lg border text-[10px] font-extrabold uppercase" style="border-color:#252C32; background:#FFFFFF; color:#252C32;">Ver</button>' +
-                        (!autoAdded
-                            ? ('<button type="button" data-inv-act="cart-bt-add" data-sku="' + escapeHtml(skuKey) + '" ' +
-                                    'class="px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Agregar</button>')
-                            : '') +
-                    '</div>' +
-                '</div>';
-            return;
-        }
-        fb.classList.add('is-warn');
-        const msg = res.status === 'out_of_stock'
-            ? ('SKU ' + res.matchedCode + ' sin existencias en Bodega/Piso ni LPPT.')
-            : ('Leído: ' + res.rawCode + ' — no coincide con un SKU disponible.');
-        fb.innerHTML =
-            '<div class="text-[10.5px] font-extrabold" style="color:#8E5409;">⚠ ' + escapeHtml(msg) + '</div>';
-    }
-
     function processScannedBarcode(rawText, opts) {
         const o = opts || {};
         const cleaned = normalizeScannedBarcodeText(rawText);
         if (!cleaned) return null;
 
-        // Evitar doble disparo si el lector envía keydown + input o notificación duplicada
+        // Evitar doble disparo si el lector envía keydown + input casi simultáneos
         const nowTs = Date.now();
         if (!o.force && cleaned.toUpperCase() === btLastProcessedCode && (nowTs - btLastProcessedTs) < 420) {
             return btLastResultObj;
@@ -6559,66 +6280,14 @@
         const res = resolveScannedBarcode(cleaned);
         if (!res) return null;
 
-        const d = new Date();
-        res.source = o.source || 'Bluetooth P2300L';
-        res.timeStr = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
+        res.source = o.source || 'Bluetooth HID (P2300L)';
+        btLastResultObj = res;
+        playBtScanFeedback();
 
-        playBtScanFeedbackFeedback();
-
-        // Guardar en historial reciente (máx. 8 lecturas)
-        btScanHistory = [res].concat(btScanHistory.filter(x => (x.matchedCode || x.rawCode) !== (res.matchedCode || res.rawCode))).slice(0, 8);
-        renderBtScanHistory();
-        renderBtScanResultCard(res);
-
-        // Caso A: Escaneo dentro de la barra BT de Cotización (#cartModal)
-        if (o.fromCartBar) {
-            const autoAddEl = document.getElementById('cartBtAutoAddToggle');
-            const shouldAutoAdd = !!(autoAddEl && autoAddEl.checked) && !isGuestSession() && !isActiveQuoteCompleted();
-            if (res.status === 'quotable' && res.item) {
-                if (shouldAutoAdd) {
-                    addToCart(res.item.s, 1);
-                    renderCartBtScanFeedback(res, true);
-                    showToast('✓ Agregado: ' + res.item.s);
-                } else {
-                    renderCartBtScanFeedback(res, false);
-                    showToast('📡 Leído: ' + res.item.s);
-                }
-            } else {
-                renderCartBtScanFeedback(res, false);
-                showToast('📡 Código leído: ' + (res.matchedCode || res.rawCode));
-            }
-            return res;
-        }
-
-        // Caso B: Escaneo dentro del Modal Escáner en Modo Continuo
-        const scanModalOpen = isModalOpenById('scanModal');
-        const contToggle = document.getElementById('btScanContinuousToggle');
-        const isContinuous = !!(scanModalOpen && activeScannerModalTab === 'bt' && contToggle && contToggle.checked && !o.forceNavigate);
-        if (isContinuous) {
-            if (res.status === 'quotable' && res.item) {
-                showToast('✓ Leído: ' + res.item.s + ' · ' + (cleanStr(res.item.n) || ''));
-            } else if (res.status === 'out_of_stock') {
-                showToast('⚠ ' + res.matchedCode + ' sin stock disponible');
-            } else {
-                showToast('📡 Código leído: ' + res.rawCode);
-            }
-            return res;
-        }
-
-        // Caso C: Navegación inmediata al producto o información leída
-        if (scanModalOpen) {
+        if (isModalOpenById('scanModal')) {
             closeBarcodeScanner();
         }
-        if (isModalOpenById('cartModal') && !o.keepCartOpen) {
-            if (res.status === 'quotable' && res.item && !isGuestSession() && !isActiveQuoteCompleted()) {
-                const autoAddEl = document.getElementById('cartBtAutoAddToggle');
-                if (autoAddEl && autoAddEl.checked) {
-                    addToCart(res.item.s, 1);
-                    renderCartBtScanFeedback(res, true);
-                    showToast('✓ Agregado a cotización: ' + res.item.s);
-                    return res;
-                }
-            }
+        if (isModalOpenById('cartModal') && (res.status === 'quotable' || res.status === 'search_group' || res.status === 'search_multi')) {
             closeCartModal();
         }
 
@@ -6636,21 +6305,14 @@
         } else if (res.status === 'search_multi') {
             if (inp) inp.value = res.rawCode;
             applyFilter(res.rawCode);
-            showToast('📡 ' + res.rawCode + ' · ' + res.count + ' coincidencias');
+            showToast('Código leído: ' + res.rawCode + ' · ' + res.count + ' coincidencias');
         } else if (res.status === 'out_of_stock') {
-            // Respetar filtro de disponibilidad: no exponer en catálogo cotizable, pero informar lectura
+            // Respetar filtro de disponibilidad: no exponer en catálogo cotizable ni abrir ficha
             showToast('⚠ Código leído (' + res.matchedCode + '): sin stock en Bodega/Piso ni LPPT');
-            if (!scanModalOpen) {
-                openBarcodeScanner('bt');
-                renderBtScanResultCard(res);
-            }
         } else {
-            // Código externo / QR no catalogado: mostrar la información leída en el panel del escáner
-            showToast('📡 Leído: ' + res.rawCode);
-            if (!scanModalOpen) {
-                openBarcodeScanner('bt');
-                renderBtScanResultCard(res);
-            }
+            if (inp) inp.value = res.rawCode;
+            applyFilter(res.rawCode);
+            showToast('Código leído: ' + res.rawCode);
         }
         return res;
     }
@@ -6660,30 +6322,21 @@
         const code = normalizeScannedBarcodeText(rawText);
         if (!code) return;
         scanHandled = true;
-        processScannedBarcode(code, { source: 'Cámara', forceNavigate: true });
+        processScannedBarcode(code, { source: 'Cámara' });
     }
 
-    function focusBtCaptureInputSoft() {
-        const capInp = document.getElementById('btScanCaptureInput');
-        if (!capInp) return;
-        try {
-            capInp.focus({ preventScroll: true });
-        } catch (e) {
-            try { capInp.focus(); } catch (e2) {}
-        }
-        updateBtScannerHeaderBadge();
-    }
-
-    async function startCameraScanner() {
+    window.openBarcodeScanner = async function () {
         const modal = document.getElementById('scanModal');
-        if (!modal || !modal.classList.contains('open') || activeScannerModalTab !== 'cam') return;
+        if (!modal) return;
         scanHandled = false;
+        modal.classList.add('open');
+        notifyInvBackStatePush('scan_modal');
         if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            // Navegadores dentro de apps (WhatsApp, Facebook...) no dan video en vivo: usar "Tomar foto del código"
             setScanStatus('Este navegador no permite video en vivo. Usa el botón "Tomar foto del código".', true);
             loadScanLib().catch(() => {});
             return;
         }
-        if (scanInstance && scanInstance.isScanning) return;
         setScanStatus('Iniciando cámara...', false);
         try {
             await loadScanLib();
@@ -6707,7 +6360,8 @@
                 function (decodedText) { handleScannedCode(decodedText); },
                 function () {}
             );
-            if (scanInstance !== inst || !modal.classList.contains('open') || activeScannerModalTab !== 'cam') {
+            // Si el usuario cerró el modal mientras la cámara arrancaba, apagarla
+            if (scanInstance !== inst || !modal.classList.contains('open')) {
                 try { await inst.stop(); inst.clear(); } catch (e) {}
                 return;
             }
@@ -6716,355 +6370,7 @@
             console.error('[Escáner]', err);
             setScanStatus('No fue posible abrir la cámara en vivo. Da permiso de cámara al navegador o usa "Tomar foto del código".', true);
         }
-    }
-
-    function stopCameraScannerOnly() {
-        const inst = scanInstance;
-        scanInstance = null;
-        if (inst) {
-            try {
-                const p = inst.isScanning ? inst.stop() : Promise.resolve();
-                Promise.resolve(p).then(() => { try { inst.clear(); } catch (e) {} }).catch(() => {});
-            } catch (e) {}
-        }
-    }
-
-    window.switchScannerModalTab = function (tab) {
-        const target = tab === 'cam' ? 'cam' : 'bt';
-        activeScannerModalTab = target;
-        const tabBt = document.getElementById('scanTabBt');
-        const tabCam = document.getElementById('scanTabCam');
-        const panelBt = document.getElementById('scanPanelBt');
-        const panelCam = document.getElementById('scanPanelCam');
-
-        if (tabBt) tabBt.classList.toggle('is-active', target === 'bt');
-        if (tabCam) tabCam.classList.toggle('is-active', target === 'cam');
-        if (panelBt) panelBt.classList.toggle('hidden', target !== 'bt');
-        if (panelCam) panelCam.classList.toggle('hidden', target !== 'cam');
-
-        if (target === 'bt') {
-            stopCameraScannerOnly();
-            setTimeout(focusBtCaptureInputSoft, 40);
-            updateBtScannerHeaderBadge();
-        } else {
-            startCameraScanner();
-        }
     };
-
-    window.openBarcodeScanner = async function (initialTab) {
-        const modal = document.getElementById('scanModal');
-        if (!modal) return;
-        scanHandled = false;
-        initBluetoothScannerInputs();
-        modal.classList.add('open');
-        notifyInvBackStatePush('scan_modal');
-        try {
-            const savedCont = localStorage.getItem(BT_SCAN_CONTINUOUS_PREF_KEY);
-            const contToggle = document.getElementById('btScanContinuousToggle');
-            if (contToggle && (savedCont === '0' || savedCont === '1')) {
-                contToggle.checked = savedCont === '1';
-            }
-        } catch (e) {}
-        renderBtScanHistory();
-        const tabToOpen = initialTab === 'cam' ? 'cam' : 'bt';
-        window.switchScannerModalTab(tabToOpen);
-    };
-
-    window.onBtContinuousToggleChange = function () {
-        const contToggle = document.getElementById('btScanContinuousToggle');
-        if (!contToggle) return;
-        try {
-            localStorage.setItem(BT_SCAN_CONTINUOUS_PREF_KEY, contToggle.checked ? '1' : '0');
-        } catch (e) {}
-        focusBtCaptureInputSoft();
-    };
-
-    window.clearBtScanHistory = function () {
-        btScanHistory = [];
-        renderBtScanHistory();
-        focusBtCaptureInputSoft();
-    };
-
-    window.toggleBtInputSoftKeyboard = function (inputId, btnEl) {
-        const inp = document.getElementById(inputId);
-        if (!inp) return;
-        const curMode = String(inp.getAttribute('inputmode') || 'none').toLowerCase();
-        const nextMode = curMode === 'none' ? 'text' : 'none';
-        inp.setAttribute('inputmode', nextMode);
-        if (btnEl) btnEl.classList.toggle('is-kbd-open', nextMode === 'text');
-        try {
-            inp.blur();
-            setTimeout(() => {
-                try { inp.focus({ preventScroll: true }); } catch (e) { try { inp.focus(); } catch (e2) {} }
-            }, 30);
-        } catch (e) {}
-    };
-
-    window.submitBtCaptureInputNow = function () {
-        const inp = document.getElementById('btScanCaptureInput');
-        if (!inp) return;
-        const val = normalizeScannedBarcodeText(inp.value);
-        inp.value = '';
-        if (!val) {
-            focusBtCaptureInputSoft();
-            return;
-        }
-        processScannedBarcode(val, { source: 'Bluetooth P2300L', force: true });
-        if (isModalOpenById('scanModal') && activeScannerModalTab === 'bt') {
-            setTimeout(focusBtCaptureInputSoft, 30);
-        }
-    };
-
-    function processBleBarcodeChunk(chunkStr) {
-        if (!chunkStr) return;
-        blePacketBuffer += String(chunkStr);
-        if (blePacketFlushTimer) {
-            clearTimeout(blePacketFlushTimer);
-            blePacketFlushTimer = null;
-        }
-        const parts = blePacketBuffer.split(/[\r\n]+/);
-        if (parts.length > 1) {
-            blePacketBuffer = parts.pop() || '';
-            for (let i = 0; i < parts.length; i++) {
-                const line = normalizeScannedBarcodeText(parts[i]);
-                if (line) {
-                    const fromCart = isModalOpenById('cartModal') && !isModalOpenById('scanModal');
-                    processScannedBarcode(line, { source: 'Bluetooth BLE (P2300L)', fromCartBar: fromCart });
-                }
-            }
-        }
-        if (blePacketBuffer.trim()) {
-            blePacketFlushTimer = setTimeout(() => {
-                blePacketFlushTimer = null;
-                const rem = normalizeScannedBarcodeText(blePacketBuffer);
-                blePacketBuffer = '';
-                if (rem) {
-                    const fromCart = isModalOpenById('cartModal') && !isModalOpenById('scanModal');
-                    processScannedBarcode(rem, { source: 'Bluetooth BLE (P2300L)', fromCartBar: fromCart });
-                }
-            }, 140);
-        }
-    }
-
-    function disconnectBleBarcodeScanner() {
-        try {
-            if (blePacketFlushTimer) {
-                clearTimeout(blePacketFlushTimer);
-                blePacketFlushTimer = null;
-            }
-            blePacketBuffer = '';
-            bleScannerChars.forEach(ch => {
-                try { ch.stopNotifications(); } catch (e) {}
-            });
-            bleScannerChars = [];
-            if (bleScannerDevice && bleScannerDevice.gatt && bleScannerDevice.gatt.connected) {
-                bleScannerDevice.gatt.disconnect();
-            }
-        } catch (e) {}
-        bleScannerDevice = null;
-        bleScannerServer = null;
-        updateBtScannerHeaderBadge();
-    }
-
-    window.toggleBleBarcodeScannerConnection = async function () {
-        if (!isWebBluetoothSupported()) {
-            showToast('En Apple iOS/iPadOS usa el modo Bluetooth HID del P2300L.');
-            return;
-        }
-        if (bleScannerDevice && bleScannerDevice.gatt && bleScannerDevice.gatt.connected) {
-            disconnectBleBarcodeScanner();
-            showToast('Escáner BLE desconectado.');
-            return;
-        }
-        const bleBtn = document.getElementById('btnConnectBleScanner');
-        if (bleBtn) {
-            bleBtn.disabled = true;
-            bleBtn.textContent = 'Buscando P2300L...';
-        }
-        try {
-            const dev = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: true,
-                optionalServices: BLE_SCANNER_SERVICE_UUIDS
-            });
-            dev.addEventListener('gattserverdisconnected', function () {
-                bleScannerChars = [];
-                bleScannerServer = null;
-                updateBtScannerHeaderBadge();
-                showToast('Escáner Bluetooth BLE desconectado.');
-            });
-            const server = await dev.gatt.connect();
-            const services = await server.getPrimaryServices();
-            const decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
-            let subscribedCount = 0;
-
-            for (let i = 0; i < services.length; i++) {
-                try {
-                    const chars = await services[i].getCharacteristics();
-                    for (let j = 0; j < chars.length; j++) {
-                        const ch = chars[j];
-                        if (ch.properties && (ch.properties.notify || ch.properties.indicate)) {
-                            await ch.startNotifications();
-                            ch.addEventListener('characteristicvaluechanged', function (ev) {
-                                try {
-                                    const dv = ev && ev.target && ev.target.value;
-                                    if (!dv) return;
-                                    let txt = '';
-                                    if (decoder) {
-                                        txt = decoder.decode(dv);
-                                    } else {
-                                        const arr = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
-                                        for (let k = 0; k < arr.length; k++) txt += String.fromCharCode(arr[k]);
-                                    }
-                                    processBleBarcodeChunk(txt);
-                                } catch (e) {}
-                            });
-                            bleScannerChars.push(ch);
-                            subscribedCount++;
-                        }
-                    }
-                } catch (eSvc) {}
-            }
-
-            bleScannerDevice = dev;
-            bleScannerServer = server;
-            updateBtScannerHeaderBadge();
-            if (subscribedCount > 0) {
-                showToast('✓ P2300L BLE conectado (' + (dev.name || 'Bluetooth') + ')');
-            } else {
-                showToast('Conectado en BLE sin canal serial. Si no lee, usa el modo Bluetooth HID.');
-            }
-        } catch (err) {
-            if (!err || err.name !== 'NotFoundError') {
-                console.error('[BLE P2300L]', err);
-                showToast('No se pudo conectar por BLE. Verifica que tu P2300L esté en modo BLE o usa modo HID.');
-            }
-        } finally {
-            if (bleBtn) bleBtn.disabled = false;
-            updateBtScannerHeaderBadge();
-        }
-    };
-
-    function bindBtScannerInput(inputId, opts) {
-        const inp = document.getElementById(inputId);
-        if (!inp || inp.__creataBtBound) return;
-        inp.__creataBtBound = true;
-        const o = opts || {};
-        let autoFlushTimer = null;
-        let firstInputTs = 0;
-        let lastInputTs = 0;
-        let charCount = 0;
-
-        function clearTimers() {
-            if (autoFlushTimer) {
-                clearTimeout(autoFlushTimer);
-                autoFlushTimer = null;
-            }
-        }
-
-        function commitInputVal(src) {
-            clearTimers();
-            const val = normalizeScannedBarcodeText(inp.value);
-            inp.value = '';
-            firstInputTs = 0;
-            lastInputTs = 0;
-            charCount = 0;
-            if (!val) return;
-            processScannedBarcode(val, {
-                source: src || 'Bluetooth HID (P2300L)',
-                fromCartBar: !!o.fromCartBar
-            });
-            if (o.keepFocus && document.activeElement !== inp) {
-                try { inp.focus({ preventScroll: true }); } catch (e) {}
-            }
-        }
-
-        inp.addEventListener('focus', function () {
-            if (o.fromCartBar) {
-                const bar = document.getElementById('cartBtScanBar');
-                const pill = document.getElementById('cartBtFocusPill');
-                if (bar) bar.classList.add('is-armed');
-                if (pill) pill.textContent = '🟢 Escáner listo · Dispara P2300L';
-            } else {
-                updateBtScannerHeaderBadge();
-            }
-        });
-
-        inp.addEventListener('blur', function () {
-            if (o.fromCartBar) {
-                const bar = document.getElementById('cartBtScanBar');
-                const pill = document.getElementById('cartBtFocusPill');
-                if (bar) bar.classList.remove('is-armed');
-                if (pill) pill.textContent = 'Toca el campo para escanear';
-            } else {
-                updateBtScannerHeaderBadge();
-            }
-        });
-
-        inp.addEventListener('keydown', function (ev) {
-            if (ev.key === 'Enter' || ev.key === 'Tab' || ev.key === 'Go' || ev.key === 'Search' || ev.key === 'Accept' || ev.keyCode === 13 || ev.keyCode === 9) {
-                if (normalizeScannedBarcodeText(inp.value)) {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    commitInputVal('Bluetooth HID (P2300L)');
-                }
-            }
-        });
-
-        inp.addEventListener('input', function () {
-            const raw = String(inp.value || '');
-            if (!raw.trim()) {
-                clearTimers();
-                firstInputTs = 0;
-                charCount = 0;
-                return;
-            }
-            // Si el lector envió salto de línea embebido en el evento input (Android IME / paste)
-            if (/[\r\n]/.test(raw)) {
-                commitInputVal('Bluetooth HID (P2300L)');
-                return;
-            }
-            const now = Date.now();
-            if (!firstInputTs || (now - lastInputTs) > 450) {
-                firstInputTs = now;
-                charCount = raw.length;
-            } else {
-                charCount = raw.length;
-            }
-            lastInputTs = now;
-
-            const curMode = String(inp.getAttribute('inputmode') || 'none').toLowerCase();
-            const elapsed = Math.max(1, now - firstInputTs);
-            const avgPerChar = elapsed / Math.max(1, charCount);
-            const looksLikeScanner = curMode === 'none' || (charCount >= 4 && avgPerChar <= 125);
-
-            if (looksLikeScanner) {
-                clearTimers();
-                autoFlushTimer = setTimeout(function () {
-                    autoFlushTimer = null;
-                    if (normalizeScannedBarcodeText(inp.value).length >= 3) {
-                        commitInputVal('Bluetooth HID (P2300L)');
-                    }
-                }, 260);
-            }
-        });
-
-        inp.addEventListener('paste', function () {
-            setTimeout(function () {
-                if (normalizeScannedBarcodeText(inp.value).length >= 3) {
-                    commitInputVal('Pegado / Escáner');
-                }
-            }, 20);
-        });
-    }
-
-    function initBluetoothScannerInputs() {
-        if (!btInputsBound) {
-            btInputsBound = true;
-            bindBtScannerInput('btScanCaptureInput', { fromCartBar: false, keepFocus: true });
-            bindBtScannerInput('cartBtScanInput', { fromCartBar: true, keepFocus: true });
-        }
-        updateBtScannerHeaderBadge();
-    }
 
     // Respaldo: tomar una foto del código con la cámara del teléfono y leerla
     window.scanBarcodeFromPhoto = async function (inputEl) {
@@ -7099,12 +6405,14 @@
     window.closeBarcodeScanner = function () {
         const modal = document.getElementById('scanModal');
         if (modal) modal.classList.remove('open');
-        stopCameraScannerOnly();
-        const capInp = document.getElementById('btScanCaptureInput');
-        if (capInp && document.activeElement === capInp) {
-            try { capInp.blur(); } catch (e) {}
+        const inst = scanInstance;
+        scanInstance = null;
+        if (inst) {
+            try {
+                const p = inst.isScanning ? inst.stop() : Promise.resolve();
+                Promise.resolve(p).then(() => { try { inst.clear(); } catch (e) {} }).catch(() => {});
+            } catch (e) {}
         }
-        updateBtScannerHeaderBadge();
     };
 
     window.__creataBtScanner = {
@@ -7113,8 +6421,6 @@
         extractBarcodeCandidates: extractBarcodeCandidates,
         resolveScannedBarcode: resolveScannedBarcode,
         processScannedBarcode: processScannedBarcode,
-        processBleBarcodeChunk: processBleBarcodeChunk,
-        getHistory: function () { return btScanHistory.slice(); },
         getLastResult: function () { return btLastResultObj; }
     };
 
@@ -14803,11 +14109,6 @@
         if (!wrap) return;
 
         const locked = isActiveQuoteCompleted();
-        const guestMode = typeof isGuestSession === 'function' && isGuestSession();
-        const btBar = document.getElementById('cartBtScanBar');
-        if (btBar) {
-            btBar.classList.toggle('hidden', locked || guestMode);
-        }
 
         const bd = computeQuoteBreakdown();
         if (countLbl) {
@@ -16352,25 +15653,17 @@
         const activeTag = activeEl ? activeEl.tagName : '';
         const isSearchFocused = activeEl && activeEl.id === 'invSearchInput';
 
-        if (isSearchFocused && (ev.key === 'Enter' || ev.key === 'Go' || ev.key === 'Search' || ev.keyCode === 13)) {
+        if (isSearchFocused && (ev.key === 'Enter' || ev.key === 'Go' || ev.key === 'Search' || ev.key === 'Accept' || ev.key === 'Tab' || ev.keyCode === 13 || ev.keyCode === 9)) {
             const val = normalizeScannedBarcodeText(activeEl.value);
             if (val) {
                 const res = resolveScannedBarcode(val);
-                if (res && res.status === 'quotable' && res.item) {
-                    ev.preventDefault();
-                    activeEl.value = res.item.s;
-                    applyFilter(res.item.s);
-                    openProductDetail(res.item.s, false);
-                    try { activeEl.select(); } catch (e) {}
-                    return;
-                }
-                if (res && res.status === 'out_of_stock') {
+                if (res && (res.status === 'quotable' || res.status === 'out_of_stock')) {
                     ev.preventDefault();
                     processScannedBarcode(val, { source: 'Buscador / P2300L', force: true });
                     try { activeEl.select(); } catch (e) {}
                     return;
                 }
-                if (filteredGroups.length === 1) {
+                if (ev.key !== 'Tab' && ev.keyCode !== 9 && filteredGroups.length === 1) {
                     ev.preventDefault();
                     const g = filteredGroups[0];
                     if (g.items.length > 1) openGroupModal(g.key);
@@ -18079,14 +17372,57 @@
         const inp = document.getElementById('invSearchInput');
         if (inp) {
             _invPrevSearchNonEmpty = Boolean(cleanStr(inp.value));
+            let searchBurstFirstTs = 0;
+            let searchBurstLastTs = 0;
+            let searchBurstEvents = 0;
+            let searchBurstTimer = null;
             inp.addEventListener('input', function () {
-                const val = this.value;
+                const selfInp = this;
+                const val = selfInp.value;
+                if (searchBurstTimer) {
+                    clearTimeout(searchBurstTimer);
+                    searchBurstTimer = null;
+                }
                 if (/[\r\n]/.test(val)) {
                     const cleanedScan = normalizeScannedBarcodeText(val);
-                    this.value = cleanedScan;
+                    selfInp.value = cleanedScan;
+                    searchBurstFirstTs = 0;
+                    searchBurstLastTs = 0;
+                    searchBurstEvents = 0;
                     if (cleanedScan) {
                         processScannedBarcode(cleanedScan, { source: 'Buscador / P2300L' });
+                        try { selfInp.select(); } catch (e) {}
                         return;
+                    }
+                }
+                const nowTs = Date.now();
+                if (!val.trim()) {
+                    searchBurstFirstTs = 0;
+                    searchBurstLastTs = 0;
+                    searchBurstEvents = 0;
+                } else {
+                    if (!searchBurstFirstTs || (nowTs - searchBurstLastTs) > 420) {
+                        searchBurstFirstTs = nowTs;
+                        searchBurstEvents = 1;
+                    } else {
+                        searchBurstEvents++;
+                    }
+                    searchBurstLastTs = nowTs;
+                    const cleanedCandidate = normalizeScannedBarcodeText(val);
+                    const elapsed = Math.max(1, nowTs - searchBurstFirstTs);
+                    const avgPerChar = elapsed / Math.max(1, cleanedCandidate.length - 1);
+                    if (cleanedCandidate.length >= 4 && searchBurstEvents >= 2 && avgPerChar <= 95 && elapsed <= 1600) {
+                        searchBurstTimer = setTimeout(function () {
+                            searchBurstTimer = null;
+                            const latest = normalizeScannedBarcodeText(selfInp.value);
+                            if (latest.length >= 4) {
+                                const hit = resolveScannedBarcode(latest);
+                                if (hit && (hit.status === 'quotable' || hit.status === 'out_of_stock')) {
+                                    processScannedBarcode(latest, { source: 'Buscador / P2300L' });
+                                    try { selfInp.select(); } catch (e) {}
+                                }
+                            }
+                        }, 260);
                     }
                 }
                 const nowNonEmpty = Boolean(cleanStr(val));
@@ -18104,7 +17440,7 @@
                 }, 150);
             });
         }
-        initBluetoothScannerInputs();
+        applyIosNoAutoZoomViewportGuard();
         applyFilter('');
         bindInvPersistenceListeners();
         const bootModuleIntent = readAndConsumeOpenModuleIntent();
@@ -18242,6 +17578,21 @@
         } catch (e) {}
         return false;
     }
+
+    function applyIosNoAutoZoomViewportGuard() {
+        try {
+            if (!isIosMobileDevice()) return;
+            if (typeof document === 'undefined' || !document.querySelector) return;
+            const vp = document.querySelector('meta[name="viewport"]');
+            if (!vp) return;
+            const cur = String(vp.getAttribute('content') || '');
+            if (!/maximum-scale\s*=/i.test(cur)) {
+                vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover');
+            }
+        } catch (e) {}
+    }
+
+    applyIosNoAutoZoomViewportGuard();
 
     function syncPwaInstallButtonState() {
         const fabBtn = document.getElementById('fabInstallAppBtn');
@@ -19110,74 +18461,6 @@
                     if (typeof window.revokeSingleSettingsSession === 'function') window.revokeSingleSettingsSession(el.getAttribute('data-dev-id') || '');
                 } else if (act === 'edit-settings-prod') {
                     if (typeof window.selectSettingsProductForEdit === 'function') window.selectSettingsProductForEdit(el.getAttribute('data-sku') || '');
-                } else if (act === 'bt-open-detail') {
-                    const sku = el.getAttribute('data-sku') || '';
-                    if (sku) {
-                        if (typeof window.closeBarcodeScanner === 'function') window.closeBarcodeScanner();
-                        if (isModalOpenById('cartModal') && typeof window.closeCartModal === 'function') window.closeCartModal();
-                        if (typeof window.openProductDetail === 'function') window.openProductDetail(sku, false);
-                    }
-                } else if (act === 'bt-add-cart') {
-                    const sku = el.getAttribute('data-sku') || '';
-                    if (sku && typeof window.addToCart === 'function') {
-                        window.addToCart(sku, 1);
-                        if (btLastResultObj && btLastResultObj.item && String(btLastResultObj.item.s || '').toUpperCase() === sku.toUpperCase()) {
-                            renderBtScanResultCard(btLastResultObj);
-                        }
-                        showToast('✓ Agregado a cotización: ' + sku);
-                        setTimeout(focusBtCaptureInputSoft, 30);
-                    }
-                } else if (act === 'bt-copy-raw') {
-                    const raw = el.getAttribute('data-raw') || '';
-                    if (raw) {
-                        const copyFallback = function () {
-                            try {
-                                const ta = document.createElement('textarea');
-                                ta.value = raw;
-                                ta.setAttribute('readonly', '');
-                                ta.style.position = 'fixed';
-                                ta.style.opacity = '0';
-                                document.body.appendChild(ta);
-                                ta.select();
-                                ta.setSelectionRange(0, raw.length);
-                                document.execCommand('copy');
-                                document.body.removeChild(ta);
-                                showToast('✓ Lectura copiada: ' + raw);
-                            } catch (e) {}
-                        };
-                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                            navigator.clipboard.writeText(raw).then(() => showToast('✓ Lectura copiada: ' + raw)).catch(copyFallback);
-                        } else {
-                            copyFallback();
-                        }
-                    }
-                } else if (act === 'bt-search-raw') {
-                    const raw = el.getAttribute('data-raw') || '';
-                    if (typeof window.closeBarcodeScanner === 'function') window.closeBarcodeScanner();
-                    if (isModalOpenById('cartModal') && typeof window.closeCartModal === 'function') window.closeCartModal();
-                    const sInp = document.getElementById('invSearchInput');
-                    if (sInp) sInp.value = raw;
-                    if (typeof applyFilter === 'function') applyFilter(raw);
-                } else if (act === 'bt-history-pick') {
-                    const idx = parseInt(el.getAttribute('data-idx') || '-1', 10);
-                    if (idx >= 0 && btScanHistory[idx]) {
-                        renderBtScanResultCard(btScanHistory[idx]);
-                        setTimeout(focusBtCaptureInputSoft, 30);
-                    }
-                } else if (act === 'cart-bt-add') {
-                    const sku = el.getAttribute('data-sku') || '';
-                    if (sku && typeof window.addToCart === 'function') {
-                        window.addToCart(sku, 1);
-                        const it = bySkuMap.get(sku.toUpperCase());
-                        if (it) renderCartBtScanFeedback({ status: 'quotable', item: it, rawCode: sku, matchedCode: it.s }, true);
-                        showToast('✓ Agregado a cotización: ' + sku);
-                    }
-                } else if (act === 'cart-bt-detail') {
-                    const sku = el.getAttribute('data-sku') || '';
-                    if (sku) {
-                        if (typeof window.closeCartModal === 'function') window.closeCartModal();
-                        if (typeof window.openProductDetail === 'function') window.openProductDetail(sku, false, true);
-                    }
                 }
             });
             document.addEventListener('change', function (ev) {
