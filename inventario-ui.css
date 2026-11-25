@@ -3783,9 +3783,9 @@ button, a, input, select, textarea {
   #cartModal textarea,
   #authModal input,
   #authModal select,
-  #demandRequestModal input,
-  #demandRequestModal select,
-  #demandRequestModal textarea,
+  #outOfStockRequestModal input,
+  #outOfStockRequestModal select,
+  #outOfStockRequestModal textarea,
   #purchaseSuggestionModal input,
   #purchaseSuggestionModal select,
   #purchaseSuggestionModal textarea,
@@ -3860,25 +3860,40 @@ button, a, input, select, textarea {
     padding: 10px 8px calc(98px + env(safe-area-inset-bottom, 0px));
   }
 
-  /* Modales principales tipo Bottom-Sheet en teléfonos */
-  #cartModal.inv-modal-backdrop,
-  #productDetailModal.inv-modal-backdrop,
-  #demandRequestModal.inv-modal-backdrop,
-  #purchaseSuggestionModal.inv-modal-backdrop {
+  /* Modales principales tipo Bottom-Sheet en teléfonos (Android e iPhone) */
+  #cartModal.modal-backdrop,
+  #productDetailModal.modal-backdrop,
+  #outOfStockRequestModal.modal-backdrop,
+  #purchaseSuggestionModal.modal-backdrop,
+  #installAppModal.modal-backdrop {
     align-items: flex-end;
     padding: env(safe-area-inset-top, 0px) 0 0 0;
   }
 
   #cartModal > div,
   #productDetailModal > .inv-det-modal-card,
-  #demandRequestModal > div,
-  #purchaseSuggestionModal > div {
+  #outOfStockRequestModal > div,
+  #purchaseSuggestionModal > div,
+  #installAppModal > div {
     width: 100% !important;
     max-width: 100% !important;
     max-height: 94dvh !important;
     border-radius: 20px 20px 0 0 !important;
     margin: 0 !important;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  #cartModal input[type="search"],
+  #cartModal input[type="text"],
+  #cartModal input[type="tel"],
+  #cartModal input[type="email"],
+  #purchaseSuggestionModal input[type="text"],
+  #purchaseSuggestionModal textarea,
+  #outOfStockRequestModal input,
+  #outOfStockRequestModal textarea,
+  #invHeader #invSearchInput {
+    -webkit-appearance: none;
+    appearance: none;
   }
 
   #cartModal .overflow-y-auto,
@@ -3909,4 +3924,11 @@ button, a, input, select, textarea {
     font-size: 12px;
   }
 }
+
+.inv-install-card-highlight {
+  border-color: #9E7B4F !important;
+  background: #FBF6EE !important;
+  box-shadow: 0 2px 10px rgba(158, 123, 79, 0.14);
+}
+
 

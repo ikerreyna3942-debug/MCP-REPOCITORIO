@@ -16,6 +16,8 @@
     <link rel="manifest" href="inventario-manifest.json?v=1">
     <link rel="icon" type="image/png" sizes="192x192" href="inventario-icon-192.png">
     <link rel="apple-touch-icon" sizes="180x180" href="inventario-apple-icon.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="inventario-apple-icon.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="inventario-apple-icon.png">
     <title>CREATA — Inventario</title>
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
@@ -23,8 +25,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="./creata-modules.css?v=9">
-    <link rel="stylesheet" href="./inventario-ui.css?v=25">
+    <link rel="stylesheet" href="./creata-modules.css?v=10">
+    <link rel="stylesheet" href="./inventario-ui.css?v=26">
 </head>
 <body>
 
@@ -730,7 +732,7 @@
     </div>
 
     <!-- MODAL DE INGRESO DE USUARIO, SELECCIÓN DE UBICACIÓN Y CAMBIO DE CONTRASEÑA TEMPORAL -->
-    <div id="authModal" class="modal-backdrop" style="z-index:85; background:rgba(37, 44, 50, 0.90);">
+    <div id="authModal" class="modal-backdrop" style="z-index:96; background:rgba(37, 44, 50, 0.90);">
         <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-6 py-5 text-center border-b" style="background:#252C32; border-color:#A38251;">
                 <img id="authLogoImg" src="" alt="CREATA MUEBLES" class="h-14 mx-auto object-contain mb-2" style="filter:brightness(0) invert(1);" draggable="false">
@@ -838,19 +840,20 @@
                     📲 Instalar App Ahora (1 Toque)
                 </button>
 
-                <div class="space-y-2.5">
-                    <div class="rounded-xl border p-3 space-y-1" style="border-color:#E1DBC5; background:#FAF9F6;">
+                <div class="flex flex-col gap-2.5">
+                    <div id="installAndroidCard" class="rounded-xl border p-3 space-y-1" style="border-color:#E1DBC5; background:#FAF9F6;">
                         <div class="font-extrabold uppercase" style="color:#A38251;">🤖 En Android / PC (Chrome / Edge / Samsung)</div>
                         <p class="text-[11px] leading-relaxed">
                             1. Toca el botón <strong>"📲 Instalar App Ahora"</strong> si aparece arriba, o abre el menú <strong>⋮</strong> (esquina superior derecha del navegador).<br>
                             2. Selecciona <strong>"Instalar aplicación"</strong> o <strong>"Agregar a la pantalla principal"</strong>.
                         </p>
                     </div>
-                    <div class="rounded-xl border p-3 space-y-1" style="border-color:#E1DBC5; background:#FAF9F6;">
-                        <div class="font-extrabold uppercase" style="color:#A38251;">🍎 En iPhone / iPad (Safari)</div>
+                    <div id="installIosCard" class="rounded-xl border p-3 space-y-1.5" style="border-color:#E1DBC5; background:#FAF9F6;">
+                        <div class="font-extrabold uppercase" style="color:#A38251;">🍎 En iPhone / iPad (Apple Safari)</div>
                         <p class="text-[11px] leading-relaxed">
-                            1. Toca el botón <strong>Compartir</strong> (el cuadro con flecha hacia arriba <strong>↑</strong> en la barra inferior de Safari).<br>
-                            2. Desliza hacia abajo y toca <strong>"Agregar a inicio"</strong> y luego <strong>"Agregar"</strong>.
+                            1. Si abriste el enlace desde WhatsApp, primero toca el ícono de <strong>Safari (🧭)</strong> abajo a la derecha.<br>
+                            2. En Safari toca el botón <strong>Compartir</strong> (cuadro con flecha hacia arriba <strong>□↑</strong> abajo al centro).<br>
+                            3. Baja en el menú, toca <strong>"Agregar a inicio"</strong> (o <strong>"Añadir a pantalla de inicio"</strong>) y luego pulsa <strong>"Agregar"</strong>.
                         </p>
                     </div>
                 </div>
@@ -1347,16 +1350,16 @@
                 <h3 id="purchaseSugModalTitle" class="inv-modal-title truncate">Sugerencias de compra</h3>
                 <button type="button" onclick="closePurchaseSuggestionModal()" class="inv-modal-close" aria-label="Cerrar">✕</button>
             </div>
-            <form id="purchaseSugForm" class="inv-modal-body space-y-3" onsubmit="submitPurchaseSuggestion(event)">
+            <form id="purchaseSugForm" class="inv-modal-body space-y-3" onsubmit="submitPurchaseSuggestion(event)" novalidate>
                 <div class="inv-field">
                     <span class="inv-field-label">1. Interior o Exterior</span>
                     <div id="purchaseSugAmbienteGroup" class="inv-psug-amb-grid" role="radiogroup" aria-label="Interior o Exterior">
-                        <label id="purchaseSugOptInterior" class="inv-psug-amb-opt">
-                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbInterior" value="INTERIOR" onchange="selectPurchaseSuggestionAmbiente('INTERIOR')" required>
+                        <label id="purchaseSugOptInterior" class="inv-psug-amb-opt" onclick="selectPurchaseSuggestionAmbiente('INTERIOR')">
+                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbInterior" value="INTERIOR" onchange="selectPurchaseSuggestionAmbiente('INTERIOR')">
                             <span>Interior</span>
                         </label>
-                        <label id="purchaseSugOptExterior" class="inv-psug-amb-opt">
-                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbExterior" value="EXTERIOR" onchange="selectPurchaseSuggestionAmbiente('EXTERIOR')" required>
+                        <label id="purchaseSugOptExterior" class="inv-psug-amb-opt" onclick="selectPurchaseSuggestionAmbiente('EXTERIOR')">
+                            <input type="radio" name="purchaseSugAmbiente" id="purchaseSugAmbExterior" value="EXTERIOR" onchange="selectPurchaseSuggestionAmbiente('EXTERIOR')">
                             <span>Exterior</span>
                         </label>
                     </div>
@@ -1413,8 +1416,8 @@
     <script src="inventario-data-2.js?v=45"></script>
     <script src="inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./seguimiento-app.js?v=13"></script>
+    <script src="./seguimiento-app.js?v=14"></script>
     <script src="./historial-app.js?v=12"></script>
-    <script src="inventario-app.js?v=109"></script>
+    <script src="inventario-app.js?v=110"></script>
 </body>
 </html>

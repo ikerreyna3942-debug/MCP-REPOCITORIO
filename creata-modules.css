@@ -1956,6 +1956,8 @@
     min-height: 42px;
     padding: 8px 11px;
     border-radius: 10px;
+    -webkit-appearance: none;
+    appearance: none;
   }
 
   #inAppSeguimientoRoot .cm-seg-search-wrap .cm-input {

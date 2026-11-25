@@ -228,3 +228,102 @@ test('GAS backend: inv_register_purchase_suggestion allows asesor, gerente, admi
   assert.equal(storedRows[2][5], 'Daniel Inventarios');
   assert.equal(storedRows[2][8], 'PENDIENTE');
 });
+
+test('Hardening contracts: mobile novalidate/onclick radios, authModal z-index, needsRedeploy & authRequired handling, real .modal-backdrop CSS, GARANTIAS & passwordless guest', () => {
+  const html = fs.readFileSync(path.join(REPO_ROOT, 'inventario.html'), 'utf8');
+  const css = fs.readFileSync(path.join(REPO_ROOT, 'inventario-ui.css'), 'utf8');
+  const js = fs.readFileSync(path.join(REPO_ROOT, 'inventario-app.js'), 'utf8');
+
+  // 1) Form uses novalidate and explicit label onclick so iOS/Android never choke on hidden required radios
+  assert.match(html, /<form id="purchaseSugForm"[^>]*novalidate/, '#purchaseSugForm must include novalidate');
+  assert.match(html, /id="purchaseSugOptInterior"[^>]*onclick="selectPurchaseSuggestionAmbiente\('INTERIOR'\)"/, 'Interior label must have explicit onclick');
+  assert.match(html, /id="purchaseSugOptExterior"[^>]*onclick="selectPurchaseSuggestionAmbiente\('EXTERIOR'\)"/, 'Exterior label must have explicit onclick');
+
+  // 2) #authModal z-index must sit above #purchaseSuggestionModal (93) and #outOfStockRequestModal (92)
+  const authZ = Number((html.match(/id="authModal"[^>]*z-index:\s*(\d+)/) || [])[1] || 0);
+  const psugZ = Number((html.match(/id="purchaseSuggestionModal"[^>]*z-index:\s*(\d+)/) || [])[1] || 0);
+  const oosZ = Number((html.match(/id="outOfStockRequestModal"[^>]*z-index:\s*(\d+)/) || [])[1] || 0);
+  assert.ok(authZ > psugZ && authZ > oosZ, `Expected #authModal z-index (${authZ}) > #purchaseSuggestionModal (${psugZ}) & #outOfStockRequestModal (${oosZ})`);
+
+  // 3) JS: submitPurchaseSuggestion recovers authToken and handles needsRedeploy + authRequired clearly
+  const submitBlock = js.slice(js.indexOf('window.submitPurchaseSuggestion = async function'));
+  assert.ok(submitBlock.includes('recoverStoredInvAuthToken(activeAdvisorSession)'), 'submitPurchaseSuggestion must recover authToken');
+  assert.ok(submitBlock.includes('res && res.needsRedeploy'), 'submitPurchaseSuggestion must detect needsRedeploy instead of showing admin PIN error');
+  assert.ok(submitBlock.includes('Nueva versión'), 'needsRedeploy message must tell admin to publish Nueva versión');
+  assert.ok(submitBlock.includes('res && res.authRequired'), 'submitPurchaseSuggestion must handle authRequired');
+  assert.ok(submitBlock.includes('promptSessionReauth('), 'submitPurchaseSuggestion must trigger promptSessionReauth on authRequired');
+
+  // 4) Mobile CSS uses real .modal-backdrop class and #outOfStockRequestModal ID
+  assert.ok(css.includes('#purchaseSuggestionModal.modal-backdrop'), 'Mobile bottom-sheet must target #purchaseSuggestionModal.modal-backdrop');
+  assert.ok(css.includes('#outOfStockRequestModal.modal-backdrop'), 'Mobile bottom-sheet must target #outOfStockRequestModal.modal-backdrop');
+  assert.ok(css.includes('#cartModal.modal-backdrop'), 'Mobile bottom-sheet must target #cartModal.modal-backdrop');
+  assert.ok(!css.includes('.inv-modal-backdrop'), 'CSS must not use stale .inv-modal-backdrop selector');
+  assert.ok(!css.includes('#demandRequestModal'), 'CSS must not use stale #demandRequestModal ID');
+
+  // 5) GAS backend: GARANTIAS user with all 5 stores=NO & passwordless INVITADOS guest can both register suggestions
+  const INV_ID = '1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8';
+  const env = createMockGasEnvironment({
+    activeSpreadsheetId: INV_ID,
+    scriptProperties: {
+      INV_AUTH_SECRET: 'psug-edge-hmac-secret-key-2026-abcdef'
+    }
+  });
+
+  env.makeSpreadsheet(INV_ID, 'CONTROL DE PRODUCTOS PRESENTACIÓN', {
+    'CUENTAS ADMINISTRATIVAS': [
+      ['CREATA DIRECTORIO UNIFICADO'],
+      [
+        'NO', 'SUCURSAL', 'NOMBRE', 'PUESTO', 'CORREO', 'CLAVE TEMPORAL', 'CLAVE DEFINITIVA', 'ASESOR ERP', 'DESCUENTO',
+        'VER_COTIZADOR', 'VER_SEGUIMIENTO', 'VER_HISTORIAL', 'VER_FOTOS_APP', 'VER_PROMPTS_IA', 'VER_PANEL_SUITE',
+        'VER_EQUIPO_Y_INVITADOS', 'VER_CAMBIAR_ROL', 'VER_GESTION_PRODUCTOS', 'VER_SUBIR_FOTO', 'VER_CAMBIAR_TIENDA',
+        '', 'PLAYA', 'COLOCIO', 'PTC', 'CASA CREATA', 'PROYECTOS'
+      ],
+      [
+        '32', 'GARANTIAS', 'PAULA', 'PRUEBAS', 'paula.bri@creatamuebles.com', '', 'PaulaPass2026!', '', '0%',
+        'SI', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', '', 'NO', 'NO', 'NO', 'NO', 'NO'
+      ]
+    ],
+    INVITADOS: [
+      ['NO', 'SUCURSAL', 'NOMBRE', 'PUESTO', 'CORREO', 'CLAVE TEMPORAL', 'CLAVE DEFINITIVA', 'DISPOSITIVOS PERMITIDOS', 'LUGARES ACTIVOS', 'DISPOSITIVOS AUTORIZADOS'],
+      ['1', 'SOLO LECTURA', 'Invitado Libre', 'INVITADO', 'libre@grupoanipa.com', '', '', 3, '0 / 3', '']
+    ],
+    HISTORIAL: [
+      ['FECHA', 'CLASIFICACION', 'MODULO', 'EVENTO', 'ESTADO', 'USUARIO', 'SUCURSAL', 'REFERENCIA', 'DETALLE', 'ANALISIS']
+    ]
+  });
+
+  env.loadScript(path.join(REPO_ROOT, 'AppsScript_Creata_Drive_Sheets.gs'));
+  env.context.Utilities.formatDate = (_d, _tz, fmt) => (fmt === 'yyyyMMdd' ? '20261125' : '25/11/2026 10:30:00');
+  env.context.readErpAdvisorsFromPlantilla_ = () => ({ advisors: [], stores: ['PROYECTOS ANIPA INTERIOR'] });
+  env.context.ensureLiveErpSyncTrigger_ = () => {};
+
+  const post = (payload) => JSON.parse(env.context.doPost({
+    postData: { contents: JSON.stringify(payload) }
+  }).getContent());
+
+  const paulaLogin = post({ action: 'inv_login', email: 'paula.bri@creatamuebles.com', accessKey: 'PaulaPass2026!', deviceId: 'dev_paula_1' });
+  assert.equal(paulaLogin.ok, true);
+  const paulaSug = post({
+    action: 'inv_register_purchase_suggestion',
+    authToken: paulaLogin.user.authToken,
+    erpStore: paulaLogin.user.erpStore,
+    ambiente: 'INTERIOR',
+    tipoProducto: 'Sillón',
+    comments: 'Sillón en tela bouclé arena'
+  });
+  assert.equal(paulaSug.ok, true);
+  assert.equal(paulaSug.record.advisorName, 'PAULA');
+
+  const freeGuestLogin = post({ action: 'inv_login', email: 'libre@grupoanipa.com', accessKey: '', deviceId: 'dev_free_1' });
+  assert.equal(freeGuestLogin.ok, true);
+  const freeGuestSug = post({
+    action: 'inv_register_purchase_suggestion',
+    authToken: freeGuestLogin.user.authToken,
+    ambiente: 'EXTERIOR',
+    tipoProducto: 'Camastro',
+    comments: 'Camastro de aluminio blanco'
+  });
+  assert.equal(freeGuestSug.ok, true);
+  assert.equal(freeGuestSug.record.advisorName, 'Invitado Libre');
+});
+

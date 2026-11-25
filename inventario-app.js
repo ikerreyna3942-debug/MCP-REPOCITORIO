@@ -14201,11 +14201,30 @@
 
     function triggerBase64PdfBrowserDownload(base64Str, fileName) {
         const blob = base64ToPdfBlob(base64Str);
-        const blobUrl = URL.createObjectURL(blob);
         const safeName = cleanStr(fileName) || 'CREATA-muebles-cotización.pdf';
+        const finalName = /\.pdf$/i.test(safeName) ? safeName : (safeName + '.pdf');
+
+        // En iPhone instalado en Pantalla de Inicio (standalone), <a download> suele bloquearse:
+        // usar Hoja de Compartir nativa de iOS o abrir vista previa PDF con botón Guardar/Compartir.
+        const isIosStandalone = typeof navigator !== 'undefined' && navigator.standalone === true;
+        if (isIosStandalone && typeof File === 'function' && typeof navigator.canShare === 'function' && typeof navigator.share === 'function') {
+            try {
+                const pdfFile = new File([blob], finalName, { type: 'application/pdf' });
+                if (navigator.canShare({ files: [pdfFile] })) {
+                    navigator.share({ files: [pdfFile], title: finalName }).catch(function () {});
+                    return blob;
+                }
+            } catch (eIosShare) {}
+        }
+
+        const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
-        link.download = /\.pdf$/i.test(safeName) ? safeName : (safeName + '.pdf');
+        if (isIosStandalone) {
+            link.target = '_blank';
+        } else {
+            link.download = finalName;
+        }
         link.rel = 'noopener';
         link.style.display = 'none';
         document.body.appendChild(link);
@@ -14711,7 +14730,12 @@
         }
 
         if (!sharedViaNative) {
-            window.open('https://wa.me/52' + phone10, '_blank', 'noopener');
+            const waUrl = 'https://wa.me/52' + phone10;
+            const isIosNav = isIosMobileDevice();
+            const openedWa = isIosNav ? null : window.open(waUrl, '_blank', 'noopener');
+            if (!openedWa) {
+                window.location.href = waUrl;
+            }
         }
 
         setAcceptedModalPdfStatus(
@@ -17193,11 +17217,23 @@
         return false;
     }
 
+    function isIosMobileDevice() {
+        try {
+            const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+            if (/iPhone|iPad|iPod/i.test(ua)) return true;
+            if (/Macintosh/i.test(ua) && typeof navigator !== 'undefined' && Number(navigator.maxTouchPoints || 0) > 1) return true;
+        } catch (e) {}
+        return false;
+    }
+
     function syncPwaInstallButtonState() {
         const fabBtn = document.getElementById('fabInstallAppBtn');
         const headerBtn = document.getElementById('headerInstallAppBtn');
         const nativeModalBtn = document.getElementById('btnTriggerNativeAppInstall');
+        const iosCard = document.getElementById('installIosCard');
+        const androidCard = document.getElementById('installAndroidCard');
         const isInstalled = isRunningStandalonePwa();
+        const isIos = isIosMobileDevice();
         if (fabBtn) {
             fabBtn.classList.toggle('hidden', isInstalled);
             fabBtn.style.display = isInstalled ? 'none' : '';
@@ -17208,6 +17244,13 @@
         }
         if (nativeModalBtn) {
             nativeModalBtn.classList.toggle('hidden', !deferredPwaInstallPrompt || isInstalled);
+        }
+        if (iosCard) {
+            iosCard.classList.toggle('inv-install-card-highlight', isIos);
+            iosCard.style.order = isIos ? '-1' : '';
+        }
+        if (androidCard) {
+            androidCard.classList.toggle('inv-install-card-highlight', !isIos && !!deferredPwaInstallPrompt);
         }
     }
 
@@ -19862,8 +19905,12 @@
         const activeStore = isKevinAdvisorPreviewActive()
             ? getKevinAdvisorPreviewStore()
             : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || 'SIN ASIGNAR');
+        const resolvedOosToken = recoverStoredInvAuthToken(activeAdvisorSession);
+        if (resolvedOosToken && !activeAdvisorSession.authToken) {
+            activeAdvisorSession.authToken = resolvedOosToken;
+        }
         const payload = {
-            authToken: activeAdvisorSession.authToken || '',
+            authToken: resolvedOosToken || '',
             advisorEmail: cleanStr(activeAdvisorSession.correo),
             sheetTab: cleanStr(activeAdvisorSession.sheetTab),
             erpStore: activeStore,
@@ -19895,6 +19942,20 @@
                 setTimeout(function () {
                     window.closeOutOfStockRequestModal();
                 }, 800);
+            } else if (res && res.needsRedeploy) {
+                saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                setSettingsStatusBox(
+                    'oosReqStatus',
+                    'Falta publicar una "Nueva versión" en Google Apps Script (Implementar → Administrar implementaciones → Editar).',
+                    'err'
+                );
+            } else if (res && res.authRequired) {
+                saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                const authMsg = (res && res.error) ? res.error : 'Tu sesión expiró. Confirma tu contraseña y presiona Guardar de nuevo.';
+                setSettingsStatusBox('oosReqStatus', authMsg, 'warn');
+                if (typeof promptSessionReauth === 'function') {
+                    promptSessionReauth(authMsg, null);
+                }
             } else {
                 saveOutOfStockRequestLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
                 const errMsg = (res && res.error) ? res.error : 'No se pudo conectar con Apps Script.';
@@ -20012,8 +20073,12 @@
         const activeStore = isKevinAdvisorPreviewActive()
             ? getKevinAdvisorPreviewStore()
             : cleanStr(activeAdvisorSession.erpStore || activeAdvisorSession.branchLabel || activeAdvisorSession.sheetTab || 'SIN ASIGNAR');
+        const resolvedSugToken = recoverStoredInvAuthToken(activeAdvisorSession);
+        if (resolvedSugToken && !activeAdvisorSession.authToken) {
+            activeAdvisorSession.authToken = resolvedSugToken;
+        }
         const payload = {
-            authToken: activeAdvisorSession.authToken || '',
+            authToken: resolvedSugToken || '',
             advisorEmail: cleanStr(activeAdvisorSession.correo),
             sheetTab: cleanStr(activeAdvisorSession.sheetTab),
             erpStore: activeStore,
@@ -20041,6 +20106,20 @@
                 setTimeout(function () {
                     window.closePurchaseSuggestionModal();
                 }, 800);
+            } else if (res && res.needsRedeploy) {
+                savePurchaseSuggestionLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                setSettingsStatusBox(
+                    'purchaseSugStatus',
+                    'Falta publicar una "Nueva versión" en Google Apps Script (Implementar → Administrar implementaciones → Editar) para activar Sugerencias de compra.',
+                    'err'
+                );
+            } else if (res && res.authRequired) {
+                savePurchaseSuggestionLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
+                const authMsg = (res && res.error) ? res.error : 'Tu sesión expiró. Confirma tu contraseña y vuelve a enviar tu sugerencia.';
+                setSettingsStatusBox('purchaseSugStatus', authMsg, 'warn');
+                if (typeof promptSessionReauth === 'function') {
+                    promptSessionReauth(authMsg, null);
+                }
             } else {
                 savePurchaseSuggestionLocalBackup(Object.assign({ synced: false, savedAt: Date.now() }, payload));
                 const errMsg = (res && res.error) ? res.error : 'No se pudo conectar con Apps Script.';

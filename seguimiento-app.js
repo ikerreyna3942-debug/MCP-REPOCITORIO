@@ -3382,7 +3382,12 @@
     }
 
     const waUrl = `https://wa.me/52${phone.slice(-10)}?text=${encodeURIComponent(msg)}`;
-    global.open(waUrl, '_blank', 'noopener');
+    const uaStr = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+    const isIosPwa = Boolean((typeof navigator !== 'undefined' && navigator.standalone === true) || (/iPhone|iPad|iPod/i.test(uaStr)));
+    const openedWin = isIosPwa ? null : global.open(waUrl, '_blank', 'noopener');
+    if (!openedWin) {
+      global.location.href = waUrl;
+    }
 
     const nowStr = formatNowStr(false);
     q.Fecha_Ultimo_Aviso = nowStr;
@@ -3445,8 +3450,26 @@
 
   function copyModalMessage() {
     const txt = $('seg_previewMessageText')?.value || '';
+    const fallbackCopy = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = txt;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        if (typeof ta.setSelectionRange === 'function') ta.setSelectionRange(0, txt.length);
+        if (typeof document.execCommand === 'function') document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch (eCopy) {}
+    };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(txt).catch(() => {});
+      navigator.clipboard.writeText(txt).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
     }
     showToast('Mensaje copiado', '📋');
   }
