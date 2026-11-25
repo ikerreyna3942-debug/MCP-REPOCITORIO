@@ -489,13 +489,14 @@ test('Static Contracts: 24/7 ERP sync hook in GAS, zero 25-day commercial cycle 
   assert.match(css, /\.cm-seg-card\.is-archived\s*\{/);
 
   // Cache versions in inventario.html
-  assert.ok(invHtml.includes('./creata-modules.css?v=9'));
-  assert.ok(invHtml.includes('./inventario-ui.css?v=25'));
-  assert.ok(invHtml.includes('./seguimiento-app.js?v=13'));
-  assert.ok(invHtml.includes('inventario-app.js?v=109'));
+  assert.ok(invHtml.includes('./creata-modules.css?v=10'));
+  assert.ok(invHtml.includes('./inventario-ui.css?v=26'));
+  assert.ok(invHtml.includes('./seguimiento-app.js?v=14'));
+  assert.ok(invHtml.includes('inventario-app.js?v=110'));
 
-  // Mobile Phone App Ergonomics (zero iOS auto-zoom, bottom sheets, segmented tabs, enterkeyhint)
+  // Mobile Phone App Ergonomics + Apple iPhone/iOS PWA support
   const invCss = readRepoFile('inventario-ui.css');
+  const invJs = readRepoFile('inventario-app.js');
   assertBalancedCssBraces(invCss, 'inventario-ui.css');
   assert.match(css, /font-size:\s*16px;/);
   assert.match(css, /touch-action:\s*manipulation/);
@@ -504,6 +505,11 @@ test('Static Contracts: 24/7 ERP sync hook in GAS, zero 25-day commercial cycle 
   assert.match(invCss, /\.inv-erp-client-search-row\s*\{/);
   assert.ok(invHtml.includes('enterkeyhint="search"'), 'Search inputs must declare enterkeyhint="search" for mobile keyboards');
   assert.match(invHtml, /<form class="inv-erp-client-search-row[^"]*" onsubmit="event\.preventDefault\(\);\s*searchErpClientsLive\(\);"/);
+  assert.ok(invHtml.includes('id="installIosCard"'), 'Install modal must highlight iPhone/iPad card');
+  assert.ok(invHtml.includes('apple-touch-icon'), 'Apple touch icon must be declared for iPhone Home Screen');
+  assert.match(invJs, /function isIosMobileDevice\(/, 'inventario-app.js must detect iPhone/iPad cleanly');
+  assert.match(invJs, /isIosStandalone[\s\S]*?navigator\.share/, 'iPhone standalone PWA must support native iOS PDF share/preview');
+  assert.match(segJs, /isIosPwa[\s\S]*?global\.location\.href = waUrl/, 'Seguimiento WhatsApp must bypass iOS popup blocker on iPhone');
 });
 
 // ============================================================================
