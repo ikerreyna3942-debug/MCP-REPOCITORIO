@@ -647,8 +647,8 @@ test('inventario-sw.js dynamic discovery regex matches all updated inventario.ht
     '/MCP-REPOCITORIO/creata-back-nav.js?v=2',
     '/MCP-REPOCITORIO/seguimiento-app.js?v=17',
     '/MCP-REPOCITORIO/historial-app.js?v=14',
-    '/MCP-REPOCITORIO/inventario-app.js?v=117',
-    '/MCP-REPOCITORIO/inventario-ui.css?v=32',
+    '/MCP-REPOCITORIO/inventario-app.js?v=118',
+    '/MCP-REPOCITORIO/inventario-ui.css?v=33',
     '/MCP-REPOCITORIO/creata-modules.css?v=12'
   ];
   for (const asset of requiredAssets) {
@@ -659,7 +659,7 @@ test('inventario-sw.js dynamic discovery regex matches all updated inventario.ht
   const idxBackNav = INV_HTML_SRC.indexOf('./creata-back-nav.js?v=2');
   const idxSeg = INV_HTML_SRC.indexOf('./seguimiento-app.js?v=17');
   const idxHist = INV_HTML_SRC.indexOf('./historial-app.js?v=14');
-  const idxInv = INV_HTML_SRC.indexOf('inventario-app.js?v=117');
+  const idxInv = INV_HTML_SRC.indexOf('inventario-app.js?v=118');
   assert.ok(idxBackNav > 0 && idxBackNav < idxSeg && idxSeg < idxHist && idxHist < idxInv, 'Script order must load creata-back-nav.js before module scripts and inventario-app.js');
 });
 
