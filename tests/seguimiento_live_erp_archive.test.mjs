@@ -490,9 +490,9 @@ test('Static Contracts: 24/7 ERP sync hook in GAS, zero 25-day commercial cycle 
 
   // Cache versions in inventario.html
   assert.ok(invHtml.includes('./creata-modules.css?v=12'));
-  assert.ok(invHtml.includes('./inventario-ui.css?v=31'));
+  assert.ok(invHtml.includes('./inventario-ui.css?v=32'));
   assert.ok(invHtml.includes('./seguimiento-app.js?v=17'));
-  assert.ok(invHtml.includes('inventario-app.js?v=116'));
+  assert.ok(invHtml.includes('inventario-app.js?v=117'));
 
   // Mobile Phone App Ergonomics + Apple iPhone/iOS PWA support + Unified Typography
   const invCss = readRepoFile('inventario-ui.css');

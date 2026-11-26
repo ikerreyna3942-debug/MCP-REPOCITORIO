@@ -4349,15 +4349,44 @@ button, a, input, select, textarea {
   gap: 5px;
 }
 
+#priceCalculatorModal .inv-calc-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 #priceCalculatorModal .inv-calc-search-wrap {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 #priceCalculatorModal .inv-calc-search-wrap .inv-input {
   width: 100%;
   padding-right: 30px;
+}
+
+#priceCalculatorModal .inv-calc-scan-btn {
+  flex-shrink: 0;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid #A38251;
+  background: #FAF8F4;
+  color: #252C32;
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#priceCalculatorModal .inv-calc-scan-btn:hover {
+  background: #F1E9DA;
 }
 
 #priceCalculatorModal .inv-calc-search-clear {
@@ -4522,13 +4551,6 @@ button, a, input, select, textarea {
   color: #6B6359;
 }
 
-#priceCalculatorModal .inv-calc-role-ref {
-  margin-left: auto;
-  font-size: var(--inv-ui-font);
-  color: #6B6359;
-  font-weight: 600;
-}
-
 #priceCalculatorModal .inv-calc-presets {
   display: flex;
   flex-wrap: wrap;
@@ -4551,16 +4573,6 @@ button, a, input, select, textarea {
   background: #A38251;
   border-color: #A38251;
   color: #FFFFFF;
-}
-
-#priceCalculatorModal .inv-calc-cap-warn {
-  padding: 5px 8px;
-  border-radius: 7px;
-  background: #FFFBEB;
-  border: 1px solid #FDE68A;
-  color: #92400E;
-  font-size: var(--inv-ui-font);
-  font-weight: 700;
 }
 
 #priceCalculatorModal .inv-calc-list-head {
@@ -4781,11 +4793,6 @@ button, a, input, select, textarea {
 @media (max-width: 640px) {
   #priceCalculatorModal .inv-calc-modal-card {
     max-height: 94dvh;
-  }
-
-  #priceCalculatorModal .inv-calc-role-ref {
-    margin-left: 0;
-    width: 100%;
   }
 
   #priceCalculatorModal .inv-calc-footer {

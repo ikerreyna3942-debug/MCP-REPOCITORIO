@@ -243,11 +243,24 @@ function bootPcRuntime({ userAgent, products = [], advisorSession = null, initia
     doc,
     byId,
     storage,
-    advanceNow(ms) { fakeNow += ms; }
+    advanceNow(ms) {
+      fakeNow += ms;
+      let progressed = true;
+      while (progressed) {
+        progressed = false;
+        for (const t of timers) {
+          if (!t.cleared && t.runAt <= fakeNow) {
+            t.cleared = true;
+            t.fn();
+            progressed = true;
+          }
+        }
+      }
+    }
   };
 }
 
-test('Static Contracts: Calculadora button inside floating + menu, isolated modal markup, unified typography, BackNav, and PC webcam scanner fallback', () => {
+test('Static Contracts: Calculadora button inside floating + menu, ZERO Tope role/cap info, auto-scan hooks, BackNav, and PC webcam scanner fallback', () => {
   // 1. Button inside #invFabMenu right below Cotización
   assert.match(
     INV_HTML,
@@ -255,9 +268,18 @@ test('Static Contracts: Calculadora button inside floating + menu, isolated moda
     '#fabCalculatorBtn ("Calculadora") must live inside #invFabMenu'
   );
   assert.ok(INV_HTML.includes('id="priceCalculatorModal"'), 'Missing #priceCalculatorModal');
+  assert.ok(INV_HTML.includes('id="calcCameraScanBtn"'), 'Missing inline camera scan button inside Calculator');
   assert.ok(INV_HTML.includes('Solo informativo'), 'Calculator modal must explicitly state it is informative only');
+  assert.match(INV_HTML, /id="scanModal"[^>]*z-index:94/, '#scanModal must sit above #priceCalculatorModal (z-index:91)');
 
-  // 2. Unified typography lock includes #priceCalculatorModal #calcTotalFinal and zero forbidden sizes
+  // 2. ZERO "Tope ADMINISTRADOR GENERAL: 100%" or role/cap warning elements inside Calculator
+  assert.ok(!INV_HTML.includes('id="calcRoleRef"'), '#calcRoleRef ("Tope ...") must be completely removed from inventario.html');
+  assert.ok(!INV_HTML.includes('id="calcCapWarn"'), '#calcCapWarn must be completely removed from inventario.html');
+  assert.ok(!INV_CSS.includes('.inv-calc-role-ref'), '.inv-calc-role-ref must be removed from inventario-ui.css');
+  assert.ok(!INV_CSS.includes('.inv-calc-cap-warn'), '.inv-calc-cap-warn must be removed from inventario-ui.css');
+  assert.ok(!INV_JS.includes("'Tope ' + data.rolePuesto"), 'Calculator JS must not render Tope role info');
+
+  // 3. Unified typography lock includes #priceCalculatorModal #calcTotalFinal and balanced braces
   assert.match(INV_CSS, /#priceCalculatorModal #calcTotalFinal/, 'inventario-ui.css must include #calcTotalFinal in unified title lock');
   let depth = 0;
   for (const ch of INV_CSS) {
@@ -267,12 +289,13 @@ test('Static Contracts: Calculadora button inside floating + menu, isolated moda
   }
   assert.equal(depth, 0, 'inventario-ui.css must have balanced braces');
 
-  // 3. BackNav + Escape + role gating
+  // 4. BackNav + Escape + role gating + auto-scan hook in processScannedBarcode
   assert.match(INV_JS, /id:\s*'price_calculator_modal'/, 'CreataBackNav must register price_calculator_modal');
   assert.match(INV_JS, /if\s*\(isModalOpenById\('priceCalculatorModal'\)\)/, 'Escape fallback must close priceCalculatorModal');
+  assert.match(INV_JS, /if\s*\(isModalOpenById\('priceCalculatorModal'\) && typeof handleScannedBarcodeForPriceCalculator === 'function'\)/, 'processScannedBarcode must auto-route scans into open Calculator');
   assert.match(INV_JS, /if\s*\(fabCalculatorBtn\)\s*fabCalculatorBtn\.classList\.toggle\('hidden',\s*!isAuthed \|\| guestMode\);/, 'Calculator button must show for authenticated non-guests and hide for Solo Ver guests');
 
-  // 4. PC Webcam fallback in startLiveBarcodeCamera()
+  // 5. PC Webcam fallback in startLiveBarcodeCamera()
   assert.match(INV_JS, /window\.Html5Qrcode\.getCameras/, 'startLiveBarcodeCamera must fall back to Html5Qrcode.getCameras() on PC webcams');
   assert.match(INV_JS, /facingMode:\s*'user'/, 'startLiveBarcodeCamera must fall back to front/user webcam if rear camera fails');
 });
@@ -299,7 +322,7 @@ function makeAdvisorSession(overrides = {}) {
   }, overrides);
 }
 
-test('Runtime: Informative Calculadora sums multiple pieces of multiple products (e.g. modular Sala), applies global & per-item discounts, and NEVER alters Cotización cart', async () => {
+test('Runtime: Informative Calculadora sums multiple pieces of multiple products (e.g. modular Sala), auto-adds ANY scan while open, shows zero Tope text, and NEVER alters Cotización cart', async () => {
   const sampleProducts = [
     { s: 'ARIA-BI', n: 'SALA ARIA MODULO BRAZO IZQUIERDO FLAX', tp: 'SALAS', mo: 'ARIA', vr: 'FLAX', pr: '$18,000.00', st: [0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0] },
     { s: 'ARIA-BD', n: 'SALA ARIA MODULO BRAZO DERECHO FLAX', tp: 'SALAS', mo: 'ARIA', vr: 'FLAX', pr: '$18,000.00', st: [0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0] },
@@ -309,15 +332,25 @@ test('Runtime: Informative Calculadora sums multiple pieces of multiple products
     { s: 'SILLA-CART', n: 'SILLA REAL EN COTIZACION', tp: 'SILLAS', mo: 'REAL', vr: 'BEIGE', pr: '$5,500.00', st: [0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
   ];
 
-  const advisorSession = makeAdvisorSession();
+  const adminSession = makeAdvisorSession({
+    nombre: 'Kevin Reyna',
+    correo: 'kevin.reyna@grupoanipa.com',
+    puesto: 'ADMINISTRADOR GENERAL',
+    rol: 'ADMIN',
+    isAdmin: true,
+    isManager: true,
+    es_admin: true,
+    es_gerente: true,
+    maxDiscountPct: 100
+  });
 
   const realQuoteCart = {
     'SILLA-CART': { sku: 'SILLA-CART', name: 'SILLA REAL EN COTIZACION', price: '$5,500.00', qty: 2, discountPct: 5 }
   };
 
-  const { win, byId, storage } = bootPcRuntime({
+  const { win, doc, byId, storage, advanceNow } = bootPcRuntime({
     products: sampleProducts,
-    advisorSession,
+    advisorSession: adminSession,
     initialCart: realQuoteCart
   });
   await new Promise((r) => setImmediate(r));
@@ -326,33 +359,63 @@ test('Runtime: Informative Calculadora sums multiple pieces of multiple products
   const cartSnapshotBefore = storage.get('creata_inv_open_cart_v1');
   const draftsSnapshotBefore = storage.get('creata_inv_quote_drafts_v1');
 
-  // Verify FAB button is visible for Advisor
-  assert.equal(byId.get('fabCalculatorBtn').classList.contains('hidden'), false, '#fabCalculatorBtn must be visible for Advisor');
+  assert.equal(byId.get('fabCalculatorBtn').classList.contains('hidden'), false, '#fabCalculatorBtn must be visible');
 
   // Open calculator modal
   win.openPriceCalculatorModal();
   assert.equal(byId.get('priceCalculatorModal').classList.contains('open'), true, '#priceCalculatorModal must open');
+  assert.equal(byId.get('calcRoleRef'), undefined, 'calcRoleRef must not exist in DOM');
+  assert.equal(byId.get('calcCapWarn'), undefined, 'calcCapWarn must not exist in DOM');
 
   // Search for modular Sala Aria
   const matches = win.__creataPriceCalc.findMatches('SALA ARIA');
   assert.equal(matches.length, 4, 'Searching SALA ARIA must find all 4 modular pieces');
 
-  // Even out-of-stock priced catalog items can be found in the informative calculator
-  const oosMatches = win.__creataPriceCalc.findMatches('MESA LUNA');
-  assert.equal(oosMatches.length, 1, 'Out-of-stock priced catalog item must still be searchable in informative calculator');
-
-  // Add a complete 5-piece Sala (1x BI, 1x BD, 2x SB, 1x ESQ)
-  assert.equal(win.addPriceCalcItem('ARIA-BI', 1), true);
-  assert.equal(win.addPriceCalcItem('ARIA-BD', 1), true);
-  assert.equal(win.addPriceCalcItem('ARIA-SB', 1), true);
-  assert.equal(win.addPriceCalcItem('ARIA-SB', 1), true); // adding same SKU increments qty to 2
-  assert.equal(win.addPriceCalcItem('ARIA-ESQ', 1), true);
+  // AUTO-SCAN 1: Global HID scan (P2300L / USB) while #priceCalculatorModal is open & focus on body
+  doc.activeElement = doc.body;
+  for (const ch of 'ARIA-BI') {
+    advanceNow(18);
+    doc.dispatchEvent({ type: 'keydown', key: ch, keyCode: ch.charCodeAt(0) });
+  }
+  advanceNow(18);
+  doc.dispatchEvent({ type: 'keydown', key: 'Enter', keyCode: 13 });
 
   let bd = win.__creataPriceCalc.getBreakdown();
+  assert.equal(bd.totalProducts, 1, 'Global HID scan must auto-add ARIA-BI to open Calculator');
+  assert.equal(bd.totalPieces, 1);
+  assert.equal(byId.get('productDetailModal').classList.contains('open'), false, 'Scan inside Calculator must NOT open productDetailModal');
+  assert.equal(byId.get('invSearchInput').value, '', 'Scan inside Calculator must NOT overwrite main search bar');
+  assert.equal(win.__creataBtScanner.getLastResult().addedToCalculator, true);
+
+  // AUTO-SCAN 2: Scan same SKU again (after dedup window) -> increments qty 1 -> 2
+  advanceNow(600);
+  for (const ch of 'ARIA-SB') {
+    advanceNow(18);
+    doc.dispatchEvent({ type: 'keydown', key: ch, keyCode: ch.charCodeAt(0) });
+  }
+  advanceNow(18);
+  doc.dispatchEvent({ type: 'keydown', key: 'Enter', keyCode: 13 });
+  advanceNow(600);
+  for (const ch of 'ARIA-SB') {
+    advanceNow(18);
+    doc.dispatchEvent({ type: 'keydown', key: ch, keyCode: ch.charCodeAt(0) });
+  }
+  advanceNow(18);
+  doc.dispatchEvent({ type: 'keydown', key: 'Enter', keyCode: 13 });
+
+  // AUTO-SCAN 3: Camera scan (with #scanModal open on top of #priceCalculatorModal) -> closes #scanModal & auto-adds ARIA-ESQ
+  byId.get('scanModal').classList.add('open');
+  advanceNow(600);
+  win.__creataBtScanner.processScannedBarcode('ARIA-ESQ', { source: 'Cámara' });
+  assert.equal(byId.get('scanModal').classList.contains('open'), false, '#scanModal must close after scanning into Calculator');
+
+  // AUTO-SCAN 4: Manual add ARIA-BD so we have complete 5-piece Sala (1 BI + 1 BD + 2 SB + 1 ESQ = $80,000)
+  assert.equal(win.addPriceCalcItem('ARIA-BD', 1), true);
+
+  bd = win.__creataPriceCalc.getBreakdown();
   assert.equal(bd.totalProducts, 4);
   assert.equal(bd.totalPieces, 5);
   assert.equal(bd.sumList, 80000);
-  assert.equal(bd.totalDiscount, 0);
   assert.equal(bd.totalFinal, 80000);
   assert.equal(byId.get('fabCalcCount').textContent, '5');
   assert.equal(byId.get('calcTotalFinal').textContent, '$80,000.00');
@@ -366,28 +429,35 @@ test('Runtime: Informative Calculadora sums multiple pieces of multiple products
   assert.equal(Math.round(bd.effectiveDiscountPct * 10) / 10, 20);
   assert.equal(byId.get('calcSumDiscount').textContent, '-$16,000.00');
   assert.equal(byId.get('calcTotalFinal').textContent, '$64,000.00');
-  assert.equal(byId.get('calcCapWarn').classList.contains('hidden'), true, '20% is within advisor cap, no warning');
 
   // Customize individual piece discount (Esquinero to 10% while others stay 20%)
   win.setPriceCalcItemDiscount('ARIA-ESQ', 10, false);
   bd = win.__creataPriceCalc.getBreakdown();
-  // Discount: 20% of 64,000 (12,800) + 10% of 16,000 (1,600) = 14,400 -> final = 65,600 (18.0%)
   assert.equal(bd.totalDiscount, 14400);
   assert.equal(bd.totalFinal, 65600);
   assert.equal(Math.round(bd.effectiveDiscountPct * 10) / 10, 18);
 
-  // Test exceeding advisor cap shows informative warning without blocking calculation
-  win.applyPriceCalcGlobalDiscount(35);
-  bd = win.__creataPriceCalc.getBreakdown();
-  assert.equal(bd.totalFinal, 52000);
-  assert.equal(byId.get('calcCapWarn').classList.contains('hidden'), false, 'Exceeding role cap should show informative warning');
-
-  // Scanning/Enter inside #calcSearchInput adds item straight into calculator
+  // AUTO-SCAN 5: Out-of-stock priced catalog item scanned with Tab inside #calcSearchInput -> auto-added!
+  advanceNow(600);
   byId.get('calcSearchInput').value = 'MESA-LUNA';
-  win.onCalcSearchKeydown({ key: 'Enter', preventDefault() {} });
+  win.onCalcSearchKeydown({ key: 'Tab', keyCode: 9, preventDefault() {} });
   bd = win.__creataPriceCalc.getBreakdown();
   assert.equal(bd.totalProducts, 5);
   assert.equal(bd.totalPieces, 6);
+  assert.equal(byId.get('calcSearchInput').value, '');
+
+  // AUTO-SCAN 6: Rapid no-Enter burst inside #calcSearchInput -> auto-added after 260ms settle!
+  advanceNow(600);
+  let typed = '';
+  for (const ch of 'MESA-LUNA') {
+    typed += ch;
+    byId.get('calcSearchInput').value = typed;
+    advanceNow(18);
+    win.searchPriceCalculatorProducts(typed);
+  }
+  advanceNow(300);
+  bd = win.__creataPriceCalc.getBreakdown();
+  assert.equal(bd.totalPieces, 7, 'Rapid no-Enter scan burst inside #calcSearchInput must auto-add +1 piece');
   assert.equal(byId.get('calcSearchInput').value, '');
 
   // Clear calculator
@@ -466,7 +536,7 @@ test('Runtime: PC Scanner supports both Webcam fallback (when facingMode:environ
   assert.match(byId.get('scanStatus').textContent, /Apunta la cámara/i, 'PC webcam should start cleanly without error');
   win.closeBarcodeScanner();
 
-  // 2. Simulate silent USB/Bluetooth HID scanner on Windows PC typing "ARIA-BI" + Enter
+  // 2. Simulate silent USB/Bluetooth HID scanner on Windows PC typing "ARIA-BI" + Enter (Calculator closed -> normal product detail flow)
   doc.activeElement = doc.body;
   for (const ch of 'ARIA-BI') {
     advanceNow(18);
