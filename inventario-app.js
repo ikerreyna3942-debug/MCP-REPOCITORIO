@@ -6365,19 +6365,42 @@
                 try { inst.clear(); } catch (eClr) {}
                 return;
             }
-            await inst.start(
-                { facingMode: 'environment' },
-                {
-                    fps: 12,
-                    qrbox: function (w, h) {
-                        const bw = Math.floor(Math.min(w * 0.85, 360));
-                        const bh = Math.floor(Math.min(h * 0.5, 180));
-                        return { width: Math.max(bw, 120), height: Math.max(bh, 80) };
+            const scanConfig = {
+                fps: 12,
+                qrbox: function (w, h) {
+                    const bw = Math.floor(Math.min(w * 0.85, 360));
+                    const bh = Math.floor(Math.min(h * 0.5, 180));
+                    return { width: Math.max(bw, 120), height: Math.max(bh, 80) };
+                }
+            };
+            const onDecodeSuccess = function (decodedText) { handleScannedCode(decodedText); };
+            const onDecodeFailure = function () {};
+            let startedCamera = false;
+            try {
+                await inst.start({ facingMode: 'environment' }, scanConfig, onDecodeSuccess, onDecodeFailure);
+                startedCamera = true;
+            } catch (envErr) {
+                // Fallback automático para computadora (PC / Mac / Laptop / Webcam USB) sin cámara trasera
+                if (!isScanModalOpen() || scanInstance !== inst) return;
+                let cameras = [];
+                try {
+                    if (typeof window.Html5Qrcode.getCameras === 'function') {
+                        cameras = await window.Html5Qrcode.getCameras();
                     }
-                },
-                function (decodedText) { handleScannedCode(decodedText); },
-                function () {}
-            );
+                } catch (eCamList) {}
+                if (!isScanModalOpen() || scanInstance !== inst) return;
+                if (Array.isArray(cameras) && cameras.length > 0) {
+                    const preferred = cameras.find(c => /back|rear|trasera|environment/i.test(String((c && c.label) || ''))) || cameras[0];
+                    await inst.start(preferred.id, scanConfig, onDecodeSuccess, onDecodeFailure);
+                    startedCamera = true;
+                } else {
+                    await inst.start({ facingMode: 'user' }, scanConfig, onDecodeSuccess, onDecodeFailure);
+                    startedCamera = true;
+                }
+            }
+            if (!startedCamera) {
+                throw new Error('No se encontró cámara disponible.');
+            }
             // Si el usuario cerró el modal mientras la cámara arrancaba, apagarla
             if (scanInstance !== inst || !isScanModalOpen()) {
                 try { await inst.stop(); inst.clear(); } catch (e) {}
@@ -6386,7 +6409,7 @@
             setScanStatus('Apunta la cámara al código de barras o QR del producto.', false);
         } catch (err) {
             console.error('[Escáner]', err);
-            setScanStatus('No fue posible abrir la cámara en vivo. Da permiso de cámara al navegador o usa "Tomar foto del código".', true);
+            setScanStatus('No fue posible abrir la cámara en vivo. Da permiso de cámara, usa "Tomar foto del código" o escanea con lector USB/Bluetooth.', true);
         }
     }
 
@@ -10610,6 +10633,7 @@
         window.closeFabMenu();
         closeProductDetail();
         closeCartModal();
+        if (typeof window.closePriceCalculatorModal === 'function') window.closePriceCalculatorModal();
         if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
 
         const mainView = document.getElementById('invMainView');
@@ -10650,6 +10674,7 @@
         window.closeFabMenu();
         closeProductDetail();
         closeCartModal();
+        if (typeof window.closePriceCalculatorModal === 'function') window.closePriceCalculatorModal();
         if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
 
         const mainView = document.getElementById('invMainView');
@@ -11436,6 +11461,7 @@
 
         const fabRoot = document.getElementById('invFabRoot');
         const fabQuoteBtn = document.getElementById('fabQuoteBtn');
+        const fabCalculatorBtn = document.getElementById('fabCalculatorBtn');
         const fabSeguimientoBtn = document.getElementById('fabSeguimientoBtn');
         const fabPurchaseSuggestionBtn = document.getElementById('fabPurchaseSuggestionBtn');
         const fabUploadPhotoBtn = document.getElementById('fabUploadPhotoBtn');
@@ -11481,6 +11507,10 @@
             if (!isAuthed) window.closeFabMenu();
         }
         if (fabQuoteBtn) fabQuoteBtn.classList.toggle('hidden', !canSeeCotizador);
+        if (fabCalculatorBtn) fabCalculatorBtn.classList.toggle('hidden', !isAuthed || guestMode);
+        if ((!isAuthed || guestMode) && typeof window.closePriceCalculatorModal === 'function') {
+            window.closePriceCalculatorModal();
+        }
         if (fabSeguimientoBtn) fabSeguimientoBtn.classList.toggle('hidden', !canSeeSeguimiento);
         if (fabPurchaseSuggestionBtn) fabPurchaseSuggestionBtn.classList.toggle('hidden', !isAuthed);
         if (fabUploadPhotoBtn) fabUploadPhotoBtn.classList.toggle('hidden', !canUploadDrivePhotos);
@@ -12190,6 +12220,8 @@
         if (typeof window.closeSettingsModal === 'function') window.closeSettingsModal();
         if (typeof window.closeOutOfStockRequestModal === 'function') window.closeOutOfStockRequestModal();
         if (typeof window.closePurchaseSuggestionModal === 'function') window.closePurchaseSuggestionModal();
+        if (typeof window.closePriceCalculatorModal === 'function') window.closePriceCalculatorModal();
+        if (typeof window.clearPriceCalculator === 'function') window.clearPriceCalculator(true);
         try {
             if (typeof sessionStorage !== 'undefined') {
                 sessionStorage.removeItem(KEVIN_ROLE_PREVIEW_KEY);
@@ -15733,6 +15765,7 @@
             // Offline fallback when creata-back-nav.js is unavailable
             if (isMandatoryAuthGateActive()) { ev.__creataEscapeHandled = true; return; }
             if (isModalOpenById('scanModal')) { ev.__creataEscapeHandled = true; window.closeBarcodeScanner(); return; }
+            if (isModalOpenById('priceCalculatorModal')) { ev.__creataEscapeHandled = true; window.closePriceCalculatorModal(); return; }
             if (isModalOpenById('installAppModal')) { ev.__creataEscapeHandled = true; window.closeInstallAppModal(); return; }
             if (isOptionalAuthModalActive()) {
                 ev.__creataEscapeHandled = true;
@@ -18182,6 +18215,13 @@
                     id: 'scan_modal',
                     isActive: function () { return isModalOpenById('scanModal'); },
                     undo: function () { window.closeBarcodeScanner(); },
+                    escapeAllowed: true
+                },
+                // Priority 1b: Informative Price Calculator Modal (z-index: 91)
+                {
+                    id: 'price_calculator_modal',
+                    isActive: function () { return isModalOpenById('priceCalculatorModal'); },
+                    undo: function () { window.closePriceCalculatorModal(); },
                     escapeAllowed: true
                 },
                 // Priority 2: Install App Modal (z-index: 88)
@@ -20741,6 +20781,630 @@
             }
         }
     };
+
+    // ========================================================================
+    // CALCULADORA INFORMATIVA DE PRECIOS Y DESCUENTOS (MENÚ FLOTANTE "+")
+    // - 100% aislada de la cotización final (NUNCA modifica cart ni quoteDrafts)
+    // - Permite agregar 1 o más piezas de 1 o más productos (ej. módulos de una sala)
+    // ========================================================================
+    let priceCalcItems = [];
+    let priceCalcGlobalDiscountPct = 0;
+    let priceCalcLastQuery = '';
+    let priceCalcDelegatedBound = false;
+
+    function roundCalcMoney(n) {
+        const v = Number(n) || 0;
+        return Math.round(v * 100) / 100;
+    }
+
+    function clampCalcPct(raw) {
+        const s = String(raw == null ? '' : raw).replace(',', '.').trim();
+        if (!s) return 0;
+        const n = parseFloat(s);
+        if (isNaN(n) || !isFinite(n) || n < 0) return 0;
+        return Math.min(100, Math.round(n * 100) / 100);
+    }
+
+    function clampCalcQty(raw) {
+        const n = parseInt(String(raw == null ? '' : raw).trim(), 10);
+        if (isNaN(n) || !isFinite(n) || n < 1) return 1;
+        return Math.min(999, n);
+    }
+
+    function formatCalcCurrency(num) {
+        const v = Math.max(0, roundCalcMoney(num));
+        return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function resolveCalcCatalogItem(skuRaw) {
+        const key = String(skuRaw || '').trim().toUpperCase();
+        if (!key) return null;
+        const direct = bySkuMap.get(key);
+        if (direct) return direct;
+        const norm = key.replace(/[^A-Z0-9]+/g, '');
+        if (norm) {
+            const byNorm = bySkuNormMap.get(norm);
+            if (byNorm) return byNorm;
+        }
+        if (Array.isArray(allItems)) {
+            for (let i = 0; i < allItems.length; i++) {
+                if (String((allItems[i] && allItems[i].s) || '').trim().toUpperCase() === key) {
+                    return allItems[i];
+                }
+            }
+        }
+        return null;
+    }
+
+    function getCalcItemUnitPrice(it) {
+        if (!it) return 0;
+        const direct = parsePriceNum(it.pr);
+        if (direct > 0) return direct;
+        const key = String(it.s || '').trim().toUpperCase();
+        if (key) {
+            const livePr = parsePriceNum(liveErpPricesBySku.get(key));
+            if (livePr > 0) return livePr;
+            const erpEntry = liveErpCatalogBySku.get(key);
+            if (erpEntry) {
+                const erpPr = parsePriceNum(erpEntry.pr);
+                if (erpPr > 0) return erpPr;
+            }
+        }
+        return 0;
+    }
+
+    function findPriceCalcMatches(rawQuery) {
+        const qTrim = String(rawQuery || '').trim();
+        if (!qTrim) return [];
+        const qUpper = qTrim.toUpperCase();
+        const qNorm = normSearch(qTrim);
+        const tokens = qNorm.split(/\s+/).filter(Boolean);
+        if (!tokens.length) return [];
+
+        const seen = new Set();
+        const ranked = [];
+
+        function pushCandidate(it, baseScore) {
+            if (!it) return;
+            const sku = String(it.s || '').trim().toUpperCase();
+            if (!sku || seen.has(sku)) return;
+            const unitPrice = getCalcItemUnitPrice(it);
+            if (unitPrice <= 0) return;
+            seen.add(sku);
+            const quotableBonus = isQuotableItem(it) ? 20 : 0;
+            ranked.push({
+                item: it,
+                sku: sku,
+                unitPrice: unitPrice,
+                score: baseScore + quotableBonus
+            });
+        }
+
+        // 1. Coincidencia exacta de SKU primero
+        const exactHit = resolveCalcCatalogItem(qUpper);
+        if (exactHit) pushCandidate(exactHit, 1000);
+
+        // 2. Búsqueda inteligente por grupos (salas, modelos, telas, sinónimos)
+        try {
+            if (typeof searchGroupCollection === 'function' && Array.isArray(allGroups) && allGroups.length > 0) {
+                const scoreMap = new Map();
+                const grpHits = searchGroupCollection(allGroups, qTrim, scoreMap);
+                for (let gi = 0; gi < grpHits.length && ranked.length < 80; gi++) {
+                    const grp = grpHits[gi];
+                    const gEntry = scoreMap.get(grp.key);
+                    const gScore = (gEntry ? gEntry.score : 10) + 100;
+                    const gItems = Array.isArray(grp.items) ? grp.items : [];
+                    for (let ii = 0; ii < gItems.length; ii++) {
+                        pushCandidate(gItems[ii], gScore);
+                    }
+                }
+            }
+        } catch (eGrp) {}
+
+        // 3. Coincidencia directa en todo el catálogo (incluyendo piezas fuera de stock con precio)
+        const pool = Array.isArray(allItems) && allItems.length > 0 ? allItems : Array.from(bySkuMap.values());
+        for (let i = 0; i < pool.length; i++) {
+            const it = pool[i];
+            if (!it) continue;
+            const sku = String(it.s || '').trim().toUpperCase();
+            if (!sku || seen.has(sku)) continue;
+            const hay = normSearch([it.s, it.n, it.mo, it.vr, it.tl, it.c].filter(Boolean).join(' '));
+            let allMatch = true;
+            for (let t = 0; t < tokens.length; t++) {
+                if (hay.indexOf(tokens[t]) === -1) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch) {
+                const skuBoost = sku.indexOf(qUpper) === 0 ? 400 : (sku.indexOf(qUpper) !== -1 ? 200 : 50);
+                pushCandidate(it, skuBoost);
+            }
+        }
+
+        ranked.sort(function (a, b) {
+            if (b.score !== a.score) return b.score - a.score;
+            return String(a.item.n || a.sku).localeCompare(String(b.item.n || b.sku), 'es');
+        });
+        return ranked.slice(0, 35);
+    }
+
+    function computePriceCalcBreakdown() {
+        const lines = [];
+        let totalPieces = 0;
+        let sumList = 0;
+        let totalFinal = 0;
+
+        for (let i = 0; i < priceCalcItems.length; i++) {
+            const row = priceCalcItems[i];
+            if (!row) continue;
+            const liveIt = resolveCalcCatalogItem(row.sku);
+            const livePrice = liveIt ? getCalcItemUnitPrice(liveIt) : 0;
+            const unitPrice = livePrice > 0 ? livePrice : parsePriceNum(row.unitPrice);
+            if (unitPrice <= 0) continue;
+            const qty = clampCalcQty(row.qty);
+            const discPct = clampCalcPct(row.discountPct);
+            const lineList = roundCalcMoney(unitPrice * qty);
+            const unitFinal = unitPrice * (1 - (discPct / 100));
+            const lineFinal = Math.max(0, roundCalcMoney(unitFinal * qty));
+            const lineDiscount = Math.max(0, roundCalcMoney(lineList - lineFinal));
+
+            totalPieces += qty;
+            sumList = roundCalcMoney(sumList + lineList);
+            totalFinal = roundCalcMoney(totalFinal + lineFinal);
+
+            lines.push({
+                sku: String(row.sku || '').toUpperCase(),
+                name: (liveIt && stripDimensionsFromProductText(cleanStr(liveIt.n))) || row.name || row.sku,
+                variant: (liveIt && cleanStr(liveIt.vr || liveIt.tl)) || row.variant || '',
+                photoUrl: (liveIt && photoUrlForItem(liveIt)) || row.photoUrl || '',
+                unitPrice: unitPrice,
+                qty: qty,
+                discountPct: discPct,
+                lineList: lineList,
+                unitFinal: roundCalcMoney(unitFinal),
+                lineFinal: lineFinal,
+                lineDiscount: lineDiscount
+            });
+        }
+
+        const totalDiscount = Math.max(0, roundCalcMoney(sumList - totalFinal));
+        const effectiveDiscountPct = sumList > 0 ? (totalDiscount / sumList) * 100 : 0;
+        const subtotalNoIva = roundCalcMoney(totalFinal / 1.16);
+        const ivaAmount = Math.max(0, roundCalcMoney(totalFinal - subtotalNoIva));
+        const role = getAdvisorRoleInfo();
+
+        return {
+            lines: lines,
+            totalProducts: lines.length,
+            totalPieces: totalPieces,
+            sumList: sumList,
+            totalDiscount: totalDiscount,
+            effectiveDiscountPct: effectiveDiscountPct,
+            subtotalNoIva: subtotalNoIva,
+            ivaAmount: ivaAmount,
+            totalFinal: totalFinal,
+            globalDiscountPct: priceCalcGlobalDiscountPct,
+            roleMaxPct: role.maxPct,
+            rolePuesto: role.puesto
+        };
+    }
+
+    function syncPriceCalcFabBadge(totalPieces) {
+        const badge = document.getElementById('fabCalcCount');
+        if (!badge) return;
+        const count = Math.max(0, Number(totalPieces) || 0);
+        badge.textContent = String(count);
+        badge.classList.toggle('hidden', count <= 0);
+    }
+
+    function renderPriceCalcSearchResults() {
+        const box = document.getElementById('calcSearchResults');
+        const clearBtn = document.getElementById('calcSearchClearBtn');
+        const q = String(priceCalcLastQuery || '').trim();
+        if (clearBtn) clearBtn.classList.toggle('hidden', !q);
+        if (!box) return;
+        if (!q) {
+            box.innerHTML = '';
+            box.classList.add('hidden');
+            return;
+        }
+        const matches = findPriceCalcMatches(q);
+        box.classList.remove('hidden');
+        if (!matches.length) {
+            box.innerHTML = '<div class="inv-calc-empty" style="border:none;border-radius:0;">Sin productos con precio para “' + escapeHtml(q) + '”. Prueba otro nombre o SKU.</div>';
+            return;
+        }
+        const qtyBySku = new Map();
+        for (let i = 0; i < priceCalcItems.length; i++) {
+            const it = priceCalcItems[i];
+            if (it && it.sku) qtyBySku.set(String(it.sku).toUpperCase(), clampCalcQty(it.qty));
+        }
+        box.innerHTML = matches.map(function (entry) {
+            const it = entry.item;
+            const sku = entry.sku;
+            const name = stripDimensionsFromProductText(cleanStr(it.n)) || sku;
+            const variant = cleanStr(it.vr || it.tl);
+            const rawPhoto = photoUrlForItem(it);
+            const thumbSrc = rawPhoto ? resolveVisualImgSrc(rawPhoto) : '';
+            const availKind = getItemAvailabilityKind(it);
+            const availTxt = availKind === 'STOCK' || availKind === 'LPPT_STOCK' ? 'En stock' : (availKind === 'LPPT' ? 'LPPT' : 'Catálogo');
+            const existingQty = qtyBySku.get(sku) || 0;
+            const btnLabel = existingQty > 0 ? ('+1 (en lista: ' + existingQty + ')') : '+ Agregar';
+            return '<div class="inv-calc-res-row">' +
+                '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
+                '<div class="inv-calc-res-info">' +
+                    '<div class="inv-calc-res-name">' + escapeHtml(name) + '</div>' +
+                    '<div class="inv-calc-res-meta">' +
+                        '<span>' + escapeHtml(sku) + '</span>' +
+                        (variant ? '<span>· ' + escapeHtml(variant) + '</span>' : '') +
+                        '<span>· ' + escapeHtml(availTxt) + '</span>' +
+                        '<span class="inv-calc-res-price">· ' + escapeHtml(formatCalcCurrency(entry.unitPrice)) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<button type="button" class="inv-calc-add-btn' + (existingQty > 0 ? ' is-in-list' : '') + '" data-calc-action="add" data-sku="' + escapeHtml(sku) + '">' + escapeHtml(btnLabel) + '</button>' +
+            '</div>';
+        }).join('');
+    }
+
+    function renderPriceCalcSummaryOnly(bd) {
+        const data = bd || computePriceCalcBreakdown();
+        const countEl = document.getElementById('calcItemsCount');
+        const sumListEl = document.getElementById('calcSumList');
+        const discLblEl = document.getElementById('calcDiscountLabel');
+        const sumDiscEl = document.getElementById('calcSumDiscount');
+        const subNoIvaEl = document.getElementById('calcSubtotalNoIva');
+        const ivaEl = document.getElementById('calcIvaAmount');
+        const totalEl = document.getElementById('calcTotalFinal');
+        const roleRefEl = document.getElementById('calcRoleRef');
+        const capWarnEl = document.getElementById('calcCapWarn');
+        const globalInp = document.getElementById('calcGlobalDiscountInput');
+
+        syncPriceCalcFabBadge(data.totalPieces);
+
+        if (countEl) {
+            countEl.textContent = data.totalProducts + (data.totalProducts === 1 ? ' producto' : ' productos') +
+                ' · ' + data.totalPieces + (data.totalPieces === 1 ? ' pieza' : ' piezas');
+        }
+        if (sumListEl) sumListEl.textContent = formatCalcCurrency(data.sumList);
+        if (discLblEl) {
+            const pctStr = data.effectiveDiscountPct > 0 ? data.effectiveDiscountPct.toFixed(1).replace(/\.0$/, '') : '0';
+            discLblEl.textContent = 'Descuento aplicado (' + pctStr + '%):';
+        }
+        if (sumDiscEl) sumDiscEl.textContent = '-' + formatCalcCurrency(data.totalDiscount);
+        if (subNoIvaEl) subNoIvaEl.textContent = formatCalcCurrency(data.subtotalNoIva);
+        if (ivaEl) ivaEl.textContent = formatCalcCurrency(data.ivaAmount);
+        if (totalEl) {
+            totalEl.textContent = formatCalcCurrency(data.totalFinal);
+            totalEl.classList.toggle('has-disc', data.totalDiscount > 0.004);
+        }
+        if (roleRefEl) {
+            roleRefEl.textContent = 'Tope ' + data.rolePuesto + ': ' + data.roleMaxPct + '%';
+        }
+        if (globalInp && document.activeElement !== globalInp) {
+            globalInp.value = String(priceCalcGlobalDiscountPct);
+        }
+
+        const presetBtns = document.querySelectorAll('#priceCalculatorModal .inv-calc-preset-btn');
+        if (presetBtns && presetBtns.length) {
+            presetBtns.forEach(function (btn) {
+                const p = Number(btn.getAttribute('data-calc-pct'));
+                btn.classList.toggle('is-active', Math.abs(p - priceCalcGlobalDiscountPct) < 0.001);
+            });
+        }
+
+        if (capWarnEl) {
+            const exceedsLine = data.lines.some(function (ln) { return ln.discountPct > data.roleMaxPct + 0.001; });
+            const exceedsGlobal = priceCalcGlobalDiscountPct > data.roleMaxPct + 0.001;
+            if ((exceedsLine || exceedsGlobal) && data.roleMaxPct > 0) {
+                capWarnEl.textContent = 'Referencia informativa: el descuento simulado supera el ' + data.roleMaxPct + '% autorizado para tu puesto (' + data.rolePuesto + ').';
+                capWarnEl.classList.remove('hidden');
+            } else {
+                capWarnEl.textContent = '';
+                capWarnEl.classList.add('hidden');
+            }
+        }
+    }
+
+    function renderPriceCalculator() {
+        const container = document.getElementById('calcItemsContainer');
+        const bd = computePriceCalcBreakdown();
+        renderPriceCalcSummaryOnly(bd);
+        renderPriceCalcSearchResults();
+
+        if (!container) return;
+        if (!bd.lines.length) {
+            container.innerHTML = '<div class="inv-calc-empty">Busca arriba una sala, producto o SKU y presiona <strong>+ Agregar</strong> para sumar varias piezas y simular el descuento.<br>Este cálculo es solo informativo y no afecta tu cotización.</div>';
+            return;
+        }
+
+        container.innerHTML = bd.lines.map(function (ln) {
+            const thumbSrc = ln.photoUrl ? resolveVisualImgSrc(ln.photoUrl) : '';
+            const hasDisc = ln.discountPct > 0.001;
+            return '<div class="inv-calc-item-card" data-calc-sku="' + escapeHtml(ln.sku) + '">' +
+                '<div class="inv-calc-item-top">' +
+                    '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
+                    '<div class="inv-calc-res-info">' +
+                        '<div class="inv-calc-res-name">' + escapeHtml(ln.name) + '</div>' +
+                        '<div class="inv-calc-res-meta">' +
+                            '<span>' + escapeHtml(ln.sku) + '</span>' +
+                            (ln.variant ? '<span>· ' + escapeHtml(ln.variant) + '</span>' : '') +
+                            '<span class="inv-calc-res-price">· ' + escapeHtml(formatCalcCurrency(ln.unitPrice)) + ' c/u</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<button type="button" class="inv-calc-item-rm" data-calc-action="remove" data-sku="' + escapeHtml(ln.sku) + '" title="Quitar de calculadora" aria-label="Quitar producto">✕</button>' +
+                '</div>' +
+                '<div class="inv-calc-item-controls">' +
+                    '<div class="inv-calc-qty-group" aria-label="Cantidad">' +
+                        '<button type="button" class="inv-calc-qty-btn" data-calc-action="dec" data-sku="' + escapeHtml(ln.sku) + '" aria-label="Disminuir cantidad">−</button>' +
+                        '<input type="number" inputmode="numeric" min="1" max="999" value="' + ln.qty + '" class="inv-calc-qty-inp" data-calc-input="qty" data-sku="' + escapeHtml(ln.sku) + '" aria-label="Cantidad de piezas">' +
+                        '<button type="button" class="inv-calc-qty-btn" data-calc-action="inc" data-sku="' + escapeHtml(ln.sku) + '" aria-label="Aumentar cantidad">+</button>' +
+                    '</div>' +
+                    '<label class="inv-calc-item-disc">' +
+                        '<span>Desc.</span>' +
+                        '<input type="number" inputmode="decimal" min="0" max="100" step="0.5" value="' + ln.discountPct + '" class="inv-input" data-calc-input="disc" data-sku="' + escapeHtml(ln.sku) + '" aria-label="Descuento de la pieza">' +
+                        '<span>%</span>' +
+                    '</label>' +
+                    '<div class="inv-calc-item-totals">' +
+                        (hasDisc ? '<span class="inv-calc-line-old">' + escapeHtml(formatCalcCurrency(ln.lineList)) + '</span>' : '') +
+                        '<span class="inv-calc-line-final' + (hasDisc ? ' has-disc' : '') + '">' + escapeHtml(formatCalcCurrency(ln.lineFinal)) + '</span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+
+    function bindPriceCalculatorListeners() {
+        if (priceCalcDelegatedBound) return;
+        const modal = document.getElementById('priceCalculatorModal');
+        if (!modal) return;
+        priceCalcDelegatedBound = true;
+
+        modal.addEventListener('click', function (ev) {
+            const btn = ev.target && typeof ev.target.closest === 'function'
+                ? ev.target.closest('[data-calc-action]')
+                : null;
+            if (!btn) return;
+            const action = btn.getAttribute('data-calc-action');
+            const sku = btn.getAttribute('data-sku') || '';
+            if (action === 'add') {
+                window.addPriceCalcItem(sku);
+            } else if (action === 'inc') {
+                window.stepPriceCalcItemQty(sku, 1);
+            } else if (action === 'dec') {
+                window.stepPriceCalcItemQty(sku, -1);
+            } else if (action === 'remove') {
+                window.removePriceCalcItem(sku);
+            }
+        });
+
+        modal.addEventListener('input', function (ev) {
+            const el = ev.target;
+            if (!el || typeof el.getAttribute !== 'function') return;
+            const kind = el.getAttribute('data-calc-input');
+            const sku = el.getAttribute('data-sku') || '';
+            if (!kind || !sku) return;
+            if (kind === 'qty') {
+                window.setPriceCalcItemQty(sku, el.value, true);
+            } else if (kind === 'disc') {
+                window.setPriceCalcItemDiscount(sku, el.value, true);
+            }
+        });
+
+        modal.addEventListener('change', function (ev) {
+            const el = ev.target;
+            if (!el || typeof el.getAttribute !== 'function') return;
+            const kind = el.getAttribute('data-calc-input');
+            const sku = el.getAttribute('data-sku') || '';
+            if (!kind || !sku) return;
+            if (kind === 'qty') {
+                window.setPriceCalcItemQty(sku, el.value, false);
+            } else if (kind === 'disc') {
+                window.setPriceCalcItemDiscount(sku, el.value, false);
+            }
+        });
+    }
+
+    window.addPriceCalcItem = function (skuRaw, qtyToAdd) {
+        const it = resolveCalcCatalogItem(skuRaw);
+        if (!it) return false;
+        const unitPrice = getCalcItemUnitPrice(it);
+        if (unitPrice <= 0) {
+            showToast('Este producto no tiene precio registrado.');
+            return false;
+        }
+        const sku = String(it.s || skuRaw).trim().toUpperCase();
+        const addQty = clampCalcQty(qtyToAdd == null ? 1 : qtyToAdd);
+        const existing = priceCalcItems.find(function (r) { return r.sku === sku; });
+        if (existing) {
+            existing.qty = Math.min(999, clampCalcQty(existing.qty) + addQty);
+            existing.unitPrice = unitPrice;
+        } else {
+            priceCalcItems.push({
+                sku: sku,
+                name: stripDimensionsFromProductText(cleanStr(it.n)) || sku,
+                variant: cleanStr(it.vr || it.tl),
+                unitPrice: unitPrice,
+                qty: addQty,
+                discountPct: priceCalcGlobalDiscountPct,
+                photoUrl: photoUrlForItem(it) || ''
+            });
+        }
+        renderPriceCalculator();
+        return true;
+    };
+
+    window.stepPriceCalcItemQty = function (skuRaw, delta) {
+        const sku = String(skuRaw || '').trim().toUpperCase();
+        const row = priceCalcItems.find(function (r) { return r.sku === sku; });
+        if (!row) return false;
+        row.qty = Math.max(1, Math.min(999, clampCalcQty(row.qty) + (Number(delta) || 0)));
+        renderPriceCalculator();
+        return true;
+    };
+
+    window.setPriceCalcItemQty = function (skuRaw, rawQty, preserveFocus) {
+        const sku = String(skuRaw || '').trim().toUpperCase();
+        const row = priceCalcItems.find(function (r) { return r.sku === sku; });
+        if (!row) return false;
+        row.qty = clampCalcQty(rawQty);
+        if (preserveFocus) {
+            const bd = computePriceCalcBreakdown();
+            renderPriceCalcSummaryOnly(bd);
+            renderPriceCalcSearchResults();
+            const card = document.querySelector('#calcItemsContainer .inv-calc-item-card[data-calc-sku="' + sku + '"]');
+            const ln = bd.lines.find(function (x) { return x.sku === sku; });
+            if (card && ln) {
+                const totalsEl = card.querySelector('.inv-calc-item-totals');
+                if (totalsEl) {
+                    const hasDisc = ln.discountPct > 0.001;
+                    totalsEl.innerHTML = (hasDisc ? '<span class="inv-calc-line-old">' + escapeHtml(formatCalcCurrency(ln.lineList)) + '</span>' : '') +
+                        '<span class="inv-calc-line-final' + (hasDisc ? ' has-disc' : '') + '">' + escapeHtml(formatCalcCurrency(ln.lineFinal)) + '</span>';
+                }
+            }
+        } else {
+            renderPriceCalculator();
+        }
+        return true;
+    };
+
+    window.setPriceCalcItemDiscount = function (skuRaw, rawPct, preserveFocus) {
+        const sku = String(skuRaw || '').trim().toUpperCase();
+        const row = priceCalcItems.find(function (r) { return r.sku === sku; });
+        if (!row) return false;
+        row.discountPct = clampCalcPct(rawPct);
+        if (preserveFocus) {
+            const bd = computePriceCalcBreakdown();
+            renderPriceCalcSummaryOnly(bd);
+            const card = document.querySelector('#calcItemsContainer .inv-calc-item-card[data-calc-sku="' + sku + '"]');
+            const ln = bd.lines.find(function (x) { return x.sku === sku; });
+            if (card && ln) {
+                const totalsEl = card.querySelector('.inv-calc-item-totals');
+                if (totalsEl) {
+                    const hasDisc = ln.discountPct > 0.001;
+                    totalsEl.innerHTML = (hasDisc ? '<span class="inv-calc-line-old">' + escapeHtml(formatCalcCurrency(ln.lineList)) + '</span>' : '') +
+                        '<span class="inv-calc-line-final' + (hasDisc ? ' has-disc' : '') + '">' + escapeHtml(formatCalcCurrency(ln.lineFinal)) + '</span>';
+                }
+            }
+        } else {
+            renderPriceCalculator();
+        }
+        return true;
+    };
+
+    window.removePriceCalcItem = function (skuRaw) {
+        const sku = String(skuRaw || '').trim().toUpperCase();
+        priceCalcItems = priceCalcItems.filter(function (r) { return r.sku !== sku; });
+        renderPriceCalculator();
+        return true;
+    };
+
+    window.applyPriceCalcGlobalDiscount = function (rawPct) {
+        const pct = clampCalcPct(rawPct);
+        priceCalcGlobalDiscountPct = pct;
+        for (let i = 0; i < priceCalcItems.length; i++) {
+            if (priceCalcItems[i]) priceCalcItems[i].discountPct = pct;
+        }
+        const globalInp = document.getElementById('calcGlobalDiscountInput');
+        if (globalInp && document.activeElement !== globalInp) {
+            globalInp.value = String(pct);
+        }
+        renderPriceCalculator();
+        return pct;
+    };
+
+    window.searchPriceCalculatorProducts = function (rawQuery) {
+        priceCalcLastQuery = String(rawQuery || '');
+        renderPriceCalcSearchResults();
+    };
+
+    window.clearCalcSearchInput = function () {
+        priceCalcLastQuery = '';
+        const inp = document.getElementById('calcSearchInput');
+        if (inp) {
+            inp.value = '';
+            try { inp.focus(); } catch (e) {}
+        }
+        renderPriceCalcSearchResults();
+    };
+
+    window.onCalcSearchKeydown = function (ev) {
+        if (!ev) return;
+        const isEnter = ev.key === 'Enter' || ev.key === 'Go' || ev.key === 'Search' || ev.keyCode === 13;
+        if (!isEnter) return;
+        const inp = document.getElementById('calcSearchInput');
+        const raw = normalizeScannedBarcodeText(inp ? inp.value : priceCalcLastQuery);
+        if (!raw) return;
+        ev.preventDefault();
+        // Soporte directo para escanear SKU con P2300L/USB dentro del buscador de la calculadora
+        const scanRes = resolveScannedBarcode(raw);
+        if (scanRes && scanRes.item && getCalcItemUnitPrice(scanRes.item) > 0) {
+            if (window.addPriceCalcItem(scanRes.item.s, 1)) {
+                showToast('✓ Agregado a calculadora: ' + scanRes.item.s);
+                window.clearCalcSearchInput();
+            }
+            return;
+        }
+        const matches = findPriceCalcMatches(raw);
+        if (matches.length === 1) {
+            if (window.addPriceCalcItem(matches[0].sku, 1)) {
+                showToast('✓ Agregado a calculadora: ' + matches[0].sku);
+                window.clearCalcSearchInput();
+            }
+        }
+    };
+
+    window.clearPriceCalculator = function (silent) {
+        priceCalcItems = [];
+        priceCalcGlobalDiscountPct = 0;
+        priceCalcLastQuery = '';
+        const inp = document.getElementById('calcSearchInput');
+        if (inp) inp.value = '';
+        const globalInp = document.getElementById('calcGlobalDiscountInput');
+        if (globalInp) globalInp.value = '0';
+        renderPriceCalculator();
+        if (!silent) {
+            showToast('Calculadora limpiada');
+        }
+    };
+
+    window.openPriceCalculatorModal = function () {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            openAuthModalForStartup();
+            return;
+        }
+        if (isGuestSession()) return;
+        bindPriceCalculatorListeners();
+        const modal = document.getElementById('priceCalculatorModal');
+        if (!modal) return;
+        modal.classList.add('open');
+        notifyInvBackStatePush('price_calculator_modal');
+        renderPriceCalculator();
+        const inp = document.getElementById('calcSearchInput');
+        if (inp && typeof window !== 'undefined' && window.innerWidth >= 768) {
+            setTimeout(function () { try { inp.focus(); } catch (e) {} }, 60);
+        }
+    };
+
+    window.closePriceCalculatorModal = function () {
+        const modal = document.getElementById('priceCalculatorModal');
+        if (modal) modal.classList.remove('open');
+    };
+
+    if (typeof window !== 'undefined') {
+        window.__creataPriceCalc = {
+            getItems: function () { return priceCalcItems.map(function (r) { return Object.assign({}, r); }); },
+            getBreakdown: computePriceCalcBreakdown,
+            findMatches: findPriceCalcMatches,
+            addItem: window.addPriceCalcItem,
+            stepQty: window.stepPriceCalcItemQty,
+            setQty: window.setPriceCalcItemQty,
+            setItemDiscount: window.setPriceCalcItemDiscount,
+            applyGlobalDiscount: window.applyPriceCalcGlobalDiscount,
+            removeItem: window.removePriceCalcItem,
+            clear: window.clearPriceCalculator
+        };
+    }
 
     try {
         applyAllProductOverridesToCatalog();

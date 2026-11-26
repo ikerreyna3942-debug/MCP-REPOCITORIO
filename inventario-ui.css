@@ -4308,6 +4308,498 @@ button, a, input, select, textarea {
 }
 
 /* ============================================================================
+ * Calculadora Informativa de Precios y Descuentos (#priceCalculatorModal)
+ * - 100% aislada de la cotización final; tipografía unificada 11px / 12px / 14px
+ * ============================================================================ */
+#priceCalculatorModal .inv-calc-modal-card {
+  width: 100%;
+  max-width: 560px;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: var(--inv-ui-font);
+}
+
+#priceCalculatorModal .inv-calc-info-banner {
+  padding: 7px 12px;
+  background: #FBF6EE;
+  border-bottom: 1px solid #E8DEC8;
+  color: #6B532F;
+  font-size: var(--inv-ui-font);
+  font-weight: 700;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+
+#priceCalculatorModal .inv-calc-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#priceCalculatorModal .inv-calc-search-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+#priceCalculatorModal .inv-calc-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+#priceCalculatorModal .inv-calc-search-wrap .inv-input {
+  width: 100%;
+  padding-right: 30px;
+}
+
+#priceCalculatorModal .inv-calc-search-clear {
+  position: absolute;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 999px;
+  background: #EFECE6;
+  color: #252C32;
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#priceCalculatorModal .inv-calc-search-results {
+  max-height: 195px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #E1DBC5;
+  border-radius: 10px;
+  background: #FFFFFF;
+  box-shadow: 0 4px 12px rgba(37, 44, 50, 0.08);
+  display: flex;
+  flex-direction: column;
+}
+
+#priceCalculatorModal .inv-calc-search-results.hidden {
+  display: none;
+}
+
+#priceCalculatorModal .inv-calc-res-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid #F1ECE3;
+}
+
+#priceCalculatorModal .inv-calc-res-row:last-child {
+  border-bottom: none;
+}
+
+#priceCalculatorModal .inv-calc-thumb {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 7px;
+  border: 1px solid #E6E1D8;
+  background: #FAF8F4;
+  object-fit: contain;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: #9E7B4F;
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+}
+
+#priceCalculatorModal .inv-calc-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+#priceCalculatorModal .inv-calc-res-info {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+#priceCalculatorModal .inv-calc-res-name {
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  color: #252C32;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+#priceCalculatorModal .inv-calc-res-meta {
+  font-size: var(--inv-ui-font);
+  color: #6B6359;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+#priceCalculatorModal .inv-calc-res-price {
+  font-weight: 800;
+  color: #252C32;
+}
+
+#priceCalculatorModal .inv-calc-add-btn {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #252C32;
+  background: #252C32;
+  color: #FFFFFF;
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#priceCalculatorModal .inv-calc-add-btn.is-in-list {
+  background: #065F46;
+  border-color: #065F46;
+}
+
+#priceCalculatorModal .inv-calc-disc-bar {
+  background: #FAF8F4;
+  border: 1px solid #E6E1D8;
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#priceCalculatorModal .inv-calc-disc-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+#priceCalculatorModal .inv-calc-disc-lbl {
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  color: #252C32;
+  margin: 0;
+}
+
+#priceCalculatorModal .inv-calc-disc-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+#priceCalculatorModal .inv-calc-disc-input {
+  width: 64px;
+  min-height: 28px;
+  padding: 3px 6px;
+  text-align: center;
+  font-weight: 800;
+}
+
+#priceCalculatorModal .inv-calc-pct-sign {
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  color: #6B6359;
+}
+
+#priceCalculatorModal .inv-calc-role-ref {
+  margin-left: auto;
+  font-size: var(--inv-ui-font);
+  color: #6B6359;
+  font-weight: 600;
+}
+
+#priceCalculatorModal .inv-calc-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+#priceCalculatorModal .inv-calc-preset-btn {
+  min-height: 26px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid #D9D0C1;
+  background: #FFFFFF;
+  color: #252C32;
+  font-size: var(--inv-ui-font);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#priceCalculatorModal .inv-calc-preset-btn.is-active {
+  background: #A38251;
+  border-color: #A38251;
+  color: #FFFFFF;
+}
+
+#priceCalculatorModal .inv-calc-cap-warn {
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+  font-size: var(--inv-ui-font);
+  font-weight: 700;
+}
+
+#priceCalculatorModal .inv-calc-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#priceCalculatorModal .inv-calc-items-count {
+  font-size: var(--inv-ui-font);
+  font-weight: 700;
+  color: #6B6359;
+}
+
+#priceCalculatorModal .inv-calc-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+#priceCalculatorModal .inv-calc-empty {
+  padding: 16px 12px;
+  border: 1px dashed #D9D0C1;
+  border-radius: 10px;
+  background: #FAF8F4;
+  text-align: center;
+  color: #6B6359;
+  font-size: var(--inv-ui-font);
+  line-height: 1.4;
+}
+
+#priceCalculatorModal .inv-calc-item-card {
+  border: 1px solid #E6E1D8;
+  border-radius: 10px;
+  background: #FFFFFF;
+  padding: 8px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#priceCalculatorModal .inv-calc-item-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+#priceCalculatorModal .inv-calc-item-rm {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid #E6E1D8;
+  background: #FAF8F4;
+  color: #6B6359;
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#priceCalculatorModal .inv-calc-item-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  padding-top: 5px;
+  border-top: 1px solid #F1ECE3;
+}
+
+#priceCalculatorModal .inv-calc-qty-group {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #D9D0C1;
+  border-radius: 7px;
+  overflow: hidden;
+  background: #FFFFFF;
+}
+
+#priceCalculatorModal .inv-calc-qty-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: #FAF8F4;
+  color: #252C32;
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#priceCalculatorModal .inv-calc-qty-inp {
+  width: 38px;
+  height: 26px;
+  min-height: 26px;
+  border: none;
+  border-left: 1px solid #E6E1D8;
+  border-right: 1px solid #E6E1D8;
+  border-radius: 0;
+  padding: 0 3px;
+  text-align: center;
+  font-weight: 800;
+}
+
+#priceCalculatorModal .inv-calc-item-disc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--inv-ui-font);
+  color: #6B6359;
+  font-weight: 700;
+}
+
+#priceCalculatorModal .inv-calc-item-disc input {
+  width: 52px;
+  min-height: 26px;
+  padding: 2px 5px;
+  text-align: center;
+  font-weight: 800;
+}
+
+#priceCalculatorModal .inv-calc-item-totals {
+  margin-left: auto;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+#priceCalculatorModal .inv-calc-line-old {
+  font-size: var(--inv-ui-font);
+  color: #8A8175;
+  text-decoration: line-through;
+}
+
+#priceCalculatorModal .inv-calc-line-final {
+  font-size: var(--inv-ui-font);
+  font-weight: 800;
+  color: #252C32;
+}
+
+#priceCalculatorModal .inv-calc-line-final.has-disc {
+  color: #065F46;
+}
+
+#priceCalculatorModal .inv-calc-summary {
+  flex-shrink: 0;
+  background: #FAF8F4;
+  border-top: 1px solid #E1DBC5;
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--inv-ui-font);
+}
+
+#priceCalculatorModal .inv-calc-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #4A453F;
+}
+
+#priceCalculatorModal .inv-calc-summary-disc strong {
+  color: #065F46;
+}
+
+#priceCalculatorModal .inv-calc-summary-subrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  color: #6B6359;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #E6E1D8;
+}
+
+#priceCalculatorModal .inv-calc-summary-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 2px;
+  font-weight: 800;
+  color: #252C32;
+}
+
+#priceCalculatorModal #calcTotalFinal {
+  font-size: var(--inv-ui-title-font);
+  font-weight: 900;
+  color: #252C32;
+}
+
+#priceCalculatorModal #calcTotalFinal.has-disc {
+  color: #065F46;
+}
+
+#priceCalculatorModal .inv-calc-footer {
+  flex-shrink: 0;
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #E6E1D8;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  #priceCalculatorModal .inv-calc-modal-card {
+    max-height: 94dvh;
+  }
+
+  #priceCalculatorModal .inv-calc-role-ref {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  #priceCalculatorModal .inv-calc-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+
+  #priceCalculatorModal .inv-calc-footer button {
+    min-height: 36px;
+    width: 100%;
+  }
+}
+
+/* ============================================================================
  * Tipografía Unificada de Botones y Ventanas de la App de Cotización
  * - Garantiza el mismo tamaño de letra (11px cuerpo/botones/controles, 12px títulos,
  *   14px botón cerrar ✕) en TODOS los modales y botones (Android, Apple iOS/iPadOS y PC),
@@ -4334,7 +4826,8 @@ button, a, input, select, textarea {
 .modal-backdrop h3,
 .modal-backdrop .inv-modal-title,
 .modal-backdrop .inv-settings-section-title,
-#cartModal #cartTotalAmount {
+#cartModal #cartTotalAmount,
+#priceCalculatorModal #calcTotalFinal {
   font-size: var(--inv-ui-title-font);
 }
 
@@ -4343,6 +4836,7 @@ button, a, input, select, textarea {
 .modal-backdrop .inv-modal-close-dark {
   font-size: var(--inv-ui-close-font);
 }
+
 
 
 

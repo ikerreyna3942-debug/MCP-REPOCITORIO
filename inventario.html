@@ -26,7 +26,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=12">
-    <link rel="stylesheet" href="./inventario-ui.css?v=30">
+    <link rel="stylesheet" href="./inventario-ui.css?v=31">
 </head>
 <body>
 
@@ -119,6 +119,14 @@
                 </span>
                 <span class="inv-fab-item-label">Cotización</span>
                 <span id="headerCartCount" class="inv-fab-item-badge">0</span>
+            </button>
+
+            <button type="button" id="fabCalculatorBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openPriceCalculatorModal();">
+                <span class="inv-fab-item-ico" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h.01M12 11h.01M15 11h.01M9 15h.01M12 15h.01M15 15h.01M6 3h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z"></path></svg>
+                </span>
+                <span class="inv-fab-item-label">Calculadora</span>
+                <span id="fabCalcCount" class="inv-fab-item-badge hidden">0</span>
             </button>
 
             <button type="button" id="fabScanBtn" class="inv-fab-item" role="menuitem" onclick="closeFabMenu(); openBarcodeScanner();">
@@ -1405,6 +1413,108 @@
         </div>
     </div>
 
+    <!-- MODAL CALCULADORA INFORMATIVA DE PRECIOS Y DESCUENTOS (NO AFECTA LA COTIZACIÓN FINAL) -->
+    <div id="priceCalculatorModal" class="modal-backdrop" style="z-index:91;" onclick="if(event.target===this) closePriceCalculatorModal()">
+        <div class="inv-modal-card inv-modal-card-flex inv-calc-modal-card" role="dialog" aria-modal="true" aria-labelledby="priceCalcModalTitle" onclick="event.stopPropagation()">
+            <div class="inv-modal-head inv-modal-head-dark">
+                <div style="min-width:0; flex:1;">
+                    <h3 id="priceCalcModalTitle" class="inv-modal-title truncate">Calculadora de precios</h3>
+                </div>
+                <button type="button" onclick="closePriceCalculatorModal()" class="inv-modal-close-dark" aria-label="Cerrar">✕</button>
+            </div>
+
+            <div class="inv-calc-info-banner">
+                Solo informativo · Suma 1 o más piezas de cualquier producto para ver precio y descuento sin modificar tu cotización final.
+            </div>
+
+            <div class="inv-calc-body">
+                <!-- BUSCADOR DE PRODUCTOS / SALAS / SKU -->
+                <div class="inv-calc-search-section">
+                    <label for="calcSearchInput" class="inv-field-label">Agregar producto, sala o SKU</label>
+                    <div class="inv-calc-search-wrap">
+                        <input
+                            type="search"
+                            enterkeyhint="search"
+                            id="calcSearchInput"
+                            class="inv-input"
+                            placeholder="Ej. SALA ARIA, API1P, silla, mesa..."
+                            autocomplete="off"
+                            oninput="searchPriceCalculatorProducts(this.value)"
+                            onkeydown="onCalcSearchKeydown(event)"
+                        >
+                        <button type="button" id="calcSearchClearBtn" class="inv-calc-search-clear hidden" onclick="clearCalcSearchInput()" title="Limpiar búsqueda" aria-label="Limpiar búsqueda">✕</button>
+                    </div>
+                    <div id="calcSearchResults" class="inv-calc-search-results hidden" aria-live="polite"></div>
+                </div>
+
+                <!-- DESCUENTO GENERAL + ATAJOS -->
+                <div class="inv-calc-disc-bar">
+                    <div class="inv-calc-disc-top">
+                        <label for="calcGlobalDiscountInput" class="inv-calc-disc-lbl">Descuento general (%)</label>
+                        <div class="inv-calc-disc-input-wrap">
+                            <input
+                                type="number"
+                                id="calcGlobalDiscountInput"
+                                class="inv-input inv-calc-disc-input"
+                                inputmode="decimal"
+                                min="0"
+                                max="100"
+                                step="0.5"
+                                value="0"
+                                oninput="applyPriceCalcGlobalDiscount(this.value)"
+                                aria-label="Porcentaje de descuento general"
+                            >
+                            <span class="inv-calc-pct-sign">%</span>
+                        </div>
+                        <span id="calcRoleRef" class="inv-calc-role-ref"></span>
+                    </div>
+                    <div class="inv-calc-presets" role="group" aria-label="Descuentos rápidos">
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="0" onclick="applyPriceCalcGlobalDiscount(0)">0%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="5" onclick="applyPriceCalcGlobalDiscount(5)">5%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="10" onclick="applyPriceCalcGlobalDiscount(10)">10%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="15" onclick="applyPriceCalcGlobalDiscount(15)">15%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="20" onclick="applyPriceCalcGlobalDiscount(20)">20%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="25" onclick="applyPriceCalcGlobalDiscount(25)">25%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="30" onclick="applyPriceCalcGlobalDiscount(30)">30%</button>
+                    </div>
+                    <div id="calcCapWarn" class="inv-calc-cap-warn hidden"></div>
+                </div>
+
+                <!-- LISTA DE PIEZAS AGREGADAS -->
+                <div class="inv-calc-list-head">
+                    <span class="inv-field-label" style="margin:0;">Piezas en cálculo</span>
+                    <span id="calcItemsCount" class="inv-calc-items-count">0 productos · 0 piezas</span>
+                </div>
+                <div id="calcItemsContainer" class="inv-calc-items-list"></div>
+            </div>
+
+            <!-- RESUMEN DE PRECIO Y DESCUENTO -->
+            <div id="calcSummaryBox" class="inv-calc-summary">
+                <div class="inv-calc-summary-row">
+                    <span>Precio de lista (sin desc.):</span>
+                    <strong id="calcSumList">$0.00</strong>
+                </div>
+                <div class="inv-calc-summary-row inv-calc-summary-disc">
+                    <span id="calcDiscountLabel">Descuento aplicado (0%):</span>
+                    <strong id="calcSumDiscount">-$0.00</strong>
+                </div>
+                <div class="inv-calc-summary-subrow">
+                    <span>Subtotal sin IVA: <strong id="calcSubtotalNoIva">$0.00</strong></span>
+                    <span>IVA (16%): <strong id="calcIvaAmount">$0.00</strong></span>
+                </div>
+                <div class="inv-calc-summary-total">
+                    <span>Total estimado:</span>
+                    <strong id="calcTotalFinal">$0.00</strong>
+                </div>
+            </div>
+
+            <div class="inv-modal-foot inv-calc-footer">
+                <button type="button" id="btnCalcClear" onclick="clearPriceCalculator()" class="inv-btn-secondary">Limpiar</button>
+                <button type="button" id="btnCalcClose" onclick="closePriceCalculatorModal()" class="inv-btn-primary">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="creata-finishes.js?v=33"></script>
     <script src="creata-img.js?v=33"></script>
     <script src="creata-cloud.js?v=34"></script>
@@ -1414,6 +1524,6 @@
     <script src="./creata-back-nav.js?v=2"></script>
     <script src="./seguimiento-app.js?v=17"></script>
     <script src="./historial-app.js?v=14"></script>
-    <script src="inventario-app.js?v=115"></script>
+    <script src="inventario-app.js?v=116"></script>
 </body>
 </html>
