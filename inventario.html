@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
     <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
     <meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
@@ -25,8 +25,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="./creata-modules.css?v=10">
-    <link rel="stylesheet" href="./inventario-ui.css?v=28">
+    <link rel="stylesheet" href="./creata-modules.css?v=11">
+    <link rel="stylesheet" href="./inventario-ui.css?v=29">
 </head>
 <body>
 
@@ -54,7 +54,7 @@
                             autocomplete="off"
                             aria-label="Buscar producto o SKU"
                         >
-                        <button type="button" id="invClearBtn" onclick="clearInvSearch()" style="display:none;" title="Limpiar" aria-label="Limpiar búsqueda">✕</button>
+                        <button type="button" id="invClearBtn" class="hidden" onclick="clearInvSearch()" title="Limpiar" aria-label="Limpiar búsqueda">✕</button>
                     </div>
                 </div>
 
@@ -376,12 +376,6 @@
                 <div id="quoteDraftsTabsList" class="inv-quote-drafts-tabs flex flex-wrap items-center gap-1 min-w-0"></div>
                 <div class="inv-quote-drafts-actions flex items-center gap-1.5 shrink-0 ml-auto">
                     <span class="text-[10px] font-bold opacity-75 hidden sm:inline" style="color:#252C32;">Tiempo máx. sin guardar: 3 h</span>
-                    <button type="button" id="quoteJumpToPdfsBtn" onclick="scrollToGeneratedQuotePdfs()"
-                            class="hidden px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
-                            style="border-color:#252C32; background:#252C32; color:#FFFFFF;"
-                            title="Ver PDFs de cotizaciones generadas">
-                        📄 PDFs (<span id="quoteJumpToPdfsCount">0</span>)
-                    </button>
                     <button type="button" onclick="createNewQuoteDraft(true)"
                             class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition"
                             style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
@@ -412,12 +406,12 @@
                         <span id="quoteSection1Title" class="text-[10.5px] font-extrabold uppercase tracking-wider" style="color:#A38251;">
                             1. Cuenta y Folio S Mueblería (Según Tienda / Bodega)
                         </span>
-                        <div class="flex flex-wrap items-center gap-1">
-                            <span id="quoteOriginTypeBadge" class="text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded-full"
+                        <div class="hidden" aria-hidden="true">
+                            <span id="quoteOriginTypeBadge" class="hidden text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded-full" aria-hidden="true"
                                   style="background:#A38251; color:#FFFFFF;">SUCURSAL</span>
-                            <span id="quoteNextOrderBadge" class="text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded-full border"
+                            <span id="quoteNextOrderBadge" class="hidden text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded-full border" aria-hidden="true"
                                   style="border-color:#A38251; background:#FFFFFF; color:#252C32;">Folio S Mueblería: ---</span>
-                            <span id="quoteErpUserIdBadge" class="text-[9.5px] font-extrabold px-2 py-0.5 rounded-full"
+                            <span id="quoteErpUserIdBadge" class="hidden text-[9.5px] font-extrabold px-2 py-0.5 rounded-full" aria-hidden="true"
                                   style="background:#252C32; color:#FFFFFF;"></span>
                         </div>
                     </div>
@@ -643,39 +637,14 @@
 
                 <!-- ESTADO DE ENVÍO DE LA COTIZACIÓN -->
                 <div id="quoteSystemStatusBox" class="hidden rounded-xl border p-2.5 text-[11px] space-y-1"></div>
-
-                <!-- SECCIÓN DE PDFs DE COTIZACIONES GENERADAS -->
-                <div id="quoteGeneratedPdfsSection" class="hidden rounded-xl border p-2.5 space-y-2" style="border-color:#A38251; background:#FAF9F6;">
-                    <div class="flex flex-wrap items-center justify-between gap-1.5">
-                        <div class="min-w-0">
-                            <div class="flex flex-wrap items-center gap-1.5">
-                                <span id="quoteGeneratedPdfsTitle" class="text-[10.5px] font-extrabold uppercase tracking-wider" style="color:#252C32;">PDFs de Cotización Generados</span>
-                                <span id="quoteGeneratedPdfsCountBadge" class="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold uppercase" style="background:#A38251; color:#FFFFFF;">0</span>
-                            </div>
-                            <div id="quoteGeneratedPdfsRuleHint" class="text-[9.5px] font-semibold opacity-80 mt-0.5" style="color:#252C32;"></div>
-                        </div>
-                    </div>
-                    <div id="quoteGeneratedPdfsList" class="space-y-1.5 max-h-56 overflow-y-auto pr-0.5"></div>
-                </div>
             </div>
 
-            <div class="inv-cart-modal-footer px-3 py-2.5 border-t flex flex-wrap items-center justify-between gap-1.5" style="border-color:#E8E4DE; background:#FFFFFF;">
-                <div class="inv-cart-footer-secondary flex items-center gap-1.5">
-                    <button type="button" onclick="clearCart()" class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border" style="border-color:#E1DBC5; color:#252C32;">
-                        Vaciar
-                    </button>
-                    <button type="button" onclick="printQuoteTemplate()" class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border" style="border-color:#A38251; color:#252C32;">
-                        Vista / PDF
-                    </button>
-                    <button type="button" onclick="copyCartSummary()" id="copyCartBtn" class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border" style="border-color:#E1DBC5; color:#252C32;">
-                        Copiar
-                    </button>
-                </div>
-                <div class="inv-cart-footer-primary flex flex-wrap items-center gap-1.5 ml-auto">
-                    <button type="button" id="btnLoadPlantillaReview" onclick="submitQuoteToSystem(false)"
-                            class="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold border transition"
-                            style="border-color:#252C32; background:#FFFFFF; color:#252C32;">
-                        Solo Revisar en Hoja
+            <div class="inv-cart-modal-footer px-3 py-2.5 border-t flex flex-wrap items-center justify-end gap-1.5" style="border-color:#E8E4DE; background:#FFFFFF;">
+                <div class="inv-cart-footer-primary flex items-center gap-2 ml-auto">
+                    <button type="button" id="btnOpenGeneratedQuotePdfs" onclick="openQuoteGeneratedPdfsModal()"
+                            class="px-3.5 py-1.5 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider border transition inline-flex items-center justify-center gap-1.5"
+                            style="border-color:#252C32; background:#252C32; color:#FFFFFF;">
+                        Ver pdf <span id="quoteVerPdfCountBadge" class="hidden px-1.5 py-0.5 rounded-full text-[9.5px] font-extrabold leading-none" style="background:#A38251; color:#FFFFFF;">0</span>
                     </button>
                     <button type="button" id="btnSendQuoteErp" onclick="submitQuoteToSystem(true)"
                             class="px-3.5 py-1.5 rounded-lg text-[10.5px] font-extrabold uppercase tracking-wider transition shadow-sm"
@@ -683,6 +652,33 @@
                         Crear Cotización
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE PDFs DE COTIZACIÓN GENERADOS (ACCESIBLE DESDE "Ver pdf") -->
+    <div id="quoteGeneratedPdfsModal" class="modal-backdrop" style="z-index:72;" onclick="if(event.target===this) closeQuoteGeneratedPdfsModal()">
+        <div class="inv-quote-pdfs-modal-card bg-white rounded-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl border" role="dialog" aria-modal="true" aria-labelledby="quoteGeneratedPdfsTitle" style="border-color:#E1DBC5;" onclick="event.stopPropagation()">
+            <div class="px-3.5 py-2.5 border-b flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
+                <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+                    <h3 id="quoteGeneratedPdfsTitle" class="text-xs sm:text-sm font-extrabold uppercase tracking-wider break-words">📄 PDFs de Cotización Generados</h3>
+                    <span id="quoteGeneratedPdfsCountBadge" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase shrink-0" style="background:#A38251; color:#FFFFFF;">0</span>
+                </div>
+                <button type="button" id="btnCloseGeneratedQuotePdfsModal" onclick="closeQuoteGeneratedPdfsModal()" class="w-7 h-7 rounded-full flex items-center justify-center text-white/80 hover:text-white text-base shrink-0" aria-label="Cerrar">✕</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-3 sm:p-3.5 space-y-2.5" style="background:#FAF9F6;">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div id="quoteGeneratedPdfsRuleHint" class="text-[10.5px] font-semibold opacity-85 min-w-0 flex-1" style="color:#252C32;"></div>
+                    <button type="button" id="btnRefreshGeneratedQuotePdfs" onclick="refreshMyLiveQuotesInfo(true)"
+                            class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border transition shrink-0"
+                            style="border-color:#A38251; background:#FFFFFF; color:#252C32;">
+                        🔄 Actualizar
+                    </button>
+                </div>
+                <div id="quoteGeneratedPdfsEmptyState" class="rounded-xl border p-4 text-center text-xs font-semibold" style="border-color:#E1DBC5; background:#FFFFFF; color:#5B554D;">
+                    Todavía no hay PDFs de cotización generados para esta tienda/cuenta.
+                </div>
+                <div id="quoteGeneratedPdfsList" class="space-y-1.5"></div>
             </div>
         </div>
     </div>
@@ -1415,9 +1411,9 @@
     <script src="inventario-data-1.js?v=45"></script>
     <script src="inventario-data-2.js?v=45"></script>
     <script src="inventario-data-3.js?v=45"></script>
-    <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./seguimiento-app.js?v=15"></script>
-    <script src="./historial-app.js?v=12"></script>
-    <script src="inventario-app.js?v=113"></script>
+    <script src="./creata-back-nav.js?v=2"></script>
+    <script src="./seguimiento-app.js?v=16"></script>
+    <script src="./historial-app.js?v=13"></script>
+    <script src="inventario-app.js?v=114"></script>
 </body>
 </html>

@@ -574,9 +574,9 @@ test('Project A Performance & Timeout Fix: listSubirInboxFilesInternal_ memoizes
   const fotosAppSrc = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'fotos-productos-app.js'), 'utf8');
   const fotosHtmlSrc = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'fotos-productos.html'), 'utf8');
   assert.match(fotosAppSrc, /const inboxTimeoutMs\s*=\s*75000;/, 'fotos_subir_list timeout must be raised to 75s to prevent aborting large Drive folders');
-  assert.match(fotosAppSrc, /const needLoadedNames\s*=\s*Boolean\(manualRefresh \|\| loadedCountKnown === 0\);/, 'Silent polls must skip redundant includeLoadedNames scanning');
+  assert.match(fotosAppSrc, /const needLoadedNames\s*=\s*Boolean\(/, 'Silent polls must evaluate conditional includeLoadedNames with rev sync');
   assert.match(fotosAppSrc, /_inboxConsecutiveSyncFails\+\+;\s*setFotosLiveStatus\('offline',\s*'Reconectando'\);/, 'Inbox timeout must surface Reconectando status instead of silently staying En vivo');
-  assert.ok(fotosHtmlSrc.includes('./fotos-productos-app.js?v=39'), 'fotos-productos.html must load fotos-productos-app.js?v=39');
+  assert.ok(fotosHtmlSrc.includes('./fotos-productos-app.js?v=40'), 'fotos-productos.html must load fotos-productos-app.js?v=40');
   assert.ok(docAnipa && fotosGen && fotosProy);
 });
 

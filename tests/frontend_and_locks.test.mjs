@@ -41,16 +41,16 @@ test('PWA manifests parse as valid JSON with isolated scopes and valid PNG icon 
 
   const fotosAppSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos-app.js'), 'utf8');
   const panelAppSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-app.js'), 'utf8');
-  assert.match(fotosAppSrc, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"]\s*\}/);
+  assert.match(fotosAppSrc, /register\(['"]\.\/fotos-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/fotos-productos['"](?:,\s*updateViaCache:\s*['"]none['"])?\s*\}/);
   assert.match(panelAppSrc, /register\(['"]\.\/panel-sw\.js['"],\s*\{\s*scope:\s*['"]\.\/panel['"]\s*\}/);
 
   const fotosSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'fotos-sw.js'), 'utf8');
   const panelSwSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v31['"]/);
-  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v31['"]/);
-  assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v6['"]/);
-  assert.match(panelSwSrc, /panel-styles\.css\?v=6/);
-  assert.match(panelSwSrc, /panel-app\.js\?v=14/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]v32['"]/);
+  assert.match(fotosSwSrc, /CACHE_PREFIX\s*\+\s*['"]img-v32['"]/);
+  assert.match(panelSwSrc, /CACHE_PREFIX\s*\+\s*['"]v7['"]/);
+  assert.match(panelSwSrc, /panel-styles\.css\?v=7/);
+  assert.match(panelSwSrc, /panel-app\.js\?v=15/);
   assert.match(panelSwSrc, /panel-manifest\.json\?v=2/);
 
   const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -122,10 +122,10 @@ test('Static cross-project isolation invariants hold across Project A, Project B
     assert.equal(fs.existsSync(path.join(REPO_ROOT, deprecated)), false, `Removed deprecated file must not exist: ${deprecated}`);
   }
 
-  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=39
+  // 4. App #9 labels updated from SUBIR COTIZACION to SUBIR PREN and cache bumped to ?v=40
   assert.ok(!fotosHtml.includes('SUBIR COTIZACION'), 'fotos-productos.html should use SUBIR PREN label');
   assert.ok(!fotosJs.includes('SUBIR COTIZACION'), 'fotos-productos-app.js should use SUBIR PREN label');
-  assert.match(fotosHtml, /fotos-productos-app\.js\?v=39/);
+  assert.match(fotosHtml, /fotos-productos-app\.js\?v=40/);
 });
 
 test('App #9 (Feature F8): Auto-acomodar por categoría button removed from fotos-productos.html while Guardar preserves automatic category folder resolution with zero dead DOM refs', () => {

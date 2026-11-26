@@ -8,8 +8,9 @@
 (function () {
     'use strict';
 
-    const ENGINE_VERSION = '1.0.0';
+    const ENGINE_VERSION = '1.1.0';
     const DEFAULT_STYLE_ID = 'creata-back-nav-style';
+    const ZOOM_LOCK_STYLE_ID = 'creata-zoom-lock-style';
     const DEFAULT_TOAST_ID = 'creataBackNavToast';
     const DEFAULT_EXIT_MESSAGE = 'Presiona Atrás otra vez para salir';
     const DEFAULT_MAX_DEPTH = 12;
@@ -690,16 +691,98 @@
         return controller;
     }
 
+    function installZoomLock(opts) {
+        const cfg = opts || {};
+        const win = getGlobalWindow(cfg.win);
+        const doc = getGlobalDocument(cfg.doc, win);
+        if (!win || !doc) return false;
+
+        try {
+            let meta = typeof doc.querySelector === 'function' ? doc.querySelector('meta[name="viewport"]') : null;
+            if (!meta && typeof doc.createElement === 'function') {
+                const headHost = doc.head || doc.documentElement;
+                if (headHost && typeof headHost.appendChild === 'function') {
+                    meta = doc.createElement('meta');
+                    if (typeof meta.setAttribute === 'function') {
+                        meta.setAttribute('name', 'viewport');
+                    } else {
+                        meta.name = 'viewport';
+                    }
+                    headHost.appendChild(meta);
+                }
+            }
+            if (meta && typeof meta.setAttribute === 'function') {
+                const existing = typeof meta.getAttribute === 'function' ? String(meta.getAttribute('content') || '') : '';
+                const hasInteractiveWidget = /\binteractive-widget\s*=\s*resizes-content\b/i.test(existing);
+                const lockedContent = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover'
+                    + (hasInteractiveWidget ? ', interactive-widget=resizes-content' : '');
+                meta.setAttribute('content', lockedContent);
+            }
+        } catch (eMeta) {}
+
+        try {
+            if (typeof doc.getElementById === 'function' && typeof doc.createElement === 'function' && !doc.getElementById(ZOOM_LOCK_STYLE_ID)) {
+                const styleEl = doc.createElement('style');
+                styleEl.id = ZOOM_LOCK_STYLE_ID;
+                styleEl.textContent = 'html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }';
+                const host = doc.head || doc.documentElement || doc.body;
+                if (host && typeof host.appendChild === 'function') {
+                    host.appendChild(styleEl);
+                }
+            }
+        } catch (eStyle) {}
+
+        if (win.__creataZoomLockInstalled) return true;
+        win.__creataZoomLockInstalled = true;
+
+        if (typeof doc.addEventListener === 'function') {
+            const preventGesture = function (e) {
+                if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            };
+            const preventMultiTouch = function (e) {
+                if (e && e.touches && e.touches.length > 1 && typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+            };
+            const preventCtrlWheel = function (e) {
+                if (e && (e.ctrlKey || e.metaKey) && typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+            };
+            const ZOOM_KEYS = { '+': true, '=': true, '-': true, '_': true, '0': true, Add: true, Subtract: true };
+            const preventZoomKey = function (e) {
+                if (e && (e.ctrlKey || e.metaKey) && ZOOM_KEYS[String(e.key || '')] && typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+            };
+            try {
+                doc.addEventListener('gesturestart', preventGesture, { passive: false });
+                doc.addEventListener('gesturechange', preventGesture, { passive: false });
+                doc.addEventListener('gestureend', preventGesture, { passive: false });
+                doc.addEventListener('touchstart', preventMultiTouch, { passive: false });
+                doc.addEventListener('touchmove', preventMultiTouch, { passive: false });
+                doc.addEventListener('wheel', preventCtrlWheel, { passive: false });
+                doc.addEventListener('keydown', preventZoomKey, { passive: false });
+            } catch (eListen) {}
+        }
+
+        return true;
+    }
+
     const api = Object.freeze({
         version: ENGINE_VERSION,
         createController: createCreataBackNavController,
         showToast: showToast,
         hideToast: hideToast,
-        replaceIframeUrl: replaceIframeUrl
+        replaceIframeUrl: replaceIframeUrl,
+        installZoomLock: installZoomLock
     });
 
     if (typeof window !== 'undefined') {
         window.createCreataBackNavController = createCreataBackNavController;
         window.CreataBackNav = api;
+        if (typeof document !== 'undefined') {
+            installZoomLock({ win: window, doc: document });
+        }
     }
 })();

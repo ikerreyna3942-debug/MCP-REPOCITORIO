@@ -5367,7 +5367,10 @@
     function applyFilter(query, preserveCount, explicitMinCount) {
         const rawTrim = String(query || '').trim();
         const clearBtn = document.getElementById('invClearBtn');
-        if (clearBtn) clearBtn.style.display = rawTrim ? 'flex' : 'none';
+        if (clearBtn) {
+            clearBtn.style.display = '';
+            clearBtn.classList.toggle('hidden', !rawTrim);
+        }
 
         isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
         activeFilteredGroupsByKey.clear();
@@ -6325,14 +6328,14 @@
         processScannedBarcode(code, { source: 'Cámara' });
     }
 
-    window.openBarcodeScanner = async function () {
+    function isScanModalOpen() {
         const modal = document.getElementById('scanModal');
-        if (!modal) return;
-        scanHandled = false;
-        modal.classList.add('open');
-        notifyInvBackStatePush('scan_modal');
+        return Boolean(modal && modal.classList.contains('open'));
+    }
+
+    async function startLiveBarcodeCamera() {
+        if (!isScanModalOpen()) return;
         if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            // Navegadores dentro de apps (WhatsApp, Facebook...) no dan video en vivo: usar "Tomar foto del código"
             setScanStatus('Este navegador no permite video en vivo. Usa el botón "Tomar foto del código".', true);
             loadScanLib().catch(() => {});
             return;
@@ -6340,6 +6343,16 @@
         setScanStatus('Iniciando cámara...', false);
         try {
             await loadScanLib();
+            if (!isScanModalOpen()) return;
+            if (scanInstance) {
+                const prevInst = scanInstance;
+                scanInstance = null;
+                try {
+                    if (prevInst.isScanning) await prevInst.stop();
+                    prevInst.clear();
+                } catch (ePrev) {}
+            }
+            if (!isScanModalOpen()) return;
             const reader = document.getElementById('scanReader');
             if (reader) reader.innerHTML = '';
             const inst = new window.Html5Qrcode('scanReader', {
@@ -6347,6 +6360,11 @@
                 experimentalFeatures: { useBarCodeDetectorIfSupported: true }
             });
             scanInstance = inst;
+            if (!isScanModalOpen()) {
+                scanInstance = null;
+                try { inst.clear(); } catch (eClr) {}
+                return;
+            }
             await inst.start(
                 { facingMode: 'environment' },
                 {
@@ -6361,7 +6379,7 @@
                 function () {}
             );
             // Si el usuario cerró el modal mientras la cámara arrancaba, apagarla
-            if (scanInstance !== inst || !modal.classList.contains('open')) {
+            if (scanInstance !== inst || !isScanModalOpen()) {
                 try { await inst.stop(); inst.clear(); } catch (e) {}
                 return;
             }
@@ -6370,16 +6388,27 @@
             console.error('[Escáner]', err);
             setScanStatus('No fue posible abrir la cámara en vivo. Da permiso de cámara al navegador o usa "Tomar foto del código".', true);
         }
+    }
+
+    window.openBarcodeScanner = async function () {
+        const modal = document.getElementById('scanModal');
+        if (!modal) return;
+        scanHandled = false;
+        modal.classList.add('open');
+        notifyInvBackStatePush('scan_modal');
+        await startLiveBarcodeCamera();
     };
 
     // Respaldo: tomar una foto del código con la cámara del teléfono y leerla
     window.scanBarcodeFromPhoto = async function (inputEl) {
         const file = inputEl && inputEl.files && inputEl.files[0];
         if (!file) return;
+        let hadLiveCamera = false;
         setScanStatus('Leyendo código de la foto...', false);
         try {
             await loadScanLib();
             if (scanInstance && scanInstance.isScanning) {
+                hadLiveCamera = true;
                 try { await scanInstance.stop(); } catch (e) {}
             }
             const tmpId = 'scanFileTmp';
@@ -6396,6 +6425,9 @@
             handleScannedCode(text);
         } catch (err) {
             console.error('[Escáner foto]', err);
+            if (isScanModalOpen() && hadLiveCamera) {
+                await startLiveBarcodeCamera();
+            }
             setScanStatus('No se encontró un código en la foto. Acércate más y que el código se vea nítido.', true);
         } finally {
             inputEl.value = '';
@@ -7226,6 +7258,16 @@
 
         const modal = document.getElementById('productDetailModal');
         if (modal) modal.classList.add('open');
+        try {
+            const activeEl = document.activeElement;
+            if (activeEl && activeEl.id === 'invSearchInput') {
+                if (typeof activeEl.select === 'function') activeEl.select();
+                if (typeof activeEl.setSelectionRange === 'function') {
+                    activeEl.setSelectionRange(0, String(activeEl.value || '').length);
+                }
+                if (typeof activeEl.blur === 'function') activeEl.blur();
+            }
+        } catch (eBlur) {}
         if (!invWorkspaceRestoring) notifyInvBackStatePush('product_detail_modal');
         if (typeof scheduleSaveInvWorkspaceCheckpoint === 'function') {
             scheduleSaveInvWorkspaceCheckpoint();
@@ -8606,14 +8648,15 @@
         const wrap = document.getElementById('uploadPhotoDriveInboxWrap');
         if (wrap) wrap.classList.remove('hidden');
         if (uploadPhotoDriveLoading) return uploadPhotoDriveFilesCache;
-        if (!forceReload && uploadPhotoDriveFilesCache.length > 0) {
+        const shouldReload = forceReload !== false;
+        if (!shouldReload && uploadPhotoDriveFilesCache.length > 0) {
             renderDriveSubirPrenGridInCotizador();
             return uploadPhotoDriveFilesCache;
         }
         uploadPhotoDriveLoading = true;
         renderDriveSubirPrenGridInCotizador();
         try {
-            const res = await callOwnerFotosEndpointFromCotizador('fotos_subir_list', {}, 30000);
+            const res = await callOwnerFotosEndpointFromCotizador('fotos_subir_list', { forceReload: true }, 30000);
             if (res && res.ok && Array.isArray(res.files)) {
                 uploadPhotoDriveFilesCache = res.files;
                 const hiddenSku = document.getElementById('uploadPhotoSelectedSku');
@@ -8825,11 +8868,14 @@
             setUploadPhotoModalStatus('Asignando foto de SUBIR PREN a ' + targetSku + '...', 'warn');
 
             try {
+                const pickedDriveMeta = uploadPhotoDriveFilesCache.find(function (x) { return cleanStr(x && x.id) === driveFid; }) || null;
                 const assignRes = await callOwnerFotosEndpointFromCotizador('fotos_subir_assign', {
                     sku: targetSku,
                     productName: targetName,
                     driveFileId: driveFid,
-                    targetFolderId: chosenCatFolderMeta.id
+                    shortcutId: cleanStr(pickedDriveMeta && pickedDriveMeta.shortcutId),
+                    targetFolderId: chosenCatFolderMeta.id,
+                    forceTargetFolderId: true
                 }, 35000);
 
                 if (assignRes && assignRes.authRequired) {
@@ -8839,7 +8885,7 @@
                 }
                 if (assignRes && assignRes.ok) {
                     const finalFid = cleanStr(assignRes.fileId) || driveFid;
-                    const finalUrl = cleanStr(assignRes.photoUrl) || ('https://drive.google.com/file/d/' + finalFid + '/view?usp=sharing');
+                    const finalUrl = cleanStr(assignRes.newUrl || assignRes.photoUrl) || ('https://drive.google.com/file/d/' + finalFid + '/view?usp=sharing');
                     uploadPhotoDriveFilesCache = uploadPhotoDriveFilesCache.filter(function (x) { return cleanStr(x && x.id) !== driveFid; });
                     uploadPhotoSelectedDriveFileId = '';
                     renderDriveSubirPrenGridInCotizador();
@@ -8905,11 +8951,13 @@
                             sku: targetSku,
                             productName: targetName,
                             driveFileId: upFid,
-                            targetFolderId: chosenCatFolderMeta.id
+                            shortcutId: cleanStr(upInb && upInb.file && upInb.file.shortcutId),
+                            targetFolderId: chosenCatFolderMeta.id,
+                            forceTargetFolderId: true
                         }, 35000);
                         if (assignRes && assignRes.ok) {
                             const finalFid = cleanStr(assignRes.fileId) || upFid;
-                            const finalUrl = cleanStr(assignRes.photoUrl) || ('https://drive.google.com/file/d/' + finalFid + '/view?usp=sharing');
+                            const finalUrl = cleanStr(assignRes.newUrl || assignRes.photoUrl) || ('https://drive.google.com/file/d/' + finalFid + '/view?usp=sharing');
                             applyRealtimePhotoUpdateInCotizador(targetSku, finalUrl, finalFid);
                             persistFotosSavedOverrideFromCotizador(targetSku, finalUrl, finalFid, targetName, chosenCatFolderMeta.name);
                             okCount++;
@@ -10510,8 +10558,8 @@
                         col_pis: Number(st[8]) || 0,
                         pla_bod: Number(st[9]) || 0,
                         pla_pis: Number(st[10]) || 0,
-                        out_bod: 0,
-                        out_pis: 0,
+                        out_bod: Number(it.out_bod !== undefined ? it.out_bod : st[11]) || 0,
+                        out_pis: Number(it.out_pis !== undefined ? it.out_pis : st[12]) || 0,
                         precio: parsePriceNum(it.pr) || 0
                     };
                 }
@@ -12164,6 +12212,8 @@
             localStorage.removeItem('creata_seg_contacted_v1');
             localStorage.removeItem('creata_seg_audit_v1');
             localStorage.removeItem('creata_seg_live_snapshot_v1');
+            localStorage.removeItem('creata_seg_offline_outbox_v1');
+            localStorage.removeItem('creata_seg_dir_cache_v1');
             localStorage.removeItem('creata_live_app_quotes_bridge_v1');
         } catch (eClrRole) {}
         saveAdvisorSession(null);
@@ -12255,22 +12305,38 @@
         return out;
     }
 
-    window.scrollToGeneratedQuotePdfs = function () {
-        const sec = document.getElementById('quoteGeneratedPdfsSection');
-        if (sec && !sec.classList.contains('hidden') && sec.scrollIntoView) {
-            sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    window.openQuoteGeneratedPdfsModal = function () {
+        if (isGuestSession()) return;
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey) {
+            openAuthModalForStartup();
+            return;
         }
+        renderMyRecentQuotes(myRecentQuotesList);
+        const modalEl = document.getElementById('quoteGeneratedPdfsModal');
+        if (modalEl) {
+            modalEl.classList.add('open');
+            notifyInvBackStatePush('quote_generated_pdfs_modal');
+        }
+        refreshMyLiveQuotesInfo(true);
     };
+
+    window.closeQuoteGeneratedPdfsModal = function () {
+        const modalEl = document.getElementById('quoteGeneratedPdfsModal');
+        if (modalEl) modalEl.classList.remove('open');
+    };
+
+    window.scrollToGeneratedQuotePdfs = window.openQuoteGeneratedPdfsModal;
 
     function renderMyRecentQuotes(list) {
         const wrap = document.getElementById('quoteGeneratedPdfsSection');
         const listEl = document.getElementById('quoteGeneratedPdfsList');
+        const emptyEl = document.getElementById('quoteGeneratedPdfsEmptyState');
         const titleEl = document.getElementById('quoteGeneratedPdfsTitle');
         const countBadge = document.getElementById('quoteGeneratedPdfsCountBadge');
+        const verPdfBadge = document.getElementById('quoteVerPdfCountBadge');
         const hintEl = document.getElementById('quoteGeneratedPdfsRuleHint');
         const jumpBtn = document.getElementById('quoteJumpToPdfsBtn');
         const jumpCount = document.getElementById('quoteJumpToPdfsCount');
-        if (!wrap || !listEl) return;
 
         if (Array.isArray(list)) {
             for (let i = 0; i < list.length; i++) {
@@ -12281,22 +12347,16 @@
         }
 
         const filtered = filterAllowedGeneratedQuotesClient(list);
-        if (!filtered.length || !activeAdvisorSession) {
-            listEl.innerHTML = '';
-            wrap.classList.add('hidden');
-            if (jumpBtn) jumpBtn.classList.add('hidden');
-            if (jumpCount) jumpCount.textContent = '0';
-            return;
-        }
-
         const sess = activeAdvisorSession;
-        const isAdmin = isEffectiveAdminSession();
-        const isManager = !isAdmin && !isKevinAdvisorPreviewActive() && (!!sess.isManager || isManagerSessionUser(sess));
-        const sessEmail = String(sess.correo || '').trim().toLowerCase();
-        const previewStore = isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
-        const activeStoreDisplay = isAdmin
-            ? (cleanStr(quoteDraftMeta.erpStore) || cleanStr(sess.erpStore) || 'TIENDA ACTIVA')
-            : (previewStore || cleanStr(sess.erpStore) || cleanStr(sess.branchLabel) || cleanStr(sess.sheetTab) || 'MI BODEGA');
+        const isAdmin = sess ? isEffectiveAdminSession() : false;
+        const isManager = sess ? (!isAdmin && !isKevinAdvisorPreviewActive() && (!!sess.isManager || isManagerSessionUser(sess))) : false;
+        const sessEmail = sess ? String(sess.correo || '').trim().toLowerCase() : '';
+        const previewStore = sess && isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
+        const activeStoreDisplay = sess
+            ? (isAdmin
+                ? (cleanStr(quoteDraftMeta.erpStore) || cleanStr(sess.erpStore) || 'TIENDA ACTIVA')
+                : (previewStore || cleanStr(sess.erpStore) || cleanStr(sess.branchLabel) || cleanStr(sess.sheetTab) || 'MI BODEGA'))
+            : 'TIENDA ACTIVA';
 
         if (titleEl) {
             if (isAdmin) {
@@ -12308,8 +12368,10 @@
             }
         }
         if (hintEl) {
-            if (isAdmin) {
-                hintEl.textContent = ' PDFs generados en la tienda/bodega activa seleccionada (' + activeStoreDisplay + ').';
+            if (!sess) {
+                hintEl.textContent = '';
+            } else if (isAdmin) {
+                hintEl.textContent = 'PDFs generados en la tienda/bodega activa seleccionada (' + activeStoreDisplay + ').';
             } else if (isManager) {
                 hintEl.textContent = 'Gerente: muestra únicamente tus propios PDFs y los generados por los asesores de ' + activeStoreDisplay + '.';
             } else {
@@ -12317,8 +12379,23 @@
             }
         }
         if (countBadge) countBadge.textContent = String(filtered.length);
+        if (verPdfBadge) {
+            verPdfBadge.textContent = String(filtered.length);
+            verPdfBadge.classList.toggle('hidden', filtered.length === 0);
+        }
         if (jumpCount) jumpCount.textContent = String(filtered.length);
+
+        if (!filtered.length || !sess) {
+            if (listEl) listEl.innerHTML = '';
+            if (emptyEl) emptyEl.classList.remove('hidden');
+            if (wrap) wrap.classList.add('hidden');
+            if (jumpBtn) jumpBtn.classList.add('hidden');
+            return;
+        }
+
+        if (emptyEl) emptyEl.classList.add('hidden');
         if (jumpBtn) jumpBtn.classList.remove('hidden');
+        if (!listEl) return;
 
         listEl.innerHTML = filtered.map(q => {
             const isProy = String(q.quoteType || '').toUpperCase() === 'PROYECTO' || /PROYECTO/i.test(String(q.erpStore || ''));
@@ -12391,7 +12468,7 @@
             });
         });
 
-        wrap.classList.remove('hidden');
+        if (wrap) wrap.classList.remove('hidden');
     }
 
     async function fetchQuotesLedgerGvizFallback() {
@@ -12451,92 +12528,119 @@
     }
 
     let lastMultiStoreDirectorySyncMs = 0;
+    let lastMyLiveQuotesSyncMs = 0;
+    let myLiveQuotesSyncInFlight = false;
 
-    async function refreshMyLiveQuotesInfo() {
+    async function refreshMyLiveQuotesInfo(forceNow) {
         if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) {
             renderMyRecentQuotes([]);
             return;
         }
         const nowMs = Date.now();
-        if (nowMs - lastMultiStoreDirectorySyncMs > 45000) {
-            lastMultiStoreDirectorySyncMs = nowMs;
-            fetchAllAdvisorRowsLiveGviz().catch(() => {});
+        if (forceNow === false && (myLiveQuotesSyncInFlight || (nowMs - lastMyLiveQuotesSyncMs) < 15000)) {
+            return;
         }
-        const effAdmin = isEffectiveAdminSession();
-        const previewStore = isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
-        const activeTargetStore = (effAdmin && quoteDraftMeta.erpStore)
-            ? quoteDraftMeta.erpStore
-            : (previewStore || activeAdvisorSession.erpStore);
-        currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, previewStore ? '' : activeAdvisorSession.orderPrefix);
-        const nextBadge = document.getElementById('quoteNextOrderBadge');
-        if (nextBadge) nextBadge.textContent = 'Folio: ' + currentNextOrderCode;
+        lastMyLiveQuotesSyncMs = nowMs;
+        myLiveQuotesSyncInFlight = true;
+        const refreshBtn = document.getElementById('btnRefreshGeneratedQuotePdfs');
+        if (refreshBtn && forceNow === true) {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = '⏳ Actualizando...';
+        }
+        try {
+            if (nowMs - lastMultiStoreDirectorySyncMs > 45000) {
+                lastMultiStoreDirectorySyncMs = nowMs;
+                fetchAllAdvisorRowsLiveGviz().catch(() => {});
+            }
+            const effAdmin = isEffectiveAdminSession();
+            const previewStore = isKevinAdvisorPreviewActive() ? getKevinAdvisorPreviewStore() : '';
+            const activeTargetStore = (effAdmin && quoteDraftMeta.erpStore)
+                ? quoteDraftMeta.erpStore
+                : (previewStore || activeAdvisorSession.erpStore);
+            currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, previewStore ? '' : activeAdvisorSession.orderPrefix);
+            const nextBadge = document.getElementById('quoteNextOrderBadge');
+            if (nextBadge) nextBadge.textContent = 'Folio: ' + currentNextOrderCode;
 
-        if (activeAdvisorSession.authToken) {
-            const res = await callInvWebAppPost('inv_my_quotes', {
-                authToken: activeAdvisorSession.authToken,
-                advisorEmail: activeAdvisorSession.correo,
-                sheetTab: activeAdvisorSession.sheetTab || '',
-                erpStore: activeTargetStore || ''
-            }, 12000);
+            if (activeAdvisorSession.authToken) {
+                const res = await callInvWebAppPost('inv_my_quotes', {
+                    authToken: activeAdvisorSession.authToken,
+                    advisorEmail: activeAdvisorSession.correo,
+                    sheetTab: activeAdvisorSession.sheetTab || '',
+                    erpStore: activeTargetStore || ''
+                }, 12000);
 
-            if (res && res.ok) {
-                if (res.nextFolioByStore) {
-                    applyServerFolioMap(res.nextFolioByStore);
-                }
-                let sessionChanged = false;
-                if (Array.isArray(res.branchAdvisorEmails) && res.branchAdvisorEmails.length > 0) {
-                    activeAdvisorSession.branchAdvisorEmails = res.branchAdvisorEmails
-                        .map(em => String(em || '').trim().toLowerCase())
-                        .filter(Boolean);
-                    if (Array.isArray(activeAdvisorSession.allLocations)) {
-                        activeAdvisorSession.allLocations = activeAdvisorSession.allLocations.map(loc => {
-                            if (loc && loc.sheetTab === activeAdvisorSession.sheetTab) {
-                                return Object.assign({}, loc, { branchAdvisorEmails: activeAdvisorSession.branchAdvisorEmails });
-                            }
-                            return loc;
-                        });
+                if (res && res.ok) {
+                    if (res.nextFolioByStore) {
+                        applyServerFolioMap(res.nextFolioByStore);
                     }
-                    sessionChanged = true;
-                }
-                if (res.advisor) {
-                    const updatedAdv = enrichAdvisorLocation(res.advisor);
-                    if (updatedAdv.erpAdvisorLabel) activeAdvisorSession.erpAdvisorLabel = updatedAdv.erpAdvisorLabel;
-                    if (updatedAdv.erpAdvisorId) activeAdvisorSession.erpAdvisorId = updatedAdv.erpAdvisorId;
-                    if (updatedAdv.maxDiscountPct !== null && updatedAdv.maxDiscountPct !== undefined) {
-                        activeAdvisorSession.maxDiscountPct = updatedAdv.maxDiscountPct;
+                    let sessionChanged = false;
+                    if (Array.isArray(res.branchAdvisorEmails) && res.branchAdvisorEmails.length > 0) {
+                        activeAdvisorSession.branchAdvisorEmails = res.branchAdvisorEmails
+                            .map(em => String(em || '').trim().toLowerCase())
+                            .filter(Boolean);
+                        if (Array.isArray(activeAdvisorSession.allLocations)) {
+                            activeAdvisorSession.allLocations = activeAdvisorSession.allLocations.map(loc => {
+                                if (loc && loc.sheetTab === activeAdvisorSession.sheetTab) {
+                                    return Object.assign({}, loc, { branchAdvisorEmails: activeAdvisorSession.branchAdvisorEmails });
+                                }
+                                return loc;
+                            });
+                        }
+                        sessionChanged = true;
                     }
-                    if (updatedAdv.isAdmin) activeAdvisorSession.isAdmin = true;
-                    if (updatedAdv.isManager) activeAdvisorSession.isManager = true;
-                    if (Array.isArray(updatedAdv.branchAdvisorEmails) && updatedAdv.branchAdvisorEmails.length > 0) {
-                        activeAdvisorSession.branchAdvisorEmails = updatedAdv.branchAdvisorEmails;
+                    if (res.advisor) {
+                        const updatedAdv = enrichAdvisorLocation(res.advisor);
+                        if (updatedAdv.erpAdvisorLabel) activeAdvisorSession.erpAdvisorLabel = updatedAdv.erpAdvisorLabel;
+                        if (updatedAdv.erpAdvisorId) activeAdvisorSession.erpAdvisorId = updatedAdv.erpAdvisorId;
+                        if (updatedAdv.maxDiscountPct !== null && updatedAdv.maxDiscountPct !== undefined) {
+                            activeAdvisorSession.maxDiscountPct = updatedAdv.maxDiscountPct;
+                        }
+                        if (updatedAdv.isAdmin) activeAdvisorSession.isAdmin = true;
+                        if (updatedAdv.isManager) activeAdvisorSession.isManager = true;
+                        if (Array.isArray(updatedAdv.branchAdvisorEmails) && updatedAdv.branchAdvisorEmails.length > 0) {
+                            activeAdvisorSession.branchAdvisorEmails = updatedAdv.branchAdvisorEmails;
+                        }
+                        sessionChanged = true;
                     }
-                    sessionChanged = true;
-                }
-                if (sessionChanged) {
-                    saveAdvisorSession(activeAdvisorSession);
-                    renderAdvisorHeaderBar();
-                }
-                if (res.nextOrderCode && !/^[A-Z]+-\d+$/i.test(String(res.nextOrderCode))) {
-                    currentNextOrderCode = cleanStr(res.nextOrderCode);
-                    if (activeTargetStore) {
-                        liveNextFolioByStore[String(activeTargetStore).toUpperCase()] = currentNextOrderCode;
+                    if (sessionChanged) {
+                        saveAdvisorSession(activeAdvisorSession);
+                        renderAdvisorHeaderBar();
                     }
-                } else {
-                    currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
+                    if (res.nextOrderCode && !/^[A-Z]+-\d+$/i.test(String(res.nextOrderCode))) {
+                        currentNextOrderCode = cleanStr(res.nextOrderCode);
+                        if (activeTargetStore) {
+                            liveNextFolioByStore[String(activeTargetStore).toUpperCase()] = currentNextOrderCode;
+                        }
+                    } else {
+                        currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
+                    }
+                    myRecentQuotesList = Array.isArray(res.recentQuotes) ? res.recentQuotes : [];
+                    populateQuoteAdvisorControls();
+                    renderMyRecentQuotes(myRecentQuotesList);
+                    return;
                 }
-                myRecentQuotesList = Array.isArray(res.recentQuotes) ? res.recentQuotes : [];
-                populateQuoteAdvisorControls();
-                renderMyRecentQuotes(myRecentQuotesList);
-                return;
+            }
+
+            // Respaldo directo por lectura de COTIZACIONES_EN_VIVO filtrada estrictamente por rol y bodega activa
+            const gvizQuotes = await fetchQuotesLedgerGvizFallback();
+            currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
+            myRecentQuotesList = gvizQuotes;
+            populateQuoteAdvisorControls();
+            renderMyRecentQuotes(myRecentQuotesList);
+        } finally {
+            myLiveQuotesSyncInFlight = false;
+            if (refreshBtn) {
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = '🔄 Actualizar';
             }
         }
+    }
 
-        // Respaldo directo por lectura de COTIZACIONES_EN_VIVO filtrada estrictamente por rol y bodega activa
-        const gvizQuotes = await fetchQuotesLedgerGvizFallback();
-        currentNextOrderCode = getEstimatedStoreFolio(activeTargetStore, activeAdvisorSession.orderPrefix);
-        myRecentQuotesList = gvizQuotes;
-        populateQuoteAdvisorControls();
-        renderMyRecentQuotes(myRecentQuotesList);
+    window.refreshMyLiveQuotesInfo = refreshMyLiveQuotesInfo;
+
+    function refreshMyLiveQuotesThrottled(forceNow) {
+        if (!activeAdvisorSession || activeAdvisorSession.mustChangeKey || isGuestSession()) return;
+        refreshMyLiveQuotesInfo(forceNow === true ? true : false).catch(() => {});
     }
 
     function populateAdminSelectorsUI(sess) {
@@ -13983,6 +14087,9 @@
         if (typeof window.closeQuoteConfirmCreateModal === 'function') {
             window.closeQuoteConfirmCreateModal();
         }
+        if (typeof window.closeQuoteGeneratedPdfsModal === 'function') {
+            window.closeQuoteGeneratedPdfsModal();
+        }
         const modalEl = document.getElementById('cartModal');
         if (modalEl) modalEl.classList.remove('open');
         // Cuando se termina una cotización y se cierra la pestaña/ventana, descartar la terminada y dejar lista únicamente una nueva cotización
@@ -15212,7 +15319,7 @@
         );
 
         try {
-            const res = await callInvWebAppPost('inv_submit_quote', payload, 38000);
+            const res = await callInvWebAppPost('inv_submit_quote', payload, 65000);
 
             if (res && res.authRequired) {
                 renderQuoteStatusBanner(
@@ -15498,6 +15605,50 @@
                 return;
             }
 
+            if (sendToErp && (!res || res.unavailable)) {
+                try {
+                    const liveHeaderCheck = await readLivePlantillaHeaderStatus();
+                    const recFolio = cleanStr(liveHeaderCheck && liveHeaderCheck.folio);
+                    const recQid = cleanStr(liveHeaderCheck && liveHeaderCheck.quoteId);
+                    const recStatus = cleanStr(liveHeaderCheck && liveHeaderCheck.erpStatus);
+                    const recStore = cleanStr(liveHeaderCheck && liveHeaderCheck.erpStore).toUpperCase();
+                    const expectedStore = cleanStr(payload.erpStore).toUpperCase();
+                    const alreadyKnown = Array.isArray(myRecentQuotesList) && myRecentQuotesList.some(existing => {
+                        if (!existing) return false;
+                        if (recQid && cleanStr(existing.quoteId) === recQid) return true;
+                        if (recFolio && (cleanStr(existing.folio) === recFolio || cleanStr(existing.orderCode) === recFolio)) return true;
+                        return false;
+                    });
+                    if ((recFolio || recQid) && !alreadyKnown && !/ERROR/i.test(recStatus) && (!expectedStore || !recStore || recStore === expectedStore)) {
+                        if (recFolio) registerObservedFolio(recFolio, payload.erpStore);
+                        const recUid = cleanStr((liveHeaderCheck && liveHeaderCheck.erpUserId) || payload.erpAdvisorId);
+                        lastSubmittedQuoteMeta = {
+                            orderCode: recFolio || payload.orderCode,
+                            folio: recFolio,
+                            quoteId: recQid,
+                            erpUserId: recUid,
+                            createdAt: cleanStr(liveHeaderCheck && liveHeaderCheck.lastSync),
+                            quoteType: payload.quoteType
+                        };
+                        markActiveQuoteCompleted(lastSubmittedQuoteMeta);
+                        populateQuoteAdvisorControls();
+                        renderQuoteStatusBanner(
+                            'ok',
+                            '<div class="font-extrabold uppercase">✓ Cotización confirmada en S Mueblería</div>' +
+                            '<div>Folio: <strong>' + escapeHtml(recFolio || payload.orderCode) + '</strong></div>' +
+                            '<div class="pt-1 flex flex-wrap items-center gap-3">' +
+                                '<button type="button" onclick="downloadAcceptedQuoteOriginalPdf(this)" class="underline font-extrabold" style="color:#146342;">⬇ Descargar PDF</button>' +
+                                '<button type="button" onclick="sendAcceptedQuoteToClientWhatsApp(this)" class="underline font-extrabold" style="color:#146342;">📲 Enviar</button>' +
+                                '<button type="button" onclick="startFreshQuoteAfterCompleted()" class="underline font-extrabold" style="color:#1A1816;">+ Nueva</button>' +
+                            '</div>'
+                        );
+                        openQuoteAcceptedModal(payload, lastSubmittedQuoteMeta, { isQueued: false });
+                        refreshMyLiveQuotesInfo(true);
+                        return;
+                    }
+                } catch (eLiveChk) {}
+            }
+
             reportSystemHistoryEvent({
                 classification: 'ALERTA TÉCNICA',
                 module: 'inventario-app.js · submitQuoteOrder',
@@ -15613,6 +15764,7 @@
                 if (histRes && histRes.handled) { ev.__creataEscapeHandled = true; return; }
             }
             if (isModalOpenById('quoteAcceptedModal')) { ev.__creataEscapeHandled = true; acceptGeneratedQuoteAndReset(); return; }
+            if (isModalOpenById('quoteGeneratedPdfsModal')) { ev.__creataEscapeHandled = true; window.closeQuoteGeneratedPdfsModal(); return; }
             if (invFabIsOpen) { ev.__creataEscapeHandled = true; window.closeFabMenu(); return; }
             if (isModalOpenById('cartModal') && isElVisibleById('quoteNewErpClientPanel')) {
                 ev.__creataEscapeHandled = true;
@@ -15660,7 +15812,15 @@
                 if (res && (res.status === 'quotable' || res.status === 'out_of_stock')) {
                     ev.preventDefault();
                     processScannedBarcode(val, { source: 'Buscador / P2300L', force: true });
-                    try { activeEl.select(); } catch (e) {}
+                    try {
+                        if (typeof activeEl.select === 'function') activeEl.select();
+                        if (typeof activeEl.setSelectionRange === 'function') {
+                            activeEl.setSelectionRange(0, String(activeEl.value || '').length);
+                        }
+                        if (isModalOpenById('productDetailModal') && typeof activeEl.blur === 'function') {
+                            activeEl.blur();
+                        }
+                    } catch (e) {}
                     return;
                 }
                 if (ev.key !== 'Tab' && ev.keyCode !== 9 && filteredGroups.length === 1) {
@@ -15736,7 +15896,7 @@
     // ------------------------------------------------------------------------
     const LIVE_CACHE_KEY = 'creata_inv_live_cache_v5';
     const LIVE_OK_TS_KEY = 'creata_inv_live_ok_ts_v1';
-    const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe', 'fcomp'];
+    const LIVE_CACHE_FIELDS = ['s', 'tp', 'mo', 'n', 'vr', 'f', 'c', 'tl', 'ct', 'md', 'cm', 'mt', 'm', 'p', 'pr', 'lt', 'baseLt', 'fe', 'fcomp', 'out_bod', 'out_pis'];
     const LIVE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
     let liveCacheSaveTimer = null;
     let liveSyncFailStreak = 0;
@@ -16278,6 +16438,10 @@
         const colFe = findCol(['FECHA ESTIMADA DE LLEGADA', 'FECHA ESTIMADA']);
         const colLiveStatus = findCol(['ULTIMA ACTUALIZACION EN VIVO', 'ULTIMA ACTUALIZACION']);
         const whCols = WAREHOUSES.map(wh => resolveWarehouseCol(wh));
+        let colOutBod = findCol(['OUTLET COLOSIO (BODEGA)', 'OUTLET COLOSIO BODEGA', 'OUTLET (BODEGA)', 'OUTLET BODEGA', 'OUTLET COLOCIO (BODEGA)', 'OUTLET COLOCIO BODEGA']);
+        let colOutPis = findCol(['OUTLET COLOSIO (PISO)', 'OUTLET COLOSIO PISO', 'OUTLET (PISO)', 'OUTLET PISO', 'OUTLET COLOCIO (PISO)', 'OUTLET COLOCIO PISO']);
+        if (colOutBod === -1 && headers.length > 30 && /OUTLET/i.test(headers[30] || '')) colOutBod = 30;
+        if (colOutPis === -1 && headers.length > 31 && /OUTLET/i.test(headers[31] || '')) colOutPis = 31;
 
         const liveItems = [];
         const seenLiveSkus = new Set();
@@ -16306,6 +16470,10 @@
                 const numStock = Number(rawStock);
                 st[w] = (!isNaN(numStock) && isFinite(numStock)) ? Math.max(0, Math.round(numStock)) : 0;
             }
+            const rawOutBod = colOutBod !== -1 ? Number(gvizCellRaw(rowCells, colOutBod)) : (prevIt && prevIt.out_bod !== undefined ? Number(prevIt.out_bod) : 0);
+            const rawOutPis = colOutPis !== -1 ? Number(gvizCellRaw(rowCells, colOutPis)) : (prevIt && prevIt.out_pis !== undefined ? Number(prevIt.out_pis) : 0);
+            const outBodVal = (!isNaN(rawOutBod) && isFinite(rawOutBod)) ? Math.max(0, Math.round(rawOutBod)) : 0;
+            const outPisVal = (!isNaN(rawOutPis) && isFinite(rawOutPis)) ? Math.max(0, Math.round(rawOutPis)) : 0;
 
             const baseLtVal = normalizeLeadTimeVal(gvizCellRaw(rowCells, colLt));
             const rawFe = colFe !== -1 ? cleanStr(gvizCellFormatted(rowCells, colFe)) : '';
@@ -16346,6 +16514,8 @@
                 baseLt: lpptInfo.baseLt,
                 fe: lpptInfo.fe,
                 fcomp: lpptInfo.fcomp,
+                out_bod: outBodVal,
+                out_pis: outPisVal,
                 st: st
             }, null));
         }
@@ -17251,6 +17421,7 @@
                                 erpStore: suc,
                                 advisorName: usr
                             });
+                            refreshMyLiveQuotesThrottled(true);
                         } else if (/FALLO/i.test(clas) || /ERROR|❌/i.test(st)) {
                             notifyFailure({
                                 module: mod,
@@ -17391,7 +17562,15 @@
                     searchBurstEvents = 0;
                     if (cleanedScan) {
                         processScannedBarcode(cleanedScan, { source: 'Buscador / P2300L' });
-                        try { selfInp.select(); } catch (e) {}
+                        try {
+                            if (typeof selfInp.select === 'function') selfInp.select();
+                            if (typeof selfInp.setSelectionRange === 'function') {
+                                selfInp.setSelectionRange(0, String(selfInp.value || '').length);
+                            }
+                            if (isModalOpenById('productDetailModal') && typeof selfInp.blur === 'function') {
+                                selfInp.blur();
+                            }
+                        } catch (e) {}
                         return;
                     }
                 }
@@ -17419,7 +17598,15 @@
                                 const hit = resolveScannedBarcode(latest);
                                 if (hit && (hit.status === 'quotable' || hit.status === 'out_of_stock')) {
                                     processScannedBarcode(latest, { source: 'Buscador / P2300L' });
-                                    try { selfInp.select(); } catch (e) {}
+                                    try {
+                                        if (typeof selfInp.select === 'function') selfInp.select();
+                                        if (typeof selfInp.setSelectionRange === 'function') {
+                                            selfInp.setSelectionRange(0, String(selfInp.value || '').length);
+                                        }
+                                        if (isModalOpenById('productDetailModal') && typeof selfInp.blur === 'function') {
+                                            selfInp.blur();
+                                        }
+                                    } catch (e) {}
                                 }
                             }
                         }, 260);
@@ -17431,7 +17618,10 @@
                 }
                 _invPrevSearchNonEmpty = nowNonEmpty;
                 const clearBtn = document.getElementById('invClearBtn');
-                if (clearBtn) clearBtn.classList.toggle('hidden', !val);
+                if (clearBtn) {
+                    clearBtn.style.display = '';
+                    clearBtn.classList.toggle('hidden', !nowNonEmpty);
+                }
                 if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
                 searchDebounceTimer = setTimeout(function () {
                     searchDebounceTimer = null;
@@ -17474,6 +17664,7 @@
                     refreshLiveSheetNow(false);
                 }
                 sendInvPresenceHeartbeat(activeAdvisorSession, false);
+                refreshMyLiveQuotesThrottled(false);
                 if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.poll === 'function') {
                     window.CreataLiveAlerts.poll();
                 }
@@ -17485,6 +17676,7 @@
                 refreshLiveSheetNow(false);
             }
             sendInvPresenceHeartbeat(activeAdvisorSession, false);
+            refreshMyLiveQuotesThrottled(false);
             const modal = document.getElementById('settingsModal');
             if (modal && modal.classList.contains('open') && isRealAdminAccount() && !isKevinAdvisorPreviewActive() && hasAdminPerm('equipoInvitados') && typeof window.refreshSettingsTeamPresence === 'function') {
                 window.refreshSettingsTeamPresence(false);
@@ -17493,6 +17685,7 @@
         window.addEventListener('online', function () {
             flushInvOfflineOutbox().catch(() => {});
             refreshLiveSheetNow(true);
+            refreshMyLiveQuotesThrottled(true);
         });
         window.addEventListener('offline', function () {
             if (typeof window.saveQuoteDraftMeta === 'function' && !isActiveQuoteCompleted()) {
@@ -17539,6 +17732,7 @@
                 pruneExpiredQuoteDrafts(true);
                 refreshLiveSheetNow(false);
                 sendInvPresenceHeartbeat(activeAdvisorSession, false);
+                refreshMyLiveQuotesThrottled(false);
             }
         });
 
@@ -17565,7 +17759,6 @@
             )) return true;
             if (window.navigator && window.navigator.standalone === true) return true;
             if (typeof document !== 'undefined' && document.referrer && document.referrer.indexOf('android-app://') === 0) return true;
-            if (localStorage.getItem(PWA_INSTALLED_STORAGE_KEY) === '1') return true;
         } catch (e) {}
         return false;
     }
@@ -17581,14 +17774,20 @@
 
     function applyIosNoAutoZoomViewportGuard() {
         try {
-            if (!isIosMobileDevice()) return;
+            if (window.CreataBackNav && typeof window.CreataBackNav.installZoomLock === 'function') {
+                window.CreataBackNav.installZoomLock({ win: window, doc: document });
+                return;
+            }
             if (typeof document === 'undefined' || !document.querySelector) return;
             const vp = document.querySelector('meta[name="viewport"]');
             if (!vp) return;
             const cur = String(vp.getAttribute('content') || '');
-            if (!/maximum-scale\s*=/i.test(cur)) {
-                vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover');
-            }
+            const hasInteractiveWidget = /\binteractive-widget\s*=\s*resizes-content\b/i.test(cur);
+            vp.setAttribute(
+                'content',
+                'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover'
+                + (hasInteractiveWidget ? ', interactive-widget=resizes-content' : '')
+            );
         } catch (e) {}
     }
 
@@ -18095,6 +18294,13 @@
                     undo: function () { window.acceptGeneratedQuoteAndReset(); },
                     escapeAllowed: true
                 },
+                // Priority 8b: Quote Generated PDFs Modal (z-index: 72) — unwinds before #cartModal
+                {
+                    id: 'quote_generated_pdfs_modal',
+                    isActive: function () { return isModalOpenById('quoteGeneratedPdfsModal'); },
+                    undo: function () { window.closeQuoteGeneratedPdfsModal(); },
+                    escapeAllowed: true
+                },
                 // Priority 9: Floating Action Button Menu (z-index: 40)
                 {
                     id: 'fab_menu',
@@ -18474,30 +18680,61 @@
 
         // P1-20 / P1-28: Validar ev.origin en postMessage + puente de portapapeles PNG para Prompts IA embebido
         const PROMPTS_EMBED_ORIGIN_INV = 'https://buena-espero.onrender.com';
+        const PROMPTS_EMBED_ORIGIN_ALT = 'https://app-1-3y7y.onrender.com';
         window.addEventListener('message', async function (ev) {
             if (!ev) return;
             const curOrigin = (window.location && window.location.origin) || '';
             const isSameOrigin = (ev.origin === curOrigin) || (!ev.origin && window.location && window.location.protocol === 'file:');
-            const isPromptsOrigin = ev.origin === PROMPTS_EMBED_ORIGIN_INV;
+            const isPromptsOrigin = ev.origin === PROMPTS_EMBED_ORIGIN_INV || ev.origin === PROMPTS_EMBED_ORIGIN_ALT;
             if (!isSameOrigin && !isPromptsOrigin) return;
             const data = ev.data;
             if (!data || typeof data !== 'object') return;
             if (isPromptsOrigin) {
-                if (data.type === 'CREATA_PROMPTS_COPY_IMAGE' && typeof data.dataUrl === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/i.test(data.dataUrl)) {
-                    try {
-                        if (navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof ClipboardItem === 'function') {
-                            const blob = await (await fetch(data.dataUrl)).blob();
-                            const pngBlob = blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
-                            await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-                            if (ev.source && typeof ev.source.postMessage === 'function') {
-                                ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: true, requestId: data.requestId || '' }, PROMPTS_EMBED_ORIGIN_INV);
+                if (data.type === 'CREATA_PROMPTS_COPY_IMAGE') {
+                    const reqId = String(data.requestId || '');
+                    const rawUri = (typeof data.dataUri === 'string' && data.dataUri.trim())
+                        ? data.dataUri
+                        : (typeof data.dataUrl === 'string' ? data.dataUrl : '');
+                    const dataUri = rawUri.trim();
+                    let ok = false;
+                    if (/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(dataUri)) {
+                        try {
+                            let pngBlob = null;
+                            if (dataUri.indexOf('data:image/png;base64,') === 0) {
+                                const bin = atob(dataUri.slice('data:image/png;base64,'.length).replace(/\s+/g, ''));
+                                const bytes = new Uint8Array(bin.length);
+                                for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                                pngBlob = new Blob([bytes], { type: 'image/png' });
+                            } else if (typeof Image !== 'undefined' && typeof document !== 'undefined') {
+                                pngBlob = await new Promise(function (resolve, reject) {
+                                    const img = new Image();
+                                    img.onload = function () {
+                                        try {
+                                            const c = document.createElement('canvas');
+                                            c.width = img.naturalWidth || img.width || 1;
+                                            c.height = img.naturalHeight || img.height || 1;
+                                            const ctx = c.getContext('2d');
+                                            ctx.drawImage(img, 0, 0);
+                                            c.toBlob(function (b) { return b ? resolve(b) : reject(new Error('toBlob')); }, 'image/png');
+                                        } catch (eC) { reject(eC); }
+                                    };
+                                    img.onerror = function () { reject(new Error('img')); };
+                                    img.src = dataUri;
+                                });
                             }
-                        }
-                    } catch (eClip) {
-                        if (ev.source && typeof ev.source.postMessage === 'function') {
-                            ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: false, requestId: data.requestId || '' }, PROMPTS_EMBED_ORIGIN_INV);
+                            if (pngBlob && navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof window.ClipboardItem === 'function') {
+                                await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': pngBlob })]);
+                                ok = true;
+                            }
+                        } catch (eClip) {
+                            ok = false;
                         }
                     }
+                    try {
+                        if (ev.source && typeof ev.source.postMessage === 'function') {
+                            ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: ok, requestId: reqId }, ev.origin);
+                        }
+                    } catch (eReply) {}
                 }
                 return;
             }

@@ -673,19 +673,19 @@ test('Seguimiento Manual + CreataBackNav: slideHistory is bounded (<= 20) and Ba
   assert.ok(env.getStats().entries.length <= 13, `History stack must stay <= 13 entries, got ${env.getStats().entries.length}`);
 });
 
-test('Static coverage check: fotos-productos.html, panel.html, and seguimiento-manual.html load ./creata-back-nav.js?v=1 before app logic', () => {
+test('Static coverage check: fotos-productos.html, panel.html, and seguimiento-manual.html load ./creata-back-nav.js?v=2 before app logic', () => {
   const checks = [
-    { file: 'fotos-productos.html', appPattern: /fotos-productos-app\.js\?v=39/ },
-    { file: 'panel.html', appPattern: /panel-app\.js\?v=14/ },
+    { file: 'fotos-productos.html', appPattern: /fotos-productos-app\.js\?v=40/ },
+    { file: 'panel.html', appPattern: /panel-app\.js\?v=15/ },
     { file: 'seguimiento-manual.html', appPattern: /<script>\s*\r?\n\s*let isEditMode/ }
   ];
 
   for (const { file, appPattern } of checks) {
     const html = fs.readFileSync(path.join(REPO_ROOT, file), 'utf8');
-    const backNavIdx = html.indexOf('<script src="./creata-back-nav.js?v=1"></script>');
-    assert.ok(backNavIdx >= 0, `${file} must load ./creata-back-nav.js?v=1`);
+    const backNavIdx = html.indexOf('<script src="./creata-back-nav.js?v=2"></script>');
+    assert.ok(backNavIdx >= 0, `${file} must load ./creata-back-nav.js?v=2`);
     const appMatch = appPattern.exec(html);
     assert.ok(appMatch, `${file} must contain expected app script`);
-    assert.ok(backNavIdx < appMatch.index, `${file} must load creata-back-nav.js?v=1 BEFORE its app script`);
+    assert.ok(backNavIdx < appMatch.index, `${file} must load creata-back-nav.js?v=2 BEFORE its app script`);
   }
 });

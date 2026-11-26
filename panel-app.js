@@ -165,6 +165,10 @@
             page: 'panel'
         };
         callPanelWebAppPost('inv_presence_heartbeat', payload, 8000).then((hbRes) => {
+            if (hbRes && hbRes.sessionRevoked === true && typeof window.lockHubPortal === 'function') {
+                window.lockHubPortal();
+                return;
+            }
             if (hbRes && hbRes.renewedAuthToken) {
                 persistPanelRenewedToken(hbRes.renewedAuthToken, creds.correo);
             }
@@ -900,7 +904,10 @@
         const data = ev.data;
         if (!data || data.type !== 'CREATA_PROMPTS_COPY_IMAGE') return;
         const reqId = String(data.requestId || '');
-        const dataUri = typeof data.dataUri === 'string' ? data.dataUri.trim() : '';
+        const rawUri = typeof data.dataUri === 'string' && data.dataUri.trim()
+            ? data.dataUri
+            : (typeof data.dataUrl === 'string' ? data.dataUrl : '');
+        const dataUri = rawUri.trim();
         let ok = false;
         if (/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(dataUri)) {
             try {

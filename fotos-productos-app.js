@@ -24,8 +24,10 @@
     const FOTOS_INBOX_SYNC_STORAGE = 'creata_fotos_inbox_sync_v1';
     const RECENT_UPLOADS_STORAGE = 'creata_fotos_recent_uploads_v1';
     const FOTOS_TAB_ID = 'ftab_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-    const LIVE_INBOX_POLL_MS = 10000;
+    const LIVE_INBOX_POLL_MS = 6000;
     const LIVE_CATALOG_POLL_MS = 25000;
+    const RATE_LIMIT_BACKOFF_MS = 15000;
+    const pendingUploadPromises = new Map();
 
     let _fotosUiCheckpointRestoredOnce = false;
     let _fotosRestoringCheckpoint = false;
@@ -33,13 +35,17 @@
     let _fotosFlushingOutbox = false;
     let _deferredFotosInstallPrompt = null;
     let _fotosBackNav = null;
+    let _fotosSwRegistration = null;
     let _liveInboxTimer = null;
     let _liveCatalogTimer = null;
     let _lastLiveVisibilitySyncMs = 0;
     let _lastInboxFingerprint = '';
     let _lastCatalogFingerprint = '';
     let _lastVisualFingerprint = '';
+    let _lastSharedRecentFp = '';
     let _liveSyncPendingCount = 0;
+    let _inboxRateLimitBackoffUntilMs = 0;
+    let _backendSupportsInboxRev = false;
 
     const SHEET_GIDS = {
         '1': '620514545',
@@ -161,6 +167,8 @@
         skuSearchQuery: '',
         selectedSku: '',
         galleryMode: 'INBOX',
+        inboxRev: '',
+        recentUploads: [],
         rawInboxFromDrive: [],
         inboxFiles: [],
         fotosNuevasSheetItems: [],
@@ -356,6 +364,7 @@
     function isFotosBusyForLivePoll() {
         if (!state.unlocked) return true;
         if (state.assignInFlight > 0 || state.repairInFlight || state.syncSkusInFlight) return true;
+        if (pendingUploadPromises && pendingUploadPromises.size > 0) return true;
         if (typeof visualState !== 'undefined' && visualState && visualState.busy) return true;
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return true;
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
@@ -366,12 +375,19 @@
 
     async function runSilentFotosLiveTick(kind) {
         if (isFotosBusyForLivePoll()) return;
+        const nowMs = Date.now();
+        if (kind === 'inbox' && nowMs < _inboxRateLimitBackoffUntilMs) {
+            setFotosLiveStatus('syncing', 'Sincronizando...');
+            return;
+        }
         _liveSyncPendingCount++;
         setFotosLiveStatus('syncing');
         try {
             if (kind === 'inbox') {
                 await flushFotosOfflineOutbox();
-                await window.refreshInboxOnly(false, { silent: true });
+                if (Date.now() >= _inboxRateLimitBackoffUntilMs) {
+                    await window.refreshInboxOnly(false, { silent: true });
+                }
             } else if (kind === 'catalog') {
                 await flushFotosOfflineOutbox();
                 const tasks = [loadSheetsCatalog({ silent: true })];
@@ -382,9 +398,11 @@
             } else {
                 await flushFotosOfflineOutbox();
                 const tasks = [
-                    window.refreshInboxOnly(false, { silent: true }),
                     loadSheetsCatalog({ silent: true })
                 ];
+                if (Date.now() >= _inboxRateLimitBackoffUntilMs) {
+                    tasks.unshift(window.refreshInboxOnly(false, { silent: true }));
+                }
                 if (typeof syncVisualOverridesFromCloudInFotos === 'function') {
                     tasks.push(syncVisualOverridesFromCloudInFotos({ silent: true }));
                 }
@@ -395,7 +413,9 @@
         } finally {
             _liveSyncPendingCount = Math.max(0, _liveSyncPendingCount - 1);
             if (_liveSyncPendingCount === 0) {
-                if (_inboxConsecutiveSyncFails > 0) {
+                if (Date.now() < _inboxRateLimitBackoffUntilMs) {
+                    setFotosLiveStatus('syncing', 'Sincronizando...');
+                } else if (_inboxConsecutiveSyncFails > 0) {
                     setFotosLiveStatus('offline', 'Reconectando');
                 } else {
                     setFotosLiveStatus('live');
@@ -904,7 +924,7 @@
     }
 
     function isTransientLockError(res) {
-        if (!res || res.ok || res.authRequired || res.forbidden || res.forbiddenFolder) return false;
+        if (!res || res.ok || res.authRequired || res.rateLimited || res.forbidden || res.forbiddenFolder) return false;
         const msg = cleanStr(res.error).toLowerCase();
         return !!res.retryable || /candado|bloqueo|bloquear|lock|tiempo de espera.*candado|waitlock|otro proceso.*modificando/.test(msg);
     }
@@ -943,7 +963,13 @@
             persistRefreshedOwnerToken(res.renewedAuthToken);
         }
 
-        if (isFotosAction && res && !res.ok && !res.unavailable && !res.forbidden && !res.forbiddenFolder) {
+        if (res && res.rateLimited) {
+            _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+            setFotosLiveStatus('syncing', 'Sincronizando...');
+            return res;
+        }
+
+        if (isFotosAction && res && !res.ok && !res.unavailable && !res.rateLimited && !res.forbidden && !res.forbiddenFolder) {
             const isSilentGateReject = !cleanStr(res.error) || !!res.authRequired;
             if (isSilentGateReject) {
                 if (cleanStr(state.accessKey)) {
@@ -953,6 +979,11 @@
                         res = await sendRawWebAppPost(action, activePayload, timeoutMs);
                         if (res && res.renewedAuthToken) {
                             persistRefreshedOwnerToken(res.renewedAuthToken);
+                        }
+                        if (res && res.rateLimited) {
+                            _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                            setFotosLiveStatus('syncing', 'Sincronizando...');
+                            return res;
                         }
                     } else if (!cleanStr(res.error)) {
                         res = Object.assign({}, res, {
@@ -980,6 +1011,11 @@
                 if (res && res.renewedAuthToken) {
                     persistRefreshedOwnerToken(res.renewedAuthToken);
                 }
+                if (res && res.rateLimited) {
+                    _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                    setFotosLiveStatus('syncing', 'Sincronizando...');
+                    return res;
+                }
                 if (!isTransientLockError(res)) break;
             }
         }
@@ -998,6 +1034,7 @@
             authToken: state.authToken || '',
             advisorEmail: cleanStr(state.activeEmail) || OWNER_EMAIL,
             sheetTab: cleanStr(state.activeSheetTab) || 'CUENTAS ADMINISTRATIVAS',
+            deviceId: getFotosPresenceDeviceId(),
             inboxFolderId: SUBIR_FOLDER_ID
         };
         if (!state.authToken && state.accessKey) {
@@ -1014,26 +1051,33 @@
         try {
             const raw = localStorage.getItem(DELETED_QUEUE_STORAGE);
             if (!raw) {
-                state.deletedQueue = { fileIds: {}, skus: {} };
+                state.deletedQueue = { fileIds: {}, skus: {}, shortcutIds: {} };
                 return state.deletedQueue;
             }
             const parsed = JSON.parse(raw);
             const rawFileIds = (parsed && typeof parsed.fileIds === 'object' && parsed.fileIds) ? parsed.fileIds : {};
             const rawSkus = (parsed && typeof parsed.skus === 'object' && parsed.skus) ? parsed.skus : {};
+            const rawShortcutIds = (parsed && typeof parsed.shortcutIds === 'object' && parsed.shortcutIds) ? parsed.shortcutIds : {};
             const now = Date.now();
             const cleanFileIds = {};
+            const cleanShortcutIds = {};
             let pruned = false;
             Object.keys(rawFileIds).forEach((fid) => {
-                const ts = Number(rawFileIds[fid] || 0);
+                const entryVal = rawFileIds[fid];
+                const ts = (entryVal && typeof entryVal === 'object') ? Number(entryVal.ts || 0) : Number(entryVal || 0);
+                const scFromEntry = (entryVal && typeof entryVal === 'object') ? cleanStr(entryVal.shortcutId) : '';
                 if (ts > 0 && (now - ts) > DELETED_QUEUE_TTL_MS) {
                     pruned = true;
                     return;
                 }
                 cleanFileIds[fid] = ts || now;
+                const sc = cleanStr(rawShortcutIds[fid]) || scFromEntry;
+                if (sc) cleanShortcutIds[fid] = sc;
             });
             state.deletedQueue = {
                 fileIds: cleanFileIds,
-                skus: rawSkus
+                skus: rawSkus,
+                shortcutIds: cleanShortcutIds
             };
             if (pruned) {
                 try {
@@ -1042,7 +1086,7 @@
             }
             return state.deletedQueue;
         } catch (e) {
-            state.deletedQueue = { fileIds: {}, skus: {} };
+            state.deletedQueue = { fileIds: {}, skus: {}, shortcutIds: {} };
             return state.deletedQueue;
         }
     }
@@ -1050,18 +1094,24 @@
     function writeDeletedQueue(qObj) {
         state.deletedQueue = {
             fileIds: (qObj && qObj.fileIds) || {},
-            skus: (qObj && qObj.skus) || {}
+            skus: (qObj && qObj.skus) || {},
+            shortcutIds: (qObj && qObj.shortcutIds) || {}
         };
         try {
             localStorage.setItem(DELETED_QUEUE_STORAGE, JSON.stringify(state.deletedQueue));
         } catch (e) {}
     }
 
-    function markDeletedInQueue(fileIdRaw, skuRaw) {
+    function markDeletedInQueue(fileIdRaw, skuRaw, shortcutIdRaw) {
         const fid = cleanStr(fileIdRaw);
         const sku = cleanStr(skuRaw).toUpperCase();
+        const scId = cleanStr(shortcutIdRaw);
         const q = readDeletedQueue();
-        if (fid) q.fileIds[fid] = Date.now();
+        if (!q.shortcutIds) q.shortcutIds = {};
+        if (fid) {
+            q.fileIds[fid] = Date.now();
+            if (scId) q.shortcutIds[fid] = scId;
+        }
         if (sku) q.skus[sku] = fid || '1';
         writeDeletedQueue(q);
         invalidateLoadedPhotosCache();
@@ -1078,6 +1128,10 @@
         }
         if (fid && q.fileIds[fid]) {
             delete q.fileIds[fid];
+            changed = true;
+        }
+        if (fid && q.shortcutIds && q.shortcutIds[fid]) {
+            delete q.shortcutIds[fid];
             changed = true;
         }
         if (changed) {
@@ -1098,6 +1152,7 @@
             Object.keys(q.fileIds || {}).forEach((fid) => {
                 if (!liveIds.has(fid)) {
                     delete q.fileIds[fid];
+                    if (q.shortcutIds && q.shortcutIds[fid]) delete q.shortcutIds[fid];
                     changed = true;
                 }
             });
@@ -1120,6 +1175,7 @@
     async function drainPendingDeletedQueueAsync() {
         if (_drainingDeletedQueue) return;
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        if (Date.now() < _inboxRateLimitBackoffUntilMs) return;
         const q = readDeletedQueue();
         const pendingSkus = Object.keys(q.skus || {});
         const pendingFileIds = Object.keys(q.fileIds || {});
@@ -1137,22 +1193,27 @@
                     skipListReturn: true
                 }, buildOwnerAuthPayload()), 25000);
                 if (res && res.ok) {
+                    if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
                     unmarkSkuDeletedInQueue(sku, fid);
-                } else if (res && res.authRequired) {
+                } else if (res && (res.authRequired || res.rateLimited)) {
                     break;
                 }
             }
             for (let j = 0; j < pendingFileIds.length; j++) {
                 const fid = pendingFileIds[j];
-                if (!readDeletedQueue().fileIds[fid]) continue;
+                const curQ = readDeletedQueue();
+                if (!curQ.fileIds[fid]) continue;
+                const scId = cleanStr(curQ.shortcutIds && curQ.shortcutIds[fid]);
                 const res = await callWebAppPost('fotos_delete', Object.assign({
                     driveFileId: fid,
+                    shortcutId: scId,
                     source: 'INBOX',
                     skipListReturn: true
                 }, buildOwnerAuthPayload()), 25000);
                 if (res && res.ok) {
+                    if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
                     unmarkSkuDeletedInQueue('', fid);
-                } else if (res && res.authRequired) {
+                } else if (res && (res.authRequired || res.rateLimited)) {
                     break;
                 }
             }
@@ -1311,11 +1372,17 @@
             const compactInbox = state.rawInboxFromDrive.slice(0, 220).map((f) => ({
                 id: f.id,
                 name: f.name,
+                mimeType: f.mimeType || '',
+                kind: f.kind || '',
+                ext: f.ext || '',
                 shortcutId: f.shortcutId || '',
                 skuOrigin: f.skuOrigin || '',
-                sizeBytes: f.sizeBytes || 0,
+                sizeBytes: f.sizeBytes || f.size || 0,
                 updatedAt: f.updatedAt || '',
-                viewUrl: f.viewUrl || ''
+                url: f.url || f.viewUrl || '',
+                viewUrl: f.viewUrl || f.url || '',
+                downloadUrl: f.downloadUrl || '',
+                subfolder: f.subfolder || ''
             }));
             const compactFn = state.fotosNuevasSheetItems.slice(0, 220).map((f) => ({
                 id: f.id,
@@ -1798,12 +1865,135 @@
         return (!tied && bestScore >= 18) ? bestSku : '';
     }
 
+    const MAX_INBOX_DOCUMENT_BYTES = 15 * 1024 * 1024;
+    const ACCEPTED_DOC_EXT_RE = /\.(pdf|docx?|xlsx?|csv|txt|pptx?|zip)$/i;
+    const ACCEPTED_DOC_MIME_SET = new Set([
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/csv',
+        'application/csv',
+        'text/plain',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/zip',
+        'application/x-zip-compressed'
+    ]);
+
+    function getFileExtensionLower(nameOrPath) {
+        const s = cleanStr(nameOrPath).toLowerCase();
+        const m = s.match(/\.([a-z0-9]{1,8})$/);
+        return m ? m[1] : '';
+    }
+
+    function isAcceptedDocumentFile(f) {
+        if (!f) return false;
+        const mime = String(f.type || '').toLowerCase().split(';')[0].trim();
+        const name = cleanStr(f.name);
+        if (ACCEPTED_DOC_EXT_RE.test(name)) return true;
+        if (mime && ACCEPTED_DOC_MIME_SET.has(mime)) return true;
+        return false;
+    }
+
+    function isAcceptedInboxFile(f) {
+        return isAcceptedImageFile(f) || isAcceptedDocumentFile(f);
+    }
+
+    function isDocumentInboxItem(item) {
+        if (!item || typeof item !== 'object') return false;
+        const kind = cleanStr(item.kind).toLowerCase();
+        if (kind === 'document' || kind === 'doc') return true;
+        if (kind === 'image') return false;
+        const mime = cleanStr(item.mimeType).toLowerCase().split(';')[0].trim();
+        if (mime && mime.indexOf('image/') === 0) return false;
+        if (mime && (ACCEPTED_DOC_MIME_SET.has(mime) || mime.indexOf('application/vnd.google-apps.') === 0)) return true;
+        const ext = cleanStr(item.ext).toLowerCase().replace(/^\./, '') || getFileExtensionLower(item.name);
+        if (ext && /^(pdf|docx?|xlsx?|csv|txt|pptx?|zip)$/.test(ext)) return true;
+        return false;
+    }
+
+    function getDocumentBadgeInfo(item) {
+        const ext = cleanStr(item && item.ext).toLowerCase().replace(/^\./, '') || getFileExtensionLower(item && item.name);
+        const mime = cleanStr(item && item.mimeType).toLowerCase();
+        if (ext === 'pdf' || mime === 'application/pdf') return { icon: '📄', label: 'PDF', cls: 'is-pdf' };
+        if (/^(xlsx?|csv)$/.test(ext) || /spreadsheet|excel|csv/.test(mime)) return { icon: '📊', label: ext ? ext.toUpperCase() : 'XLS', cls: 'is-xls' };
+        if (/^(docx?|txt)$/.test(ext) || /wordprocessing|msword|text\/plain/.test(mime)) return { icon: '📝', label: ext ? ext.toUpperCase() : 'DOC', cls: 'is-doc' };
+        if (/^pptx?$/.test(ext) || /presentation|powerpoint/.test(mime)) return { icon: '📽️', label: ext ? ext.toUpperCase() : 'PPT', cls: 'is-ppt' };
+        if (ext === 'zip' || /zip/.test(mime)) return { icon: '🗜️', label: 'ZIP', cls: 'is-zip' };
+        return { icon: '📎', label: ext ? ext.toUpperCase() : 'ARCHIVO', cls: 'is-other' };
+    }
+
+    function inferDocumentMimeFromName(fileName, fallbackMime) {
+        const m = cleanStr(fallbackMime).toLowerCase().split(';')[0].trim();
+        if (m && m !== 'application/octet-stream') return m;
+        const ext = getFileExtensionLower(fileName);
+        if (ext === 'pdf') return 'application/pdf';
+        if (ext === 'doc') return 'application/msword';
+        if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        if (ext === 'xls') return 'application/vnd.ms-excel';
+        if (ext === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        if (ext === 'csv') return 'text/csv';
+        if (ext === 'txt') return 'text/plain';
+        if (ext === 'ppt') return 'application/vnd.ms-powerpoint';
+        if (ext === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+        if (ext === 'zip') return 'application/zip';
+        return 'application/octet-stream';
+    }
+
+    function readDocumentFileAsRawDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            if (!file) { reject(new Error('Archivo inválido.')); return; }
+            if (file.size && file.size > MAX_INBOX_DOCUMENT_BYTES) {
+                reject(new Error('El documento "' + cleanStr(file.name) + '" supera el límite de 15 MB.'));
+                return;
+            }
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('No se pudo leer el documento.'));
+            reader.onload = () => {
+                let raw = String(reader.result || '').trim();
+                const commaIdx = raw.indexOf(',');
+                if (commaIdx > 0 && /^data:[^;]*;base64$/i.test(raw.slice(0, commaIdx))) {
+                    const head = raw.slice(0, commaIdx);
+                    const semiIdx = head.indexOf(';');
+                    const curMime = semiIdx > 5 ? head.slice(5, semiIdx).toLowerCase() : '';
+                    if (!curMime || curMime === 'application/octet-stream') {
+                        raw = 'data:' + inferDocumentMimeFromName(file.name, file.type) + ';base64,' + raw.slice(commaIdx + 1);
+                    }
+                }
+                resolve(raw);
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function revokeBlobUrlSafe(url) {
+        try {
+            if (url && String(url).indexOf('blob:') === 0 && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+                URL.revokeObjectURL(url);
+            }
+        } catch (eRev) {}
+    }
+
     function enrichInboxFileItem(f) {
         const name = cleanStr(f.name);
         const skuOrigin = cleanStr(f.skuOrigin);
-        f._searchNorm = normalizeSearchText(name + ' ' + skuOrigin);
-        f._suggestedSku = findSuggestedSkuForFileName(name) || skuOrigin;
-        f._sizeText = formatFileSize(f.sizeBytes);
+        const sizeNum = Number(f.sizeBytes || f.size || 0) || 0;
+        f.sizeBytes = sizeNum;
+        f.size = sizeNum;
+        f.mimeType = cleanStr(f.mimeType);
+        f.ext = cleanStr(f.ext || getFileExtensionLower(name)).toLowerCase().replace(/^\./, '');
+        const isDoc = isDocumentInboxItem(f);
+        f.kind = isDoc ? 'document' : 'image';
+        f.isDocument = isDoc;
+        if (!f.viewUrl && f.url) f.viewUrl = cleanStr(f.url);
+        if (!f.url && f.viewUrl) f.url = cleanStr(f.viewUrl);
+        f.downloadUrl = cleanStr(f.downloadUrl);
+        f.subfolder = cleanStr(f.subfolder);
+        f._searchNorm = normalizeSearchText(name + ' ' + skuOrigin + ' ' + f.ext + ' ' + f.subfolder + (isDoc ? ' documento doc archivo' : ''));
+        f._suggestedSku = isDoc ? '' : (findSuggestedSkuForFileName(name) || skuOrigin);
+        f._sizeText = formatFileSize(sizeNum);
         return f;
     }
 
@@ -1827,6 +2017,113 @@
         }
 
         return out;
+    }
+
+    function mergeLoadedFileNamesFromServer(rawLoadedNames) {
+        if (!rawLoadedNames) return false;
+        const prevMap = state.loadedFileNamesById || {};
+        const nextMap = Object.assign({}, prevMap);
+        let changed = false;
+        if (Array.isArray(rawLoadedNames)) {
+            for (let i = 0; i < rawLoadedNames.length; i++) {
+                const entry = rawLoadedNames[i];
+                if (!entry || typeof entry !== 'object') continue;
+                const id = cleanStr(entry.id || entry.fileId);
+                const name = cleanStr(entry.name || entry.fileName);
+                if (id && name && nextMap[id] !== name) {
+                    nextMap[id] = name;
+                    changed = true;
+                }
+            }
+        } else if (typeof rawLoadedNames === 'object') {
+            const keys = Object.keys(rawLoadedNames);
+            for (let i = 0; i < keys.length; i++) {
+                const id = cleanStr(keys[i]);
+                const name = cleanStr(rawLoadedNames[keys[i]]);
+                if (id && name && nextMap[id] !== name) {
+                    nextMap[id] = name;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            state.loadedFileNamesById = nextMap;
+            invalidateLoadedPhotosCache();
+        }
+        return changed;
+    }
+
+    function normalizeSharedRecentUploadItem(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        if (isDocumentInboxItem(raw)) return null;
+        const rawUrl = cleanStr(raw.viewUrl || raw.url || raw.newUrl);
+        const fid = cleanStr(raw.id || raw.fileId || extractDriveFileId(rawUrl));
+        if (!fid || isLocalTempPhotoId(fid) || !/^[a-zA-Z0-9_-]{15,}$/.test(fid)) return null;
+        const targetKey = cleanStr(raw.targetKey || raw.sku || raw.overrideKey).toUpperCase();
+        const rawKind = cleanStr(raw.targetKind || raw.kind).toUpperCase();
+        let targetKind = 'SKU';
+        if (rawKind === 'TELA' || rawKind === 'FABRIC' || targetKey.indexOf('VFAB:') === 0) targetKind = 'TELA';
+        else if (rawKind === 'MADERA' || rawKind === 'WOOD' || targetKey.indexOf('VWOD:') === 0) targetKind = 'MADERA';
+        else if (rawKind === 'PORTADA' || rawKind === 'COVER' || targetKey.indexOf('VCOV:') === 0) targetKind = 'PORTADA';
+        const fileName = cleanStr(raw.fileName || raw.name);
+        const targetLabel = cleanStr(raw.targetLabel || raw.productName || raw.label || targetKey || fileName);
+        const tsNum = Number(raw.ts || 0) || parseMxDateTimestamp(raw.updatedAt || raw.timestamp) || 0;
+        const viewUrl = (!/^blob:/i.test(rawUrl) && rawUrl) || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing');
+        return {
+            id: fid,
+            targetKey: targetKey,
+            targetLabel: targetLabel,
+            targetKind: targetKind,
+            fileName: fileName,
+            viewUrl: viewUrl,
+            localDataUrl: '',
+            destFolderName: cleanStr(raw.destFolderName || raw.folderName || (targetKind === 'TELA' ? 'Tela' : (targetKind === 'MADERA' ? 'Madera' : (targetKind === 'PORTADA' ? 'Portada' : '')))),
+            ts: tsNum
+        };
+    }
+
+    function mergeSharedRecentUploadsFromServer(serverList) {
+        if (!Array.isArray(serverList)) return false;
+        const normalized = [];
+        const seen = new Set();
+        for (let i = 0; i < serverList.length; i++) {
+            const item = normalizeSharedRecentUploadItem(serverList[i]);
+            if (!item || seen.has(item.id)) continue;
+            seen.add(item.id);
+            normalized.push(item);
+            if (item.fileName) {
+                state.loadedFileNamesById[item.id] = item.fileName;
+            }
+        }
+        const fp = normalized.map((x) => x.id + ':' + x.targetKey + ':' + x.targetKind + ':' + x.ts + ':' + x.fileName).join('|');
+        const changed = fp !== _lastSharedRecentFp;
+        _lastSharedRecentFp = fp;
+        state.recentUploads = normalized;
+        if (changed && normalized.length > 0) {
+            const localPrev = readRecentUploadsStore();
+            const mergedById = new Map();
+            for (let i = 0; i < normalized.length; i++) {
+                mergedById.set(normalized[i].id, normalized[i]);
+            }
+            for (let j = 0; j < localPrev.length; j++) {
+                const lp = localPrev[j];
+                if (!lp || !lp.id) continue;
+                const ex = mergedById.get(lp.id);
+                if (!ex) {
+                    mergedById.set(lp.id, lp);
+                } else {
+                    if (!ex.localDataUrl && lp.localDataUrl) ex.localDataUrl = lp.localDataUrl;
+                    if (!ex.fileName && lp.fileName) ex.fileName = lp.fileName;
+                    if ((Number(lp.ts || 0)) > (Number(ex.ts || 0))) ex.ts = lp.ts;
+                }
+            }
+            const sortedMerged = Array.from(mergedById.values())
+                .sort((a, b) => (Number(b.ts || 0) - Number(a.ts || 0)))
+                .slice(0, 40);
+            writeRecentUploadsStore(sortedMerged);
+            invalidateLoadedPhotosCache();
+        }
+        return changed;
     }
 
     let _recentUploadsMem = null;
@@ -1990,6 +2287,12 @@
                 if (!prev.localDataUrl && cand.localDataUrl) prev.localDataUrl = cand.localDataUrl;
             }
         };
+
+        // 0) Recién cargadas compartidas en tiempo real entre todos los dispositivos
+        const sharedRecent = Array.isArray(state.recentUploads) ? state.recentUploads : [];
+        for (let r = 0; r < sharedRecent.length; r++) {
+            pushCandidate(sharedRecent[r]);
+        }
 
         // 1) Historial reciente guardado en dispositivo
         const stored = readRecentUploadsStore();
@@ -2278,7 +2581,7 @@
             try {
                 const [rows1, rowsInv, lpptMap] = await Promise.all([
                     fetchSheetRows('1', 'A1:D9500'),
-                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A1:AX5500'),
+                    fetchSheetRows('INVENTARIO_EN_VIVO', 'A:AX'),
                     fetchLiveLpptSummaryReadOnly()
                 ]);
 
@@ -3408,7 +3711,12 @@
 
     window.refreshInboxOnly = async function (manualRefresh, opts) {
         if (state.inboxLoading) return;
-        const isSilent = !!(opts && opts.silent) && !manualRefresh;
+        const forceRefresh = Boolean(manualRefresh || (opts && opts.forceRefresh));
+        const isSilent = !!(opts && opts.silent) && !forceRefresh;
+        if (isSilent && Date.now() < _inboxRateLimitBackoffUntilMs) {
+            setFotosLiveStatus('syncing', 'Sincronizando...');
+            return;
+        }
         state.inboxLoading = true;
         const btnInb = document.getElementById('btnRefreshInbox');
         if (!isSilent && btnInb) { btnInb.disabled = true; btnInb.textContent = '↻...'; }
@@ -3418,14 +3726,26 @@
         }
 
         const loadedCountKnown = Object.keys(state.loadedFileNamesById || {}).length;
-        const needLoadedNames = Boolean(manualRefresh || loadedCountKnown === 0);
+        const needLoadedNames = Boolean(forceRefresh || loadedCountKnown === 0 || !state.inboxRev || _backendSupportsInboxRev);
         const inboxTimeoutMs = 75000;
         let res = null;
         try {
-            const listPayload = Object.assign({ includeLoadedNames: needLoadedNames }, buildOwnerAuthPayload());
+            const listPayload = Object.assign({
+                deviceId: getFotosPresenceDeviceId(),
+                sinceRev: forceRefresh ? '' : cleanStr(state.inboxRev),
+                includeDocuments: true,
+                includeLoadedNames: needLoadedNames,
+                forceRefresh: forceRefresh
+            }, buildOwnerAuthPayload());
             res = await callWebAppPost('fotos_subir_list', listPayload, inboxTimeoutMs);
             if ((!res || res.unavailable) && !isSilent && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
-                const retryPayload = Object.assign({ includeLoadedNames: false }, buildOwnerAuthPayload());
+                const retryPayload = Object.assign({
+                    deviceId: getFotosPresenceDeviceId(),
+                    sinceRev: '',
+                    includeDocuments: true,
+                    includeLoadedNames: false,
+                    forceRefresh: forceRefresh
+                }, buildOwnerAuthPayload());
                 res = await callWebAppPost('fotos_subir_list', retryPayload, inboxTimeoutMs);
             }
         } finally {
@@ -3433,30 +3753,55 @@
             if (!isSilent && btnInb) { btnInb.disabled = false; btnInb.textContent = '↻'; }
         }
 
-        if (res && res.ok && Array.isArray(res.files)) {
+        if (res && res.rateLimited) {
+            _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+            setFotosLiveStatus('syncing', 'Sincronizando...');
+            return;
+        }
+
+        if (res && res.ok && res.unchanged === true) {
             _inboxConsecutiveSyncFails = 0;
-            if (_liveSyncPendingCount === 0) setFotosLiveStatus('live');
-            let loadedNamesChanged = false;
-            if (res.loadedFileNames && typeof res.loadedFileNames === 'object' && !Array.isArray(res.loadedFileNames)) {
-                const prevCount = Object.keys(state.loadedFileNamesById || {}).length;
-                state.loadedFileNamesById = Object.assign({}, state.loadedFileNamesById || {}, res.loadedFileNames);
-                const nextCount = Object.keys(state.loadedFileNamesById || {}).length;
-                if (nextCount !== prevCount) {
-                    loadedNamesChanged = true;
-                    invalidateLoadedPhotosCache();
+            _inboxRateLimitBackoffUntilMs = 0;
+            _backendSupportsInboxRev = true;
+            if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+            if (Array.isArray(res.recentUploads)) {
+                const recentChanged = mergeSharedRecentUploadsFromServer(res.recentUploads);
+                if (recentChanged) {
+                    renderRecentUploadedStrip();
+                    if (state.galleryMode === 'LOADED') renderInboxGallery();
                 }
             }
+            if (_liveSyncPendingCount <= 1) setFotosLiveStatus('live');
+            drainPendingDeletedQueueAsync();
+            if (manualRefresh) {
+                showAssignFeedback('✅ Carpeta actualizada (' + state.inboxFiles.length + ').', true);
+            }
+            return;
+        }
+
+        if (res && res.ok && Array.isArray(res.files)) {
+            _inboxConsecutiveSyncFails = 0;
+            _inboxRateLimitBackoffUntilMs = 0;
+            if (cleanStr(res.rev)) {
+                state.inboxRev = cleanStr(res.rev);
+                _backendSupportsInboxRev = true;
+            }
+            if (_liveSyncPendingCount <= 1) setFotosLiveStatus('live');
+            const loadedNamesChanged = mergeLoadedFileNamesFromServer(res.loadedFileNames);
+            const recentChanged = Array.isArray(res.recentUploads)
+                ? mergeSharedRecentUploadsFromServer(res.recentUploads)
+                : false;
             reconcileDeletedQueueWithLiveState(res.files);
             state.rawInboxFromDrive = res.files;
             const nextInbox = filterAndMergeInboxFiles(res.files);
-            const nextFp = computeInboxFingerprint(nextInbox) + '::' + Object.keys(state.loadedFileNamesById || {}).length;
-            const inboxChanged = !isSilent || !_lastInboxFingerprint || nextFp !== _lastInboxFingerprint || loadedNamesChanged;
+            const nextFp = computeInboxFingerprint(nextInbox) + '::' + Object.keys(state.loadedFileNamesById || {}).length + '::' + cleanStr(state.inboxRev);
+            const inboxChanged = !isSilent || !_lastInboxFingerprint || nextFp !== _lastInboxFingerprint || loadedNamesChanged || recentChanged;
             _lastInboxFingerprint = nextFp;
             state.inboxFiles = nextInbox;
             if (inboxChanged) {
                 scheduleSaveFastCache();
                 if (state.selectedInboxFileId && (!state.selectedPhotoItem || !state.selectedPhotoItem.fromLoaded)) {
-                    if (!state.inboxFiles.some((f) => f.id === state.selectedInboxFileId)) {
+                    if (!state.inboxFiles.some((f) => f.id === state.selectedInboxFileId && !isDocumentInboxItem(f))) {
                         state.selectedInboxFileId = '';
                         state.selectedPhotoItem = null;
                     }
@@ -3498,7 +3843,7 @@
             const isOff = typeof navigator !== 'undefined' && navigator.onLine === false;
             container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' +
                 escapeHtml(isOff
-                    ? '📡 Modo sin conexión · usa + Foto o 📤 Subir para agregar fotos desde tu teléfono.'
+                    ? '📡 Modo sin conexión · usa + Archivo o 📤 Subir para agregar fotos o documentos desde tu teléfono.'
                     : (errMsg || 'Reconectando automáticamente con Google Drive en vivo...')) +
                 '</div>';
         }
@@ -3528,8 +3873,16 @@
             const isSel = !!(activeId && activeId === it.id && activePhoto && activePhoto.fromLoaded);
             const thumb = it.localDataUrl || buildPhotoThumbUrl(it.id || it.viewUrl, 320);
             const fullSrc = it.localDataUrl || buildPhotoThumbUrl(it.id || it.viewUrl, 1200);
-            const kindClass = it.targetKind === 'TELA' ? 'is-fabric' : (it.targetKind === 'PORTADA' ? 'is-cover' : 'is-sku');
-            const kindTag = it.targetKind === 'TELA' ? '🧵 Tela' : (it.targetKind === 'PORTADA' ? '🖼️ Portada' : (it.targetKey || 'SKU'));
+            const kindClass = it.targetKind === 'TELA'
+                ? 'is-fabric'
+                : (it.targetKind === 'MADERA'
+                    ? 'is-wood'
+                    : (it.targetKind === 'PORTADA' ? 'is-cover' : 'is-sku'));
+            const kindTag = it.targetKind === 'TELA'
+                ? '🧵 Tela'
+                : (it.targetKind === 'MADERA'
+                    ? '🪵 Madera'
+                    : (it.targetKind === 'PORTADA' ? '🖼️ Portada' : (it.targetKey || 'SKU')));
             const displayTitle = it.fileName || it.targetLabel || it.targetKey || 'Foto';
             const timeTxt = formatShortTimeLabel(it.ts);
             const tooltip = [displayTitle, it.targetLabel, timeTxt].filter(Boolean).join(' · ');
@@ -3537,7 +3890,7 @@
             parts[i] =
                 '<div class="recent-upload-card' + (isSel ? ' selected' : '') + '" data-recent-id="' + escapeHtml(it.id) + '" data-fotos-act="recent-select" data-fid="' + escapeHtml(it.id || '') + '" data-recent-key="' + escapeHtml(it.targetKey || '') + '" title="' + escapeHtml(tooltip) + '">' +
                     '<div class="recent-upload-thumb-wrap ' + kindClass + '">' +
-                        '<button type="button" class="recent-upload-eye-btn" title="Ver en grande" aria-label="Ver foto" data-fotos-act="recent-preview" data-lightbox-src="' + escapeHtml(fullSrc || '') + '">👁</button>' +
+                        '<button type="button" class="recent-upload-eye-btn" title="Ver en grande" aria-label="Ver foto" data-fotos-act="recent-preview" data-drive-id="' + escapeHtml(it.id || '') + '" data-lightbox-src="' + escapeHtml(fullSrc || '') + '">👁</button>' +
                         '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(it.id) + '" onerror="handlePhotoImgError(this)">' +
                         '<span class="recent-upload-kind-tag">' + escapeHtml(kindTag) + '</span>' +
                     '</div>' +
@@ -3553,10 +3906,10 @@
         rail.innerHTML = parts.join('');
     }
 
-    window.previewRecentUploadedPhoto = function (src, ev) {
+    window.previewRecentUploadedPhoto = function (src, ev, optDriveId) {
         if (ev && ev.stopPropagation) ev.stopPropagation();
         if (src && typeof window.openPhotoLightbox === 'function') {
-            window.openPhotoLightbox(src);
+            window.openPhotoLightbox(src, optDriveId || '');
         }
     };
 
@@ -3644,11 +3997,40 @@
         const parts = new Array(sliceInbox.length);
         for (let i = 0; i < sliceInbox.length; i++) {
             const f = sliceInbox[i];
+            const sz = f._sizeText || '';
+            const cardKey = 'I::' + f.id;
+
+            if (isDocumentInboxItem(f)) {
+                const docInfo = getDocumentBadgeInfo(f);
+                const openHref = cleanStr(f.viewUrl || f.url || (!isLocalTempPhotoId(f.id) ? ('https://drive.google.com/file/d/' + f.id + '/view?usp=sharing') : ''));
+                const hasOpenHref = /^https?:\/\//i.test(openHref);
+                const subMeta = [sz, f.subfolder].filter(Boolean).join(' · ') || docInfo.label;
+
+                parts[i] =
+                    '<div class="inbox-photo-card inbox-doc-card" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="open-inbox-doc" data-fid="' + escapeHtml(f.id || '') + '" data-doc-url="' + escapeHtml(openHref) + '">' +
+                        '<div class="inbox-thumb-box inbox-doc-preview">' +
+                            '<button type="button" class="card-del-btn" title="Borrar documento" data-fotos-act="del-inbox" data-fid="' + escapeHtml(f.id || '') + '">🗑</button>' +
+                            '<div class="inbox-doc-badge ' + escapeHtml(docInfo.cls) + '">' +
+                                '<span class="inbox-doc-icon" aria-hidden="true">' + docInfo.icon + '</span>' +
+                                '<span class="inbox-doc-ext">' + escapeHtml(docInfo.label) + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="inbox-card-meta">' +
+                            '<div class="inbox-file-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</div>' +
+                            '<div class="inbox-file-sub inbox-doc-actions">' +
+                                '<span>' + escapeHtml(subMeta) + '</span>' +
+                                (hasOpenHref
+                                    ? ('<a class="inbox-doc-open-btn" href="' + escapeHtml(openHref) + '" target="_blank" rel="noopener">Abrir</a>')
+                                    : ('<span class="inbox-doc-pending">' + (f.isOfflinePending ? 'Cola' : 'Subiendo...') + '</span>')) +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+                continue;
+            }
+
             const isSel = f.id === activeId && (!activePhoto || !activePhoto.fromLoaded);
             const thumb = f.localDataUrl || f.thumbDataUrl || buildPhotoThumbUrl(f.id, 360);
-            const sz = f._sizeText || '';
             const suggestedSku = f._suggestedSku || '';
-            const cardKey = 'I::' + f.id;
 
             parts[i] =
                 '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="select-inbox" data-fid="' + escapeHtml(f.id || '') + '">' +
@@ -3706,15 +4088,38 @@
         }
     }
 
+    window.openInboxDocumentById = function (fileIdRaw, fallbackUrlRaw, ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        const fid = cleanStr(fileIdRaw);
+        const fObj = fid ? (state.inboxFiles.find((f) => f && f.id === fid) || state.rawInboxFromDrive.find((f) => f && f.id === fid) || null) : null;
+        const rawUrl = cleanStr(
+            (fObj && (fObj.viewUrl || fObj.url)) ||
+            fallbackUrlRaw ||
+            (fid && !isLocalTempPhotoId(fid) ? ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing') : '')
+        );
+        if (/^https?:\/\//i.test(rawUrl)) {
+            try {
+                window.open(rawUrl, '_blank', 'noopener');
+            } catch (eOpen) {}
+            return;
+        }
+        showAssignFeedback('⏳ Documento pendiente de sincronizar con SUBIR PREN...', true);
+    };
+
     window.selectInboxPhoto = function (fileId) {
         const id = cleanStr(fileId);
         if (!id) return;
+        const candidateObj = state.inboxFiles.find((f) => f && f.id === id);
+        if (candidateObj && isDocumentInboxItem(candidateObj)) {
+            window.openInboxDocumentById(candidateObj.id, candidateObj.viewUrl || candidateObj.url);
+            return;
+        }
         const alreadySame = state.selectedInboxFileId === id && (!state.selectedPhotoItem || !state.selectedPhotoItem.fromLoaded);
         if (alreadySame) {
             state.selectedInboxFileId = '';
             state.selectedPhotoItem = null;
         } else {
-            const fObj = state.inboxFiles.find((f) => f.id === id);
+            const fObj = candidateObj;
             state.selectedInboxFileId = id;
             state.selectedPhotoItem = fObj ? {
                 id: fObj.id,
@@ -3842,8 +4247,9 @@
         const targetItem = state.inboxFiles.find((f) => f && f.id === fid) ||
             state.rawInboxFromDrive.find((f) => f && f.id === fid) || null;
         const shortcutId = cleanStr(targetItem && targetItem.shortcutId);
+        const isDoc = isDocumentInboxItem(targetItem);
 
-        markDeletedInQueue(fid, '');
+        markDeletedInQueue(fid, '', shortcutId);
         state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== fid);
         state.inboxFiles = state.inboxFiles.filter((f) => f.id !== fid);
         state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== fid);
@@ -3859,7 +4265,7 @@
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
         notifyFotosInboxChanged('delete_inbox');
-        showAssignFeedback('🗑 Foto borrada de SUBIR PREN.', true);
+        showAssignFeedback(isDoc ? '🗑 Documento borrado de SUBIR PREN.' : '🗑 Foto borrada de SUBIR PREN.', true);
 
         if (isLocalTempPhotoId(fid)) {
             removeOutboxEntriesForLocalFileId(fid);
@@ -3876,6 +4282,8 @@
         }, buildOwnerAuthPayload()), 22000);
 
         if (res && res.ok) {
+            if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+            if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
             unmarkSkuDeletedInQueue('', fid);
         }
     };
@@ -3961,6 +4369,8 @@
         }, buildOwnerAuthPayload()), 22000);
 
         if (res && res.ok) {
+            if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+            if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
             unmarkSkuDeletedInQueue(sku, fid);
         }
     };
@@ -3994,10 +4404,15 @@
         if (ev && ev.stopPropagation) ev.stopPropagation();
         const id = cleanStr(fileId);
         const fObj = state.inboxFiles.find((f) => f.id === id);
+        if (fObj && isDocumentInboxItem(fObj)) {
+            window.openInboxDocumentById(fObj.id, fObj.viewUrl || fObj.url, ev);
+            return;
+        }
         state.selectedInboxFileId = id;
         state.selectedPhotoItem = fObj ? {
             id: fObj.id,
             name: fObj.name,
+            shortcutId: cleanStr(fObj.shortcutId),
             viewUrl: fObj.viewUrl || ('https://drive.google.com/file/d/' + fObj.id + '/view?usp=sharing'),
             thumbDataUrl: fObj.thumbDataUrl || '',
             localDataUrl: fObj.localDataUrl || '',
@@ -4020,8 +4435,6 @@
         updateAssignButtonState();
         saveFotosUiCheckpointNow();
     };
-
-    const pendingUploadPromises = new Map();
 
     function notifySplitPeerOfPhotoUpdate(sku, photoUrl, fileId, destFolderName) {
         const cleanUrl = cleanStr(photoUrl);
@@ -4078,21 +4491,38 @@
         } catch (e3) {}
     }
 
+    function isHeicImageFile(f) {
+        if (!f) return false;
+        const mime = String(f.type || '').toLowerCase();
+        return mime === 'image/heic' || mime === 'image/heif' || /\.(heic|heif)$/i.test(f.name || '');
+    }
+
     function inferImageMimeFromName(fileName) {
         const lower = String(fileName || '').toLowerCase();
         if (/\.png$/.test(lower)) return 'image/png';
         if (/\.webp$/.test(lower)) return 'image/webp';
         if (/\.gif$/.test(lower)) return 'image/gif';
+        if (/\.avif$/.test(lower)) return 'image/avif';
+        if (/\.bmp$/.test(lower)) return 'image/bmp';
+        if (/\.heic$/.test(lower)) return 'image/heic';
+        if (/\.heif$/.test(lower)) return 'image/heif';
         return 'image/jpeg';
     }
 
     function normalizeImageDataUrl(rawDataUrl, fileName) {
         const s = String(rawDataUrl || '').trim();
-        if (/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(s)) return s;
         const commaIdx = s.indexOf(',');
+        const inferredMime = inferImageMimeFromName(fileName);
         if (commaIdx > 0 && /^data:[^;]*;base64$/i.test(s.slice(0, commaIdx))) {
-            return 'data:' + inferImageMimeFromName(fileName) + ';base64,' + s.slice(commaIdx + 1);
+            const header = s.slice(0, commaIdx).toLowerCase();
+            // Evitar etiquetar bytes HEIC/HEIF crudos como image/jpeg cuando el navegador no los decodificó
+            if ((inferredMime === 'image/heic' || inferredMime === 'image/heif') && header.indexOf('image/jpeg') !== -1) {
+                return 'data:' + inferredMime + ';base64,' + s.slice(commaIdx + 1);
+            }
+            if (/^data:image\/[a-zA-Z0-9.+-]+;base64$/i.test(header)) return s;
+            return 'data:' + inferredMime + ';base64,' + s.slice(commaIdx + 1);
         }
+        if (/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(s)) return s;
         return s;
     }
 
@@ -4103,12 +4533,13 @@
 
         // Muestreo compacto (máx 96px) sobre píxeles reales sin letterbox para detectar fondo de estudio
         let sx = 0, sy = 0, sw = nw, sh = nh, isStudio = false;
+        let probe = null;
         try {
             const cap = 96;
             const sScale = Math.min(1, cap / Math.max(nw, nh));
             const sdw = Math.max(16, Math.round(nw * sScale));
             const sdh = Math.max(16, Math.round(nh * sScale));
-            const probe = document.createElement('canvas');
+            probe = document.createElement('canvas');
             probe.width = sdw;
             probe.height = sdh;
             const pCtx = probe.getContext('2d', { willReadFrequently: true });
@@ -4206,53 +4637,65 @@
                     }
                 }
             }
-        } catch (eProbe) {}
+        } catch (eProbe) {
+        } finally {
+            if (probe) {
+                probe.width = 0;
+                probe.height = 0;
+            }
+        }
 
         const canvas = document.createElement('canvas');
-        if (isStudio) {
-            const outSize = Math.min(2048, maxDim || 2048);
-            const outW = outSize;
-            const outH = outSize;
-            canvas.width = outW;
-            canvas.height = outH;
+        try {
+            if (isStudio) {
+                const outSize = Math.min(2048, maxDim || 2048);
+                const outW = outSize;
+                const outH = outSize;
+                canvas.width = outW;
+                canvas.height = outH;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, outW, outH);
+                const padX = Math.round(outW * 0.08);
+                const padY = Math.round(outH * 0.08);
+                const fitScale = Math.min((outW - padX * 2) / sw, (outH - padY * 2) / sh);
+                const dw = Math.max(1, Math.round(sw * fitScale));
+                const dh = Math.max(1, Math.round(sh * fitScale));
+                const dx = Math.round((outW - dw) / 2);
+                const dy = Math.round((outH - dh) / 2);
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh);
+                return canvas.toDataURL('image/jpeg', jpegQ);
+            }
+
+            let w = nw;
+            let h = nh;
+            if (w > maxDim || h > maxDim) {
+                const scale = Math.min(maxDim / w, maxDim / h);
+                w = Math.max(1, Math.round(w * scale));
+                h = Math.max(1, Math.round(h * scale));
+            }
+            canvas.width = w;
+            canvas.height = h;
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, outW, outH);
-            const padX = Math.round(outW * 0.08);
-            const padY = Math.round(outH * 0.08);
-            const fitScale = Math.min((outW - padX * 2) / sw, (outH - padY * 2) / sh);
-            const dw = Math.max(1, Math.round(sw * fitScale));
-            const dh = Math.max(1, Math.round(sh * fitScale));
-            const dx = Math.round((outW - dw) / 2);
-            const dy = Math.round((outH - dh) / 2);
+            ctx.fillRect(0, 0, w, h);
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh);
+            ctx.drawImage(source, 0, 0, w, h);
             return canvas.toDataURL('image/jpeg', jpegQ);
+        } finally {
+            canvas.width = 0;
+            canvas.height = 0;
         }
-
-        let w = nw;
-        let h = nh;
-        if (w > maxDim || h > maxDim) {
-            const scale = Math.min(maxDim / w, maxDim / h);
-            w = Math.max(1, Math.round(w * scale));
-            h = Math.max(1, Math.round(h * scale));
-        }
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, w, h);
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(source, 0, 0, w, h);
-        return canvas.toDataURL('image/jpeg', jpegQ);
     }
 
     async function readFileAsOptimizedDataUrl(file) {
         const MAX_DIM = 2048;
         const JPEG_Q = 0.86;
         const fileName = (file && file.name) || 'foto.jpg';
+        const isHeic = isHeicImageFile(file);
         if (typeof createImageBitmap === 'function' && file) {
             try {
                 const bmp = await createImageBitmap(file);
@@ -4273,7 +4716,23 @@
                     return;
                 }
                 const img = new Image();
-                img.onerror = () => resolve(normalized);
+                img.onerror = () => {
+                    if (isHeic) {
+                        // Preservar MIME real image/heic o image/heif sin corromper como image/jpeg falso
+                        const heicMime = /\.heif$/i.test(fileName) ? 'image/heif' : 'image/heic';
+                        const comma = normalized.indexOf(',');
+                        const safeHeicDataUrl = (comma > 0)
+                            ? ('data:' + heicMime + ';base64,' + normalized.slice(comma + 1))
+                            : normalized;
+                        showAssignFeedback(
+                            'ℹ️ Archivo HEIC (' + escapeHtml(fileName) + ') subido en formato original. Para vista previa local en este navegador usa JPG/PNG o Safari.',
+                            true
+                        );
+                        resolve(safeHeicDataUrl);
+                        return;
+                    }
+                    resolve(normalized);
+                };
                 img.onload = () => {
                     try {
                         const framed = autoFrameStudioProductToDataUrl(img, MAX_DIM, JPEG_Q);
@@ -4297,10 +4756,10 @@
     window.uploadLocalFilesToSubir = async function (inputEl, opts) {
         const uploadOpts = (opts && typeof opts === 'object') ? opts : {};
         const rawList = inputEl && inputEl.files ? Array.from(inputEl.files) : [];
-        const files = rawList.filter(isAcceptedImageFile);
+        const files = rawList.filter(isAcceptedInboxFile);
         if (!files.length) {
             if (rawList.length > 0) {
-                showAssignFeedback('⚠️ Selecciona una imagen válida.', false);
+                showAssignFeedback('⚠️ Selecciona una imagen o documento válido (PDF, Word, Excel, CSV, TXT, PPT).', false);
             }
             if (inputEl && typeof inputEl.value === 'string') {
                 try { inputEl.value = ''; } catch (eClr) {}
@@ -4308,72 +4767,120 @@
             return [];
         }
 
-        // 1) CARGA INSTANTÁNEA EN UI (0ms): Mostrar las fotos al instante con URL.createObjectURL antes de subir a la nube
+        // 1) CARGA INSTANTÁNEA EN UI (0ms): Mostrar fotos y documentos al instante antes de subir a la nube
         const stagedEntries = [];
+        const skippedOversize = [];
         const nowTs = Date.now();
         for (let i = 0; i < files.length; i++) {
             const f = files[i];
-            const safeFileName = cleanStr(f.name) || ('foto_' + nowTs + '_' + (i + 1) + '.jpg');
+            const isDoc = !isAcceptedImageFile(f) && isAcceptedDocumentFile(f);
+            const safeFileName = cleanStr(f.name) || ((isDoc ? 'doc_' : 'foto_') + nowTs + '_' + (i + 1) + (isDoc ? '.pdf' : '.jpg'));
+            if (isDoc && f.size && f.size > MAX_INBOX_DOCUMENT_BYTES) {
+                skippedOversize.push(safeFileName);
+                continue;
+            }
             const localId = 'local_inb_' + nowTs + '_' + i + '_' + Math.floor(Math.random() * 9000 + 1000);
+            const mimeType = isDoc ? inferDocumentMimeFromName(safeFileName, f.type) : (cleanStr(f.type) || inferImageMimeFromName(safeFileName));
+            const ext = getFileExtensionLower(safeFileName);
+            const lastModified = Number(f.lastModified || 0) || 0;
+            const localSig = cleanStr(safeFileName).toLowerCase() + '|' + (Number(f.size || 0) || 0) + '|' + lastModified;
             let blobUrl = '';
-            try {
-                if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
-                    blobUrl = URL.createObjectURL(f);
-                }
-            } catch (eBlob) {}
+            if (!isDoc) {
+                try {
+                    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+                        blobUrl = URL.createObjectURL(f);
+                    }
+                } catch (eBlob) {}
+            }
 
             const instantItem = enrichInboxFileItem({
                 id: localId,
                 name: safeFileName,
+                mimeType: mimeType,
+                kind: isDoc ? 'document' : 'image',
+                ext: ext,
                 sizeBytes: f.size || 0,
+                lastModified: lastModified,
+                localSig: localSig,
                 updatedAt: new Date().toISOString(),
-                viewUrl: blobUrl,
-                localDataUrl: blobUrl,
-                thumbDataUrl: blobUrl,
+                viewUrl: isDoc ? '' : blobUrl,
+                url: isDoc ? '' : blobUrl,
+                localDataUrl: isDoc ? '' : blobUrl,
+                thumbDataUrl: isDoc ? '' : blobUrl,
                 isUploadingNow: true
             });
             state.rawInboxFromDrive.unshift(instantItem);
             state.inboxFiles.unshift(instantItem);
-            stagedEntries.push({ file: f, fileName: safeFileName, localId: localId, blobUrl: blobUrl, item: instantItem });
+            stagedEntries.push({
+                file: f,
+                fileName: safeFileName,
+                localId: localId,
+                blobUrl: blobUrl,
+                isDoc: isDoc,
+                mimeType: mimeType,
+                ext: ext,
+                lastModified: lastModified,
+                localSig: localSig,
+                item: instantItem
+            });
+        }
+
+        if (!stagedEntries.length) {
+            if (skippedOversize.length > 0) {
+                showAssignFeedback('⚠️ Supera el límite de 15 MB: ' + escapeHtml(skippedOversize.join(', ')), false);
+            }
+            if (inputEl && typeof inputEl.value === 'string') {
+                try { inputEl.value = ''; } catch (eClr) {}
+            }
+            return [];
         }
 
         if (stagedEntries.length > 0) {
-            const firstEntry = stagedEntries[0];
-            state.selectedInboxFileId = firstEntry.localId;
-            state.selectedPhotoItem = {
-                id: firstEntry.localId,
-                name: firstEntry.fileName,
-                viewUrl: firstEntry.blobUrl,
-                thumbDataUrl: firstEntry.blobUrl,
-                localDataUrl: firstEntry.blobUrl,
-                fromLoaded: false,
-                skuOrigin: ''
-            };
-            if (!state.selectedSku && firstEntry.item._suggestedSku && state.productBySku.has(firstEntry.item._suggestedSku)) {
-                window.selectSkuProduct(firstEntry.item._suggestedSku, { skipBackSync: true });
+            const firstImageEntry = stagedEntries.find((e) => e && !e.isDoc) || null;
+            if (firstImageEntry && !uploadOpts.preserveSelection) {
+                state.selectedInboxFileId = firstImageEntry.localId;
+                state.selectedPhotoItem = {
+                    id: firstImageEntry.localId,
+                    name: firstImageEntry.fileName,
+                    viewUrl: firstImageEntry.blobUrl,
+                    thumbDataUrl: firstImageEntry.blobUrl,
+                    localDataUrl: firstImageEntry.blobUrl,
+                    fromLoaded: false,
+                    skuOrigin: ''
+                };
+                if (!state.selectedSku && firstImageEntry.item._suggestedSku && state.productBySku.has(firstImageEntry.item._suggestedSku)) {
+                    window.selectSkuProduct(firstImageEntry.item._suggestedSku, { skipBackSync: true });
+                }
             }
             state.galleryMode = 'INBOX';
             window.setGalleryMode('INBOX');
             renderSelectedProductStage();
             updateAssignButtonState();
-            syncFotosBackNav('selected_photo');
+            if (firstImageEntry && !uploadOpts.preserveSelection) {
+                syncFotosBackNav('selected_photo');
+            }
         }
 
+        const hasDocs = stagedEntries.some((e) => e.isDoc);
+        const hasImgs = stagedEntries.some((e) => !e.isDoc);
+        const batchUnitLabel = (hasDocs && !hasImgs) ? 'documento(s)' : ((hasDocs && hasImgs) ? 'archivo(s)' : 'foto(s)');
         if (!uploadOpts.suppressSummaryFeedback) {
-            showAssignFeedback('⚡ Subiendo ' + files.length + ' foto(s)...', true);
+            showAssignFeedback('⚡ Subiendo ' + stagedEntries.length + ' ' + batchUnitLabel + '...', true);
         }
 
         // 2) SUBIDA EN SEGUNDO PLANO (2 WORKERS EN PARALELO PARA EVITAR CONGESTIÓN / TIMEOUTS EN GAS)
         let uploadedCount = 0;
         let queuedOfflineCount = 0;
         let failedCount = 0;
+        let rateLimitedHit = false;
         let authFailed = false;
         let lastUploadError = '';
         let completedCount = 0;
         const CONCURRENCY = 2;
         let cursor = 0;
 
-        const removeFailedTempEntry = (localId) => {
+        const removeFailedTempEntry = (localId, optBlobUrl) => {
+            revokeBlobUrlSafe(optBlobUrl);
             state.rawInboxFromDrive = state.rawInboxFromDrive.filter((it) => it && it.id !== localId);
             state.inboxFiles = state.inboxFiles.filter((it) => it && it.id !== localId);
             if (state.selectedInboxFileId === localId) state.selectedInboxFileId = '';
@@ -4386,21 +4893,36 @@
                 const localId = entry.localId;
                 const uploadName = entry.fileName;
                 try {
-                    const dataUrl = await readFileAsOptimizedDataUrl(f);
-                    if (!/^data:image\/[a-zA-Z0-9.+-]+;base64,.+/.test(String(dataUrl || ''))) {
+                    const dataUrl = entry.isDoc
+                        ? await readDocumentFileAsRawDataUrl(f)
+                        : await readFileAsOptimizedDataUrl(f);
+                    const validDataUrl = entry.isDoc
+                        ? /^data:[^;]+;base64,.+/.test(String(dataUrl || ''))
+                        : /^data:image\/[a-zA-Z0-9.+-]+;base64,.+/.test(String(dataUrl || ''));
+                    if (!validDataUrl) {
                         failedCount++;
-                        lastUploadError = 'Formato de imagen no compatible (' + uploadName + ').';
-                        removeFailedTempEntry(localId);
+                        lastUploadError = (entry.isDoc ? 'Formato de documento no compatible (' : 'Formato de imagen no compatible (') + uploadName + ').';
+                        removeFailedTempEntry(localId, entry.blobUrl);
+                        entry.blobUrl = '';
                         completedCount++;
                         return { ok: false, error: lastUploadError };
                     }
 
-                    // Actualizar localDataUrl con el base64 comprimido para persistencia offline
-                    entry.item.localDataUrl = dataUrl;
-                    if (!entry.item.viewUrl) entry.item.viewUrl = dataUrl;
-                    if (state.selectedPhotoItem && state.selectedPhotoItem.id === localId) {
-                        state.selectedPhotoItem.localDataUrl = dataUrl;
-                        if (!state.selectedPhotoItem.viewUrl) state.selectedPhotoItem.viewUrl = dataUrl;
+                    // Actualizar localDataUrl con el base64 real (sin mantener blobUrl colgado)
+                    if (!entry.isDoc) {
+                        entry.item.localDataUrl = dataUrl;
+                        entry.item.thumbDataUrl = dataUrl;
+                        if (!entry.item.viewUrl || entry.item.viewUrl === entry.blobUrl) {
+                            entry.item.viewUrl = dataUrl;
+                            entry.item.url = dataUrl;
+                        }
+                        if (state.selectedPhotoItem && state.selectedPhotoItem.id === localId) {
+                            state.selectedPhotoItem.localDataUrl = dataUrl;
+                            state.selectedPhotoItem.thumbDataUrl = dataUrl;
+                            if (!state.selectedPhotoItem.viewUrl || state.selectedPhotoItem.viewUrl === entry.blobUrl) {
+                                state.selectedPhotoItem.viewUrl = dataUrl;
+                            }
+                        }
                     }
 
                     const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -4408,7 +4930,10 @@
                         ? { ok: false, unavailable: true }
                         : await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
                             fileName: uploadName,
+                            mimeType: entry.mimeType,
+                            kind: entry.isDoc ? 'document' : 'image',
                             dataUrl: dataUrl,
+                            deviceId: getFotosPresenceDeviceId(),
                             skipListReturn: true
                         }, buildOwnerAuthPayload()), 45000);
 
@@ -4417,9 +4942,21 @@
                         uploadedCount++;
                         const realId = res.file.id;
                         entry.realId = realId;
+                        if (cleanStr(res.rev)) {
+                            state.inboxRev = cleanStr(res.rev);
+                            _backendSupportsInboxRev = true;
+                        }
+                        if (Array.isArray(res.recentUploads)) {
+                            mergeSharedRecentUploadsFromServer(res.recentUploads);
+                        }
                         const newFile = enrichInboxFileItem(Object.assign({}, res.file, {
-                            localDataUrl: entry.blobUrl || dataUrl,
-                            thumbDataUrl: entry.blobUrl || dataUrl
+                            kind: res.file.kind || (entry.isDoc ? 'document' : 'image'),
+                            mimeType: res.file.mimeType || entry.mimeType,
+                            ext: res.file.ext || entry.ext,
+                            lastModified: entry.lastModified,
+                            localSig: entry.localSig,
+                            localDataUrl: entry.isDoc ? '' : dataUrl,
+                            thumbDataUrl: entry.isDoc ? '' : dataUrl
                         }));
                         state.rawInboxFromDrive = state.rawInboxFromDrive.map((it) => (it && it.id === localId ? newFile : it));
                         state.inboxFiles = state.inboxFiles.map((it) => (it && it.id === localId ? newFile : it));
@@ -4428,22 +4965,23 @@
                         }
                         if (state.selectedPhotoItem && state.selectedPhotoItem.id === localId) {
                             state.selectedPhotoItem.id = realId;
-                            state.selectedPhotoItem.viewUrl = newFile.viewUrl || entry.blobUrl || dataUrl;
+                            state.selectedPhotoItem.viewUrl = newFile.viewUrl || dataUrl;
                             state.selectedPhotoItem.localDataUrl = dataUrl;
+                            state.selectedPhotoItem.thumbDataUrl = dataUrl;
                         }
-                        return { ok: true, realId: realId, file: newFile, dataUrl: dataUrl, blobUrl: entry.blobUrl };
+                        return { ok: true, realId: realId, file: newFile, dataUrl: dataUrl };
                     }
-                    if (res && res.authRequired) {
-                        authFailed = true;
-                        lastUploadError = cleanStr(res.error) || 'Sesión expirada.';
-                        removeFailedTempEntry(localId);
-                        return { ok: false, authRequired: true, error: lastUploadError };
-                    }
-                    if (isOfflineNow || !res || res.unavailable) {
+                    if (res && res.rateLimited) {
+                        rateLimitedHit = true;
+                        _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                        setFotosLiveStatus('syncing', 'Sincronizando...');
                         queuedOfflineCount++;
                         await putOfflinePhotoBlobIdb({
                             id: localId,
                             fileName: uploadName,
+                            mimeType: entry.mimeType,
+                            kind: entry.isDoc ? 'document' : 'image',
+                            ext: entry.ext,
                             dataUrl: dataUrl,
                             sizeBytes: f.size || 0,
                             createdAt: Date.now()
@@ -4453,23 +4991,60 @@
                             type: 'upload_inbox',
                             localFileId: localId,
                             fileName: uploadName,
+                            mimeType: entry.mimeType,
+                            kind: entry.isDoc ? 'document' : 'image',
                             sizeBytes: f.size || 0,
                             queuedAt: Date.now()
                         });
                         entry.item.isOfflinePending = true;
                         entry.item.isUploadingNow = false;
-                        return { ok: false, offlineQueued: true, localId: localId, dataUrl: dataUrl, blobUrl: entry.blobUrl };
+                        return { ok: false, offlineQueued: true, rateLimited: true, localId: localId, dataUrl: dataUrl };
+                    }
+                    if (res && res.authRequired) {
+                        authFailed = true;
+                        lastUploadError = cleanStr(res.error) || 'Sesión expirada.';
+                        removeFailedTempEntry(localId, entry.blobUrl);
+                        entry.blobUrl = '';
+                        return { ok: false, authRequired: true, error: lastUploadError };
+                    }
+                    if (isOfflineNow || !res || res.unavailable) {
+                        queuedOfflineCount++;
+                        await putOfflinePhotoBlobIdb({
+                            id: localId,
+                            fileName: uploadName,
+                            mimeType: entry.mimeType,
+                            kind: entry.isDoc ? 'document' : 'image',
+                            ext: entry.ext,
+                            dataUrl: dataUrl,
+                            sizeBytes: f.size || 0,
+                            createdAt: Date.now()
+                        });
+                        enqueueFotosOfflineOutbox({
+                            id: 'op_up_' + localId,
+                            type: 'upload_inbox',
+                            localFileId: localId,
+                            fileName: uploadName,
+                            mimeType: entry.mimeType,
+                            kind: entry.isDoc ? 'document' : 'image',
+                            sizeBytes: f.size || 0,
+                            queuedAt: Date.now()
+                        });
+                        entry.item.isOfflinePending = true;
+                        entry.item.isUploadingNow = false;
+                        return { ok: false, offlineQueued: true, localId: localId, dataUrl: dataUrl };
                     }
 
                     failedCount++;
                     lastUploadError = cleanStr(res && res.error) || 'Error al subir ' + uploadName + '.';
-                    removeFailedTempEntry(localId);
+                    removeFailedTempEntry(localId, entry.blobUrl);
+                    entry.blobUrl = '';
                     return { ok: false, error: lastUploadError };
                 } catch (errUp) {
                     completedCount++;
                     failedCount++;
                     lastUploadError = (errUp && errUp.message) ? errUp.message : ('Error al subir ' + uploadName + '.');
-                    removeFailedTempEntry(localId);
+                    removeFailedTempEntry(localId, entry.blobUrl);
+                    entry.blobUrl = '';
                     return { ok: false, error: lastUploadError };
                 }
             })();
@@ -4504,24 +5079,39 @@
 
         renderInboxGallery();
         renderSelectedProductStage();
+        // Liberar todos los blob: URLs temporales una vez el DOM ya usa data: / Drive URL
+        for (let r = 0; r < stagedEntries.length; r++) {
+            if (stagedEntries[r] && stagedEntries[r].blobUrl) {
+                revokeBlobUrlSafe(stagedEntries[r].blobUrl);
+                stagedEntries[r].blobUrl = '';
+            }
+        }
         scheduleSaveFastCache();
         saveFotosUiCheckpointNow();
         updateAssignButtonState();
+        if (uploadedCount > 0) {
+            notifyFotosInboxChanged('upload_inbox');
+        }
 
         if (authFailed) {
             showAssignFeedback('❌ ' + escapeHtml(lastUploadError || 'Sesión expirada.'), false);
             window.lockFotosPortal();
         } else if (!uploadOpts.suppressSummaryFeedback) {
-            if (failedCount > 0 && uploadedCount === 0 && queuedOfflineCount === 0) {
+            if (skippedOversize.length > 0 && uploadedCount === 0 && queuedOfflineCount === 0) {
+                showAssignFeedback('⚠️ Supera el límite de 15 MB: ' + escapeHtml(skippedOversize.join(', ')), false);
+            } else if (failedCount > 0 && uploadedCount === 0 && queuedOfflineCount === 0) {
                 showAssignFeedback('❌ ' + escapeHtml(lastUploadError || 'Error al subir.'), false);
             } else if (queuedOfflineCount > 0 && uploadedCount === 0) {
-                showAssignFeedback('⚡ ' + queuedOfflineCount + ' en cola (sin red).', true);
+                showAssignFeedback(rateLimitedHit
+                    ? ('⏳ Sincronizando... ' + queuedOfflineCount + ' en cola automática.')
+                    : ('⚡ ' + queuedOfflineCount + ' en cola (sin red).'), true);
             } else if (queuedOfflineCount > 0) {
-                showAssignFeedback('✅ Subidas: ' + uploadedCount + ' · Cola: ' + queuedOfflineCount + '.', true);
+                showAssignFeedback('✅ Subidos: ' + uploadedCount + ' · Cola: ' + queuedOfflineCount + '.', true);
             } else if (uploadedCount > 0 && failedCount > 0) {
-                showAssignFeedback('⚠️ Subidas: ' + uploadedCount + ' · Error: ' + failedCount + '.', false);
+                showAssignFeedback('⚠️ Subidos: ' + uploadedCount + ' · Error: ' + failedCount + '.', false);
             } else if (uploadedCount > 0) {
-                showAssignFeedback('✅ ' + uploadedCount + ' subida(s) a SUBIR PREN.', true);
+                const extraSkip = skippedOversize.length ? (' · Omitidos (>15 MB): ' + skippedOversize.length) : '';
+                showAssignFeedback('✅ ' + uploadedCount + ' ' + batchUnitLabel + ' en SUBIR PREN' + extraSkip + '.', true);
             }
         }
         return stagedEntries;
@@ -4629,8 +5219,10 @@
                     const file = await entry.getFile();
                     if (!file) continue;
                     const mime = String(file.type || '').toLowerCase();
-                    const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(file.name || '');
-                    if (isImg) out.push(file);
+                    const isImgOrDoc = mime.indexOf('image/') === 0 ||
+                        /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i.test(file.name || '') ||
+                        isAcceptedDocumentFile(file);
+                    if (isImgOrDoc) out.push(file);
                 } catch (eFile) {}
             } else if (entry.kind === 'directory' && curDepth < 1) {
                 const subFiles = await collectImageFilesFromDirHandle(entry, curDepth + 1);
@@ -4640,36 +5232,67 @@
         return out;
     }
 
+    function buildLocalFileDedupSignature(f) {
+        if (!f) return '';
+        const nameLower = cleanStr(f.name).toLowerCase();
+        const sizeNum = Number(f.size !== undefined ? f.size : f.sizeBytes) || 0;
+        const modNum = Number(f.lastModified || 0) || 0;
+        return nameLower + '|' + sizeNum + '|' + modNum;
+    }
+
     async function ingestLocalSubirPrenFilesDeduped(files, sourceLabel) {
         const validFiles = (Array.isArray(files) ? files : []).filter((f) => {
             if (!f) return false;
             const mime = String(f.type || '').toLowerCase();
-            return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name || '');
+            return mime.indexOf('image/') === 0 ||
+                /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i.test(f.name || '') ||
+                isAcceptedDocumentFile(f);
         });
         if (!validFiles.length) {
-            showAssignFeedback('ℹ️ Sin imágenes en ' + escapeHtml(sourceLabel || 'SUBIR PREN') + '.', false);
+            showAssignFeedback('ℹ️ Sin imágenes o documentos válidos en ' + escapeHtml(sourceLabel || 'SUBIR PREN') + '.', false);
             return [];
         }
 
-        const existingNameSet = new Set();
+        const isGenericCameraFilename = (nm) => /^(?:image|photo|foto|img|dsc|pxl|screenshot|captura)(?:[\s_-]*\d*)?\.(?:jpe?g|png|heic|heif|webp)$/i.test(String(nm || '').trim());
+        const existingSigMap = new Map();
+        const existingDriveNameMap = new Map();
+        const existingNameSizeMap = new Map();
         for (let i = 0; i < state.inboxFiles.length; i++) {
             const ex = state.inboxFiles[i];
-            if (ex && ex.name) {
-                existingNameSet.add(cleanStr(ex.name).toLowerCase());
+            if (!ex || !ex.name) continue;
+            const exNameLower = String(ex.name || '').trim().toLowerCase();
+            const exSize = Number(ex.sizeBytes || ex.size || 0) || 0;
+            const sig = cleanStr(ex.localSig) || (ex.lastModified ? buildLocalFileDedupSignature(ex) : '');
+            if (sig && !existingSigMap.has(sig)) {
+                existingSigMap.set(sig, ex.id);
+            }
+            if (exNameLower && exSize > 0 && !existingNameSizeMap.has(exNameLower + '|' + exSize)) {
+                existingNameSizeMap.set(exNameLower + '|' + exSize, ex.id);
+            }
+            if (exNameLower && !isGenericCameraFilename(exNameLower) && !existingDriveNameMap.has(exNameLower)) {
+                existingDriveNameMap.set(exNameLower, ex.id);
             }
         }
 
         const brandNewFiles = [];
+        const batchSeenSigs = new Set();
         let firstExistingMatchId = '';
         for (let j = 0; j < validFiles.length; j++) {
             const f = validFiles[j];
-            const keyLower = cleanStr(f.name).toLowerCase();
-            if (existingNameSet.has(keyLower)) {
-                if (!firstExistingMatchId) {
-                    const foundEx = state.inboxFiles.find((it) => cleanStr(it && it.name).toLowerCase() === keyLower);
-                    if (foundEx) firstExistingMatchId = foundEx.id;
-                }
+            const fNameLower = String(f.name || '').trim().toLowerCase();
+            const fSize = Number(f.size || 0) || 0;
+            const sig = buildLocalFileDedupSignature(f);
+            const nameSizeKey = (fNameLower && fSize > 0) ? (fNameLower + '|' + fSize) : '';
+            const existingId = (sig && existingSigMap.get(sig)) ||
+                (nameSizeKey && existingNameSizeMap.get(nameSizeKey)) ||
+                (!isGenericCameraFilename(fNameLower) && existingDriveNameMap.get(fNameLower)) ||
+                '';
+            if (existingId) {
+                if (!firstExistingMatchId) firstExistingMatchId = existingId;
+            } else if (sig && batchSeenSigs.has(sig)) {
+                continue;
             } else {
+                if (sig) batchSeenSigs.add(sig);
                 brandNewFiles.push(f);
             }
         }
@@ -4679,10 +5302,13 @@
 
         if (!brandNewFiles.length) {
             if (firstExistingMatchId && !state.selectedInboxFileId) {
-                window.selectInboxPhoto(firstExistingMatchId);
+                const existingObj = state.inboxFiles.find((it) => it && it.id === firstExistingMatchId);
+                if (existingObj && !isDocumentInboxItem(existingObj)) {
+                    window.selectInboxPhoto(firstExistingMatchId);
+                }
             }
             renderInboxGallery();
-            showAssignFeedback('✅ ' + validFiles.length + ' foto(s) ya en bandeja.', true);
+            showAssignFeedback('✅ ' + validFiles.length + ' archivo(s) ya en bandeja.', true);
             return [];
         }
 
@@ -4696,7 +5322,7 @@
                 fallbackInp.click();
                 return [];
             }
-            showAssignFeedback('ℹ️ Usa "+ Foto" para agregar imágenes a SUBIR PREN.', false);
+            showAssignFeedback('ℹ️ Usa "+ Archivo" para agregar fotos o documentos a SUBIR PREN.', false);
             return [];
         }
 
@@ -4988,11 +5614,27 @@
                     }
 
                     if (!res || !res.ok) {
-                        if (res && res.authRequired) {
+                        if (res && res.rateLimited) {
+                            _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                            setFotosLiveStatus('syncing', 'Sincronizando...');
+                            await putOfflinePhotoBlobIdb(localId, dataUrl, safeFileName);
+                            enqueueFotosOfflineOutbox({
+                                id: 'op_dir_' + Date.now() + '_' + prod.sku,
+                                type: 'direct_upload_assign',
+                                sku: prod.sku,
+                                fileName: safeFileName,
+                                localFileId: localId,
+                                productName: prod.displayName,
+                                categoria: prod.categoria,
+                                tipo: prod.tipo,
+                                targetFolderId: targetDestMeta.id,
+                                queuedAt: Date.now()
+                            });
+                            showAssignFeedback('⏳ Sincronizando... en cola: <strong>' + escapeHtml(prod.sku) + '</strong>.', true);
+                        } else if (res && res.authRequired) {
                             window.lockFotosPortal();
                             return;
-                        }
-                        if (res && res.unavailable) {
+                        } else if (res && res.unavailable) {
                             await putOfflinePhotoBlobIdb(localId, dataUrl, safeFileName);
                             enqueueFotosOfflineOutbox({
                                 id: 'op_dir_' + Date.now() + '_' + prod.sku,
@@ -5023,6 +5665,8 @@
                             showAssignFeedback('❌ ' + escapeHtml(cleanStr(res && res.error) || 'Error al subir.'), false);
                         }
                     } else {
+                        if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+                        if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
                         if (res.newUrl) {
                             prod.photoUrl = res.newUrl;
                             logEntry.newUrl = res.newUrl;
@@ -5069,6 +5713,7 @@
                         scheduleSaveFastCache();
                         applySkuFiltersAndRender();
                         renderInboxGallery();
+                        notifyFotosInboxChanged('direct_upload');
                         showAssignFeedback(
                             '✅ <strong>' + escapeHtml(prod.sku) + '</strong> → <strong>' + escapeHtml(logEntry.destFolderName) + '</strong>.',
                             true
@@ -5080,9 +5725,18 @@
             }
 
             if (files.length > 1) {
-                const stagedRest = await window.uploadLocalFilesToSubir({ files: files.slice(1) }, { suppressSummaryFeedback: true });
+                const stagedRest = await window.uploadLocalFilesToSubir(
+                    { files: files.slice(1) },
+                    { suppressSummaryFeedback: true, preserveSelection: true }
+                );
                 const restIds = new Set((stagedRest || []).map((e) => cleanStr(e && (e.realId || e.localId))).filter(Boolean));
+                const userActiveSkuBeforeRest = state.selectedSku;
                 await window.autoAssignMatchedInboxByCategory(true, restIds);
+                if (userActiveSkuBeforeRest && state.selectedSku !== userActiveSkuBeforeRest && state.productBySku.has(userActiveSkuBeforeRest)) {
+                    state.selectedSku = userActiveSkuBeforeRest;
+                    renderSelectedProductStage();
+                    updateAssignButtonState();
+                }
             }
         } finally {
             if (inputEl && typeof inputEl.value === 'string') {
@@ -5100,7 +5754,7 @@
         const candidates = [];
         for (let i = 0; i < state.inboxFiles.length; i++) {
             const f = state.inboxFiles[i];
-            if (!f || !f.id) continue;
+            if (!f || !f.id || isDocumentInboxItem(f)) continue;
             if (restrictIds && !restrictIds.has(cleanStr(f.id))) continue;
             const sugSku = cleanStr(findSuggestedSkuForFileName(f.name)).toUpperCase();
             if (sugSku && state.productBySku.has(sugSku)) {
@@ -5114,6 +5768,9 @@
             return;
         }
 
+        const preservedSku = state.selectedSku;
+        const destSel = document.getElementById('destFolderSelect');
+        const preservedDestVal = destSel ? destSel.value : '';
         let assignedCount = 0;
         const lastCategories = [];
         for (let i = 0; i < candidates.length; i++) {
@@ -5124,12 +5781,7 @@
             prod.destFolderId = catDest.id;
             prod.destFolderName = catDest.name;
 
-            state.selectedSku = prod.sku;
-            const destSel = document.getElementById('destFolderSelect');
-            if (destSel) destSel.value = catDest.id;
-
-            state.selectedInboxFileId = item.file.id;
-            state.selectedPhotoItem = {
+            const explicitPhotoItem = {
                 id: item.file.id,
                 name: item.file.name,
                 shortcutId: cleanStr(item.file.shortcutId),
@@ -5139,9 +5791,20 @@
                 fromLoaded: false,
                 skuOrigin: cleanStr(item.file.skuOrigin)
             };
-            await window.assignSelectedPhotoToProduct();
+            await window.assignSelectedPhotoToProduct({
+                sku: prod.sku,
+                photoItem: explicitPhotoItem,
+                preserveActiveSku: true
+            });
             assignedCount++;
             if (lastCategories.indexOf(catDest.name) === -1) lastCategories.push(catDest.name);
+        }
+
+        if (preservedSku && state.selectedSku !== preservedSku && state.productBySku.has(preservedSku)) {
+            state.selectedSku = preservedSku;
+            if (destSel && preservedDestVal) destSel.value = preservedDestVal;
+            renderSelectedProductStage();
+            updateAssignButtonState();
         }
 
         if (assignedCount > 0) {
@@ -5228,17 +5891,20 @@
         }
     };
 
-    window.assignSelectedPhotoToProduct = async function () {
-        const prod = state.selectedSku ? state.productBySku.get(state.selectedSku) : null;
-        const selPhoto = getActiveSelectedPhotoObject();
-        if (!prod || !selPhoto) return;
+    window.assignSelectedPhotoToProduct = async function (explicitOpts) {
+        const optsObj = (explicitOpts && typeof explicitOpts === 'object') ? explicitOpts : null;
+        const targetSku = optsObj && optsObj.sku ? cleanStr(optsObj.sku).toUpperCase() : state.selectedSku;
+        const prod = targetSku ? state.productBySku.get(targetSku) : null;
+        const selPhoto = (optsObj && optsObj.photoItem) ? optsObj.photoItem : getActiveSelectedPhotoObject();
+        if (!prod || !selPhoto || isDocumentInboxItem(selPhoto)) return;
+        const preserveActiveSku = Boolean(optsObj && optsObj.preserveActiveSku);
 
         // Carpeta siempre auto-resuelta según Sheets (categoría/tipo/nombre del producto)
         const autoDestMeta = resolveCategoryDestFolderForProduct(prod.categoria, prod.tipo, prod.displayName);
         const targetDestMeta = (autoDestMeta && DEST_FOLDER_BY_ID.get(autoDestMeta.id)) || autoDestMeta;
         const targetFolderId = targetDestMeta.id;
         const destSelect = document.getElementById('destFolderSelect');
-        if (destSelect && targetFolderId) destSelect.value = targetFolderId;
+        if (!preserveActiveSku && destSelect && targetFolderId) destSelect.value = targetFolderId;
 
         let activeFileId = selPhoto.id;
         const isLocalPendingPhoto = String(activeFileId || '').indexOf('local_inb_') === 0;
@@ -5285,10 +5951,16 @@
             state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== activeFileId);
         }
 
-        // Seguridad: quitar selección del producto y de la foto inmediatamente al guardar
-        state.selectedSku = '';
-        state.selectedInboxFileId = '';
-        state.selectedPhotoItem = null;
+        // Seguridad: quitar selección del producto y de la foto inmediatamente al guardar (sin alterar selección activa en auto-asignación en segundo plano)
+        if (!preserveActiveSku || state.selectedSku === prod.sku) {
+            state.selectedSku = '';
+        }
+        if (!preserveActiveSku || state.selectedInboxFileId === activeFileId) {
+            state.selectedInboxFileId = '';
+        }
+        if (!preserveActiveSku || (state.selectedPhotoItem && state.selectedPhotoItem.id === activeFileId)) {
+            state.selectedPhotoItem = null;
+        }
 
         invalidateLoadedPhotosCache();
         scheduleSaveFastCache();
@@ -5307,82 +5979,83 @@
             true
         );
 
-        // Si la foto aún se está subiendo a Drive en segundo plano, esperar su promesa en segundo plano sin bloquear la pantalla
-        let pendingUploadRes = null;
-        if (isLocalPendingPhoto && pendingUploadPromises.has(activeFileId)) {
-            try {
-                pendingUploadRes = await pendingUploadPromises.get(activeFileId);
-                if (pendingUploadRes && pendingUploadRes.ok && pendingUploadRes.realId) {
-                    const oldLocalId = activeFileId;
-                    activeFileId = pendingUploadRes.realId;
-                    prod.photoFileId = activeFileId;
-                    logEntry.fileId = activeFileId;
-                    if (pendingUploadRes.dataUrl) {
-                        logEntry.localDataUrl = pendingUploadRes.dataUrl;
-                    }
-                    if (pendingUploadRes.file && pendingUploadRes.file.viewUrl) {
-                        prod.photoUrl = pendingUploadRes.file.viewUrl;
-                        logEntry.newUrl = pendingUploadRes.file.viewUrl;
-                    } else if (pendingUploadRes.dataUrl) {
-                        prod.photoUrl = pendingUploadRes.dataUrl;
-                        logEntry.newUrl = pendingUploadRes.dataUrl;
-                    }
-                    state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== oldLocalId && f.id !== activeFileId);
-                    state.inboxFiles = state.inboxFiles.filter((f) => f.id !== oldLocalId && f.id !== activeFileId);
-                    if (pendingUploadRes.dataUrl) {
-                        notifySplitPeerOfPhotoUpdate(prod.sku, pendingUploadRes.dataUrl, activeFileId, targetDestMeta.name);
-                    }
-                } else if (pendingUploadRes && pendingUploadRes.offlineQueued && pendingUploadRes.dataUrl) {
-                    logEntry.localDataUrl = pendingUploadRes.dataUrl;
-                    if (String(prod.photoUrl || '').indexOf('blob:') === 0) {
-                        prod.photoUrl = pendingUploadRes.dataUrl;
-                        logEntry.newUrl = pendingUploadRes.dataUrl;
-                    }
-                } else if (pendingUploadRes && !pendingUploadRes.ok && !pendingUploadRes.offlineQueued) {
-                    prod.photoUrl = prevUrlBeforeSave;
-                    prod.photoFileId = prevFidBeforeSave;
-                    state.sessionSavedBySku.delete(prod.sku);
-                    state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it !== logEntry);
-                    saveSavedOverridesNow();
-                    invalidateLoadedPhotosCache();
-                    renderSkuCategoryFilterRow();
-                    renderSkuLocationFilterRow();
-                    applySkuFiltersAndRender();
-                    renderInboxGallery();
-                    renderSelectedProductStage();
-                    notifySplitPeerOfPhotoUpdate(prod.sku, prevUrlBeforeSave, prevFidBeforeSave, targetDestMeta.name);
-                    if (pendingUploadRes.authRequired) {
-                        window.lockFotosPortal();
-                    } else {
-                        showAssignFeedback('❌ ' + escapeHtml(cleanStr(pendingUploadRes.error) || 'Error al subir.'), false);
-                    }
-                    return;
-                }
-            } catch (eWait) {}
-        }
-
-        const stillLocalId = String(activeFileId || '').indexOf('local_inb_') === 0;
-        const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
-        if (stillLocalId || isOfflineNow) {
-            enqueueFotosOfflineOutbox({
-                id: 'op_as_' + Date.now() + '_' + prod.sku,
-                type: 'assign_photo',
-                sku: prod.sku,
-                productName: prod.displayName,
-                categoria: prod.categoria,
-                tipo: prod.tipo,
-                driveFileId: activeFileId,
-                shortcutId: cleanStr(selPhoto.shortcutId),
-                fromLoaded: !!selPhoto.fromLoaded,
-                targetFolderId: targetFolderId,
-                queuedAt: Date.now()
-            });
-            showAssignFeedback('⚡ En cola offline: <strong>' + escapeHtml(prod.sku) + '</strong>.', true);
-            return;
-        }
-
+        // Incrementar assignInFlight ANTES de esperar pendingUploadPromises para que el live poll no pise subidas en curso
         state.assignInFlight++;
         try {
+            // Si la foto aún se está subiendo a Drive en segundo plano, esperar su promesa en segundo plano sin bloquear la pantalla
+            let pendingUploadRes = null;
+            if (isLocalPendingPhoto && pendingUploadPromises.has(activeFileId)) {
+                try {
+                    pendingUploadRes = await pendingUploadPromises.get(activeFileId);
+                    if (pendingUploadRes && pendingUploadRes.ok && pendingUploadRes.realId) {
+                        const oldLocalId = activeFileId;
+                        activeFileId = pendingUploadRes.realId;
+                        prod.photoFileId = activeFileId;
+                        logEntry.fileId = activeFileId;
+                        if (pendingUploadRes.dataUrl) {
+                            logEntry.localDataUrl = pendingUploadRes.dataUrl;
+                        }
+                        if (pendingUploadRes.file && pendingUploadRes.file.viewUrl) {
+                            prod.photoUrl = pendingUploadRes.file.viewUrl;
+                            logEntry.newUrl = pendingUploadRes.file.viewUrl;
+                        } else if (pendingUploadRes.dataUrl) {
+                            prod.photoUrl = pendingUploadRes.dataUrl;
+                            logEntry.newUrl = pendingUploadRes.dataUrl;
+                        }
+                        state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== oldLocalId && f.id !== activeFileId);
+                        state.inboxFiles = state.inboxFiles.filter((f) => f.id !== oldLocalId && f.id !== activeFileId);
+                        if (pendingUploadRes.dataUrl) {
+                            notifySplitPeerOfPhotoUpdate(prod.sku, pendingUploadRes.dataUrl, activeFileId, targetDestMeta.name);
+                        }
+                    } else if (pendingUploadRes && pendingUploadRes.offlineQueued && pendingUploadRes.dataUrl) {
+                        logEntry.localDataUrl = pendingUploadRes.dataUrl;
+                        if (String(prod.photoUrl || '').indexOf('blob:') === 0) {
+                            prod.photoUrl = pendingUploadRes.dataUrl;
+                            logEntry.newUrl = pendingUploadRes.dataUrl;
+                        }
+                    } else if (pendingUploadRes && !pendingUploadRes.ok && !pendingUploadRes.offlineQueued) {
+                        prod.photoUrl = prevUrlBeforeSave;
+                        prod.photoFileId = prevFidBeforeSave;
+                        state.sessionSavedBySku.delete(prod.sku);
+                        state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it !== logEntry);
+                        saveSavedOverridesNow();
+                        invalidateLoadedPhotosCache();
+                        renderSkuCategoryFilterRow();
+                        renderSkuLocationFilterRow();
+                        applySkuFiltersAndRender();
+                        renderInboxGallery();
+                        renderSelectedProductStage();
+                        notifySplitPeerOfPhotoUpdate(prod.sku, prevUrlBeforeSave, prevFidBeforeSave, targetDestMeta.name);
+                        if (pendingUploadRes.authRequired) {
+                            window.lockFotosPortal();
+                        } else {
+                            showAssignFeedback('❌ ' + escapeHtml(cleanStr(pendingUploadRes.error) || 'Error al subir.'), false);
+                        }
+                        return;
+                    }
+                } catch (eWait) {}
+            }
+
+            const stillLocalId = String(activeFileId || '').indexOf('local_inb_') === 0;
+            const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+            if (stillLocalId || isOfflineNow) {
+                enqueueFotosOfflineOutbox({
+                    id: 'op_as_' + Date.now() + '_' + prod.sku,
+                    type: 'assign_photo',
+                    sku: prod.sku,
+                    productName: prod.displayName,
+                    categoria: prod.categoria,
+                    tipo: prod.tipo,
+                    driveFileId: activeFileId,
+                    shortcutId: cleanStr(selPhoto.shortcutId),
+                    fromLoaded: !!selPhoto.fromLoaded,
+                    targetFolderId: targetFolderId,
+                    queuedAt: Date.now()
+                });
+                showAssignFeedback('⚡ En cola offline: <strong>' + escapeHtml(prod.sku) + '</strong>.', true);
+                return;
+            }
+
             const res = await callWebAppPost('fotos_subir_assign', Object.assign({
                 sku: prod.sku,
                 productName: prod.displayName,
@@ -5396,6 +6069,25 @@
             }, buildOwnerAuthPayload()), 30000);
 
             if (!res || !res.ok) {
+                if (res && res.rateLimited) {
+                    _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                    setFotosLiveStatus('syncing', 'Sincronizando...');
+                    enqueueFotosOfflineOutbox({
+                        id: 'op_as_' + Date.now() + '_' + prod.sku,
+                        type: 'assign_photo',
+                        sku: prod.sku,
+                        productName: prod.displayName,
+                        categoria: prod.categoria,
+                        tipo: prod.tipo,
+                        driveFileId: activeFileId,
+                        shortcutId: cleanStr(selPhoto.shortcutId),
+                        fromLoaded: !!selPhoto.fromLoaded,
+                        targetFolderId: targetFolderId,
+                        queuedAt: Date.now()
+                    });
+                    showAssignFeedback('⏳ Sincronizando... en cola: <strong>' + escapeHtml(prod.sku) + '</strong>.', true);
+                    return;
+                }
                 if (res && res.authRequired) {
                     window.lockFotosPortal();
                     return;
@@ -5433,6 +6125,8 @@
                 return;
             }
 
+            if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+            if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
             if (res.newUrl) {
                 prod.photoUrl = res.newUrl;
                 logEntry.newUrl = res.newUrl;
@@ -5483,6 +6177,7 @@
             if (state.selectedSku === prod.sku) {
                 renderSelectedProductStage();
             }
+            notifyFotosInboxChanged('assign_photo');
             showAssignFeedback(
                 '✅ Fila ' + escapeHtml(logEntry.rowNumber) + ' → <strong>' + escapeHtml(logEntry.destFolderName) + '</strong>.',
                 true
@@ -5751,12 +6446,24 @@
         }
     };
 
-    window.openPhotoLightbox = function (url) {
+    window.openPhotoLightbox = function (url, optDriveId) {
         const clean = cleanStr(url);
         if (!clean) return;
         const box = document.getElementById('photoLightbox');
         const img = document.getElementById('photoLightboxImg');
         if (!box || !img) return;
+        const rawDriveId = cleanStr(optDriveId) || extractDriveFileId(clean);
+        const safeDriveId = isLocalTempPhotoId(rawDriveId) ? '' : rawDriveId;
+        if (img.style) img.style.display = '';
+        if (typeof img.removeAttribute === 'function') img.removeAttribute('data-fb-step');
+        if (typeof img.setAttribute === 'function') img.setAttribute('data-drive-id', safeDriveId);
+        try {
+            const prevDash = (typeof box.querySelector === 'function') ? box.querySelector('.img-fallback-dash') : null;
+            if (prevDash && prevDash.parentNode) prevDash.parentNode.removeChild(prevDash);
+        } catch (eDash) {}
+        img.onerror = function () {
+            if (typeof window.handlePhotoImgError === 'function') window.handlePhotoImgError(img);
+        };
         img.src = clean;
         box.classList.remove('hidden');
         state.lightboxOpen = true;
@@ -5768,8 +6475,20 @@
     window.closePhotoLightbox = function () {
         const box = document.getElementById('photoLightbox');
         const img = document.getElementById('photoLightboxImg');
-        if (box) box.classList.add('hidden');
-        if (img) img.src = '';
+        if (box) {
+            box.classList.add('hidden');
+            try {
+                const prevDash = (typeof box.querySelector === 'function') ? box.querySelector('.img-fallback-dash') : null;
+                if (prevDash && prevDash.parentNode) prevDash.parentNode.removeChild(prevDash);
+            } catch (eDash) {}
+        }
+        if (img) {
+            img.onerror = null;
+            if (img.style) img.style.display = '';
+            if (typeof img.removeAttribute === 'function') img.removeAttribute('data-fb-step');
+            if (typeof img.setAttribute === 'function') img.setAttribute('data-drive-id', '');
+            img.src = '';
+        }
         state.lightboxOpen = false;
         if (state.lightboxUrl) {
             state.lightboxUrl = '';
@@ -5977,13 +6696,18 @@
                 if (!b || !b.id || !b.dataUrl) continue;
                 const isDirectBlob = String(b.id).indexOf('local_dir_') === 0 || String(b.id).indexOf('local_vis_') === 0;
                 if (!isDirectBlob && !assignedLocalIds.has(b.id) && !state.inboxFiles.some((f) => f.id === b.id)) {
+                    const isDocBlob = b.kind === 'document' || isDocumentInboxItem({ name: b.fileName, mimeType: b.mimeType, ext: b.ext, kind: b.kind });
                     const localItem = enrichInboxFileItem({
                         id: b.id,
-                        name: b.fileName || 'Foto pendiente',
+                        name: b.fileName || (isDocBlob ? 'Documento pendiente' : 'Foto pendiente'),
+                        mimeType: b.mimeType || '',
+                        kind: isDocBlob ? 'document' : 'image',
+                        ext: b.ext || '',
                         sizeBytes: b.sizeBytes || 0,
                         updatedAt: new Date(b.createdAt || Date.now()).toISOString(),
-                        viewUrl: b.dataUrl,
-                        localDataUrl: b.dataUrl,
+                        viewUrl: isDocBlob ? '' : b.dataUrl,
+                        url: isDocBlob ? '' : b.dataUrl,
+                        localDataUrl: isDocBlob ? '' : b.dataUrl,
                         isOfflinePending: true
                     });
                     state.rawInboxFromDrive.unshift(localItem);
@@ -5993,7 +6717,7 @@
             }
 
             state.inboxFiles.forEach((f) => {
-                if (f && String(f.id || '').indexOf('local_inb_') === 0 && !f.localDataUrl && blobById.has(f.id)) {
+                if (f && String(f.id || '').indexOf('local_inb_') === 0 && !isDocumentInboxItem(f) && !f.localDataUrl && blobById.has(f.id)) {
                     const b = blobById.get(f.id);
                     f.localDataUrl = b.dataUrl;
                     f.viewUrl = b.dataUrl;
@@ -6071,6 +6795,7 @@
         updateOfflineSyncBanner();
         if (_fotosFlushingOutbox || !state.unlocked) return;
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        if (Date.now() < _inboxRateLimitBackoffUntilMs) return;
         const queue = readFotosOfflineOutbox();
         if (!queue.length) return;
 
@@ -6078,6 +6803,7 @@
         updateOfflineSyncBanner();
         try {
             const localToRealId = {};
+            const droppedLocalUploadIds = new Set();
             const remaining = [];
             let syncedAny = false;
             let syncedVisualAny = false;
@@ -6089,6 +6815,7 @@
                 if (entry.type === 'direct_upload_assign') {
                     const blobRec = await getOfflinePhotoBlobIdb(entry.localFileId);
                     if (!blobRec || !blobRec.dataUrl) {
+                        if (entry.localFileId) await deleteOfflinePhotoBlobIdb(entry.localFileId);
                         continue;
                     }
                     let res = await callWebAppPost('fotos_direct_upload_assign', Object.assign({
@@ -6125,6 +6852,8 @@
 
                     if (res && res.ok) {
                         syncedAny = true;
+                        if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+                        if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
                         await deleteOfflinePhotoBlobIdb(entry.localFileId);
                         const prod = state.productBySku.get(entry.sku);
                         const saved = state.sessionSavedBySku.get(entry.sku);
@@ -6153,6 +6882,11 @@
                                 (res.destFolderName || (prod && prod.destFolderName) || '')
                             );
                         }
+                    } else if (res && res.rateLimited) {
+                        _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                        setFotosLiveStatus('syncing', 'Sincronizando...');
+                        remaining.push(...queue.slice(i));
+                        break;
                     } else if (res && res.authRequired) {
                         remaining.push(...queue.slice(i));
                         window.lockFotosPortal();
@@ -6166,6 +6900,8 @@
                         entry.lastError = cleanStr(res && res.error);
                         if (entry.retryCount < 10) {
                             remaining.push(entry);
+                        } else if (entry.localFileId) {
+                            await deleteOfflinePhotoBlobIdb(entry.localFileId);
                         }
                     }
                 } else if (entry.type === 'visual_override_upload') {
@@ -6179,7 +6915,8 @@
                     const dataUrl = (blobRec && blobRec.dataUrl) || cleanStr(entry.dataUrl);
                     const directUrl = cleanStr(entry.directUrl);
                     const resolvedInboxId = entry.sourceInboxFileId ? (localToRealId[entry.sourceInboxFileId] || entry.sourceInboxFileId) : '';
-                    if (!dataUrl && !directUrl && !resolvedInboxId) {
+                    if (!dataUrl && !directUrl && (!resolvedInboxId || droppedLocalUploadIds.has(resolvedInboxId))) {
+                        if (entry.localFileId) await deleteOfflinePhotoBlobIdb(entry.localFileId);
                         continue;
                     }
                     const auth = buildOwnerAuthPayload();
@@ -6246,6 +6983,8 @@
                     if (res && res.ok) {
                         syncedAny = true;
                         syncedVisualAny = true;
+                        if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+                        if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
                         if (entry.localFileId) {
                             await deleteOfflinePhotoBlobIdb(entry.localFileId);
                         }
@@ -6266,6 +7005,11 @@
                         }
                         saveVisualOverridesToLocalStorage();
                         broadcastVisualOverrideUpdateToCotizador(ovKey, finalOverride, false);
+                    } else if (res && res.rateLimited) {
+                        _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                        setFotosLiveStatus('syncing', 'Sincronizando...');
+                        remaining.push(...queue.slice(i));
+                        break;
                     } else if (res && res.authRequired) {
                         remaining.push(...queue.slice(i));
                         window.lockFotosPortal();
@@ -6279,16 +7023,26 @@
                         entry.lastError = cleanStr(res && res.error);
                         if (entry.retryCount < 10) {
                             remaining.push(entry);
+                        } else if (entry.localFileId) {
+                            await deleteOfflinePhotoBlobIdb(entry.localFileId);
                         }
                     }
                 } else if (entry.type === 'upload_inbox') {
                     const blobRec = await getOfflinePhotoBlobIdb(entry.localFileId);
                     if (!blobRec || !blobRec.dataUrl) {
+                        if (entry.localFileId) {
+                            droppedLocalUploadIds.add(entry.localFileId);
+                            await deleteOfflinePhotoBlobIdb(entry.localFileId);
+                        }
                         continue;
                     }
+                    const isDocEntry = entry.kind === 'document' || blobRec.kind === 'document' || isDocumentInboxItem({ name: entry.fileName || blobRec.fileName, mimeType: entry.mimeType || blobRec.mimeType });
                     const res = await callWebAppPost('fotos_subir_upload_inbox', Object.assign({
                         fileName: entry.fileName || blobRec.fileName || 'foto.jpg',
+                        mimeType: entry.mimeType || blobRec.mimeType || '',
+                        kind: isDocEntry ? 'document' : 'image',
                         dataUrl: blobRec.dataUrl,
+                        deviceId: getFotosPresenceDeviceId(),
                         skipListReturn: true
                     }, buildOwnerAuthPayload()), 30000);
 
@@ -6296,6 +7050,8 @@
                         const realId = res.file.id;
                         localToRealId[entry.localFileId] = realId;
                         syncedAny = true;
+                        if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+                        if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
 
                         const hasPendingAssign = queue.slice(i + 1).some((nx) => nx && nx.type === 'assign_photo' && nx.driveFileId === entry.localFileId);
                         if (!hasPendingAssign) {
@@ -6304,13 +7060,13 @@
 
                         state.rawInboxFromDrive = state.rawInboxFromDrive.map((f) => {
                             if (f && f.id === entry.localFileId) {
-                                return enrichInboxFileItem(Object.assign({}, res.file, { localDataUrl: blobRec.dataUrl }));
+                                return enrichInboxFileItem(Object.assign({}, res.file, { localDataUrl: isDocEntry ? '' : blobRec.dataUrl }));
                             }
                             return f;
                         });
                         state.inboxFiles = state.inboxFiles.map((f) => {
                             if (f && f.id === entry.localFileId) {
-                                return enrichInboxFileItem(Object.assign({}, res.file, { localDataUrl: blobRec.dataUrl }));
+                                return enrichInboxFileItem(Object.assign({}, res.file, { localDataUrl: isDocEntry ? '' : blobRec.dataUrl }));
                             }
                             return f;
                         });
@@ -6321,6 +7077,11 @@
                             state.selectedPhotoItem.id = realId;
                             state.selectedPhotoItem.viewUrl = res.file.viewUrl || ('https://drive.google.com/file/d/' + realId + '/view?usp=sharing');
                         }
+                    } else if (res && res.rateLimited) {
+                        _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                        setFotosLiveStatus('syncing', 'Sincronizando...');
+                        remaining.push(...queue.slice(i));
+                        break;
                     } else if (res && res.authRequired) {
                         remaining.push(...queue.slice(i));
                         window.lockFotosPortal();
@@ -6335,12 +7096,27 @@
                         if (entry.retryCount < 10) {
                             remaining.push(entry);
                         } else {
-                            await deleteOfflinePhotoBlobIdb(entry.localFileId);
+                            if (entry.localFileId) {
+                                droppedLocalUploadIds.add(entry.localFileId);
+                                await deleteOfflinePhotoBlobIdb(entry.localFileId);
+                                state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f && f.id !== entry.localFileId);
+                                state.inboxFiles = state.inboxFiles.filter((f) => f && f.id !== entry.localFileId);
+                            }
                         }
                     }
                 } else if (entry.type === 'assign_photo') {
                     const resolvedFid = localToRealId[entry.driveFileId] || entry.driveFileId;
                     if (String(resolvedFid || '').indexOf('local_inb_') === 0) {
+                        if (droppedLocalUploadIds.has(resolvedFid)) {
+                            await deleteOfflinePhotoBlobIdb(resolvedFid);
+                            continue;
+                        }
+                        const hasMatchingUpload = remaining.some((r) => r && r.type === 'upload_inbox' && r.localFileId === resolvedFid) ||
+                            queue.slice(i + 1).some((nx) => nx && nx.type === 'upload_inbox' && nx.localFileId === resolvedFid);
+                        if (!hasMatchingUpload) {
+                            await deleteOfflinePhotoBlobIdb(resolvedFid);
+                            continue;
+                        }
                         remaining.push(entry);
                         continue;
                     }
@@ -6358,6 +7134,8 @@
 
                     if (res && res.ok) {
                         syncedAny = true;
+                        if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+                        if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
                         if (String(entry.driveFileId || '').indexOf('local_inb_') === 0) {
                             await deleteOfflinePhotoBlobIdb(entry.driveFileId);
                         }
@@ -6384,6 +7162,12 @@
                                 (prod && prod.destFolderName) || ''
                             );
                         }
+                    } else if (res && res.rateLimited) {
+                        entry.driveFileId = resolvedFid;
+                        _inboxRateLimitBackoffUntilMs = Math.max(_inboxRateLimitBackoffUntilMs, Date.now() + RATE_LIMIT_BACKOFF_MS);
+                        setFotosLiveStatus('syncing', 'Sincronizando...');
+                        remaining.push(...queue.slice(i));
+                        break;
                     } else if (res && res.authRequired) {
                         entry.driveFileId = resolvedFid;
                         remaining.push(...queue.slice(i));
@@ -6400,12 +7184,18 @@
                         entry.lastError = cleanStr(res && res.error);
                         if (entry.retryCount < 10) {
                             remaining.push(entry);
+                        } else if (String(entry.driveFileId || '').indexOf('local_inb_') === 0) {
+                            await deleteOfflinePhotoBlobIdb(entry.driveFileId);
                         }
                     }
                 }
             }
 
-            writeFotosOfflineOutbox(remaining);
+            // Limpiar cualquier assign_photo emparejado con un upload_inbox que se haya descartado
+            const finalRemaining = droppedLocalUploadIds.size > 0
+                ? remaining.filter((it) => !(it && it.type === 'assign_photo' && droppedLocalUploadIds.has(it.driveFileId)))
+                : remaining;
+            writeFotosOfflineOutbox(finalRemaining);
             if (syncedAny) {
                 saveSavedOverridesNow();
                 invalidateLoadedPhotosCache();
@@ -6420,6 +7210,7 @@
                     renderVisualTargetStage();
                 }
                 renderSessionHistoryLog();
+                notifyFotosInboxChanged('offline_flush');
                 showAssignFeedback('✅ Fotos pendientes sincronizadas con Drive y Sheets.', true);
                 if (visualState.workMode !== 'SKU') {
                     showVisualStageFeedback('✅ Fotos pendientes sincronizadas.', true);
@@ -6534,20 +7325,73 @@
                 if (tabLoaded) tabLoaded.classList.toggle('active', state.galleryMode === 'LOADED');
             }
 
-            if (cp.selectedInboxFileId) {
-                state.selectedInboxFileId = cp.selectedInboxFileId;
-            }
+            const delQ = readDeletedQueue();
+            const delFileSet = new Set(Array.isArray(delQ.fileIds) ? delQ.fileIds : []);
+            const delSkuSet = new Set(Array.isArray(delQ.skus) ? delQ.skus : []);
+
+            state.selectedInboxFileId = '';
+            state.selectedPhotoItem = null;
+
             if (cp.selectedPhotoItem && cp.selectedPhotoItem.id) {
-                const matchInb = state.inboxFiles.find((f) => f.id === cp.selectedPhotoItem.id);
-                state.selectedPhotoItem = {
-                    id: cp.selectedPhotoItem.id,
-                    name: cp.selectedPhotoItem.name || (matchInb ? matchInb.name : ''),
-                    viewUrl: cp.selectedPhotoItem.viewUrl || (matchInb ? matchInb.viewUrl : ''),
-                    thumbDataUrl: matchInb ? (matchInb.thumbDataUrl || '') : '',
-                    localDataUrl: matchInb ? (matchInb.localDataUrl || '') : '',
-                    fromLoaded: !!cp.selectedPhotoItem.fromLoaded,
-                    skuOrigin: cp.selectedPhotoItem.skuOrigin || ''
-                };
+                const cpId = cleanStr(cp.selectedPhotoItem.id);
+                const cpSkuOrigin = cleanStr(cp.selectedPhotoItem.skuOrigin).toUpperCase();
+                const isDeletedItem = Boolean(
+                    (cpId && delFileSet.has(cpId)) ||
+                    (cpSkuOrigin && delSkuSet.has(cpSkuOrigin))
+                );
+                if (!isDeletedItem && cpId) {
+                    if (cp.selectedPhotoItem.fromLoaded) {
+                        const loadedList = getLoadedPhotosList();
+                        const matchLoaded = loadedList.find((it) => it && (
+                            (it.id && it.id === cpId) ||
+                            (cpSkuOrigin && cleanStr(it.sku).toUpperCase() === cpSkuOrigin)
+                        ));
+                        if (matchLoaded) {
+                            state.selectedPhotoItem = {
+                                id: matchLoaded.id || cpId,
+                                name: matchLoaded.name || cp.selectedPhotoItem.name || '',
+                                viewUrl: matchLoaded.viewUrl || cp.selectedPhotoItem.viewUrl || '',
+                                thumbDataUrl: '',
+                                localDataUrl: '',
+                                fromLoaded: true,
+                                skuOrigin: cleanStr(matchLoaded.sku || cpSkuOrigin).toUpperCase()
+                            };
+                        }
+                    } else {
+                        const matchInb = state.inboxFiles.find((f) => f && f.id === cpId && !isDocumentInboxItem(f));
+                        if (matchInb) {
+                            state.selectedInboxFileId = matchInb.id;
+                            state.selectedPhotoItem = {
+                                id: matchInb.id,
+                                name: matchInb.name || cp.selectedPhotoItem.name || '',
+                                viewUrl: matchInb.viewUrl || cp.selectedPhotoItem.viewUrl || '',
+                                thumbDataUrl: matchInb.thumbDataUrl || '',
+                                localDataUrl: matchInb.localDataUrl || '',
+                                shortcutId: matchInb.shortcutId || '',
+                                fromLoaded: false,
+                                skuOrigin: ''
+                            };
+                        }
+                    }
+                }
+            } else if (cp.selectedInboxFileId) {
+                const cpInbId = cleanStr(cp.selectedInboxFileId);
+                if (cpInbId && !delFileSet.has(cpInbId)) {
+                    const matchInbOnly = state.inboxFiles.find((f) => f && f.id === cpInbId && !isDocumentInboxItem(f));
+                    if (matchInbOnly) {
+                        state.selectedInboxFileId = matchInbOnly.id;
+                        state.selectedPhotoItem = {
+                            id: matchInbOnly.id,
+                            name: matchInbOnly.name || '',
+                            viewUrl: matchInbOnly.viewUrl || '',
+                            thumbDataUrl: matchInbOnly.thumbDataUrl || '',
+                            localDataUrl: matchInbOnly.localDataUrl || '',
+                            shortcutId: matchInbOnly.shortcutId || '',
+                            fromLoaded: false,
+                            skuOrigin: ''
+                        };
+                    }
+                }
             }
 
             renderSkuCategoryFilterRow();
@@ -7205,16 +8049,25 @@
             if (typeof window.deleteLoadedPhotoBySku === 'function') window.deleteLoadedPhotoBySku(el.getAttribute('data-sku') || '', el.getAttribute('data-fid') || '', ev);
         } else if (act === 'lightbox') {
             const src = el.getAttribute('data-lightbox-src') || '';
-            if (src && typeof window.openPhotoLightbox === 'function') window.openPhotoLightbox(src);
+            const driveId = el.getAttribute('data-drive-id') || '';
+            if (src && typeof window.openPhotoLightbox === 'function') window.openPhotoLightbox(src, driveId);
         } else if (act === 'recent-select') {
             if (typeof window.selectRecentUploadedPhoto === 'function') window.selectRecentUploadedPhoto(el.getAttribute('data-fid') || '', el.getAttribute('data-recent-key') || '', ev);
         } else if (act === 'recent-preview') {
             ev.stopPropagation();
-            if (typeof window.previewRecentUploadedPhoto === 'function') window.previewRecentUploadedPhoto(el.getAttribute('data-lightbox-src') || '', ev);
+            const driveId = el.getAttribute('data-drive-id') || '';
+            if (typeof window.previewRecentUploadedPhoto === 'function') window.previewRecentUploadedPhoto(el.getAttribute('data-lightbox-src') || '', ev, driveId);
         } else if (act === 'take-loaded') {
             if (typeof window.takeLoadedPhotoForAssign === 'function') window.takeLoadedPhotoForAssign(el.getAttribute('data-sku') || '', el.getAttribute('data-fid') || '');
         } else if (act === 'select-inbox') {
             if (typeof window.selectInboxPhoto === 'function') window.selectInboxPhoto(el.getAttribute('data-fid') || '');
+        } else if (act === 'open-inbox-doc') {
+            if (ev && ev.target && ev.target.closest && ev.target.closest('.inbox-doc-open-btn')) {
+                return;
+            }
+            if (typeof window.openInboxDocumentById === 'function') {
+                window.openInboxDocumentById(el.getAttribute('data-fid') || '', el.getAttribute('data-doc-url') || '', ev);
+            }
         } else if (act === 'del-inbox') {
             ev.stopPropagation();
             if (typeof window.deleteInboxPhotoById === 'function') window.deleteInboxPhotoById(el.getAttribute('data-fid') || '', ev);
@@ -7226,10 +8079,26 @@
         }
     }
 
+    function triggerFotosSwUpdate() {
+        try {
+            if (_fotosSwRegistration && typeof _fotosSwRegistration.update === 'function') {
+                _fotosSwRegistration.update().catch(() => {});
+            }
+        } catch (eUpd) {}
+    }
+
     function initFotosApp() {
         try {
             if ('serviceWorker' in navigator && /^https?:$/i.test(window.location.protocol)) {
-                navigator.serviceWorker.register('./fotos-sw.js', { scope: './fotos-productos' }).catch(() => {});
+                navigator.serviceWorker.register('./fotos-sw.js', {
+                    scope: './fotos-productos',
+                    updateViaCache: 'none'
+                }).then((reg) => {
+                    _fotosSwRegistration = reg || null;
+                    if (reg && typeof reg.update === 'function') {
+                        reg.update().catch(() => {});
+                    }
+                }).catch(() => {});
             }
         } catch (eSw) {}
 
@@ -7261,34 +8130,78 @@
         initFotosBackNav();
 
         // Sincronización en vivo con el Cotizador, pestañas hermanas y puente de portapapeles con Prompts IA (P1-20 / P1-28)
-        const PROMPTS_EMBED_ORIGIN = 'https://buena-espero.onrender.com';
+        const PROMPTS_EMBED_ORIGINS = [
+            'https://buena-espero.onrender.com',
+            'https://app-1-3y7y.onrender.com'
+        ];
         window.addEventListener('message', async (ev) => {
             if (!ev) return;
             const curOrigin = (window.location && window.location.origin) || '';
             const isSameOrigin = (ev.origin === curOrigin) || (!ev.origin && window.location && window.location.protocol === 'file:');
-            const isPromptsOrigin = ev.origin === PROMPTS_EMBED_ORIGIN;
+            const isPromptsOrigin = PROMPTS_EMBED_ORIGINS.indexOf(ev.origin) !== -1;
             if (!isSameOrigin && !isPromptsOrigin) return;
             const data = ev.data;
             if (!data || typeof data !== 'object') return;
-            if (isPromptsOrigin) {
-                if (data.type === 'CREATA_PROMPTS_COPY_IMAGE' && typeof data.dataUrl === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/i.test(data.dataUrl)) {
+            if (data.type === 'CREATA_PROMPTS_COPY_IMAGE') {
+                const reqId = String(data.requestId || '');
+                const rawUri = (typeof data.dataUri === 'string' && data.dataUri.trim())
+                    ? data.dataUri
+                    : (typeof data.dataUrl === 'string' ? data.dataUrl : '');
+                const dataUri = rawUri.trim();
+                let ok = false;
+                if (/^data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(dataUri)) {
                     try {
-                        if (navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof ClipboardItem === 'function') {
-                            const blob = await (await fetch(data.dataUrl)).blob();
-                            const pngBlob = blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
-                            await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-                            if (ev.source && typeof ev.source.postMessage === 'function') {
-                                ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: true, requestId: data.requestId || '' }, PROMPTS_EMBED_ORIGIN);
-                            }
+                        let pngBlob = null;
+                        if (dataUri.indexOf('data:image/png;base64,') === 0) {
+                            const bin = atob(dataUri.slice('data:image/png;base64,'.length).replace(/\s+/g, ''));
+                            const bytes = new Uint8Array(bin.length);
+                            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                            pngBlob = new Blob([bytes], { type: 'image/png' });
+                        } else if (typeof Image !== 'undefined' && typeof document !== 'undefined') {
+                            pngBlob = await new Promise((resolve, reject) => {
+                                const img = new Image();
+                                img.onload = () => {
+                                    let c = null;
+                                    try {
+                                        c = document.createElement('canvas');
+                                        c.width = img.naturalWidth || img.width || 1;
+                                        c.height = img.naturalHeight || img.height || 1;
+                                        const ctx = c.getContext('2d');
+                                        ctx.drawImage(img, 0, 0);
+                                        c.toBlob((b) => {
+                                            try { c.width = 0; c.height = 0; } catch (eRel) {}
+                                            if (b) resolve(b);
+                                            else reject(new Error('toBlob'));
+                                        }, 'image/png');
+                                    } catch (eCanvas) {
+                                        if (c) { try { c.width = 0; c.height = 0; } catch (eRel2) {} }
+                                        reject(eCanvas);
+                                    }
+                                };
+                                img.onerror = () => reject(new Error('img'));
+                                img.src = dataUri;
+                            });
+                        }
+                        if (pngBlob && navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof window.ClipboardItem === 'function') {
+                            await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': pngBlob })]);
+                            ok = true;
                         }
                     } catch (eClip) {
-                        if (ev.source && typeof ev.source.postMessage === 'function') {
-                            ev.source.postMessage({ type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT', ok: false, requestId: data.requestId || '' }, PROMPTS_EMBED_ORIGIN);
-                        }
+                        ok = false;
                     }
                 }
+                try {
+                    if (ev.source && typeof ev.source.postMessage === 'function') {
+                        ev.source.postMessage({
+                            type: 'CREATA_PROMPTS_COPY_IMAGE_RESULT',
+                            ok: ok,
+                            requestId: reqId
+                        }, ev.origin || '*');
+                    }
+                } catch (eReply) {}
                 return;
             }
+            if (isPromptsOrigin) return;
             handleIncomingPeerMessageInFotos(data);
         });
         try {
@@ -7443,6 +8356,7 @@
             }
         });
         window.addEventListener('focus', () => {
+            triggerFotosSwUpdate();
             if (state.unlocked) {
                 updateOfflineSyncBanner();
                 sendFotosPresenceHeartbeat(false);
@@ -7451,6 +8365,7 @@
         });
 
         window.addEventListener('online', () => {
+            triggerFotosSwUpdate();
             updateOfflineSyncBanner();
             setFotosLiveStatus('live');
             if (state.unlocked) {
@@ -8836,11 +9751,23 @@
             const reader = new FileReader();
             reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
             reader.onload = () => {
-                const rawUrl = normalizeImageDataUrl(String(reader.result || ''), (file && file.name) || 'tela.jpg');
+                const rawResult = String(reader.result || '');
+                const isHeic = isHeicImageFile(file);
+                const rawUrl = normalizeImageDataUrl(rawResult, (file && file.name) || 'tela.jpg');
                 if (typeof Image === 'undefined') { resolve(rawUrl); return; }
                 const img = new Image();
-                img.onerror = () => resolve(rawUrl);
+                img.onerror = () => {
+                    if (isHeic) {
+                        const heicMime = /\.heif$/i.test(cleanStr(file && file.name)) ? 'image/heif' : 'image/heic';
+                        const safeHeic = rawUrl.replace(/^data:[^;]*;base64,/i, 'data:' + heicMime + ';base64,');
+                        showVisualStageFeedback('⚠️ Imagen HEIC sin decodificar en este navegador; se enviará original (' + heicMime + ').', false);
+                        resolve(safeHeic);
+                        return;
+                    }
+                    resolve(rawUrl);
+                };
                 img.onload = () => {
+                    let c = null;
                     try {
                         const nw = img.naturalWidth || img.width || 1;
                         const nh = img.naturalHeight || img.height || 1;
@@ -8848,7 +9775,7 @@
                         const sc = Math.min(1, cap / Math.max(nw, nh));
                         const tw = Math.max(1, Math.round(nw * sc));
                         const th = Math.max(1, Math.round(nh * sc));
-                        const c = document.createElement('canvas');
+                        c = document.createElement('canvas');
                         c.width = tw;
                         c.height = th;
                         const ctx = c.getContext('2d');
@@ -8860,6 +9787,10 @@
                         resolve(c.toDataURL('image/jpeg', 0.84));
                     } catch (eC) {
                         resolve(rawUrl);
+                    } finally {
+                        if (c) {
+                            try { c.width = 0; c.height = 0; } catch (eRel) {}
+                        }
                     }
                 };
                 img.src = rawUrl;
@@ -9121,12 +10052,16 @@
             }
 
             if (!res || !res.ok) {
-                if (res && res.authRequired) {
+                if (res && res.authRequired && !res.rateLimited) {
                     rollbackVisualUpload();
                     window.lockFotosPortal();
                     return;
                 }
-                if (res && res.unavailable) {
+                if (res && (res.unavailable || res.rateLimited)) {
+                    if (res.rateLimited) {
+                        _inboxRateLimitBackoffUntilMs = Date.now() + RATE_LIMIT_BACKOFF_MS;
+                        setFotosLiveStatus('syncing', 'Sincronizando...');
+                    }
                     await putOfflinePhotoBlobIdb(localVisId, dataUrl, safeFileName);
                     enqueueFotosOfflineOutbox({
                         id: 'op_vis_' + Date.now() + '_' + ovKey,
@@ -9138,7 +10073,12 @@
                         localFileId: localVisId,
                         queuedAt: Date.now()
                     });
-                    showVisualStageFeedback('⚡ Sin red · en cola: ' + label + '.', true);
+                    showVisualStageFeedback(
+                        res.rateLimited
+                            ? ('⏳ Sincronizando en segundo plano: ' + label + '.')
+                            : ('⚡ Sin red · en cola: ' + label + '.'),
+                        true
+                    );
                     return;
                 }
                 rollbackVisualUpload();
@@ -9150,6 +10090,12 @@
             visualState.overridesMap[ovKey] = finalOverride;
             if (res.fileId) {
                 state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || safeFileName);
+            }
+            if (typeof res.rev === 'string' && res.rev) {
+                state.inboxRev = cleanStr(res.rev);
+            }
+            if (Array.isArray(res.recentUploads)) {
+                mergeSharedRecentUploadsFromServer(res.recentUploads);
             }
             recordRecentUploadedPhoto({
                 fileId: cleanStr(res.fileId || extractDriveFileId(finalDriveUrl) || localVisId),
@@ -9165,6 +10111,7 @@
             saveVisualOverridesToLocalStorage();
             invalidateLoadedPhotosCache();
             broadcastVisualOverrideUpdateToCotizador(ovKey, finalOverride, false);
+            notifyFotosInboxChanged('upload_visual');
             renderVisualTargetsList();
             renderInboxGallery();
             showVisualStageFeedback('✅ ' + label + ' guardada.', true);
@@ -9342,12 +10289,16 @@
             }
 
             if (!res || !res.ok) {
-                if (res && res.authRequired) {
+                if (res && res.authRequired && !res.rateLimited) {
                     rollbackVisualAssign();
                     window.lockFotosPortal();
                     return;
                 }
-                if (res && res.unavailable) {
+                if (res && (res.unavailable || res.rateLimited)) {
+                    if (res.rateLimited) {
+                        _inboxRateLimitBackoffUntilMs = Date.now() + RATE_LIMIT_BACKOFF_MS;
+                        setFotosLiveStatus('syncing', 'Sincronizando...');
+                    }
                     let localVisId = isLocal ? activePhotoId : '';
                     if (!localVisId && optimisticPreview && optimisticPreview.indexOf('data:image/') === 0) {
                         localVisId = 'local_vis_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000);
@@ -9367,7 +10318,12 @@
                         directUrl: isLocal ? '' : directUrl,
                         queuedAt: Date.now()
                     });
-                    showVisualStageFeedback('⚡ Sin red · en cola: ' + label + '.', true);
+                    showVisualStageFeedback(
+                        res.rateLimited
+                            ? ('⏳ Sincronizando en segundo plano: ' + label + '.')
+                            : ('⚡ Sin red · en cola: ' + label + '.'),
+                        true
+                    );
                     return;
                 }
                 rollbackVisualAssign();
@@ -9379,6 +10335,12 @@
             visualState.overridesMap[ovKey] = finalOverride;
             if (res.fileId) {
                 state.loadedFileNamesById[res.fileId] = cleanStr(res.fileName || selPhoto.name);
+            }
+            if (typeof res.rev === 'string' && res.rev) {
+                state.inboxRev = cleanStr(res.rev);
+            }
+            if (Array.isArray(res.recentUploads)) {
+                mergeSharedRecentUploadsFromServer(res.recentUploads);
             }
             recordRecentUploadedPhoto({
                 fileId: cleanStr(res.fileId || extractDriveFileId(finalDriveUrl) || activePhotoId),
@@ -9394,7 +10356,7 @@
             saveVisualOverridesToLocalStorage();
             invalidateLoadedPhotosCache();
             broadcastVisualOverrideUpdateToCotizador(ovKey, finalOverride, false);
-            if (!fromLoaded) notifyFotosInboxChanged('assign_visual');
+            notifyFotosInboxChanged('assign_visual');
             renderVisualTargetsList();
             renderInboxGallery();
             showVisualStageFeedback('✅ ' + label + ' guardada.', true);

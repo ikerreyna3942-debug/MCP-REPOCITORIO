@@ -347,7 +347,7 @@
     }
   }
 
-  async function callWebAppPost(payload, timeoutMs) {
+  async function callWebAppPost(payload, timeoutMs, opts) {
     const targetUrl = getWebAppUrl();
     const invSess = readJsonStorage(INV_SESSION_KEY, null) || {};
     const token = cleanStr((APP_STATE.user && APP_STATE.user.authToken) || invSess.authToken || '');
@@ -357,15 +357,18 @@
       payload || {}
     );
 
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const useKeepalive = Boolean(opts && opts.keepalive);
+    const controller = (!useKeepalive && typeof AbortController !== 'undefined') ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 10000) : null;
     try {
-      const resp = await fetch(targetUrl, {
+      const fetchOpts = {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(enriched),
-        signal: controller ? controller.signal : undefined
-      });
+        body: JSON.stringify(enriched)
+      };
+      if (useKeepalive) fetchOpts.keepalive = true;
+      if (controller) fetchOpts.signal = controller.signal;
+      const resp = await fetch(targetUrl, fetchOpts);
       if (!resp || !resp.ok) return { ok: false, unavailable: true };
       const json = await resp.json();
       if (json && json.renewedAuthToken) persistSegRenewedToken(json.renewedAuthToken);
@@ -400,7 +403,11 @@
       vista: 'seguimiento',
       view: 'seguimiento',
       page: 'seguimiento'
-    }, 8000).catch(() => {});
+    }, 8000).then(hbRes => {
+      if (hbRes && hbRes.sessionRevoked === true && typeof global.logoutAdvisorSession === 'function') {
+        global.logoutAdvisorSession();
+      }
+    }).catch(() => {});
   }
 
   function applySilentImageProtection(target) {
@@ -617,7 +624,7 @@
     const activeToken = cleanStr((APP_STATE.user && APP_STATE.user.authToken) || '');
     if (activeToken && typeof fetch === 'function') {
       try {
-        const resp = await fetch(getApiUrl(), {
+        const resp = await fetch(getWebAppUrl(), {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action: 'inv_my_directory', authToken: activeToken })
@@ -882,9 +889,9 @@
     if (suc.includes('PLAYA')) {
       tienda_bodega = prod.pla_bod;
       tienda_piso = prod.pla_pis;
-    } else if (suc.includes('COLOSIO') || suc.includes('COLOCIO')) {
-      tienda_bodega = prod.col_bod;
-      tienda_piso = prod.col_pis;
+    } else if (suc.includes('COLOSIO') || suc.includes('COLOCIO') || suc.includes('OUTLET')) {
+      tienda_bodega = (prod.col_bod || 0) + (prod.out_bod || 0);
+      tienda_piso = (prod.col_pis || 0) + (prod.out_pis || 0);
     } else if (suc.includes('PUERTO') || suc.includes('PTC')) {
       tienda_bodega = prod.ptc_bod;
       tienda_piso = prod.ptc_pis;
@@ -1012,12 +1019,131 @@
     return bestScore >= 1 ? best : null;
   }
 
+  function getCancunTodayIso() {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Cancun',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(new Date());
+      const y = (parts.find(p => p.type === 'year') || {}).value;
+      const m = (parts.find(p => p.type === 'month') || {}).value;
+      const d = (parts.find(p => p.type === 'day') || {}).value;
+      if (y && m && d) return `${y}-${m}-${d}`;
+    } catch (e) {}
+    const d = new Date(Date.now() - 5 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 10);
+  }
+
   function parseDateToIso(raw) {
     const s = cleanStr(raw);
+    if (!s) return '';
     const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
     if (m1) return `${m1[3]}-${m1[2].padStart(2, '0')}-${m1[1].padStart(2, '0')}`;
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-    return new Date().toISOString().slice(0, 10);
+    const dt = new Date(s);
+    if (!isNaN(dt.getTime())) {
+      try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Cancun',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).formatToParts(dt);
+        const y = (parts.find(p => p.type === 'year') || {}).value;
+        const m = (parts.find(p => p.type === 'month') || {}).value;
+        const d = (parts.find(p => p.type === 'day') || {}).value;
+        if (y && m && d) return `${y}-${m}-${d}`;
+      } catch (e) {}
+      return dt.toISOString().slice(0, 10);
+    }
+    return '';
+  }
+
+  function extractPhoneFromDetail(detalleRaw) {
+    const det = cleanStr(detalleRaw);
+    if (!det) return '';
+    if (det.startsWith('{')) {
+      try {
+        const obj = JSON.parse(det);
+        if (obj && typeof obj === 'object') {
+          const fromJson = cleanPhone(obj.whatsapp_cliente || obj.phone || obj.telefono || obj.celular || '');
+          if (fromJson) return fromJson;
+        }
+      } catch (e) {}
+    }
+    const mNew = det.match(/Nuevo\s+Celular:\s*([0-9+\-\s()]+)/i);
+    if (mNew && cleanPhone(mNew[1])) return cleanPhone(mNew[1]);
+    const mCel = det.match(/Celular:\s*([0-9+\-\s()]+)/i);
+    if (mCel && cleanPhone(mCel[1])) return cleanPhone(mCel[1]);
+    return '';
+  }
+
+  function parseAvisoTimestampMs(raw) {
+    const s = cleanAvisoDate(raw);
+    if (!s) return 0;
+    const mIso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (mIso) {
+      return new Date(
+        Number(mIso[1]),
+        Number(mIso[2]) - 1,
+        Number(mIso[3]),
+        Number(mIso[4] || 0),
+        Number(mIso[5] || 0),
+        Number(mIso[6] || 0)
+      ).getTime() || 0;
+    }
+    const mLat = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (mLat) {
+      return new Date(
+        Number(mLat[3]),
+        Number(mLat[2]) - 1,
+        Number(mLat[1]),
+        Number(mLat[4] || 0),
+        Number(mLat[5] || 0),
+        Number(mLat[6] || 0)
+      ).getTime() || 0;
+    }
+    const parsed = Date.parse(s);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
+  function pickNewerAvisoDate(...candidates) {
+    let bestStr = '';
+    let bestMs = -1;
+    for (let i = 0; i < candidates.length; i++) {
+      const c = cleanAvisoDate(candidates[i]);
+      if (!c) continue;
+      const ms = parseAvisoTimestampMs(c);
+      if (!bestStr || ms > bestMs) {
+        bestStr = c;
+        bestMs = ms;
+      }
+    }
+    return bestStr;
+  }
+
+  function getPendingOutboxPhoneFolios() {
+    const set = new Set();
+    const q = readJsonStorage(SEG_OFFLINE_OUTBOX_KEY, []);
+    if (Array.isArray(q)) {
+      for (let i = 0; i < q.length; i++) {
+        const entry = q[i];
+        if (entry && entry.eventCode === 'SEG_TELEFONO' && entry.refFolio) {
+          set.add(cleanStr(entry.refFolio).toUpperCase());
+        }
+      }
+    }
+    return set;
+  }
+
+  function resolveFreshFolioPhone(folio, serverEventPhone, sheetPhone, localPhone, pendingPhoneFolios) {
+    const srvEv = cleanPhone(serverEventPhone);
+    const sht = cleanPhone(sheetPhone);
+    const loc = cleanPhone(localPhone);
+    if (pendingPhoneFolios && pendingPhoneFolios.has(folio) && loc) return loc;
+    return srvEv || sht || loc || '';
   }
 
   function cleanAvisoDate(raw) {
@@ -1271,7 +1397,7 @@
       _segDeltaVersion = Number(cachedSnapshot.deltaMeta.version || 0) || 0;
       _segDeltaInvVersion = cleanStr(cachedSnapshot.deltaMeta.invVersion || '');
       if (cachedSnapshot.deltaMeta.rowWatermarks && typeof cachedSnapshot.deltaMeta.rowWatermarks === 'object') {
-        _segRowWatermarks = Object.assign({ cotCreata: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 }, cachedSnapshot.deltaMeta.rowWatermarks);
+        _segRowWatermarks = Object.assign({ cotCreata: 0, cotArchivadas: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 }, cachedSnapshot.deltaMeta.rowWatermarks);
       }
     }
     const localBridgeQuotes = readJsonStorage(APP_QUOTES_BRIDGE_KEY, []);
@@ -1506,7 +1632,7 @@
         action: 'seg_get_delta',
         sinceVersion: hasLocalData ? _segDeltaVersion : 0,
         sinceInvVersion: hasLocalData ? _segDeltaInvVersion : '',
-        rowWatermarks: hasLocalData ? _segRowWatermarks : { cotCreata: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 },
+        rowWatermarks: hasLocalData ? _segRowWatermarks : { cotCreata: 0, cotArchivadas: 0, cotVivo: 0, cierres: 0, histMov: 0, histSeg: 0 },
         activeSkus: collectActiveQuotedSkus(),
         forceFull: Boolean(o.forceFull) || !hasLocalData
       };
@@ -1556,8 +1682,11 @@
       const updatedStockCount = ingestStockDeltaMap(stockMap);
 
       const closuresMap = Object.assign({}, APP_STATE.closures || {}, readJsonStorage(SEG_CLOSURES_CACHE_KEY, {}));
-      const phoneByFolio = Object.assign({}, readJsonStorage(SEG_PHONES_CACHE_KEY, {}));
-      const contactedByFolio = Object.assign({}, readJsonStorage(SEG_CONTACTED_CACHE_KEY, {}));
+      const localPhoneByFolio = Object.assign({}, readJsonStorage(SEG_PHONES_CACHE_KEY, {}));
+      const localContactedByFolio = Object.assign({}, readJsonStorage(SEG_CONTACTED_CACHE_KEY, {}));
+      const pendingOutboxPhoneFolios = getPendingOutboxPhoneFolios();
+      let phoneCacheDirty = false;
+      let contactedCacheDirty = false;
       const appCreatedFolios = new Set(APP_STATE.appCreatedFolios || []);
       const byPartida = new Map();
       for (const existing of (APP_STATE.rawPartidas || [])) {
@@ -1599,6 +1728,8 @@
         if (cleanStr(r[26]).toUpperCase() === 'APP_COTIZACION' || cleanStr(r[25]).toLowerCase() === 'true') {
           appCreatedFolios.add(folio);
         }
+        const resolvedPhone = resolveFreshFolioPhone(folio, '', r[8], localPhoneByFolio[folio], pendingOutboxPhoneFolios);
+        const resolvedAviso = pickNewerAvisoDate(r[25], localContactedByFolio[folio]);
         const itemObj = {
           ID_Partida: idP,
           Folio_ERP: folio,
@@ -1608,7 +1739,7 @@
           Correo_Asesor: normalizeEmail(r[5]) || (advMatch && advMatch.correo) || '',
           Tel_Asesor: cleanPhone(r[6]) || (advMatch && advMatch.telefono) || '',
           Cliente: cleanStr(r[7]),
-          WhatsApp_Cliente: phoneByFolio[folio] || cleanPhone(r[8]),
+          WhatsApp_Cliente: resolvedPhone,
           Clave_Producto: sku,
           Nombre_Producto: cleanStr(r[10]) || (prod && prod.nombre) || sku,
           Modelo: cleanStr(r[11]) || (prod && prod.modelo) || '',
@@ -1621,7 +1752,7 @@
           Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : (cleanStr(r[18]) || '0'),
           Stock_Actual_Total: liveSt ? String(liveSt.total_disponible) : (cleanStr(r[19]) || '0'),
           Estatus_ERP: cleanStr(r[24]) || 'Cotizado',
-          Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || r[25]),
+          Fecha_Ultimo_Aviso: resolvedAviso,
           Foto_Url: (prod && prod.fotoUrl) || '',
           Foto_Thumb: (prod && prod.fotoThumb) || '',
           Foto_Drive_Id: (prod && prod.fotoId) || '',
@@ -1645,6 +1776,8 @@
         if (cleanStr(r[26]).toUpperCase() === 'APP_COTIZACION' || cleanStr(r[25]).toLowerCase() === 'true') {
           appCreatedFolios.add(folio);
         }
+        const resolvedPhone = resolveFreshFolioPhone(folio, '', r[8], localPhoneByFolio[folio], pendingOutboxPhoneFolios);
+        const resolvedAviso = pickNewerAvisoDate(r[25], localContactedByFolio[folio]);
         const itemObj = {
           ID_Partida: idP,
           Folio_ERP: folio,
@@ -1654,7 +1787,7 @@
           Correo_Asesor: normalizeEmail(r[5]) || (advMatch && advMatch.correo) || '',
           Tel_Asesor: cleanPhone(r[6]) || (advMatch && advMatch.telefono) || '',
           Cliente: cleanStr(r[7]),
-          WhatsApp_Cliente: phoneByFolio[folio] || cleanPhone(r[8]),
+          WhatsApp_Cliente: resolvedPhone,
           Clave_Producto: sku,
           Nombre_Producto: cleanStr(r[10]) || (prod && prod.nombre) || sku,
           Modelo: cleanStr(r[11]) || (prod && prod.modelo) || '',
@@ -1667,7 +1800,7 @@
           Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : (cleanStr(r[18]) || '0'),
           Stock_Actual_Total: liveSt ? String(liveSt.total_disponible) : (cleanStr(r[19]) || '0'),
           Estatus_ERP: cleanStr(r[24]) || 'Cerrada',
-          Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || r[25]),
+          Fecha_Ultimo_Aviso: resolvedAviso,
           Foto_Url: (prod && prod.fotoUrl) || '',
           Foto_Thumb: (prod && prod.fotoThumb) || '',
           Foto_Drive_Id: (prod && prod.fotoId) || '',
@@ -1694,7 +1827,7 @@
         const nombreAsesor = (advMatch && advMatch.nombre) || nombreAsesorRaw;
         const telAsesor = (advMatch && advMatch.telefono) || '';
         const cliente = cleanStr(r[11]) || 'Prospecto CREATA';
-        const telCliente = phoneByFolio[folio] || cleanPhone(r[12]);
+        const telCliente = resolveFreshFolioPhone(folio, '', r[12], localPhoneByFolio[folio], pendingOutboxPhoneFolios);
         const resumenSkus = cleanStr(r[17]);
         const origenColY = cleanStr(r[24]).toUpperCase();
         if (origenColY === 'APP_COTIZACION') appCreatedFolios.add(folio);
@@ -1731,7 +1864,7 @@
             Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : '0',
             Stock_Actual_Total: String(stActual),
             Estatus_ERP: 'Cotizado',
-            Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || ''),
+            Fecha_Ultimo_Aviso: cleanAvisoDate(localContactedByFolio[folio] || ''),
             Foto_Url: (prod && prod.fotoUrl) || '',
             Foto_Thumb: (prod && prod.fotoThumb) || '',
             Foto_Drive_Id: (prod && prod.fotoId) || '',
@@ -1755,19 +1888,21 @@
         } else if (kind === 'PHONE' && d.whatsapp_cliente) {
           const tel = cleanPhone(d.whatsapp_cliente);
           if (tel) {
-            phoneByFolio[fol] = tel;
+            localPhoneByFolio[fol] = tel;
+            phoneCacheDirty = true;
             for (const item of byPartida.values()) {
               if (item.Folio_ERP === fol) item.WhatsApp_Cliente = tel;
             }
             touchedCount++;
           }
-        } else if ((kind === 'WHATSAPP' || kind === 'EMAIL') && d.fecha_aviso) {
-          const av = cleanAvisoDate(d.fecha_aviso);
+        } else if ((kind === 'WHATSAPP' || kind === 'EMAIL') && (d.fecha_aviso || d.fecha_hora || ch.ts)) {
+          const av = pickNewerAvisoDate(d.fecha_aviso || d.fecha_hora || '', localContactedByFolio[fol]);
           if (av) {
-            contactedByFolio[fol] = av;
+            localContactedByFolio[fol] = av;
+            contactedCacheDirty = true;
             for (const item of byPartida.values()) {
               if (item.Folio_ERP === fol) {
-                item.Fecha_Ultimo_Aviso = av;
+                item.Fecha_Ultimo_Aviso = pickNewerAvisoDate(av, item.Fecha_Ultimo_Aviso);
                 evaluateItemUrgency(item);
               }
             }
@@ -1775,6 +1910,8 @@
           }
         }
       }
+      if (phoneCacheDirty) writeJsonStorage(SEG_PHONES_CACHE_KEY, localPhoneByFolio);
+      if (contactedCacheDirty) writeJsonStorage(SEG_CONTACTED_CACHE_KEY, localContactedByFolio);
 
       // 3e) Re-evaluar stock únicamente en partidas cuyo SKU recibió actualización de inventario
       if (updatedStockCount > 0) {
@@ -2020,8 +2157,11 @@
         };
       }
 
-      const phoneByFolio = Object.assign({}, readJsonStorage(SEG_PHONES_CACHE_KEY, {}));
-      const contactedByFolio = Object.assign({}, readJsonStorage(SEG_CONTACTED_CACHE_KEY, {}));
+      const localPhoneByFolio = Object.assign({}, readJsonStorage(SEG_PHONES_CACHE_KEY, {}));
+      const localContactedByFolio = Object.assign({}, readJsonStorage(SEG_CONTACTED_CACHE_KEY, {}));
+      const pendingOutboxPhoneFolios = getPendingOutboxPhoneFolios();
+      const serverPhoneByFolio = {};
+      const serverContactedByFolio = {};
       const auditLogs = [];
 
       for (let i = 1; i < (histMovRows || []).length; i++) {
@@ -2039,19 +2179,19 @@
 
         auditLogs.push({ id: `seg_mov_${i}`, fecha_hora: fh, tipo, usuario, email, sucursal, accion, detalle, ip, status });
 
-        if (tipo === 'WHATSAPP') {
-          const mFol = accion.match(/Folio\s+([A-Z0-9\-]+)/i);
+        if (tipo === 'WHATSAPP' || tipo === 'EMAIL') {
+          const mFol = accion.match(/Folio\s+([A-Z0-9\-]+)/i) || accion.match(/\(([A-Z0-9\-]+)\)/i);
           if (mFol) {
             const fol = mFol[1].toUpperCase();
-            contactedByFolio[fol] = fh.slice(0, 16);
-            const mCel = detalle.match(/Celular:\s*([0-9+]+)/i);
-            if (mCel && cleanPhone(mCel[1])) phoneByFolio[fol] = cleanPhone(mCel[1]);
+            serverContactedByFolio[fol] = pickNewerAvisoDate(serverContactedByFolio[fol], fh.slice(0, 16));
+            const extractedPhone = extractPhoneFromDetail(detalle);
+            if (extractedPhone) serverPhoneByFolio[fol] = extractedPhone;
           }
         } else if (tipo === 'TELEFONO') {
-          const mFol = accion.match(/Folio\s+([A-Z0-9\-]+)/i);
-          const mCel = detalle.match(/Nuevo Celular:\s*([0-9+]+)/i);
-          if (mFol && mCel && cleanPhone(mCel[1])) {
-            phoneByFolio[mFol[1].toUpperCase()] = cleanPhone(mCel[1]);
+          const mFol = accion.match(/Folio\s+([A-Z0-9\-]+)/i) || accion.match(/\(([A-Z0-9\-]+)\)/i);
+          const extractedPhone = extractPhoneFromDetail(detalle);
+          if (mFol && extractedPhone) {
+            serverPhoneByFolio[mFol[1].toUpperCase()] = extractedPhone;
           }
         }
       }
@@ -2108,25 +2248,27 @@
             ip: 'Web-App',
             status: 'EXITOSO'
           });
-        } else if (ev === 'SEG_TELEFONO' && refFol && payload) {
-          if (cleanPhone(payload.whatsapp_cliente)) {
-            phoneByFolio[refFol] = cleanPhone(payload.whatsapp_cliente);
+        } else if (ev === 'SEG_TELEFONO' && refFol) {
+          const extractedTel = cleanPhone(payload && payload.whatsapp_cliente) || extractPhoneFromDetail(detRaw);
+          if (extractedTel) {
+            serverPhoneByFolio[refFol] = extractedTel;
           }
           auditLogs.push({
             id: `inv_hist_${i}`,
             fecha_hora: fh,
             tipo: 'TELEFONO',
-            usuario: payload.usuario || usuarioRaw,
-            email: payload.email || '',
-            sucursal: payload.sucursal || sucRaw,
+            usuario: (payload && payload.usuario) || usuarioRaw,
+            email: (payload && payload.email) || '',
+            sucursal: (payload && payload.sucursal) || sucRaw,
             accion: `Celular del cliente actualizado para Folio ${refFol}`,
-            detalle: `Cliente: ${payload.cliente || ''} • Nuevo Celular: ${payload.whatsapp_cliente || ''}`,
+            detalle: `Cliente: ${(payload && payload.cliente) || ''} • Nuevo Celular: ${extractedTel || ''}`,
             ip: 'Web-App',
             status: 'EXITOSO'
           });
         } else if ((ev === 'SEG_WHATSAPP' || ev === 'SEG_EMAIL') && refFol && payload) {
-          if (ev === 'SEG_WHATSAPP') {
-            contactedByFolio[refFol] = payload.fecha_aviso || fh.slice(0, 16);
+          serverContactedByFolio[refFol] = pickNewerAvisoDate(serverContactedByFolio[refFol], payload.fecha_aviso || fh.slice(0, 16));
+          if (ev === 'SEG_WHATSAPP' && cleanPhone(payload.phone)) {
+            serverPhoneByFolio[refFol] = cleanPhone(payload.phone);
           }
           auditLogs.push({
             id: `inv_hist_${i}`,
@@ -2215,6 +2357,9 @@
           appCreatedFolios.add(folio);
         }
 
+        const resolvedPhone = resolveFreshFolioPhone(folio, serverPhoneByFolio[folio], r[8], localPhoneByFolio[folio], pendingOutboxPhoneFolios);
+        const resolvedAviso = pickNewerAvisoDate(serverContactedByFolio[folio], r[25], localContactedByFolio[folio]);
+
         const itemObj = {
           ID_Partida: idP,
           Folio_ERP: folio,
@@ -2224,7 +2369,7 @@
           Correo_Asesor: normalizeEmail(r[5]) || (advMatch && advMatch.correo) || '',
           Tel_Asesor: cleanPhone(r[6]) || (advMatch && advMatch.telefono) || '',
           Cliente: cleanStr(r[7]),
-          WhatsApp_Cliente: phoneByFolio[folio] || cleanPhone(r[8]),
+          WhatsApp_Cliente: resolvedPhone,
           Clave_Producto: sku,
           Nombre_Producto: cleanStr(r[10]) || (prod && prod.nombre) || sku,
           Modelo: cleanStr(r[11]) || (prod && prod.modelo) || '',
@@ -2237,7 +2382,7 @@
           Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : (cleanStr(r[18]) || '0'),
           Stock_Actual_Total: liveSt ? String(liveSt.total_disponible) : (cleanStr(r[19]) || '0'),
           Estatus_ERP: cleanStr(r[24]) || 'Cotizado',
-          Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || r[25]),
+          Fecha_Ultimo_Aviso: resolvedAviso,
           Foto_Url: (prod && prod.fotoUrl) || '',
           Foto_Thumb: (prod && prod.fotoThumb) || '',
           Foto_Drive_Id: (prod && prod.fotoId) || '',
@@ -2263,6 +2408,9 @@
           appCreatedFolios.add(folio);
         }
 
+        const resolvedPhone = resolveFreshFolioPhone(folio, serverPhoneByFolio[folio], r[8], localPhoneByFolio[folio], pendingOutboxPhoneFolios);
+        const resolvedAviso = pickNewerAvisoDate(serverContactedByFolio[folio], r[25], localContactedByFolio[folio]);
+
         const itemObj = {
           ID_Partida: idP,
           Folio_ERP: folio,
@@ -2272,7 +2420,7 @@
           Correo_Asesor: normalizeEmail(r[5]) || (advMatch && advMatch.correo) || '',
           Tel_Asesor: cleanPhone(r[6]) || (advMatch && advMatch.telefono) || '',
           Cliente: cleanStr(r[7]),
-          WhatsApp_Cliente: phoneByFolio[folio] || cleanPhone(r[8]),
+          WhatsApp_Cliente: resolvedPhone,
           Clave_Producto: sku,
           Nombre_Producto: cleanStr(r[10]) || (prod && prod.nombre) || sku,
           Modelo: cleanStr(r[11]) || (prod && prod.modelo) || '',
@@ -2285,7 +2433,7 @@
           Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : (cleanStr(r[18]) || '0'),
           Stock_Actual_Total: liveSt ? String(liveSt.total_disponible) : (cleanStr(r[19]) || '0'),
           Estatus_ERP: cleanStr(r[24]) || 'Cerrada',
-          Fecha_Ultimo_Aviso: cleanAvisoDate(contactedByFolio[folio] || r[25]),
+          Fecha_Ultimo_Aviso: resolvedAviso,
           Foto_Url: (prod && prod.fotoUrl) || '',
           Foto_Thumb: (prod && prod.fotoThumb) || '',
           Foto_Drive_Id: (prod && prod.fotoId) || '',
@@ -2312,7 +2460,7 @@
         const nombreAsesor = (advMatch && advMatch.nombre) || nombreAsesorRaw;
         const telAsesor = (advMatch && advMatch.telefono) || '';
         const cliente = cleanStr(r[11]) || 'Prospecto CREATA';
-        const telCliente = phoneByFolio[folio] || cleanPhone(r[12]);
+        const telCliente = resolveFreshFolioPhone(folio, serverPhoneByFolio[folio], r[12], localPhoneByFolio[folio], pendingOutboxPhoneFolios);
         const resumenSkus = cleanStr(r[17]);
 
         const origenColY = cleanStr(r[24]).toUpperCase();
@@ -2344,7 +2492,7 @@
           const itemObj = {
             ID_Partida: idP,
             Folio_ERP: folio,
-            Fecha_Cotizacion: fechaIso,
+            Fecha_Cotizacion: fechaIso || (prev && prev.Fecha_Cotizacion) || '',
             Sucursal: sucKey,
             Asesor: nombreAsesor,
             Correo_Asesor: correoAsesor || (prev && prev.Correo_Asesor) || '',
@@ -2363,7 +2511,7 @@
             Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : ((prev && prev.Stock_Actual_Tienda_Piso) || '0'),
             Stock_Actual_Total: String(stActual),
             Estatus_ERP: (prev && prev.Estatus_ERP) || 'Cotizado',
-            Fecha_Ultimo_Aviso: contactedByFolio[folio] || (prev && prev.Fecha_Ultimo_Aviso) || '',
+            Fecha_Ultimo_Aviso: pickNewerAvisoDate(serverContactedByFolio[folio], prev && prev.Fecha_Ultimo_Aviso, localContactedByFolio[folio]),
             Foto_Url: (prod && prod.fotoUrl) || (prev && prev.Foto_Url) || '',
             Foto_Thumb: (prod && prod.fotoThumb) || (prev && prev.Foto_Thumb) || '',
             Foto_Drive_Id: (prod && prod.fotoId) || (prev && prev.Foto_Drive_Id) || '',
@@ -2391,7 +2539,7 @@
         const nombreAsesor = (advMatch && advMatch.nombre) || cleanStr(bq.advisorName);
         const telAsesor = (advMatch && advMatch.telefono) || '';
         const cliente = cleanStr(bq.clientName) || 'Prospecto CREATA';
-        const telCliente = phoneByFolio[folio] || cleanPhone(bq.clientPhone);
+        const telCliente = resolveFreshFolioPhone(folio, serverPhoneByFolio[folio], bq.clientPhone, localPhoneByFolio[folio], pendingOutboxPhoneFolios);
 
         for (const it of bq.items) {
           const sku = cleanStr(it.sku).toUpperCase();
@@ -2410,7 +2558,7 @@
           const itemObj = {
             ID_Partida: idP,
             Folio_ERP: folio,
-            Fecha_Cotizacion: fechaIso,
+            Fecha_Cotizacion: fechaIso || (prev && prev.Fecha_Cotizacion) || '',
             Sucursal: sucKey,
             Asesor: nombreAsesor,
             Correo_Asesor: correoAsesor,
@@ -2423,13 +2571,13 @@
             Precio_Unitario: it.price ? Number(it.price).toFixed(2) : ((prod && prod.precio ? prod.precio.toFixed(2) : '0.00')),
             Cantidad_Cotizada: String(qty),
             Stock_Inicial_Total: String(stIni),
-            Stock_Actual_CEDIS_Bodega: liveSt ? String(liveSt.cedis_bodega) : '0',
-            Stock_Actual_CEDIS_Piso: liveSt ? String(liveSt.cedis_piso) : '0',
-            Stock_Actual_Tienda_Bodega: liveSt ? String(liveSt.tienda_bodega) : '0',
-            Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : '0',
+            Stock_Actual_CEDIS_Bodega: liveSt ? String(liveSt.cedis_bodega) : ((prev && prev.Stock_Actual_CEDIS_Bodega) || '0'),
+            Stock_Actual_CEDIS_Piso: liveSt ? String(liveSt.cedis_piso) : ((prev && prev.Stock_Actual_CEDIS_Piso) || '0'),
+            Stock_Actual_Tienda_Bodega: liveSt ? String(liveSt.tienda_bodega) : ((prev && prev.Stock_Actual_Tienda_Bodega) || '0'),
+            Stock_Actual_Tienda_Piso: liveSt ? String(liveSt.tienda_piso) : ((prev && prev.Stock_Actual_Tienda_Piso) || '0'),
             Stock_Actual_Total: String(stActual),
             Estatus_ERP: (prev && prev.Estatus_ERP) || 'Cotizado',
-            Fecha_Ultimo_Aviso: contactedByFolio[folio] || (prev && prev.Fecha_Ultimo_Aviso) || '',
+            Fecha_Ultimo_Aviso: pickNewerAvisoDate(serverContactedByFolio[folio], prev && prev.Fecha_Ultimo_Aviso, localContactedByFolio[folio]),
             Foto_Url: bqPhoto.fullUrl || (prod && prod.fotoUrl) || (prev && prev.Foto_Url) || '',
             Foto_Thumb: bqPhoto.thumbUrl || (prod && prod.fotoThumb) || (prev && prev.Foto_Thumb) || '',
             Foto_Drive_Id: bqPhoto.driveId || (prod && prod.fotoId) || (prev && prev.Foto_Drive_Id) || '',
@@ -2442,6 +2590,26 @@
           byPartida.set(idP, itemObj);
         }
       }
+
+      // Sincronizar teléfonos y fechas de contacto más recientes del servidor hacia localStorage
+      let phoneCacheChanged = false;
+      for (const folKey of Object.keys(serverPhoneByFolio)) {
+        if (!pendingOutboxPhoneFolios.has(folKey) && serverPhoneByFolio[folKey] && localPhoneByFolio[folKey] !== serverPhoneByFolio[folKey]) {
+          localPhoneByFolio[folKey] = serverPhoneByFolio[folKey];
+          phoneCacheChanged = true;
+        }
+      }
+      if (phoneCacheChanged) writeJsonStorage(SEG_PHONES_CACHE_KEY, localPhoneByFolio);
+
+      let contactedCacheChanged = false;
+      for (const folKey of Object.keys(serverContactedByFolio)) {
+        const bestAv = pickNewerAvisoDate(serverContactedByFolio[folKey], localContactedByFolio[folKey]);
+        if (bestAv && localContactedByFolio[folKey] !== bestAv) {
+          localContactedByFolio[folKey] = bestAv;
+          contactedCacheChanged = true;
+        }
+      }
+      if (contactedCacheChanged) writeJsonStorage(SEG_CONTACTED_CACHE_KEY, localContactedByFolio);
 
       const allPartidas = Array.from(byPartida.values());
       const allGrouped = groupQuotesByFolio(allPartidas, closuresMap, appCreatedFolios);
@@ -3443,15 +3611,11 @@
         const promptTel = prompt(`WhatsApp del asesor (${q.Asesor}):`, '');
         if (!promptTel) return;
         phone = cleanPhone(promptTel);
+        if (!phone || phone.length < 10) {
+          showToast('Ingresa un número válido de al menos 10 dígitos', '⚠️');
+          return;
+        }
       }
-    }
-
-    const waUrl = `https://wa.me/52${phone.slice(-10)}?text=${encodeURIComponent(msg)}`;
-    const uaStr = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
-    const isIosPwa = Boolean((typeof navigator !== 'undefined' && navigator.standalone === true) || (/iPhone|iPad|iPod/i.test(uaStr)));
-    const openedWin = isIosPwa ? null : global.open(waUrl, '_blank', 'noopener');
-    if (!openedWin) {
-      global.location.href = waUrl;
     }
 
     const nowStr = formatNowStr(false);
@@ -3471,7 +3635,21 @@
       sucursal: q.Sucursal,
       usuario: (APP_STATE.user && APP_STATE.user.nombre) || q.Asesor,
       email: (APP_STATE.user && APP_STATE.user.correo) || q.Correo_Asesor
-    });
+    }, { keepalive: true });
+
+    const waUrl = `https://wa.me/52${phone.slice(-10)}?text=${encodeURIComponent(msg)}`;
+    const uaStr = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+    const isIosPwa = Boolean(
+      (typeof navigator !== 'undefined' && navigator.standalone === true) ||
+      (/iPhone|iPad|iPod/i.test(uaStr)) ||
+      (/Macintosh/i.test(uaStr) && typeof navigator !== 'undefined' && Number(navigator.maxTouchPoints || 0) > 1)
+    );
+    const openedWin = isIosPwa ? null : global.open(waUrl, '_blank');
+    if (openedWin) {
+      try { openedWin.opener = null; } catch (eOp) {}
+    } else {
+      global.location.href = waUrl;
+    }
 
     showToast('WhatsApp abierto', '📲');
     closePreviewModal();
@@ -3496,10 +3674,15 @@
     }
     if (!destinatario) return;
 
-    global.location.href = `mailto:${encodeURIComponent(destinatario)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(msg)}`;
+    const nowStr = formatNowStr(false);
+    q.Fecha_Ultimo_Aviso = nowStr;
+    const contactedMap = readJsonStorage(SEG_CONTACTED_CACHE_KEY, {});
+    contactedMap[q.Folio_ERP] = nowStr;
+    writeJsonStorage(SEG_CONTACTED_CACHE_KEY, contactedMap);
 
     persistSeguimientoEvent('SEG_EMAIL', q.Folio_ERP, {
       folio: q.Folio_ERP,
+      fecha_aviso: nowStr,
       destinatario,
       asunto: subject,
       cliente: q.Cliente,
@@ -3507,10 +3690,13 @@
       sucursal: q.Sucursal,
       usuario: (APP_STATE.user && APP_STATE.user.nombre) || q.Asesor,
       email: (APP_STATE.user && APP_STATE.user.correo) || q.Correo_Asesor
-    });
+    }, { keepalive: true });
+
+    global.location.href = `mailto:${encodeURIComponent(destinatario)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(msg)}`;
 
     showToast('Correo registrado', '✉️');
     closePreviewModal();
+    renderQuotes();
   }
 
   function copyModalMessage() {
@@ -3546,6 +3732,10 @@
     if (input === null) return;
 
     const clean = cleanPhone(input);
+    if (!clean || clean.length < 10) {
+      showToast('Ingresa un número válido de al menos 10 dígitos', '⚠️');
+      return;
+    }
     if (q) {
       q.WhatsApp_Cliente = clean;
       (q.items || []).forEach(it => { it.WhatsApp_Cliente = clean; });
@@ -3698,6 +3888,19 @@
     } catch (e) {}
   }
 
+  const SEG_SYNC_BROADCAST_CHANNEL = 'creata_seg_sync_channel_v1';
+  let _segSyncChannel = null;
+
+  function broadcastSegLocalSync(eventCode, refFolio) {
+    try {
+      if (typeof BroadcastChannel === 'function') {
+        const ch = _segSyncChannel || new BroadcastChannel(SEG_SYNC_BROADCAST_CHANNEL);
+        ch.postMessage({ type: 'SEG_SYNC_EVENT', eventCode: cleanStr(eventCode), folio: cleanStr(refFolio).toUpperCase(), ts: Date.now() });
+        if (!_segSyncChannel && typeof ch.close === 'function') ch.close();
+      }
+    } catch (eBc) {}
+  }
+
   async function flushSegOfflineOutbox() {
     if (_segFlushingOutbox) return;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
@@ -3718,6 +3921,11 @@
             payload: entry.payload
           }, 8000);
           if (r1 && r1.ok) continue;
+          if (r1 && r1.forbidden === true) continue;
+          if (r1 && r1.retryable === true) {
+            remaining.push(...queue.slice(i));
+            break;
+          }
 
           const r2 = await callWebAppPost({
             action: 'inv_log_event',
@@ -3743,7 +3951,8 @@
     }
   }
 
-  async function persistSeguimientoEvent(eventCode, refFolio, payload) {
+  async function persistSeguimientoEvent(eventCode, refFolio, payload, opts) {
+    broadcastSegLocalSync(eventCode, refFolio);
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       enqueueSegOfflineOutbox({ type: 'seg_event', eventCode, refFolio, payload, queuedAt: Date.now() });
       return;
@@ -3754,8 +3963,13 @@
       subAction: eventCode,
       folio: refFolio,
       payload
-    });
+    }, 10000, opts);
     if (res && res.ok) return;
+    if (res && res.forbidden === true) return;
+    if (res && res.retryable === true) {
+      enqueueSegOfflineOutbox({ type: 'seg_event', eventCode, refFolio, payload, queuedAt: Date.now() });
+      return;
+    }
 
     const resFallback = await callWebAppPost({
       action: 'inv_log_event',
@@ -3767,7 +3981,7 @@
       branch: payload.sucursal || (APP_STATE.user && APP_STATE.user.sucursal) || 'TODAS',
       ref: refFolio || 'SEGUIMIENTO',
       detail: JSON.stringify(payload)
-    });
+    }, 10000, opts);
     if (!resFallback || !resFallback.ok) {
       enqueueSegOfflineOutbox({ type: 'seg_event', eventCode, refFolio, payload, queuedAt: Date.now() });
     }
@@ -3930,7 +4144,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `CREATA_Auditoria_Seguimiento_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `CREATA_Auditoria_Seguimiento_${getCancunTodayIso()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -4412,6 +4626,37 @@
       else if (!$('seg_modalKevinAudit')?.classList.contains('cm-hidden')) closeKevinAuditModal();
     };
 
+    const onStorageSync = (ev) => {
+      if (!mounted || !ev || !ev.key) return;
+      if (
+        ev.key === SEG_CLOSURES_CACHE_KEY ||
+        ev.key === SEG_PHONES_CACHE_KEY ||
+        ev.key === SEG_CONTACTED_CACHE_KEY ||
+        ev.key === APP_QUOTES_BRIDGE_KEY ||
+        ev.key === SEG_LIVE_SNAPSHOT_KEY
+      ) {
+        if (hydrateFromLocalSnapshotSync()) {
+          renderQuotes();
+        }
+        fetchDeltaState({ background: true });
+      }
+    };
+    try {
+      if (typeof BroadcastChannel === 'function') {
+        if (_segSyncChannel && typeof _segSyncChannel.close === 'function') {
+          try { _segSyncChannel.close(); } catch (eC) {}
+        }
+        _segSyncChannel = new BroadcastChannel(SEG_SYNC_BROADCAST_CHANNEL);
+        _segSyncChannel.onmessage = (ev) => {
+          if (!mounted || !ev || !ev.data || ev.data.type !== 'SEG_SYNC_EVENT') return;
+          if (hydrateFromLocalSnapshotSync()) {
+            renderQuotes();
+          }
+          fetchDeltaState({ background: true });
+        };
+      }
+    } catch (eBcInit) {}
+
     rootEl.addEventListener('click', onClick);
     rootEl.addEventListener('change', onChange);
     rootEl.addEventListener('input', onInput);
@@ -4424,10 +4669,11 @@
     global.addEventListener('focus', onWindowFocus);
     document.addEventListener('visibilitychange', onVisibilityChange);
     global.addEventListener('online', onOnline);
+    global.addEventListener('storage', onStorageSync);
     document.addEventListener('keydown', onKeyDown);
 
     boundHandlers = {
-      onClick, onChange, onInput, onSearch, onRootKeyDown, onScroll, onPageHide, onBeforeUnload, onWindowFocus, onVisibilityChange, onOnline, onKeyDown
+      onClick, onChange, onInput, onSearch, onRootKeyDown, onScroll, onPageHide, onBeforeUnload, onWindowFocus, onVisibilityChange, onOnline, onStorageSync, onKeyDown
     };
   }
 
@@ -4447,7 +4693,12 @@
     global.removeEventListener('focus', boundHandlers.onWindowFocus);
     document.removeEventListener('visibilitychange', boundHandlers.onVisibilityChange);
     global.removeEventListener('online', boundHandlers.onOnline);
+    global.removeEventListener('storage', boundHandlers.onStorageSync);
     document.removeEventListener('keydown', boundHandlers.onKeyDown);
+    if (_segSyncChannel && typeof _segSyncChannel.close === 'function') {
+      try { _segSyncChannel.close(); } catch (eBcClose) {}
+    }
+    _segSyncChannel = null;
     boundHandlers = null;
   }
 

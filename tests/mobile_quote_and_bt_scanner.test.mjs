@@ -355,31 +355,33 @@ test('Static Contracts: Restored header logo/search sizing, compact unified Coti
   assert.match(INV_JS, /function applyIosNoAutoZoomViewportGuard\(/, 'iOS no-auto-zoom viewport guard must exist');
 
   // Cache versions
-  assert.ok(INV_HTML.includes('./inventario-ui.css?v=28'), 'inventario.html must load inventario-ui.css?v=28');
-  assert.ok(INV_HTML.includes('inventario-app.js?v=113'), 'inventario.html must load inventario-app.js?v=113');
+  assert.ok(INV_HTML.includes('./inventario-ui.css?v=29'), 'inventario.html must load inventario-ui.css?v=29');
+  assert.ok(INV_HTML.includes('inventario-app.js?v=114'), 'inventario.html must load inventario-app.js?v=114');
 });
 
-test('Runtime: iOS viewport no-auto-zoom guard applies only on Apple iOS/iPadOS and renderCartItems renders compact responsive cards', async () => {
+test('Runtime: universal zoom-lock viewport guard applies on both Apple iOS/iPadOS and Android, and renderCartItems renders compact responsive cards', async () => {
   const sampleProducts = [
     { s: 'CARRARAIZQ', tp: 'SILLON', mo: 'CARRARA', n: 'CARRARA SILLON IZQUIERDO ALTMAN COTTON COORD A ALANIS BEIGE', pr: '26630.06', st: [0, 2, 1, 0, 0, 1, 0, 0, 0, 0, 0] },
     { s: 'LENYMUST', tp: 'SILLON', mo: 'LENY', n: 'LENY SILLON QUEENS MUSTARD PATA NOGAL', pr: '10588.90', st: [0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0] }
   ];
 
-  // Apple iPhone: viewport gets maximum-scale=1.0 so 11px Cotización & 10.5px Search never auto-zoom
+  // Apple iPhone: viewport gets maximum-scale=1.0, user-scalable=no so app zoom is locked
   const sbIos = bootRuntime({
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
     products: sampleProducts,
     advisorSession: makeSession()
   });
-  assert.match(sbIos.viewportMeta.getAttribute('content'), /maximum-scale=1\.0/, 'iPhone/iPad must receive maximum-scale=1.0 anti-auto-zoom guard');
+  assert.match(sbIos.viewportMeta.getAttribute('content'), /maximum-scale=1\.0/, 'iPhone/iPad must receive maximum-scale=1.0 zoom lock guard');
+  assert.match(sbIos.viewportMeta.getAttribute('content'), /user-scalable=no/, 'iPhone/iPad must receive user-scalable=no zoom lock guard');
 
-  // Android: original viewport untouched
+  // Android: viewport ALSO receives universal zoom-lock guard
   const sbAndroid = bootRuntime({
     userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 Chrome/126.0.0.0 Mobile Safari/537.36',
     products: sampleProducts,
     advisorSession: makeSession()
   });
-  assert.ok(!/maximum-scale/.test(sbAndroid.viewportMeta.getAttribute('content')), 'Android viewport must stay unchanged');
+  assert.match(sbAndroid.viewportMeta.getAttribute('content'), /maximum-scale=1\.0/, 'Android must also receive maximum-scale=1.0 zoom lock guard');
+  assert.match(sbAndroid.viewportMeta.getAttribute('content'), /user-scalable=no/, 'Android must also receive user-scalable=no zoom lock guard');
 
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
