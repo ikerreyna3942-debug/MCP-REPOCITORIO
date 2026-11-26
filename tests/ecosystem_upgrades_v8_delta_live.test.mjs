@@ -367,7 +367,7 @@ test('Fotos 100% Live UX: zero manual refresh buttons, recent uploads reuse stri
   assert.ok(!fotosJs.includes('Toca ↻ para reintentar'), 'No stale manual refresh prompt text');
 
   // Faster live polling + lock retry + blob: URL guard
-  assert.match(fotosJs, /LIVE_INBOX_POLL_MS\s*=\s*10000/);
+  assert.match(fotosJs, /LIVE_INBOX_POLL_MS\s*=\s*6000/);
   assert.match(fotosJs, /LIVE_CATALOG_POLL_MS\s*=\s*25000/);
   assert.match(fotosJs, /function isTransientLockError\(/);
   assert.match(fotosJs, /isRetryablePhotoWriteAction\(action\)\s*&&\s*isTransientLockError\(res\)/);

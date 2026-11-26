@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
     <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
     <meta name="theme-color" content="#17181C">
@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="preconnect" href="https://script.google.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./fotos-productos-styles.css?v=29">
+    <link rel="stylesheet" href="./fotos-productos-styles.css?v=30">
     <script src="./creata-guard.js?v=3"></script>
 </head>
 <body class="fotos-studio-v2">
@@ -262,7 +262,7 @@
                                     <div class="assign-btns-cluster">
                                         <label id="btnDirectUploadLabel" class="btn-secondary-upload" title="Subir foto directo al producto">
                                             📤 Subir
-                                            <input type="file" id="directCategoryPhotoInput" accept="image/*" multiple class="hidden" onchange="uploadDirectToSelectedCategory(this)">
+                                            <input type="file" id="directCategoryPhotoInput" accept="image/*" multiple class="sr-only-file-input" onchange="uploadDirectToSelectedCategory(this)">
                                         </label>
                                         <button
                                             type="button"
@@ -350,7 +350,7 @@
                                 <div class="visual-stage-actions-row">
                                     <label id="visualUploadBtnLabel" class="btn-primary-gold visual-upload-primary" title="Subir">
                                         📤 Subir
-                                        <input type="file" id="visualTargetFileInput" accept="image/*" class="hidden" onchange="uploadVisualTargetPhotoFile(this)">
+                                        <input type="file" id="visualTargetFileInput" accept="image/*" class="sr-only-file-input" onchange="uploadVisualTargetPhotoFile(this)">
                                     </label>
                                     <button type="button" id="btnAssignVisualGalleryPhoto" class="btn-secondary-upload hidden" onclick="assignGalleryPhotoToVisualTarget()" disabled>
                                         Guardar
@@ -413,16 +413,16 @@
                                         type="search"
                                         id="inboxSearchInput"
                                         class="search-input inbox-search-input"
-                                        placeholder="Buscar foto..."
+                                        placeholder="Buscar foto o doc..."
                                         autocomplete="off"
                                     >
                                     <button type="button" id="inboxSearchClearBtn" class="search-clear-btn hidden" aria-label="Limpiar" onclick="clearInboxSearch()">✕</button>
                                 </div>
 
                                 <div class="inbox-toolbar-actions">
-                                    <label class="hdr-btn is-accent is-upload-lbl" title="Subir a SUBIR PREN">
-                                        + Foto
-                                        <input type="file" id="pcUploadToSubirInput" accept="image/*" multiple class="hidden" onchange="uploadLocalFilesToSubir(this)">
+                                    <label class="hdr-btn is-accent is-upload-lbl" title="Subir foto o documento a SUBIR PREN">
+                                        + Archivo
+                                        <input type="file" id="pcUploadToSubirInput" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.ppt,.pptx" multiple class="sr-only-file-input" onchange="uploadLocalFilesToSubir(this)">
                                     </label>
                                     <button type="button" id="btnPickLocalSubirPrenFolder" class="hdr-btn is-neutral is-compact-btn hide-on-xs" onclick="loadFromLocalSubirPrenFolder(false)" title="Carpeta PC SUBIR PREN">💻 PC</button>
                                     <a id="linkOpenDriveSubirPren" href="https://drive.google.com/drive/folders/11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p" target="_blank" rel="noopener" class="hdr-btn is-neutral is-compact-btn" title="Abrir SUBIR PREN en Drive">☁️</a>
@@ -507,7 +507,7 @@
 
     <div id="photoLightbox" class="lightbox-backdrop hidden" onclick="closePhotoLightbox()">
         <button type="button" id="btnClosePhotoLightbox" class="lightbox-close-btn" aria-label="Cerrar vista previa" onclick="event.stopPropagation(); closePhotoLightbox()">✕ Cerrar</button>
-        <img id="photoLightboxImg" src="" alt="Vista" referrerpolicy="no-referrer" draggable="false" onclick="event.stopPropagation()">
+        <img id="photoLightboxImg" src="" alt="Vista" referrerpolicy="no-referrer" draggable="false" data-drive-id="" onerror="handlePhotoImgError(this)" onclick="event.stopPropagation()">
     </div>
 
     <script src="./creata-logo.js?v=33"></script>
@@ -515,7 +515,7 @@
     <script src="./inventario-data-1.js?v=45"></script>
     <script src="./inventario-data-2.js?v=45"></script>
     <script src="./inventario-data-3.js?v=45"></script>
-    <script src="./creata-back-nav.js?v=1"></script>
-    <script src="./fotos-productos-app.js?v=39"></script>
+    <script src="./creata-back-nav.js?v=2"></script>
+    <script src="./fotos-productos-app.js?v=40"></script>
 </body>
 </html>

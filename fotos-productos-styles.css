@@ -57,6 +57,12 @@
     box-sizing: border-box;
 }
 
+html, body {
+    touch-action: pan-x pan-y;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
 html {
     scroll-behavior: auto;
     overflow-anchor: none;
@@ -96,6 +102,20 @@ input,
 
 .hidden {
     display: none !important;
+}
+
+.sr-only-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .mono {
@@ -4774,15 +4794,15 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
 
 @media (max-width: 1024px) {
     body.fotos-studio-v2 {
-        --creata-back-toast-bottom: calc(54px + env(safe-area-inset-bottom, 0px));
+        --creata-back-toast-bottom: calc(66px + env(safe-area-inset-bottom, 0px));
     }
 
     body.fotos-studio-v2.has-mobile-quick-save {
-        --creata-back-toast-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+        --creata-back-toast-bottom: calc(124px + env(safe-area-inset-bottom, 0px));
     }
 
     body.fotos-studio-v2 .workspace-shell {
-        padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(118px + env(safe-area-inset-bottom, 0px));
     }
 
     body.fotos-studio-v2 .workbench-grid {
@@ -4791,18 +4811,18 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
     }
 
     body.fotos-studio-v2 .mobile-jump-bar {
-        padding: 4px calc(6px + env(safe-area-inset-right, 0px)) max(6px, env(safe-area-inset-bottom, 0px)) calc(6px + env(safe-area-inset-left, 0px));
-        gap: 5px;
+        padding: 6px calc(8px + env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px));
+        gap: 6px;
         background: rgba(23, 24, 28, 0.96);
         border-top: 1px solid rgba(255, 255, 255, 0.12);
     }
 
     body.fotos-studio-v2 .mobile-jump-btn {
-        min-height: 31px;
-        height: 31px;
-        padding: 0 7px;
-        font-size: 9.5px;
-        border-radius: 7px;
+        min-height: 40px;
+        height: auto;
+        padding: 6px 10px;
+        font-size: 11px;
+        border-radius: 9px;
         background: rgba(255, 255, 255, 0.08);
         border-color: rgba(255, 255, 255, 0.14);
         color: #CBD5E1;
@@ -4815,75 +4835,83 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
     }
 
     body.fotos-studio-v2 .mobile-quick-save-bar {
-        bottom: calc(46px + env(safe-area-inset-bottom, 0px));
-        padding: 5px 6px 5px 10px;
-        border-radius: 10px;
+        bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+        padding: 7px 8px 7px 12px;
+        border-radius: 12px;
         gap: 8px;
         background: rgba(23, 24, 28, 0.96);
         border: 1px solid #C8A464;
     }
 
     body.fotos-studio-v2 .mobile-quick-save-tag {
-        font-size: 8.5px;
+        font-size: 9px;
         color: #D4AF6A;
     }
 
     body.fotos-studio-v2 .mobile-quick-save-sku {
-        font-size: 10.5px;
+        font-size: 11.5px;
         color: #FFFFFF;
     }
 
     body.fotos-studio-v2 .mobile-quick-save-btn {
-        min-height: 30px;
-        height: 30px;
-        padding: 0 12px;
-        font-size: 10px;
-        border-radius: 7px;
+        min-height: 40px;
+        height: auto;
+        padding: 0 14px;
+        font-size: 11.5px;
+        border-radius: 8px;
     }
 }
 
 @media (max-width: 768px) {
     body.fotos-studio-v2 .exec-header-inner {
-        padding: 5px 8px;
-        gap: 5px;
+        padding: 6px 8px;
+        gap: 6px;
     }
 
     body.fotos-studio-v2 .header-logo {
-        height: 18px;
+        height: 19px;
     }
 
     body.fotos-studio-v2 .header-titles h1 {
-        font-size: 11px;
+        font-size: 11.5px;
     }
 
     body.fotos-studio-v2 .fotos-live-pill {
-        padding: 1px 5px;
-        font-size: 8.5px;
+        padding: 2px 6px;
+        font-size: 9px;
     }
 
     body.fotos-studio-v2 .exec-header .header-actions {
-        gap: 4px;
+        gap: 5px;
     }
 
-    body.fotos-studio-v2 .exec-header .header-actions .hdr-btn {
-        min-height: 26px;
-        height: 26px;
-        padding: 0 8px;
-        font-size: 9.5px;
+    body.fotos-studio-v2 .exec-header .header-actions .hdr-btn,
+    body.fotos-studio-v2 .workspace-shell .hdr-btn {
+        min-height: 36px;
+        height: auto;
+        padding: 0 10px;
+        font-size: 10.5px;
+    }
+
+    body.fotos-studio-v2 .workspace-shell .hdr-btn.is-compact-btn {
+        min-height: 36px;
+        height: auto;
+        padding: 0 10px;
+        font-size: 10.5px;
     }
 
     body.fotos-studio-v2 .workspace-shell {
-        padding: 6px calc(7px + env(safe-area-inset-right, 0px)) calc(98px + env(safe-area-inset-bottom, 0px)) calc(7px + env(safe-area-inset-left, 0px));
-        gap: 7px;
+        padding: 6px calc(7px + env(safe-area-inset-right, 0px)) calc(120px + env(safe-area-inset-bottom, 0px)) calc(7px + env(safe-area-inset-left, 0px));
+        gap: 8px;
     }
 
     body.fotos-studio-v2 .workbench-grid {
         grid-template-columns: 1fr;
-        gap: 7px;
+        gap: 8px;
     }
 
     body.fotos-studio-v2 .right-column-stack {
-        gap: 7px;
+        gap: 8px;
     }
 
     body.fotos-studio-v2 .panel-card {
@@ -4891,91 +4919,107 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
     }
 
     body.fotos-studio-v2 .panel-header {
-        padding: 5px 8px;
-        gap: 5px;
+        padding: 6px 9px;
+        gap: 6px;
     }
 
     body.fotos-studio-v2 .panel-header h2 {
-        font-size: 10px;
+        font-size: 10.5px;
     }
 
     body.fotos-studio-v2 .panel-body {
-        padding: 7px 8px;
+        padding: 8px 9px;
     }
 
     body.fotos-studio-v2 .fotos-mode-hero {
-        padding: 3px;
-        border-radius: 8px;
+        padding: 4px;
+        border-radius: 9px;
     }
 
     body.fotos-studio-v2 .fotos-work-mode-bar {
         grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 3px;
+        gap: 4px;
     }
 
     body.fotos-studio-v2 .fotos-work-mode-btn {
-        min-height: 28px;
-        height: 28px;
-        padding: 0 3px;
-        font-size: 9.5px;
-        border-radius: 6px;
+        min-height: 38px;
+        height: auto;
+        padding: 4px 4px;
+        font-size: 10.5px;
+        border-radius: 7px;
     }
 
-    /* Entradas slim (mantiene 16px en pantallas táctiles para evitar zoom automático de iOS Safari) */
+    /* Entradas táctiles cómodas (>= 40px) y 16px para evitar auto-zoom de iOS/iPadOS Safari */
     body.fotos-studio-v2 .search-input,
     body.fotos-studio-v2 .inbox-search-input,
     body.fotos-studio-v2 .visual-url-row .search-input,
     body.fotos-studio-v2 .dest-select,
     body.fotos-studio-v2 .field-input {
-        min-height: 34px;
-        height: 34px;
-        padding-top: 0;
-        padding-bottom: 0;
+        min-height: 40px;
+        height: auto;
+        padding-top: 6px;
+        padding-bottom: 6px;
         font-weight: 500;
-        border-radius: 7px;
+        border-radius: 8px;
     }
 
     body.fotos-studio-v2 .search-input {
-        padding: 0 30px 0 28px;
+        padding: 6px 40px 6px 32px;
     }
 
     body.fotos-studio-v2 .search-clear-btn {
-        width: 24px;
-        height: 24px;
+        width: 34px;
+        height: 34px;
         right: 4px;
-        font-size: 10px;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    body.fotos-studio-v2 .field-toggle-btn {
+        min-height: 34px;
+        height: auto;
+        padding: 0 10px;
+        font-size: 11px;
+    }
+
+    body.fotos-studio-v2 #btnOwnerLoginSubmit.btn-primary-gold {
+        min-height: 42px;
+        height: auto;
+        font-size: 12px;
     }
 
     body.fotos-studio-v2 .filter-pill {
-        min-height: 26px;
-        height: 26px;
-        padding: 0 5px;
-        font-size: 9px;
-        border-radius: 5px;
+        min-height: 34px;
+        height: auto;
+        padding: 4px 7px;
+        font-size: 10px;
+        border-radius: 6px;
     }
 
     body.fotos-studio-v2 .cat-filter-pill,
     body.fotos-studio-v2 .sib-var-pill {
-        min-height: 24px;
-        height: 24px;
-        padding: 0 7px;
-        font-size: 9px;
+        min-height: 34px;
+        height: auto;
+        padding: 4px 9px;
+        font-size: 10px;
     }
 
     body.fotos-studio-v2 .fotos-collapsible-summary {
-        min-height: 28px;
-        padding: 4px 8px;
-        font-size: 9.5px;
+        min-height: 38px;
+        padding: 6px 10px;
+        font-size: 10.5px;
     }
 
     body.fotos-studio-v2 .fotos-collapsible-badge {
-        font-size: 8.5px;
-        padding: 0 5px;
+        font-size: 9.5px;
+        padding: 1px 6px;
     }
 
     body.fotos-studio-v2 .sku-list {
         max-height: min(44svh, 340px);
-        gap: 5px;
+        gap: 6px;
     }
 
     body.fotos-studio-v2 .sku-item,
@@ -4983,7 +5027,7 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
         flex: 0 0 auto;
         height: auto;
         min-height: 0;
-        padding: 6px 8px;
+        padding: 7px 9px;
         gap: 8px;
         border-radius: 8px;
     }
@@ -4992,16 +5036,16 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
     body.fotos-studio-v2 .sku-thumb-mini,
     body.fotos-studio-v2 .visual-target-thumb {
         flex: 0 0 auto;
-        width: 36px;
-        height: 36px;
-        min-width: 36px;
+        width: 38px;
+        height: 38px;
+        min-width: 38px;
         border-radius: 6px;
     }
 
     body.fotos-studio-v2 .sku-name,
     body.fotos-studio-v2 .sku-item-name,
     body.fotos-studio-v2 .visual-target-title {
-        font-size: 10.5px;
+        font-size: 11px;
         line-height: 1.25;
     }
 
@@ -5010,52 +5054,52 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
     body.fotos-studio-v2 .sku-submeta,
     body.fotos-studio-v2 .sku-item-meta,
     body.fotos-studio-v2 .visual-target-sub {
-        font-size: 9px;
+        font-size: 9.5px;
     }
 
     body.fotos-studio-v2 .sku-status-badge,
     body.fotos-studio-v2 .sku-status-pill,
     body.fotos-studio-v2 .sku-stock-badge,
     body.fotos-studio-v2 .visual-target-pill {
-        font-size: 8px;
+        font-size: 8.5px;
         padding: 1px 5px;
     }
 
     body.fotos-studio-v2 .sku-quick-btn {
-        min-height: 21px;
-        min-width: 21px;
-        height: 21px;
-        padding: 0 6px;
-        font-size: 8.5px;
+        min-height: 34px;
+        min-width: 34px;
+        height: auto;
+        padding: 0 8px;
+        font-size: 10px;
         line-height: 1;
     }
 
     body.fotos-studio-v2 .sku-quick-banner,
     body.fotos-studio-v2 .visual-stage-summary {
-        padding: 6px 8px;
-        border-radius: 7px;
+        padding: 7px 9px;
+        border-radius: 8px;
     }
 
     body.fotos-studio-v2 .sku-quick-name,
     body.fotos-studio-v2 .visual-stage-title {
-        font-size: 11px;
-        line-height: 1.22;
+        font-size: 11.5px;
+        line-height: 1.24;
     }
 
     body.fotos-studio-v2 .sku-quick-chip {
-        font-size: 9px;
-        padding: 1px 6px;
+        font-size: 9.5px;
+        padding: 2px 6px;
     }
 
     body.fotos-studio-v2 .sku-linked-fabric-chip {
-        min-height: 22px;
-        padding: 1px 6px 1px 3px;
-        font-size: 9px;
+        min-height: 34px;
+        padding: 2px 8px 2px 4px;
+        font-size: 10px;
     }
 
     body.fotos-studio-v2 .sku-linked-fabric-chip img {
-        width: 15px;
-        height: 15px;
+        width: 18px;
+        height: 18px;
     }
 
     body.fotos-studio-v2 .dual-preview-grid {
@@ -5063,44 +5107,44 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
     }
 
     body.fotos-studio-v2 .photo-stage-head {
-        min-height: 26px;
-        padding: 3px 6px;
+        min-height: 38px;
+        padding: 4px 7px;
     }
 
     body.fotos-studio-v2 .photo-stage-title {
-        font-size: 9.5px;
+        font-size: 10px;
     }
 
     body.fotos-studio-v2 .workspace-shell .hdr-btn.stage-action-btn,
     body.fotos-studio-v2 .stage-action-btn {
-        min-height: 23px;
-        min-width: 23px;
-        height: 23px;
-        padding: 0 6px;
-        font-size: 9px;
+        min-height: 34px;
+        min-width: 34px;
+        height: auto;
+        padding: 0 8px;
+        font-size: 10px;
     }
 
     body.fotos-studio-v2 .photo-stage-canvas {
-        height: 124px;
-        min-height: 124px;
-        max-height: 124px;
+        height: 132px;
+        min-height: 132px;
+        max-height: 132px;
         padding: 5px;
     }
 
     body.fotos-studio-v2 .visual-single-canvas {
-        height: 162px;
-        min-height: 162px;
-        max-height: 185px;
+        height: 168px;
+        min-height: 168px;
+        max-height: 190px;
     }
 
     body.fotos-studio-v2 .assign-controls-bar {
-        padding: 6px 7px;
-        gap: 6px;
+        padding: 7px 8px;
+        gap: 7px;
     }
 
     body.fotos-studio-v2 .auto-dest-pill {
-        padding: 4px 7px;
-        font-size: 9.5px;
+        padding: 5px 8px;
+        font-size: 10px;
     }
 
     body.fotos-studio-v2 .assign-btns-cluster {
@@ -5109,7 +5153,7 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
 
     body.fotos-studio-v2 .visual-stage-actions-row {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
         width: 100%;
         gap: 6px;
     }
@@ -5122,38 +5166,38 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
     body.fotos-studio-v2 .visual-stage-actions-row .visual-upload-primary,
     body.fotos-studio-v2 .visual-stage-actions-row #btnAssignVisualGalleryPhoto {
         width: 100%;
-        min-height: 32px;
-        height: 32px;
-        font-size: 10.5px;
-        padding: 0 9px;
-        border-radius: 7px;
+        min-height: 42px;
+        height: auto;
+        font-size: 11.5px;
+        padding: 8px 10px;
+        border-radius: 8px;
     }
 
     body.fotos-studio-v2 .visual-url-row .hdr-btn {
-        min-height: 34px;
-        height: 34px;
-        padding: 0 10px;
-        font-size: 10px;
+        min-height: 40px;
+        height: auto;
+        padding: 0 12px;
+        font-size: 11px;
     }
 
     body.fotos-studio-v2 .gallery-tab-btn {
-        min-height: 27px;
-        height: 27px;
-        padding: 0 7px;
-        font-size: 9.5px;
-        border-radius: 6px;
+        min-height: 36px;
+        height: auto;
+        padding: 4px 8px;
+        font-size: 10.5px;
+        border-radius: 7px;
     }
 
     body.fotos-studio-v2 .inbox-toolbar {
-        gap: 5px;
-        margin-bottom: 6px;
+        gap: 6px;
+        margin-bottom: 7px;
     }
 
     body.fotos-studio-v2 .inbox-toolbar-actions {
         display: flex;
         align-items: center;
         flex-wrap: nowrap;
-        gap: 5px;
+        gap: 6px;
         width: 100%;
     }
 
@@ -5163,10 +5207,11 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
 
     body.fotos-studio-v2 .inbox-toolbar-actions .hdr-btn,
     body.fotos-studio-v2 .inbox-toolbar-actions .is-upload-lbl {
-        min-height: 29px;
-        height: 29px;
-        padding: 0 8px;
-        font-size: 9.5px;
+        min-height: 38px;
+        height: auto;
+        min-width: 38px;
+        padding: 0 10px;
+        font-size: 10.5px;
     }
 
     body.fotos-studio-v2 .inbox-grid {
@@ -5176,62 +5221,62 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
 
     body.fotos-studio-v2 .inbox-thumb-box,
     body.fotos-studio-v2 .inbox-thumb-wrap {
-        height: 82px;
-        min-height: 82px;
-        padding: 3px;
+        height: 86px;
+        min-height: 86px;
+        padding: 4px;
     }
 
     body.fotos-studio-v2 .inbox-card-meta {
-        padding: 4px 5px;
-        gap: 1px;
+        padding: 5px 6px;
+        gap: 2px;
     }
 
     body.fotos-studio-v2 .inbox-file-name {
-        font-size: 9px;
+        font-size: 9.5px;
     }
 
     body.fotos-studio-v2 .inbox-file-sub {
-        font-size: 8px;
-    }
-
-    body.fotos-studio-v2 .card-del-btn {
-        width: 22px;
-        height: 22px;
-        min-width: 22px;
-        min-height: 22px;
-        font-size: 10px;
-        top: 3px;
-        right: 3px;
-        border-radius: 5px;
-    }
-
-    body.fotos-studio-v2 .suggest-sku-btn {
-        min-height: 22px;
-        padding: 2px 5px;
         font-size: 8.5px;
     }
 
+    body.fotos-studio-v2 .card-del-btn {
+        width: 34px;
+        height: 34px;
+        min-width: 34px;
+        min-height: 34px;
+        font-size: 12px;
+        top: 4px;
+        right: 4px;
+        border-radius: 7px;
+    }
+
+    body.fotos-studio-v2 .suggest-sku-btn {
+        min-height: 34px;
+        padding: 4px 7px;
+        font-size: 9.5px;
+    }
+
     body.fotos-studio-v2 .recent-uploads-strip {
-        padding: 5px 6px;
+        padding: 6px 7px;
     }
 
     body.fotos-studio-v2 .recent-upload-card {
-        flex: 0 0 82px;
-        width: 82px;
+        flex: 0 0 88px;
+        width: 88px;
     }
 
     body.fotos-studio-v2 .recent-upload-thumb-wrap {
-        height: 56px;
+        height: 60px;
     }
 
     body.fotos-studio-v2 .recent-upload-eye-btn {
-        width: 20px;
-        height: 20px;
-        font-size: 9.5px;
+        width: 34px;
+        height: 34px;
+        font-size: 12px;
     }
 }
 
-/* En PC con ventana estrecha / pantalla dividida (ratón fino), mantener inputs ultra-compactos */
+/* En PC con ventana estrecha / pantalla dividida (ratón fino), mantener inputs y controles ultra-compactos */
 @media (max-width: 768px) and (pointer: fine) {
     body.fotos-studio-v2 .search-input,
     body.fotos-studio-v2 .inbox-search-input,
@@ -5241,6 +5286,64 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
         font-size: 11px !important;
         min-height: 30px;
         height: 30px;
+        padding-top: 0;
+        padding-bottom: 0;
+    }
+}
+
+/* Pantallas táctiles (iPhone, Android, iPad / tablet 769px-1366px): 16px anti-zoom + áreas táctiles cómodas */
+@media (pointer: coarse) {
+    input,
+    select,
+    textarea,
+    body.fotos-studio-v2 input,
+    body.fotos-studio-v2 select,
+    body.fotos-studio-v2 textarea,
+    body.fotos-studio-v2 .search-input,
+    body.fotos-studio-v2 .inbox-search-input,
+    body.fotos-studio-v2 .visual-url-row .search-input,
+    body.fotos-studio-v2 .dest-select,
+    body.fotos-studio-v2 .field-input {
+        font-size: 16px !important;
+    }
+
+    body.fotos-studio-v2 .search-input,
+    body.fotos-studio-v2 .inbox-search-input,
+    body.fotos-studio-v2 .visual-url-row .search-input,
+    body.fotos-studio-v2 .dest-select,
+    body.fotos-studio-v2 .field-input {
+        min-height: 40px;
+        height: auto;
+    }
+
+    body.fotos-studio-v2 .btn-primary-gold,
+    body.fotos-studio-v2 #btnAssignPhotoNow,
+    body.fotos-studio-v2 .btn-secondary-upload,
+    body.fotos-studio-v2 .mobile-jump-btn,
+    body.fotos-studio-v2 .mobile-quick-save-btn {
+        min-height: 40px;
+        height: auto;
+    }
+
+    body.fotos-studio-v2 .exec-header .hdr-btn,
+    body.fotos-studio-v2 .workspace-shell .hdr-btn,
+    body.fotos-studio-v2 .gallery-tab-btn,
+    body.fotos-studio-v2 .fotos-work-mode-btn {
+        min-height: 36px;
+        height: auto;
+    }
+
+    body.fotos-studio-v2 .card-del-btn,
+    body.fotos-studio-v2 .sku-quick-btn,
+    body.fotos-studio-v2 .workspace-shell .hdr-btn.stage-action-btn,
+    body.fotos-studio-v2 .stage-action-btn,
+    body.fotos-studio-v2 .recent-upload-eye-btn,
+    body.fotos-studio-v2 .search-clear-btn,
+    body.fotos-studio-v2 .suggest-sku-btn,
+    body.fotos-studio-v2 .inbox-doc-open-btn {
+        min-width: 34px;
+        min-height: 34px;
+        height: auto;
     }
 }
 
@@ -5254,18 +5357,18 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
 
 @media (max-width: 400px) {
     body.fotos-studio-v2 .fotos-work-mode-btn {
-        font-size: 9px;
-        padding: 0 2px;
+        font-size: 9.5px;
+        padding: 4px 2px;
     }
 
     body.fotos-studio-v2 .filter-pill {
-        font-size: 8.5px;
+        font-size: 9px;
     }
 
     body.fotos-studio-v2 .photo-stage-canvas {
-        height: 112px;
-        min-height: 112px;
-        max-height: 112px;
+        height: 118px;
+        min-height: 118px;
+        max-height: 118px;
     }
 
     body.fotos-studio-v2 .inbox-grid {
@@ -5274,10 +5377,148 @@ body.fotos-studio-v2.fotos-split-active:not(.fotos-split-vertical) .workbench-gr
 
     body.fotos-studio-v2 .inbox-thumb-box,
     body.fotos-studio-v2 .inbox-thumb-wrap {
-        height: 86px;
-        min-height: 86px;
+        height: 88px;
+        min-height: 88px;
     }
 }
+
+/* --- Contenedores de labels con input .sr-only-file-input (iOS Safari / WKWebView safe) --- */
+.btn-secondary-upload,
+.visual-upload-primary,
+.is-upload-lbl {
+    position: relative;
+    overflow: hidden;
+}
+
+/* --- Tarjetas de Documentos en Bandeja SUBIR PREN (PDF, Word, Excel, CSV, TXT, PPT, ZIP) --- */
+.inbox-doc-card {
+    background: var(--bg-surface);
+}
+
+.inbox-doc-preview {
+    background: var(--bg-subtle);
+    flex-direction: column;
+    gap: 5px;
+}
+
+.inbox-doc-badge {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 62px;
+    padding: 7px 11px;
+    border-radius: 9px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-surface);
+    color: var(--ink-primary);
+    box-shadow: var(--shadow-sm);
+}
+
+.inbox-doc-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.inbox-doc-ext {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.inbox-doc-badge.is-pdf {
+    background: var(--status-err-bg);
+    border-color: var(--status-err-border);
+    color: var(--status-err-ink);
+}
+
+.inbox-doc-badge.is-xls {
+    background: var(--status-ok-bg);
+    border-color: var(--status-ok-border);
+    color: var(--status-ok-ink);
+}
+
+.inbox-doc-badge.is-doc {
+    background: rgba(37, 99, 235, 0.1);
+    border-color: rgba(37, 99, 235, 0.34);
+    color: #1D4ED8;
+}
+
+.inbox-doc-badge.is-ppt {
+    background: var(--status-warn-bg);
+    border-color: var(--status-warn-border);
+    color: var(--status-warn-ink);
+}
+
+.inbox-doc-badge.is-zip,
+.inbox-doc-badge.is-other {
+    background: var(--brand-gold-tint);
+    border-color: rgba(168, 127, 62, 0.38);
+    color: var(--gold-light);
+}
+
+.inbox-doc-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.inbox-doc-open-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 2px 7px;
+    border-radius: 5px;
+    border: 1px solid rgba(168, 127, 62, 0.42);
+    background: var(--brand-gold-tint);
+    color: var(--gold-light);
+    font-size: 9px;
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.inbox-doc-open-btn:hover {
+    background: var(--brand-gold);
+    border-color: var(--brand-gold);
+    color: #FFFFFF;
+}
+
+.inbox-doc-pending {
+    font-size: 8.5px;
+    font-weight: 800;
+    color: var(--status-warn-ink);
+    white-space: nowrap;
+}
+
+body.fotos-studio-v2 .inbox-doc-card {
+    border: 1px solid var(--border-hairline);
+    background: var(--bg-surface);
+}
+
+body.fotos-studio-v2 .inbox-doc-card:hover {
+    border-color: var(--brand-gold);
+    background: var(--bg-elevated);
+}
+
+body.fotos-studio-v2 .inbox-doc-preview {
+    background: #F6F4EE;
+}
+
+body.fotos-studio-v2 .inbox-doc-badge.is-doc {
+    background: #EFF6FF;
+    border-color: #BFDBFE;
+    color: #1D4ED8;
+}
+
 
 
 

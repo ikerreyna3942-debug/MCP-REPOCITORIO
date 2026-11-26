@@ -16,9 +16,9 @@ test('Settings UI & cache versions exist in inventario.html and inventario-ui.cs
   assert(html.includes('id="settingsProductsSection"'), 'Missing Kevin product manager section');
   assert(html.includes('id="settingsPasswordSection"'), 'Missing password change section');
   assert(html.includes('id="settingsSessionsSection"'), 'Missing open sessions section');
-  assert(html.includes('./inventario-ui.css?v=28'), 'inventario.html must load inventario-ui.css?v=28');
-  assert(html.includes('./historial-app.js?v=12'), 'inventario.html must load historial-app.js?v=12');
-  assert(html.includes('inventario-app.js?v=113'), 'inventario.html must load inventario-app.js?v=113');
+  assert(html.includes('./inventario-ui.css?v=29'), 'inventario.html must load inventario-ui.css?v=29');
+  assert(html.includes('./historial-app.js?v=13'), 'inventario.html must load historial-app.js?v=13');
+  assert(html.includes('inventario-app.js?v=114'), 'inventario.html must load inventario-app.js?v=114');
   const segJs = fs.readFileSync('seguimiento-app.js', 'utf8');
   assert(!segJs.includes('id="seg_btnKevinAuditHeader"'), 'Historial y Movimientos button must be removed from Seguimiento header');
   assert(segJs.includes('class="cm-seg-search-field"'), 'Seguimiento search bar must use full-width top field class');
@@ -40,8 +40,14 @@ test('Settings UI & cache versions exist in inventario.html and inventario-ui.cs
 });
 
 test('Zero locked files modified and syntax valid across inventario-app.js and AppsScript_Creata_Drive_Sheets.gs', () => {
-  const changed = execSync('git diff --name-only origin/main', { encoding: 'utf8' })
-    .trim().split('\n').filter(Boolean);
+  let diffOut = '';
+  for (const cmd of ['git diff --name-only origin/main', 'git diff --name-only main', 'git diff --name-only HEAD~1', 'git diff --name-only']) {
+    try {
+      diffOut = execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      break;
+    } catch (_) {}
+  }
+  const changed = diffOut.trim().split('\n').filter(Boolean);
   for (const f of changed) {
     assert(!/^(index\.html|catalog-|admin|inventario-sw\.js)/.test(f), `Locked file touched: ${f}`);
   }

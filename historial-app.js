@@ -167,9 +167,12 @@
       const ts = new Date(yr, mon, day, hr, min, sec).getTime();
       if (!isNaN(ts)) return ts;
     }
-    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
     if (iso) {
-      const ts = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10)).getTime();
+      const hr = iso[4] ? parseInt(iso[4], 10) : 0;
+      const min = iso[5] ? parseInt(iso[5], 10) : 0;
+      const sec = iso[6] ? parseInt(iso[6], 10) : 0;
+      const ts = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10), hr, min, sec).getTime();
       if (!isNaN(ts)) return ts;
     }
     const fallback = Date.parse(s);
@@ -1150,6 +1153,12 @@
 
     try {
       const hbRes = await callWebAppPost('inv_presence_heartbeat', payload, 8000);
+      if (hbRes && hbRes.sessionRevoked === true) {
+        if (typeof global.logoutAdvisorSession === 'function') {
+          global.logoutAdvisorSession();
+        }
+        return;
+      }
       if (hbRes && hbRes.renewedAuthToken) {
         persistRenewedAuthToken(hbRes.renewedAuthToken);
       }
@@ -1382,7 +1391,7 @@
         : Promise.resolve(null);
 
       const jobs = [
-        fetchSheetRows('COTIZACIONES_EN_VIVO', 'A1:Z1500', SHEET_ID),
+        fetchSheetRows('COTIZACIONES_EN_VIVO', 'A:Z', SHEET_ID),
         isAdmin ? fetchSheetRows('HISTORIAL', 'A:J', SHEET_ID) : Promise.resolve(null),
         segStateJob,
         Promise.resolve(null),
@@ -1392,13 +1401,24 @@
       const [quotesRaw, histRaw, segStateRes, photosRaw, presenceRes] = await Promise.all(jobs);
       if (!mounted || seq !== _histSyncSeq) return;
 
-      const cierresRaw = (segStateRes && segStateRes.ok && Array.isArray(segStateRes.cierresRows)) ? segStateRes.cierresRows : null;
-      const histMovRaw = (segStateRes && segStateRes.ok && Array.isArray(segStateRes.histMovRows)) ? segStateRes.histMovRows : null;
-      const cotCreataRaw = (segStateRes && segStateRes.ok && Array.isArray(segStateRes.cotCreataRows)) ? segStateRes.cotCreataRows : null;
+      const sh = (segStateRes && segStateRes.ok && segStateRes.sheets && typeof segStateRes.sheets === 'object') ? segStateRes.sheets : {};
+      const cierresRaw = Array.isArray(sh.CIERRES_COTIZACIONES)
+        ? sh.CIERRES_COTIZACIONES
+        : ((segStateRes && segStateRes.ok && Array.isArray(segStateRes.cierresRows)) ? segStateRes.cierresRows : null);
+      const histMovRaw = Array.isArray(sh.HISTORIAL_MOVIMIENTOS)
+        ? sh.HISTORIAL_MOVIMIENTOS
+        : ((segStateRes && segStateRes.ok && Array.isArray(segStateRes.histMovRows)) ? segStateRes.histMovRows : null);
+      const cotCreataRaw = Array.isArray(sh.COTIZACIONES_CREATA)
+        ? sh.COTIZACIONES_CREATA
+        : ((segStateRes && segStateRes.ok && Array.isArray(segStateRes.cotCreataRows)) ? segStateRes.cotCreataRows : null);
+      const cotArchivadasRaw = Array.isArray(sh.COTIZACIONES_ARCHIVADAS)
+        ? sh.COTIZACIONES_ARCHIVADAS
+        : ((segStateRes && segStateRes.ok && Array.isArray(segStateRes.cotArchivadasRows)) ? segStateRes.cotArchivadasRows : null);
 
       const parsedHist = Array.isArray(histRaw) ? parseHistorialSheetRows(histRaw) : [];
       const baseQuotes = Array.isArray(quotesRaw) ? parseQuotesSheetRows(quotesRaw) : [];
-      const allQuotes = mergeCotizacionesCreataRows(baseQuotes, cotCreataRaw);
+      const withCreataQuotes = mergeCotizacionesCreataRows(baseQuotes, cotCreataRaw);
+      const allQuotes = mergeCotizacionesCreataRows(withCreataQuotes, cotArchivadasRaw);
       const allTimeline = buildUnifiedSeguimientoData(allQuotes, cierresRaw, histMovRaw, parsedHist);
 
       // Enforce strict role scoping (Admin = all, Manager = branch, Advisor = own)
@@ -2184,23 +2204,100 @@
   // ============================================================================
   // MODALES (COTIZACIÓN + PDF FORMAL #3 & FOTO PROTEGIDA #15/#16)
   // ============================================================================
-  function triggerHistoryBase64PdfDownload(base64Str, fileName) {
+  function isHistIosDevice() {
+    try {
+      const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+      if (/iPhone|iPad|iPod/i.test(ua)) return true;
+      if (/Macintosh/i.test(ua) && typeof navigator !== 'undefined' && Number(navigator.maxTouchPoints || 0) > 1) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function isHistMobileOrIosDevice() {
+    try {
+      const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+      if (isHistIosDevice() || /Android|Mobile|Tablet/i.test(ua)) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function isHistIosStandalone() {
+    try {
+      if (!isHistIosDevice()) return false;
+      if (typeof navigator !== 'undefined' && navigator.standalone === true) return true;
+      if (typeof global.matchMedia === 'function' && global.matchMedia('(display-mode: standalone)').matches) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  async function triggerHistoryBase64PdfDownload(base64Str, fileName, shareUrl) {
     const cleanB64 = String(base64Str || '').replace(/\s+/g, '');
     const bin = global.atob(cleanB64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const blob = new Blob([bytes], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
     const safeName = cleanStr(fileName) || 'CREATA-muebles-cotización_SIN-FOLIO.pdf';
+    const finalName = /\.pdf$/i.test(safeName) ? safeName : (safeName + '.pdf');
+
+    if (isHistIosDevice()) {
+      try {
+        if (typeof File === 'function' && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+          const pdfFile = new File([blob], finalName, { type: 'application/pdf' });
+          if (typeof navigator.canShare !== 'function' || navigator.canShare({ files: [pdfFile] })) {
+            await navigator.share({ files: [pdfFile], title: finalName });
+            return { method: 'share', fileName: finalName };
+          }
+        }
+      } catch (eShare) {
+        if (eShare && eShare.name === 'AbortError') {
+          return { method: 'share_cancelled', fileName: finalName };
+        }
+      }
+
+      const drivePreview = cleanStr(shareUrl);
+      if (drivePreview) {
+        if (isHistIosStandalone()) {
+          global.location.href = drivePreview;
+        } else {
+          const w = global.open(drivePreview, '_blank');
+          if (w) {
+            try { w.opener = null; } catch (eOp) {}
+          } else {
+            global.location.href = drivePreview;
+          }
+        }
+        return { method: 'drive_preview', fileName: finalName, url: drivePreview };
+      }
+
+      const iosBlobUrl = URL.createObjectURL(blob);
+      const wBlob = isHistIosStandalone() ? null : global.open(iosBlobUrl, '_blank');
+      if (wBlob) {
+        try { wBlob.opener = null; } catch (eOp2) {}
+      } else {
+        const aIos = document.createElement('a');
+        aIos.href = iosBlobUrl;
+        aIos.download = finalName;
+        aIos.target = '_blank';
+        aIos.style.display = 'none';
+        document.body.appendChild(aIos);
+        aIos.click();
+        setTimeout(() => { if (aIos.parentNode) aIos.parentNode.removeChild(aIos); }, 250);
+      }
+      setTimeout(() => { try { URL.revokeObjectURL(iosBlobUrl); } catch (e) {} }, 60000);
+      return { method: 'ios_blob', fileName: finalName };
+    }
+
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = /\.pdf$/i.test(safeName) ? safeName : (safeName + '.pdf');
+    a.download = finalName;
     a.rel = 'noopener';
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 250);
     setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+    return { method: 'download', fileName: finalName };
   }
 
   function setHistoryPdfStatus(tone, htmlContent) {
@@ -2229,6 +2326,7 @@
     setHistoryPdfStatus('warn', 'Obteniendo PDF...');
 
     try {
+      const wantShareLink = isHistMobileOrIosDevice();
       const res = await callWebAppPost('inv_download_erp_quote_pdf', {
         authToken: state.session.authToken || '',
         sheetTab: state.session.sheetTab || 'CUENTAS ADMINISTRATIVAS',
@@ -2237,13 +2335,34 @@
         folio: (!/^(SIN FOLIO|EN PROCESO|PENDIENTE)$/i.test(cleanStr(q.folioErp))) ? cleanStr(q.folioErp) : '',
         erpUserId: cleanStr(q.idUsuarioErp),
         clientName: cleanStr(q.cliente),
-        erpStore: cleanStr(q.tiendaErp)
+        erpStore: cleanStr(q.tiendaErp),
+        createShareLink: wantShareLink
       }, 45000);
 
+      const shareUrl = cleanStr(res && (res.shareUrl || res.driveUrl || res.pdfUrl || res.viewUrl));
       if (res && res.ok && res.pdfBase64) {
         const fname = buildFormalQuotePdfName(q.folioErp || q.idErp, q.cliente);
-        triggerHistoryBase64PdfDownload(res.pdfBase64, fname);
-        setHistoryPdfStatus('ok', `PDF descargado: <strong>${escapeHtml(fname)}</strong>`);
+        const dlRes = await triggerHistoryBase64PdfDownload(res.pdfBase64, fname, shareUrl);
+        if (shareUrl && isHistIosDevice()) {
+          setHistoryPdfStatus('ok', `PDF listo: <strong>${escapeHtml(fname)}</strong> · <a href="${escapeHtml(shareUrl)}" target="_blank" rel="noopener" style="text-decoration:underline;font-weight:800;">Abrir en Drive</a>`);
+        } else {
+          setHistoryPdfStatus('ok', `${dlRes && dlRes.method === 'share' ? 'PDF compartido' : 'PDF descargado'}: <strong>${escapeHtml(fname)}</strong>`);
+        }
+        return;
+      }
+
+      if (res && res.ok && shareUrl) {
+        if (isHistIosStandalone()) {
+          global.location.href = shareUrl;
+        } else {
+          const w = global.open(shareUrl, '_blank');
+          if (w) {
+            try { w.opener = null; } catch (eOp) {}
+          } else {
+            global.location.href = shareUrl;
+          }
+        }
+        setHistoryPdfStatus('ok', `PDF abierto: <a href="${escapeHtml(shareUrl)}" target="_blank" rel="noopener" style="text-decoration:underline;font-weight:800;">Ver PDF en Drive</a>`);
         return;
       }
 
@@ -2754,7 +2873,10 @@
     const onBeforeUnload = () => saveHistCheckpointNow();
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') saveHistCheckpointNow();
-      else if (document.visibilityState === 'visible') sendHistPresenceHeartbeat(false);
+      else if (document.visibilityState === 'visible') {
+        sendHistPresenceHeartbeat(false);
+        if (!state.syncInFlight) syncLiveData(true);
+      }
     };
     const onWindowFocus = () => {
       sendHistPresenceHeartbeat(false);

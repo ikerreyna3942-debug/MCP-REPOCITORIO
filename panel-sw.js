@@ -7,17 +7,17 @@
  *   tráfico hacia script.google.com y *.onrender.com.
  */
 const CACHE_PREFIX = 'creata-panel-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v6';
+const CACHE_NAME = CACHE_PREFIX + 'v7';
 const PAGE_URL = './panel.html';
 const NETWORK_TIMEOUT_MS = 7000;
 
 const SHELL_ASSETS = [
     './panel.html',
-    './panel-styles.css?v=6',
+    './panel-styles.css?v=7',
     './creata-logo.js?v=33',
     './creata-cloud.js?v=34',
-    './creata-back-nav.js?v=1',
-    './panel-app.js?v=14',
+    './creata-back-nav.js?v=2',
+    './panel-app.js?v=15',
     './panel-manifest.json?v=2',
     './inventario-icon-192.png',
     './inventario-icon-512.png',

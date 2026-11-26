@@ -5,11 +5,17 @@
  * - Estrategia "red primero" para HTML/JS/CSS y caché rápida para miniaturas de Google Drive.
  */
 const CACHE_PREFIX = 'creata-fotos-app-';
-const CACHE_NAME = CACHE_PREFIX + 'v31';
-const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v31';
+const CACHE_NAME = CACHE_PREFIX + 'v32';
+const IMG_CACHE_NAME = CACHE_PREFIX + 'img-v32';
 const MAX_CACHED_IMAGES = 350;
 const PAGE_URL = './fotos-productos.html';
 const NETWORK_TIMEOUT_MS = 4500;
+const SHELL_PRECACHE_ASSETS = [
+    './fotos-productos-styles.css?v=30',
+    './creata-back-nav.js?v=2',
+    './fotos-productos-app.js?v=40',
+    './fotos-manifest.json?v=3'
+];
 
 function isOfflineNow() {
     return typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -27,6 +33,12 @@ function isProductImageHost(url) {
 
 async function precacheFotosShell() {
     const cache = await caches.open(CACHE_NAME);
+    const urls = new Set();
+    for (let i = 0; i < SHELL_PRECACHE_ASSETS.length; i++) {
+        try {
+            urls.add(new URL(SHELL_PRECACHE_ASSETS[i], self.location.href).href);
+        } catch (e) {}
+    }
     const pageRes = await fetch(PAGE_URL, { cache: 'reload' });
     if (!pageRes || !pageRes.ok) return;
     await cache.put(PAGE_URL, pageRes.clone());
@@ -35,7 +47,6 @@ async function precacheFotosShell() {
         await cache.put(absPageUrl, pageRes.clone());
     } catch (e) {}
     const html = await pageRes.text();
-    const urls = new Set();
     const re = /<(?:script|link)\b([^>]*?)>/gi;
     let m;
     while ((m = re.exec(html)) !== null) {

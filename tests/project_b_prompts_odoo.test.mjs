@@ -209,8 +209,12 @@ test('Project B: prompts_health (GET & POST) reports folder counts, pinConfigure
   assert.equal(postRes.bulkCacheHit, true);
   assert.equal(postRes.folders.buzonOdoo.trashed, true);
 
-  // fullScan: true bypasses cache
-  const fullRes = postAction(env, { action: 'prompts_health', fullScan: true });
+  // fullScan: true requires owner auth on doPost (closes unauthenticated fullScan DoS bypass)
+  const unauthFullRes = postAction(env, { action: 'prompts_health', fullScan: true });
+  assert.equal(unauthFullRes.ok, false);
+
+  // Authenticated fullScan: true bypasses cache cleanly
+  const fullRes = postAction(env, { action: 'prompts_health', fullScan: true, ...OWNER_AUTH });
   assert.equal(fullRes.ok, true);
   assert.equal(fullRes.bulkCacheHit, false);
 });

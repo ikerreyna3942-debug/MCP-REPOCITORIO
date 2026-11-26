@@ -519,22 +519,66 @@ function colIndexToLetter_(index) {
   return out;
 }
 
-function formatDriveFileMeta_(file, folderId) {
-  const fid = String(file.getId() || '').trim();
-  const name = String(file.getName() || '').trim();
-  const mime = String(file.getMimeType() || '').toLowerCase();
-  const updated = file.getLastUpdated ? file.getLastUpdated() : null;
-  return {
-    id: fid,
-    name: name,
-    mimeType: mime.indexOf('image/') === 0 ? mime : 'image/jpeg',
-    sizeBytes: Number((file.getSize && file.getSize()) || 0) || 0,
-    updatedAt: updated && updated.toISOString ? updated.toISOString() : '',
-    viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
-    thumbUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=w800',
-    cdnUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=s2048',
-    folderId: String(folderId || '').trim()
-  };
+const PROMPTS_DOC_MIME_BY_EXT_ = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  zip: 'application/zip'
+};
+
+const PROMPTS_DOC_EXT_BY_MIME_ = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'text/csv': 'csv',
+  'application/csv': 'csv',
+  'text/plain': 'txt',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/zip': 'zip',
+  'application/x-zip-compressed': 'zip'
+};
+
+function utf8ByteLengthPrompts_(str) {
+  const s = String(str || '');
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff && i + 1 < s.length) {
+      bytes += 4;
+      i++;
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
+function applyPublicSharingPrompts_(item) {
+  if (!item || typeof item.setSharing !== 'function') {
+    return { ok: false, error: 'Objeto Drive sin soporte setSharing.' };
+  }
+  try {
+    item.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return { ok: true, error: '' };
+  } catch (eShare) {
+    return {
+      ok: false,
+      error: (eShare && eShare.message) ? eShare.message : String(eShare)
+    };
+  }
 }
 
 function isImageDriveFile_(file) {
@@ -544,7 +588,59 @@ function isImageDriveFile_(file) {
   return mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif|tiff?)$/i.test(name);
 }
 
-function resolveSafeImageFileForProjectB_(fileObj, checkMultiParent) {
+function isDocumentDriveFile_(file) {
+  if (!file || (file.isTrashed && file.isTrashed())) return false;
+  const mime = String((file.getMimeType && file.getMimeType()) || '').toLowerCase();
+  const name = String((file.getName && file.getName()) || '').trim();
+  if (Object.prototype.hasOwnProperty.call(PROMPTS_DOC_EXT_BY_MIME_, mime)) return true;
+  return /\.(pdf|docx?|xlsx?|csv|txt|pptx?|zip)$/i.test(name);
+}
+
+function getDriveFileExtPrompts_(name, mime, isImg) {
+  const extMatch = String(name || '').trim().match(/\.([a-z0-9]{2,5})$/i);
+  if (extMatch && extMatch[1]) return extMatch[1].toLowerCase();
+  const m = String(mime || '').toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(PROMPTS_DOC_EXT_BY_MIME_, m)) {
+    return PROMPTS_DOC_EXT_BY_MIME_[m];
+  }
+  if (isImg) {
+    if (m.indexOf('png') !== -1) return 'png';
+    if (m.indexOf('webp') !== -1) return 'webp';
+    if (m.indexOf('gif') !== -1) return 'gif';
+    if (m.indexOf('heic') !== -1) return 'heic';
+    if (m.indexOf('heif') !== -1) return 'heif';
+    return 'jpg';
+  }
+  return '';
+}
+
+function formatDriveFileMeta_(file, folderId) {
+  const fid = String(file.getId() || '').trim();
+  const name = String(file.getName() || '').trim();
+  const mime = String(file.getMimeType() || '').toLowerCase();
+  const isImg = isImageDriveFile_(file);
+  const ext = getDriveFileExtPrompts_(name, mime, isImg);
+  const resolvedMime = isImg
+    ? (mime.indexOf('image/') === 0 ? mime : 'image/jpeg')
+    : (mime || (ext && PROMPTS_DOC_MIME_BY_EXT_[ext]) || 'application/octet-stream');
+  const updated = file.getLastUpdated ? file.getLastUpdated() : null;
+  return {
+    id: fid,
+    name: name,
+    kind: isImg ? 'image' : 'document',
+    ext: ext,
+    mimeType: resolvedMime,
+    sizeBytes: Number((file.getSize && file.getSize()) || 0) || 0,
+    updatedAt: updated && updated.toISOString ? updated.toISOString() : '',
+    viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
+    downloadUrl: 'https://drive.google.com/uc?export=download&id=' + fid,
+    thumbUrl: isImg ? ('https://lh3.googleusercontent.com/d/' + fid + '=w800') : '',
+    cdnUrl: isImg ? ('https://lh3.googleusercontent.com/d/' + fid + '=s2048') : '',
+    folderId: String(folderId || '').trim()
+  };
+}
+
+function resolveSafeSourceFileForProjectB_(fileObj, checkMultiParent, includeDocuments) {
   if (!fileObj || (fileObj.isTrashed && fileObj.isTrashed())) return null;
   let f = fileObj;
   let mime = String((f.getMimeType && f.getMimeType()) || '').toLowerCase();
@@ -562,9 +658,14 @@ function resolveSafeImageFileForProjectB_(fileObj, checkMultiParent) {
       return null;
     }
   }
-  if (!isImageDriveFile_(f)) return null;
+  const allowed = isImageDriveFile_(f) || (includeDocuments && isDocumentDriveFile_(f));
+  if (!allowed) return null;
   if (checkMultiParent && isFileInForbiddenProjectAFolder_(f)) return null;
   return f;
+}
+
+function resolveSafeImageFileForProjectB_(fileObj, checkMultiParent) {
+  return resolveSafeSourceFileForProjectB_(fileObj, checkMultiParent, false);
 }
 
 function listImagesInFolderById_(folderObj, opts) {
@@ -802,8 +903,19 @@ function dispatchPromptsAction_(action, payload) {
   if (forbiddenErr) return forbiddenErr;
 
   switch (action) {
-    case 'prompts_health':
+    case 'prompts_health': {
+      const wantsFull = !!(payload && (
+        payload.fullScan === true ||
+        payload.fullScan === 1 ||
+        String(payload.fullScan || '').trim().toLowerCase() === 'true' ||
+        String(payload.fullScan || '').trim() === '1'
+      ));
+      if (wantsFull) {
+        const authHealth = verifyPromptsOwnerAuth_(payload);
+        if (!authHealth.ok) return authHealth;
+      }
       return handlePromptsHealth_(payload);
+    }
     case 'prompts_propt_list':
       return handlePromptsProptList_(payload);
     case 'prompts_sources_list':
@@ -880,7 +992,7 @@ function inspectFolderHealth_(folderId, label, options) {
 
 function handlePromptsHealth_(payload) {
   const opts = payload || {};
-  const fullScan = opts.fullScan === true || String(opts.fullScan || '').trim().toLowerCase() === 'true';
+  const fullScan = opts.fullScan === true || opts.fullScan === 1 || String(opts.fullScan || '').trim().toLowerCase() === 'true' || String(opts.fullScan || '').trim() === '1';
   const warnings = [];
   let sheetOk = false;
   let sheetName = 'Base de Datos Generales';
@@ -1078,6 +1190,7 @@ function folderNameMatchesAny_(name, alternatives) {
 function findFolderCandidatesByNames_(alternatives) {
   const out = [];
   const seen = {};
+  const seenVariant = {};
   function push(f) {
     try {
       if (!f || (f.isTrashed && f.isTrashed())) return;
@@ -1088,10 +1201,15 @@ function findFolderCandidatesByNames_(alternatives) {
     } catch (e) {}
   }
   for (let i = 0; i < alternatives.length; i++) {
-    const variants = [String(alternatives[i]), String(alternatives[i]).toUpperCase()];
+    const rawAlt = String(alternatives[i] || '').trim();
+    if (!rawAlt) continue;
+    const variants = [rawAlt, rawAlt.toUpperCase()];
     for (let v = 0; v < variants.length; v++) {
+      const qName = variants[v];
+      if (!qName || seenVariant[qName]) continue;
+      seenVariant[qName] = true;
       try {
-        const it = DriveApp.getFoldersByName(variants[v]);
+        const it = DriveApp.getFoldersByName(qName);
         while (it && it.hasNext()) push(it.next());
       } catch (eByName) {}
     }
@@ -1163,7 +1281,16 @@ function resolvePromptsSourceFolder_(key) {
   return folder;
 }
 
-function collectSourceImages_(rootFolder, checkMultiParent, limit) {
+function collectSourceImages_(rootFolder, checkMultiParent, limit, opts) {
+  const cfg = opts || {};
+  const includeDocuments = !!(
+    cfg.includeDocuments === true ||
+    cfg.includeDocuments === 1 ||
+    String(cfg.includeDocuments || '').trim().toLowerCase() === 'true' ||
+    String(cfg.includeDocuments || '').trim() === '1'
+  );
+  const timeBudgetMs = Math.max(1000, Math.min(240000, Number(cfg.timeBudgetMs) || 25000));
+  const startMs = Date.now();
   const rootId = String(rootFolder.getId() || '').trim();
   const items = [];
   const seenFiles = {};
@@ -1171,16 +1298,19 @@ function collectSourceImages_(rootFolder, checkMultiParent, limit) {
   const queue = [{ folder: rootFolder, depth: 0, rel: '' }];
   let scanned = 0;
   let truncated = false;
+  let timedOut = false;
   while (queue.length > 0 && !truncated) {
+    if ((Date.now() - startMs) >= timeBudgetMs) { truncated = true; timedOut = true; break; }
     const cur = queue.shift();
     const curId = String(cur.folder.getId() || '').trim();
     if (!curId || seenFolders[curId] || isForbiddenProjectAId_(curId)) continue;
     seenFolders[curId] = true;
     const fIt = cur.folder.getFiles();
     while (fIt && fIt.hasNext()) {
+      if ((Date.now() - startMs) >= timeBudgetMs) { truncated = true; timedOut = true; break; }
       if (++scanned > PROMPTS_SOURCES_MAX_SCAN_) { truncated = true; break; }
       try {
-        const f = resolveSafeImageFileForProjectB_(fIt.next(), checkMultiParent);
+        const f = resolveSafeSourceFileForProjectB_(fIt.next(), checkMultiParent, includeDocuments);
         if (!f) continue;
         const fid = String(f.getId() || '').trim();
         if (!fid || seenFiles[fid]) continue;
@@ -1190,10 +1320,11 @@ function collectSourceImages_(rootFolder, checkMultiParent, limit) {
         items.push(meta);
       } catch (eF) {}
     }
-    if (cur.depth < PROMPTS_SOURCES_MAX_DEPTH_) {
+    if (!truncated && cur.depth < PROMPTS_SOURCES_MAX_DEPTH_) {
       try {
         const dIt = cur.folder.getFolders();
         while (dIt && dIt.hasNext()) {
+          if ((Date.now() - startMs) >= timeBudgetMs) { truncated = true; timedOut = true; break; }
           const sub = dIt.next();
           if (sub.isTrashed && sub.isTrashed()) continue;
           const subName = String(sub.getName() || '').trim();
@@ -1207,7 +1338,7 @@ function collectSourceImages_(rootFolder, checkMultiParent, limit) {
     if (cmpDate !== 0) return cmpDate;
     return String(a.name || '').localeCompare(String(b.name || ''), 'es');
   });
-  return { total: items.length, files: items.slice(0, limit), truncated: truncated || items.length > limit, rootId: rootId };
+  return { total: items.length, files: items.slice(0, limit), truncated: truncated || items.length > limit, timedOut: timedOut, rootId: rootId };
 }
 
 function handlePromptsSourcesList_(payload) {
@@ -1254,7 +1385,10 @@ function handlePromptsSourcesList_(payload) {
       error: 'Aislamiento Proyecto A/B: la carpeta ' + src.label + ' pertenece a Proyecto A y está bloqueada para Prompts.' };
   }
 
-  const res = collectSourceImages_(folder, src.checkMultiParent, limit);
+  const res = collectSourceImages_(folder, src.checkMultiParent, limit, {
+    includeDocuments: payload && payload.includeDocuments,
+    timeBudgetMs: payload && payload.timeBudgetMs
+  });
   return {
     ok: true,
     project: PROMPTS_PROJECT_TAG_,
@@ -1268,6 +1402,7 @@ function handlePromptsSourcesList_(payload) {
     count: res.files.length,
     total: res.total,
     truncated: res.truncated,
+    timedOut: !!res.timedOut,
     files: res.files,
     sources: sourcesCatalog,
     timestamp: new Date().toISOString()
@@ -1299,14 +1434,14 @@ function handlePromptsProptUpload_(payload) {
     }
 
     const created = folder.createFile(parsed.blob);
-    try {
-      created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (eShare) {}
+    const shareRes = applyPublicSharingPrompts_(created);
 
     return {
       ok: true,
       project: PROMPTS_PROJECT_TAG_,
       folderId: SUBIR_PROPT_FOLDER_ID_,
+      sharingOk: shareRes.ok,
+      sharingError: shareRes.ok ? undefined : shareRes.error,
       file: formatDriveFileMeta_(created, SUBIR_PROPT_FOLDER_ID_),
       timestamp: new Date().toISOString()
     };
@@ -1511,7 +1646,7 @@ function handlePromptsMaterialsList_(payload) {
   try {
     if (typeof CacheService !== 'undefined' && CacheService.getScriptCache) {
       const jsonStr = JSON.stringify(result);
-      if (jsonStr.length < 95000) {
+      if (utf8ByteLengthPrompts_(jsonStr) < 95000) {
         CacheService.getScriptCache().put(PROMPTS_MATERIALS_CACHE_KEY_, jsonStr, PROMPTS_MATERIALS_CACHE_TTL_SEC_);
       }
     }
@@ -1719,14 +1854,14 @@ function handleOdooBuzonUpload_(payload) {
     if (!parsed.ok) return parsed;
 
     const created = buzonCheck.folder.createFile(parsed.blob);
-    try {
-      created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (eShare) {}
+    const shareRes = applyPublicSharingPrompts_(created);
 
     return {
       ok: true,
       project: PROMPTS_PROJECT_TAG_,
       folderId: BUZON_ODOO_FOLDER_ID_,
+      sharingOk: shareRes.ok,
+      sharingError: shareRes.ok ? undefined : shareRes.error,
       file: formatDriveFileMeta_(created, BUZON_ODOO_FOLDER_ID_),
       timestamp: new Date().toISOString()
     };
@@ -1838,14 +1973,13 @@ function handleOdooDirectUploadAndRegister_(payload) {
   }
 
   let createdMeta = null;
+  let shareRes = { ok: false, error: '' };
   const lockState = acquirePromptsScriptLockSafe_(25000);
   if (!lockState.ok) return lockState.errorRes;
   const lock = lockState.lock;
   try {
     const created = targetFolder.createFile(parsed.blob);
-    try {
-      created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (eShare) {}
+    shareRes = applyPublicSharingPrompts_(created);
     createdMeta = formatDriveFileMeta_(created, targetFolderId);
     if (targetFolderKey === 'TELAS') {
       try { CacheService.getScriptCache().remove(PROMPTS_MATERIALS_CACHE_KEY_); } catch (eClrCache) {}
@@ -1900,6 +2034,8 @@ function handleOdooDirectUploadAndRegister_(payload) {
     destFolderKey: targetFolderKey,
     folderId: targetFolderId,
     folderName: targetFolderName,
+    sharingOk: shareRes.ok,
+    sharingError: shareRes.ok ? undefined : shareRes.error,
     file: createdMeta,
     sheetRegistration: sheetRegistration,
     timestamp: new Date().toISOString()
@@ -1982,9 +2118,7 @@ function handleOdooMoveToFinal_(payload) {
       }
     }
     file.moveTo(dest.folder);
-    try {
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (eShare) {}
+    const shareRes = applyPublicSharingPrompts_(file);
     if (dest.key === 'TELAS') {
       try { CacheService.getScriptCache().remove(PROMPTS_MATERIALS_CACHE_KEY_); } catch (eClrCache) {}
     }
@@ -1995,6 +2129,8 @@ function handleOdooMoveToFinal_(payload) {
       destFolderKey: dest.key,
       destFolderId: dest.id,
       destFolderName: dest.name,
+      sharingOk: shareRes.ok,
+      sharingError: shareRes.ok ? undefined : shareRes.error,
       file: formatDriveFileMeta_(file, dest.id),
       timestamp: new Date().toISOString()
     };
@@ -2146,19 +2282,22 @@ function handleOdooRegisterFoto_(payload) {
       if (!normRowCheck.ok) return normRowCheck;
 
       let targetNormRow = normRowCheck.row;
+      let updatedExistingNormRow = false;
       if (!normRowCheck.provided) {
         const lastRow = Math.max(shNorm.getLastRow(), FOTOS_NORM_MIN_DATA_ROW_);
         const scanCount = Math.max(1, lastRow - FOTOS_NORM_MIN_DATA_ROW_ + 1);
         const nameVals = shNorm.getRange(FOTOS_NORM_MIN_DATA_ROW_, block.nameCol, scanCount, 1).getDisplayValues();
         const linkVals = shNorm.getRange(FOTOS_NORM_MIN_DATA_ROW_, block.linkCol, scanCount, 1).getDisplayValues();
         let lastUsedRow = FOTOS_NORM_MIN_DATA_ROW_ - 1;
+        const targetNombreUpper = nombreFoto.toUpperCase();
         for (let i = 0; i < scanCount; i++) {
           const nV = String(nameVals[i][0] || '').trim();
           const lV = String(linkVals[i][0] || '').trim();
           if (nV || lV) {
             lastUsedRow = FOTOS_NORM_MIN_DATA_ROW_ + i;
-            if (nV.toUpperCase() === nombreFoto.toUpperCase() && lV === linkFoto) {
+            if (nV && nV.toUpperCase() === targetNombreUpper) {
               targetNormRow = FOTOS_NORM_MIN_DATA_ROW_ + i;
+              updatedExistingNormRow = true;
               break;
             }
           }
@@ -2172,6 +2311,7 @@ function handleOdooRegisterFoto_(payload) {
         sheet: shNorm,
         block: block,
         row: targetNormRow,
+        updatedExisting: updatedExistingNormRow,
         nombre: nombreFoto,
         link: linkCheck.value
       };
@@ -2315,10 +2455,27 @@ function handleOdooRegisterFoto_(payload) {
       result.fotosNormalizadas = {
         tipo: normPlan.block.tipo,
         row: normPlan.row,
+        updatedExisting: !!normPlan.updatedExisting,
         nameCol: colIndexToLetter_(normPlan.block.nameCol),
         linkCol: colIndexToLetter_(normPlan.block.linkCol),
         protectedFormulaCol: colIndexToLetter_(normPlan.block.formulaCol)
       };
+
+      // Si el enlace corresponde a un archivo Drive de Proyecto B, verificar/aplicar permiso público y reportar sharingOk honestamente
+      const mDriveId = String(normPlan.link || '').match(/\/d\/([a-zA-Z0-9_-]{10,})|[?&]id=([a-zA-Z0-9_-]{10,})/);
+      const driveLinkId = mDriveId ? (mDriveId[1] || mDriveId[2] || '') : '';
+      if (driveLinkId && !isForbiddenProjectAId_(driveLinkId)) {
+        try {
+          const drvFile = DriveApp.getFileById(driveLinkId);
+          if (drvFile && !(drvFile.isTrashed && drvFile.isTrashed()) && !isFileInForbiddenProjectAFolder_(drvFile)) {
+            const shareRes = applyPublicSharingPrompts_(drvFile);
+            result.sharingOk = shareRes.ok;
+            if (!shareRes.ok) result.sharingError = shareRes.error;
+          }
+        } catch (eShareLookup) {
+          // Si el ID no corresponde a un archivo accesible (o link externo/mock), no bloquear registro en hoja
+        }
+      }
     }
 
     if (dgPlan) {

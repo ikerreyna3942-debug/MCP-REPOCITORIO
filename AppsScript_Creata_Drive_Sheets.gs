@@ -954,24 +954,13 @@ function doGet(e) {
 
   if (action === 'cm_inventory') {
     const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: true, allowAdminPin: true, rateBucket: 'get_cm_inv', maxHits: 60, windowSec: 60 });
-    if (!gate.ok) return jsonResponse_({ ok: false });
-    try {
-      ensureLiveErpSyncTrigger_();
-      const ss = getSpreadsheet_();
-      let shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
-      if (!shInv || shInv.getLastRow() <= 1) {
-        sincronizarPestanaInventarioEnVivo({ silentUi: true });
-        shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+    if (!gate.ok) {
+      if (gate.rateLimited) {
+        return jsonResponse_({ ok: false, rateLimited: true, retryable: true, error: 'Consultas simultáneas detectadas, reintentando automáticamente...' });
       }
-      autocompletarYOrdenarInventarioEnVivo_(ss, { silentUi: true, useThrottle: true });
-      asegurarColumnaPrecioListaInventario_(ss, { silentUi: true });
-      try { ensureInvitadosSheet_(getAuthSpreadsheet_(ss)); } catch (eInvSh) {}
-      const rawRows = shInv ? shInv.getDataRange().getValues() : [];
-      const rows = rawRows.filter((r, idx) => idx === 0 || String((r && r[0]) || '').trim() !== '');
-      return jsonResponse_({ ok: true, tab: CONFIG.TAB_INVENTORY, rows: rows });
-    } catch (err) {
-      return jsonResponse_({ ok: false, error: err.message || String(err) });
+      return jsonResponse_({ ok: false });
     }
+    return jsonResponse_(handleCmInventoryRead_());
   }
 
   if (action === 'seg_get_state') {
@@ -1134,6 +1123,26 @@ function doGet(e) {
   });
 }
 
+function handleCmInventoryRead_() {
+  try {
+    ensureLiveErpSyncTrigger_();
+    const ss = getSpreadsheet_();
+    let shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+    if (!shInv || shInv.getLastRow() <= 1) {
+      sincronizarPestanaInventarioEnVivo({ silentUi: true });
+      shInv = ss.getSheetByName(CONFIG.TAB_INVENTORY);
+    }
+    autocompletarYOrdenarInventarioEnVivo_(ss, { silentUi: true, useThrottle: true });
+    asegurarColumnaPrecioListaInventario_(ss, { silentUi: true });
+    try { ensureInvitadosSheet_(getAuthSpreadsheet_(ss)); } catch (eInvSh) {}
+    const rawRows = shInv ? shInv.getDataRange().getValues() : [];
+    const rows = rawRows.filter((r, idx) => idx === 0 || String((r && r[0]) || '').trim() !== '');
+    return { ok: true, tab: CONFIG.TAB_INVENTORY, rows: rows };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
 /**
  * Endpoint POST para admin.html e inventario.html (usuarios y plantilla de cotización)
  */
@@ -1145,34 +1154,52 @@ function doPost(e) {
     parsedBody = body || {};
     const action = body.action || '';
     parsedAction = action;
+    const rateLimitErrPayload = {
+      ok: false,
+      rateLimited: true,
+      retryable: true,
+      error: 'Consultas simultáneas detectadas, reintentando automáticamente...'
+    };
 
     // Acciones autenticadas de inventario, cotización en vivo S Mueblería y seguimiento
+    if (action === 'cm_inventory') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_cm_inv', maxHits: 60, windowSec: 60 });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        const tokInfo = verifyInvAuthToken_(extractAuthTokenFromRequest_(e, body));
+        if (!tokInfo || !tokInfo.email) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Tu sesión expiró. Confirma tu contraseña para continuar.' });
+        }
+        return jsonResponse_({ ok: false });
+      }
+      return jsonResponse_(handleCmInventoryRead_());
+    }
     if (action === 'inv_log_event') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_log', maxHits: 60, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       return jsonResponse_(handleInvLogEvent_(body));
     }
     if (action === 'seg_action') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_seg_act', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
       return jsonResponse_(handleSegAction_(body));
     }
     if (action === 'seg_get_state') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'seg_state', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
       return jsonResponse_(handleSegGetState_(body));
     }
     if (action === 'seg_get_delta') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'seg_state', maxHits: 60, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
       return jsonResponse_(handleSegGetDelta_(body));
     }
     if (action === 'seg_sync_now') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       try {
         const recentStamp = CacheService.getScriptCache().get('SEG_ERP_SYNC_COOLDOWN_V1');
         if (recentStamp) {
@@ -1201,7 +1228,7 @@ function doPost(e) {
     }
     if (action === 'inv_users_directory') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_users_dir', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       try {
         return jsonResponse_(handleInvUsersDirectory_());
       } catch (err) {
@@ -1210,7 +1237,10 @@ function doPost(e) {
     }
     if (action === 'inv_my_directory') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_my_dir', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false, authRequired: true });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        return jsonResponse_({ ok: false, authRequired: true });
+      }
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvMyDirectory_(body));
@@ -1220,7 +1250,9 @@ function doPost(e) {
     }
     if (action === 'inv_guest_heartbeat') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_hb', maxHits: 30, windowSec: 60 });
-      if (!gate.ok || !gate.tokenInfo || !gate.tokenInfo.email) return jsonResponse_({ ok: false });
+      if (!gate.ok || !gate.tokenInfo || !gate.tokenInfo.email) {
+        return jsonResponse_(gate && gate.rateLimited ? rateLimitErrPayload : { ok: false });
+      }
       const safeBody = Object.assign({}, body, {
         authToken: extractAuthTokenFromRequest_(e, body),
         email: gate.tokenInfo.email,
@@ -1231,13 +1263,14 @@ function doPost(e) {
     if (action === 'inv_presence_heartbeat') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_pres_hb', maxHits: 60, windowSec: 60 });
       if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
         const reqEmailNorm = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
         const hasKeyFallback = Boolean(reqEmailNorm && body && String(body.accessKey || '').trim());
         if (!hasKeyFallback) {
           return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión expirada o token de presencia inválido.' });
         }
         if (!checkRateLimitSilent_('post_pres_hb_key:' + reqEmailNorm, 20, 60)) {
-          return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
+          return jsonResponse_(rateLimitErrPayload);
         }
       }
       try {
@@ -1250,6 +1283,7 @@ function doPost(e) {
     if (action === 'inv_presence_logout') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_pres_out', maxHits: 30, windowSec: 60 });
       if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
         const reqEmailNorm = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
         const hasKeyFallback = Boolean(reqEmailNorm && body && String(body.accessKey || '').trim());
         if (!hasKeyFallback) {
@@ -1266,13 +1300,14 @@ function doPost(e) {
     if (action === 'inv_presence_list') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'pres_list', maxHits: 45, windowSec: 60 });
       if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
         const reqEmailNorm = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
         const hasKeyFallback = Boolean(reqEmailNorm && body && String(body.accessKey || '').trim());
         if (!hasKeyFallback) {
           return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión expirada o token de presencia inválido.' });
         }
         if (!checkRateLimitSilent_('post_pres_list_key:' + reqEmailNorm, 20, 60)) {
-          return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
+          return jsonResponse_(rateLimitErrPayload);
         }
       }
       try {
@@ -1284,7 +1319,7 @@ function doPost(e) {
     }
     if (action === 'inv_my_sessions') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_mysess', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvMySessions_(body));
@@ -1294,7 +1329,7 @@ function doPost(e) {
     }
     if (action === 'inv_revoke_session') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_revsess', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvRevokeSession_(body));
@@ -1304,7 +1339,7 @@ function doPost(e) {
     }
     if (action === 'inv_product_overrides_get') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_ovr_get', maxHits: 60, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       try {
         return jsonResponse_(handleInvProductOverridesGet_(body));
       } catch (err) {
@@ -1313,7 +1348,7 @@ function doPost(e) {
     }
     if (action === 'inv_product_override_save') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_ovr_save', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvProductOverrideSave_(body));
@@ -1323,7 +1358,10 @@ function doPost(e) {
     }
     if (action === 'inv_register_demand_request') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_demand_req', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión no válida.' });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión no válida.' });
+      }
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvRegisterDemandRequest_(body));
@@ -1333,7 +1371,10 @@ function doPost(e) {
     }
     if (action === 'inv_register_purchase_suggestion') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_purchase_sug', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión no válida.' });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión no válida.' });
+      }
       try {
         if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
         return jsonResponse_(handleInvRegisterPurchaseSuggestion_(body));
@@ -1343,7 +1384,7 @@ function doPost(e) {
     }
     if (action === 'inv_ensure_invitados') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       const shGuest = ensureInvitadosSheet_(getAuthSpreadsheet_());
       return jsonResponse_({ ok: true, sheetName: shGuest ? shGuest.getName() : 'INVITADOS' });
     }
@@ -1356,22 +1397,44 @@ function doPost(e) {
     }
     if (action === 'inv_submit_quote') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_quote', maxHits: 15, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        const tokInfo = verifyInvAuthToken_(extractAuthTokenFromRequest_(e, body));
+        if (!tokInfo || !tokInfo.email) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Tu sesión expiró. Confirma tu contraseña para continuar.' });
+        }
+        return jsonResponse_({ ok: false });
+      }
       return jsonResponse_(handleInvSubmitQuote_(body));
     }
     if (action === 'inv_my_quotes') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: false, rateBucket: 'post_myq', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        const tokInfo = verifyInvAuthToken_(extractAuthTokenFromRequest_(e, body));
+        if (!tokInfo || !tokInfo.email) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Tu sesión expiró. Confirma tu contraseña para continuar.' });
+        }
+        return jsonResponse_({ ok: false });
+      }
       return jsonResponse_(handleInvMyQuotes_(body));
     }
     if (action === 'inv_download_erp_quote_pdf') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_pdf', maxHits: 30, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        const tokInfo = verifyInvAuthToken_(extractAuthTokenFromRequest_(e, body));
+        if (!tokInfo || !tokInfo.email) {
+          return jsonResponse_({ ok: false, authRequired: true, error: 'Tu sesión expiró. Confirma tu contraseña para continuar.' });
+        }
+        return jsonResponse_({ ok: false });
+      }
       return jsonResponse_(handleInvDownloadErpQuotePdf_(body));
     }
     if (action === 'inv_search_erp_clients') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_cli_s', maxHits: 45, windowSec: 60 });
       if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
         const tokInfo = verifyInvAuthToken_(extractAuthTokenFromRequest_(e, body));
         if (!tokInfo || !tokInfo.email) {
           return jsonResponse_({ ok: false, authRequired: true, error: 'Tu sesión expiró. Confirma tu contraseña para buscar clientes.' });
@@ -1383,6 +1446,7 @@ function doPost(e) {
     if (action === 'inv_create_erp_client') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_cli_c', maxHits: 20, windowSec: 60 });
       if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
         const tokInfo = verifyInvAuthToken_(extractAuthTokenFromRequest_(e, body));
         if (!tokInfo || !tokInfo.email) {
           return jsonResponse_({ ok: false, authRequired: true, error: 'Tu sesión expiró. Confirma tu contraseña para registrar clientes.' });
@@ -1393,47 +1457,50 @@ function doPost(e) {
     }
     if (action === 'inv_upload_product_photo') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_photo', maxHits: 40, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false, forbidden: true, error: 'Solo usuarios autorizados pueden subir fotografías.' });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        return jsonResponse_({ ok: false, forbidden: true, error: 'Solo usuarios autorizados pueden subir fotografías.' });
+      }
       return jsonResponse_(handleInvUploadProductPhoto_(body));
     }
     if (action === 'inv_plantilla_status') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_plantilla', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       return jsonResponse_(handleInvPlantillaStatus_());
     }
     if (action === 'inv_record_search') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_search', maxHits: 60, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       return jsonResponse_(handleInvRecordSearch_(body));
     }
     if (action === 'inv_top_searched') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_top', maxHits: 45, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       return jsonResponse_(handleInvTopSearched_());
     }
     if (action === 'inv_ensure_precio_lista') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       const resCol = asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true, force: true });
       return jsonResponse_(Object.assign({ ok: true }, resCol));
     }
     if (action === 'inv_erp_sync_now') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_erp_sync', maxHits: 15, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       const syncRes = sincronizarInventarioEnVivoDesdeERP({ silentUi: true });
       ensureLiveErpSyncTrigger_();
       return jsonResponse_(Object.assign({ ok: true }, syncRes));
     }
     if (action === 'inv_autocomplete_sort') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       const resAuto = autocompletarYOrdenarInventarioEnVivo_(getSpreadsheet_(), { silentUi: true, force: true });
       asegurarColumnaPrecioListaInventario_(getSpreadsheet_(), { silentUi: true });
       return jsonResponse_(Object.assign({ ok: true }, resAuto));
     }
     if (action === 'inv_repair_photo_permissions') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_repair_perms', maxHits: 10, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       return jsonResponse_(hacerPublicasFotosInventario_(body || {}));
     }
     if (
@@ -1447,18 +1514,32 @@ function doPost(e) {
       action === 'fotos_subir_delete' ||
       action === 'fotos_sync_skus'
     ) {
-      const fotosMaxHits = action === 'fotos_sync_skus' ? 30 : 60;
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_fotos', maxHits: fotosMaxHits, windowSec: 60 });
+      const isFotosPoll = (action === 'fotos_subir_list');
+      const fotosRateBucket = isFotosPoll ? 'post_fotos_poll' : 'post_fotos_write';
+      const fotosMaxHits = isFotosPoll ? 240 : (action === 'fotos_sync_skus' ? 30 : 60);
+      const gate = authorizePrivateTokenOrPin_(e, body, {
+        allowGuest: false,
+        allowAdminPin: false,
+        rateBucket: fotosRateBucket,
+        maxHits: fotosMaxHits,
+        windowSec: 60,
+        keyByDevice: isFotosPoll
+      });
       let shouldMintFreshToken = false;
       let mintTokenEmail = OWNER_FOTOS_EMAIL_;
       if (!gate.ok) {
+        if (gate.rateLimited) {
+          return jsonResponse_(rateLimitErrPayload);
+        }
         const reqEmailNorm = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
         const hasKeyFallback = Boolean(body && String(body.accessKey || '').trim() && reqEmailNorm && reqEmailNorm.indexOf('@') !== -1);
         if (!hasKeyFallback) {
           return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión expirada. Ingresa tu contraseña.' });
         }
-        if (!checkRateLimitSilent_('post_fotos_key:' + reqEmailNorm, 20, 60)) {
-          return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
+        const keyBucket = (isFotosPoll ? 'post_fotos_key_poll:' : 'post_fotos_key:') + reqEmailNorm;
+        const keyMaxHits = isFotosPoll ? 120 : 20;
+        if (!checkRateLimitSilent_(keyBucket, keyMaxHits, 60)) {
+          return jsonResponse_(rateLimitErrPayload);
         }
         shouldMintFreshToken = true;
         mintTokenEmail = reqEmailNorm;
@@ -1482,7 +1563,7 @@ function doPost(e) {
     }
     if (action === 'inv_setup_accounts') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_setup', maxHits: 10, windowSec: 60 });
-      if (!gate.ok) return jsonResponse_({ ok: false });
+      if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       return jsonResponse_(organizarCuentasYDescuentosEnHojas({ silentUi: true }));
     }
 
@@ -3667,10 +3748,14 @@ function authorizePrivateTokenOrPin_(e, body, opts) {
   const maxHits = Number(cfg.maxHits) || 45;
   const windowSec = Number(cfg.windowSec) || 60;
   const reqPin = (body && body.pin) || (e && e.parameter && e.parameter.pin) || '';
+  const rawDevId = cfg.keyByDevice
+    ? String((body && (body.deviceId || body.clientId)) || (e && e.parameter && (e.parameter.deviceId || e.parameter.clientId)) || '').trim().slice(0, 64)
+    : '';
+  const devSuffix = rawDevId ? (':' + rawDevId) : '';
 
   if (cfg.allowAdminPin && hasValidAdminPin_(reqPin)) {
-    if (!checkRateLimitSilent_(rateBucket + ':pin', maxHits, windowSec)) {
-      return { ok: false };
+    if (!checkRateLimitSilent_(rateBucket + ':pin' + devSuffix, maxHits, windowSec)) {
+      return { ok: false, rateLimited: true };
     }
     return { ok: true, viaPin: true, tokenInfo: null };
   }
@@ -3681,8 +3766,8 @@ function authorizePrivateTokenOrPin_(e, body, opts) {
     return { ok: false };
   }
 
-  if (!checkRateLimitSilent_(rateBucket + ':' + tokenInfo.email, maxHits, windowSec)) {
-    return { ok: false };
+  if (!checkRateLimitSilent_(rateBucket + ':' + tokenInfo.email + devSuffix, maxHits, windowSec)) {
+    return { ok: false, rateLimited: true, tokenInfo: tokenInfo };
   }
 
   const tokenStatus = lookupTokenUserStatus_(tokenInfo);
@@ -6132,6 +6217,14 @@ function acquireScriptLockSafe_(ms) {
   }
 }
 
+function escapeSheetPlainText_(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
+  const s = String(v);
+  if (!s) return '';
+  return /^[=+\-@]/.test(s.replace(/^\s+/, '')) ? ("'" + s) : s;
+}
+
 function safeSheetCellText_(raw, maxLen) {
   let s = String(raw === null || raw === undefined ? '' : raw).replace(/[\r\n\t]+/g, ' ').trim();
   if (maxLen && s.length > maxLen) s = s.slice(0, maxLen);
@@ -6549,22 +6642,22 @@ function handleInvSubmitQuote_(body) {
         verifiedUser.sheetTab,
         erpStore,
         verifiedUser.correo,
-        verifiedUser.nombre,
-        erpAdvisorLabel,
+        escapeSheetPlainText_(verifiedUser.nombre),
+        escapeSheetPlainText_(erpAdvisorLabel),
         String(idUsuarioNum),
-        safeSheetCellText_(displayClientForErp, 160),
-        safeSheetCellText_(clientPhone, 60),
-        safeSheetCellText_(clientMode, 180),
-        categoryLabel,
-        deliveryDate,
+        escapeSheetPlainText_(safeSheetCellText_(displayClientForErp, 160)),
+        escapeSheetPlainText_(safeSheetCellText_(clientPhone, 60)),
+        escapeSheetPlainText_(safeSheetCellText_(clientMode, 180)),
+        escapeSheetPlainText_(categoryLabel),
+        escapeSheetPlainText_(deliveryDate),
         partidasErp.length,
-        skusSummaryParts.join(', '),
+        escapeSheetPlainText_(skusSummaryParts.join(', ')),
         erpResult.subtotal,
         erpResult.iva,
         extraDiscount,
         erpResult.total,
         'COTIZACIÓN REGISTRADA',
-        safeSheetCellText_(rawNotes, 500),
+        escapeSheetPlainText_(safeSheetCellText_(rawNotes, 500)),
         'APP_COTIZACION'
       ]);
       const appendedRow = shQuotes.getLastRow();
@@ -6671,22 +6764,22 @@ function handleInvSubmitQuote_(body) {
           verifiedUser.sheetTab,
           erpStore,
           verifiedUser.correo,
-          verifiedUser.nombre,
-          erpAdvisorLabel,
+          escapeSheetPlainText_(verifiedUser.nombre),
+          escapeSheetPlainText_(erpAdvisorLabel),
           String(idUsuarioNum),
-          safeSheetCellText_(displayClientForErp, 160),
-          safeSheetCellText_(clientPhone, 60),
-          safeSheetCellText_(clientMode, 180),
-          categoryLabel,
-          deliveryDate,
+          escapeSheetPlainText_(safeSheetCellText_(displayClientForErp, 160)),
+          escapeSheetPlainText_(safeSheetCellText_(clientPhone, 60)),
+          escapeSheetPlainText_(safeSheetCellText_(clientMode, 180)),
+          escapeSheetPlainText_(categoryLabel),
+          escapeSheetPlainText_(deliveryDate),
           items.length,
-          fallbackSummary.join(', '),
+          escapeSheetPlainText_(fallbackSummary.join(', ')),
           subSheet,
           ivaSheet,
           extraDiscount,
           totSheet,
           'COTIZACIÓN REGISTRADA (VÍA SERVICIO)',
-          safeSheetCellText_(rawNotes, 500),
+          escapeSheetPlainText_(safeSheetCellText_(rawNotes, 500)),
           'APP_COTIZACION'
         ]);
         const appRow = shQuotes.getLastRow();
@@ -6956,7 +7049,7 @@ function resolveErpQuoteMetadataForPdf_(ss, body) {
   const shQuotes = ss ? ss.getSheetByName(TAB_QUOTES_LIVE_) : null;
   if (shQuotes && shQuotes.getLastRow() >= 2) {
     const lastR = shQuotes.getLastRow();
-    const startR = Math.max(2, lastR - 400);
+    const startR = Math.max(2, lastR - 2000);
     const vals = shQuotes.getRange(startR, 1, lastR - startR + 1, 13).getDisplayValues();
     for (let i = vals.length - 1; i >= 0; i--) {
       const r = vals[i];
@@ -10854,6 +10947,318 @@ function parseUploadImageDataUrl_(dataUrl, rawNameInput, fallbackStem) {
   };
 }
 
+function classifySubirInboxFileType_(mimeRaw, fileNameRaw) {
+  const mime = String(mimeRaw || '').trim().toLowerCase();
+  const name = String(fileNameRaw || '').trim();
+  const extMatch = name.match(/\.([a-z0-9]{2,5})$/i);
+  const nameExt = extMatch && extMatch[1] ? extMatch[1].toLowerCase() : '';
+
+  const imgExtRe = /^(jpe?g|png|webp|gif|avif|bmp|heic|heif|tiff?)$/;
+  const docMimeByExt = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    csv: 'text/csv',
+    txt: 'text/plain',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    zip: 'application/zip'
+  };
+  const docExtByMime = {
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'text/csv': 'csv',
+    'application/csv': 'csv',
+    'text/plain': 'txt',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'application/zip': 'zip',
+    'application/x-zip-compressed': 'zip'
+  };
+  const imgMimeByExt = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    avif: 'image/avif',
+    bmp: 'image/bmp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    tif: 'image/tiff',
+    tiff: 'image/tiff'
+  };
+
+  const isImg = (mime.indexOf('image/') === 0) || (nameExt && imgExtRe.test(nameExt));
+  if (isImg) {
+    let ext = nameExt && imgExtRe.test(nameExt) ? nameExt : '';
+    if (!ext) {
+      if (mime.indexOf('webp') !== -1) ext = 'webp';
+      else if (mime.indexOf('png') !== -1) ext = 'png';
+      else if (mime.indexOf('gif') !== -1) ext = 'gif';
+      else if (mime.indexOf('avif') !== -1) ext = 'avif';
+      else if (mime.indexOf('heic') !== -1) ext = 'heic';
+      else if (mime.indexOf('heif') !== -1) ext = 'heif';
+      else if (mime.indexOf('bmp') !== -1) ext = 'bmp';
+      else if (mime.indexOf('tiff') !== -1) ext = 'tiff';
+      else ext = 'jpg';
+    }
+    const resolvedImgMime = mime.indexOf('image/') === 0 ? mime : (imgMimeByExt[ext] || 'image/jpeg');
+    return { ok: true, kind: 'image', ext: ext, mime: resolvedImgMime };
+  }
+
+  if (nameExt && Object.prototype.hasOwnProperty.call(docMimeByExt, nameExt)) {
+    const resolvedDocMime = (mime && mime !== 'application/octet-stream' && Object.prototype.hasOwnProperty.call(docExtByMime, mime) && !(nameExt === 'csv' && mime === 'application/vnd.ms-excel'))
+      ? mime
+      : docMimeByExt[nameExt];
+    return { ok: true, kind: 'document', ext: nameExt, mime: resolvedDocMime };
+  }
+  if (mime && Object.prototype.hasOwnProperty.call(docExtByMime, mime)) {
+    const extFromMime = docExtByMime[mime];
+    return { ok: true, kind: 'document', ext: extFromMime, mime: docMimeByExt[extFromMime] || mime };
+  }
+  return { ok: false };
+}
+
+function parseUploadFileDataUrl_(dataUrl, fallbackName, fallbackStem) {
+  const s = String(dataUrl || '').trim();
+  const m = s.match(/^data:([a-zA-Z0-9.+\-]+\/[a-zA-Z0-9.+\-]+)?(?:;[^,]+)?;base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!m) {
+    return { ok: false, error: 'Formato de archivo inválido (se requiere data URL en base64).' };
+  }
+  const rawMime = String(m[1] || '').trim().toLowerCase();
+  const cleanB64 = String(m[2] || '').replace(/\s+/g, '');
+  const MAX_BYTES = 15 * 1024 * 1024;
+  if (!cleanB64) {
+    return { ok: false, error: 'El archivo está vacío.' };
+  }
+  if (cleanB64.length > Math.ceil((MAX_BYTES * 4) / 3) + 16) {
+    return { ok: false, error: 'El archivo excede el límite máximo permitido de 15 MB.' };
+  }
+
+  const cleanRaw = String(fallbackName || '')
+    .replace(/(?:^|[\\/])\.\.(?=[\\/]|$)/g, ' ')
+    .replace(/\.\.+/g, '.')
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/[\u0000-\u001f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .trim();
+
+  const classified = classifySubirInboxFileType_(rawMime, cleanRaw);
+  if (!classified.ok) {
+    return {
+      ok: false,
+      error: 'Tipo de archivo no permitido. Usa fotos o documentos (.pdf, .doc, .docx, .xls, .xlsx, .csv, .txt, .ppt, .pptx, .zip).'
+    };
+  }
+
+  const bytes = Utilities.base64Decode(cleanB64);
+  if (!bytes || !bytes.length) {
+    return { ok: false, error: 'El archivo está vacío.' };
+  }
+  if (bytes.length > MAX_BYTES) {
+    return { ok: false, error: 'El archivo excede el límite máximo permitido de 15 MB.' };
+  }
+
+  const stemDefault = String(fallbackStem || ((classified.kind === 'image' ? 'foto-' : 'doc-') + Date.now()));
+  const baseName = cleanRaw || (stemDefault + '.' + classified.ext);
+  const finalName = /\.[a-z0-9]{2,5}$/i.test(baseName) ? baseName : (baseName + '.' + classified.ext);
+  return {
+    ok: true,
+    kind: classified.kind,
+    mime: classified.mime,
+    ext: classified.ext,
+    fileName: finalName,
+    sizeBytes: bytes.length,
+    blob: Utilities.newBlob(bytes, classified.mime, finalName)
+  };
+}
+
+function getFotosInboxRev_() {
+  const KEY = 'FOTOS_INBOX_REV_V1';
+  try {
+    const cVal = CacheService.getScriptCache().get(KEY);
+    if (cVal) return String(cVal);
+  } catch (eC) {}
+  try {
+    const pVal = PropertiesService.getScriptProperties().getProperty(KEY);
+    if (pVal) {
+      const sVal = String(pVal);
+      try { CacheService.getScriptCache().put(KEY, sVal, 300); } catch (eC2) {}
+      return sVal;
+    }
+  } catch (eP) {}
+  try { CacheService.getScriptCache().put(KEY, '1', 300); } catch (eC3) {}
+  return '1';
+}
+
+function invalidateFotosInboxSnapshotCache_(revToClear) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const r = String(revToClear || '').trim();
+    if (r) {
+      cache.remove('FOTOS_INBOX_META_V1_' + r);
+      cache.remove('FOTOS_INBOX_SNAP_F_V1_' + r);
+      cache.remove('FOTOS_INBOX_SNAP_T_V1_' + r);
+    }
+  } catch (eInv) {}
+}
+
+function bumpFotosInboxRev_() {
+  const KEY = 'FOTOS_INBOX_REV_V1';
+  const prevRev = getFotosInboxRev_();
+  const prevSeq = parseInt(String(prevRev || '1').split('-')[0], 10) || 1;
+  const nextRev = String(prevSeq + 1) + '-' + String(Date.now());
+  invalidateFotosInboxSnapshotCache_(prevRev);
+  try { PropertiesService.getScriptProperties().setProperty(KEY, nextRev); } catch (eP) {}
+  try { CacheService.getScriptCache().put(KEY, nextRev, 300); } catch (eC) {}
+  return nextRev;
+}
+
+function hydrateFotosRecentUpload_(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const fid = String(raw.fileId || raw.id || '').trim();
+  if (!fid) return null;
+  const kind = String(raw.kind || 'image').toLowerCase() === 'document' ? 'document' : 'image';
+  const targetKey = String(raw.targetKey || 'INBOX').trim().toUpperCase().slice(0, 80);
+  return {
+    id: fid,
+    fileId: fid,
+    targetKey: targetKey,
+    targetLabel: String(raw.targetLabel || raw.fileName || targetKey).trim().slice(0, 120),
+    targetKind: String(raw.targetKind || (kind === 'document' ? 'DOCUMENTO' : 'SKU')).trim().slice(0, 24),
+    kind: kind,
+    ext: String(raw.ext || '').trim().toLowerCase().slice(0, 8),
+    fileName: String(raw.fileName || '').trim().slice(0, 120),
+    viewUrl: String(raw.viewUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing')).trim().slice(0, 180),
+    downloadUrl: String(raw.downloadUrl || ('https://drive.google.com/uc?export=download&id=' + fid)).trim().slice(0, 180),
+    thumbUrl: kind === 'image' ? String(raw.thumbUrl || ('https://lh3.googleusercontent.com/d/' + fid + '=w800')).trim().slice(0, 180) : '',
+    destFolderName: String(raw.destFolderName || '').trim().slice(0, 64),
+    actorEmail: String(raw.actorEmail || '').trim().toLowerCase().slice(0, 80),
+    ts: Number(raw.ts || 0) || 0
+  };
+}
+
+function compactFotosRecentUploadForStore_(raw) {
+  const rec = hydrateFotosRecentUpload_(raw);
+  if (!rec) return null;
+  const compact = {
+    id: rec.id,
+    targetKey: rec.targetKey,
+    targetLabel: rec.targetLabel,
+    targetKind: rec.targetKind,
+    kind: rec.kind,
+    ext: rec.ext,
+    fileName: rec.fileName,
+    destFolderName: rec.destFolderName,
+    actorEmail: rec.actorEmail,
+    ts: rec.ts
+  };
+  const defView = 'https://drive.google.com/file/d/' + rec.id + '/view?usp=sharing';
+  const defDl = 'https://drive.google.com/uc?export=download&id=' + rec.id;
+  const defThumb = 'https://lh3.googleusercontent.com/d/' + rec.id + '=w800';
+  if (rec.viewUrl && rec.viewUrl !== defView) compact.viewUrl = rec.viewUrl;
+  if (rec.downloadUrl && rec.downloadUrl !== defDl) compact.downloadUrl = rec.downloadUrl;
+  if (rec.kind === 'image' && rec.thumbUrl && rec.thumbUrl !== defThumb) compact.thumbUrl = rec.thumbUrl;
+  return compact;
+}
+
+function readFotosRecentUploads_() {
+  const KEY = 'FOTOS_RECENT_UPLOADS_V1';
+  try {
+    const cRaw = CacheService.getScriptCache().get(KEY);
+    if (cRaw) {
+      const parsed = JSON.parse(cRaw);
+      if (Array.isArray(parsed)) return parsed.map(hydrateFotosRecentUpload_).filter(Boolean);
+    }
+  } catch (eC) {}
+  try {
+    const pRaw = PropertiesService.getScriptProperties().getProperty(KEY);
+    if (pRaw) {
+      const parsed = JSON.parse(pRaw);
+      if (Array.isArray(parsed)) {
+        try { CacheService.getScriptCache().put(KEY, pRaw, 300); } catch (eC2) {}
+        return parsed.map(hydrateFotosRecentUpload_).filter(Boolean);
+      }
+    }
+  } catch (eP) {}
+  return [];
+}
+
+function writeFotosRecentUploads_(list) {
+  const KEY = 'FOTOS_RECENT_UPLOADS_V1';
+  const cleanCompact = (Array.isArray(list) ? list : [])
+    .slice(0, 24)
+    .map(compactFotosRecentUploadForStore_)
+    .filter(Boolean);
+  let json = JSON.stringify(cleanCompact);
+  const byteLenFn = (typeof utf8ByteLength_ === 'function') ? utf8ByteLength_ : function (x) { return String(x || '').length; };
+  while (cleanCompact.length > 1 && byteLenFn(json) > 8200) {
+    cleanCompact.pop();
+    json = JSON.stringify(cleanCompact);
+  }
+  try { PropertiesService.getScriptProperties().setProperty(KEY, json); } catch (eP) {}
+  try { CacheService.getScriptCache().put(KEY, json, 300); } catch (eC) {}
+  return cleanCompact.map(hydrateFotosRecentUpload_).filter(Boolean);
+}
+
+function recordFotosRecentUpload_(entry) {
+  try {
+    if (!entry || typeof entry !== 'object') return readFotosRecentUploads_();
+    const fid = String(entry.fileId || entry.id || '').trim();
+    if (!fid) return readFotosRecentUploads_();
+    const kind = String(entry.kind || 'image').toLowerCase() === 'document' ? 'document' : 'image';
+    const targetKey = String(entry.targetKey || entry.sku || entry.overrideKey || 'INBOX').trim().toUpperCase().slice(0, 80);
+    const rec = hydrateFotosRecentUpload_({
+      id: fid,
+      fileId: fid,
+      targetKey: targetKey,
+      targetLabel: String(entry.targetLabel || entry.productName || entry.label || entry.fileName || targetKey).trim().slice(0, 120),
+      targetKind: String(entry.targetKind || (kind === 'document' ? 'DOCUMENTO' : 'SKU')).trim().slice(0, 24),
+      kind: kind,
+      ext: String(entry.ext || '').trim().toLowerCase().slice(0, 8),
+      fileName: String(entry.fileName || '').trim().slice(0, 120),
+      viewUrl: entry.viewUrl || '',
+      downloadUrl: entry.downloadUrl || '',
+      thumbUrl: entry.thumbUrl || '',
+      destFolderName: String(entry.destFolderName || '').trim().slice(0, 64),
+      actorEmail: String(entry.actorEmail || '').trim().toLowerCase().slice(0, 80),
+      ts: Number(entry.ts || Date.now()) || Date.now()
+    });
+    if (!rec) return readFotosRecentUploads_();
+    const prev = readFotosRecentUploads_();
+    const dedupKey = rec.id + ':' + rec.targetKey;
+    const merged = [rec].concat(prev.filter(function (it) {
+      if (!it || !it.id) return false;
+      return (String(it.id) + ':' + String(it.targetKey || '')) !== dedupKey;
+    }));
+    return writeFotosRecentUploads_(merged);
+  } catch (eRec) {
+    return readFotosRecentUploads_();
+  }
+}
+
+function removeFotosRecentUploadByFileId_(fileId) {
+  try {
+    const fid = String(fileId || '').trim();
+    if (!fid) return readFotosRecentUploads_();
+    const prev = readFotosRecentUploads_();
+    const filtered = prev.filter(function (it) { return it && String(it.id || it.fileId || '') !== fid; });
+    if (filtered.length !== prev.length) {
+      return writeFotosRecentUploads_(filtered);
+    }
+    return prev;
+  } catch (eRm) {
+    return readFotosRecentUploads_();
+  }
+}
+
 function cleanDuplicatesInSubirInbox_(movedFile, origName, shortcutFileId, resolvedInbox) {
   let removed = 0;
   try {
@@ -10877,7 +11282,7 @@ function cleanDuplicatesInSubirInbox_(movedFile, origName, shortcutFileId, resol
       } catch (ePar) {}
     }
 
-    // 2) Si venía de un acceso directo en SUBIR PREN, enviar a papelera únicamente ese acceso directo
+    // 2) Si venía de un acceso directo en SUBIR PREN, enviar a papelera únicamente ese acceso directo exacto
     const cleanScId = String(shortcutFileId || '').trim();
     if (cleanScId && cleanScId !== movedId && !isForbiddenProjectBFolderId_(cleanScId)) {
       try {
@@ -10891,9 +11296,11 @@ function cleanDuplicatesInSubirInbox_(movedFile, origName, shortcutFileId, resol
       } catch (eScTrash) {}
     }
 
-    // 3) Eliminar copias duplicadas residuales con el mismo nombre exacto ÚNICAMENTE dentro de SUBIR PREN
-    const normOrig = String(origName || '').trim().toLowerCase();
-    if (normOrig) {
+    // 3) Limpiar referencias exactas al mismo movedId, accesos directos hacia movedId, y copias duplicadas
+    //    con nombre descriptivo exacto dentro de SUBIR PREN (NUNCA borrar nombres genéricos de cámara como "image.jpg" de iOS)
+    const cleanNameLower = String(origName || '').trim().toLowerCase();
+    const isGenericCameraName = !cleanNameLower || /^(?:image|photo|foto|img|dsc|pxl|screenshot|captura)(?:[\s_-]*\d*)?\.(?:jpe?g|png|heic|heif|webp)$/i.test(cleanNameLower);
+    if (movedId) {
       for (let i = 0; i < inboxFolders.length; i++) {
         const folder = inboxFolders[i];
         if (!folder) continue;
@@ -10905,13 +11312,17 @@ function cleanDuplicatesInSubirInbox_(movedFile, origName, shortcutFileId, resol
             const cand = fIt.next();
             if (!cand || cand.isTrashed()) continue;
             const cid = String((cand.getId && cand.getId()) || '').trim();
-            if (!cid || cid === movedId || isForbiddenProjectBFolderId_(cid)) continue;
+            if (!cid || isForbiddenProjectBFolderId_(cid)) continue;
+            if (cid === movedId) {
+              try { folder.removeFile(cand); removed++; } catch (eRemSame) {}
+              continue;
+            }
             const cMime = String((cand.getMimeType && cand.getMimeType()) || '').toLowerCase();
             const isTargetShortcut = cMime === 'application/vnd.google-apps.shortcut' && String((cand.getTargetId && cand.getTargetId()) || '').trim() === movedId;
-            const sameNameInInbox = String((cand.getName && cand.getName()) || '').trim().toLowerCase() === normOrig;
-            if (isTargetShortcut || sameNameInInbox) {
+            const cNameLower = String((cand.getName && cand.getName()) || '').trim().toLowerCase();
+            const isDescriptiveDuplicate = !isGenericCameraName && cNameLower && cNameLower === cleanNameLower;
+            if (isTargetShortcut || isDescriptiveDuplicate) {
               try {
-                // Solo borrar si vive únicamente en SUBIR PREN (nunca tocar si también vive en una carpeta de categoría)
                 let inDest = false;
                 const cpIt = cand.getParents();
                 while (cpIt.hasNext()) {
@@ -10976,7 +11387,8 @@ function collectLoadedFileNamesMap_(forceRefresh) {
 
   try {
     const serialized = JSON.stringify(map);
-    if (serialized.length < 95000) {
+    const byteLen = (typeof utf8ByteLength_ === 'function') ? utf8ByteLength_(serialized) : serialized.length;
+    if (byteLen < 95000) {
       CacheService.getScriptCache().put(PROJECT_A_LOADED_NAMES_CACHE_KEY_, serialized, 300);
     }
   } catch (ePut) {}
@@ -11036,9 +11448,9 @@ function resolveSubirInboxFolders_(ancestorMemo) {
 function listSubirInboxFilesInternal_(opts) {
   const includeThumbs = !!(opts && opts.includeThumbs);
   const startListMs = Date.now();
-  const ancestorMemo = {};
+  const ancestorMemo = (opts && opts.ancestorMemo) ? opts.ancestorMemo : {};
   ensureProjectAPublicFolders_(false);
-  const resolved = resolveSubirInboxFolders_(ancestorMemo);
+  const resolved = (opts && opts.resolvedInbox) ? opts.resolvedInbox : resolveSubirInboxFolders_(ancestorMemo);
   const inboxFolders = resolved.folders || [];
   const inboxMap = resolved.folderIdsMap || {};
   const seenFileIds = {};
@@ -11077,8 +11489,8 @@ function listSubirInboxFilesInternal_(opts) {
         if (!fid || seenFileIds[fid]) continue;
         if (!isFileInProjectAAllowedFolders_(f, inboxMap, ancestorMemo)) continue;
         const name = String(f.getName() || '').trim();
-        const isImg = mime.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif|tiff?)$/i.test(name);
-        if (!isImg) continue;
+        const classified = classifySubirInboxFileType_(mime, name);
+        if (!classified.ok) continue;
         seenFileIds[fid] = true;
         if ((Date.now() - startListMs) < 900) {
           ensurePublicSharingItem_(f);
@@ -11089,7 +11501,9 @@ function listSubirInboxFilesInternal_(opts) {
           id: fid,
           shortcutId: shortcutId,
           name: name,
-          mimeType: mime.indexOf('image/') === 0 ? mime : 'image/jpeg',
+          kind: classified.kind,
+          ext: classified.ext,
+          mimeType: classified.mime,
           sizeBytes: Number(f.getSize() || 0) || 0,
           updatedAt: updated ? updated.toISOString() : ''
         });
@@ -11100,11 +11514,14 @@ function listSubirInboxFilesInternal_(opts) {
   rawItems.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
 
   const files = [];
+  let imgThumbCount = 0;
   for (let i = 0; i < rawItems.length; i++) {
     const item = rawItems[i];
     const f = item.fileObj;
+    const isImg = (item.kind === 'image');
     let thumbDataUrl = '';
-    if (includeThumbs && i < 16) {
+    if (includeThumbs && isImg && imgThumbCount < 16) {
+      imgThumbCount++;
       try {
         const tb = f.getThumbnail();
         if (tb) {
@@ -11117,11 +11534,14 @@ function listSubirInboxFilesInternal_(opts) {
       id: item.id,
       shortcutId: item.shortcutId || '',
       name: item.name,
+      kind: item.kind,
+      ext: item.ext,
       mimeType: item.mimeType,
       sizeBytes: item.sizeBytes,
       updatedAt: item.updatedAt,
       viewUrl: 'https://drive.google.com/file/d/' + item.id + '/view?usp=sharing',
-      thumbUrl: 'https://lh3.googleusercontent.com/d/' + item.id + '=w800',
+      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + item.id,
+      thumbUrl: isImg ? ('https://lh3.googleusercontent.com/d/' + item.id + '=w800') : '',
       thumbDataUrl: thumbDataUrl
     });
   }
@@ -11204,9 +11624,8 @@ function handleFotosSubirList_(body) {
   const auth = verifyExclusiveKevinOwner_(ss, body);
   if (!auth.ok) return auth;
 
-  ensureProjectAPublicFolders_(false);
-
   let pendingDeletesProcessed = false;
+  let hadPendingDeletes = false;
   if (body && body.pendingDeletes && typeof body.pendingDeletes === 'object') {
     const startPendMs = Date.now();
     const MAX_PEND_MS = 8000;
@@ -11214,6 +11633,7 @@ function handleFotosSubirList_(body) {
       const pd = body.pendingDeletes;
       const pSkus = Array.isArray(pd.skus) ? pd.skus : [];
       const pFiles = Array.isArray(pd.fileIds) ? pd.fileIds : [];
+      hadPendingDeletes = (pSkus.length > 0 || pFiles.length > 0);
       let allCompleted = true;
       for (let i = 0; i < pSkus.length; i++) {
         if ((Date.now() - startPendMs) > MAX_PEND_MS) { allCompleted = false; break; }
@@ -11242,12 +11662,102 @@ function handleFotosSubirList_(body) {
     } catch (eSync1) {}
   }
 
-  const resolved = resolveSubirInboxFolders_();
+  const currentRev = getFotosInboxRev_();
+  const recentUploads = readFotosRecentUploads_();
+  const sinceRev = String((body && body.sinceRev) || '').trim();
+  const forceRefresh = !!(body && body.forceRefresh);
+  const includeThumbs = !!(body && body.includeThumbs);
+  const includeLoadedNames = !!(body && body.includeLoadedNames);
+  const metaCacheKey = 'FOTOS_INBOX_META_V1_' + currentRev;
+  const snapCacheKey = 'FOTOS_INBOX_SNAP_' + (includeThumbs ? 'T' : 'F') + '_V1_' + currentRev;
+
+  // Fast path cero DriveApp: si sinceRev coincide con la revisión actual y la caché de 15s está fresca
+  if (sinceRev && sinceRev === currentRev && !forceRefresh && !hadPendingDeletes && !(body && body.syncSkus) && !includeLoadedNames) {
+    try {
+      const metaRaw = CacheService.getScriptCache().get(metaCacheKey);
+      if (metaRaw) {
+        const meta = JSON.parse(metaRaw);
+        if (meta && typeof meta === 'object') {
+          const cachedPrimaryId = String(meta.primaryId || SUBIR_INBOX_FOLDER_ID_);
+          return {
+            ok: true,
+            unchanged: true,
+            rev: currentRev,
+            pendingCount: Number(meta.pendingCount || 0) || 0,
+            recentUploads: recentUploads,
+            pendingDeletesProcessed: pendingDeletesProcessed,
+            inboxFolderId: cachedPrimaryId,
+            inboxFolderUrl: 'https://drive.google.com/drive/folders/' + cachedPrimaryId,
+            destRootFolderId: CATEGORIAS_DEST_ROOT_FOLDER_ID_,
+            destRootFolderUrl: 'https://drive.google.com/drive/folders/' + CATEGORIAS_DEST_ROOT_FOLDER_ID_,
+            destFolders: CATEGORIAS_DEST_FOLDERS_,
+            hoja1SkusAdded: skuSync.added || 0,
+            hoja1TotalSkus: skuSync.totalHoja1 || 0
+          };
+        }
+      }
+    } catch (eMetaFast) {}
+  }
+
+  // Snapshot cache hit (15s keyed by rev) para múltiples dispositivos simultáneos sin repetir DriveApp
+  if (!forceRefresh && !hadPendingDeletes) {
+    try {
+      const snapRaw = CacheService.getScriptCache().get(snapCacheKey);
+      if (snapRaw) {
+        const snap = JSON.parse(snapRaw);
+        if (snap && Array.isArray(snap.files)) {
+          const cachedPrimaryId = String(snap.primaryId || SUBIR_INBOX_FOLDER_ID_);
+          const loadedFileNames = includeLoadedNames ? collectLoadedFileNamesMap_(false) : undefined;
+          return {
+            ok: true,
+            unchanged: false,
+            fromCache: true,
+            rev: currentRev,
+            pendingCount: snap.files.length,
+            recentUploads: recentUploads,
+            pendingDeletesProcessed: pendingDeletesProcessed,
+            inboxFolderId: cachedPrimaryId,
+            inboxFolderUrl: 'https://drive.google.com/drive/folders/' + cachedPrimaryId,
+            destRootFolderId: CATEGORIAS_DEST_ROOT_FOLDER_ID_,
+            destRootFolderUrl: 'https://drive.google.com/drive/folders/' + CATEGORIAS_DEST_ROOT_FOLDER_ID_,
+            destFolders: CATEGORIAS_DEST_FOLDERS_,
+            hoja1SkusAdded: skuSync.added || 0,
+            hoja1TotalSkus: skuSync.totalHoja1 || 0,
+            files: snap.files,
+            loadedFileNames: loadedFileNames
+          };
+        }
+      }
+    } catch (eSnapRead) {}
+  }
+
+  ensureProjectAPublicFolders_(false);
+  const ancestorMemo = {};
+  const resolved = resolveSubirInboxFolders_(ancestorMemo);
   const primaryId = (resolved.primaryFolder && resolved.primaryFolder.getId()) || SUBIR_INBOX_FOLDER_ID_;
-  const files = listSubirInboxFilesInternal_({ includeThumbs: !!(body && body.includeThumbs) });
-  const loadedFileNames = (body && body.includeLoadedNames) ? collectLoadedFileNamesMap_(false) : undefined;
+  const files = listSubirInboxFilesInternal_({
+    includeThumbs: includeThumbs,
+    resolvedInbox: resolved,
+    ancestorMemo: ancestorMemo
+  });
+
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.put(metaCacheKey, JSON.stringify({ primaryId: primaryId, pendingCount: files.length }), 15);
+    const snapJson = JSON.stringify({ primaryId: primaryId, files: files });
+    const snapBytes = (typeof utf8ByteLength_ === 'function') ? utf8ByteLength_(snapJson) : snapJson.length;
+    if (snapBytes < 95000) {
+      cache.put(snapCacheKey, snapJson, 15);
+    }
+  } catch (eSnapPut) {}
+
+  const loadedFileNames = includeLoadedNames ? collectLoadedFileNamesMap_(false) : undefined;
   return {
     ok: true,
+    unchanged: false,
+    rev: currentRev,
+    pendingCount: files.length,
+    recentUploads: recentUploads,
     pendingDeletesProcessed: pendingDeletesProcessed,
     inboxFolderId: primaryId,
     inboxFolderUrl: 'https://drive.google.com/drive/folders/' + primaryId,
@@ -11340,32 +11850,86 @@ function handleFotosSyncSkus_(body) {
 }
 
 function handleFotosSubirUploadInbox_(body) {
-  const auth = verifyExclusiveKevinOwner_(null, body);
-  if (!auth.ok) return auth;
+  try {
+    const auth = verifyExclusiveKevinOwner_(null, body);
+    if (!auth.ok) return auth;
+    const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
 
-  const parsed = parseUploadImageDataUrl_(body && body.dataUrl, body && body.fileName, 'foto-' + Date.now());
-  if (!parsed.ok) return parsed;
+    const parsed = parseUploadFileDataUrl_(body && body.dataUrl, body && body.fileName, 'archivo-' + Date.now());
+    if (!parsed.ok) return parsed;
 
-  ensureProjectAPublicFolders_(false);
-  const resolved = resolveSubirInboxFolders_();
-  const inbox = resolved.primaryFolder || DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
-  ensurePublicSharingItem_(inbox);
-  const created = inbox.createFile(parsed.blob);
-  ensurePublicSharingItem_(created);
-  const fid = created.getId();
-  return {
-    ok: true,
-    file: {
-      id: fid,
-      name: created.getName(),
-      mimeType: parsed.mime,
-      sizeBytes: Number(created.getSize() || 0) || 0,
-      updatedAt: new Date().toISOString(),
-      viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
-      thumbUrl: 'https://lh3.googleusercontent.com/d/' + fid + '=w800'
-    },
-    files: (body && body.skipListReturn) ? undefined : listSubirInboxFilesInternal_()
-  };
+    const lockState = acquireScriptLockSafe_(15000);
+    if (!lockState.ok) {
+      return {
+        ok: false,
+        retryable: true,
+        error: 'Otro guardado está en curso, reintentando...'
+      };
+    }
+    const lock = lockState.lock;
+    let fid = '';
+    let createdName = '';
+    let sizeBytes = 0;
+    let updatedIso = '';
+    let nextRev = '';
+    let recentUploads = [];
+    try {
+      ensureProjectAPublicFolders_(false);
+      const resolved = resolveSubirInboxFolders_();
+      const inbox = resolved.primaryFolder || DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
+      ensurePublicSharingItem_(inbox);
+      const created = inbox.createFile(parsed.blob);
+      ensurePublicSharingItem_(created);
+      fid = created.getId();
+      createdName = String(created.getName() || parsed.fileName).trim();
+      sizeBytes = Number(created.getSize() || parsed.sizeBytes || 0) || 0;
+      updatedIso = new Date().toISOString();
+      nextRev = bumpFotosInboxRev_();
+      recentUploads = recordFotosRecentUpload_({
+        id: fid,
+        fileId: fid,
+        targetKey: 'INBOX',
+        targetLabel: createdName,
+        targetKind: parsed.kind === 'document' ? 'DOCUMENTO' : 'SUBIR_PREN',
+        kind: parsed.kind,
+        ext: parsed.ext,
+        fileName: createdName,
+        viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
+        downloadUrl: 'https://drive.google.com/uc?export=download&id=' + fid,
+        thumbUrl: parsed.kind === 'image' ? ('https://lh3.googleusercontent.com/d/' + fid + '=w800') : '',
+        destFolderName: 'SUBIR PREN',
+        actorEmail: actorEmail,
+        ts: Date.now()
+      });
+    } finally {
+      try { lock.releaseLock(); } catch (eRel) {}
+    }
+
+    const isImg = (parsed.kind === 'image');
+    return {
+      ok: true,
+      rev: nextRev,
+      recentUploads: recentUploads,
+      file: {
+        id: fid,
+        name: createdName,
+        kind: parsed.kind,
+        ext: parsed.ext,
+        mimeType: parsed.mime,
+        sizeBytes: sizeBytes,
+        updatedAt: updatedIso,
+        viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
+        downloadUrl: 'https://drive.google.com/uc?export=download&id=' + fid,
+        thumbUrl: isImg ? ('https://lh3.googleusercontent.com/d/' + fid + '=w800') : ''
+      },
+      files: (body && body.skipListReturn) ? undefined : listSubirInboxFilesInternal_()
+    };
+  } catch (errUpInbox) {
+    return {
+      ok: false,
+      error: (errUpInbox && errUpInbox.message) ? errUpInbox.message : String(errUpInbox)
+    };
+  }
 }
 
 function handleFotosSubirAssign_(body) {
@@ -11487,17 +12051,17 @@ function handleFotosSubirAssign_(body) {
     const finalFileName = String(file.getName() || preservedFileName).trim();
     const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
 
-    // Lock corto (<1s) ÚNICAMENTE para escribir en Hoja "1" sin bloquear operaciones Drive concurrentes
+    // Lock corto ÚNICAMENTE para escribir en Hoja "1" sin bloquear operaciones Drive concurrentes
     let primaryRowNumber = 0;
     let wasAppended = false;
     let previousUrl = '';
     let formulaResolvedName = effectiveName;
-    const lockState = acquireScriptLockSafe_(20000);
+    const lockState = acquireScriptLockSafe_(15000);
     if (!lockState.ok) {
       return {
         ok: false,
         retryable: true,
-        error: 'El servidor está ocupado con otro proceso. Intenta guardar la foto de nuevo en unos segundos.'
+        error: 'Otro guardado está en curso, reintentando...'
       };
     }
     const lock = lockState.lock;
@@ -11548,6 +12112,23 @@ function handleFotosSubirAssign_(body) {
       try { lock.releaseLock(); } catch (e) {}
     }
 
+    const nextRev = bumpFotosInboxRev_();
+    const recentUploads = recordFotosRecentUpload_({
+      id: finalFileId,
+      fileId: finalFileId,
+      targetKey: skuUpper,
+      targetLabel: formulaResolvedName,
+      targetKind: 'SKU',
+      kind: 'image',
+      ext: String(finalFileName.split('.').pop() || 'jpg').toLowerCase(),
+      fileName: finalFileName,
+      viewUrl: driveViewUrl,
+      thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
+      destFolderName: destMeta.name,
+      actorEmail: actorEmail,
+      ts: Date.now()
+    });
+
     try {
       registrarEventoHistorial_(ss, {
         clasificacion: 'MOVIMIENTO',
@@ -11566,6 +12147,8 @@ function handleFotosSubirAssign_(body) {
 
     return {
       ok: true,
+      rev: nextRev,
+      recentUploads: recentUploads,
       sku: skuUpper,
       productName: formulaResolvedName,
       rowNumber: primaryRowNumber,
@@ -11637,37 +12220,41 @@ function handleFotosDirectUploadAssign_(body) {
     const destFolder = DriveApp.getFolderById(destMeta.id);
     ensurePublicSharingItem_(destFolder);
 
-    // Crear archivo directamente en su carpeta de categoría fuera del ScriptLock
-    const created = destFolder.createFile(parsed.blob);
-    ensurePublicSharingItem_(created);
-    try {
-      created.setDescription(
-        'SKU: ' + skuUpper +
-        ' | Producto: ' + invMeta.nombre +
-        ' | Categoría Drive: ' + destMeta.name +
-        ' | Subido directo por: ' + actorEmail +
-        ' | Fecha: ' + formatCancunNow_()
-      );
-    } catch (eDesc) {}
-
-    const finalFileId = created.getId();
-    const finalFileName = String(created.getName() || parsed.fileName).trim();
-    const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
-
-    // Lock corto (<1s) únicamente para actualizar Hoja "1"
-    let previousUrl = '';
-    let primaryRowNumber = 0;
-    let wasAppended = false;
-    const lockState = acquireScriptLockSafe_(20000);
+    // Adquirir ScriptLock ANTES de crear archivo en Drive para que ningún reintento genere duplicados en Drive
+    const lockState = acquireScriptLockSafe_(15000);
     if (!lockState.ok) {
       return {
         ok: false,
         retryable: true,
-        error: 'El servidor está ocupado con otro proceso. Intenta subir la foto de nuevo en unos segundos.'
+        error: 'Otro guardado está en curso, reintentando...'
       };
     }
     const lock = lockState.lock;
+    let finalFileId = '';
+    let finalFileName = '';
+    let driveViewUrl = '';
+    let previousUrl = '';
+    let primaryRowNumber = 0;
+    let wasAppended = false;
+    let nextRev = '';
+    let recentUploads = [];
     try {
+      const created = destFolder.createFile(parsed.blob);
+      ensurePublicSharingItem_(created);
+      try {
+        created.setDescription(
+          'SKU: ' + skuUpper +
+          ' | Producto: ' + invMeta.nombre +
+          ' | Categoría Drive: ' + destMeta.name +
+          ' | Subido directo por: ' + actorEmail +
+          ' | Fecha: ' + formatCancunNow_()
+        );
+      } catch (eDesc) {}
+
+      finalFileId = created.getId();
+      finalFileName = String(created.getName() || parsed.fileName).trim();
+      driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
+
       const matchedRows = [];
       const lastRow1 = Math.max(2, sh1.getLastRow());
       const colARng = lastRow1 >= 3 ? sh1.getRange(3, 1, lastRow1 - 2, 1) : null;
@@ -11718,6 +12305,22 @@ function handleFotosDirectUploadAssign_(body) {
 
       SpreadsheetApp.flush();
       invalidateLoadedFileNamesCache_();
+      nextRev = bumpFotosInboxRev_();
+      recentUploads = recordFotosRecentUpload_({
+        id: finalFileId,
+        fileId: finalFileId,
+        targetKey: skuUpper,
+        targetLabel: invMeta.nombre,
+        targetKind: 'SKU',
+        kind: 'image',
+        ext: parsed.ext || 'jpg',
+        fileName: finalFileName,
+        viewUrl: driveViewUrl,
+        thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
+        destFolderName: destMeta.name,
+        actorEmail: actorEmail,
+        ts: Date.now()
+      });
     } finally {
       try { lock.releaseLock(); } catch (e) {}
     }
@@ -11738,6 +12341,8 @@ function handleFotosDirectUploadAssign_(body) {
 
     return {
       ok: true,
+      rev: nextRev,
+      recentUploads: recentUploads,
       sku: skuUpper,
       productName: invMeta.nombre,
       rowNumber: primaryRowNumber,
@@ -11762,59 +12367,55 @@ function handleFotosDirectUploadAssign_(body) {
 }
 
 function handleFotosUploadVisualOverride_(body) {
-  const b = body || {};
-  const ss = getSpreadsheet_();
-  const auth = verifyExclusiveKevinOwner_(ss, b);
-  if (!auth.ok) return auth;
-  if (auth.advisor && auth.advisor.adminPermissions && auth.advisor.adminPermissions.gestionProductos === false) {
-    return {
-      ok: false,
-      forbidden: true,
-      error: 'Tu cuenta tiene desactivado VER_GESTION_PRODUCTOS en CUENTAS ADMINISTRATIVAS.'
-    };
-  }
-  const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
-
-  const ovKey = String(b.overrideKey || b.sku || '').trim().toUpperCase();
-  if (!ovKey || !/^V(?:COV|FAB|WOD):/i.test(ovKey) || ovKey.length > 80) {
-    return { ok: false, error: 'Clave de portada/tela/madera inválida.' };
-  }
-  const kind = String(b.kind || (ovKey.indexOf('VFAB:') === 0 ? 'fabric' : (ovKey.indexOf('VWOD:') === 0 ? 'wood' : 'cover'))).trim().toLowerCase();
-  const label = String(b.label || b.name || ovKey).trim().slice(0, 140);
-  const categoryTag = kind === 'fabric' ? 'FABRIC_SWATCH' : (kind === 'wood' ? 'WOOD_SWATCH' : 'VISUAL_COVER');
-
   try {
+    const b = body || {};
+    const ss = getSpreadsheet_();
+    const auth = verifyExclusiveKevinOwner_(ss, b);
+    if (!auth.ok) return auth;
+    if (auth.advisor && auth.advisor.adminPermissions && auth.advisor.adminPermissions.gestionProductos === false) {
+      return {
+        ok: false,
+        forbidden: true,
+        error: 'Tu cuenta tiene desactivado VER_GESTION_PRODUCTOS en CUENTAS ADMINISTRATIVAS.'
+      };
+    }
+    const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
+
+    const ovKey = String(b.overrideKey || b.sku || '').trim().toUpperCase();
+    if (!ovKey || !/^V(?:COV|FAB|WOD):/i.test(ovKey) || ovKey.length > 80) {
+      return { ok: false, error: 'Clave de portada/tela/madera inválida.' };
+    }
+    const kind = String(b.kind || (ovKey.indexOf('VFAB:') === 0 ? 'fabric' : (ovKey.indexOf('VWOD:') === 0 ? 'wood' : 'cover'))).trim().toLowerCase();
+    const label = String(b.label || b.name || ovKey).trim().slice(0, 140);
+    const categoryTag = kind === 'fabric' ? 'FABRIC_SWATCH' : (kind === 'wood' ? 'WOOD_SWATCH' : 'VISUAL_COVER');
+
+    const sourceInboxFileId = String(b.sourceInboxFileId || '').trim();
+    const fromLoaded = !!b.fromLoaded;
+    let parsedUpload = null;
+    if (sourceInboxFileId) {
+      if (isForbiddenProjectBFolderId_(sourceInboxFileId)) {
+        return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: carpeta no permitida.' };
+      }
+    } else {
+      parsedUpload = parseUploadImageDataUrl_(b.dataUrl, b.fileName, label.replace(/[^a-zA-Z0-9_-]+/g, '_'));
+      if (!parsedUpload.ok) return parsedUpload;
+    }
+
     ensureProjectAPublicFolders_(false);
     const targetFolder = DriveApp.getFolderById(FOTOS_NUEVAS_CARGADO_FOLDER_ID_);
     ensurePublicSharingItem_(targetFolder);
 
     let finalFileId = '';
     let finalFileName = '';
-    const sourceInboxFileId = String(b.sourceInboxFileId || '').trim();
-    const fromLoaded = !!b.fromLoaded;
+    let createdUploadFile = null;
 
-    if (sourceInboxFileId) {
-      if (isForbiddenProjectBFolderId_(sourceInboxFileId)) {
-        return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: carpeta no permitida.' };
-      }
-      const srcFile = DriveApp.getFileById(sourceInboxFileId);
-      const srcCheck = validateProjectASourceFile_(srcFile, 'fotos_upload_visual_override');
-      if (!srcCheck.ok) return srcCheck;
-      finalFileName = String(srcFile.getName() || '').trim();
-      if (!fromLoaded) {
-        // Mover desde SUBIR PREN a FOTOS NUEVAS CARGADO conservando su nombre y sacándola de SUBIR PREN para no duplicar
-        srcFile.moveTo(targetFolder);
-        cleanDuplicatesInSubirInbox_(srcFile, finalFileName, b.shortcutId, null);
-      }
-      ensurePublicSharingItem_(srcFile);
-      finalFileId = srcFile.getId();
-    } else {
-      const parsed = parseUploadImageDataUrl_(b.dataUrl, b.fileName, label.replace(/[^a-zA-Z0-9_-]+/g, '_'));
-      if (!parsed.ok) return parsed;
-      const created = targetFolder.createFile(parsed.blob);
-      ensurePublicSharingItem_(created);
+    if (!sourceInboxFileId) {
+      // P1-01: subir binario a Drive FUERA del ScriptLock global para evitar contención;
+      // si el candado de Sheets está ocupado, se revierte a papelera para que reintentos jamás dupliquen archivos.
+      createdUploadFile = targetFolder.createFile(parsedUpload.blob);
+      ensurePublicSharingItem_(createdUploadFile);
       try {
-        created.setDescription(
+        createdUploadFile.setDescription(
           'Visual: ' + ovKey +
           ' | Etiqueta: ' + label +
           ' | Tipo: ' + categoryTag +
@@ -11822,45 +12423,94 @@ function handleFotosUploadVisualOverride_(body) {
           ' | Fecha: ' + formatCancunNow_()
         );
       } catch (eDesc) {}
-      finalFileId = created.getId();
-      finalFileName = String(created.getName() || parsed.fileName).trim();
+      finalFileId = createdUploadFile.getId();
+      finalFileName = String(createdUploadFile.getName() || parsedUpload.fileName).trim();
     }
 
-    const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
-    const saveRes = handleInvProductOverrideSave_({
-      authToken: b.authToken || '',
-      advisorEmail: b.advisorEmail || actorEmail,
-      accessKey: b.accessKey || '',
-      sheetTab: b.sheetTab || TAB_CUENTAS_ADMIN_,
-      sku: ovKey,
-      op: 'RESTORE',
-      name: label,
-      category: categoryTag,
-      price: '',
-      note: driveViewUrl
-    });
-    invalidateLoadedFileNamesCache_();
-
-    if (!saveRes || !saveRes.ok) {
+    const lockState = acquireScriptLockSafe_(15000);
+    if (!lockState.ok) {
+      if (createdUploadFile) {
+        try { createdUploadFile.setTrashed(true); } catch (eRollback) {}
+      }
       return {
         ok: false,
-        fileId: finalFileId,
-        driveUrl: driveViewUrl,
-        error: (saveRes && saveRes.error) || 'Foto subida, pero falló guardar el vínculo.'
+        retryable: true,
+        error: 'Otro guardado está en curso, reintentando...'
       };
     }
+    const lock = lockState.lock;
+    try {
+      if (sourceInboxFileId) {
+        const srcFile = DriveApp.getFileById(sourceInboxFileId);
+        const srcCheck = validateProjectASourceFile_(srcFile, 'fotos_upload_visual_override');
+        if (!srcCheck.ok) return srcCheck;
+        finalFileName = String(srcFile.getName() || '').trim();
+        if (!fromLoaded) {
+          // Mover desde SUBIR PREN a FOTOS NUEVAS CARGADO conservando su nombre y sacándola de SUBIR PREN para no duplicar
+          srcFile.moveTo(targetFolder);
+          cleanDuplicatesInSubirInbox_(srcFile, finalFileName, b.shortcutId, null);
+        }
+        ensurePublicSharingItem_(srcFile);
+        finalFileId = srcFile.getId();
+      }
 
-    return {
-      ok: true,
-      overrideKey: ovKey,
-      fileId: finalFileId,
-      fileName: finalFileName,
-      driveUrl: driveViewUrl,
-      thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
-      override: saveRes.override,
-      removedFromInbox: !!(sourceInboxFileId && !fromLoaded),
-      timestamp: formatCancunNow_()
-    };
+      const driveViewUrl = 'https://drive.google.com/file/d/' + finalFileId + '/view?usp=sharing';
+      const saveRes = handleInvProductOverrideSave_({
+        authToken: b.authToken || '',
+        advisorEmail: b.advisorEmail || actorEmail,
+        accessKey: b.accessKey || '',
+        sheetTab: b.sheetTab || TAB_CUENTAS_ADMIN_,
+        sku: ovKey,
+        op: 'RESTORE',
+        name: label,
+        category: categoryTag,
+        price: '',
+        note: driveViewUrl
+      }, { skipLock: true });
+      invalidateLoadedFileNamesCache_();
+
+      if (!saveRes || !saveRes.ok) {
+        return {
+          ok: false,
+          fileId: finalFileId,
+          driveUrl: driveViewUrl,
+          error: (saveRes && saveRes.error) || 'Foto subida, pero falló guardar el vínculo.'
+        };
+      }
+
+      const nextRev = bumpFotosInboxRev_();
+      const recentUploads = recordFotosRecentUpload_({
+        id: finalFileId,
+        fileId: finalFileId,
+        targetKey: ovKey,
+        targetLabel: label,
+        targetKind: kind === 'fabric' ? 'TELA' : (kind === 'wood' ? 'MADERA' : 'PORTADA'),
+        kind: 'image',
+        ext: (parsedUpload && parsedUpload.ext) || String(finalFileName.split('.').pop() || 'jpg').toLowerCase(),
+        fileName: finalFileName,
+        viewUrl: driveViewUrl,
+        thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
+        destFolderName: kind === 'fabric' ? 'Tela' : (kind === 'wood' ? 'Madera' : 'Portada'),
+        actorEmail: actorEmail,
+        ts: Date.now()
+      });
+
+      return {
+        ok: true,
+        rev: nextRev,
+        recentUploads: recentUploads,
+        overrideKey: ovKey,
+        fileId: finalFileId,
+        fileName: finalFileName,
+        driveUrl: driveViewUrl,
+        thumbUrl: 'https://lh3.googleusercontent.com/d/' + finalFileId + '=w800',
+        override: saveRes.override,
+        removedFromInbox: !!(sourceInboxFileId && !fromLoaded),
+        timestamp: formatCancunNow_()
+      };
+    } finally {
+      try { lock.releaseLock(); } catch (eRel) {}
+    }
   } catch (errVisUp) {
     return {
       ok: false,
@@ -12036,7 +12686,10 @@ function reubicarFotosSegunSheets_(opts) {
     }
   }
 
-  if (summary.filesMoved > 0) invalidateLoadedFileNamesCache_();
+  if (summary.filesMoved > 0 || summary.subirDuplicatesRemoved > 0) {
+    invalidateLoadedFileNamesCache_();
+    bumpFotosInboxRev_();
+  }
   summary.nextStartIndex = idx < orderedIds.length ? idx : 0;
   summary.remaining = Math.max(0, orderedIds.length - idx);
   summary.checked = summary.filesChecked;
@@ -12167,12 +12820,12 @@ function handleFotosDelete_(body) {
 
     // Adquirir ScriptLock corto ÚNICAMENTE para limpiar Columna D en Hoja "1"
     if (sh1 && skuUpper && rowsToClear.length > 0) {
-      const lockState = acquireScriptLockSafe_(12000);
+      const lockState = acquireScriptLockSafe_(15000);
       if (!lockState.ok) {
         return {
           ok: false,
           retryable: true,
-          error: 'El servidor está ocupado con otro proceso. Intenta borrar la foto de nuevo en unos segundos.'
+          error: 'Otro guardado está en curso, reintentando...'
         };
       }
       const lock = lockState.lock;
@@ -12219,6 +12872,8 @@ function handleFotosDelete_(body) {
     }
 
     try { invalidateLoadedFileNamesCache_(); } catch (eInvCacheDel) {}
+    const nextRev = bumpFotosInboxRev_();
+    const recentUploads = removeFotosRecentUploadByFileId_(driveFileId);
 
     try {
       registrarEventoHistorial_(ss, {
@@ -12236,6 +12891,8 @@ function handleFotosDelete_(body) {
 
     deleteResult = {
       ok: true,
+      rev: nextRev,
+      recentUploads: recentUploads,
       clearedSku: skuUpper,
       clearedRows: clearedRows,
       deletedFileId: driveFileId,
@@ -12695,18 +13352,18 @@ function registrarCotizacionAppEnSeguimiento_(ssInv, info) {
       }
 
       const rowValues = [
-        idPartida,
-        folio,
+        escapeSheetPlainText_(idPartida),
+        escapeSheetPlainText_(folio),
         fechaStr,
-        sucSeg,
-        advisorName,
-        advisorEmail,
+        escapeSheetPlainText_(sucSeg),
+        escapeSheetPlainText_(advisorName),
+        escapeSheetPlainText_(advisorEmail),
         '',
-        clientName,
-        clientPhone,
-        sku,
-        nombreProd,
-        (st && st.modelo) || String(pt.model || pt.modelo || ''),
+        escapeSheetPlainText_(clientName),
+        escapeSheetPlainText_(clientPhone),
+        escapeSheetPlainText_(sku),
+        escapeSheetPlainText_(nombreProd),
+        escapeSheetPlainText_((st && st.modelo) || String(pt.model || pt.modelo || '')),
         precio.toFixed(2),
         String(cant),
         String(Math.max(tot, cant)),
@@ -12766,6 +13423,16 @@ function isFolioAllowedForSegScope_(ssSeg, ssInv, folio, scope) {
       const vals = shCot.getRange(2, 1, shCot.getLastRow() - 1, Math.min(shCot.getLastColumn(), 10)).getDisplayValues();
       for (let i = 0; i < vals.length; i++) {
         const r = vals[i] || [];
+        if (String(r[1] || '').trim().toUpperCase() !== folio) continue;
+        foundAny = true;
+        if (matchesSegScope_(scope, r[5], r[4], r[3], folio)) return true;
+      }
+    }
+    const shArch = ssSeg.getSheetByName(TAB_COTIZACIONES_ARCHIVADAS_);
+    if (shArch && shArch.getLastRow() >= 2) {
+      const archVals = shArch.getRange(2, 1, shArch.getLastRow() - 1, Math.min(shArch.getLastColumn(), 10)).getDisplayValues();
+      for (let i = 0; i < archVals.length; i++) {
+        const r = archVals[i] || [];
         if (String(r[1] || '').trim().toUpperCase() !== folio) continue;
         foundAny = true;
         if (matchesSegScope_(scope, r[5], r[4], r[3], folio)) return true;
@@ -12900,7 +13567,7 @@ function handleSegAction_(body) {
         safeSheetCellText_(payload.motivo || '', 240),
         safeSheetCellText_(payload.comentarios || '', 500),
         payload.total_productos !== undefined ? safeSheetCellText_(String(payload.total_productos), 30) : '',
-        payload.piezas_cotizadas !== undefined ? safeSheetCellText_(String(payload.piezas_cotizadas), 30) : ''
+        payload.piezas_cotizadas !== undefined ? safeSheetCellText_(String(payload.piezas_cotizadas), 500) : ''
       ];
       if (shCierres && !alreadyRecorded) {
         shCierres.appendRow(closureRow);
@@ -13161,6 +13828,38 @@ function filterSafeSegConfigMatrix_(matrix) {
   return out;
 }
 
+function collectSkusFromQuotesLiveRows_(rows, targetSet, skipHeader) {
+  if (!Array.isArray(rows) || !rows.length || !targetSet) return;
+  let resumenIdx = 17;
+  let startIdx = 0;
+  if (skipHeader) {
+    startIdx = 1;
+    const hdr = rows[0] || [];
+    for (let c = 0; c < hdr.length; c++) {
+      const h = normPlainUpper_(hdr[c] || '');
+      if (h === 'RESUMEN_SKUS' || h === 'RESUMEN SKUS' || h === 'SKUS') {
+        resumenIdx = c;
+        break;
+      }
+    }
+  }
+  for (let i = startIdx; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const raw = String(r[resumenIdx] || '').trim();
+    if (!raw) continue;
+    const parts = raw.split(/[,;|\n]+/);
+    for (let p = 0; p < parts.length; p++) {
+      const tok = String(parts[p] || '')
+        .replace(/^'+/, '')
+        .replace(/\s*\([^)]*\)\s*$/g, '')
+        .replace(/\s*[x×]\s*\d+(?:\.\d+)?\s*$/i, '')
+        .trim()
+        .toUpperCase();
+      if (tok) targetSet[tok] = true;
+    }
+  }
+}
+
 /**
  * Endpoint autenticado seg_get_state: sirve estado de Seguimiento e Historial en vivo
  * filtrado estrictamente por rol (Admin / Gerente / Asesor) sin escribir en ninguna hoja.
@@ -13210,7 +13909,7 @@ function handleSegGetState_(body) {
     histSeg = [hdrRow].concat(matchedSeg.slice(-500));
   }
 
-  // Leer inventario solo para los SKUs presentes en cotizaciones visibles (activas + archivadas)
+  // Leer inventario solo para los SKUs presentes en cotizaciones visibles (activas + archivadas + en vivo)
   const neededSkus = {};
   for (let i = 1; i < cotCreata.length; i++) {
     const sku = String((cotCreata[i] && cotCreata[i][9]) || '').trim().toUpperCase();
@@ -13220,6 +13919,7 @@ function handleSegGetState_(body) {
     const sku = String((cotArch[i] && cotArch[i][9]) || '').trim().toUpperCase();
     if (sku) neededSkus[sku] = true;
   }
+  collectSkusFromQuotesLiveRows_(cotVivo, neededSkus, true);
   const invRes = readInventoryMapForSkus_(ssInv, b.includeInventory ? null : (Object.keys(neededSkus).length ? neededSkus : null));
   const inventoryPhotosBySku = invRes.bySku || {};
   let invFullRows = null;
@@ -13397,6 +14097,7 @@ function handleSegGetDelta_(body) {
         syncBanner: liveInvBanner,
         sheets: fullAfterErp.sheets,
         stockDeltaBySku: fullAfterErp.inventoryPhotosBySku || {},
+        advisorsDirectory: fullAfterErp.advisorsDirectory || [],
         summary: { erpQuotesRefresh: true }
       };
     }
@@ -13434,6 +14135,7 @@ function handleSegGetDelta_(body) {
     const sk = String((appCotArch[i] && appCotArch[i][9]) || '').trim().toUpperCase();
     if (sk) activeSkusSet[sk] = true;
   }
+  collectSkusFromQuotesLiveRows_(appCotVivo, activeSkusSet, false);
 
   let stockDeltaBySku = {};
   if ((invChanged || appCotCreata.length > 0 || appCotArch.length > 0 || appCotVivo.length > 0) && Object.keys(activeSkusSet).length > 0) {
@@ -13574,15 +14276,20 @@ function archiveFolioRowsInSeguimiento_(ssSeg, folioRaw, reasonRaw, closedStatus
   const motivoArch = safeSheetCellText_(reasonRaw || closedStatusRaw || 'CERRADA', 180);
   const fechaArch = safeSheetCellText_(closedDateStr || formatCancunNow_().slice(0, 16), 40);
 
+  const textColsToEscape = [4, 5, 6, 7, 8, 10, 11, 24, 25, 26];
   for (let i = 1; i < allVals.length; i++) {
     const r = allVals[i] || [];
     const rowFol = String(r[1] || '').trim().toUpperCase();
     if (!rowFol && !String(r[0] || '').trim()) continue;
     const padded = new Array(27);
     for (let c = 0; c < 27; c++) padded[c] = r[c] !== undefined ? r[c] : '';
+    for (let tc = 0; tc < textColsToEscape.length; tc++) {
+      const idx = textColsToEscape[tc];
+      padded[idx] = escapeSheetPlainText_(padded[idx]);
+    }
     if (rowFol === folio) {
       if (closedStatusRaw && !isSegErpStatusClosed_(padded[24])) {
-        padded[24] = String(closedStatusRaw).trim().toUpperCase() === 'GANADA' ? 'Vendido' : String(closedStatusRaw).trim();
+        padded[24] = escapeSheetPlainText_(String(closedStatusRaw).trim().toUpperCase() === 'GANADA' ? 'Vendido' : String(closedStatusRaw).trim());
       }
       toArchive.push(padded.concat([motivoArch, fechaArch]));
     } else {
@@ -14053,11 +14760,16 @@ function sincronizarCotizacionesSeguimientoDesdeERP(opts) {
 
     // 4) Preservar cotizaciones abiertas previas que están fuera de la ventana ERP (sin borrarlas el día 25!)
     //    y auto-archivar cualquier fila previa cerrada en ERP o CIERRES_COTIZACIONES
+    const prevTextColsToEscape = [4, 5, 6, 7, 8, 10, 11, 24, 25, 26];
     for (let i = 0; i < existingActiveRows.length; i++) {
       const prevRow = existingActiveRows[i];
       const idP = String(prevRow[0] || '').trim().toUpperCase();
       const fol = String(prevRow[1] || '').trim().toUpperCase();
       if (!idP || !fol || activeById[idP] || archById[idP]) continue;
+      for (let tc = 0; tc < prevTextColsToEscape.length; tc++) {
+        const idx = prevTextColsToEscape[tc];
+        prevRow[idx] = escapeSheetPlainText_(prevRow[idx]);
+      }
 
       const prevEstClosed = resolveSegAutoClosureFromErpStatus_(prevRow[24]);
       const manualClose = closuresByFolio[fol] || null;
@@ -15616,16 +16328,16 @@ function handleInvRegisterDemandRequest_(body) {
     const rowValues = [[
       nowStr,
       requestId,
-      sku,
-      modelName,
-      category,
-      variantInfo,
+      escapeSheetPlainText_(sku),
+      escapeSheetPlainText_(modelName),
+      escapeSheetPlainText_(category),
+      escapeSheetPlainText_(variantInfo),
       qty,
-      comments,
-      stockSummary,
-      storeSafe,
-      advisorNameSafe,
-      advisorEmailSafe,
+      escapeSheetPlainText_(comments),
+      escapeSheetPlainText_(stockSummary),
+      escapeSheetPlainText_(storeSafe),
+      escapeSheetPlainText_(advisorNameSafe),
+      escapeSheetPlainText_(advisorEmailSafe),
       'PENDIENTE'
     ]];
     sh.getRange(nextRow, 1, 1, 13).setValues(rowValues);
@@ -15778,11 +16490,11 @@ function handleInvRegisterPurchaseSuggestion_(body) {
       nowStr,
       suggestionId,
       ambienteNorm,
-      tipoProducto,
-      comments,
-      advisorNameSafe,
-      advisorRoleSafe,
-      storeSafe,
+      escapeSheetPlainText_(tipoProducto),
+      escapeSheetPlainText_(comments),
+      escapeSheetPlainText_(advisorNameSafe),
+      escapeSheetPlainText_(advisorRoleSafe),
+      escapeSheetPlainText_(storeSafe),
       'PENDIENTE'
     ]];
     sh.getRange(nextRow, 1, 1, 9).setValues(rowValues);

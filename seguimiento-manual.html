@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
   <title>Manual de Uso: Asesores y Gerentes | CREATA Muebles</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -11,11 +12,26 @@
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
+    html, body {
+      touch-action: pan-x pan-y;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
     body {
       font-family: 'Inter', sans-serif;
       background-color: #f1f5f9;
       color: #0f172a;
       overflow-x: hidden;
+    }
+    header.no-print {
+      padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+      padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+      padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+    }
+    @media (pointer: coarse), (max-width: 768px) {
+      #slideSelector {
+        font-size: 16px;
+      }
     }
     .slide-canvas {
       background-color: #ffffff;
@@ -127,7 +143,7 @@
   <!-- CONTENEDOR DE IMPRESIÓN PDF -->
   <div id="print-container" class="hidden"></div>
 
-  <script src="./creata-back-nav.js?v=1"></script>
+  <script src="./creata-back-nav.js?v=2"></script>
   <script>
     let isEditMode = false;
     let currentSlideIndex = 0;
@@ -583,13 +599,13 @@
             </div>
 
             <div class="my-auto py-10 text-center max-w-4xl mx-auto space-y-6">
-              <div ${editAttr} class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold tracking-wider uppercase">
+              <div ${editAttr} data-edit-field="module" class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold tracking-wider uppercase">
                 ${slide.module}
               </div>
-              <h1 ${editAttr} class="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 leading-tight">
+              <h1 ${editAttr} data-edit-field="title" class="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 leading-tight">
                 ${slide.title}
               </h1>
-              <p ${editAttr} class="text-lg md:text-xl text-slate-600 font-normal max-w-2xl mx-auto leading-relaxed">
+              <p ${editAttr} data-edit-field="subtitle" class="text-lg md:text-xl text-slate-600 font-normal max-w-2xl mx-auto leading-relaxed">
                 ${slide.subtitle}
               </p>
 
@@ -597,14 +613,14 @@
                 <div class="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                   <span>🎯</span> <span>Objetivo Práctico:</span>
                 </div>
-                <p ${editAttr} class="text-sm md:text-base leading-relaxed text-slate-700 italic">
+                <p ${editAttr} data-edit-field="pitch" class="text-sm md:text-base leading-relaxed text-slate-700 italic">
                   ${slide.pitch}
                 </p>
               </div>
 
               <div class="pt-2">
-                <span ${editAttr} class="inline-block px-4 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium text-slate-600 shadow-sm">
-                  👥 ${slide.author}
+                <span class="inline-block px-4 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium text-slate-600 shadow-sm">
+                  👥 <span ${editAttr} data-edit-field="author">${slide.author}</span>
                 </span>
               </div>
             </div>
@@ -626,15 +642,15 @@
                 <span class="px-2.5 py-1 rounded bg-slate-900 text-white text-xs font-bold uppercase tracking-wider">
                   ${slide.id}
                 </span>
-                <span ${editAttr} class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <span ${editAttr} data-edit-field="module" class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   ${slide.module}
                 </span>
               </div>
-              <h2 ${editAttr} class="text-2xl md:text-3xl font-extrabold text-slate-900 mt-1.5">
+              <h2 ${editAttr} data-edit-field="title" class="text-2xl md:text-3xl font-extrabold text-slate-900 mt-1.5">
                 ${slide.title}
               </h2>
             </div>
-            <span ${editAttr} class="px-3 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold uppercase tracking-wider">
+            <span ${editAttr} data-edit-field="badge" class="px-3 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold uppercase tracking-wider">
               ${slide.badge}
             </span>
           </div>
@@ -642,14 +658,14 @@
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 my-auto py-6">
             <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
               <div class="space-y-3">
-                <h3 ${editAttr} class="text-base font-bold text-slate-900 border-b border-slate-100 pb-2.5">
+                <h3 ${editAttr} data-edit-field="leftTitle" class="text-base font-bold text-slate-900 border-b border-slate-100 pb-2.5">
                   ${slide.leftTitle}
                 </h3>
                 <ul class="space-y-3 text-sm text-slate-600">
-                  ${slide.leftItems.map(item => `
+                  ${slide.leftItems.map((item, i) => `
                     <li class="flex items-start gap-2.5">
                       <span class="w-1.5 h-1.5 rounded-full bg-slate-400 mt-2 shrink-0"></span>
-                      <span ${editAttr} class="leading-relaxed font-normal">${item}</span>
+                      <span ${editAttr} data-edit-field="leftItems" data-edit-index="${i}" class="leading-relaxed font-normal">${item}</span>
                     </li>
                   `).join('')}
                 </ul>
@@ -658,14 +674,14 @@
 
             <div class="bg-slate-50/80 rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
               <div class="space-y-3">
-                <h3 ${editAttr} class="text-base font-bold text-slate-900 border-b border-slate-200/80 pb-2.5">
+                <h3 ${editAttr} data-edit-field="rightTitle" class="text-base font-bold text-slate-900 border-b border-slate-200/80 pb-2.5">
                   ${slide.rightTitle}
                 </h3>
                 <ul class="space-y-3 text-sm text-slate-700">
-                  ${slide.rightItems.map(item => `
+                  ${slide.rightItems.map((item, i) => `
                     <li class="flex items-start gap-2.5">
                       <span class="w-1.5 h-1.5 rounded-full bg-slate-900 mt-2 shrink-0"></span>
-                      <span ${editAttr} class="leading-relaxed font-normal">${item}</span>
+                      <span ${editAttr} data-edit-field="rightItems" data-edit-index="${i}" class="leading-relaxed font-normal">${item}</span>
                     </li>
                   `).join('')}
                 </ul>
@@ -674,8 +690,8 @@
           </div>
 
           <div class="rounded-xl p-3.5 bg-slate-50 border border-slate-200 flex items-center justify-between gap-4 text-xs">
-            <div ${editAttr} class="font-medium text-slate-700 flex items-center gap-2">
-              <span class="text-amber-600">💡</span> <span>${slide.footerNote}</span>
+            <div class="font-medium text-slate-700 flex items-center gap-2">
+              <span class="text-amber-600">💡</span> <span ${editAttr} data-edit-field="footerNote">${slide.footerNote}</span>
             </div>
             <div class="text-slate-400 shrink-0 font-medium">Diapositiva ${idx + 1} de ${total}</div>
           </div>
@@ -691,20 +707,20 @@
               <span class="px-2.5 py-1 rounded bg-slate-900 text-white text-xs font-bold uppercase tracking-wider">
                 ${slide.id}
               </span>
-              <span ${editAttr} class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              <span ${editAttr} data-edit-field="module" class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 ${slide.module}
               </span>
             </div>
-            <h2 ${editAttr} class="text-2xl md:text-3xl font-extrabold text-slate-900 mt-1">
+            <h2 ${editAttr} data-edit-field="title" class="text-2xl md:text-3xl font-extrabold text-slate-900 mt-1">
               ${slide.title}
             </h2>
           </div>
 
           <div class="text-right">
-            <span ${editAttr} class="inline-block px-3 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold">
-              📍 Ubicación: ${slide.location}
+            <span class="inline-block px-3 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold">
+              📍 Ubicación: <span ${editAttr} data-edit-field="location">${slide.location}</span>
             </span>
-            <div ${editAttr} class="text-[11px] font-medium text-slate-500 mt-1">${slide.category}</div>
+            <div ${editAttr} data-edit-field="category" class="text-[11px] font-medium text-slate-500 mt-1">${slide.category}</div>
           </div>
         </div>
 
@@ -736,11 +752,11 @@
             <div class="space-y-2 text-xs">
               <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
                 <b class="text-slate-800 block mb-1 uppercase text-[10px] tracking-wider">👁️ Cómo identificarlo:</b>
-                <p ${editAttr} class="text-slate-600 leading-relaxed text-xs">${slide.visualDesc}</p>
+                <p ${editAttr} data-edit-field="visualDesc" class="text-slate-600 leading-relaxed text-xs">${slide.visualDesc}</p>
               </div>
               <div class="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-2 shadow-sm">
                 <span class="text-slate-500 font-medium shrink-0">👥 ¿Quién lo usa?:</span>
-                <span ${editAttr} class="text-slate-800 font-bold text-right">${slide.role}</span>
+                <span ${editAttr} data-edit-field="role" class="text-slate-800 font-bold text-right">${slide.role}</span>
               </div>
             </div>
           </div>
@@ -753,11 +769,11 @@
               <div class="text-xs font-bold text-slate-900 uppercase tracking-wider">
                 🎯 1. ¿Para qué te sirve?
               </div>
-              <p ${editAttr} class="text-sm text-slate-700 leading-relaxed font-normal">
+              <p ${editAttr} data-edit-field="purpose" class="text-sm text-slate-700 leading-relaxed font-normal">
                 ${slide.purpose}
               </p>
-              <div ${editAttr} class="pt-1 text-xs text-slate-500 font-medium">
-                ⚡ <span class="font-bold text-slate-700">Beneficio:</span> ${slide.impact}
+              <div class="pt-1 text-xs text-slate-500 font-medium">
+                ⚡ <span class="font-bold text-slate-700">Beneficio:</span> <span ${editAttr} data-edit-field="impact">${slide.impact}</span>
               </div>
             </div>
 
@@ -770,7 +786,7 @@
                 ${slide.steps.map((s, i) => `
                   <li class="flex items-start gap-2.5">
                     <span class="w-5 h-5 rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">${i + 1}</span>
-                    <span ${editAttr} class="leading-relaxed">${s}</span>
+                    <span ${editAttr} data-edit-field="steps" data-edit-index="${i}" class="leading-relaxed">${s}</span>
                   </li>
                 `).join('')}
               </ol>
@@ -783,8 +799,8 @@
                 <div class="text-[11px] font-bold text-amber-900 uppercase tracking-wider">
                   Tip de Oro para Asesores y Gerentes
                 </div>
-                <p ${editAttr} class="text-xs md:text-sm text-amber-950 font-normal italic mt-0.5">
-                  "${slide.goldenRule}"
+                <p class="text-xs md:text-sm text-amber-950 font-normal italic mt-0.5">
+                  "<span ${editAttr} data-edit-field="goldenRule">${slide.goldenRule}</span>"
                 </p>
               </div>
             </div>
@@ -803,6 +819,28 @@
     // =========================================================================
     // NAVEGACIÓN, EDICIÓN Y EXPORTACIÓN
     // =========================================================================
+    function persistActiveSlideEdits() {
+      if (!isEditMode) return;
+      const slide = slides[currentSlideIndex];
+      const viewport = document.getElementById('slideViewport');
+      if (!slide || !viewport || typeof viewport.querySelectorAll !== 'function') return;
+      const editableEls = viewport.querySelectorAll('[data-edit-field]');
+      editableEls.forEach((el) => {
+        const field = el.getAttribute('data-edit-field');
+        if (!field) return;
+        const val = String(el.textContent || '').trim();
+        const idxAttr = el.getAttribute('data-edit-index');
+        if (idxAttr !== null && idxAttr !== '' && Array.isArray(slide[field])) {
+          const itemIdx = parseInt(idxAttr, 10);
+          if (!Number.isNaN(itemIdx) && itemIdx >= 0 && itemIdx < slide[field].length) {
+            slide[field][itemIdx] = val;
+          }
+        } else if (typeof slide[field] === 'string') {
+          slide[field] = val;
+        }
+      });
+    }
+
     function populateSelector() {
       const selector = document.getElementById('slideSelector');
       selector.innerHTML = slides.map((s, i) => `<option value="${i}">${i + 1}. ${s.id} - ${s.title}</option>`).join('');
@@ -820,6 +858,9 @@
     }
 
     function toggleEditMode() {
+      if (isEditMode) {
+        persistActiveSlideEdits();
+      }
       isEditMode = !isEditMode;
       const btn = document.getElementById('btnEdit');
       const viewport = document.getElementById('slideViewport');
@@ -856,6 +897,7 @@
 
     function nextSlide() {
       if (isEditMode) return;
+      persistActiveSlideEdits();
       const prevIdx = currentSlideIndex;
       const nextIdx = (currentSlideIndex + 1) % slides.length;
       if (nextIdx !== prevIdx) {
@@ -868,6 +910,7 @@
 
     function prevSlide() {
       if (isEditMode) return;
+      persistActiveSlideEdits();
       const prevIdx = currentSlideIndex;
       const nextIdx = (currentSlideIndex - 1 + slides.length) % slides.length;
       if (nextIdx !== prevIdx) {
@@ -879,6 +922,7 @@
     }
 
     function goToSlide(index, opts) {
+      persistActiveSlideEdits();
       const target = Number(index);
       if (Number.isNaN(target)) return;
       const clamped = Math.max(0, Math.min(slides.length - 1, target));
@@ -912,6 +956,7 @@
     }
 
     function printDeck() {
+      persistActiveSlideEdits();
       const printContainer = document.getElementById('print-container');
       printContainer.innerHTML = slides.map((s, i) => `
         <div class="print-slide flex flex-col justify-between">
@@ -922,9 +967,17 @@
     }
 
     function exportToPPTX() {
+      persistActiveSlideEdits();
       const btn = document.getElementById('btnPptx');
-      btn.textContent = "⏳ Generando PowerPoint...";
-      btn.disabled = true;
+      const resetPptxBtn = () => {
+        if (!btn) return;
+        btn.innerHTML = '📊 <span>Exportar PPTX</span>';
+        btn.disabled = false;
+      };
+      if (btn) {
+        btn.textContent = "⏳ Generando PowerPoint...";
+        btn.disabled = true;
+      }
 
       try {
         const pptx = new PptxGenJS();
@@ -986,17 +1039,18 @@
           slide.addText(`"${s.goldenRule}"`, { x: 5.4, y: 5.95, w: 7.2, h: 0.75, fontSize: 10, italic: true, color: '78350F' });
         });
 
-        pptx.writeFile({ fileName: 'Manual_Asesores_y_Gerentes_CREATA.pptx' }).then(() => {
-          btn.textContent = "✅ ¡PowerPoint Descargado!";
-          setTimeout(() => {
-            btn.textContent = "📊 Descargar PowerPoint (.PPTX)";
-            btn.disabled = false;
-          }, 3000);
-        });
+        Promise.resolve(pptx.writeFile({ fileName: 'Manual_Asesores_y_Gerentes_CREATA.pptx' }))
+          .then(() => {
+            if (btn) btn.textContent = "✅ ¡PowerPoint Descargado!";
+            setTimeout(resetPptxBtn, 3000);
+          })
+          .catch((err) => {
+            alert("Error al generar PPTX: " + (err && err.message ? err.message : String(err || 'Error')));
+            resetPptxBtn();
+          });
       } catch (err) {
-        alert("Error al generar PPTX: " + err.message);
-        btn.textContent = "📊 Descargar PowerPoint (.PPTX)";
-        btn.disabled = false;
+        alert("Error al generar PPTX: " + (err && err.message ? err.message : String(err || 'Error')));
+        resetPptxBtn();
       }
     }
 
@@ -1076,6 +1130,13 @@
         }
         if (isEditMode) return;
         if (e.key === 'ArrowRight' || e.key === ' ') {
+          if (e.key === ' ') {
+            const active = document.activeElement;
+            const tag = active && active.tagName ? String(active.tagName).toUpperCase() : '';
+            if (tag === 'BUTTON' || tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) {
+              return;
+            }
+          }
           e.preventDefault();
           nextSlide();
         } else if (e.key === 'ArrowLeft') {

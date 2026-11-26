@@ -79,8 +79,8 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
 
   const panelHtml = fs.readFileSync(path.join(REPO_ROOT, 'panel.html'), 'utf8');
   assert.match(panelHtml, /rel="manifest"\s+href="\.\/panel-manifest\.json\?v=2"/);
-  assert.match(panelHtml, /panel-styles\.css\?v=6/);
-  assert.match(panelHtml, /panel-app\.js\?v=14/);
+  assert.match(panelHtml, /panel-styles\.css\?v=7/);
+  assert.match(panelHtml, /panel-app\.js\?v=15/);
   assert.match(panelHtml, /id="btnSuiteAdd"/);
   assert.match(panelHtml, /id="btnSuiteOrientation"/);
   assert.match(panelHtml, /id="suiteAddMenu"/);
@@ -109,7 +109,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   const swSrc = fs.readFileSync(path.join(REPO_ROOT, 'panel-sw.js'), 'utf8');
   const listeners = {};
   const deletedKeys = [];
-  const existingKeys = ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3', 'creata-panel-app-v4', 'creata-panel-app-v5', 'creata-panel-app-v6', 'creata-fotos-app-v28', 'creata-inventario-v1'];
+  const existingKeys = ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3', 'creata-panel-app-v4', 'creata-panel-app-v5', 'creata-panel-app-v6', 'creata-panel-app-v7', 'creata-fotos-app-v28', 'creata-inventario-v1'];
   const swSandbox = {
     URL,
     AbortController,
@@ -136,7 +136,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   let activatePromise;
   listeners.activate({ waitUntil: (p) => { activatePromise = p; } });
   await activatePromise;
-  assert.deepEqual(deletedKeys, ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3', 'creata-panel-app-v4', 'creata-panel-app-v5']);
+  assert.deepEqual(deletedKeys, ['creata-panel-app-v0', 'creata-panel-app-v1', 'creata-panel-app-v2', 'creata-panel-app-v3', 'creata-panel-app-v4', 'creata-panel-app-v5', 'creata-panel-app-v6']);
 
   const checkIntercept = (url, method = 'GET') => {
     let intercepted = false;
@@ -148,7 +148,7 @@ test('Panel Suite PWA: panel-manifest.json, panel-sw.js lifecycle & isolated sco
   };
   assert.equal(checkIntercept('https://script.google.com/macros/s/ABC/exec', 'GET'), false);
   assert.equal(checkIntercept('https://buena-espero.onrender.com/', 'GET'), false);
-  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel-app.js?v=14', 'GET'), true);
+  assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel-app.js?v=15', 'GET'), true);
   assert.equal(checkIntercept('https://ikerreyna3942-debug.github.io/MCP-REPOCITORIO/panel.html', 'GET'), true);
 });
 

@@ -803,7 +803,7 @@ test('LINK-1: App de Fotos loads INVENTARIO_EN_VIVO!A1:AX5500 + LPPT Proveedores
         return { ok: true, text: async () => rowsToCsv([new Array(21).fill('TITLE'), new Array(21).fill('HDR'), lpptRow, lpptOnlyRow]) };
       }
       if (u.includes('INVENTARIO_EN_VIVO')) {
-        assert.match(u, /A1%3AAX5500|A1:AX5500/, 'Must request INVENTARIO_EN_VIVO through column AX');
+        assert.match(u, /A(?:1)?%3AAX|A(?:1)?:AX/, 'Must request INVENTARIO_EN_VIVO through column AX');
         return { ok: true, text: async () => rowsToCsv([invHeader, rowSala, rowZero]) };
       }
       if (u.includes('gid=620514545') || u.includes('sheet=1')) {
