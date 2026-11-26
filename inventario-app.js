@@ -2548,13 +2548,9 @@
     MAIN_OF_SUB['OTROS'] = 'ESPEJOS Y ACCESORIOS';
     SUB_CAT_RANK['OTROS'] = 999;
 
-    // Subcategorías de Salas, Exterior y Recámaras (Camas/Bases/Cabeceras) que permanecen agrupadas por Tipo + Modelo
+    // Subcategorías de Recámaras por tamaño (Camas/Bases/Cabeceras) que permanecen agrupadas dentro de su categoría;
+    // Salas y Exterior se muestran agrupadas en TODOS y desagrupadas pieza por pieza dentro de su categoría.
     const GROUPED_SUBCATEGORIES = new Set([
-        'SALAS MODULARES',
-        'SALAS EN L',
-        'SOFAS & LOVESEATS',
-        'FUTONES & SOFÁ CAMAS',
-        'EXTERIOR',
         'CAMAS',
         'BASES',
         'CABECERAS'
@@ -4907,7 +4903,7 @@
             singleBySkuMap.set(skuKey, singleEntry);
             allSingleGroups.push(singleEntry);
 
-            // Vista agrupada por Tipo de Mueble + Modelo en TODOS y en subcategorías agrupadas (Salas / Exterior)
+            // Vista agrupada por Tipo de Mueble + Modelo en TODOS y en subcategorías por tamaño (Camas / Bases / Cabeceras)
             let grp = groupsByKey.get(gKey);
             if (!grp) {
                 grp = {
@@ -5359,7 +5355,8 @@
     }
 
     // ------------------------------------------------------------------------
-    // FILTRADO: EN TODOS Y EN SALAS/EXTERIOR AGRUPADO POR TIPO + MODELO (+ MÓDULOS Y VARIACIONES)
+    // FILTRADO: EN TODOS AGRUPADO POR TIPO + MODELO; EN CATEGORÍAS SEPARADO PIEZA POR PIEZA
+    // EXCEPTO CAMAS, BASES Y CABECERAS (POR TAMAÑO) QUE SE MANTIENEN AGRUPADAS EN RECÁMARAS
     // (BOTÓN STOCK: PIEZAS CON MAYOR CANTIDAD FÍSICA SIN CONTAR LPPT)
     // ------------------------------------------------------------------------
     let lastRenderedCardKeys = [];
