@@ -42,10 +42,14 @@
   --cm-shadow-modal: 0 20px 50px rgba(26, 24, 22, 0.22);
   --cm-font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --cm-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --cm-ui-font: 11px;
+  --cm-ui-title-font: 12px;
+  --cm-ui-close-font: 14px;
 
   background-color: var(--cm-bg);
   color: var(--cm-ink);
   font-family: var(--cm-font-sans);
+  font-size: var(--cm-ui-font);
   min-height: 100dvh;
   width: 100%;
   max-width: 100%;
@@ -127,7 +131,7 @@
 #inAppSeguimientoRoot .cm-title,
 #inAppHistorialRoot .cm-title {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--cm-ui-title-font);
   font-weight: 800;
   letter-spacing: -0.015em;
   color: var(--cm-ink);
@@ -139,7 +143,7 @@
 #inAppSeguimientoRoot .cm-subtitle-chip,
 #inAppHistorialRoot .cm-subtitle-chip {
   display: none;
-  font-size: 10px;
+  font-size: var(--cm-ui-font);
   font-weight: 600;
   color: var(--cm-muted);
   white-space: nowrap;
@@ -160,7 +164,7 @@
 }
 
 /* ----------------------------------------------------------------------------
- * Shared Buttons & Touch Targets (Unified compact size matching Realizar Cotización)
+ * Shared Buttons & Touch Targets (Unified compact 11px size matching Cotización)
  * ---------------------------------------------------------------------------- */
 #inAppSeguimientoRoot .cm-btn,
 #inAppHistorialRoot .cm-btn {
@@ -175,7 +179,7 @@
   background: var(--cm-surface);
   color: var(--cm-ink);
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   line-height: 1.15;
   cursor: pointer;
@@ -317,7 +321,7 @@
   gap: 3px;
   padding: 2px 7px;
   border-radius: var(--cm-radius-pill);
-  font-size: 9.5px;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   line-height: 1.15;
   white-space: nowrap;
@@ -368,14 +372,14 @@
   background: var(--cm-accent-soft);
   color: #7C5B33;
   border: 1px solid var(--cm-accent-border);
-  font-size: 9.5px;
+  font-size: var(--cm-ui-font);
   font-weight: 800;
   letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
 /* ----------------------------------------------------------------------------
- * Shared Form Inputs (Unified compact 11px font so dropdowns never clip in half)
+ * Shared Form Inputs (Unified compact 11px font across PC, tablet & mobile)
  * ---------------------------------------------------------------------------- */
 #inAppSeguimientoRoot .cm-input,
 #inAppSeguimientoRoot .cm-select,
@@ -391,7 +395,7 @@
   background: var(--cm-surface);
   color: var(--cm-ink);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--cm-ui-font);
   font-weight: 600;
   line-height: 1.25;
   transition: border-color 140ms ease, box-shadow 140ms ease;
@@ -418,7 +422,7 @@
 #inAppSeguimientoRoot .cm-field-label,
 #inAppHistorialRoot .cm-field-label {
   display: block;
-  font-size: 9.5px;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -495,6 +499,7 @@
   flex-direction: column;
   gap: 12px;
   margin: auto;
+  font-size: var(--cm-ui-font);
 }
 
 #inAppSeguimientoRoot .cm-modal-card.cm-modal-sm,
@@ -528,7 +533,7 @@
 #inAppSeguimientoRoot .cm-modal-title,
 #inAppHistorialRoot .cm-modal-title {
   margin: 0;
-  font-size: 0.98rem;
+  font-size: var(--cm-ui-title-font);
   font-weight: 800;
   color: var(--cm-ink);
   letter-spacing: -0.01em;
@@ -536,13 +541,13 @@
 
 #inAppSeguimientoRoot .cm-modal-close,
 #inAppHistorialRoot .cm-modal-close {
-  min-width: 36px;
-  min-height: 36px;
-  border-radius: var(--cm-radius-sm);
-  border: 1px solid transparent;
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: var(--cm-radius-pill);
+  border: 1px solid var(--cm-border);
   background: transparent;
   color: var(--cm-muted);
-  font-size: 1.25rem;
+  font-size: var(--cm-ui-close-font);
   line-height: 1;
   cursor: pointer;
   display: inline-flex;
@@ -571,7 +576,7 @@
   color: #FFFFFF;
   padding: 10px 16px;
   border-radius: var(--cm-radius-pill);
-  font-size: 0.8rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   box-shadow: 0 10px 28px rgba(26, 24, 22, 0.25);
   display: inline-flex;
@@ -596,7 +601,7 @@
   padding: 32px 16px;
   text-align: center;
   color: var(--cm-muted);
-  font-size: 0.84rem;
+  font-size: var(--cm-ui-font);
   background: var(--cm-surface);
   border: 1px solid var(--cm-border);
   border-radius: var(--cm-radius);
@@ -674,7 +679,7 @@
   color: var(--cm-muted);
   cursor: pointer;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--cm-ui-font);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -693,7 +698,7 @@
   border: 1px solid var(--cm-border);
   background: var(--cm-surface-subtle);
   color: var(--cm-ink);
-  font-size: 11px;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -708,7 +713,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  font-size: 10.5px;
+  font-size: var(--cm-ui-font);
   color: var(--cm-muted);
 }
 
@@ -765,7 +770,7 @@
 #inAppSeguimientoRoot .cm-seg-folio-code {
   font-family: var(--cm-font-mono);
   font-weight: 800;
-  font-size: 10.5px;
+  font-size: var(--cm-ui-font);
   color: var(--cm-ink);
   background: var(--cm-surface-subtle);
   padding: 1px 6px;
@@ -774,7 +779,7 @@
 
 #inAppSeguimientoRoot .cm-seg-client-name {
   margin: 3px 0 0;
-  font-size: 12px;
+  font-size: var(--cm-ui-title-font);
   font-weight: 800;
   color: var(--cm-ink);
   word-break: break-word;
@@ -783,7 +788,7 @@
 
 #inAppSeguimientoRoot .cm-seg-phone-row {
   margin-top: 2px;
-  font-size: 10.5px;
+  font-size: var(--cm-ui-font);
   color: var(--cm-muted);
 }
 
@@ -793,7 +798,7 @@
   padding: 0;
   color: var(--cm-accent);
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   cursor: pointer;
   text-decoration: underline;
@@ -819,7 +824,7 @@
   gap: 6px;
   padding: 3px 0;
   border-bottom: 1px solid var(--cm-border-subtle);
-  font-size: 10.5px;
+  font-size: var(--cm-ui-font);
 }
 
 #inAppSeguimientoRoot .cm-seg-item-row:last-child {
@@ -840,7 +845,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  font-size: 10.5px;
+  font-size: var(--cm-ui-font);
   color: var(--cm-muted);
   padding-top: 5px;
   border-top: 1px solid var(--cm-border-subtle);
@@ -874,14 +879,14 @@
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.8rem;
+  font-size: var(--cm-ui-font);
 }
 
 #inAppSeguimientoRoot .cm-seg-table th {
   padding: 10px 12px;
   background: var(--cm-surface-subtle);
   color: var(--cm-muted);
-  font-size: 0.7rem;
+  font-size: var(--cm-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -921,7 +926,7 @@
   border: 1px solid var(--cm-border-subtle);
   border-radius: var(--cm-radius-sm);
   padding: 10px 12px;
-  font-size: 0.78rem;
+  font-size: var(--cm-ui-font);
 }
 
 #inAppSeguimientoRoot .cm-seg-recipient-tabs {
@@ -933,14 +938,14 @@
 }
 
 #inAppSeguimientoRoot .cm-seg-tab-btn {
-  min-height: 36px;
+  min-height: 34px;
   padding: 6px 12px;
   border-radius: var(--cm-radius-pill);
   border: 1px solid var(--cm-border);
   background: var(--cm-surface);
   color: var(--cm-muted);
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   cursor: pointer;
 }
@@ -968,7 +973,7 @@
   border-radius: var(--cm-radius-sm);
   border: 1px solid var(--cm-border);
   background: var(--cm-surface);
-  font-size: 0.78rem;
+  font-size: var(--cm-ui-font);
   transition: border-color 140ms ease, background-color 140ms ease;
 }
 
@@ -1004,14 +1009,14 @@
 }
 
 #inAppSeguimientoRoot .cm-seg-attach-btn {
-  min-height: 36px;
+  min-height: 34px;
   padding: 0 10px;
   border-radius: var(--cm-radius-sm);
   border: 1px solid var(--cm-accent-border);
   background: #FFFFFF;
   color: #7C5B33;
   font-family: inherit;
-  font-size: 0.74rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
@@ -1039,14 +1044,14 @@
 }
 
 #inAppSeguimientoRoot .cm-seg-tpl-btn {
-  min-height: 38px;
-  padding: 8px 10px;
+  min-height: 36px;
+  padding: 7px 10px;
   border-radius: var(--cm-radius-sm);
   border: 1px solid var(--cm-border);
   background: var(--cm-surface);
   color: var(--cm-ink-2);
   font-family: inherit;
-  font-size: 0.76rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   text-align: left;
   cursor: pointer;
@@ -1081,13 +1086,13 @@
 }
 
 #inAppSeguimientoRoot .cm-seg-status-btn {
-  min-height: 40px;
+  min-height: 38px;
   border-radius: var(--cm-radius-sm);
   border: 1px solid var(--cm-border);
   background: var(--cm-surface);
   color: var(--cm-ink-2);
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   cursor: pointer;
 }
@@ -1130,7 +1135,7 @@
 }
 
 #inAppSeguimientoRoot .cm-seg-audit-kpi-val {
-  font-size: 1.2rem;
+  font-size: var(--cm-ui-title-font);
   font-weight: 800;
   color: var(--cm-ink);
   margin-top: 2px;
@@ -1162,7 +1167,7 @@
 }
 
 #inAppHistorialRoot .cm-hist-kpi-label {
-  font-size: 0.68rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1171,7 +1176,7 @@
 
 #inAppHistorialRoot .cm-hist-kpi-val {
   margin-top: 4px;
-  font-size: 1.12rem;
+  font-size: var(--cm-ui-title-font);
   font-weight: 800;
   color: var(--cm-ink);
   letter-spacing: -0.02em;
@@ -1182,7 +1187,7 @@
 
 #inAppHistorialRoot .cm-hist-kpi-sub {
   margin-top: 2px;
-  font-size: 0.72rem;
+  font-size: var(--cm-ui-font);
   color: var(--cm-muted);
   white-space: normal;
   word-break: break-word;
@@ -1223,14 +1228,14 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
-  padding: 0 13px;
+  min-height: 34px;
+  padding: 0 12px;
   border-radius: var(--cm-radius-pill);
   border: 1px solid var(--cm-border);
   background: var(--cm-surface);
   color: var(--cm-ink-2);
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -1249,7 +1254,7 @@
 }
 
 #inAppHistorialRoot .cm-hist-tab-count {
-  font-size: 0.68rem;
+  font-size: var(--cm-ui-font);
   padding: 1px 6px;
   border-radius: var(--cm-radius-pill);
   background: rgba(26, 24, 22, 0.08);
@@ -1282,14 +1287,14 @@
   right: 2px;
   top: 50%;
   transform: translateY(-50%);
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border: none;
   background: transparent;
   color: var(--cm-muted);
   cursor: pointer;
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: var(--cm-ui-font);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1324,14 +1329,14 @@
 }
 
 #inAppHistorialRoot .cm-hist-filter-pill {
-  min-height: 36px;
+  min-height: 34px;
   padding: 0 11px;
   border-radius: var(--cm-radius-pill);
   border: 1px solid var(--cm-border);
   background: var(--cm-surface);
   color: var(--cm-ink-2);
   font-family: inherit;
-  font-size: 0.75rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
@@ -1373,14 +1378,14 @@
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.8rem;
+  font-size: var(--cm-ui-font);
 }
 
 #inAppHistorialRoot .cm-hist-table th {
   padding: 10px 12px;
   background: var(--cm-surface-subtle);
   color: var(--cm-muted);
-  font-size: 0.69rem;
+  font-size: var(--cm-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1434,14 +1439,14 @@
 }
 
 #inAppHistorialRoot .cm-hist-mcard-title {
-  font-size: 0.86rem;
+  font-size: var(--cm-ui-title-font);
   font-weight: 800;
   color: var(--cm-ink);
   word-break: break-word;
 }
 
 #inAppHistorialRoot .cm-hist-mcard-meta {
-  font-size: 0.74rem;
+  font-size: var(--cm-ui-font);
   color: var(--cm-muted);
   display: flex;
   flex-wrap: wrap;
@@ -1461,7 +1466,7 @@
 
 #inAppHistorialRoot .cm-hist-section-title {
   margin: 0;
-  font-size: 0.84rem;
+  font-size: var(--cm-ui-title-font);
   font-weight: 800;
   color: var(--cm-ink);
   letter-spacing: -0.01em;
@@ -1513,7 +1518,7 @@
 
 #inAppHistorialRoot .cm-hist-audit-detail {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--cm-ui-font);
   color: var(--cm-ink-2);
   word-break: break-word;
 }
@@ -1523,7 +1528,7 @@
   border: 1px solid var(--cm-border-subtle);
   border-radius: var(--cm-radius-sm);
   padding: 8px 10px;
-  font-size: 0.75rem;
+  font-size: var(--cm-ui-font);
   color: var(--cm-ink-2);
 }
 
@@ -1580,14 +1585,14 @@
 
 #inAppHistorialRoot .cm-hist-photo-sku {
   font-family: var(--cm-font-mono);
-  font-size: 0.68rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   color: var(--cm-accent);
 }
 
 #inAppHistorialRoot .cm-hist-photo-name {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   color: var(--cm-ink);
   display: block;
@@ -1598,7 +1603,7 @@
 }
 
 #inAppHistorialRoot .cm-hist-photo-meta {
-  font-size: 0.68rem;
+  font-size: var(--cm-ui-font);
   color: var(--cm-muted);
   white-space: normal;
   word-break: break-word;
@@ -1626,7 +1631,7 @@
 }
 
 #inAppHistorialRoot .cm-hist-kv-label {
-  font-size: 0.68rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1635,7 +1640,7 @@
 
 #inAppHistorialRoot .cm-hist-kv-val {
   margin-top: 2px;
-  font-size: 0.82rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   color: var(--cm-ink);
   word-break: break-word;
@@ -1650,7 +1655,7 @@
 
 #inAppHistorialRoot .cm-hist-chip {
   font-family: var(--cm-font-mono);
-  font-size: 0.72rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   padding: 3px 8px;
   border-radius: 6px;
@@ -1663,7 +1668,7 @@
   margin-top: 8px;
   padding: 9px 11px;
   border-radius: var(--cm-radius-sm);
-  font-size: 0.78rem;
+  font-size: var(--cm-ui-font);
   font-weight: 600;
 }
 
@@ -1730,7 +1735,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.76rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   color: var(--cm-ink-2);
   white-space: nowrap;
@@ -1817,7 +1822,7 @@
 }
 
 #inAppHistorialRoot .cm-hist-presence-name {
-  font-size: 0.8rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   color: var(--cm-ink);
   white-space: normal;
@@ -1826,7 +1831,7 @@
 }
 
 #inAppHistorialRoot .cm-hist-presence-meta {
-  font-size: 0.7rem;
+  font-size: var(--cm-ui-font);
   color: var(--cm-muted);
   white-space: normal;
   word-break: break-word;
@@ -1842,7 +1847,7 @@
 }
 
 #inAppHistorialRoot .cm-hist-presence-badge {
-  font-size: 0.68rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   line-height: 1.1;
 }
@@ -1856,7 +1861,7 @@
 }
 
 #inAppHistorialRoot .cm-hist-presence-time {
-  font-size: 0.67rem;
+  font-size: var(--cm-ui-font);
   color: var(--cm-muted);
   white-space: nowrap;
 }
@@ -1882,7 +1887,7 @@
   background: var(--cm-surface);
   color: var(--cm-ink-2);
   font-family: inherit;
-  font-size: 0.76rem;
+  font-size: var(--cm-ui-font);
   font-weight: 700;
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
@@ -1900,7 +1905,7 @@
 }
 
 #inAppSeguimientoRoot .cm-seg-view-tab-count {
-  font-size: 0.68rem;
+  font-size: var(--cm-ui-font);
   font-weight: 800;
   padding: 1px 7px;
   border-radius: var(--cm-radius-pill);
@@ -1918,7 +1923,7 @@
   border-radius: 7px;
   background: var(--cm-surface-subtle);
   border: 1px solid var(--cm-border-subtle);
-  font-size: 0.71rem;
+  font-size: var(--cm-ui-font);
   color: var(--cm-ink-2);
   line-height: 1.35;
 }
@@ -1930,8 +1935,9 @@
 
 /* ============================================================================
  * Adaptación Nativa para Teléfonos App (<= 767px y <= 639px)
- * - Cero zoom automático en iOS Safari (inputs >= 16px)
- * - Botones táctiles >= 42px, pestañas segmentadas 50/50 y modales tipo bottom-sheet
+ * - Tipografía uniforme (11px cuerpo/botones/controles, 12px títulos) igual que Cotización
+ * - Bloqueo universal de zoom en viewport + CreataBackNav.installZoomLock
+ * - Botones táctiles cómodos, pestañas segmentadas 50/50 y modales tipo bottom-sheet
  * ============================================================================ */
 #inAppSeguimientoRoot,
 #inAppHistorialRoot {
@@ -1957,17 +1963,17 @@
   #inAppHistorialRoot .cm-input,
   #inAppHistorialRoot .cm-select,
   #inAppHistorialRoot .cm-textarea {
-    font-size: 16px;
-    min-height: 42px;
-    padding: 8px 11px;
-    border-radius: 10px;
+    font-size: var(--cm-ui-font);
+    min-height: 36px;
+    padding: 6px 10px;
+    border-radius: 9px;
     -webkit-appearance: none;
     appearance: none;
   }
 
   #inAppSeguimientoRoot .cm-select,
   #inAppHistorialRoot .cm-select {
-    padding-right: 34px;
+    padding-right: 32px;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%234A453F' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 10px center;
@@ -1975,38 +1981,38 @@
   }
 
   #inAppSeguimientoRoot .cm-seg-search-wrap .cm-input {
-    padding-right: 40px;
+    padding-right: 36px;
   }
 
   #inAppSeguimientoRoot .cm-seg-clear-btn {
     right: 4px;
-    width: 34px;
-    height: 34px;
-    font-size: 14px;
+    width: 32px;
+    height: 32px;
+    font-size: var(--cm-ui-font);
     border-radius: 8px;
   }
 
   #inAppSeguimientoRoot .cm-fixed-branch-text,
   #inAppSeguimientoRoot .cm-seg-fixed-branch {
-    min-height: 42px;
-    padding: 8px 11px;
-    font-size: 13px;
-    border-radius: 10px;
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: var(--cm-ui-font);
+    border-radius: 9px;
   }
 
   #inAppSeguimientoRoot .cm-btn,
   #inAppHistorialRoot .cm-btn {
-    min-height: 40px;
-    padding: 8px 12px;
-    font-size: 12.5px;
-    border-radius: 10px;
+    min-height: 36px;
+    padding: 6px 11px;
+    font-size: var(--cm-ui-font);
+    border-radius: 9px;
   }
 
   #inAppSeguimientoRoot .cm-btn-back,
   #inAppHistorialRoot .cm-btn-back {
-    min-height: 38px;
-    padding: 6px 11px;
-    font-size: 12.5px;
+    min-height: 34px;
+    padding: 5px 10px;
+    font-size: var(--cm-ui-font);
   }
 
   #inAppSeguimientoRoot .cm-main,
@@ -2023,15 +2029,15 @@
   #inAppHistorialRoot .cm-input,
   #inAppHistorialRoot .cm-select,
   #inAppHistorialRoot .cm-textarea {
-    font-size: 16px;
-    min-height: 40px;
+    font-size: var(--cm-ui-font);
+    min-height: 36px;
   }
 
   #inAppSeguimientoRoot .cm-select,
   #inAppHistorialRoot .cm-select {
     -webkit-appearance: none;
     appearance: none;
-    padding-right: 34px;
+    padding-right: 32px;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%234A453F' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 10px center;
@@ -2044,7 +2050,8 @@
   #inAppSeguimientoRoot .cm-seg-status-btn,
   #inAppSeguimientoRoot .cm-seg-tpl-btn,
   #inAppSeguimientoRoot .cm-seg-tab-btn {
-    min-height: 40px;
+    min-height: 36px;
+    font-size: var(--cm-ui-font);
   }
 
   #inAppSeguimientoRoot .cm-main,
@@ -2061,7 +2068,7 @@
 
   #inAppSeguimientoRoot .cm-title,
   #inAppHistorialRoot .cm-title {
-    font-size: 14px;
+    font-size: var(--cm-ui-title-font);
   }
 
   #inAppSeguimientoRoot .cm-seg-filters {
@@ -2072,7 +2079,7 @@
 
   #inAppSeguimientoRoot .cm-field-label,
   #inAppHistorialRoot .cm-field-label {
-    font-size: 10.5px;
+    font-size: var(--cm-ui-font);
     margin-bottom: 4px;
   }
 
@@ -2081,7 +2088,7 @@
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--cm-ui-font);
   }
 
   #inAppSeguimientoRoot .cm-seg-view-tabs {
@@ -2097,12 +2104,12 @@
 
   #inAppSeguimientoRoot .cm-seg-view-tab {
     justify-content: center;
-    min-height: 40px;
+    min-height: 36px;
     padding: 6px 8px;
     border-radius: 9px;
     border-color: transparent;
     background: transparent;
-    font-size: 12px;
+    font-size: var(--cm-ui-font);
     white-space: nowrap;
   }
 
@@ -2126,22 +2133,22 @@
   }
 
   #inAppSeguimientoRoot .cm-seg-folio-code {
-    font-size: 11.5px;
+    font-size: var(--cm-ui-font);
     padding: 2px 8px;
   }
 
   #inAppSeguimientoRoot .cm-seg-client-name {
-    font-size: 14.5px;
+    font-size: var(--cm-ui-title-font);
     margin-top: 4px;
   }
 
   #inAppSeguimientoRoot .cm-seg-phone-row,
   #inAppSeguimientoRoot .cm-seg-link-btn {
-    font-size: 12.5px;
+    font-size: var(--cm-ui-font);
   }
 
   #inAppSeguimientoRoot .cm-seg-link-btn {
-    min-height: 32px;
+    min-height: 30px;
     padding: 4px 2px;
     display: inline-flex;
     align-items: center;
@@ -2155,12 +2162,12 @@
   }
 
   #inAppSeguimientoRoot .cm-seg-item-row {
-    font-size: 12px;
+    font-size: var(--cm-ui-font);
     padding: 5px 0;
   }
 
   #inAppSeguimientoRoot .cm-seg-card-foot {
-    font-size: 11.5px;
+    font-size: var(--cm-ui-font);
     padding-top: 7px;
   }
 
@@ -2170,13 +2177,13 @@
   }
 
   #inAppSeguimientoRoot .cm-seg-card-actions .cm-btn {
-    min-height: 44px;
-    font-size: 13px;
+    min-height: 38px;
+    font-size: var(--cm-ui-font);
   }
 
   #inAppSeguimientoRoot .cm-pill,
   #inAppHistorialRoot .cm-pill {
-    font-size: 10.5px;
+    font-size: var(--cm-ui-font);
     padding: 3px 9px;
   }
 
@@ -2202,9 +2209,9 @@
 
   #inAppSeguimientoRoot .cm-modal-close,
   #inAppHistorialRoot .cm-modal-close {
-    min-width: 42px;
-    min-height: 42px;
-    font-size: 1.4rem;
+    min-width: 34px;
+    min-height: 34px;
+    font-size: var(--cm-ui-close-font);
   }
 
   #inAppSeguimientoRoot .cm-seg-modal-actions {
@@ -2216,8 +2223,8 @@
 
   #inAppSeguimientoRoot .cm-seg-modal-actions #seg_btnActionWhatsApp {
     grid-column: 1 / -1;
-    min-height: 46px;
-    font-size: 14px;
+    min-height: 40px;
+    font-size: var(--cm-ui-font);
   }
 
   #inAppSeguimientoRoot .cm-seg-close-grid {
@@ -2227,8 +2234,9 @@
   #inAppSeguimientoRoot .cm-seg-status-btn,
   #inAppSeguimientoRoot .cm-seg-tpl-btn,
   #inAppSeguimientoRoot .cm-seg-tab-btn {
-    min-height: 42px;
-    font-size: 12.5px;
+    min-height: 38px;
+    font-size: var(--cm-ui-font);
   }
 }
+
 

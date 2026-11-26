@@ -5960,7 +5960,7 @@
             lastRenderedCardKeys = [];
             if (isMainCoverActive) {
                 container.innerHTML =
-                    '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold" ' +
+                    '<div class="rounded-xl border px-4 py-6 text-center text-[11px] font-semibold" ' +
                     'style="grid-column: 1 / -1; border-color:#E6E1D8; color:#1A1816; background:#FFFFFF;">' +
                     'Sin productos disponibles.' +
                     '</div>';
@@ -5969,7 +5969,7 @@
                 const curQ = cleanStr(inp && inp.value);
                 const filterLbl = formatActiveFilterLabel();
                 container.innerHTML =
-                    '<div class="rounded-xl border px-4 py-6 text-center text-xs font-semibold space-y-1.5" ' +
+                    '<div class="rounded-xl border px-4 py-6 text-center text-[11px] font-semibold space-y-1.5" ' +
                     'style="grid-column: 1 / -1; border-color:#E6E1D8; color:#1A1816; background:#FFFFFF;">' +
                     '<div>Sin resultados' +
                         (curQ ? (' para <strong>“' + escapeHtml(curQ) + '”</strong>') : '') +
@@ -8029,7 +8029,7 @@
         } else {
             el.textContent = text;
         }
-        el.className = 'rounded-xl border px-3.5 py-2.5 text-xs font-bold ' +
+        el.className = 'rounded-xl border px-3.5 py-2.5 text-[11px] font-bold ' +
             (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
     }
 
@@ -8118,7 +8118,7 @@
             return;
         }
         el.textContent = text;
-        el.className = 'rounded-xl border px-3 py-2 text-xs font-bold ' +
+        el.className = 'rounded-xl border px-3 py-2 text-[11px] font-bold ' +
             (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
     }
 
@@ -8273,7 +8273,7 @@
 
         grid.innerHTML = infoCells.map(pair => (
             '<div class="rounded-lg px-2 py-1 border" style="background:#FFFFFF;border-color:#E7E0CD;min-width:0;">' +
-                '<div class="text-[9px] font-extrabold uppercase tracking-wider" style="color:#8C6D3F;">' + escapeHtml(pair[0]) + '</div>' +
+                '<div class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#8C6D3F;">' + escapeHtml(pair[0]) + '</div>' +
                 '<div class="text-[11px] font-bold truncate" style="color:#252C32;" title="' + escapeHtml(pair[1]) + '">' + escapeHtml(pair[1]) + '</div>' +
             '</div>'
         )).join('');
@@ -8287,7 +8287,7 @@
                     const sSku = cleanStr(sib.s).toUpperCase();
                     const isCur = sSku === cleanStr(it.s).toUpperCase();
                     const vLbl = (cleanStr(sib.vr) && cleanStr(sib.vr) !== 'ESTÁNDAR') ? cleanStr(sib.vr) : (cleanStr(sib.tl) || cleanStr(sib.md) || sSku);
-                    return '<button type="button" class="px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap" ' +
+                    return '<button type="button" class="px-2 py-0.5 rounded-full text-[11px] font-bold border whitespace-nowrap" ' +
                         'style="' + (isCur ? 'background:#252C32;color:#FFFFFF;border-color:#252C32;' : 'background:#FFFFFF;color:#252C32;border-color:#D8CFAF;') + '" ' +
                         'data-inv-act="upload-model-opt" data-sku="' + escapeHtml(sSku) + '">' +
                         escapeHtml(sSku + ' · ' + vLbl.slice(0, 22)) +
@@ -8385,7 +8385,7 @@
             const vrTxt = (cleanStr(it.vr) && cleanStr(it.vr) !== 'ESTÁNDAR') ? (' · ' + cleanStr(it.vr)) : '';
             return '<button type="button" class="inv-combo-opt" onmousedown="event.preventDefault(); selectUploadPhotoModelOption(\'' + escapeHtml(sku) + '\')">' +
                 '<span class="inv-combo-opt-sku">' + escapeHtml(sku) + '</span>' +
-                '<span class="inv-combo-opt-name">' + escapeHtml(nm + vrTxt) + ' <strong style="color:#8C6D3F;font-size:10px;">[' + escapeHtml(catMeta.short) + ']</strong></span>' +
+                '<span class="inv-combo-opt-name">' + escapeHtml(nm + vrTxt) + ' <strong style="color:#8C6D3F;font-size:11px;">[' + escapeHtml(catMeta.short) + ']</strong></span>' +
             '</button>';
         }).join('');
         const ddWasHidden = dd.classList.contains('hidden');
@@ -9215,7 +9215,7 @@
 
         if (!matches.length) {
             listEl.innerHTML =
-                '<div class="rounded-xl border px-3.5 py-4 text-center text-xs font-semibold" style="border-color:#E8E4DE; background:#FFFFFF; color:#252C32;">' +
+                '<div class="rounded-xl border px-3.5 py-4 text-center text-[11px] font-semibold" style="border-color:#E8E4DE; background:#FFFFFF; color:#252C32;">' +
                     'Por el momento no hay otros artículos de este mismo tipo con existencia física en bodega o piso.' +
                 '</div>';
             return;
@@ -10632,7 +10632,7 @@
         if (window.CreataSeguimientoModule && typeof window.CreataSeguimientoModule.mount === 'function') {
             window.CreataSeguimientoModule.mount(segRoot, buildInAppModuleContext());
         } else {
-            segRoot.innerHTML = '<div style="padding:24px;text-align:center;font-size:13px;font-weight:700;">Cargando Seguimiento...</div>';
+            segRoot.innerHTML = '<div style="padding:24px;text-align:center;font-size:11px;font-weight:700;">Cargando Seguimiento...</div>';
         }
         if (!invWorkspaceRestoring) notifyInvBackStatePush('seguimiento_module');
         window.scrollTo({ top: 0, behavior: 'auto' });
@@ -10672,7 +10672,7 @@
         if (window.CreataHistorialModule && typeof window.CreataHistorialModule.mount === 'function') {
             window.CreataHistorialModule.mount(histRoot, buildInAppModuleContext());
         } else {
-            histRoot.innerHTML = '<div style="padding:24px;text-align:center;font-size:13px;font-weight:700;">Cargando Historial...</div>';
+            histRoot.innerHTML = '<div style="padding:24px;text-align:center;font-size:11px;font-weight:700;">Cargando Historial...</div>';
         }
         if (!invWorkspaceRestoring) notifyInvBackStatePush('historial_module');
         window.scrollTo({ top: 0, behavior: 'auto' });
@@ -11400,7 +11400,7 @@
             return;
         }
         el.textContent = text;
-        el.className = 'rounded-xl border px-3.5 py-2.5 text-xs font-bold ' +
+        el.className = 'rounded-xl border px-3.5 py-2.5 text-[11px] font-bold ' +
             (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
     }
 
@@ -11677,8 +11677,8 @@
                 'style="border-color:' + (isCurrent ? '#A38251' : '#E1DBC5') + '; background:' + (isCurrent ? '#FAF9F6' : '#FFFFFF') + ';">' +
                 '<div class="min-w-0">' +
                     '<div class="flex flex-wrap items-center gap-1.5">' +
-                        '<span class="text-xs font-extrabold uppercase tracking-wider" style="color:#252C32;">' + escapeHtml(loc.branchLabel || loc.sheetTab) + '</span>' +
-                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (loc.isProyecto || loc.isAdmin ? '#252C32' : '#E1DBC5') + '; color:' + (loc.isProyecto || loc.isAdmin ? '#FFFFFF' : '#252C32') + ';">' + escapeHtml(modeTag) + '</span>' +
+                        '<span class="text-[11px] font-extrabold uppercase tracking-wider" style="color:#252C32;">' + escapeHtml(loc.branchLabel || loc.sheetTab) + '</span>' +
+                        '<span class="px-2 py-0.5 rounded-full text-[11px] font-extrabold uppercase" style="background:' + (loc.isProyecto || loc.isAdmin ? '#252C32' : '#E1DBC5') + '; color:' + (loc.isProyecto || loc.isAdmin ? '#FFFFFF' : '#252C32') + ';">' + escapeHtml(modeTag) + '</span>' +
                     '</div>' +
                     '<div class="text-[11px] font-semibold mt-0.5" style="color:#A38251;">' +
                         escapeHtml((loc.puesto ? (loc.puesto + ' · ') : '') + (loc.erpStore || '')) +
@@ -12415,14 +12415,14 @@
                 'style="border-color:' + (isJustGenerated ? '#10B981' : '#E1DBC5') + ';' + (isJustGenerated ? ' box-shadow:0 0 0 1px rgba(16,185,129,0.25);' : '') + '">' +
                 '<div class="min-w-0">' +
                     '<div class="flex flex-wrap items-center gap-1.5">' +
-                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + (isProy ? '#252C32' : '#A38251') + '; color:#FFFFFF;">' +
+                        '<span class="px-2 py-0.5 rounded-full text-[11px] font-extrabold uppercase" style="background:' + (isProy ? '#252C32' : '#A38251') + '; color:#FFFFFF;">' +
                             escapeHtml(cleanFolio) +
                         '</span>' +
                         '<span class="text-[11px] font-extrabold uppercase" style="color:#252C32;">' + escapeHtml(storeTag) + '</span>' +
-                        '<span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase" style="background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0;">' +
+                        '<span class="px-1.5 py-0.5 rounded text-[11px] font-extrabold uppercase" style="background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0;">' +
                             (isJustGenerated ? '✓ PDF RECIÉN GENERADO' : '✓ PDF LISTO') +
                         '</span>' +
-                        (qidVal ? ('<span class="text-[10px] font-bold opacity-70" style="color:#252C32;">(ID ERP ' + escapeHtml(qidVal) + ')</span>') : '') +
+                        (qidVal ? ('<span class="text-[11px] font-bold opacity-70" style="color:#252C32;">(ID ERP ' + escapeHtml(qidVal) + ')</span>') : '') +
                     '</div>' +
                     '<div class="text-[11px] font-semibold truncate mt-0.5" style="color:#252C32;">' +
                         escapeHtml(q.clientName || 'Prospecto') +
@@ -12436,8 +12436,8 @@
                 '</div>' +
                 '<div class="text-right shrink-0 ml-auto flex flex-col items-end gap-1">' +
                     '<div>' +
-                        '<div class="text-xs font-black" style="color:#A38251;">' + escapeHtml(q.total || '') + '</div>' +
-                        '<div class="text-[10px] font-semibold opacity-70" style="color:#252C32;">' + escapeHtml(q.createdAt || '') + '</div>' +
+                        '<div class="text-[11px] font-black" style="color:#A38251;">' + escapeHtml(q.total || '') + '</div>' +
+                        '<div class="text-[11px] font-semibold opacity-70" style="color:#252C32;">' + escapeHtml(q.createdAt || '') + '</div>' +
                     '</div>' +
                     '<button type="button" data-erp-pdf-btn="1" ' +
                         'data-q-id="' + escapeHtml(qidVal) + '" ' +
@@ -12445,7 +12445,7 @@
                         'data-q-uid="' + escapeHtml(cleanStr(q.erpUserId)) + '" ' +
                         'data-q-client="' + escapeHtml(cleanStr(q.clientName)) + '" ' +
                         'data-q-store="' + escapeHtml(cleanStr(q.erpStore || q.branchTab)) + '" ' +
-                        'class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider transition hover:opacity-90" ' +
+                        'class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider transition hover:opacity-90" ' +
                         'style="background:#252C32; color:#FFFFFF;" ' +
                         'title="Descargar PDF de cotización">' +
                         '⬇ Descargar PDF' +
@@ -13421,7 +13421,7 @@
                 'style="background:' + bg + '; color:' + fg + '; border-color:' + brd + ';">' +
                 '<button type="button" data-inv-act="switch-draft" data-draft-id="' + escapeHtml(d.id) + '" class="px-2.5 py-1 flex items-center gap-1.5 text-left">' +
                     '<span class="font-extrabold uppercase truncate max-w-[130px]">' + escapeHtml(titleTxt) + '</span>' +
-                    '<span class="text-[10px] font-bold" style="color:' + subColor + ';">(' + escapeHtml(statusPart) + ')</span>' +
+                    '<span class="text-[11px] font-bold" style="color:' + subColor + ';">(' + escapeHtml(statusPart) + ')</span>' +
                 '</button>' +
                 (canDiscard
                     ? ('<button type="button" title="Cerrar / descartar esta cotización" data-inv-act="discard-draft" data-draft-id="' + escapeHtml(d.id) + '" ' +
@@ -13545,7 +13545,7 @@
                 '<div class="font-extrabold uppercase leading-snug break-words">✓ ' + escapeHtml(tag) + ': ' + escapeHtml(nm) + '</div>' +
                 (extraInfo ? ('<div class="text-[11px] font-semibold opacity-85 break-words mt-0.5">' + escapeHtml(extraInfo) + '</div>') : '') +
             '</div>' +
-            '<button type="button" onclick="clearSelectedErpClient()" class="inv-erp-client-unlink-btn px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border shrink-0" style="border-color:#065F46; background:#FFFFFF; color:#065F46;">Desvincular</button>';
+            '<button type="button" onclick="clearSelectedErpClient()" class="inv-erp-client-unlink-btn px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase border shrink-0" style="border-color:#065F46; background:#FFFFFF; color:#065F46;">Desvincular</button>';
         badge.classList.remove('hidden');
     }
 
@@ -13674,12 +13674,12 @@
             return '<div class="inv-erp-client-card rounded-lg border px-3 py-2 bg-white flex items-center justify-between gap-2 hover:shadow-sm transition" style="border-color:#E6E1D8;">' +
                 '<div class="min-w-0 flex-1">' +
                     '<div class="flex flex-wrap items-center gap-1.5">' +
-                        '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase" style="background:' + badgeBg + '; color:#FFFFFF;">' + escapeHtml(badgeTxt) + '</span>' +
-                        '<span class="text-xs font-extrabold uppercase break-words leading-snug" style="color:#1A1816;">' + escapeHtml(c.nombre || '') + '</span>' +
+                        '<span class="px-2 py-0.5 rounded-full text-[11px] font-extrabold uppercase" style="background:' + badgeBg + '; color:#FFFFFF;">' + escapeHtml(badgeTxt) + '</span>' +
+                        '<span class="text-[11px] font-extrabold uppercase break-words leading-snug" style="color:#1A1816;">' + escapeHtml(c.nombre || '') + '</span>' +
                     '</div>' +
                     (subParts.length ? ('<div class="text-[11px] font-semibold opacity-80 break-words mt-0.5" style="color:#1A1816;">' + escapeHtml(subParts.join(' · ')) + '</div>') : '') +
                 '</div>' +
-                '<button type="button" onclick="selectErpClientFromSearch(' + idx + ')" class="inv-erp-client-pick-btn px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase shrink-0" style="background:#9E7B4F; color:#FFFFFF;">Elegir</button>' +
+                '<button type="button" onclick="selectErpClientFromSearch(' + idx + ')" class="inv-erp-client-pick-btn px-3 py-1.5 rounded-full text-[11px] font-extrabold uppercase shrink-0" style="background:#9E7B4F; color:#FFFFFF;">Elegir</button>' +
             '</div>';
         }).join('');
     }
@@ -13692,7 +13692,7 @@
         if (!resEl) return;
 
         if (isActiveQuoteCompleted()) {
-            resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Esta cotización ya fue generada. Pulsa <strong>+ Nueva</strong> para crear otra y buscar cliente.</div>';
+            resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-[11px] font-bold sem-yellow">Esta cotización ya fue generada. Pulsa <strong>+ Nueva</strong> para crear otra y buscar cliente.</div>';
             resEl.classList.remove('hidden');
             return;
         }
@@ -13703,7 +13703,7 @@
 
         const q = cleanStr(inp ? inp.value : '');
         if (q.length < 2) {
-            resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow">Escribe al menos 2 caracteres para buscar.</div>';
+            resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-[11px] font-bold sem-yellow">Escribe al menos 2 caracteres para buscar.</div>';
             resEl.classList.remove('hidden');
             if (inp) inp.focus();
             return;
@@ -13718,7 +13718,7 @@
             btn.disabled = true;
             btn.textContent = 'Buscando...';
         }
-        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-xs font-semibold bg-white" style="border-color:#E6E1D8; color:#1A1816;">Buscando cliente en S Mueblería...</div>';
+        resEl.innerHTML = '<div class="rounded-lg border px-3 py-2 text-[11px] font-semibold bg-white" style="border-color:#E6E1D8; color:#1A1816;">Buscando cliente en S Mueblería...</div>';
         resEl.classList.remove('hidden');
 
         try {
@@ -13733,9 +13733,9 @@
             if ((res && res.authRequired) || isSilentAuthReject) {
                 const msg = (res && res.error) || 'Tu sesión requiere confirmación para buscar clientes.';
                 resEl.innerHTML =
-                    '<div class="rounded-lg border px-3 py-2 text-xs font-bold sem-yellow flex flex-wrap items-center justify-between gap-2">' +
+                    '<div class="rounded-lg border px-3 py-2 text-[11px] font-bold sem-yellow flex flex-wrap items-center justify-between gap-2">' +
                         '<span>' + escapeHtml(msg) + '</span>' +
-                        '<button type="button" onclick="promptSessionReauth(\'Confirma tu contraseña para buscar clientes.\', function(){ searchErpClientsLive(); })" class="px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase" style="background:#1A1816; color:#FFFFFF;">Confirmar sesión</button>' +
+                        '<button type="button" onclick="promptSessionReauth(\'Confirma tu contraseña para buscar clientes.\', function(){ searchErpClientsLive(); })" class="px-3 py-1.5 rounded-full text-[11px] font-extrabold uppercase" style="background:#1A1816; color:#FFFFFF;">Confirmar sesión</button>' +
                     '</div>';
                 promptSessionReauth(msg, () => { searchErpClientsLive(); });
                 return;
@@ -13752,11 +13752,11 @@
                     ? res.error
                     : 'No se pudo conectar con S Mueblería en este momento. Intenta de nuevo o registra el cliente.';
                 resEl.innerHTML =
-                    '<div class="rounded-lg border px-3 py-2.5 text-xs font-bold sem-red flex flex-wrap items-center justify-between gap-2">' +
+                    '<div class="rounded-lg border px-3 py-2.5 text-[11px] font-bold sem-red flex flex-wrap items-center justify-between gap-2">' +
                         '<span class="min-w-0 flex-1">' + escapeHtml(errText) + '</span>' +
                         '<div class="flex items-center gap-1.5 shrink-0">' +
-                            '<button type="button" onclick="searchErpClientsLive()" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase" style="background:#1A1816; color:#FFFFFF;">Reintentar</button>' +
-                            '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Nuevo cliente</button>' +
+                            '<button type="button" onclick="searchErpClientsLive()" class="px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase" style="background:#1A1816; color:#FFFFFF;">Reintentar</button>' +
+                            '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Nuevo cliente</button>' +
                         '</div>' +
                     '</div>';
                 return;
@@ -13771,9 +13771,9 @@
                     return;
                 }
                 resEl.innerHTML =
-                    '<div class="rounded-lg border px-3 py-2.5 text-xs font-semibold bg-white flex flex-wrap items-center justify-between gap-2" style="border-color:#E6E1D8; color:#1A1816;">' +
+                    '<div class="rounded-lg border px-3 py-2.5 text-[11px] font-semibold bg-white flex flex-wrap items-center justify-between gap-2" style="border-color:#E6E1D8; color:#1A1816;">' +
                         '<span>Sin coincidencias para <strong>' + escapeHtml(q) + '</strong>.</span>' +
-                        '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Nuevo cliente</button>' +
+                        '<button type="button" onclick="toggleNewErpClientForm(true)" class="px-3 py-1.5 rounded-full text-[11px] font-extrabold uppercase" style="background:#9E7B4F; color:#FFFFFF;">+ Nuevo cliente</button>' +
                     '</div>';
                 return;
             }
@@ -13819,7 +13819,7 @@
             return;
         }
         el.textContent = text;
-        el.className = 'rounded-lg border px-3 py-2 text-xs font-bold ' +
+        el.className = 'rounded-lg border px-3 py-2 text-[11px] font-bold ' +
             (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
     }
 
@@ -14225,7 +14225,7 @@
         }
 
         if (!bd.lines.length) {
-            wrap.innerHTML = '<div class="text-center py-6 rounded-xl border text-xs font-semibold opacity-60" style="border-color:#E8E4DE;">No hay productos agregados a la plantilla de cotización.</div>';
+            wrap.innerHTML = '<div class="text-center py-6 rounded-xl border text-[11px] font-semibold opacity-60" style="border-color:#E8E4DE;">No hay productos agregados a la plantilla de cotización.</div>';
             renderQuoteTotalsOnly();
             return;
         }
@@ -15183,7 +15183,7 @@
             '<div class="font-extrabold uppercase">' +
                 (o.isQueued ? '⏳ Cotización en cola' : '✓ Cotización creada') +
             '</div>' +
-            (folioTxt ? ('<div>Folio: <strong class="text-sm">' + escapeHtml(folioTxt) + '</strong></div>') : '') +
+            (folioTxt ? ('<div>Folio: <strong class="text-[11px] font-extrabold">' + escapeHtml(folioTxt) + '</strong></div>') : '') +
             '<div>Cliente: <strong>' + escapeHtml((payload && payload.clientName) || 'Por definir') + '</strong>' +
                 (payload && payload.clientPhone ? (' · Tel: <strong>' + escapeHtml(payload.clientPhone) + '</strong>') : '') +
             '</div>' +
@@ -15238,7 +15238,7 @@
             box.classList.add('hidden');
             return;
         }
-        box.className = 'rounded-xl border p-3.5 text-xs space-y-1.5 ' +
+        box.className = 'rounded-xl border p-3.5 text-[11px] space-y-1.5 ' +
             (tone === 'ok' ? 'sem-green' : (tone === 'warn' ? 'sem-yellow' : 'sem-red'));
         box.innerHTML = htmlContent;
         box.classList.remove('hidden');
@@ -16050,7 +16050,7 @@
             el.setAttribute('role', 'status');
             el.style.cssText = 'position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:9999;' +
                 'max-width:calc(100vw - 32px);padding:9px 16px;border-radius:999px;background:#1F2937;color:#FFFFFF;' +
-                'font-size:12px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.28);pointer-events:none;transition:opacity .2s;';
+                'font-size:11px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.28);pointer-events:none;transition:opacity .2s;';
             document.body.appendChild(el);
         }
         el.textContent = cleanMsg;
@@ -17275,9 +17275,9 @@
                     '<div style="font-size:12px;font-weight:800;line-height:1.3;color:' + (isErr ? '#991B1B' : '#065F46') + ';">' +
                         escapeHtml(o.title || 'Aviso en vivo') +
                     '</div>' +
-                    '<button type="button" aria-label="Cerrar aviso" style="background:transparent;border:none;font-size:13px;font-weight:800;color:#6B655E;cursor:pointer;line-height:1;padding:0 2px;">✕</button>' +
+                    '<button type="button" aria-label="Cerrar aviso" style="background:transparent;border:none;font-size:14px;font-weight:800;color:#6B655E;cursor:pointer;line-height:1;padding:0 2px;">✕</button>' +
                 '</div>' +
-                '<div style="font-size:11.5px;font-weight:600;color:#252C32;margin-top:4px;line-height:1.35;">' +
+                '<div style="font-size:11px;font-weight:600;color:#252C32;margin-top:4px;line-height:1.35;">' +
                     escapeHtml(o.body || '') +
                 '</div>' +
                 '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:7px;">' +
@@ -19950,7 +19950,7 @@
             const timeLbl = u.lastSeenMs ? formatSettingsSessionTime(u.lastSeenMs, refNow) : 'Sin registro';
             const cls = u.online ? 'is-online' : 'is-offline';
             const guestPill = u.isGuest
-                ? ' <span class="inv-settings-badge" style="margin-left:5px;font-size:9px;padding:1px 6px;">INVITADO</span>'
+                ? ' <span class="inv-settings-badge" style="margin-left:5px;font-size:11px;padding:1px 6px;">INVITADO</span>'
                 : '';
             const badgeHtml = u.online
                 ? '<span class="inv-settings-pill-live">● Conectado</span>'
@@ -20208,7 +20208,7 @@
             return (
                 '<button type="button" class="inv-settings-suggest-btn" data-inv-act="edit-settings-prod" data-sku="' + escapeHtml(sku) + '">' +
                     '<span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(sku + ' · ' + (it.n || '')) + '</span>' +
-                    '<span style="font-size:10px;color:var(--inv-muted);flex-shrink:0;">' + escapeHtml((it.c || '') + stTag) + '</span>' +
+                    '<span style="font-size:11px;color:var(--inv-muted);flex-shrink:0;">' + escapeHtml((it.c || '') + stTag) + '</span>' +
                 '</button>'
             );
         }).join('');

@@ -229,3 +229,52 @@ test('Alta de Fotos + Apps Script: cross-device photo & document staging, rev/si
   );
   assert.equal(unauthRes.ok, false, 'Unauthenticated doPost prompts_health fullScan:true must be rejected');
 });
+
+// ============================================================================
+// 5. COTIZACIÓN UNIFORM FONT SIZE ACROSS ALL BUTTONS AND ALL OPENED WINDOWS
+// ============================================================================
+test('Cotización Uniform Typography: ALL buttons and ALL opened modals/windows use unified 11px body/button, 12px title, 14px close across Android, iOS, and PC', () => {
+  const invHtml = readRepo('inventario.html');
+  const invCss = readRepo('inventario-ui.css');
+  const modCss = readRepo('creata-modules.css');
+  const segJs = readRepo('seguimiento-app.js');
+  const histJs = readRepo('historial-app.js');
+
+  // 1. Unified typography tokens defined identically in inventario-ui.css and creata-modules.css
+  assert.match(invCss, /--inv-ui-font:\s*11px;/, 'inventario-ui.css must define --inv-ui-font: 11px');
+  assert.match(invCss, /--inv-ui-title-font:\s*12px;/, 'inventario-ui.css must define --inv-ui-title-font: 12px');
+  assert.match(invCss, /--inv-ui-close-font:\s*14px;/, 'inventario-ui.css must define --inv-ui-close-font: 14px');
+  assert.match(modCss, /--cm-ui-font:\s*11px;/, 'creata-modules.css must define --cm-ui-font: 11px');
+  assert.match(modCss, /--cm-ui-title-font:\s*12px;/, 'creata-modules.css must define --cm-ui-title-font: 12px');
+  assert.match(modCss, /--cm-ui-close-font:\s*14px;/, 'creata-modules.css must define --cm-ui-close-font: 14px');
+
+  // 2. Authoritative unified typography lock present in inventario-ui.css
+  assert.match(invCss, /\.modal-backdrop button:not\(\.inv-modal-close\)[\s\S]*?font-size:\s*var\(--inv-ui-font\);/, 'All modal buttons must enforce var(--inv-ui-font)');
+  assert.match(invCss, /\.modal-backdrop h2,[\s\S]*?\.modal-backdrop \.inv-modal-title,[\s\S]*?font-size:\s*var\(--inv-ui-title-font\);/, 'All modal titles must enforce var(--inv-ui-title-font)');
+  assert.match(invCss, /\.modal-backdrop button\[aria-label="Cerrar"\],[\s\S]*?font-size:\s*var\(--inv-ui-close-font\);/, 'All modal close buttons must enforce var(--inv-ui-close-font)');
+
+  // 3. Zero 16px mobile bloat left in Cotización modals or in-app modules (zoom lock already guards iOS)
+  assert.ok(!/font-size:\s*16px\s*!important/.test(invCss), 'inventario-ui.css must not bloat modal inputs to 16px on mobile');
+  assert.ok(!/font-size:\s*16px/.test(modCss), 'creata-modules.css must not bloat Seguimiento/Historial inputs to 16px on mobile');
+
+  // 4. Zero stray rem font-sizes left in creata-modules.css, seguimiento-app.js, or historial-app.js
+  assert.ok(!/font-size:\s*[0-9.]+rem/.test(modCss), 'creata-modules.css must not mix rem font-size rules');
+  assert.ok(!/font-size:\s*[0-9.]+rem/.test(segJs), 'seguimiento-app.js must not use inline rem font-sizes');
+  assert.ok(!/font-size:\s*[0-9.]+rem/.test(histJs), 'historial-app.js must not use inline rem font-sizes');
+
+  // 5. Zero legacy mismatched Tailwind font-size utilities in inventario.html
+  const forbiddenTwSizes = /\btext-(?:xs|sm|base|lg|xl|2xl|\[(?:9|9\.5|10|10\.5)px\])\b/;
+  assert.ok(!forbiddenTwSizes.test(invHtml), 'inventario.html must not contain mismatched Tailwind text size classes');
+
+  // 6. Balanced CSS braces in both stylesheets
+  for (const [name, src] of [['inventario-ui.css', invCss], ['creata-modules.css', modCss]]) {
+    let depth = 0;
+    for (const ch of src) {
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      assert.ok(depth >= 0, `Unmatched } in ${name}`);
+    }
+    assert.equal(depth, 0, `Unbalanced braces in ${name}`);
+  }
+});
+
