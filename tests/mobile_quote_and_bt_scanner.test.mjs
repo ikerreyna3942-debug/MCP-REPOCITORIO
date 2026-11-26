@@ -355,8 +355,8 @@ test('Static Contracts: Restored header logo/search sizing, compact unified Coti
   assert.match(INV_JS, /function applyIosNoAutoZoomViewportGuard\(/, 'iOS no-auto-zoom viewport guard must exist');
 
   // Cache versions
-  assert.ok(INV_HTML.includes('./inventario-ui.css?v=32'), 'inventario.html must load inventario-ui.css?v=32');
-  assert.ok(INV_HTML.includes('inventario-app.js?v=117'), 'inventario.html must load inventario-app.js?v=117');
+  assert.ok(INV_HTML.includes('./inventario-ui.css?v=33'), 'inventario.html must load inventario-ui.css?v=33');
+  assert.ok(INV_HTML.includes('inventario-app.js?v=118'), 'inventario.html must load inventario-app.js?v=118');
 });
 
 test('Runtime: universal zoom-lock viewport guard applies on both Apple iOS/iPadOS and Android, and renderCartItems renders compact responsive cards', async () => {

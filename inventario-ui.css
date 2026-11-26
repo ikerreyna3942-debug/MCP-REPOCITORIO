@@ -4311,6 +4311,16 @@ button, a, input, select, textarea {
  * Calculadora Informativa de Precios y Descuentos (#priceCalculatorModal)
  * - 100% aislada de la cotización final; tipografía unificada 11px / 12px / 14px
  * ============================================================================ */
+#priceCalculatorModal {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#priceCalculatorModal button,
+#priceCalculatorModal input {
+  touch-action: manipulation;
+}
+
 #priceCalculatorModal .inv-calc-modal-card {
   width: 100%;
   max-width: 560px;
@@ -4368,6 +4378,11 @@ button, a, input, select, textarea {
   padding-right: 30px;
 }
 
+#priceCalculatorModal #calcSearchInput::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 #priceCalculatorModal .inv-calc-scan-btn {
   flex-shrink: 0;
   min-width: 34px;
@@ -4392,6 +4407,7 @@ button, a, input, select, textarea {
 #priceCalculatorModal .inv-calc-search-clear {
   position: absolute;
   right: 4px;
+  z-index: 2;
   width: 24px;
   height: 24px;
   border: none;
@@ -4790,9 +4806,44 @@ button, a, input, select, textarea {
   gap: 8px;
 }
 
+#priceCalculatorModal .inv-calc-add-btn:active,
+#priceCalculatorModal .inv-calc-preset-btn:active,
+#priceCalculatorModal .inv-calc-qty-btn:active,
+#priceCalculatorModal .inv-calc-item-rm:active,
+#priceCalculatorModal .inv-calc-scan-btn:active,
+#priceCalculatorModal .inv-calc-search-clear:active {
+  opacity: 0.78;
+  transform: scale(0.96);
+}
+
 @media (max-width: 640px) {
   #priceCalculatorModal .inv-calc-modal-card {
     max-height: 94dvh;
+  }
+
+  #priceCalculatorModal .inv-calc-add-btn {
+    min-height: 32px;
+    padding: 5px 11px;
+  }
+
+  #priceCalculatorModal .inv-calc-preset-btn {
+    min-height: 30px;
+    padding: 3px 10px;
+  }
+
+  #priceCalculatorModal .inv-calc-qty-btn {
+    width: 32px;
+    height: 30px;
+  }
+
+  #priceCalculatorModal .inv-calc-qty-inp {
+    height: 30px;
+    min-height: 30px;
+  }
+
+  #priceCalculatorModal .inv-calc-item-rm {
+    width: 28px;
+    height: 28px;
   }
 
   #priceCalculatorModal .inv-calc-footer {

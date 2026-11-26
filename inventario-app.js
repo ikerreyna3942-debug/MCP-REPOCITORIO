@@ -20788,12 +20788,16 @@
     // ========================================================================
     // CALCULADORA INFORMATIVA DE PRECIOS Y DESCUENTOS (MENÚ FLOTANTE "+")
     // - 100% aislada de la cotización final (NUNCA modifica cart ni quoteDrafts)
-    // - Permite agregar 1 o más piezas de 1 o más productos (ej. módulos de una sala)
+    // - Índice pre-normalizado + debounce + actualizaciones in-place (0 lag)
     // ========================================================================
     let priceCalcItems = [];
     let priceCalcGlobalDiscountPct = 0;
     let priceCalcLastQuery = '';
     let priceCalcDelegatedBound = false;
+    let priceCalcSearchIndex = null;
+    let priceCalcSearchIndexSig = '';
+    let priceCalcSearchDebounceTimer = null;
+    let priceCalcSearchRenderCount = 0;
 
     function roundCalcMoney(n) {
         const v = Number(n) || 0;
@@ -20856,6 +20860,44 @@
         return 0;
     }
 
+    function getPriceCalcSearchIndex() {
+        const pool = Array.isArray(allItems) && allItems.length > 0 ? allItems : Array.from(bySkuMap.values());
+        const sig = String(pool.length) + ':' + String(lastLiveSignature || '') + ':' + String(liveErpPricesBySku.size || 0);
+        if (priceCalcSearchIndex && priceCalcSearchIndexSig === sig) {
+            return priceCalcSearchIndex;
+        }
+        const seen = new Set();
+        const idx = [];
+        for (let i = 0; i < pool.length; i++) {
+            const it = pool[i];
+            if (!it) continue;
+            const sku = String(it.s || '').trim().toUpperCase();
+            if (!sku || seen.has(sku)) continue;
+            const unitPrice = getCalcItemUnitPrice(it);
+            if (unitPrice <= 0) continue;
+            seen.add(sku);
+            const name = stripDimensionsFromProductText(cleanStr(it.n)) || sku;
+            const variant = cleanStr(it.vr || it.tl);
+            const availKind = getItemAvailabilityKind(it);
+            const availTxt = availKind === 'STOCK' || availKind === 'LPPT_STOCK' ? 'En stock' : (availKind === 'LPPT' ? 'LPPT' : 'Catálogo');
+            const hay = normSearch([sku, it.n, it.mo, it.vr, it.tl, it.c].filter(Boolean).join(' '));
+            idx.push({
+                item: it,
+                sku: sku,
+                skuNorm: sku.replace(/[^A-Z0-9]+/g, ''),
+                hay: hay,
+                name: name,
+                variant: variant,
+                availTxt: availTxt,
+                unitPrice: unitPrice,
+                quotableBonus: isQuotableItem(it) ? 20 : 0
+            });
+        }
+        priceCalcSearchIndex = idx;
+        priceCalcSearchIndexSig = sig;
+        return idx;
+    }
+
     function findPriceCalcMatches(rawQuery) {
         const qTrim = String(rawQuery || '').trim();
         if (!qTrim) return [];
@@ -20864,72 +20906,53 @@
         const tokens = qNorm.split(/\s+/).filter(Boolean);
         if (!tokens.length) return [];
 
-        const seen = new Set();
+        const index = getPriceCalcSearchIndex();
+        const singleCharOnly = qTrim.length < 2;
+        const qCompact = qUpper.replace(/[^A-Z0-9]+/g, '');
         const ranked = [];
 
-        function pushCandidate(it, baseScore) {
-            if (!it) return;
-            const sku = String(it.s || '').trim().toUpperCase();
-            if (!sku || seen.has(sku)) return;
-            const unitPrice = getCalcItemUnitPrice(it);
-            if (unitPrice <= 0) return;
-            seen.add(sku);
-            const quotableBonus = isQuotableItem(it) ? 20 : 0;
-            ranked.push({
-                item: it,
-                sku: sku,
-                unitPrice: unitPrice,
-                score: baseScore + quotableBonus
-            });
-        }
-
-        // 1. Coincidencia exacta de SKU primero
-        const exactHit = resolveCalcCatalogItem(qUpper);
-        if (exactHit) pushCandidate(exactHit, 1000);
-
-        // 2. Búsqueda inteligente por grupos (salas, modelos, telas, sinónimos)
-        try {
-            if (typeof searchGroupCollection === 'function' && Array.isArray(allGroups) && allGroups.length > 0) {
-                const scoreMap = new Map();
-                const grpHits = searchGroupCollection(allGroups, qTrim, scoreMap);
-                for (let gi = 0; gi < grpHits.length && ranked.length < 80; gi++) {
-                    const grp = grpHits[gi];
-                    const gEntry = scoreMap.get(grp.key);
-                    const gScore = (gEntry ? gEntry.score : 10) + 100;
-                    const gItems = Array.isArray(grp.items) ? grp.items : [];
-                    for (let ii = 0; ii < gItems.length; ii++) {
-                        pushCandidate(gItems[ii], gScore);
-                    }
-                }
+        for (let i = 0; i < index.length; i++) {
+            const rec = index[i];
+            if (rec.sku === qUpper || (qCompact.length >= 3 && rec.skuNorm === qCompact)) {
+                ranked.push({
+                    item: rec.item,
+                    sku: rec.sku,
+                    name: rec.name,
+                    variant: rec.variant,
+                    availTxt: rec.availTxt,
+                    unitPrice: rec.unitPrice,
+                    score: 1000 + rec.quotableBonus
+                });
+                continue;
             }
-        } catch (eGrp) {}
-
-        // 3. Coincidencia directa en todo el catálogo (incluyendo piezas fuera de stock con precio)
-        const pool = Array.isArray(allItems) && allItems.length > 0 ? allItems : Array.from(bySkuMap.values());
-        for (let i = 0; i < pool.length; i++) {
-            const it = pool[i];
-            if (!it) continue;
-            const sku = String(it.s || '').trim().toUpperCase();
-            if (!sku || seen.has(sku)) continue;
-            const hay = normSearch([it.s, it.n, it.mo, it.vr, it.tl, it.c].filter(Boolean).join(' '));
+            if (singleCharOnly) continue;
             let allMatch = true;
             for (let t = 0; t < tokens.length; t++) {
-                if (hay.indexOf(tokens[t]) === -1) {
+                if (rec.hay.indexOf(tokens[t]) === -1) {
                     allMatch = false;
                     break;
                 }
             }
-            if (allMatch) {
-                const skuBoost = sku.indexOf(qUpper) === 0 ? 400 : (sku.indexOf(qUpper) !== -1 ? 200 : 50);
-                pushCandidate(it, skuBoost);
-            }
+            if (!allMatch) continue;
+            let score = 50 + rec.quotableBonus;
+            if (rec.sku.indexOf(qUpper) === 0) score += 400;
+            else if (rec.sku.indexOf(qUpper) !== -1) score += 200;
+            ranked.push({
+                item: rec.item,
+                sku: rec.sku,
+                name: rec.name,
+                variant: rec.variant,
+                availTxt: rec.availTxt,
+                unitPrice: rec.unitPrice,
+                score: score
+            });
         }
 
         ranked.sort(function (a, b) {
             if (b.score !== a.score) return b.score - a.score;
-            return String(a.item.n || a.sku).localeCompare(String(b.item.n || b.sku), 'es');
+            return a.name.localeCompare(b.name, 'es');
         });
-        return ranked.slice(0, 35);
+        return ranked.slice(0, 20);
     }
 
     function computePriceCalcBreakdown() {
@@ -20998,6 +21021,26 @@
         badge.classList.toggle('hidden', count <= 0);
     }
 
+    function syncPriceCalcSearchButtonBadges() {
+        const box = document.getElementById('calcSearchResults');
+        if (!box || box.classList.contains('hidden')) return;
+        const btns = typeof box.querySelectorAll === 'function'
+            ? box.querySelectorAll('button[data-calc-action="add"]')
+            : [];
+        if (!btns || !btns.length) return;
+        const qtyBySku = new Map();
+        for (let i = 0; i < priceCalcItems.length; i++) {
+            const it = priceCalcItems[i];
+            if (it && it.sku) qtyBySku.set(String(it.sku).toUpperCase(), clampCalcQty(it.qty));
+        }
+        btns.forEach(function (btn) {
+            const sku = String(btn.getAttribute('data-sku') || '').toUpperCase();
+            const q = qtyBySku.get(sku) || 0;
+            btn.textContent = q > 0 ? ('+1 (en lista: ' + q + ')') : '+ Agregar';
+            btn.classList.toggle('is-in-list', q > 0);
+        });
+    }
+
     function renderPriceCalcSearchResults() {
         const box = document.getElementById('calcSearchResults');
         const clearBtn = document.getElementById('calcSearchClearBtn');
@@ -21009,10 +21052,15 @@
             box.classList.add('hidden');
             return;
         }
+        priceCalcSearchRenderCount++;
         const matches = findPriceCalcMatches(q);
         box.classList.remove('hidden');
         if (!matches.length) {
-            box.innerHTML = '<div class="inv-calc-empty" style="border:none;border-radius:0;">Sin productos con precio para “' + escapeHtml(q) + '”. Prueba otro nombre o SKU.</div>';
+            if (q.length < 2) {
+                box.innerHTML = '<div class="inv-calc-empty" style="border:none;border-radius:0;">Escribe al menos 2 letras o escanea el SKU completo.</div>';
+            } else {
+                box.innerHTML = '<div class="inv-calc-empty" style="border:none;border-radius:0;">Sin productos con precio para “' + escapeHtml(q) + '”. Prueba otro nombre o SKU.</div>';
+            }
             return;
         }
         const qtyBySku = new Map();
@@ -21023,22 +21071,18 @@
         box.innerHTML = matches.map(function (entry) {
             const it = entry.item;
             const sku = entry.sku;
-            const name = stripDimensionsFromProductText(cleanStr(it.n)) || sku;
-            const variant = cleanStr(it.vr || it.tl);
             const rawPhoto = photoUrlForItem(it);
             const thumbSrc = rawPhoto ? resolveVisualImgSrc(rawPhoto) : '';
-            const availKind = getItemAvailabilityKind(it);
-            const availTxt = availKind === 'STOCK' || availKind === 'LPPT_STOCK' ? 'En stock' : (availKind === 'LPPT' ? 'LPPT' : 'Catálogo');
             const existingQty = qtyBySku.get(sku) || 0;
             const btnLabel = existingQty > 0 ? ('+1 (en lista: ' + existingQty + ')') : '+ Agregar';
             return '<div class="inv-calc-res-row">' +
-                '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
+                '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
                 '<div class="inv-calc-res-info">' +
-                    '<div class="inv-calc-res-name">' + escapeHtml(name) + '</div>' +
+                    '<div class="inv-calc-res-name">' + escapeHtml(entry.name) + '</div>' +
                     '<div class="inv-calc-res-meta">' +
                         '<span>' + escapeHtml(sku) + '</span>' +
-                        (variant ? '<span>· ' + escapeHtml(variant) + '</span>' : '') +
-                        '<span>· ' + escapeHtml(availTxt) + '</span>' +
+                        (entry.variant ? '<span>· ' + escapeHtml(entry.variant) + '</span>' : '') +
+                        '<span>· ' + escapeHtml(entry.availTxt) + '</span>' +
                         '<span class="inv-calc-res-price">· ' + escapeHtml(formatCalcCurrency(entry.unitPrice)) + '</span>' +
                     '</div>' +
                 '</div>' +
@@ -21047,7 +21091,7 @@
         }).join('');
     }
 
-    function renderPriceCalcSummaryOnly(bd) {
+    function renderPriceCalcSummaryOnly(bd, forceGlobalInputSync) {
         const data = bd || computePriceCalcBreakdown();
         const countEl = document.getElementById('calcItemsCount');
         const sumListEl = document.getElementById('calcSumList');
@@ -21076,7 +21120,7 @@
             totalEl.textContent = formatCalcCurrency(data.totalFinal);
             totalEl.classList.toggle('has-disc', data.totalDiscount > 0.004);
         }
-        if (globalInp && document.activeElement !== globalInp) {
+        if (globalInp && (forceGlobalInputSync || document.activeElement !== globalInp)) {
             globalInp.value = String(priceCalcGlobalDiscountPct);
         }
 
@@ -21089,24 +21133,59 @@
         }
     }
 
-    function renderPriceCalculator() {
+    function syncPriceCalcItemRowsInPlace(bd, opts) {
+        const data = bd || computePriceCalcBreakdown();
+        const o = opts || {};
         const container = document.getElementById('calcItemsContainer');
-        const bd = computePriceCalcBreakdown();
-        renderPriceCalcSummaryOnly(bd);
-        renderPriceCalcSearchResults();
+        if (!container || typeof container.querySelectorAll !== 'function') return false;
+        const cards = container.querySelectorAll('.inv-calc-item-card');
+        if (!cards || cards.length !== data.lines.length) return false;
+        const lineBySku = new Map();
+        for (let i = 0; i < data.lines.length; i++) {
+            lineBySku.set(data.lines[i].sku, data.lines[i]);
+        }
+        let updatedAny = true;
+        cards.forEach(function (card) {
+            const sku = String(card.getAttribute('data-calc-sku') || '').toUpperCase();
+            const ln = lineBySku.get(sku);
+            if (!ln) {
+                updatedAny = false;
+                return;
+            }
+            if (o.onlySku && o.onlySku !== sku) return;
+            const qtyInp = card.querySelector('input[data-calc-input="qty"]');
+            if (qtyInp && (!o.preserveFocus || document.activeElement !== qtyInp)) {
+                qtyInp.value = String(ln.qty);
+            }
+            const discInp = card.querySelector('input[data-calc-input="disc"]');
+            if (discInp && (!o.preserveFocus || document.activeElement !== discInp)) {
+                discInp.value = String(ln.discountPct);
+            }
+            const totalsEl = card.querySelector('.inv-calc-item-totals');
+            if (totalsEl) {
+                const hasDisc = ln.discountPct > 0.001;
+                totalsEl.innerHTML = (hasDisc ? '<span class="inv-calc-line-old">' + escapeHtml(formatCalcCurrency(ln.lineList)) + '</span>' : '') +
+                    '<span class="inv-calc-line-final' + (hasDisc ? ' has-disc' : '') + '">' + escapeHtml(formatCalcCurrency(ln.lineFinal)) + '</span>';
+            }
+        });
+        return updatedAny;
+    }
 
+    function renderPriceCalcItemsOnly(bd) {
+        const container = document.getElementById('calcItemsContainer');
+        const data = bd || computePriceCalcBreakdown();
         if (!container) return;
-        if (!bd.lines.length) {
+        if (!data.lines.length) {
             container.innerHTML = '<div class="inv-calc-empty">Busca arriba una sala, producto o SKU, o <strong>escanea cualquier código</strong> para agregarlo en automático.<br>Este cálculo es solo informativo y no afecta tu cotización.</div>';
             return;
         }
 
-        container.innerHTML = bd.lines.map(function (ln) {
+        container.innerHTML = data.lines.map(function (ln) {
             const thumbSrc = ln.photoUrl ? resolveVisualImgSrc(ln.photoUrl) : '';
             const hasDisc = ln.discountPct > 0.001;
             return '<div class="inv-calc-item-card" data-calc-sku="' + escapeHtml(ln.sku) + '">' +
                 '<div class="inv-calc-item-top">' +
-                    '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
+                    '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
                     '<div class="inv-calc-res-info">' +
                         '<div class="inv-calc-res-name">' + escapeHtml(ln.name) + '</div>' +
                         '<div class="inv-calc-res-meta">' +
@@ -21137,13 +21216,25 @@
         }).join('');
     }
 
+    function renderPriceCalculator(opts) {
+        const o = opts || {};
+        const bd = computePriceCalcBreakdown();
+        renderPriceCalcSummaryOnly(bd, Boolean(o.forceGlobalInputSync));
+        renderPriceCalcItemsOnly(bd);
+        if (o.rebuildSearch) {
+            renderPriceCalcSearchResults();
+        } else {
+            syncPriceCalcSearchButtonBadges();
+        }
+    }
+
     function bindPriceCalculatorListeners() {
         if (priceCalcDelegatedBound) return;
-        const modal = document.getElementById('priceCalculatorModal');
-        if (!modal) return;
+        const target = document.getElementById('calcModalCard') || document.getElementById('priceCalculatorModal');
+        if (!target) return;
         priceCalcDelegatedBound = true;
 
-        modal.addEventListener('click', function (ev) {
+        target.addEventListener('click', function (ev) {
             const btn = ev.target && typeof ev.target.closest === 'function'
                 ? ev.target.closest('[data-calc-action]')
                 : null;
@@ -21161,7 +21252,7 @@
             }
         });
 
-        modal.addEventListener('input', function (ev) {
+        target.addEventListener('input', function (ev) {
             const el = ev.target;
             if (!el || typeof el.getAttribute !== 'function') return;
             const kind = el.getAttribute('data-calc-input');
@@ -21174,7 +21265,7 @@
             }
         });
 
-        modal.addEventListener('change', function (ev) {
+        target.addEventListener('change', function (ev) {
             const el = ev.target;
             if (!el || typeof el.getAttribute !== 'function') return;
             const kind = el.getAttribute('data-calc-input');
@@ -21187,7 +21278,7 @@
             }
         });
 
-        modal.addEventListener('keydown', function (ev) {
+        target.addEventListener('keydown', function (ev) {
             const el = ev.target;
             if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
             if (ev.key === 'Enter' || ev.keyCode === 13) {
@@ -21284,18 +21375,24 @@
         if (existing) {
             existing.qty = Math.min(999, clampCalcQty(existing.qty) + addQty);
             existing.unitPrice = unitPrice;
-        } else {
-            priceCalcItems.push({
-                sku: sku,
-                name: stripDimensionsFromProductText(cleanStr(it.n)) || sku,
-                variant: cleanStr(it.vr || it.tl),
-                unitPrice: unitPrice,
-                qty: addQty,
-                discountPct: priceCalcGlobalDiscountPct,
-                photoUrl: photoUrlForItem(it) || ''
-            });
+            const bd = computePriceCalcBreakdown();
+            renderPriceCalcSummaryOnly(bd, false);
+            if (!syncPriceCalcItemRowsInPlace(bd, { onlySku: sku })) {
+                renderPriceCalcItemsOnly(bd);
+            }
+            syncPriceCalcSearchButtonBadges();
+            return true;
         }
-        renderPriceCalculator();
+        priceCalcItems.push({
+            sku: sku,
+            name: stripDimensionsFromProductText(cleanStr(it.n)) || sku,
+            variant: cleanStr(it.vr || it.tl),
+            unitPrice: unitPrice,
+            qty: addQty,
+            discountPct: priceCalcGlobalDiscountPct,
+            photoUrl: photoUrlForItem(it) || ''
+        });
+        renderPriceCalculator({ rebuildSearch: false });
         return true;
     };
 
@@ -21304,7 +21401,12 @@
         const row = priceCalcItems.find(function (r) { return r.sku === sku; });
         if (!row) return false;
         row.qty = Math.max(1, Math.min(999, clampCalcQty(row.qty) + (Number(delta) || 0)));
-        renderPriceCalculator();
+        const bd = computePriceCalcBreakdown();
+        renderPriceCalcSummaryOnly(bd, false);
+        if (!syncPriceCalcItemRowsInPlace(bd, { onlySku: sku })) {
+            renderPriceCalcItemsOnly(bd);
+        }
+        syncPriceCalcSearchButtonBadges();
         return true;
     };
 
@@ -21313,23 +21415,12 @@
         const row = priceCalcItems.find(function (r) { return r.sku === sku; });
         if (!row) return false;
         row.qty = clampCalcQty(rawQty);
-        if (preserveFocus) {
-            const bd = computePriceCalcBreakdown();
-            renderPriceCalcSummaryOnly(bd);
-            renderPriceCalcSearchResults();
-            const card = document.querySelector('#calcItemsContainer .inv-calc-item-card[data-calc-sku="' + sku + '"]');
-            const ln = bd.lines.find(function (x) { return x.sku === sku; });
-            if (card && ln) {
-                const totalsEl = card.querySelector('.inv-calc-item-totals');
-                if (totalsEl) {
-                    const hasDisc = ln.discountPct > 0.001;
-                    totalsEl.innerHTML = (hasDisc ? '<span class="inv-calc-line-old">' + escapeHtml(formatCalcCurrency(ln.lineList)) + '</span>' : '') +
-                        '<span class="inv-calc-line-final' + (hasDisc ? ' has-disc' : '') + '">' + escapeHtml(formatCalcCurrency(ln.lineFinal)) + '</span>';
-                }
-            }
-        } else {
-            renderPriceCalculator();
+        const bd = computePriceCalcBreakdown();
+        renderPriceCalcSummaryOnly(bd, false);
+        if (!syncPriceCalcItemRowsInPlace(bd, { onlySku: sku, preserveFocus: Boolean(preserveFocus) })) {
+            renderPriceCalcItemsOnly(bd);
         }
+        syncPriceCalcSearchButtonBadges();
         return true;
     };
 
@@ -21338,21 +21429,10 @@
         const row = priceCalcItems.find(function (r) { return r.sku === sku; });
         if (!row) return false;
         row.discountPct = clampCalcPct(rawPct);
-        if (preserveFocus) {
-            const bd = computePriceCalcBreakdown();
-            renderPriceCalcSummaryOnly(bd);
-            const card = document.querySelector('#calcItemsContainer .inv-calc-item-card[data-calc-sku="' + sku + '"]');
-            const ln = bd.lines.find(function (x) { return x.sku === sku; });
-            if (card && ln) {
-                const totalsEl = card.querySelector('.inv-calc-item-totals');
-                if (totalsEl) {
-                    const hasDisc = ln.discountPct > 0.001;
-                    totalsEl.innerHTML = (hasDisc ? '<span class="inv-calc-line-old">' + escapeHtml(formatCalcCurrency(ln.lineList)) + '</span>' : '') +
-                        '<span class="inv-calc-line-final' + (hasDisc ? ' has-disc' : '') + '">' + escapeHtml(formatCalcCurrency(ln.lineFinal)) + '</span>';
-                }
-            }
-        } else {
-            renderPriceCalculator();
+        const bd = computePriceCalcBreakdown();
+        renderPriceCalcSummaryOnly(bd, false);
+        if (!syncPriceCalcItemRowsInPlace(bd, { onlySku: sku, preserveFocus: Boolean(preserveFocus) })) {
+            renderPriceCalcItemsOnly(bd);
         }
         return true;
     };
@@ -21360,21 +21440,26 @@
     window.removePriceCalcItem = function (skuRaw) {
         const sku = String(skuRaw || '').trim().toUpperCase();
         priceCalcItems = priceCalcItems.filter(function (r) { return r.sku !== sku; });
-        renderPriceCalculator();
+        renderPriceCalculator({ rebuildSearch: false });
         return true;
     };
 
-    window.applyPriceCalcGlobalDiscount = function (rawPct) {
+    window.applyPriceCalcGlobalDiscount = function (rawPct, fromPreset) {
         const pct = clampCalcPct(rawPct);
         priceCalcGlobalDiscountPct = pct;
         for (let i = 0; i < priceCalcItems.length; i++) {
             if (priceCalcItems[i]) priceCalcItems[i].discountPct = pct;
         }
         const globalInp = document.getElementById('calcGlobalDiscountInput');
-        if (globalInp && document.activeElement !== globalInp) {
+        if (globalInp && fromPreset) {
             globalInp.value = String(pct);
+            try { if (document.activeElement === globalInp && typeof globalInp.blur === 'function') globalInp.blur(); } catch (e) {}
         }
-        renderPriceCalculator();
+        const bd = computePriceCalcBreakdown();
+        renderPriceCalcSummaryOnly(bd, Boolean(fromPreset));
+        if (!syncPriceCalcItemRowsInPlace(bd, { preserveFocus: false })) {
+            renderPriceCalcItemsOnly(bd);
+        }
         return pct;
     };
 
@@ -21391,6 +21476,10 @@
             clearTimeout(calcBurstTimer);
             calcBurstTimer = null;
         }
+        if (priceCalcSearchDebounceTimer) {
+            clearTimeout(priceCalcSearchDebounceTimer);
+            priceCalcSearchDebounceTimer = null;
+        }
     }
 
     window.searchPriceCalculatorProducts = function (rawQuery) {
@@ -21398,6 +21487,10 @@
         if (calcBurstTimer) {
             clearTimeout(calcBurstTimer);
             calcBurstTimer = null;
+        }
+        if (priceCalcSearchDebounceTimer) {
+            clearTimeout(priceCalcSearchDebounceTimer);
+            priceCalcSearchDebounceTimer = null;
         }
         if (/[\r\n]/.test(val)) {
             const cleanedScan = normalizeScannedBarcodeText(val);
@@ -21407,39 +21500,48 @@
                 return;
             }
         }
+        priceCalcLastQuery = val;
+        const clearBtn = document.getElementById('calcSearchClearBtn');
+        if (clearBtn) clearBtn.classList.toggle('hidden', !val.trim());
+
         const nowTs = Date.now();
         if (!val.trim()) {
             resetCalcScanBurst();
-        } else {
-            if (!calcBurstFirstTs || (nowTs - calcBurstLastTs) > 420) {
-                calcBurstFirstTs = nowTs;
-                calcBurstEvents = 1;
-            } else {
-                calcBurstEvents++;
-            }
-            calcBurstLastTs = nowTs;
-            const cleanedCand = normalizeScannedBarcodeText(val);
-            const elapsed = Math.max(1, nowTs - calcBurstFirstTs);
-            const avgPerChar = elapsed / Math.max(1, cleanedCand.length - 1);
-            // Detección automática para lectores P2300L/USB sin sufijo Enter cuando el cursor está en el buscador
-            if (cleanedCand.length >= 4 && calcBurstEvents >= 2 && avgPerChar <= 95 && elapsed <= 1600) {
-                calcBurstTimer = setTimeout(function () {
-                    calcBurstTimer = null;
-                    if (!isModalOpenById('priceCalculatorModal')) return;
-                    const inp = document.getElementById('calcSearchInput');
-                    const latest = normalizeScannedBarcodeText(inp ? inp.value : priceCalcLastQuery);
-                    if (latest.length >= 4) {
-                        const hit = resolveScannedBarcode(latest);
-                        if (hit && hit.item && getCalcItemUnitPrice(hit.item) > 0) {
-                            resetCalcScanBurst();
-                            processScannedBarcode(latest, { source: 'Calculadora / Escáner' });
-                        }
-                    }
-                }, 260);
-            }
+            renderPriceCalcSearchResults();
+            return;
         }
-        priceCalcLastQuery = val;
-        renderPriceCalcSearchResults();
+        if (!calcBurstFirstTs || (nowTs - calcBurstLastTs) > 420) {
+            calcBurstFirstTs = nowTs;
+            calcBurstEvents = 1;
+        } else {
+            calcBurstEvents++;
+        }
+        calcBurstLastTs = nowTs;
+        const cleanedCand = normalizeScannedBarcodeText(val);
+        const elapsed = Math.max(1, nowTs - calcBurstFirstTs);
+        const avgPerChar = elapsed / Math.max(1, cleanedCand.length - 1);
+        // Detección automática para lectores P2300L/USB sin sufijo Enter cuando el cursor está en el buscador
+        if (cleanedCand.length >= 4 && calcBurstEvents >= 2 && avgPerChar <= 95 && elapsed <= 1600) {
+            calcBurstTimer = setTimeout(function () {
+                calcBurstTimer = null;
+                if (!isModalOpenById('priceCalculatorModal')) return;
+                const inp = document.getElementById('calcSearchInput');
+                const latest = normalizeScannedBarcodeText(inp ? inp.value : priceCalcLastQuery);
+                if (latest.length >= 4) {
+                    const hit = resolveScannedBarcode(latest);
+                    if (hit && hit.item && getCalcItemUnitPrice(hit.item) > 0) {
+                        resetCalcScanBurst();
+                        processScannedBarcode(latest, { source: 'Calculadora / Escáner' });
+                    }
+                }
+            }, 260);
+        }
+
+        // Debounce ligero (90ms) para evitar trabajo redundante mientras se escribe rápido
+        priceCalcSearchDebounceTimer = setTimeout(function () {
+            priceCalcSearchDebounceTimer = null;
+            renderPriceCalcSearchResults();
+        }, 90);
     };
 
     window.clearCalcSearchInput = function () {
@@ -21476,6 +21578,9 @@
                 showToast('✓ Agregado a calculadora: ' + matches[0].sku);
                 window.clearCalcSearchInput();
             }
+        } else {
+            priceCalcLastQuery = raw;
+            renderPriceCalcSearchResults();
         }
     };
 
@@ -21488,7 +21593,7 @@
         if (inp) inp.value = '';
         const globalInp = document.getElementById('calcGlobalDiscountInput');
         if (globalInp) globalInp.value = '0';
-        renderPriceCalculator();
+        renderPriceCalculator({ rebuildSearch: true, forceGlobalInputSync: true });
         if (!silent) {
             showToast('Calculadora limpiada');
         }
@@ -21510,10 +21615,11 @@
         } catch (eBlur) {}
         modal.classList.add('open');
         notifyInvBackStatePush('price_calculator_modal');
-        renderPriceCalculator();
+        renderPriceCalculator({ rebuildSearch: Boolean(String(priceCalcLastQuery || '').trim()), forceGlobalInputSync: true });
     };
 
     window.closePriceCalculatorModal = function () {
+        resetCalcScanBurst();
         const modal = document.getElementById('priceCalculatorModal');
         if (modal) modal.classList.remove('open');
     };
@@ -21523,6 +21629,8 @@
             getItems: function () { return priceCalcItems.map(function (r) { return Object.assign({}, r); }); },
             getBreakdown: computePriceCalcBreakdown,
             findMatches: findPriceCalcMatches,
+            getSearchIndexSize: function () { return getPriceCalcSearchIndex().length; },
+            getSearchRenderCount: function () { return priceCalcSearchRenderCount; },
             addItem: window.addPriceCalcItem,
             stepQty: window.stepPriceCalcItemQty,
             setQty: window.setPriceCalcItemQty,

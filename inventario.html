@@ -26,7 +26,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=12">
-    <link rel="stylesheet" href="./inventario-ui.css?v=32">
+    <link rel="stylesheet" href="./inventario-ui.css?v=33">
 </head>
 <body>
 
@@ -1415,7 +1415,7 @@
 
     <!-- MODAL CALCULADORA INFORMATIVA DE PRECIOS Y DESCUENTOS (NO AFECTA LA COTIZACIÓN FINAL) -->
     <div id="priceCalculatorModal" class="modal-backdrop" style="z-index:91;" onclick="if(event.target===this) closePriceCalculatorModal()">
-        <div class="inv-modal-card inv-modal-card-flex inv-calc-modal-card" role="dialog" aria-modal="true" aria-labelledby="priceCalcModalTitle" onclick="event.stopPropagation()">
+        <div id="calcModalCard" class="inv-modal-card inv-modal-card-flex inv-calc-modal-card" role="dialog" aria-modal="true" aria-labelledby="priceCalcModalTitle">
             <div class="inv-modal-head inv-modal-head-dark">
                 <div style="min-width:0; flex:1;">
                     <h3 id="priceCalcModalTitle" class="inv-modal-title truncate">Calculadora de precios</h3>
@@ -1464,20 +1464,21 @@
                                 max="100"
                                 step="0.5"
                                 value="0"
-                                oninput="applyPriceCalcGlobalDiscount(this.value)"
+                                oninput="applyPriceCalcGlobalDiscount(this.value, false)"
+                                onchange="applyPriceCalcGlobalDiscount(this.value, true)"
                                 aria-label="Porcentaje de descuento general"
                             >
                             <span class="inv-calc-pct-sign">%</span>
                         </div>
                     </div>
                     <div class="inv-calc-presets" role="group" aria-label="Descuentos rápidos">
-                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="0" onclick="applyPriceCalcGlobalDiscount(0)">0%</button>
-                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="5" onclick="applyPriceCalcGlobalDiscount(5)">5%</button>
-                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="10" onclick="applyPriceCalcGlobalDiscount(10)">10%</button>
-                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="15" onclick="applyPriceCalcGlobalDiscount(15)">15%</button>
-                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="20" onclick="applyPriceCalcGlobalDiscount(20)">20%</button>
-                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="25" onclick="applyPriceCalcGlobalDiscount(25)">25%</button>
-                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="30" onclick="applyPriceCalcGlobalDiscount(30)">30%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="0" onclick="applyPriceCalcGlobalDiscount(0, true)">0%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="5" onclick="applyPriceCalcGlobalDiscount(5, true)">5%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="10" onclick="applyPriceCalcGlobalDiscount(10, true)">10%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="15" onclick="applyPriceCalcGlobalDiscount(15, true)">15%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="20" onclick="applyPriceCalcGlobalDiscount(20, true)">20%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="25" onclick="applyPriceCalcGlobalDiscount(25, true)">25%</button>
+                        <button type="button" class="inv-calc-preset-btn" data-calc-pct="30" onclick="applyPriceCalcGlobalDiscount(30, true)">30%</button>
                     </div>
                 </div>
 
@@ -1525,6 +1526,6 @@
     <script src="./creata-back-nav.js?v=2"></script>
     <script src="./seguimiento-app.js?v=17"></script>
     <script src="./historial-app.js?v=14"></script>
-    <script src="inventario-app.js?v=117"></script>
+    <script src="inventario-app.js?v=118"></script>
 </body>
 </html>

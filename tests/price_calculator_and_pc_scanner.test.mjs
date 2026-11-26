@@ -298,6 +298,27 @@ test('Static Contracts: Calculadora button inside floating + menu, ZERO Tope rol
   // 5. PC Webcam fallback in startLiveBarcodeCamera()
   assert.match(INV_JS, /window\.Html5Qrcode\.getCameras/, 'startLiveBarcodeCamera must fall back to Html5Qrcode.getCameras() on PC webcams');
   assert.match(INV_JS, /facingMode:\s*'user'/, 'startLiveBarcodeCamera must fall back to front/user webcam if rear camera fails');
+
+  // 6. Delegated buttons & speed regression locks inside #priceCalculatorModal
+  const calcModalMatch = INV_HTML.match(/<div id="priceCalculatorModal"[\s\S]*?<\/div>\s*<script src="creata-finishes\.js/);
+  assert.ok(calcModalMatch, 'Must locate full #priceCalculatorModal markup block');
+  const calcModalHtml = calcModalMatch[0];
+  assert.ok(calcModalHtml.includes('id="calcModalCard"'), '#priceCalculatorModal card must have id="calcModalCard"');
+  assert.ok(!/stopPropagation/i.test(calcModalHtml), '#priceCalculatorModal must NEVER call stopPropagation() because it blocks delegated button clicks');
+  for (const pct of [0, 5, 10, 15, 20, 25, 30]) {
+    assert.ok(
+      calcModalHtml.includes(`onclick="applyPriceCalcGlobalDiscount(${pct}, true)"`),
+      `Preset ${pct}% button must pass fromPreset=true so iOS Safari always syncs #calcGlobalDiscountInput`
+    );
+  }
+  assert.ok(
+    calcModalHtml.includes('oninput="applyPriceCalcGlobalDiscount(this.value, false)"') &&
+    calcModalHtml.includes('onchange="applyPriceCalcGlobalDiscount(this.value, true)"'),
+    '#calcGlobalDiscountInput must handle live oninput without yanking cursor and normalize on onchange'
+  );
+  assert.match(INV_CSS, /#priceCalculatorModal\s*\{[\s\S]*?backdrop-filter:\s*none;/, '#priceCalculatorModal must disable expensive backdrop-filter blur');
+  assert.match(INV_CSS, /#priceCalculatorModal button,[\s\S]*?touch-action:\s*manipulation;/, '#priceCalculatorModal controls must enforce touch-action: manipulation');
+  assert.match(INV_CSS, /#priceCalculatorModal #calcSearchInput::-webkit-search-cancel-button/, '#calcSearchInput must hide native WebKit cancel button so #calcSearchClearBtn is never overlapped');
 });
 
 function makeAdvisorSession(overrides = {}) {
@@ -550,3 +571,138 @@ test('Runtime: PC Scanner supports both Webcam fallback (when facingMode:environ
   assert.equal(lastScan.status, 'quotable');
   assert.equal(lastScan.matchedCode, 'ARIA-BI');
 });
+
+test('Runtime: ALL Calculadora buttons work via #calcModalCard delegation (add/inc/dec/remove/qty/disc), iOS presets sync focused input, and 3,000-item search is cached/debounced with zero re-renders on taps', async () => {
+  const bigCatalog = [
+    { s: 'ARIA-BI', n: 'SALA ARIA MODULO BRAZO IZQUIERDO FLAX', tp: 'SALAS', mo: 'ARIA', vr: 'FLAX', pr: '$18,000.00', st: [0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { s: 'ARIA-BD', n: 'SALA ARIA MODULO BRAZO DERECHO FLAX', tp: 'SALAS', mo: 'ARIA', vr: 'FLAX', pr: '$18,000.00', st: [0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0] }
+  ];
+  for (let i = 1; i <= 2998; i++) {
+    bigCatalog.push({
+      s: `CAT-${String(i).padStart(4, '0')}`,
+      n: `MUEBLE CATALOGO MODELO ${i} BEIGE`,
+      tp: 'SALAS',
+      mo: `MOD${i}`,
+      vr: 'BEIGE',
+      pr: `$${(5000 + (i % 50) * 100).toLocaleString('en-US')}.00`,
+      st: [0, i % 4, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    });
+  }
+
+  const { win, doc, byId, advanceNow } = bootPcRuntime({
+    products: bigCatalog,
+    advisorSession: makeAdvisorSession({ nombre: 'Asesor Movil', correo: 'movil@grupoanipa.com' })
+  });
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+
+  win.openPriceCalculatorModal();
+  const card = byId.get('calcModalCard');
+  assert.ok(card, '#calcModalCard must exist in DOM');
+
+  const makeActionTarget = (action, sku) => {
+    const btn = {
+      getAttribute(k) {
+        if (k === 'data-calc-action') return action;
+        if (k === 'data-sku') return sku;
+        return null;
+      },
+      closest(sel) {
+        return sel === '[data-calc-action]' ? btn : null;
+      }
+    };
+    return btn;
+  };
+  const makeInputTarget = (kind, sku, value) => ({
+    tagName: 'INPUT',
+    type: 'number',
+    value: String(value),
+    getAttribute(k) {
+      if (k === 'data-calc-input') return kind;
+      if (k === 'data-sku') return sku;
+      return null;
+    }
+  });
+
+  // 1. Type "SALA ARIA" char-by-char across 3,000 items -> must debounce to 1 single search render!
+  const rendersBeforeSearch = win.__creataPriceCalc.getSearchRenderCount();
+  let typed = '';
+  for (const ch of 'SALA ARIA') {
+    typed += ch;
+    byId.get('calcSearchInput').value = typed;
+    advanceNow(15);
+    win.searchPriceCalculatorProducts(typed);
+  }
+  assert.equal(win.__creataPriceCalc.getSearchRenderCount(), rendersBeforeSearch, 'Typing fast must wait for 90ms debounce instead of thrashing on every keystroke');
+
+  const t0 = Date.now();
+  advanceNow(100);
+  const elapsedMs = Date.now() - t0;
+  assert.equal(win.__creataPriceCalc.getSearchRenderCount(), rendersBeforeSearch + 1, 'Debounced search must execute exactly once after settling');
+  assert.equal(win.__creataPriceCalc.getSearchIndexSize(), 3000, 'Search index must cache all 3,000 priced products');
+  assert.ok(elapsedMs < 250, `Cached 3,000-item search must stay fast (took ${elapsedMs}ms)`);
+  assert.ok(byId.get('calcSearchResults').innerHTML.includes('data-calc-action="add"'), 'Search results must render + Agregar buttons');
+  assert.equal(byId.get('calcSearchClearBtn').classList.contains('hidden'), false, '#calcSearchClearBtn must become visible when query is non-empty');
+
+  const rendersAfterSearch = win.__creataPriceCalc.getSearchRenderCount();
+
+  // 2. Real delegated click on #calcModalCard: + Agregar (twice), +, -, qty input/change, disc input/change, remove
+  card.dispatchEvent({ type: 'click', target: makeActionTarget('add', 'ARIA-BI') });
+  assert.equal(win.__creataPriceCalc.getBreakdown().totalPieces, 1, 'Delegated + Agregar click must add ARIA-BI');
+
+  card.dispatchEvent({ type: 'click', target: makeActionTarget('add', 'ARIA-BI') });
+  assert.equal(win.__creataPriceCalc.getBreakdown().totalPieces, 2, 'Second delegated + Agregar click must increment ARIA-BI to 2');
+
+  card.dispatchEvent({ type: 'click', target: makeActionTarget('inc', 'ARIA-BI') });
+  assert.equal(win.__creataPriceCalc.getBreakdown().totalPieces, 3, 'Delegated + button must increment qty to 3');
+
+  card.dispatchEvent({ type: 'click', target: makeActionTarget('dec', 'ARIA-BI') });
+  assert.equal(win.__creataPriceCalc.getBreakdown().totalPieces, 2, 'Delegated − button must decrement qty to 2');
+
+  card.dispatchEvent({ type: 'input', target: makeInputTarget('qty', 'ARIA-BI', '5') });
+  assert.equal(win.__creataPriceCalc.getBreakdown().totalPieces, 5, 'Delegated qty input must update qty to 5');
+
+  card.dispatchEvent({ type: 'change', target: makeInputTarget('qty', 'ARIA-BI', '4') });
+  assert.equal(win.__creataPriceCalc.getBreakdown().totalPieces, 4, 'Delegated qty change must commit qty to 4');
+
+  card.dispatchEvent({ type: 'input', target: makeInputTarget('disc', 'ARIA-BI', '12.5') });
+  assert.equal(win.__creataPriceCalc.getItems()[0].discountPct, 12.5, 'Delegated item discount input must apply 12.5%');
+
+  card.dispatchEvent({ type: 'change', target: makeInputTarget('disc', 'ARIA-BI', '15') });
+  assert.equal(win.__creataPriceCalc.getItems()[0].discountPct, 15, 'Delegated item discount change must commit 15%');
+
+  // 3. iOS Safari quirk: tapping 20% preset while #calcGlobalDiscountInput still has focus MUST update input value & blur it!
+  const globalInp = byId.get('calcGlobalDiscountInput');
+  globalInp.value = '5';
+  globalInp.focus();
+  assert.equal(doc.activeElement, globalInp, '#calcGlobalDiscountInput should be focused before preset tap');
+  win.applyPriceCalcGlobalDiscount(20, true);
+  assert.equal(globalInp.value, '20', 'Preset button tap (fromPreset=true) MUST sync #calcGlobalDiscountInput even when focused on iOS');
+  assert.notEqual(doc.activeElement, globalInp, 'Preset button tap should blur #calcGlobalDiscountInput on mobile');
+  assert.equal(win.__creataPriceCalc.getItems()[0].discountPct, 20, 'Preset 20% must apply to all items');
+
+  // 4. Delegated remove ✕ click
+  card.dispatchEvent({ type: 'click', target: makeActionTarget('remove', 'ARIA-BI') });
+  assert.equal(win.__creataPriceCalc.getBreakdown().totalProducts, 0, 'Delegated ✕ remove button must remove ARIA-BI');
+
+  // 5. ZERO wasted full-catalog re-searches across ALL those button taps!
+  assert.equal(
+    win.__creataPriceCalc.getSearchRenderCount(),
+    rendersAfterSearch,
+    'Clicking + Agregar, +, −, qty, disc, presets, and ✕ MUST trigger 0 search re-renders'
+  );
+
+  // 6. Search clear button ✕, Limpiar, and Cerrar
+  win.clearCalcSearchInput();
+  assert.equal(byId.get('calcSearchInput').value, '', 'clearCalcSearchInput must clear query');
+  assert.equal(byId.get('calcSearchResults').classList.contains('hidden'), true, 'clearCalcSearchInput must hide results');
+
+  win.addPriceCalcItem('ARIA-BD', 2);
+  win.clearPriceCalculator(true);
+  assert.equal(win.__creataPriceCalc.getBreakdown().totalPieces, 0, 'Limpiar must reset all pieces');
+  assert.equal(byId.get('calcGlobalDiscountInput').value, '0', 'Limpiar must reset global discount input to 0');
+
+  win.closePriceCalculatorModal();
+  assert.equal(byId.get('priceCalculatorModal').classList.contains('open'), false, 'Cerrar must close #priceCalculatorModal');
+});
+
