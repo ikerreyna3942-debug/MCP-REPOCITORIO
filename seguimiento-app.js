@@ -2771,7 +2771,7 @@
           <div class="cm-seg-info-grid">
             <div class="cm-seg-info-box">
               <div class="cm-field-label">Cliente Destinatario 👤</div>
-              <div id="seg_previewCliente" style="font-weight:800;font-size:0.9rem;">--</div>
+              <div id="seg_previewCliente" style="font-weight:800;font-size:var(--cm-ui-title-font);">--</div>
               <div style="margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <span id="seg_previewPhoneVal" class="cm-mono" style="font-weight:700;">--</span>
                 <button type="button" class="cm-seg-link-btn" data-seg-action="edit-modal-phone">✏️ Editar celular</button>
@@ -2779,16 +2779,16 @@
             </div>
             <div class="cm-seg-info-box">
               <div class="cm-field-label">Asesor Asignado &amp; Tienda 🛎️</div>
-              <div id="seg_previewAsesor" style="font-weight:800;font-size:0.9rem;">--</div>
-              <div id="seg_previewAsesorContact" style="font-size:0.74rem;color:var(--cm-muted);margin-top:2px;">--</div>
-              <div id="seg_previewSucursal" style="font-size:0.74rem;color:var(--cm-muted);">--</div>
+              <div id="seg_previewAsesor" style="font-weight:800;font-size:var(--cm-ui-title-font);">--</div>
+              <div id="seg_previewAsesorContact" style="font-size:var(--cm-ui-font);color:var(--cm-muted);margin-top:2px;">--</div>
+              <div id="seg_previewSucursal" style="font-size:var(--cm-ui-font);color:var(--cm-muted);">--</div>
             </div>
           </div>
 
           <div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
               <span class="cm-field-label" style="margin:0;">📦 Piezas a incluir en el mensaje:</span>
-              <label style="display:inline-flex;align-items:center;gap:6px;font-size:0.76rem;font-weight:700;cursor:pointer;">
+              <label style="display:inline-flex;align-items:center;gap:6px;font-size:var(--cm-ui-font);font-weight:700;cursor:pointer;">
                 <input type="checkbox" id="seg_chkSelectAllItems" checked data-seg-change="select-all">
                 <span>Seleccionar todas</span>
               </label>
@@ -2813,7 +2813,7 @@
             <textarea id="seg_previewMessageText" rows="6" class="cm-textarea" data-seg-input="preview-msg"></textarea>
           </div>
 
-          <div id="seg_previewLastContacted" style="font-size:0.76rem;color:var(--cm-muted);"></div>
+          <div id="seg_previewLastContacted" style="font-size:var(--cm-ui-font);color:var(--cm-muted);"></div>
 
           <div class="cm-seg-modal-actions">
             <button type="button" class="cm-btn" data-seg-action="copy-msg">📋 Copiar Texto</button>
@@ -2829,7 +2829,7 @@
           <div class="cm-modal-head">
             <div>
               <h2 id="seg_closeModalTitle" class="cm-modal-title">🔒 Cerrar Cotización • <span id="seg_closeModalFolio" class="cm-mono"></span></h2>
-              <div id="seg_closeModalCliente" style="font-size:0.78rem;color:var(--cm-muted);margin-top:2px;">--</div>
+              <div id="seg_closeModalCliente" style="font-size:var(--cm-ui-font);color:var(--cm-muted);margin-top:2px;">--</div>
             </div>
             <button type="button" class="cm-modal-close" data-seg-action="close-cerrar" aria-label="Cerrar">&times;</button>
           </div>
@@ -3240,19 +3240,19 @@
         return `
           <tr>
             <td>
-              <div class="cm-mono" style="font-weight:800;font-size:0.8rem;">${escapeHtml(q.Folio_ERP)}</div>
-              <div class="cm-tabular" style="font-size:0.72rem;color:var(--cm-muted);margin-top:2px;">${escapeHtml(q.Fecha_Cotizacion)}</div>
+              <div class="cm-mono" style="font-weight:800;font-size:var(--cm-ui-font);">${escapeHtml(q.Folio_ERP)}</div>
+              <div class="cm-tabular" style="font-size:var(--cm-ui-font);color:var(--cm-muted);margin-top:2px;">${escapeHtml(q.Fecha_Cotizacion)}</div>
               ${appOriginTag}
             </td>
             <td>
               <div style="font-weight:700;">${escapeHtml(q.Asesor)}</div>
-              <div style="font-size:0.72rem;color:var(--cm-muted);margin-top:2px;">${escapeHtml(sucRule.label || q.Sucursal)}</div>
+              <div style="font-size:var(--cm-ui-font);color:var(--cm-muted);margin-top:2px;">${escapeHtml(sucRule.label || q.Sucursal)}</div>
             </td>
             <td>
               <div style="font-weight:800;">${escapeHtml(q.Cliente)}</div>
               <div style="margin-top:4px;">
                 ${q.WhatsApp_Cliente
-                  ? `<span class="cm-mono" style="font-size:0.74rem;color:var(--cm-ink-2);">${escapeHtml(q.WhatsApp_Cliente)}</span>`
+                  ? `<span class="cm-mono" style="font-size:var(--cm-ui-font);color:var(--cm-ink-2);">${escapeHtml(q.WhatsApp_Cliente)}</span>`
                   : `<button type="button" class="cm-seg-link-btn" data-seg-action="prompt-phone" data-folio="${escapeHtml(q.Folio_ERP)}">+ Agregar celular</button>`}
               </div>
             </td>
@@ -3262,7 +3262,7 @@
             <td>
               <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px;">
                 ${renderBadge(q)}
-                <span style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(isClosedOrArch ? (archiveDetailText || 'Archivada automáticamente') : q.Motivo_Urgencia)}</span>
+                <span style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(isClosedOrArch ? (archiveDetailText || 'Archivada automáticamente') : q.Motivo_Urgencia)}</span>
               </div>
             </td>
             <td>${avisoTag}</td>
@@ -3310,8 +3310,8 @@
               <div style="min-width:0;flex:1;">
                 <div class="cm-seg-card-folio-row">
                   <span class="cm-seg-folio-code">${escapeHtml(q.Folio_ERP)}</span>
-                  <span style="font-size:0.72rem;font-weight:700;color:var(--cm-accent);">${escapeHtml(sucRule.label || q.Sucursal)}</span>
-                  <span class="cm-tabular" style="font-size:0.7rem;color:var(--cm-muted);">${escapeHtml(q.Fecha_Cotizacion)}</span>
+                  <span style="font-size:var(--cm-ui-font);font-weight:700;color:var(--cm-accent);">${escapeHtml(sucRule.label || q.Sucursal)}</span>
+                  <span class="cm-tabular" style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(q.Fecha_Cotizacion)}</span>
                   ${appOriginTag}
                 </div>
                 <h3 class="cm-seg-client-name">${escapeHtml(q.Cliente)}</h3>
@@ -3433,7 +3433,7 @@
             ${thumbHtml}
             <div style="min-width:0;flex:1;">
               <div style="font-weight:700;color:var(--cm-ink);word-break:break-word;">${escapeHtml(it.Nombre_Producto)}</div>
-              <div class="cm-mono" style="font-size:0.7rem;color:var(--cm-muted);">${escapeHtml(it.Clave_Producto)} · ${escapeHtml(it.Cantidad_Cotizada)} pz</div>
+              <div class="cm-mono" style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(it.Clave_Producto)} · ${escapeHtml(it.Cantidad_Cotizada)} pz</div>
             </div>
           </label>
           <div class="cm-seg-modal-item-right">
@@ -4082,8 +4082,8 @@
       container.innerHTML = filtered.map(l => `
         <div class="cm-seg-item-row" style="padding:8px;">
           <div>
-            <div style="font-weight:700;">${escapeHtml(l.usuario || '--')} <span class="cm-mono" style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(l.email || '')}</span></div>
-            <div style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(l.fecha_hora)} · ${escapeHtml(l.sucursal || '')}</div>
+            <div style="font-weight:700;">${escapeHtml(l.usuario || '--')} <span class="cm-mono" style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(l.email || '')}</span></div>
+            <div style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(l.fecha_hora)} · ${escapeHtml(l.sucursal || '')}</div>
           </div>
           <span class="cm-pill ${l.status === 'EXITOSO' ? 'cm-pill-emerald' : 'cm-pill-rose'}">${escapeHtml(l.tipo === 'LOGOUT' ? 'Salida' : l.status)}</span>
         </div>
@@ -4099,7 +4099,7 @@
         <div class="cm-seg-item-row" style="padding:8px;">
           <div style="min-width:0;flex:1;">
             <div style="font-weight:700;">${escapeHtml(m.accion)}</div>
-            <div style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(m.fecha_hora)} · ${escapeHtml(m.usuario)} · ${escapeHtml(m.detalle)}</div>
+            <div style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(m.fecha_hora)} · ${escapeHtml(m.usuario)} · ${escapeHtml(m.detalle)}</div>
           </div>
           <span class="cm-pill cm-pill-slate">${escapeHtml(m.tipo)}</span>
         </div>
@@ -4115,7 +4115,7 @@
         <div class="cm-seg-item-row" style="padding:8px;">
           <div style="min-width:0;flex:1;">
             <div class="cm-mono" style="font-weight:800;">${escapeHtml(q.Folio_ERP)} · <span style="font-family:var(--cm-font-sans);">${escapeHtml(q.Cliente)}</span></div>
-            <div style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(q.Fecha_Cotizacion)} · ${escapeHtml(q.Asesor)} (${escapeHtml(q.Sucursal)})</div>
+            <div style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(q.Fecha_Cotizacion)} · ${escapeHtml(q.Asesor)} (${escapeHtml(q.Sucursal)})</div>
           </div>
           <span class="cm-pill ${q.Cerrada ? (q.Estatus_Cierre === 'GANADA' ? 'cm-pill-emerald' : 'cm-pill-slate') : 'cm-pill-amber'}">${escapeHtml(q.Cerrada ? (q.Estatus_Cierre || 'Cerrada') : 'Abierta')}</span>
         </div>

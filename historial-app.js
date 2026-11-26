@@ -1609,7 +1609,7 @@
                 <option value="CANCELADA">Cancelada</option>
               </select>
             </div>
-            <span id="hist_quotesFilterSummary" class="cm-tabular" style="font-size:0.76rem;font-weight:700;color:var(--cm-muted);"></span>
+            <span id="hist_quotesFilterSummary" class="cm-tabular" style="font-size:var(--cm-ui-font);font-weight:700;color:var(--cm-muted);"></span>
           </div>
 
           <div class="cm-hist-table-wrap">
@@ -1898,7 +1898,7 @@
       const meta = metaParts.filter(Boolean).join(' · ') || '—';
       const lastSeenLabel = formatPresenceLastSeen(u.lastSeenMs, u.online);
       const cls = u.online ? 'is-online' : 'is-offline';
-      const guestTag = u.isGuest ? ' <span class="cm-pill cm-pill-amber" style="font-size:10px;padding:1px 6px;">INVITADO</span>' : '';
+      const guestTag = u.isGuest ? ' <span class="cm-pill cm-pill-amber" style="font-size:var(--cm-ui-font);padding:1px 6px;">INVITADO</span>' : '';
       return `
         <div class="cm-hist-presence-item ${cls}">
           <div class="cm-hist-presence-main">
@@ -2037,14 +2037,14 @@
         <tr class="is-clickable" data-hist-open-quote="${idx}">
           <td>
             <div class="cm-mono" style="font-weight:800;">${escapeHtml(q.folioErp)}</div>
-            ${q.idErp ? `<div class="cm-mono" style="font-size:0.7rem;color:var(--cm-muted);">#${escapeHtml(q.idErp)}</div>` : ''}
+            ${q.idErp ? `<div class="cm-mono" style="font-size:var(--cm-ui-font);color:var(--cm-muted);">#${escapeHtml(q.idErp)}</div>` : ''}
           </td>
           <td class="cm-tabular" style="white-space:nowrap;">${escapeHtml(q.fechaHora)}</td>
           <td>${escapeHtml(q.tiendaErp)}</td>
           <td>${escapeHtml(q.nombreAsesor)}</td>
           <td>
             <div style="font-weight:700;">${escapeHtml(q.cliente)}</div>
-            ${q.telefono ? `<div class="cm-mono" style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(q.telefono)}</div>` : ''}
+            ${q.telefono ? `<div class="cm-mono" style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(q.telefono)}</div>` : ''}
           </td>
           <td class="cm-tabular">${q.partidasCant}</td>
           <td class="cm-tabular" style="text-align:right;"><strong>${escapeHtml(formatMoneyMXN(q.totalNum))}</strong></td>
@@ -2057,7 +2057,7 @@
       mob.innerHTML = list.map((q, idx) => `
         <article class="cm-hist-mcard is-clickable" data-hist-open-quote="${idx}">
           <div class="cm-hist-mcard-row">
-            <span class="cm-mono" style="font-weight:800;font-size:0.8rem;">${escapeHtml(q.folioErp)}</span>
+            <span class="cm-mono" style="font-weight:800;font-size:var(--cm-ui-font);">${escapeHtml(q.folioErp)}</span>
             ${statusPillHtml(q.segStatus)}
           </div>
           <div class="cm-hist-mcard-title">${escapeHtml(q.cliente)}</div>
@@ -2067,8 +2067,8 @@
             <span class="cm-tabular">${escapeHtml(q.fechaHora)}</span>
           </div>
           <div class="cm-hist-mcard-row" style="margin-top:2px;">
-            <span style="font-size:0.74rem;color:var(--cm-muted);">${q.partidasCant} partida(s)</span>
-            <strong class="cm-tabular" style="font-size:0.88rem;">${escapeHtml(formatMoneyMXN(q.totalNum))}</strong>
+            <span style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${q.partidasCant} partida(s)</span>
+            <strong class="cm-tabular" style="font-size:var(--cm-ui-title-font);">${escapeHtml(formatMoneyMXN(q.totalNum))}</strong>
           </div>
         </article>
       `).join('');
@@ -2094,12 +2094,12 @@
           <td class="cm-mono" style="font-weight:700;">${escapeHtml(ev.folio || '—')}</td>
           <td>
             <div style="font-weight:700;">${escapeHtml(ev.asesor || '—')}</div>
-            <div style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(ev.sucursal || '')}</div>
+            <div style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(ev.sucursal || '')}</div>
           </td>
           <td>${escapeHtml(ev.cliente || '—')}</td>
           <td>
             <div style="font-weight:700;">${escapeHtml(ev.accion)}</div>
-            ${ev.detalle ? `<div style="font-size:0.74rem;color:var(--cm-muted);">${escapeHtml(ev.detalle)}</div>` : ''}
+            ${ev.detalle ? `<div style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(ev.detalle)}</div>` : ''}
           </td>
         </tr>
       `).join('');
@@ -2109,11 +2109,11 @@
       mob.innerHTML = list.map(ev => `
         <article class="cm-hist-mcard">
           <div class="cm-hist-mcard-row">
-            <span class="cm-mono" style="font-weight:800;font-size:0.78rem;">${escapeHtml(ev.folio || '—')}</span>
+            <span class="cm-mono" style="font-weight:800;font-size:var(--cm-ui-font);">${escapeHtml(ev.folio || '—')}</span>
             <span class="cm-pill cm-pill-slate">${escapeHtml(ev.kind)}</span>
           </div>
           <div class="cm-hist-mcard-title">${escapeHtml(ev.accion)}</div>
-          ${ev.detalle ? `<div style="font-size:0.76rem;color:var(--cm-ink-2);">${escapeHtml(ev.detalle)}</div>` : ''}
+          ${ev.detalle ? `<div style="font-size:var(--cm-ui-font);color:var(--cm-ink-2);">${escapeHtml(ev.detalle)}</div>` : ''}
           <div class="cm-hist-mcard-meta">
             <span>${escapeHtml(ev.asesor || '—')}</span>
             ${ev.cliente ? `<span>${escapeHtml(ev.cliente)}</span>` : ''}
@@ -2145,7 +2145,7 @@
               <span class="cm-pill ${pillCls}">${escapeHtml(r.clasificacion)}</span>
               ${r.referencia ? `<span class="cm-pill cm-pill-slate cm-mono">${escapeHtml(r.referencia)}</span>` : ''}
             </div>
-            <time class="cm-tabular" style="font-size:0.72rem;color:var(--cm-muted);">${escapeHtml(r.fecha)}</time>
+            <time class="cm-tabular" style="font-size:var(--cm-ui-font);color:var(--cm-muted);">${escapeHtml(r.fecha)}</time>
           </div>
           <div class="cm-hist-mcard-title">${escapeHtml(r.evento || 'Registro')}</div>
           <div class="cm-hist-mcard-meta">
@@ -2414,7 +2414,7 @@
         <div class="cm-hist-chips">
           ${skuItems.length
             ? skuItems.map(tok => `<span class="cm-hist-chip">${escapeHtml(tok)}</span>`).join('')
-            : '<span style="font-size:0.78rem;color:var(--cm-muted);">—</span>'}
+            : '<span style="font-size:var(--cm-ui-font);color:var(--cm-muted);">—</span>'}
         </div>
       </div>
       ${q.notas ? `

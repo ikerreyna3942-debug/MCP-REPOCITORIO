@@ -40,6 +40,9 @@
   --inv-shadow-modal: 0 20px 52px rgba(26, 24, 22, 0.24);
   --inv-font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --inv-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --inv-ui-font: 11px;
+  --inv-ui-title-font: 12px;
+  --inv-ui-close-font: 14px;
   --inv-module-header-h: 62px;
   --creata-back-toast-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
 }
@@ -321,15 +324,15 @@ button, input, select, textarea {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 25px;
+  min-height: 26px;
   padding: 2px 9px;
   border-radius: var(--inv-radius-pill);
   border: 1px solid rgba(225, 219, 197, 0.55);
   background-color: rgba(255, 255, 255, 0.09);
   color: #E1DBC5;
-  font-size: 7.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
-  letter-spacing: 0.35px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
   line-height: 1.2;
@@ -351,7 +354,7 @@ button, input, select, textarea {
   border-color: rgba(158, 123, 79, 0.72);
   background-color: rgba(158, 123, 79, 0.22);
   color: #FAF8F3;
-  min-height: 25px;
+  min-height: 26px;
   padding: 2px 10px;
   max-width: 100%;
   white-space: normal;
@@ -382,15 +385,15 @@ button, input, select, textarea {
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  min-height: 25px;
+  min-height: 26px;
   padding: 2px 4px 2px 9px;
   border-radius: var(--inv-radius-pill);
   border: 1px solid var(--inv-accent);
   background-color: var(--inv-accent-soft);
   color: var(--inv-ink);
-  font-size: 8px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   max-width: 100%;
 }
@@ -406,13 +409,13 @@ button, input, select, textarea {
 }
 
 #invHeader .inv-guest-exit {
-  min-height: 21px;
+  min-height: 22px;
   padding: 1px 8px;
   border: none;
   border-radius: var(--inv-radius-pill);
   background-color: var(--inv-ink);
   color: #FFFFFF;
-  font-size: 7.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   cursor: pointer;
@@ -420,7 +423,7 @@ button, input, select, textarea {
 }
 
 /* ============================================================================
- * Category & Sub-Category Horizontal Filter Strips (Original Compact Sizing)
+ * Category & Sub-Category Horizontal Filter Strips (Unified 11px Typography)
  * ============================================================================ */
 #invHeader .inv-cats-cell {
   display: flex;
@@ -472,15 +475,15 @@ button, input, select, textarea {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 25px;
+  min-height: 26px;
   padding: 2px 10px;
   border-radius: var(--inv-radius-pill);
   border: 1px solid rgba(225, 219, 197, 0.35);
   background-color: rgba(255, 255, 255, 0.1);
   color: #FFFFFF;
-  font-size: 7.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
-  letter-spacing: 0.45px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
   line-height: 1.2;
@@ -515,9 +518,9 @@ button, input, select, textarea {
 }
 
 #invHeader .inv-sub-pill {
-  min-height: 22px;
-  padding: 2px 8.5px;
-  font-size: 7px;
+  min-height: 24px;
+  padding: 2px 9px;
+  font-size: var(--inv-ui-font);
   background-color: transparent;
   border-color: rgba(225, 219, 197, 0.28);
   color: #E1DBC5;
@@ -658,7 +661,7 @@ main#invMainView.inv-main {
   border: 1px solid var(--inv-accent);
   color: var(--inv-ink);
   font-family: var(--inv-font-sans);
-  font-size: 8.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -714,7 +717,7 @@ main#invMainView.inv-main {
 }
 
 #invListContainer .inv-row .inv-card-title {
-  font-size: 11.5px;
+  font-size: var(--inv-ui-title-font);
   font-weight: 700;
   line-height: 1.35;
   letter-spacing: -0.005em;
@@ -733,7 +736,7 @@ main#invMainView.inv-main {
   align-items: center;
   gap: 4px;
   font-family: var(--inv-font-mono);
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   color: var(--inv-accent);
   line-height: 1.3;
@@ -749,7 +752,7 @@ main#invMainView.inv-main {
   background-color: var(--inv-ok-bg);
   border: 1px solid var(--inv-ok-border);
   color: var(--inv-ok-ink);
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   line-height: 1.25;
 }
@@ -798,7 +801,7 @@ main#invMainView.inv-main {
 }
 
 #detVariantsList .inv-module-group-title {
-  font-size: 12px;
+  font-size: var(--inv-ui-title-font);
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -806,7 +809,7 @@ main#invMainView.inv-main {
 }
 
 #detVariantsList .inv-module-group-count {
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   color: var(--inv-accent, #9E7B4F);
   white-space: nowrap;
@@ -878,7 +881,7 @@ main#invMainView.inv-main {
 }
 
 .inv-group-cover-label {
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -886,7 +889,7 @@ main#invMainView.inv-main {
 }
 
 .inv-group-cover-sub {
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   color: #6B655D;
 }
 
@@ -907,7 +910,7 @@ main#invMainView.inv-main {
   border: 1px solid rgba(163, 130, 81, 0.5);
   background: #252C32;
   color: #FFFFFF;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
@@ -997,7 +1000,7 @@ main#invMainView.inv-main {
 }
 
 #detVariantsList .inv-fabric-title {
-  font-size: 13px;
+  font-size: var(--inv-ui-title-font);
   font-weight: 800;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -1006,7 +1009,7 @@ main#invMainView.inv-main {
 }
 
 #detVariantsList .inv-fabric-sub {
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   color: var(--inv-accent, #9E7B4F);
   line-height: 1.2;
@@ -1066,7 +1069,7 @@ main#invMainView.inv-main {
 }
 
 .inv-visual-lightbox-caption {
-  font-size: 12.5px;
+  font-size: var(--inv-ui-title-font);
   font-weight: 800;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -1305,7 +1308,7 @@ main#invMainView.inv-main {
   padding: 0 2px;
   text-align: center;
   font-family: var(--inv-font-mono);
-  font-size: 9.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -1487,7 +1490,7 @@ main#invMainView.inv-main {
   background-color: var(--inv-ink);
   color: #FFFFFF;
   font-family: var(--inv-font-mono);
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   display: inline-flex;
   align-items: center;
@@ -1543,7 +1546,7 @@ main#invMainView.inv-main {
   color: #FFFFFF;
   border: 2px solid var(--inv-bg);
   font-family: var(--inv-font-mono);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   display: inline-flex;
   align-items: center;
@@ -1614,7 +1617,7 @@ main#invMainView.inv-main {
 }
 
 .inv-modal-head {
-  padding: 14px 18px;
+  padding: 12px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1630,25 +1633,58 @@ main#invMainView.inv-main {
 
 .inv-modal-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--inv-ui-title-font);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.inv-modal-close-dark {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
+.inv-modal-close {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
   border-radius: var(--inv-radius-pill);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--inv-border);
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 16px;
+  color: var(--inv-ink);
+  font-size: var(--inv-ui-close-font);
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  flex-shrink: 0;
+}
+
+.inv-modal-close:hover {
+  background-color: var(--inv-surface-subtle);
+}
+
+.inv-visual-lightbox-head .inv-modal-close {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.inv-visual-lightbox-head .inv-modal-close:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #FFFFFF;
+}
+
+.inv-modal-close-dark {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: var(--inv-radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: var(--inv-ui-close-font);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .inv-modal-close-dark:hover {
@@ -1662,6 +1698,7 @@ main#invMainView.inv-main {
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
+  font-size: var(--inv-ui-font);
 }
 
 .inv-modal-foot {
@@ -1684,12 +1721,12 @@ main#invMainView.inv-main {
 }
 
 #productDetailModal .inv-det-uniform-text {
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   line-height: 1.25;
 }
 
 #productDetailModal .inv-det-title-above {
-  font-size: 12px;
+  font-size: var(--inv-ui-title-font);
   line-height: 1.25;
 }
 
@@ -1702,7 +1739,7 @@ main#invMainView.inv-main {
   height: 27px;
   padding: 2px 12px;
   border-radius: 9999px;
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   line-height: 1.1;
   cursor: pointer;
@@ -1757,7 +1794,7 @@ main#invMainView.inv-main {
   padding: 2px 9px;
   height: 27px;
   min-height: 27px;
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   letter-spacing: 0.03em;
   border-radius: 9999px;
   white-space: nowrap;
@@ -1837,7 +1874,7 @@ main#invMainView.inv-main {
   padding: 3px 8px;
   border-radius: 7px;
   border: 1px solid #E1DBC5;
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   line-height: 1.15;
   min-width: 0;
@@ -1851,7 +1888,7 @@ main#invMainView.inv-main {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   text-transform: uppercase;
   min-width: 0;
@@ -1861,7 +1898,7 @@ main#invMainView.inv-main {
 }
 
 #productDetailModal .inv-det-info-val {
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   flex-shrink: 0;
@@ -1917,7 +1954,7 @@ main#invMainView.inv-main {
   width: 34px;
   height: 19px;
   text-align: center;
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   border-radius: 4px;
   border: 1px solid #E1DBC5;
@@ -1961,7 +1998,7 @@ main#invMainView.inv-main {
   border-radius: var(--inv-radius-sm);
   border: 1px solid var(--inv-border);
   background-color: var(--inv-surface-subtle);
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   color: var(--inv-ink);
 }
 
@@ -1977,7 +2014,7 @@ main#invMainView.inv-main {
 .inv-qmeta-store {
   font-weight: 800;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   color: var(--inv-ink);
 }
 
@@ -1988,7 +2025,7 @@ main#invMainView.inv-main {
   border: 1px solid var(--inv-accent);
   background-color: var(--inv-surface);
   color: var(--inv-ink);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   outline: none;
@@ -2000,7 +2037,7 @@ main#invMainView.inv-main {
 }
 
 .inv-qmeta-adv {
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 600;
   color: var(--inv-ink-2);
   white-space: normal;
@@ -2021,7 +2058,7 @@ main#invMainView.inv-main {
   border-radius: var(--inv-radius-pill);
   background-color: var(--inv-accent);
   color: #FFFFFF;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -2034,7 +2071,7 @@ main#invMainView.inv-main {
   background-color: var(--inv-surface);
   color: var(--inv-ink);
   font-family: var(--inv-font-mono);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
 }
 
@@ -2045,7 +2082,7 @@ main#invMainView.inv-main {
   border: 1px solid var(--inv-accent);
   background-color: var(--inv-surface);
   color: var(--inv-accent-hover);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   cursor: pointer;
@@ -2069,7 +2106,7 @@ main#invMainView.inv-main {
   border: 1px solid var(--inv-accent-border);
   background-color: var(--inv-surface);
   color: var(--inv-ink);
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   outline: none;
 }
@@ -2091,7 +2128,7 @@ main#invMainView.inv-main {
 }
 
 .inv-field-label {
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2099,20 +2136,20 @@ main#invMainView.inv-main {
 }
 
 .inv-muted-sm {
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 600;
   color: var(--inv-muted);
 }
 
 .inv-input {
   width: 100%;
-  min-height: 40px;
-  padding: 8px 12px;
+  min-height: 36px;
+  padding: 6px 10px;
   border-radius: var(--inv-radius-sm);
   border: 1px solid var(--inv-border);
   background-color: var(--inv-surface);
   color: var(--inv-ink);
-  font-size: 13px;
+  font-size: var(--inv-ui-font);
   font-weight: 600;
   outline: none;
   transition: border-color 140ms ease;
@@ -2157,6 +2194,7 @@ main#invMainView.inv-main {
   flex-direction: column;
   gap: 2px;
   color: var(--inv-ink);
+  font-size: var(--inv-ui-font);
 }
 
 .inv-combo-opt:hover {
@@ -2165,13 +2203,13 @@ main#invMainView.inv-main {
 
 .inv-combo-opt-sku {
   font-family: var(--inv-font-mono);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   color: var(--inv-accent);
 }
 
 .inv-combo-opt-name {
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   font-weight: 600;
   color: var(--inv-ink);
   white-space: normal;
@@ -2185,7 +2223,7 @@ main#invMainView.inv-main {
   background-color: var(--inv-accent-soft);
   border: 1px solid var(--inv-accent-border);
   color: var(--inv-ink);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
 }
 
@@ -2205,7 +2243,7 @@ main#invMainView.inv-main {
   border: 1.5px dashed var(--inv-accent-border);
   background-color: var(--inv-surface-subtle);
   color: var(--inv-ink);
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   text-align: center;
   cursor: pointer;
@@ -2292,13 +2330,13 @@ main#invMainView.inv-main {
 }
 
 .inv-btn-primary {
-  min-height: 36px;
+  min-height: 34px;
   padding: 4px 16px;
   border: none;
   border-radius: var(--inv-radius-pill);
   background-color: var(--inv-accent);
   color: #FFFFFF;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2316,13 +2354,13 @@ main#invMainView.inv-main {
 }
 
 .inv-btn-secondary {
-  min-height: 36px;
+  min-height: 34px;
   padding: 4px 15px;
   border-radius: var(--inv-radius-pill);
   border: 1px solid var(--inv-border);
   background-color: var(--inv-surface);
   color: var(--inv-ink);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2428,14 +2466,14 @@ main#invMainView.inv-main {
     gap: 14px;
   }
   #invListContainer .inv-row .inv-card-title {
-    font-size: 12px;
+    font-size: var(--inv-ui-title-font);
   }
   #invListContainer .inv-row > .inv-card-body {
     padding: 9px 11px 11px;
   }
 }
 
-/* PC: >= 920px (Original compact filter sizes + prominent logo + compact search bar next to logo) */
+/* PC: >= 920px (Unified 11px button typography + prominent logo + compact search bar next to logo) */
 @media (min-width: 920px) {
   #invHeader #headerLogoImg.logo-img {
     height: 52px;
@@ -2450,22 +2488,22 @@ main#invMainView.inv-main {
     height: 28px;
   }
   #invHeader #invSearchInput {
-    font-size: 11px;
+    font-size: var(--inv-ui-font);
   }
   #invHeader .inv-hdr-btn {
     min-height: 28px;
     padding: 2px 10px;
-    font-size: 8.5px;
+    font-size: var(--inv-ui-font);
   }
   #invHeader .inv-cat-pill {
     min-height: 26px;
     padding: 2px 10.5px;
-    font-size: 8.8px;
+    font-size: var(--inv-ui-font);
   }
   #invHeader .inv-sub-pill {
-    min-height: 23px;
-    padding: 2px 9px;
-    font-size: 8.2px;
+    min-height: 24px;
+    padding: 2px 9.5px;
+    font-size: var(--inv-ui-font);
   }
 }
 
@@ -2494,12 +2532,12 @@ main#invMainView.inv-main {
   #invHeader .inv-cat-pill {
     min-height: 27px;
     padding: 2px 11.5px;
-    font-size: 9.2px;
+    font-size: var(--inv-ui-font);
   }
   #invHeader .inv-sub-pill {
     min-height: 24px;
     padding: 2px 10px;
-    font-size: 8.5px;
+    font-size: var(--inv-ui-font);
   }
 }
 
@@ -2669,7 +2707,7 @@ body.inv-split-active.inv-split-vertical .inv-split-resizer {
   align-items: center;
   gap: 7px;
   color: #D9B882;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   flex-shrink: 0;
 }
@@ -2683,13 +2721,13 @@ body.inv-split-active.inv-split-vertical .inv-split-resizer {
   background: rgba(163, 130, 81, 0.24);
   border: 1px solid rgba(163, 130, 81, 0.5);
   color: #D9B882;
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   line-height: 1;
 }
 
 .inv-split-ratio-lbl {
   font-family: var(--inv-font-mono);
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   color: #F3F4F6;
 }
 
@@ -2708,7 +2746,7 @@ body.inv-split-active.inv-split-vertical .inv-split-resizer {
   border: 1px solid #374151;
   background: #252C32;
   color: #F9FAFB;
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
@@ -2788,7 +2826,7 @@ body.inv-split-dragging .inv-split-iframe {
 
 .inv-settings-section-title {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--inv-ui-title-font);
   font-weight: 800;
   color: var(--inv-ink);
   letter-spacing: -0.01em;
@@ -2796,7 +2834,7 @@ body.inv-split-dragging .inv-split-iframe {
 
 .inv-settings-section-sub {
   margin: 0;
-  font-size: 11.5px;
+  font-size: var(--inv-ui-font);
   color: var(--inv-muted);
   line-height: 1.4;
 }
@@ -2806,7 +2844,7 @@ body.inv-split-dragging .inv-split-iframe {
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -2821,7 +2859,7 @@ body.inv-split-dragging .inv-split-iframe {
   border-radius: 8px;
   padding: 7px 10px;
   font-family: var(--inv-font-mono);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   color: var(--inv-ink-2);
   word-break: break-all;
 }
@@ -2830,7 +2868,7 @@ body.inv-split-dragging .inv-split-iframe {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   color: var(--inv-ink-2);
 }
 
@@ -2862,7 +2900,7 @@ body.inv-split-dragging .inv-split-iframe {
 }
 
 .inv-settings-status {
-  font-size: 11.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   padding: 7px 10px;
   border-radius: 8px;
@@ -2914,7 +2952,7 @@ body.inv-split-dragging .inv-split-iframe {
 }
 
 .inv-settings-item-title {
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   color: var(--inv-ink);
   white-space: nowrap;
@@ -2923,7 +2961,7 @@ body.inv-split-dragging .inv-split-iframe {
 }
 
 .inv-settings-item-meta {
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   color: var(--inv-muted);
   margin-top: 2px;
 }
@@ -2934,7 +2972,7 @@ body.inv-split-dragging .inv-split-iframe {
   gap: 4px;
   padding: 2px 7px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   background: var(--inv-ok-bg);
   color: var(--inv-ok-ink);
@@ -2947,7 +2985,7 @@ body.inv-split-dragging .inv-split-iframe {
   border: 1px solid var(--inv-warn-border);
   padding: 2px 7px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
 }
 
@@ -2957,7 +2995,7 @@ body.inv-split-dragging .inv-split-iframe {
   border: 1px solid var(--inv-err-border);
   padding: 2px 7px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
 }
 
@@ -2967,7 +3005,7 @@ body.inv-split-dragging .inv-split-iframe {
   border: 1px solid var(--inv-err-border);
   border-radius: 9px;
   padding: 7px 11px;
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   cursor: pointer;
 }
@@ -2978,7 +3016,7 @@ body.inv-split-dragging .inv-split-iframe {
   border: 1px solid var(--inv-warn-border);
   border-radius: 9px;
   padding: 7px 11px;
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   cursor: pointer;
 }
@@ -2990,12 +3028,12 @@ body.inv-split-dragging .inv-split-iframe {
 }
 
 .inv-role-chip-btn {
-  padding: 9px 10px;
+  padding: 8px 10px;
   border-radius: 10px;
   border: 1.5px solid var(--inv-border);
   background: var(--inv-surface-subtle);
   color: var(--inv-ink-2);
-  font-size: 12px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   cursor: pointer;
   text-align: center;
@@ -3028,7 +3066,7 @@ body.inv-split-dragging .inv-split-iframe {
   border-radius: 7px;
   background: transparent;
   cursor: pointer;
-  font-size: 11.5px;
+  font-size: var(--inv-ui-font);
   color: var(--inv-ink);
   display: flex;
   justify-content: space-between;
@@ -3052,7 +3090,7 @@ body.inv-split-dragging .inv-split-iframe {
 
 .inv-subir-pren-path {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   color: #5C4B2C;
   overflow: hidden;
@@ -3077,7 +3115,7 @@ body.inv-split-dragging .inv-split-iframe {
   border: 1px solid #D5C8A8;
   background: #FFFFFF;
   color: #252C32;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-decoration: none;
   cursor: pointer;
@@ -3102,7 +3140,7 @@ body.inv-split-dragging .inv-split-iframe {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   color: #252C32;
   margin-bottom: 6px;
@@ -3143,7 +3181,7 @@ body.inv-split-dragging .inv-split-iframe {
 
 .inv-subir-pren-item-name {
   margin-top: 3px;
-  font-size: 9.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   color: #252C32;
   line-height: 1.2;
@@ -3175,7 +3213,7 @@ body.inv-split-dragging .inv-split-iframe {
   border: 1px solid var(--inv-border);
   background: var(--inv-surface-subtle);
   color: var(--inv-ink-2);
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   cursor: pointer;
   transition: all 140ms ease;
@@ -3242,7 +3280,7 @@ body.inv-split-dragging .inv-split-iframe {
 }
 
 .inv-team-time {
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   color: var(--inv-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -3313,7 +3351,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   justify-content: center;
   gap: 3px;
   color: #9E7B4F;
-  font-size: 9px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -3337,7 +3375,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   border: 1px solid rgba(163, 130, 81, 0.45);
   background: rgba(255, 255, 255, 0.92);
   color: #1A1816;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3364,7 +3402,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
 }
 
 #detVariantsList .inv-fabric-choice-title {
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   color: #1A1816;
   text-transform: uppercase;
@@ -3374,7 +3412,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
 }
 
 #detVariantsList .inv-fabric-choice-sub {
-  font-size: 9px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   color: #9E7B4F;
   text-transform: uppercase;
@@ -3385,7 +3423,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
 #detVariantsList .inv-fabric-choice-arrow {
   flex-shrink: 0;
   align-self: flex-end;
-  font-size: 9.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   color: #A38251;
   background: #FBF8F1;
@@ -3417,7 +3455,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   border: 1px solid #C8B794;
   background: #FFFFFF;
   color: #1A1816;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   cursor: pointer;
   transition: background 140ms ease, border-color 140ms ease;
@@ -3458,7 +3496,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
 }
 
 .inv-var-fabric-lbl {
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   color: #5C492C;
   text-transform: uppercase;
@@ -3531,7 +3569,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
 }
 
 .inv-det-fabric-swatch-tag {
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   color: #8F6F3F;
   text-transform: uppercase;
@@ -3539,7 +3577,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
 }
 
 .inv-det-fabric-swatch-name {
-  font-size: 13px;
+  font-size: var(--inv-ui-title-font);
   font-weight: 800;
   color: #1A1816;
   overflow: hidden;
@@ -3549,7 +3587,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
 
 .inv-det-fabric-swatch-zoom {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   color: #7D5E30;
   background: #FFFFFF;
@@ -3637,7 +3675,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   background: #FAF6EE;
   border: 1px solid #DFCCB2;
   color: #9E7B4F;
-  font-size: 8.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3645,7 +3683,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
 }
 
 #detVariantsList .inv-bed-size-title {
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   color: #1A1816;
   text-transform: uppercase;
@@ -3663,7 +3701,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   background: #FBF6EE;
   border: 1px solid #DFCCB2;
   color: #7A5C30;
-  font-size: 10px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -3693,7 +3731,7 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   background: #FAF8F4;
   border: 1px solid #E8E1D3;
   color: #6B6359;
-  font-size: 11px;
+  font-size: var(--inv-ui-font);
   font-weight: 600;
   line-height: 1.35;
 }
@@ -3718,13 +3756,13 @@ body.inv-split-active:not(.inv-split-vertical) #detVariantsList.inv-det-variants
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 42px;
-  padding: 8px 12px;
+  min-height: 38px;
+  padding: 6px 12px;
   border-radius: 10px;
   border: 1.5px solid #DDD5C7;
   background: #FAF8F4;
   color: #3E3934;
-  font-size: 13px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   cursor: pointer;
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
@@ -3790,8 +3828,8 @@ button, a, input, select, textarea {
 }
 
 @media (pointer: coarse), (max-width: 767px) {
-  /* Evitar zoom automático en iOS Safari / iPadOS en modales secundarios; en #cartModal y buscador
-     se protege con viewport universal zoom-lock para conservar el tamaño exacto de la app */
+  /* Tipografía uniforme (11px) en todos los modales de la app; el bloqueo universal de zoom
+     (maximum-scale=1.0, user-scalable=no + CreataBackNav.installZoomLock) evita el auto-zoom en iOS/Android */
   #authModal input,
   #authModal select,
   #outOfStockRequestModal input,
@@ -3803,8 +3841,9 @@ button, a, input, select, textarea {
   #settingsModal input,
   #settingsModal select,
   #uploadPhotoModal input,
-  #uploadPhotoModal select {
-    font-size: 16px !important;
+  #uploadPhotoModal select,
+  #visualPhotoPickerModal input {
+    font-size: 11px !important;
   }
 }
 
@@ -3864,7 +3903,7 @@ button, a, input, select, textarea {
     width: auto !important;
     min-height: 32px !important;
     padding: 0 11px !important;
-    font-size: 10px !important;
+    font-size: 11px !important;
     border-radius: 8px;
     flex-shrink: 0;
     white-space: nowrap;
@@ -3873,12 +3912,12 @@ button, a, input, select, textarea {
   #btnToggleNewErpClient {
     min-height: 26px;
     padding: 3px 9px;
-    font-size: 9.5px;
+    font-size: 11px;
   }
 
   #btnSaveNewErpClient {
     min-height: 34px;
-    font-size: 10.5px;
+    font-size: 11px;
   }
 
   #quoteErpClientResults {
@@ -3894,13 +3933,13 @@ button, a, input, select, textarea {
   .inv-erp-client-pick-btn {
     min-height: 28px;
     padding: 0 10px;
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .inv-erp-client-unlink-btn {
     min-height: 26px;
     padding: 2px 9px;
-    font-size: 9.5px;
+    font-size: 11px;
   }
 }
 
@@ -4008,7 +4047,7 @@ button, a, input, select, textarea {
 #cartItemsContainer .inv-cart-item-sku {
   display: inline-block;
   font-family: var(--inv-font-mono);
-  font-size: 9.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   letter-spacing: 0.03em;
   color: #6F6860;
@@ -4019,7 +4058,7 @@ button, a, input, select, textarea {
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 8px;
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 700;
   line-height: 1.25;
   margin-top: 1px;
@@ -4055,7 +4094,7 @@ button, a, input, select, textarea {
 }
 
 #cartItemsContainer .inv-cart-disc-label {
-  font-size: 9.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
   text-transform: uppercase;
   color: #4A453F;
@@ -4065,7 +4104,7 @@ button, a, input, select, textarea {
 #cartItemsContainer .inv-cart-disc-max {
   font-weight: 600;
   color: #7D7469;
-  font-size: 9px;
+  font-size: var(--inv-ui-font);
 }
 
 #cartItemsContainer .inv-cart-disc-input {
@@ -4167,7 +4206,7 @@ button, a, input, select, textarea {
   border: 1px solid #E6E1D8;
   background-color: #FAF9F6;
   color: #1A1816;
-  font-size: 10.5px;
+  font-size: var(--inv-ui-font);
   font-weight: 800;
 }
 
@@ -4245,7 +4284,7 @@ button, a, input, select, textarea {
     min-height: 38px;
     width: 100%;
     text-align: center;
-    font-size: 10.5px;
+    font-size: var(--inv-ui-font);
     border-radius: 8px;
     padding: 6px 8px;
   }
@@ -4267,6 +4306,44 @@ button, a, input, select, textarea {
     min-width: 0;
   }
 }
+
+/* ============================================================================
+ * Tipografía Unificada de Botones y Ventanas de la App de Cotización
+ * - Garantiza el mismo tamaño de letra (11px cuerpo/botones/controles, 12px títulos,
+ *   14px botón cerrar ✕) en TODOS los modales y botones (Android, Apple iOS/iPadOS y PC),
+ *   incluso frente a utilidades inyectadas en runtime por Tailwind CDN.
+ * ============================================================================ */
+.modal-backdrop button:not(.inv-modal-close):not(.inv-modal-close-dark):not(.inv-det-sub-btn):not(.inv-cart-qty-btn):not(.cart-plus-btn):not([aria-label="Cerrar"]),
+.modal-backdrop a.inv-subir-chip,
+.modal-backdrop a#uploadPhotoAppFotosLink,
+.modal-backdrop label,
+.modal-backdrop p,
+.modal-backdrop input:not([type="checkbox"]):not([type="radio"]),
+.modal-backdrop select,
+.modal-backdrop textarea,
+#invFabRoot .inv-fab-item,
+#invHeader .inv-hdr-btn,
+#invHeader .inv-cat-pill,
+#invHeader .inv-sub-pill,
+#invMainView .inv-load-more-btn,
+#invSplitFotosDock .inv-split-chip {
+  font-size: var(--inv-ui-font);
+}
+
+.modal-backdrop h2,
+.modal-backdrop h3,
+.modal-backdrop .inv-modal-title,
+.modal-backdrop .inv-settings-section-title,
+#cartModal #cartTotalAmount {
+  font-size: var(--inv-ui-title-font);
+}
+
+.modal-backdrop button[aria-label="Cerrar"],
+.modal-backdrop .inv-modal-close,
+.modal-backdrop .inv-modal-close-dark {
+  font-size: var(--inv-ui-close-font);
+}
+
 
 
 

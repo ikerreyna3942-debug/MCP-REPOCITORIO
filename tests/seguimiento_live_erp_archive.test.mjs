@@ -489,19 +489,20 @@ test('Static Contracts: 24/7 ERP sync hook in GAS, zero 25-day commercial cycle 
   assert.match(css, /\.cm-seg-card\.is-archived\s*\{/);
 
   // Cache versions in inventario.html
-  assert.ok(invHtml.includes('./creata-modules.css?v=11'));
-  assert.ok(invHtml.includes('./inventario-ui.css?v=29'));
-  assert.ok(invHtml.includes('./seguimiento-app.js?v=16'));
-  assert.ok(invHtml.includes('inventario-app.js?v=114'));
+  assert.ok(invHtml.includes('./creata-modules.css?v=12'));
+  assert.ok(invHtml.includes('./inventario-ui.css?v=30'));
+  assert.ok(invHtml.includes('./seguimiento-app.js?v=17'));
+  assert.ok(invHtml.includes('inventario-app.js?v=115'));
 
-  // Mobile Phone App Ergonomics + Apple iPhone/iOS PWA support
+  // Mobile Phone App Ergonomics + Apple iPhone/iOS PWA support + Unified Typography
   const invCss = readRepoFile('inventario-ui.css');
   const invJs = readRepoFile('inventario-app.js');
   assertBalancedCssBraces(invCss, 'inventario-ui.css');
-  assert.match(css, /font-size:\s*16px;/);
+  assert.match(css, /--cm-ui-font:\s*11px;/);
   assert.match(css, /touch-action:\s*manipulation/);
   assert.match(css, /border-radius:\s*20px 20px 0 0/);
-  assert.match(invCss, /font-size:\s*16px !important/);
+  assert.match(invCss, /--inv-ui-font:\s*11px;/);
+  assert.match(invCss, /font-size:\s*11px !important/);
   assert.match(invCss, /\.inv-erp-client-search-row\s*\{/);
   assert.ok(invHtml.includes('enterkeyhint="search"'), 'Search inputs must declare enterkeyhint="search" for mobile keyboards');
   assert.match(invHtml, /<form class="inv-erp-client-search-row[^"]*" onsubmit="event\.preventDefault\(\);\s*searchErpClientsLive\(\);"/);
