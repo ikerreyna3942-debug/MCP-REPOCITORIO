@@ -2239,4 +2239,95 @@
   }
 }
 
+/* ============================================================================
+ * Tipografía Unificada Autoritativa — Seguimiento de Cotizaciones e Historial
+ * - Garantiza el mismo tamaño de letra en TODOS los botones y TODAS las
+ *   ventanas/modales abiertos (#seg_previewModal, #seg_modalCerrarCotizacion,
+ *   #seg_modalKevinAudit, #hist_quoteInspectModal, #hist_photoPreviewModal)
+ *   en Android, Apple (iOS/iPadOS) y PC, prevaleciendo sobre Tailwind CDN.
+ * ============================================================================ */
+#inAppSeguimientoRoot button:not(.cm-modal-close),
+#inAppSeguimientoRoot a.cm-btn,
+#inAppSeguimientoRoot [role="button"]:not(.cm-modal-close),
+#inAppSeguimientoRoot [role="tab"],
+#inAppSeguimientoRoot input,
+#inAppSeguimientoRoot select,
+#inAppSeguimientoRoot option,
+#inAppSeguimientoRoot textarea,
+#inAppSeguimientoRoot label,
+#inAppSeguimientoRoot th,
+#inAppSeguimientoRoot td,
+#inAppSeguimientoRoot .cm-pill,
+#inAppSeguimientoRoot .cm-seg-app-stamp,
+#inAppSeguimientoRoot .cm-empty,
+#inAppSeguimientoRoot .cm-toast,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card p,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card div,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card span,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card label,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card input,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card select,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card textarea,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card button:not(.cm-modal-close),
+#inAppHistorialRoot button:not(.cm-modal-close),
+#inAppHistorialRoot a.cm-btn,
+#inAppHistorialRoot [role="button"]:not(.cm-modal-close),
+#inAppHistorialRoot [role="tab"],
+#inAppHistorialRoot input,
+#inAppHistorialRoot select,
+#inAppHistorialRoot option,
+#inAppHistorialRoot textarea,
+#inAppHistorialRoot label,
+#inAppHistorialRoot th,
+#inAppHistorialRoot td,
+#inAppHistorialRoot .cm-pill,
+#inAppHistorialRoot .cm-empty,
+#inAppHistorialRoot .cm-toast,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card p,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card div,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card span,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card label,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card input,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card select,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card textarea,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card button:not(.cm-modal-close) {
+  font-size: var(--cm-ui-font);
+}
+
+#inAppSeguimientoRoot h1,
+#inAppSeguimientoRoot h2,
+#inAppSeguimientoRoot h3,
+#inAppSeguimientoRoot .cm-title,
+#inAppSeguimientoRoot .cm-seg-client-name,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card h2,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card h3,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card .cm-modal-title,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card .cm-modal-title span,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card #seg_previewCliente,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card #seg_previewAsesor,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card .cm-seg-audit-kpi-val,
+#inAppHistorialRoot h1,
+#inAppHistorialRoot h2,
+#inAppHistorialRoot h3,
+#inAppHistorialRoot .cm-title,
+#inAppHistorialRoot .cm-hist-kpi-val,
+#inAppHistorialRoot .cm-hist-mcard-title,
+#inAppHistorialRoot .cm-hist-section-title,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card h2,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card h3,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card .cm-modal-title,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card .cm-modal-title span {
+  font-size: var(--cm-ui-title-font);
+}
+
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card .cm-modal-close,
+#inAppSeguimientoRoot .cm-modal-backdrop .cm-modal-card button[aria-label="Cerrar"],
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card .cm-modal-close,
+#inAppHistorialRoot .cm-modal-backdrop .cm-modal-card button[aria-label="Cerrar"] {
+  font-size: var(--cm-ui-close-font);
+}
+
+
 

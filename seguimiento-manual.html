@@ -12,6 +12,10 @@
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --sm-ui-font: 11px;
+      --sm-ui-title-font: 12px;
+    }
     html, body {
       touch-action: pan-x pan-y;
       -webkit-text-size-adjust: 100%;
@@ -28,9 +32,17 @@
       padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
       padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
     }
+    header.no-print button,
+    header.no-print select,
+    header.no-print option,
+    header.no-print #slideCounter,
+    header.no-print span,
+    footer.no-print {
+      font-size: var(--sm-ui-font);
+    }
     @media (pointer: coarse), (max-width: 768px) {
       #slideSelector {
-        font-size: 16px;
+        font-size: var(--sm-ui-font);
       }
     }
     .slide-canvas {
@@ -80,46 +92,46 @@
   <!-- BARRA SUPERIOR DE HERRAMIENTAS (SIMPLIFICADA) -->
   <header class="no-print w-full bg-slate-900 text-white border-b border-slate-800 px-5 py-3 flex flex-wrap items-center justify-between gap-3 z-50 shadow-sm">
     <div class="flex items-center gap-3">
-      <div class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-100 font-bold tracking-wider text-xs">
+      <div class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-100 font-bold tracking-wider text-[11px]">
         CREATA MUEBLES
       </div>
-      <span class="text-slate-400 text-xs font-medium hidden sm:inline">
+      <span class="text-slate-400 text-[11px] font-medium hidden sm:inline">
         Capacitación Práctica: <span class="text-slate-200 font-semibold">Asesores de Ventas y Gerentes de Tienda</span>
       </span>
     </div>
 
     <!-- Controles de Navegación + Edición + Exportación -->
-    <div class="flex items-center gap-2 flex-wrap text-xs">
-      <select id="slideSelector" onchange="goToSlide(parseInt(this.value))" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-2 max-w-[260px] focus:outline-none focus:border-slate-500">
+    <div class="flex items-center gap-2 flex-wrap text-[11px]">
+      <select id="slideSelector" onchange="goToSlide(parseInt(this.value))" class="bg-slate-800 border border-slate-700 text-slate-200 text-[11px] rounded-lg px-2.5 py-2 max-w-[260px] focus:outline-none focus:border-slate-500">
       </select>
 
-      <button onclick="prevSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition" title="Diapositiva Anterior">
+      <button onclick="prevSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold transition" title="Diapositiva Anterior">
         ◀
       </button>
-      <span id="slideCounter" class="text-xs font-semibold text-slate-300 px-2 min-w-[50px] text-center">1 / 15</span>
-      <button onclick="nextSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition" title="Diapositiva Siguiente">
+      <span id="slideCounter" class="text-[11px] font-semibold text-slate-300 px-2 min-w-[50px] text-center">1 / 15</span>
+      <button onclick="nextSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold transition" title="Diapositiva Siguiente">
         ▶
       </button>
 
       <div class="h-5 w-[1px] bg-slate-800 mx-1"></div>
 
       <!-- BOTONES PARA EDITAR Y BORRAR EN VIVO -->
-      <button onclick="toggleEditMode()" id="btnEdit" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition">
+      <button onclick="toggleEditMode()" id="btnEdit" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-medium flex items-center gap-1.5 transition">
         ✏️ <span>Editar: OFF</span>
       </button>
-      <button onclick="deleteCurrentSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-rose-950/40 hover:text-rose-300 border border-slate-700 text-slate-400 text-xs font-medium flex items-center gap-1.5 transition" title="Borrar Diapositiva">
+      <button onclick="deleteCurrentSlide()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-rose-950/40 hover:text-rose-300 border border-slate-700 text-slate-400 text-[11px] font-medium flex items-center gap-1.5 transition" title="Borrar Diapositiva">
         🗑️ <span>Borrar</span>
       </button>
 
       <div class="h-5 w-[1px] bg-slate-800 mx-1"></div>
 
-      <button onclick="exportToPPTX()" id="btnPptx" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition">
+      <button onclick="exportToPPTX()" id="btnPptx" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-medium flex items-center gap-1.5 transition">
         📊 <span>Exportar PPTX</span>
       </button>
-      <button onclick="printDeck()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition">
+      <button onclick="printDeck()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-medium flex items-center gap-1.5 transition">
         📄 <span>Guardar PDF</span>
       </button>
-      <button onclick="toggleFullScreen()" class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white text-xs transition" title="Pantalla Completa">
+      <button onclick="toggleFullScreen()" class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white text-[11px] transition" title="Pantalla Completa">
         ⛶
       </button>
     </div>
@@ -133,7 +145,7 @@
   </main>
 
   <!-- PIE DE PÁGINA -->
-  <footer class="no-print w-full bg-white text-slate-500 border-t border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between text-xs">
+  <footer class="no-print w-full bg-white text-slate-500 border-t border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between text-[11px]">
     <div>
       💡 <b>Modo Práctico:</b> Guía de operación diaria para <b>Asesores Interioristas</b> y <b>Gerentes de Tienda</b> • CREATA Muebles
     </div>
@@ -866,11 +878,11 @@
       const viewport = document.getElementById('slideViewport');
       if (isEditMode) {
         btn.innerHTML = "✏️ <span>Edición: ON (clic en textos)</span>";
-        btn.className = "px-3 py-2 rounded-lg bg-slate-100 text-slate-900 border border-white text-xs font-semibold flex items-center gap-1.5 transition";
+        btn.className = "px-3 py-2 rounded-lg bg-slate-100 text-slate-900 border border-white text-[11px] font-semibold flex items-center gap-1.5 transition";
         viewport.classList.add('editing-active');
       } else {
         btn.innerHTML = "✏️ <span>Editar: OFF</span>";
-        btn.className = "px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition";
+        btn.className = "px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-medium flex items-center gap-1.5 transition";
         viewport.classList.remove('editing-active');
       }
       updateView();

@@ -278,3 +278,63 @@ test('Cotización Uniform Typography: ALL buttons and ALL opened modals/windows 
   }
 });
 
+// ============================================================================
+// 6. SEGUIMIENTO DE COTIZACIONES UNIFORM TYPOGRAPHY (APP + MODALS + MANUAL)
+// ============================================================================
+test('Seguimiento de Cotizaciones Uniform Typography: ALL buttons, tabs, controls, modals, and manual toolbar enforce 11px body/button, 12px title, 14px close across Android, iOS, and PC', () => {
+  const modCss = readRepo('creata-modules.css');
+  const segJs = readRepo('seguimiento-app.js');
+  const histJs = readRepo('historial-app.js');
+  const manualHtml = readRepo('seguimiento-manual.html');
+
+  // 1. Authoritative Unified Typography Lock present in creata-modules.css for Seguimiento & Historial
+  assert.match(
+    modCss,
+    /#inAppSeguimientoRoot button:not\(\.cm-modal-close\)[\s\S]*?#inAppSeguimientoRoot \.cm-modal-backdrop \.cm-modal-card button:not\(\.cm-modal-close\)[\s\S]*?font-size:\s*var\(--cm-ui-font\);/,
+    'creata-modules.css must lock all Seguimiento buttons and modal buttons/body to var(--cm-ui-font)'
+  );
+  assert.match(
+    modCss,
+    /#inAppSeguimientoRoot \.cm-modal-backdrop \.cm-modal-card \.cm-modal-title[\s\S]*?font-size:\s*var\(--cm-ui-title-font\);/,
+    'creata-modules.css must lock all Seguimiento modal titles to var(--cm-ui-title-font)'
+  );
+  assert.match(
+    modCss,
+    /#inAppSeguimientoRoot \.cm-modal-backdrop \.cm-modal-card \.cm-modal-close[\s\S]*?font-size:\s*var\(--cm-ui-close-font\);/,
+    'creata-modules.css must lock all Seguimiento modal close buttons to var(--cm-ui-close-font)'
+  );
+
+  // 2. Every font-size declaration in creata-modules.css uses unified tokens (11px/12px/14px)
+  const modFontMatches = [...modCss.matchAll(/font-size\s*:\s*([^;]+);/gi)].map((m) => m[1].trim());
+  assert.ok(modFontMatches.length > 0, 'creata-modules.css must declare font-size rules');
+  for (const val of modFontMatches) {
+    assert.match(
+      val,
+      /^(?:var\(--cm-ui-(?:font|title-font|close-font)\)|(?:11|12|14)px)(?:\s*!important)?$/,
+      `Unexpected non-unified font-size in creata-modules.css: ${val}`
+    );
+  }
+
+  // 3. Zero non-unified inline font-size in seguimiento-app.js and historial-app.js
+  for (const [name, src] of [['seguimiento-app.js', segJs], ['historial-app.js', histJs]]) {
+    const inlineMatches = [...src.matchAll(/font-size\s*:\s*([^;"'}]+)/gi)].map((m) => m[1].trim());
+    for (const val of inlineMatches) {
+      assert.match(
+        val,
+        /^(?:var\(--cm-ui-(?:font|title-font|close-font)\)|(?:11|12|14)px)$/,
+        `Unexpected non-unified inline font-size in ${name}: ${val}`
+      );
+    }
+  }
+
+  // 4. seguimiento-manual.html toolbar buttons & #slideSelector unified to 11px (zero 16px mobile bloat)
+  assert.match(manualHtml, /--sm-ui-font:\s*11px;/, 'seguimiento-manual.html must define --sm-ui-font: 11px');
+  assert.match(manualHtml, /header\.no-print button,[\s\S]*?font-size:\s*var\(--sm-ui-font\);/, 'seguimiento-manual.html must lock header/footer controls to 11px');
+  assert.ok(!/font-size:\s*16px/.test(manualHtml), 'seguimiento-manual.html must not bloat #slideSelector to 16px on mobile');
+  const headerBlock = manualHtml.match(/<header class="no-print[\s\S]*?<\/header>/);
+  assert.ok(headerBlock, 'seguimiento-manual.html must have no-print header');
+  assert.ok(!/\btext-xs\b/.test(headerBlock[0]), 'seguimiento-manual.html header buttons/select must use text-[11px] instead of text-xs');
+  assert.ok(!/btn\.className\s*=[^\n]*\btext-xs\b/.test(manualHtml), 'toggleEditMode() must keep text-[11px] on btnEdit');
+});
+
+
