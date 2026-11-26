@@ -178,107 +178,127 @@ test('SILLONES excludes all modular/sectional/directional sala pieces while keep
   );
 });
 
-test('SALAS MODULARES, SALAS EN L, SOFÁ CAMAS, and SOFÁ Y LOVE SEAT stay grouped by Type + Model with modules inside', () => {
-  // 1) SALAS MODULARES
-  API.setInvCategory('SALAS');
-  API.setInvSubCategory('SALAS MODULARES');
-  const modGroups = API.getFilteredGroups();
-  const aspen = modGroups.find(g => g.mo === 'ASPEN');
-  assert.ok(aspen, 'Expected grouped SALA MODULAR ASPEN card');
+test('TODOS keeps SALAS MODULARES, SALAS EN L, SOFÁ CAMAS, and SOFÁ Y LOVE SEAT grouped by Type + Model, while inside SALAS category every subcategory is ungrouped piece by piece', () => {
+  // 1) In TODOS (ALL): Salas stay grouped by Type + Model with modules & fabric variations inside
+  API.setInvCategory('ALL');
+  API.setInvSubCategory('ALL');
+  const todosGroups = API.getFilteredGroups();
+
+  const aspen = todosGroups.find(g => g.mo === 'ASPEN' && g.typeKey === 'SALA_MODULAR');
+  assert.ok(aspen, 'Expected grouped SALA MODULAR ASPEN card in TODOS');
   assert.equal(aspen.title, 'SALA MODULAR ASPEN');
-  assert.ok(aspen.items.length >= 10, 'ASPEN should combine all modular SKUs');
-  assert.ok(aspen.moduleCount >= 5, 'ASPEN should expose multiple distinct modules');
-  assert.ok(aspen.variationCount >= 2, 'ASPEN should expose multiple fabric colors');
+  assert.ok(aspen.items.length >= 10, 'ASPEN should combine all modular SKUs in TODOS');
+  assert.ok(aspen.moduleCount >= 5, 'ASPEN should expose multiple distinct modules in TODOS');
+  assert.ok(aspen.variationCount >= 2, 'ASPEN should expose multiple fabric colors in TODOS');
   assert.match(API.formatGroupBadgeLabel(aspen), /colores · \d+ mód\./);
 
-  const nilo = modGroups.find(g => g.mo === 'NILO');
-  assert.ok(nilo, 'Expected grouped SALA MODULAR NILO card');
+  const nilo = todosGroups.find(g => g.mo === 'NILO' && g.typeKey === 'SALA_MODULAR');
+  assert.ok(nilo, 'Expected grouped SALA MODULAR NILO card in TODOS');
   assert.ok(
     nilo.items.some(it => /TABURETE/i.test(it.tp + ' ' + it.n)),
     'NILO TABURETE must group inside SALA MODULAR NILO rather than BANCOS & BANCAS'
   );
 
-  const tessa = modGroups.find(g => g.mo === 'TESSA');
-  assert.ok(tessa && tessa.items.length >= 2, 'TESSA modular pieces must group together');
+  const tessa = todosGroups.find(g => g.mo === 'TESSA' && g.typeKey === 'SALA_MODULAR');
+  assert.ok(tessa && tessa.items.length >= 2, 'TESSA modular pieces must group together in TODOS');
 
-  // 2) SALAS EN L
-  API.setInvSubCategory('SALAS EN L');
-  const lGroups = API.getFilteredGroups();
   for (const model of ['IBIZA', 'DOVELLI', 'MATERA', 'MELODY', 'PERRY', 'VALENTI', 'VARENA']) {
-    const grp = lGroups.find(g => g.mo === model);
-    assert.ok(grp, `Expected SALA EN L ${model}`);
+    const grp = todosGroups.find(g => g.mo === model && g.typeKey === 'SALA_EN_L');
+    assert.ok(grp, `Expected SALA EN L ${model} in TODOS`);
     assert.equal(grp.title, `SALA EN L ${model}`);
     assert.ok(grp.moduleCount >= 2, `Expected multiple modules for SALA EN L ${model}`);
   }
-  // DOVELLI coordinated fabrics unify cleanly into 1 color ("ISMALIA LINEN")
-  const dovelli = lGroups.find(g => g.mo === 'DOVELLI');
+  const dovelli = todosGroups.find(g => g.mo === 'DOVELLI' && g.typeKey === 'SALA_EN_L');
   assert.equal(dovelli.variationCount, 1, 'DOVELLI ISMALIA LINEN / COORD variants must unify into 1 color');
 
-  // 3) FUTONES & SOFÁ CAMAS
-  API.setInvSubCategory('FUTONES & SOFÁ CAMAS');
-  const scGroups = API.getFilteredGroups();
-  const city = scGroups.find(g => g.mo === 'CITY');
-  assert.ok(city, 'Expected grouped SOFÁ CAMA CITY card');
+  const city = todosGroups.find(g => g.mo === 'CITY' && g.typeKey === 'SOFA_CAMA');
+  assert.ok(city, 'Expected grouped SOFÁ CAMA CITY card in TODOS');
   assert.equal(city.title, 'SOFÁ CAMA CITY');
   assert.ok(city.moduleCount >= 3, 'SOFÁ CAMA CITY should group Sofá Cama + Chaise Der + Chaise Izq');
 
-  // 4) SOFAS & LOVESEATS (paired models -> SOFÁ Y LOVE SEAT <MODELO>)
-  API.setInvSubCategory('SOFAS & LOVESEATS');
-  const slGroups = API.getFilteredGroups();
   for (const model of ['AZURA', 'CASCADE', 'GEORGIA', 'GIORGIANO', 'LAVINI', 'MARENO', 'ORIA']) {
-    const grp = slGroups.find(g => g.mo === model);
-    assert.ok(grp, `Expected paired SOFÁ Y LOVE SEAT ${model}`);
+    const grp = todosGroups.find(g => g.mo === model && g.typeKey === 'SOFA_LOVESEAT');
+    assert.ok(grp, `Expected paired SOFÁ Y LOVE SEAT ${model} in TODOS`);
     assert.equal(grp.title, `SOFÁ Y LOVE SEAT ${model}`);
     assert.equal(grp.moduleCount, 2, `Expected SOFÁ + LOVE SEAT modules for ${model}`);
   }
+
+  // 2) Inside SALAS category (TODO SALAS & every subcategory): EVERY card is ungrouped (1 individual SKU per card)
+  API.setInvCategory('SALAS');
+  for (const sub of ['ALL', 'SALAS MODULARES', 'SALAS EN L', 'SOFAS & LOVESEATS', 'FUTONES & SOFÁ CAMAS', 'SILLONES']) {
+    API.setInvSubCategory(sub);
+    const cards = API.getFilteredGroups();
+    assert.ok(cards.length > 0, `Expected visible cards in SALAS > ${sub}`);
+    assert.equal(
+      cards.filter(c => c.items.length > 1).length,
+      0,
+      `SALAS > ${sub} must render individual ungrouped cards (0 multi-SKU group cards)`
+    );
+  }
+  // Verify ASPEN pieces appear individually inside SALAS MODULARES
+  API.setInvSubCategory('SALAS MODULARES');
+  const aspenSingles = API.getFilteredGroups().filter(g => g.mo === 'ASPEN');
+  assert.ok(aspenSingles.length >= 10, 'SALAS MODULARES must render each ASPEN modular piece as its own card');
 });
 
-test('EXTERIOR mirrors Salas grouping by Type + Model + Color/Fabric + Modules', () => {
-  API.setInvCategory('COMPLEMENTOS');
-  API.setInvSubCategory('EXTERIOR');
-  const extGroups = API.getFilteredGroups();
+test('EXTERIOR stays grouped in TODOS and renders individual ungrouped cards inside COMPLEMENTOS > EXTERIOR', () => {
+  // 1) In TODOS (ALL): Exterior models stay grouped by Type + Model
+  API.setInvCategory('ALL');
+  API.setInvSubCategory('ALL');
+  const todosGroups = API.getFilteredGroups();
 
-  const alteaSala = extGroups.find(g => g.mo === 'ALTEA' && g.typeKey === 'EXT_SALA_MODULAR');
-  assert.ok(alteaSala, 'Expected SALA MODULAR EXTERIOR ALTEA');
+  const alteaSala = todosGroups.find(g => g.mo === 'ALTEA' && g.typeKey === 'EXT_SALA_MODULAR');
+  assert.ok(alteaSala, 'Expected SALA MODULAR EXTERIOR ALTEA in TODOS');
   assert.equal(alteaSala.title, 'SALA MODULAR EXTERIOR ALTEA');
   assert.ok(alteaSala.moduleCount >= 2);
 
-  const santhomasSala = extGroups.find(g => g.mo === 'SANTHOMAS' && g.typeKey === 'EXT_SALA_MODULAR');
-  assert.ok(santhomasSala, 'Expected SALA MODULAR EXTERIOR SANTHOMAS');
+  const santhomasSala = todosGroups.find(g => g.mo === 'SANTHOMAS' && g.typeKey === 'EXT_SALA_MODULAR');
+  assert.ok(santhomasSala, 'Expected SALA MODULAR EXTERIOR SANTHOMAS in TODOS');
   assert.equal(santhomasSala.title, 'SALA MODULAR EXTERIOR SANTHOMAS');
   assert.ok(santhomasSala.moduleCount >= 3);
 
-  const luminaSala = extGroups.find(g => g.mo === 'LUMINA' && g.typeKey === 'EXT_SOFA_LOVESEAT');
-  assert.ok(luminaSala, 'Expected SOFÁ Y LOVE SEAT EXTERIOR LUMINA');
+  const luminaSala = todosGroups.find(g => g.mo === 'LUMINA' && g.typeKey === 'EXT_SOFA_LOVESEAT');
+  assert.ok(luminaSala, 'Expected SOFÁ Y LOVE SEAT EXTERIOR LUMINA in TODOS');
   assert.equal(luminaSala.title, 'SOFÁ Y LOVE SEAT EXTERIOR LUMINA');
   assert.ok(luminaSala.moduleCount >= 2);
 
-  const santaMonicaSala = extGroups.find(g => g.mo === 'SANTA MONICA' && g.typeKey === 'EXT_SALA');
-  assert.ok(santaMonicaSala, 'Expected SALA EXTERIOR SANTA MONICA');
+  const santaMonicaSala = todosGroups.find(g => g.mo === 'SANTA MONICA' && g.typeKey === 'EXT_SALA');
+  assert.ok(santaMonicaSala, 'Expected SALA EXTERIOR SANTA MONICA in TODOS');
   assert.ok(santaMonicaSala.moduleCount >= 2);
   assert.equal(santaMonicaSala.variationCount, 2, 'SANTA MONICA should group cleanly into DARK GREY and WHITE');
 
-  const nidoSala = extGroups.find(g => g.mo === 'NIDO' && g.typeKey === 'EXT_SALA');
-  assert.ok(nidoSala, 'Expected SALA EXTERIOR NIDO');
+  const nidoSala = todosGroups.find(g => g.mo === 'NIDO' && g.typeKey === 'EXT_SALA');
+  assert.ok(nidoSala, 'Expected SALA EXTERIOR NIDO in TODOS');
   assert.equal(nidoSala.title, 'SALA EXTERIOR NIDO');
   assert.equal(nidoSala.moduleCount, 2);
 
-  const recifeSala = extGroups.find(g => g.mo === 'RECIFE' && g.typeKey === 'EXT_SALA');
-  assert.ok(recifeSala, 'Expected SALA EXTERIOR RECIFE');
+  const recifeSala = todosGroups.find(g => g.mo === 'RECIFE' && g.typeKey === 'EXT_SALA');
+  assert.ok(recifeSala, 'Expected SALA EXTERIOR RECIFE in TODOS');
   assert.ok(recifeSala.moduleCount >= 2);
 
-  const palmBeachSala = extGroups.find(g => g.mo === 'PALM BEACH' && g.typeKey === 'EXT_SALA');
+  const palmBeachSala = todosGroups.find(g => g.mo === 'PALM BEACH' && g.typeKey === 'EXT_SALA');
   assert.ok(palmBeachSala, 'SALA PALM BEACH must stay SALA EXTERIOR (not MESA DE CENTRO EXTERIOR)');
 
-  const lustroCamastro = extGroups.find(g => g.mo === 'LUSTRO' && g.typeKey === 'EXT_CAMASTRO');
-  assert.ok(lustroCamastro && lustroCamastro.items.length >= 2, 'CAMASTRO EXTERIOR LUSTRO should group its variations');
+  const lustroCamastro = todosGroups.find(g => g.mo === 'LUSTRO' && g.typeKey === 'EXT_CAMASTRO');
+  assert.ok(lustroCamastro && lustroCamastro.items.length >= 2, 'CAMASTRO EXTERIOR LUSTRO should group its variations in TODOS');
+
+  // 2) Inside COMPLEMENTOS > EXTERIOR: every card is ungrouped piece by piece
+  API.setInvCategory('COMPLEMENTOS');
+  API.setInvSubCategory('EXTERIOR');
+  const extCards = API.getFilteredGroups();
+  assert.ok(extCards.length >= 50, 'Expected individual EXTERIOR product cards');
+  assert.equal(
+    extCards.filter(c => c.items.length > 1).length,
+    0,
+    'COMPLEMENTOS > EXTERIOR must render individual ungrouped cards'
+  );
 });
 
-test('3-click flow: Click 2 shows Color/Fabric cards with fabric photo, Click 3 shows ordered Modules of chosen Color', () => {
-  API.setInvCategory('SALAS');
-  API.setInvSubCategory('SALAS MODULARES');
-  const aspen = API.getFilteredGroups().find(g => g.mo === 'ASPEN');
-  assert.ok(aspen, 'Expected ASPEN modular group');
+test('3-click flow from TODOS: Click 2 shows Color/Fabric cards with fabric photo, Click 3 shows ordered Modules of chosen Color', () => {
+  API.setInvCategory('ALL');
+  API.setInvSubCategory('ALL');
+  const aspen = API.getFilteredGroups().find(g => g.mo === 'ASPEN' && g.typeKey === 'SALA_MODULAR');
+  assert.ok(aspen, 'Expected ASPEN modular group in TODOS');
 
   // CLICK 2: Selecting ASPEN displays Color / Fabric choice cards (no modules dumped yet)
   API.renderGroupVariantsStep(aspen, '');
@@ -322,10 +342,15 @@ test('3-click flow: Click 2 shows Color/Fabric cards with fabric photo, Click 3 
   assert.match(fotosHtml, /id="visualStageContentWrap"/);
 });
 
-test('Category pill counts match visible card counts for grouped Salas and Exterior subcategories', () => {
+test('Category pill counts match visible card counts 1:1 for ungrouped Salas and Exterior subcategories', () => {
   API.setInvCategory('SALAS');
   API.setInvSubCategory('ALL');
   const subBarHtml = API.getDocEl('invSubCategoryBar').innerHTML;
+  const todoSalasCount = API.getFilteredGroups().length;
+  const mTodoSalas = subBarHtml.match(/TODO SALAS \((\d+)\)/);
+  assert.ok(mTodoSalas, 'Expected pill for TODO SALAS');
+  assert.equal(Number(mTodoSalas[1]), todoSalasCount, 'TODO SALAS pill must match ungrouped visible card count 1:1');
+
   for (const sub of ['SALAS MODULARES', 'SALAS EN L', 'SOFAS & LOVESEATS', 'FUTONES & SOFÁ CAMAS', 'SILLONES']) {
     API.setInvSubCategory(sub);
     const actualCards = API.getFilteredGroups().length;
@@ -352,10 +377,10 @@ test('inventario-ui.css defines 3-click Color/Fabric cards, selected fabric head
   assert.match(css, /\.inv-visual-lightbox-card\s*\{/);
 });
 
-test('Visual cover photo (home only) and fabric swatch photo (Click 2 & Click 3) render cleanly without altering any SKU photo', () => {
-  API.setInvCategory('SALAS');
-  API.setInvSubCategory('SALAS MODULARES');
-  const aspen = API.getFilteredGroups().find(g => g.mo === 'ASPEN');
+test('Visual cover photo (home TODOS) and fabric swatch photo (Click 2 & Click 3) render cleanly without altering any SKU photo', () => {
+  API.setInvCategory('ALL');
+  API.setInvSubCategory('ALL');
+  const aspen = API.getFilteredGroups().find(g => g.mo === 'ASPEN' && g.typeKey === 'SALA_MODULAR');
   const origSkuPhotos = aspen.items.map(it => it.f);
 
   const covKey = API.buildVisualCoverOverrideKey(aspen.key);
@@ -458,10 +483,19 @@ test('Selecting a color with only 1 piece (e.g. SALA ARIA OSI FLAX) opens produc
     ];
     API.setAllItems(ariaItems);
     API.indexItemsAndGroups();
+
+    // Inside SALAS category: ungrouped (2 separate cards: OSI FLAX and OSI IVORY)
     API.setInvCategory('SALAS');
-    API.setInvSubCategory('');
+    API.setInvSubCategory('ALL');
+    const ariaSingles = API.getFilteredGroups();
+    assert.equal(ariaSingles.length, 2, 'Inside SALAS category, SALA ARIA must display each color piece separately');
+    assert.ok(ariaSingles.every(g => g.items.length === 1), 'Each SALAS card must hold 1 individual SKU');
+
+    // In TODOS (ALL): grouped into 1 SALA ARIA card with 2 colors
+    API.setInvCategory('ALL');
+    API.setInvSubCategory('ALL');
     const ariaGrp = API.getFilteredGroups().find(g => g.mo === 'ARIA');
-    assert.ok(ariaGrp && ariaGrp.items.length === 2, 'Expected SALA ARIA group with 2 color items');
+    assert.ok(ariaGrp && ariaGrp.items.length === 2, 'Expected SALA ARIA group with 2 color items in TODOS');
 
     // Step 1: Open group -> shows 2 color cards (OSI FLAX and OSI IVORY)
     assert.equal(API.openGroupModal(ariaGrp.key, false), true);
