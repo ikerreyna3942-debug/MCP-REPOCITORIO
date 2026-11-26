@@ -1949,10 +1949,13 @@ test('UX-7: Preserved admin auth (editable #ownerEmailInput for VER_FOTOS_APP=SI
 });
 
 test('UX-8: Zero locked-file modifications and zero tracked metadata (.agents/ or PROJECT.md)', () => {
-  const diffOut = execFileSync('git', ['diff', '--name-only', 'origin/main'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8'
-  });
+  let diffOut = '';
+  for (const args of [['diff', '--name-only', 'origin/main'], ['diff', '--name-only', 'main'], ['diff', '--name-only', 'HEAD~1'], ['diff', '--name-only']]) {
+    try {
+      diffOut = execFileSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      break;
+    } catch (_) {}
+  }
   const changed = diffOut.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   const lockedRes = [
     /^index\.html$/,

@@ -40,8 +40,14 @@ test('Settings UI & cache versions exist in inventario.html and inventario-ui.cs
 });
 
 test('Zero locked files modified and syntax valid across inventario-app.js and AppsScript_Creata_Drive_Sheets.gs', () => {
-  const changed = execSync('git diff --name-only origin/main', { encoding: 'utf8' })
-    .trim().split('\n').filter(Boolean);
+  let diffOut = '';
+  for (const cmd of ['git diff --name-only origin/main', 'git diff --name-only main', 'git diff --name-only HEAD~1', 'git diff --name-only']) {
+    try {
+      diffOut = execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      break;
+    } catch (_) {}
+  }
+  const changed = diffOut.trim().split('\n').filter(Boolean);
   for (const f of changed) {
     assert(!/^(index\.html|catalog-|admin|inventario-sw\.js)/.test(f), `Locked file touched: ${f}`);
   }

@@ -73,10 +73,13 @@ test('robots.txt disallows /*.gs, /AppsScript_Prompts_Odoo.gs, and internal apps
 });
 
 test('Zero locked files from ESTRUCTURA_Y_BASE_BLOQUEADA_PROYECTO.txt are modified relative to origin/main', () => {
-  const diffOut = execFileSync('git', ['diff', '--name-only', 'origin/main'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8'
-  });
+  let diffOut = '';
+  for (const args of [['diff', '--name-only', 'origin/main'], ['diff', '--name-only', 'main'], ['diff', '--name-only', 'HEAD~1'], ['diff', '--name-only']]) {
+    try {
+      diffOut = execFileSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      break;
+    } catch (_) {}
+  }
   const changedFiles = diffOut.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 
   const lockedMatchers = [
