@@ -26,7 +26,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./creata-modules.css?v=12">
-    <link rel="stylesheet" href="./inventario-ui.css?v=31">
+    <link rel="stylesheet" href="./inventario-ui.css?v=32">
 </head>
 <body>
 
@@ -874,7 +874,7 @@
     </div>
 
     <!-- MODAL DE ESCÁNER CON LA CÁMARA DEL TELÉFONO -->
-    <div id="scanModal" class="modal-backdrop" style="z-index:90;" onclick="if(event.target===this) closeBarcodeScanner()">
+    <div id="scanModal" class="modal-backdrop" style="z-index:94;" onclick="if(event.target===this) closeBarcodeScanner()">
         <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-3 flex items-center justify-between" style="background:#252C32; color:#FFFFFF;">
                 <h2 class="text-[12px] font-extrabold uppercase tracking-wider">Escanear código / SKU</h2>
@@ -1430,19 +1430,22 @@
             <div class="inv-calc-body">
                 <!-- BUSCADOR DE PRODUCTOS / SALAS / SKU -->
                 <div class="inv-calc-search-section">
-                    <label for="calcSearchInput" class="inv-field-label">Agregar producto, sala o SKU</label>
-                    <div class="inv-calc-search-wrap">
-                        <input
-                            type="search"
-                            enterkeyhint="search"
-                            id="calcSearchInput"
-                            class="inv-input"
-                            placeholder="Ej. SALA ARIA, API1P, silla, mesa..."
-                            autocomplete="off"
-                            oninput="searchPriceCalculatorProducts(this.value)"
-                            onkeydown="onCalcSearchKeydown(event)"
-                        >
-                        <button type="button" id="calcSearchClearBtn" class="inv-calc-search-clear hidden" onclick="clearCalcSearchInput()" title="Limpiar búsqueda" aria-label="Limpiar búsqueda">✕</button>
+                    <label for="calcSearchInput" class="inv-field-label">Agregar producto, sala o SKU (o escanea directo)</label>
+                    <div class="inv-calc-search-row">
+                        <div class="inv-calc-search-wrap">
+                            <input
+                                type="search"
+                                enterkeyhint="search"
+                                id="calcSearchInput"
+                                class="inv-input"
+                                placeholder="Ej. SALA ARIA, API1P, silla, mesa..."
+                                autocomplete="off"
+                                oninput="searchPriceCalculatorProducts(this.value)"
+                                onkeydown="onCalcSearchKeydown(event)"
+                            >
+                            <button type="button" id="calcSearchClearBtn" class="inv-calc-search-clear hidden" onclick="clearCalcSearchInput()" title="Limpiar búsqueda" aria-label="Limpiar búsqueda">✕</button>
+                        </div>
+                        <button type="button" id="calcCameraScanBtn" class="inv-calc-scan-btn" onclick="openBarcodeScanner()" title="Escanear código con cámara" aria-label="Escanear código">📷</button>
                     </div>
                     <div id="calcSearchResults" class="inv-calc-search-results hidden" aria-live="polite"></div>
                 </div>
@@ -1466,7 +1469,6 @@
                             >
                             <span class="inv-calc-pct-sign">%</span>
                         </div>
-                        <span id="calcRoleRef" class="inv-calc-role-ref"></span>
                     </div>
                     <div class="inv-calc-presets" role="group" aria-label="Descuentos rápidos">
                         <button type="button" class="inv-calc-preset-btn" data-calc-pct="0" onclick="applyPriceCalcGlobalDiscount(0)">0%</button>
@@ -1477,7 +1479,6 @@
                         <button type="button" class="inv-calc-preset-btn" data-calc-pct="25" onclick="applyPriceCalcGlobalDiscount(25)">25%</button>
                         <button type="button" class="inv-calc-preset-btn" data-calc-pct="30" onclick="applyPriceCalcGlobalDiscount(30)">30%</button>
                     </div>
-                    <div id="calcCapWarn" class="inv-calc-cap-warn hidden"></div>
                 </div>
 
                 <!-- LISTA DE PIEZAS AGREGADAS -->
@@ -1524,6 +1525,6 @@
     <script src="./creata-back-nav.js?v=2"></script>
     <script src="./seguimiento-app.js?v=17"></script>
     <script src="./historial-app.js?v=14"></script>
-    <script src="inventario-app.js?v=116"></script>
+    <script src="inventario-app.js?v=117"></script>
 </body>
 </html>

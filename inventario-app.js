@@ -6290,6 +6290,9 @@
         if (isModalOpenById('scanModal')) {
             closeBarcodeScanner();
         }
+        if (isModalOpenById('priceCalculatorModal') && typeof handleScannedBarcodeForPriceCalculator === 'function') {
+            return handleScannedBarcodeForPriceCalculator(res, cleaned);
+        }
         if (isModalOpenById('cartModal') && (res.status === 'quotable' || res.status === 'search_group' || res.status === 'search_multi')) {
             closeCartModal();
         }
@@ -20972,7 +20975,6 @@
         const effectiveDiscountPct = sumList > 0 ? (totalDiscount / sumList) * 100 : 0;
         const subtotalNoIva = roundCalcMoney(totalFinal / 1.16);
         const ivaAmount = Math.max(0, roundCalcMoney(totalFinal - subtotalNoIva));
-        const role = getAdvisorRoleInfo();
 
         return {
             lines: lines,
@@ -20984,9 +20986,7 @@
             subtotalNoIva: subtotalNoIva,
             ivaAmount: ivaAmount,
             totalFinal: totalFinal,
-            globalDiscountPct: priceCalcGlobalDiscountPct,
-            roleMaxPct: role.maxPct,
-            rolePuesto: role.puesto
+            globalDiscountPct: priceCalcGlobalDiscountPct
         };
     }
 
@@ -21056,8 +21056,6 @@
         const subNoIvaEl = document.getElementById('calcSubtotalNoIva');
         const ivaEl = document.getElementById('calcIvaAmount');
         const totalEl = document.getElementById('calcTotalFinal');
-        const roleRefEl = document.getElementById('calcRoleRef');
-        const capWarnEl = document.getElementById('calcCapWarn');
         const globalInp = document.getElementById('calcGlobalDiscountInput');
 
         syncPriceCalcFabBadge(data.totalPieces);
@@ -21078,9 +21076,6 @@
             totalEl.textContent = formatCalcCurrency(data.totalFinal);
             totalEl.classList.toggle('has-disc', data.totalDiscount > 0.004);
         }
-        if (roleRefEl) {
-            roleRefEl.textContent = 'Tope ' + data.rolePuesto + ': ' + data.roleMaxPct + '%';
-        }
         if (globalInp && document.activeElement !== globalInp) {
             globalInp.value = String(priceCalcGlobalDiscountPct);
         }
@@ -21092,18 +21087,6 @@
                 btn.classList.toggle('is-active', Math.abs(p - priceCalcGlobalDiscountPct) < 0.001);
             });
         }
-
-        if (capWarnEl) {
-            const exceedsLine = data.lines.some(function (ln) { return ln.discountPct > data.roleMaxPct + 0.001; });
-            const exceedsGlobal = priceCalcGlobalDiscountPct > data.roleMaxPct + 0.001;
-            if ((exceedsLine || exceedsGlobal) && data.roleMaxPct > 0) {
-                capWarnEl.textContent = 'Referencia informativa: el descuento simulado supera el ' + data.roleMaxPct + '% autorizado para tu puesto (' + data.rolePuesto + ').';
-                capWarnEl.classList.remove('hidden');
-            } else {
-                capWarnEl.textContent = '';
-                capWarnEl.classList.add('hidden');
-            }
-        }
     }
 
     function renderPriceCalculator() {
@@ -21114,7 +21097,7 @@
 
         if (!container) return;
         if (!bd.lines.length) {
-            container.innerHTML = '<div class="inv-calc-empty">Busca arriba una sala, producto o SKU y presiona <strong>+ Agregar</strong> para sumar varias piezas y simular el descuento.<br>Este cálculo es solo informativo y no afecta tu cotización.</div>';
+            container.innerHTML = '<div class="inv-calc-empty">Busca arriba una sala, producto o SKU, o <strong>escanea cualquier código</strong> para agregarlo en automático.<br>Este cálculo es solo informativo y no afecta tu cotización.</div>';
             return;
         }
 
@@ -21203,6 +21186,88 @@
                 window.setPriceCalcItemDiscount(sku, el.value, false);
             }
         });
+
+        modal.addEventListener('keydown', function (ev) {
+            const el = ev.target;
+            if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+            if (ev.key === 'Enter' || ev.keyCode === 13) {
+                try { if (typeof el.blur === 'function') el.blur(); } catch (e) {}
+            }
+        });
+    }
+
+    function handleScannedBarcodeForPriceCalculator(res, cleanedRaw) {
+        const cleaned = normalizeScannedBarcodeText(cleanedRaw || (res && res.rawCode) || '');
+        const clearCalcInpIfMatches = function () {
+            const inp = document.getElementById('calcSearchInput');
+            if (inp && inp.value) {
+                priceCalcLastQuery = '';
+                inp.value = '';
+                renderPriceCalcSearchResults();
+            }
+        };
+
+        // 1. Producto exacto resuelto (con stock, LPPT o catálogo con precio)
+        let targetItem = (res && res.item) ? res.item : null;
+        if (!targetItem && cleaned) {
+            targetItem = resolveCalcCatalogItem(cleaned);
+        }
+        if (targetItem) {
+            if (getCalcItemUnitPrice(targetItem) > 0 && window.addPriceCalcItem(targetItem.s, 1)) {
+                clearCalcInpIfMatches();
+                if (res) {
+                    res.addedToCalculator = true;
+                    res.addedSku = String(targetItem.s || '').toUpperCase();
+                }
+                showToast('✓ Agregado a calculadora: ' + targetItem.s);
+                return res;
+            }
+            showToast('⚠ Sin precio registrado para: ' + (targetItem.s || cleaned));
+            return res;
+        }
+
+        // 2. Grupo resuelto (si tiene 1 pieza con precio se agrega directo; si tiene varias se muestran para elegir)
+        if (res && res.status === 'search_group' && res.group && Array.isArray(res.group.items)) {
+            const pricedItems = res.group.items.filter(function (it) { return getCalcItemUnitPrice(it) > 0; });
+            if (pricedItems.length === 1 && window.addPriceCalcItem(pricedItems[0].s, 1)) {
+                clearCalcInpIfMatches();
+                res.addedToCalculator = true;
+                res.addedSku = String(pricedItems[0].s || '').toUpperCase();
+                showToast('✓ Agregado a calculadora: ' + pricedItems[0].s);
+                return res;
+            }
+            if (pricedItems.length > 1) {
+                const inp = document.getElementById('calcSearchInput');
+                if (inp) inp.value = cleaned;
+                priceCalcLastQuery = cleaned;
+                renderPriceCalcSearchResults();
+                showToast('Escaneado: ' + cleaned + ' · elige el módulo en la lista');
+                return res;
+            }
+        }
+
+        // 3. Coincidencia única en catálogo con precio
+        const calcMatches = cleaned ? findPriceCalcMatches(cleaned) : [];
+        if (calcMatches.length === 1 && window.addPriceCalcItem(calcMatches[0].sku, 1)) {
+            clearCalcInpIfMatches();
+            if (res) {
+                res.addedToCalculator = true;
+                res.addedSku = calcMatches[0].sku;
+            }
+            showToast('✓ Agregado a calculadora: ' + calcMatches[0].sku);
+            return res;
+        }
+        if (calcMatches.length > 1) {
+            const inp = document.getElementById('calcSearchInput');
+            if (inp) inp.value = cleaned;
+            priceCalcLastQuery = cleaned;
+            renderPriceCalcSearchResults();
+            showToast('Escaneado: ' + cleaned + ' · ' + calcMatches.length + ' coincidencias');
+            return res;
+        }
+
+        showToast('⚠ Código no encontrado en catálogo: ' + cleaned);
+        return res;
     }
 
     window.addPriceCalcItem = function (skuRaw, qtyToAdd) {
@@ -21313,12 +21378,72 @@
         return pct;
     };
 
+    let calcBurstFirstTs = 0;
+    let calcBurstLastTs = 0;
+    let calcBurstEvents = 0;
+    let calcBurstTimer = null;
+
+    function resetCalcScanBurst() {
+        calcBurstFirstTs = 0;
+        calcBurstLastTs = 0;
+        calcBurstEvents = 0;
+        if (calcBurstTimer) {
+            clearTimeout(calcBurstTimer);
+            calcBurstTimer = null;
+        }
+    }
+
     window.searchPriceCalculatorProducts = function (rawQuery) {
-        priceCalcLastQuery = String(rawQuery || '');
+        const val = String(rawQuery || '');
+        if (calcBurstTimer) {
+            clearTimeout(calcBurstTimer);
+            calcBurstTimer = null;
+        }
+        if (/[\r\n]/.test(val)) {
+            const cleanedScan = normalizeScannedBarcodeText(val);
+            resetCalcScanBurst();
+            if (cleanedScan && isModalOpenById('priceCalculatorModal')) {
+                processScannedBarcode(cleanedScan, { source: 'Calculadora / Escáner' });
+                return;
+            }
+        }
+        const nowTs = Date.now();
+        if (!val.trim()) {
+            resetCalcScanBurst();
+        } else {
+            if (!calcBurstFirstTs || (nowTs - calcBurstLastTs) > 420) {
+                calcBurstFirstTs = nowTs;
+                calcBurstEvents = 1;
+            } else {
+                calcBurstEvents++;
+            }
+            calcBurstLastTs = nowTs;
+            const cleanedCand = normalizeScannedBarcodeText(val);
+            const elapsed = Math.max(1, nowTs - calcBurstFirstTs);
+            const avgPerChar = elapsed / Math.max(1, cleanedCand.length - 1);
+            // Detección automática para lectores P2300L/USB sin sufijo Enter cuando el cursor está en el buscador
+            if (cleanedCand.length >= 4 && calcBurstEvents >= 2 && avgPerChar <= 95 && elapsed <= 1600) {
+                calcBurstTimer = setTimeout(function () {
+                    calcBurstTimer = null;
+                    if (!isModalOpenById('priceCalculatorModal')) return;
+                    const inp = document.getElementById('calcSearchInput');
+                    const latest = normalizeScannedBarcodeText(inp ? inp.value : priceCalcLastQuery);
+                    if (latest.length >= 4) {
+                        const hit = resolveScannedBarcode(latest);
+                        if (hit && hit.item && getCalcItemUnitPrice(hit.item) > 0) {
+                            resetCalcScanBurst();
+                            processScannedBarcode(latest, { source: 'Calculadora / Escáner' });
+                        }
+                    }
+                }, 260);
+            }
+        }
+        priceCalcLastQuery = val;
         renderPriceCalcSearchResults();
     };
 
     window.clearCalcSearchInput = function () {
+        resetCalcScanBurst();
         priceCalcLastQuery = '';
         const inp = document.getElementById('calcSearchInput');
         if (inp) {
@@ -21330,21 +21455,21 @@
 
     window.onCalcSearchKeydown = function (ev) {
         if (!ev) return;
-        const isEnter = ev.key === 'Enter' || ev.key === 'Go' || ev.key === 'Search' || ev.keyCode === 13;
-        if (!isEnter) return;
+        const isCommit = ev.key === 'Enter' || ev.key === 'Tab' || ev.key === 'Go' || ev.key === 'Search' || ev.key === 'Accept' || ev.keyCode === 13 || ev.keyCode === 9;
+        if (!isCommit) return;
         const inp = document.getElementById('calcSearchInput');
         const raw = normalizeScannedBarcodeText(inp ? inp.value : priceCalcLastQuery);
         if (!raw) return;
-        ev.preventDefault();
-        // Soporte directo para escanear SKU con P2300L/USB dentro del buscador de la calculadora
         const scanRes = resolveScannedBarcode(raw);
         if (scanRes && scanRes.item && getCalcItemUnitPrice(scanRes.item) > 0) {
-            if (window.addPriceCalcItem(scanRes.item.s, 1)) {
-                showToast('✓ Agregado a calculadora: ' + scanRes.item.s);
-                window.clearCalcSearchInput();
-            }
+            ev.preventDefault();
+            resetCalcScanBurst();
+            processScannedBarcode(raw, { source: 'Calculadora / Escáner', force: true });
             return;
         }
+        if (ev.key === 'Tab' || ev.keyCode === 9) return;
+        ev.preventDefault();
+        resetCalcScanBurst();
         const matches = findPriceCalcMatches(raw);
         if (matches.length === 1) {
             if (window.addPriceCalcItem(matches[0].sku, 1)) {
@@ -21355,6 +21480,7 @@
     };
 
     window.clearPriceCalculator = function (silent) {
+        resetCalcScanBurst();
         priceCalcItems = [];
         priceCalcGlobalDiscountPct = 0;
         priceCalcLastQuery = '';
@@ -21377,13 +21503,14 @@
         bindPriceCalculatorListeners();
         const modal = document.getElementById('priceCalculatorModal');
         if (!modal) return;
+        try {
+            if (document.activeElement && document.activeElement !== document.body && typeof document.activeElement.blur === 'function') {
+                document.activeElement.blur();
+            }
+        } catch (eBlur) {}
         modal.classList.add('open');
         notifyInvBackStatePush('price_calculator_modal');
         renderPriceCalculator();
-        const inp = document.getElementById('calcSearchInput');
-        if (inp && typeof window !== 'undefined' && window.innerWidth >= 768) {
-            setTimeout(function () { try { inp.focus(); } catch (e) {} }, 60);
-        }
     };
 
     window.closePriceCalculatorModal = function () {
