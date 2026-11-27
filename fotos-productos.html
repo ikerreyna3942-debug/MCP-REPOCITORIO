@@ -227,7 +227,11 @@
                                         <div class="photo-stage-head">
                                             <span class="photo-stage-title">Actual</span>
                                             <div class="stage-head-actions">
-                                                <button type="button" id="curPhotoDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteCurrentProductPhoto()" title="Borrar foto">🗑</button>
+                                                <button type="button" id="curPhotoReturnBtn" class="hdr-btn is-neutral stage-action-btn hidden" onclick="returnCurrentProductPhotoToInbox()" title="Regresar al archivo origen (SUBIR PREN) conservando su nombre">↩ Origen</button>
+                                                <button type="button" id="curPhotoUnlinkBtn" class="hdr-btn is-neutral stage-action-btn hidden" onclick="unlinkCurrentProductPhoto()" title="Quitar del producto sin borrar de Drive">🔗✕ Quitar</button>
+                                                <button type="button" id="curPhotoArchiveBtn" class="hdr-btn is-neutral stage-action-btn hidden" onclick="archiveCurrentProductPhoto()" title="Mover a FOTOS ARCHIVADAS y quitar del producto">📦 Archivar</button>
+                                                <button type="button" id="curPhotoCopyBtn" class="hdr-btn is-neutral stage-action-btn hidden" onclick="copyCurrentProductPhoto()" title="Crear una copia en SUBIR PREN sin quitar del producto">📋 Copiar</button>
+                                                <button type="button" id="curPhotoDeleteBtn" class="hdr-btn is-danger stage-action-btn hidden" onclick="deleteCurrentProductPhoto()" title="Eliminar foto de Drive y del producto">🗑</button>
                                             </div>
                                         </div>
                                         <div id="curPhotoCanvas" class="photo-stage-canvas">
@@ -374,7 +378,7 @@
                         </div>
                     </div>
 
-                    <!-- GALERÍA: SUBIR PREN / CARGADAS -->
+                    <!-- GALERÍA: SUBIR PREN / CARGADAS / ARCHIVADAS -->
                     <div id="secGalleryInbox" class="panel-card">
                         <div class="panel-header">
                             <div class="gallery-mode-tabs">
@@ -385,6 +389,10 @@
                                 <button type="button" id="tabGalleryLoaded" class="gallery-tab-btn" onclick="setGalleryMode('LOADED')">
                                     <span>Cargadas</span>
                                     <span id="loadedHeaderBadge" class="panel-badge">0</span>
+                                </button>
+                                <button type="button" id="tabGalleryArchived" class="gallery-tab-btn" onclick="setGalleryMode('ARCHIVED')">
+                                    <span>Archivadas</span>
+                                    <span id="archivedHeaderBadge" class="panel-badge">0</span>
                                 </button>
                             </div>
                         </div>

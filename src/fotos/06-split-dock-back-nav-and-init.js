@@ -260,7 +260,7 @@
                 },
                 {
                     id: 'gallery_mode',
-                    isActive: () => state.galleryMode === 'LOADED',
+                    isActive: () => state.galleryMode === 'LOADED' || state.galleryMode === 'ARCHIVED',
                     undo: () => window.setGalleryMode('INBOX'),
                     escapeAllowed: false,
                     toast: 'Volviendo a SUBIR PREN'
@@ -432,7 +432,25 @@
         if (!el) return;
         const act = el.getAttribute('data-fotos-act');
         if (!act) return;
-        if (act === 'cat-filter') {
+        if (act === 'load-more-gallery') {
+            ev.stopPropagation();
+            if (typeof window.loadMoreGalleryItems === 'function') window.loadMoreGalleryItems();
+        } else if (act === 'photo-op') {
+            ev.stopPropagation();
+            if (typeof window.runFotosLifecycleAction === 'function') {
+                window.runFotosLifecycleAction({
+                    op: el.getAttribute('data-op') || '',
+                    sku: el.getAttribute('data-sku') || '',
+                    fileId: el.getAttribute('data-fid') || '',
+                    source: el.getAttribute('data-source') || '',
+                    shortcutId: el.getAttribute('data-shortcut') || ''
+                }, ev);
+            }
+        } else if (act === 'take-archived') {
+            if (typeof window.selectArchivedPhotoForAssign === 'function') {
+                window.selectArchivedPhotoForAssign(el.getAttribute('data-fid') || '', ev);
+            }
+        } else if (act === 'cat-filter') {
             if (typeof window.setSkuCategoryFilter === 'function') window.setSkuCategoryFilter(el.getAttribute('data-cat-key') || 'ALL');
         } else if (act === 'loc-filter') {
             if (typeof window.setSkuLocationFilter === 'function') window.setSkuLocationFilter(el.getAttribute('data-loc-key') || 'ALL');

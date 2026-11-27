@@ -1537,6 +1537,7 @@ function doPost(e) {
       action === 'fotos_direct_upload_assign' ||
       action === 'fotos_upload_visual_override' ||
       action === 'fotos_reorganize_from_sheets' ||
+      action === 'fotos_photo_action' ||
       action === 'fotos_delete' ||
       action === 'fotos_subir_delete' ||
       action === 'fotos_sync_skus'
@@ -1579,6 +1580,7 @@ function doPost(e) {
       else if (action === 'fotos_upload_visual_override') fotosRes = handleFotosUploadVisualOverride_(body);
       else if (action === 'fotos_reorganize_from_sheets') fotosRes = handleFotosReorganizeFromSheets_(body);
       else if (action === 'fotos_sync_skus') fotosRes = handleFotosSyncSkus_(body);
+      else if (action === 'fotos_photo_action') fotosRes = handleFotosPhotoAction_(body);
       else fotosRes = handleFotosDelete_(body);
 
       if (shouldMintFreshToken && fotosRes && fotosRes.ok) {
@@ -10638,9 +10640,87 @@ const FORBIDDEN_PROJECT_B_FOLDER_IDS_ = {
   '1Jq2u1A6-xKi1YigUYSIzLauUww_RJ5Lx': 'MADERAS'
 };
 
+const FOTOS_ARCHIVADAS_FOLDER_NAME_ = 'FOTOS ARCHIVADAS';
+const FOTOS_ARCHIVADAS_PROP_KEY_ = 'PROJECT_A_ARCHIVED_FOLDER_ID_V1';
+const PROJECT_A_DRIVE_INV_CACHE_KEY_ = 'PROJECT_A_DRIVE_INV_CACHE_V1';
+
 function isForbiddenProjectBFolderId_(folderId) {
   const fid = String(folderId || '').trim();
   return !!(fid && Object.prototype.hasOwnProperty.call(FORBIDDEN_PROJECT_B_FOLDER_IDS_, fid));
+}
+
+function getProjectAArchivedFolderIdFast_() {
+  try {
+    const cached = CacheService.getScriptCache().get(FOTOS_ARCHIVADAS_PROP_KEY_);
+    if (cached && !isForbiddenProjectBFolderId_(cached)) return String(cached).trim();
+  } catch (eC) {}
+  try {
+    const prop = PropertiesService.getScriptProperties().getProperty(FOTOS_ARCHIVADAS_PROP_KEY_);
+    if (prop && !isForbiddenProjectBFolderId_(prop)) {
+      const cleanProp = String(prop).trim();
+      try { CacheService.getScriptCache().put(FOTOS_ARCHIVADAS_PROP_KEY_, cleanProp, 600); } catch (eC2) {}
+      return cleanProp;
+    }
+  } catch (eP) {}
+  return '';
+}
+
+function resolveOrCreateProjectAArchivedFolder_(createIfMissing) {
+  const persistArchId = function (fid) {
+    const clean = String(fid || '').trim();
+    if (!clean) return;
+    try { PropertiesService.getScriptProperties().setProperty(FOTOS_ARCHIVADAS_PROP_KEY_, clean); } catch (eP) {}
+    try { CacheService.getScriptCache().put(FOTOS_ARCHIVADAS_PROP_KEY_, clean, 600); } catch (eC) {}
+  };
+
+  const knownId = getProjectAArchivedFolderIdFast_();
+  if (knownId) {
+    try {
+      const fKnown = DriveApp.getFolderById(knownId);
+      if (fKnown && (!fKnown.isTrashed || !fKnown.isTrashed()) && !isForbiddenProjectBFolderId_(knownId)) {
+        let hasCatRootParent = false;
+        const pIt = fKnown.getParents();
+        while (pIt && pIt.hasNext()) {
+          const pf = pIt.next();
+          if (pf && String(pf.getId() || '').trim() === CATEGORIAS_DEST_ROOT_FOLDER_ID_) {
+            hasCatRootParent = true;
+            break;
+          }
+        }
+        if (hasCatRootParent) {
+          return { id: knownId, name: FOTOS_ARCHIVADAS_FOLDER_NAME_, folder: fKnown };
+        }
+      }
+    } catch (eKnown) {}
+  }
+
+  try {
+    const rootFld = DriveApp.getFolderById(CATEGORIAS_DEST_ROOT_FOLDER_ID_);
+    if (!rootFld || (rootFld.isTrashed && rootFld.isTrashed())) return null;
+    const subIt = rootFld.getFolders();
+    while (subIt && subIt.hasNext()) {
+      const sub = subIt.next();
+      if (!sub || (sub.isTrashed && sub.isTrashed())) continue;
+      const subId = String(sub.getId() || '').trim();
+      if (!subId || isForbiddenProjectBFolderId_(subId)) continue;
+      const subNameUpper = String(sub.getName() || '').trim().toUpperCase();
+      if (subNameUpper === FOTOS_ARCHIVADAS_FOLDER_NAME_) {
+        ensurePublicSharingItem_(sub);
+        persistArchId(subId);
+        return { id: subId, name: FOTOS_ARCHIVADAS_FOLDER_NAME_, folder: sub };
+      }
+    }
+    if (createIfMissing !== false && typeof rootFld.createFolder === 'function') {
+      const created = rootFld.createFolder(FOTOS_ARCHIVADAS_FOLDER_NAME_);
+      if (created) {
+        ensurePublicSharingItem_(created);
+        const createdId = String(created.getId() || '').trim();
+        persistArchId(createdId);
+        return { id: createdId, name: FOTOS_ARCHIVADAS_FOLDER_NAME_, folder: created };
+      }
+    }
+  } catch (eArch) {}
+  return null;
 }
 
 function isDestCategoryFolderId_(folderId) {
@@ -10650,6 +10730,8 @@ function isDestCategoryFolderId_(folderId) {
   for (let i = 0; i < CATEGORIAS_DEST_FOLDERS_.length; i++) {
     if (CATEGORIAS_DEST_FOLDERS_[i].id === fid) return true;
   }
+  const archId = getProjectAArchivedFolderIdFast_();
+  if (archId && fid === archId) return true;
   return false;
 }
 
@@ -11495,7 +11577,155 @@ function collectLoadedFileNamesMap_(forceRefresh) {
 }
 
 function invalidateLoadedFileNamesCache_() {
-  try { CacheService.getScriptCache().remove(PROJECT_A_LOADED_NAMES_CACHE_KEY_); } catch (e) {}
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove(PROJECT_A_LOADED_NAMES_CACHE_KEY_);
+    cache.remove(PROJECT_A_DRIVE_INV_CACHE_KEY_);
+  } catch (e) {}
+}
+
+function buildDriveFileItemDto_(f, folderMeta) {
+  if (!f) return null;
+  try {
+    const fid = String(f.getId() || '').trim();
+    const name = String(f.getName() || '').trim();
+    const mime = String((f.getMimeType && f.getMimeType()) || '').toLowerCase();
+    const classified = classifySubirInboxFileType_(mime, name);
+    if (!fid || !classified.ok) return null;
+    const isImg = classified.kind === 'image';
+    const updated = f.getLastUpdated ? f.getLastUpdated() : null;
+    return {
+      id: fid,
+      name: name,
+      kind: classified.kind,
+      ext: classified.ext,
+      mimeType: classified.mime,
+      sizeBytes: Number((f.getSize && f.getSize()) || 0) || 0,
+      updatedAt: updated ? updated.toISOString() : '',
+      folderId: folderMeta && folderMeta.id ? String(folderMeta.id) : '',
+      folderName: folderMeta && folderMeta.name ? String(folderMeta.name) : '',
+      viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
+      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + fid,
+      thumbUrl: isImg ? ('https://lh3.googleusercontent.com/d/' + fid + '=w800') : ''
+    };
+  } catch (eDto) {
+    return null;
+  }
+}
+
+function collectProjectADriveInventory_(forceRefresh) {
+  try {
+    if (!forceRefresh) {
+      const cachedRaw = CacheService.getScriptCache().get(PROJECT_A_DRIVE_INV_CACHE_KEY_);
+      if (cachedRaw) {
+        const parsed = JSON.parse(cachedRaw);
+        if (parsed && Array.isArray(parsed.loadedDriveFiles) && Array.isArray(parsed.archivedFiles)) {
+          return parsed;
+        }
+      }
+    }
+  } catch (eCacheInv) {}
+
+  const startMs = Date.now();
+  const MAX_INV_MS = 18000;
+  const loadedDriveFiles = [];
+  const archivedFiles = [];
+  const loadedFileNames = {};
+  const seenLoaded = {};
+  const seenArch = {};
+  let complete = true;
+
+  const folderSpecs = CATEGORIAS_DEST_FOLDERS_.map((c) => ({ id: c.id, name: c.name }));
+  folderSpecs.push({ id: CATEGORIAS_DEST_ROOT_FOLDER_ID_, name: 'CATEGORIAS MUEBLES Y ACCESORIOS' });
+  folderSpecs.push({ id: FOTOS_NUEVAS_CARGADO_FOLDER_ID_, name: 'FOTOS NUEVAS CARGADO' });
+
+  for (let i = 0; i < folderSpecs.length; i++) {
+    if ((Date.now() - startMs) > MAX_INV_MS) { complete = false; break; }
+    const spec = folderSpecs[i];
+    if (!spec || !spec.id || isForbiddenProjectBFolderId_(spec.id)) continue;
+    try {
+      const fld = DriveApp.getFolderById(spec.id);
+      if (!fld || (fld.isTrashed && fld.isTrashed())) continue;
+      const it = fld.getFiles();
+      while (it && it.hasNext()) {
+        if ((Date.now() - startMs) > MAX_INV_MS) { complete = false; break; }
+        const f = it.next();
+        if (!f || (f.isTrashed && f.isTrashed())) continue;
+        const dto = buildDriveFileItemDto_(f, spec);
+        if (!dto || seenLoaded[dto.id]) continue;
+        seenLoaded[dto.id] = true;
+        loadedFileNames[dto.id] = dto.name;
+        loadedDriveFiles.push(dto);
+      }
+    } catch (eScanCat) {}
+  }
+
+  let archivedFolderId = '';
+  const archMeta = resolveOrCreateProjectAArchivedFolder_(false);
+  if (archMeta && archMeta.folder && complete) {
+    archivedFolderId = archMeta.id;
+    try {
+      const archIt = archMeta.folder.getFiles();
+      while (archIt && archIt.hasNext()) {
+        if ((Date.now() - startMs) > MAX_INV_MS) { complete = false; break; }
+        const af = archIt.next();
+        if (!af || (af.isTrashed && af.isTrashed())) continue;
+        const dto = buildDriveFileItemDto_(af, { id: archMeta.id, name: archMeta.name });
+        if (!dto || seenArch[dto.id]) continue;
+        seenArch[dto.id] = true;
+        loadedFileNames[dto.id] = dto.name;
+        archivedFiles.push(dto);
+      }
+    } catch (eScanArch) {}
+  }
+
+  loadedDriveFiles.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+  archivedFiles.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+
+  const result = {
+    loadedDriveFiles: loadedDriveFiles,
+    archivedFiles: archivedFiles,
+    archivedFolderId: archivedFolderId,
+    loadedFileNames: loadedFileNames,
+    complete: complete
+  };
+
+  try {
+    const cache = CacheService.getScriptCache();
+    const namesJson = JSON.stringify(loadedFileNames);
+    const namesLen = (typeof utf8ByteLength_ === 'function') ? utf8ByteLength_(namesJson) : namesJson.length;
+    if (namesLen < 95000) cache.put(PROJECT_A_LOADED_NAMES_CACHE_KEY_, namesJson, 120);
+    const invJson = JSON.stringify(result);
+    const invLen = (typeof utf8ByteLength_ === 'function') ? utf8ByteLength_(invJson) : invJson.length;
+    if (invLen < 95000) cache.put(PROJECT_A_DRIVE_INV_CACHE_KEY_, invJson, 20);
+  } catch (ePutInv) {}
+
+  return result;
+}
+
+function pruneTrashedFotosRecentUploads_(recentList) {
+  const arr = Array.isArray(recentList) ? recentList : [];
+  if (!arr.length) return arr;
+  const kept = [];
+  let changed = false;
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const fid = item && String(item.id || item.fileId || '').trim();
+    if (!fid) continue;
+    let alive = true;
+    try {
+      const f = DriveApp.getFileById(fid);
+      if (!f || (f.isTrashed && f.isTrashed())) alive = false;
+    } catch (eMiss) {
+      alive = false;
+    }
+    if (alive) {
+      kept.push(item);
+    } else {
+      changed = true;
+    }
+  }
+  return changed ? writeFotosRecentUploads_(kept) : arr;
 }
 
 function resolveSubirInboxFolders_(ancestorMemo) {
@@ -11762,16 +11992,17 @@ function handleFotosSubirList_(body) {
   }
 
   const currentRev = getFotosInboxRev_();
-  const recentUploads = readFotosRecentUploads_();
+  let recentUploads = readFotosRecentUploads_();
   const sinceRev = String((body && body.sinceRev) || '').trim();
   const forceRefresh = !!(body && body.forceRefresh);
   const includeThumbs = !!(body && body.includeThumbs);
   const includeLoadedNames = !!(body && body.includeLoadedNames);
+  const includeDriveInventory = !!(body && body.includeDriveInventory);
   const metaCacheKey = 'FOTOS_INBOX_META_V1_' + currentRev;
   const snapCacheKey = 'FOTOS_INBOX_SNAP_' + (includeThumbs ? 'T' : 'F') + '_V1_' + currentRev;
 
   // Fast path cero DriveApp: si sinceRev coincide con la revisión actual y la caché de 15s está fresca
-  if (sinceRev && sinceRev === currentRev && !forceRefresh && !hadPendingDeletes && !(body && body.syncSkus) && !includeLoadedNames) {
+  if (sinceRev && sinceRev === currentRev && !forceRefresh && !hadPendingDeletes && !(body && body.syncSkus) && !includeLoadedNames && !includeDriveInventory) {
     try {
       const metaRaw = CacheService.getScriptCache().get(metaCacheKey);
       if (metaRaw) {
@@ -11799,7 +12030,7 @@ function handleFotosSubirList_(body) {
   }
 
   // Snapshot cache hit (15s keyed by rev) para múltiples dispositivos simultáneos sin repetir DriveApp
-  if (!forceRefresh && !hadPendingDeletes) {
+  if (!forceRefresh && !hadPendingDeletes && !includeDriveInventory) {
     try {
       const snapRaw = CacheService.getScriptCache().get(snapCacheKey);
       if (snapRaw) {
@@ -11850,7 +12081,15 @@ function handleFotosSubirList_(body) {
     }
   } catch (eSnapPut) {}
 
-  const loadedFileNames = includeLoadedNames ? collectLoadedFileNamesMap_(false) : undefined;
+  let driveInv = null;
+  if (includeDriveInventory || forceRefresh) {
+    driveInv = collectProjectADriveInventory_(forceRefresh);
+    recentUploads = pruneTrashedFotosRecentUploads_(recentUploads);
+  }
+  const loadedFileNames = driveInv
+    ? driveInv.loadedFileNames
+    : (includeLoadedNames ? collectLoadedFileNamesMap_(false) : undefined);
+
   return {
     ok: true,
     unchanged: false,
@@ -11863,10 +12102,14 @@ function handleFotosSubirList_(body) {
     destRootFolderId: CATEGORIAS_DEST_ROOT_FOLDER_ID_,
     destRootFolderUrl: 'https://drive.google.com/drive/folders/' + CATEGORIAS_DEST_ROOT_FOLDER_ID_,
     destFolders: CATEGORIAS_DEST_FOLDERS_,
+    archivedFolderId: driveInv ? (driveInv.archivedFolderId || '') : getProjectAArchivedFolderIdFast_(),
     hoja1SkusAdded: skuSync.added || 0,
     hoja1TotalSkus: skuSync.totalHoja1 || 0,
     files: files,
-    loadedFileNames: loadedFileNames
+    loadedFileNames: loadedFileNames,
+    loadedDriveFiles: driveInv ? driveInv.loadedDriveFiles : undefined,
+    archivedFiles: driveInv ? driveInv.archivedFiles : undefined,
+    driveSyncComplete: driveInv ? !!driveInv.complete : undefined
   };
 }
 
@@ -13007,6 +13250,328 @@ function handleFotosDelete_(body) {
     return {
       ok: false,
       error: (errDel && errDel.message) ? errDel.message : String(errDel)
+    };
+  }
+}
+
+function handleFotosPhotoAction_(body) {
+  try {
+    const b = body || {};
+    const ss = getSpreadsheet_();
+    const auth = verifyExclusiveKevinOwner_(ss, b);
+    if (!auth.ok) return auth;
+    const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
+    const actorName = String((auth.advisor && auth.advisor.nombre) || 'Kevin Reyna').trim();
+
+    const op = String(b.op || '').trim().toLowerCase();
+    if (op !== 'delete' && op !== 'archive' && op !== 'unlink_sku' && op !== 'return_to_inbox' && op !== 'copy') {
+      return { ok: false, error: 'Operación de foto no reconocida: ' + op };
+    }
+
+    if (op === 'delete') {
+      const delRes = handleFotosDelete_(b);
+      if (delRes && typeof delRes === 'object') delRes.op = 'delete';
+      return delRes;
+    }
+
+    const skuUpper = String(b.sku || '').trim().toUpperCase();
+    let driveFileId = String(b.driveFileId || '').trim();
+    const shortcutId = String(b.shortcutId || '').trim();
+
+    if (op === 'unlink_sku') {
+      if (!skuUpper) {
+        return { ok: false, error: 'Falta indicar el SKU del cual quitar la fotografía.' };
+      }
+      if (driveFileId) {
+        if (isForbiddenProjectBFolderId_(driveFileId)) {
+          return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: carpeta no permitida.' };
+        }
+        let checkUnlinkFile = null;
+        try { checkUnlinkFile = DriveApp.getFileById(driveFileId); } catch (eU) { checkUnlinkFile = null; }
+        if (checkUnlinkFile) {
+          const chk = validateProjectASourceFile_(checkUnlinkFile, 'fotos_photo_action:unlink_sku');
+          if (!chk.ok) return chk;
+        }
+      }
+      const unlRes = handleFotosDelete_(Object.assign({}, b, { keepDriveFile: true }));
+      if (unlRes && unlRes.ok) {
+        unlRes.op = 'unlink_sku';
+        unlRes.keptInDrive = true;
+        unlRes.driveTrashed = false;
+      }
+      return unlRes;
+    }
+
+    const sh1 = ss.getSheetByName('1');
+    const rowsToClear = [];
+    const clearedRows = [];
+    let previousUrl = '';
+    let usedByOtherSku = false;
+    let usedByVisualOverride = false;
+
+    if (sh1 && sh1.getLastRow() >= 3) {
+      const maxScanRows = Math.max(sh1.getLastRow(), 3);
+      const vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
+      if (skuUpper) {
+        for (let i = 2; i < vals1.length; i++) {
+          const rowNum = i + 1;
+          const cellSku = String(vals1[i][0] || '').trim().toUpperCase();
+          const cellUrl = String(vals1[i][3] || '').trim();
+          if (cellSku === skuUpper && cellUrl) {
+            if (!previousUrl) previousUrl = cellUrl;
+            if (!driveFileId) {
+              const mId = cellUrl.match(/\/d\/([a-zA-Z0-9_-]{15,})/) || cellUrl.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+              if (mId && mId[1]) driveFileId = mId[1];
+            }
+            rowsToClear.push(rowNum);
+          }
+        }
+      }
+      if (driveFileId) {
+        for (let j = 2; j < vals1.length; j++) {
+          const otherSku = String(vals1[j][0] || '').trim().toUpperCase();
+          const otherUrl = String(vals1[j][3] || '').trim();
+          if (otherUrl && otherUrl.indexOf(driveFileId) !== -1 && (!skuUpper || otherSku !== skuUpper)) {
+            usedByOtherSku = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!driveFileId) {
+      return { ok: false, error: 'Falta ID de archivo en Google Drive para la acción ' + op + '.' };
+    }
+    if (isForbiddenProjectBFolderId_(driveFileId)) {
+      return {
+        ok: false,
+        forbiddenFolder: true,
+        error: 'Aislamiento Proyecto A/B: no se permite operar sobre carpetas exclusivas de Prompts/Odoo.'
+      };
+    }
+
+    if (driveFileId) {
+      try {
+        const ovMap = readProductOverridesMap_(ss);
+        const ovKeys = Object.keys(ovMap);
+        for (let oi = 0; oi < ovKeys.length; oi++) {
+          const ov = ovMap[ovKeys[oi]];
+          if (!ov || ov.status === 'ELIMINADO' || ov.status === 'ARCHIVADO') continue;
+          const ovNote = String(ov.note || '');
+          if (ovNote && ovNote.indexOf(driveFileId) !== -1) {
+            usedByVisualOverride = true;
+            break;
+          }
+        }
+      } catch (eOvAct) {}
+    }
+
+    let srcFile = null;
+    try {
+      srcFile = DriveApp.getFileById(driveFileId);
+    } catch (eGetSrc) {
+      return { ok: false, error: 'El archivo ya no existe o no es accesible en Google Drive.' };
+    }
+    if (!srcFile || (srcFile.isTrashed && srcFile.isTrashed())) {
+      return { ok: false, error: 'El archivo se encuentra en la papelera de Google Drive.' };
+    }
+
+    const srcValidation = validateProjectASourceFile_(srcFile, 'fotos_photo_action:' + op);
+    if (!srcValidation.ok) return srcValidation;
+
+    if (String((srcFile.getMimeType && srcFile.getMimeType()) || '').toLowerCase() === 'application/vnd.google-apps.shortcut') {
+      const targetId = String((srcFile.getTargetId && srcFile.getTargetId()) || '').trim();
+      srcFile = DriveApp.getFileById(targetId);
+      driveFileId = String(srcFile.getId() || '').trim();
+    }
+
+    const origName = String(srcFile.getName() || 'foto.jpg').trim();
+
+    if (op === 'copy') {
+      const targetLoc = String(b.targetLocation || 'INBOX').trim().toUpperCase();
+      const reqFolderId = String(b.targetFolderId || '').trim();
+      let destFldId = SUBIR_INBOX_FOLDER_ID_;
+      let destFldName = 'SUBIR PREN';
+      if (targetLoc === 'CATEGORY' && reqFolderId && isDestCategoryFolderId_(reqFolderId) && !isForbiddenProjectBFolderId_(reqFolderId)) {
+        destFldId = reqFolderId;
+        const foundMeta = CATEGORIAS_DEST_FOLDERS_.find((f) => f.id === reqFolderId);
+        destFldName = (foundMeta && foundMeta.name) || 'CATEGORIAS MUEBLES Y ACCESORIOS';
+      }
+      const destFld = DriveApp.getFolderById(destFldId);
+      ensurePublicSharingItem_(destFld);
+      const copiedFile = srcFile.makeCopy(origName, destFld);
+      ensurePublicSharingItem_(copiedFile);
+      invalidateLoadedFileNamesCache_();
+      const nextRev = bumpFotosInboxRev_();
+      const copiedDto = buildDriveFileItemDto_(copiedFile, { id: destFldId, name: destFldName });
+
+      try {
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'MOVIMIENTO',
+          modulo: 'AppsScript · Gestor Fotos Hoja "1"',
+          evento: 'COPIA DE FOTO CREADA EN DRIVE',
+          estado: '✅ OK',
+          usuario: actorName + ' (' + actorEmail + ')',
+          sucursal: 'ADMINISTRACIÓN GENERAL',
+          referencia: skuUpper || origName,
+          detalle: 'Copia creada en "' + destFldName + '" conservando nombre "' + origName + '" (ID: ' + copiedFile.getId() + ').',
+          analisis: 'Vínculo actual en Hoja "1" intacto.'
+        });
+      } catch (eHistCopy) {}
+
+      return {
+        ok: true,
+        op: 'copy',
+        rev: nextRev,
+        sourceFileId: driveFileId,
+        fileId: String(copiedFile.getId() || ''),
+        fileName: origName,
+        destFolderId: destFldId,
+        destFolderName: destFldName,
+        file: copiedDto,
+        timestamp: formatCancunNow_()
+      };
+    }
+
+    const clearSkuLinkIfNeeded = function () {
+      if (!sh1 || !skuUpper || !rowsToClear.length) return { ok: true };
+      const lockState = acquireScriptLockSafe_(15000);
+      if (!lockState.ok) {
+        return { ok: false, retryable: true, error: 'Otro guardado está en curso, reintentando...' };
+      }
+      const lock = lockState.lock;
+      try {
+        const curLast = Math.max(sh1.getLastRow(), 3);
+        const curVals = sh1.getRange(1, 1, curLast, 4).getDisplayValues();
+        for (let i = 2; i < curVals.length; i++) {
+          const rowNum = i + 1;
+          const cellSku = String(curVals[i][0] || '').trim().toUpperCase();
+          const cellUrl = String(curVals[i][3] || '').trim();
+          if (cellSku === skuUpper && cellUrl) {
+            sh1.getRange(rowNum, 4).clearContent();
+            clearedRows.push(rowNum);
+          }
+        }
+        if (clearedRows.length > 0) SpreadsheetApp.flush();
+        return { ok: true };
+      } finally {
+        try { lock.releaseLock(); } catch (eRelAct) {}
+      }
+    };
+
+    if (op === 'archive') {
+      const archMeta = resolveOrCreateProjectAArchivedFolder_(true);
+      if (!archMeta || !archMeta.folder) {
+        return { ok: false, error: 'No se pudo crear o acceder a la carpeta FOTOS ARCHIVADAS en Google Drive.' };
+      }
+      const clrState = clearSkuLinkIfNeeded();
+      if (!clrState.ok) return clrState;
+
+      let archivedFile = null;
+      const isShared = !!(usedByOtherSku || usedByVisualOverride);
+      if (isShared) {
+        archivedFile = srcFile.makeCopy(origName, archMeta.folder);
+        ensurePublicSharingItem_(archivedFile);
+      } else {
+        srcFile.moveTo(archMeta.folder);
+        ensurePublicSharingItem_(srcFile);
+        cleanDuplicatesInSubirInbox_(srcFile, origName, shortcutId, null);
+        archivedFile = srcFile;
+      }
+
+      invalidateLoadedFileNamesCache_();
+      const nextRev = bumpFotosInboxRev_();
+      const recentUploads = isShared ? readFotosRecentUploads_() : removeFotosRecentUploadByFileId_(driveFileId);
+      const archDto = buildDriveFileItemDto_(archivedFile, { id: archMeta.id, name: archMeta.name });
+
+      try {
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'MOVIMIENTO',
+          modulo: 'AppsScript · Gestor Fotos Hoja "1"',
+          evento: 'FOTO ARCHIVADA EN FOTOS ARCHIVADAS',
+          estado: '✅ OK',
+          usuario: actorName + ' (' + actorEmail + ')',
+          sucursal: 'ADMINISTRACIÓN GENERAL',
+          referencia: skuUpper || origName,
+          detalle: 'Archivada en "' + archMeta.name + '" conservando nombre "' + origName + '"' + (skuUpper ? (' y limpiada de SKU ' + skuUpper) : '') + '.',
+          analisis: isShared ? 'Copiada a archivo porque otro SKU/Portada aún usa el archivo.' : 'Movida a FOTOS ARCHIVADAS dentro de CATEGORIAS MUEBLES Y ACCESORIOS.'
+        });
+      } catch (eHistArch) {}
+
+      return {
+        ok: true,
+        op: 'archive',
+        rev: nextRev,
+        recentUploads: recentUploads,
+        fileId: String(archivedFile.getId() || ''),
+        fileName: origName,
+        archivedFolderId: archMeta.id,
+        archivedFolderName: archMeta.name,
+        clearedSku: skuUpper,
+        clearedRows: clearedRows,
+        keptCopyForOtherSku: isShared,
+        file: archDto,
+        timestamp: formatCancunNow_()
+      };
+    }
+
+    if (op === 'return_to_inbox') {
+      const inboxFld = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
+      ensurePublicSharingItem_(inboxFld);
+      const clrState = clearSkuLinkIfNeeded();
+      if (!clrState.ok) return clrState;
+
+      let returnedFile = null;
+      const isShared = !!(usedByOtherSku || usedByVisualOverride);
+      if (isShared) {
+        returnedFile = srcFile.makeCopy(origName, inboxFld);
+        ensurePublicSharingItem_(returnedFile);
+      } else {
+        srcFile.moveTo(inboxFld);
+        ensurePublicSharingItem_(srcFile);
+        returnedFile = srcFile;
+      }
+
+      invalidateLoadedFileNamesCache_();
+      const nextRev = bumpFotosInboxRev_();
+      const recentUploads = isShared ? readFotosRecentUploads_() : removeFotosRecentUploadByFileId_(driveFileId);
+      const retDto = buildDriveFileItemDto_(returnedFile, { id: SUBIR_INBOX_FOLDER_ID_, name: 'SUBIR PREN' });
+
+      try {
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'MOVIMIENTO',
+          modulo: 'AppsScript · Gestor Fotos Hoja "1"',
+          evento: 'FOTO REGRESADA A ARCHIVO ORIGEN (SUBIR PREN)',
+          estado: '✅ OK',
+          usuario: actorName + ' (' + actorEmail + ')',
+          sucursal: 'ADMINISTRACIÓN GENERAL',
+          referencia: skuUpper || origName,
+          detalle: 'Regresada a SUBIR PREN conservando nombre original "' + origName + '"' + (skuUpper ? (' y desvinculada de SKU ' + skuUpper) : '') + '.',
+          analisis: isShared ? 'Otro SKU seguía usando la foto: se conservó en categoría y se colocó ejemplar original en SUBIR PREN.' : 'Archivo movido de vuelta a SUBIR PREN sin renombrar.'
+        });
+      } catch (eHistRet) {}
+
+      return {
+        ok: true,
+        op: 'return_to_inbox',
+        rev: nextRev,
+        recentUploads: recentUploads,
+        fileId: String(returnedFile.getId() || ''),
+        fileName: origName,
+        inboxFolderId: SUBIR_INBOX_FOLDER_ID_,
+        clearedSku: skuUpper,
+        clearedRows: clearedRows,
+        keptCopyForOtherSku: isShared,
+        file: retDto,
+        timestamp: formatCancunNow_()
+      };
+    }
+
+    return { ok: false, error: 'Operación no soportada.' };
+  } catch (errAct) {
+    return {
+      ok: false,
+      error: (errAct && errAct.message) ? errAct.message : String(errAct)
     };
   }
 }

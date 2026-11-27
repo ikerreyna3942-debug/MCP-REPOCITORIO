@@ -79,6 +79,10 @@ export function createMockGasEnvironment(options = {}) {
         });
         return created;
       },
+      createFolder: (subName) => {
+        const subId = 'gen_folder_' + String(nextAutoFileSeq++).padStart(4, '0');
+        return makeFolder(subId, String(subName || ''), { parentId: folderState.id });
+      },
       setSharing: (access, perm) => {
         folderState.sharing = { access, perm };
         return api;

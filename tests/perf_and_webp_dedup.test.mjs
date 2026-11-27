@@ -579,7 +579,7 @@ test('All static and dynamic <img> tags across modifiable pages/apps declare dim
     }
   }
 
-  assert.equal(totalImgs, 43, 'Expected all 43 <img> tags across modifiable files to be audited');
+  assert.equal(totalImgs, 44, 'Expected all 44 <img> tags across modifiable files to be audited');
 
   // Verify specific above-the-fold logos & primary stages use fetchpriority="high" (never loading="lazy")
   const invHtml = fs.readFileSync(path.join(REPO_ROOT, 'inventario.html'), 'utf8');
@@ -700,7 +700,7 @@ test('Max-dimension-constrained <img> elements preserve auto box-sizing in CSS, 
   // 6) fotos-productos-app.js dynamic <img> tags (.photo-stage-canvas, .inbox-thumb-box, .visual-single-canvas !isSwatch)
   const fotosJs = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos-app.js'), 'utf8');
   const stageAndInboxImgs = fotosJs.match(/<img\s+width="(?:360|160)"\s+height="(?:270|120)"[^>]*>/gi) || [];
-  assert.equal(stageAndInboxImgs.length, 7, 'Expected 7 constrained dynamic <img> tags in fotos-productos-app.js');
+  assert.equal(stageAndInboxImgs.length, 8, 'Expected 8 constrained dynamic <img> tags in fotos-productos-app.js');
 
   let plainAutoCount = 0;
   let visualTernaryCount = 0;
@@ -721,6 +721,6 @@ test('Max-dimension-constrained <img> elements preserve auto box-sizing in CSS, 
       );
     }
   }
-  assert.equal(plainAutoCount, 5, 'Expected 3 .photo-stage-canvas + 2 .inbox-thumb-box <img> tags with style="width:auto;height:auto;"');
+  assert.equal(plainAutoCount, 6, 'Expected 3 .photo-stage-canvas + 3 .inbox-thumb-box <img> tags with style="width:auto;height:auto;"');
   assert.equal(visualTernaryCount, 2, 'Expected 2 .visual-single-canvas <img> tags with width:auto;height:auto on !isSwatch branch');
 });

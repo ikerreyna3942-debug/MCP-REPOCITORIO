@@ -465,9 +465,10 @@ test('SEC-06: AppsScript_Parche_Fotos_V2.gs has 100% doPost route parity with Cr
   const extraInParche = parcheActions.filter((a) => !creataActions.includes(a));
   assert.deepEqual(missingInParche, [], `AppsScript_Parche_Fotos_V2.gs doPost is missing routes: ${missingInParche.join(', ')}`);
   assert.deepEqual(extraInParche, [], `AppsScript_Parche_Fotos_V2.gs doPost has unexpected extra routes: ${extraInParche.join(', ')}`);
-  assert.equal(creataActions.length, 52, 'Expected 52 doPost routes in AppsScript_Creata_Drive_Sheets.gs');
-  assert.equal(parcheActions.length, 52, 'Expected 52 doPost routes in AppsScript_Parche_Fotos_V2.gs');
+  assert.equal(creataActions.length, 53, 'Expected 53 doPost routes in AppsScript_Creata_Drive_Sheets.gs');
+  assert.equal(parcheActions.length, 53, 'Expected 53 doPost routes in AppsScript_Parche_Fotos_V2.gs');
   assert.ok(parcheActions.includes('hist_archive_and_analyze_kevin'), 'Parche doPost must route hist_archive_and_analyze_kevin');
+  assert.ok(parcheActions.includes('fotos_photo_action'), 'Parche doPost must route fotos_photo_action');
 
   // Ensure auth gate parity on SEC-07 & SEC-09 inside BOTH Creata and Parche doPost
   assert.match(creataDoPost, /handleInvLogEvent_\(body,\s*gate\.tokenInfo \|\| null,\s*!!gate\.viaPin\)/, 'Creata doPost must forward gate.tokenInfo || null and !!gate.viaPin into handleInvLogEvent_');

@@ -1402,8 +1402,166 @@
             });
         }
 
+        // 4) Archivos directos en carpetas de categorías / FOTOS NUEVAS CARGADO (incluyendo fotos desvinculadas con "Quitar del producto" o subidas directo en Drive)
+        const seenFileOnly = new Set(items.map((it) => it.id));
+        const liveLoadedDrive = Array.isArray(state.loadedDriveFiles) ? state.loadedDriveFiles : [];
+        for (let d = 0; d < liveLoadedDrive.length; d++) {
+            const df = liveLoadedDrive[d];
+            if (!df || !df.id) continue;
+            const fid = cleanStr(df.id);
+            if (!fid || delFileMap[fid] || seenFileOnly.has(fid)) continue;
+            seenFileOnly.add(fid);
+            const fName = cleanStr(df.name || fileNameMap[fid] || fid);
+            const fldName = cleanStr(df.folderName || 'CATEGORIAS MUEBLES Y ACCESORIOS');
+            const shortFolder = fldName.replace(/^FOTOS\s+(DE\s+)?/i, '') || 'Drive';
+            items.push({
+                id: fid,
+                sku: '',
+                name: 'Sin SKU asignado',
+                fileName: fName,
+                viewUrl: df.viewUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
+                localDataUrl: '',
+                destFolderName: fldName,
+                shortFolder: shortFolder,
+                rowNumber: null,
+                fromLoaded: true,
+                unlinkedInDrive: true,
+                _searchNorm: normalizeSearchText(fName + ' ' + fldName + ' ' + shortFolder + ' sin sku libre')
+            });
+        }
+
         state.cachedLoadedList = items;
         return items;
+    }
+
+    function getArchivedPhotosList() {
+        const q = readDeletedQueue();
+        const delFileMap = q.fileIds || {};
+        const rawArch = Array.isArray(state.archivedFiles) ? state.archivedFiles : [];
+        const out = [];
+        const seen = new Set();
+        for (let i = 0; i < rawArch.length; i++) {
+            const af = rawArch[i];
+            if (!af || !af.id) continue;
+            const fid = cleanStr(af.id);
+            if (!fid || delFileMap[fid] || seen.has(fid)) continue;
+            seen.add(fid);
+            const name = cleanStr(af.name || (state.loadedFileNamesById && state.loadedFileNamesById[fid]) || fid);
+            out.push({
+                id: fid,
+                name: name,
+                fileName: name,
+                kind: af.kind || 'image',
+                mimeType: af.mimeType || '',
+                sizeBytes: Number(af.sizeBytes || 0) || 0,
+                _sizeText: (typeof formatBytesShort === 'function' && af.sizeBytes) ? formatBytesShort(af.sizeBytes) : '',
+                viewUrl: af.viewUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
+                thumbUrl: af.thumbUrl || '',
+                folderName: cleanStr(af.folderName || 'FOTOS ARCHIVADAS'),
+                fromLoaded: true,
+                fromArchived: true,
+                _searchNorm: normalizeSearchText(name + ' archivada fotos archivadas')
+            });
+        }
+        return out;
+    }
+
+    function reconcileLiveDriveInventory(inboxList, loadedDriveList, archivedList, isComplete) {
+        let changed = false;
+        if (Array.isArray(loadedDriveList)) {
+            const prevSig = (state.loadedDriveFiles || []).map((x) => x.id + ':' + (x.name || '')).join('|');
+            const nextSig = loadedDriveList.map((x) => (x && x.id) + ':' + ((x && x.name) || '')).join('|');
+            if (prevSig !== nextSig) {
+                state.loadedDriveFiles = loadedDriveList.slice();
+                changed = true;
+            }
+        }
+        if (Array.isArray(archivedList)) {
+            const prevArchSig = (state.archivedFiles || []).map((x) => x.id + ':' + (x.name || '')).join('|');
+            const nextArchSig = archivedList.map((x) => (x && x.id) + ':' + ((x && x.name) || '')).join('|');
+            if (prevArchSig !== nextArchSig) {
+                state.archivedFiles = archivedList.slice();
+                changed = true;
+            }
+        }
+
+        if (!isComplete || state.assignInFlight > 0) {
+            if (changed) invalidateLoadedPhotosCache();
+            return changed;
+        }
+
+        const liveIds = new Set();
+        const addIds = (arr) => {
+            if (!Array.isArray(arr)) return;
+            for (let i = 0; i < arr.length; i++) {
+                const id = cleanStr(arr[i] && arr[i].id);
+                if (id) liveIds.add(id);
+            }
+        };
+        addIds(inboxList);
+        addIds(state.loadedDriveFiles);
+        addIds(state.archivedFiles);
+
+        // 1) Depurar nombres cacheados cuyos archivos fueron eliminados directamente en Google Drive
+        const nextNames = {};
+        const prevNames = state.loadedFileNamesById || {};
+        Object.keys(prevNames).forEach((fid) => {
+            if (isLocalTempPhotoId(fid) || liveIds.has(fid)) {
+                nextNames[fid] = prevNames[fid];
+            } else {
+                changed = true;
+            }
+        });
+        (state.loadedDriveFiles || []).forEach((f) => { if (f && f.id && f.name) nextNames[f.id] = f.name; });
+        (state.archivedFiles || []).forEach((f) => { if (f && f.id && f.name) nextNames[f.id] = f.name; });
+        state.loadedFileNamesById = nextNames;
+
+        // 2) Depurar carrusel "Recién cargadas" local y compartido si se quitó el archivo de Drive
+        if (Array.isArray(state.recentUploads) && state.recentUploads.length > 0) {
+            const nextShared = state.recentUploads.filter((it) => !it || isLocalTempPhotoId(it.id) || liveIds.has(cleanStr(it.id)));
+            if (nextShared.length !== state.recentUploads.length) {
+                state.recentUploads = nextShared;
+                changed = true;
+            }
+        }
+        const localRec = readRecentUploadsStore();
+        if (localRec.length > 0) {
+            const nextLocalRec = localRec.filter((it) => !it || isLocalTempPhotoId(it.id) || liveIds.has(cleanStr(it.id)));
+            if (nextLocalRec.length !== localRec.length) {
+                writeRecentUploadsStore(nextLocalRec);
+                changed = true;
+            }
+        }
+
+        // 3) Depurar guardados de sesión (>15s) cuyo archivo ya fue borrado de Drive
+        const nowMs = Date.now();
+        let savedPruned = false;
+        state.sessionSavedBySku.forEach((meta, sku) => {
+            const fid = cleanStr(meta && (meta.fileId || extractDriveFileId(meta.newUrl)));
+            const ts = Number((meta && (meta.savedAt || meta.ts)) || 0);
+            if (fid && !isLocalTempPhotoId(fid) && !liveIds.has(fid) && (!ts || (nowMs - ts) > 15000)) {
+                state.sessionSavedBySku.delete(sku);
+                state.sessionSavedLogs = state.sessionSavedLogs.filter((l) => l.sku !== sku);
+                const prod = state.productBySku.get(sku);
+                if (prod && prod.photoFileId === fid) {
+                    prod.photoUrl = '';
+                    prod.photoFileId = '';
+                }
+                savedPruned = true;
+                changed = true;
+            }
+        });
+        if (savedPruned) saveSavedOverridesNow();
+
+        // 4) Si la foto seleccionada fue eliminada directamente en Drive, limpiar la selección
+        if (state.selectedPhotoItem && state.selectedPhotoItem.id && !isLocalTempPhotoId(state.selectedPhotoItem.id) && !liveIds.has(state.selectedPhotoItem.id)) {
+            state.selectedInboxFileId = '';
+            state.selectedPhotoItem = null;
+            changed = true;
+        }
+
+        if (changed) invalidateLoadedPhotosCache();
+        return changed;
     }
 
     function parseFotosDateSimple(rawStr) {

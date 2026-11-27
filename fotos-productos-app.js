@@ -171,6 +171,11 @@
         recentUploads: [],
         rawInboxFromDrive: [],
         inboxFiles: [],
+        loadedDriveFiles: [],
+        archivedFiles: [],
+        archivedFolderId: '',
+        galleryRenderLimit: 240,
+        driveInvPollCounter: 0,
         fotosNuevasSheetItems: [],
         cachedLoadedList: null,
         inboxSearchQuery: '',
@@ -2447,8 +2452,166 @@
             });
         }
 
+        // 4) Archivos directos en carpetas de categorías / FOTOS NUEVAS CARGADO (incluyendo fotos desvinculadas con "Quitar del producto" o subidas directo en Drive)
+        const seenFileOnly = new Set(items.map((it) => it.id));
+        const liveLoadedDrive = Array.isArray(state.loadedDriveFiles) ? state.loadedDriveFiles : [];
+        for (let d = 0; d < liveLoadedDrive.length; d++) {
+            const df = liveLoadedDrive[d];
+            if (!df || !df.id) continue;
+            const fid = cleanStr(df.id);
+            if (!fid || delFileMap[fid] || seenFileOnly.has(fid)) continue;
+            seenFileOnly.add(fid);
+            const fName = cleanStr(df.name || fileNameMap[fid] || fid);
+            const fldName = cleanStr(df.folderName || 'CATEGORIAS MUEBLES Y ACCESORIOS');
+            const shortFolder = fldName.replace(/^FOTOS\s+(DE\s+)?/i, '') || 'Drive';
+            items.push({
+                id: fid,
+                sku: '',
+                name: 'Sin SKU asignado',
+                fileName: fName,
+                viewUrl: df.viewUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
+                localDataUrl: '',
+                destFolderName: fldName,
+                shortFolder: shortFolder,
+                rowNumber: null,
+                fromLoaded: true,
+                unlinkedInDrive: true,
+                _searchNorm: normalizeSearchText(fName + ' ' + fldName + ' ' + shortFolder + ' sin sku libre')
+            });
+        }
+
         state.cachedLoadedList = items;
         return items;
+    }
+
+    function getArchivedPhotosList() {
+        const q = readDeletedQueue();
+        const delFileMap = q.fileIds || {};
+        const rawArch = Array.isArray(state.archivedFiles) ? state.archivedFiles : [];
+        const out = [];
+        const seen = new Set();
+        for (let i = 0; i < rawArch.length; i++) {
+            const af = rawArch[i];
+            if (!af || !af.id) continue;
+            const fid = cleanStr(af.id);
+            if (!fid || delFileMap[fid] || seen.has(fid)) continue;
+            seen.add(fid);
+            const name = cleanStr(af.name || (state.loadedFileNamesById && state.loadedFileNamesById[fid]) || fid);
+            out.push({
+                id: fid,
+                name: name,
+                fileName: name,
+                kind: af.kind || 'image',
+                mimeType: af.mimeType || '',
+                sizeBytes: Number(af.sizeBytes || 0) || 0,
+                _sizeText: (typeof formatBytesShort === 'function' && af.sizeBytes) ? formatBytesShort(af.sizeBytes) : '',
+                viewUrl: af.viewUrl || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
+                thumbUrl: af.thumbUrl || '',
+                folderName: cleanStr(af.folderName || 'FOTOS ARCHIVADAS'),
+                fromLoaded: true,
+                fromArchived: true,
+                _searchNorm: normalizeSearchText(name + ' archivada fotos archivadas')
+            });
+        }
+        return out;
+    }
+
+    function reconcileLiveDriveInventory(inboxList, loadedDriveList, archivedList, isComplete) {
+        let changed = false;
+        if (Array.isArray(loadedDriveList)) {
+            const prevSig = (state.loadedDriveFiles || []).map((x) => x.id + ':' + (x.name || '')).join('|');
+            const nextSig = loadedDriveList.map((x) => (x && x.id) + ':' + ((x && x.name) || '')).join('|');
+            if (prevSig !== nextSig) {
+                state.loadedDriveFiles = loadedDriveList.slice();
+                changed = true;
+            }
+        }
+        if (Array.isArray(archivedList)) {
+            const prevArchSig = (state.archivedFiles || []).map((x) => x.id + ':' + (x.name || '')).join('|');
+            const nextArchSig = archivedList.map((x) => (x && x.id) + ':' + ((x && x.name) || '')).join('|');
+            if (prevArchSig !== nextArchSig) {
+                state.archivedFiles = archivedList.slice();
+                changed = true;
+            }
+        }
+
+        if (!isComplete || state.assignInFlight > 0) {
+            if (changed) invalidateLoadedPhotosCache();
+            return changed;
+        }
+
+        const liveIds = new Set();
+        const addIds = (arr) => {
+            if (!Array.isArray(arr)) return;
+            for (let i = 0; i < arr.length; i++) {
+                const id = cleanStr(arr[i] && arr[i].id);
+                if (id) liveIds.add(id);
+            }
+        };
+        addIds(inboxList);
+        addIds(state.loadedDriveFiles);
+        addIds(state.archivedFiles);
+
+        // 1) Depurar nombres cacheados cuyos archivos fueron eliminados directamente en Google Drive
+        const nextNames = {};
+        const prevNames = state.loadedFileNamesById || {};
+        Object.keys(prevNames).forEach((fid) => {
+            if (isLocalTempPhotoId(fid) || liveIds.has(fid)) {
+                nextNames[fid] = prevNames[fid];
+            } else {
+                changed = true;
+            }
+        });
+        (state.loadedDriveFiles || []).forEach((f) => { if (f && f.id && f.name) nextNames[f.id] = f.name; });
+        (state.archivedFiles || []).forEach((f) => { if (f && f.id && f.name) nextNames[f.id] = f.name; });
+        state.loadedFileNamesById = nextNames;
+
+        // 2) Depurar carrusel "Recién cargadas" local y compartido si se quitó el archivo de Drive
+        if (Array.isArray(state.recentUploads) && state.recentUploads.length > 0) {
+            const nextShared = state.recentUploads.filter((it) => !it || isLocalTempPhotoId(it.id) || liveIds.has(cleanStr(it.id)));
+            if (nextShared.length !== state.recentUploads.length) {
+                state.recentUploads = nextShared;
+                changed = true;
+            }
+        }
+        const localRec = readRecentUploadsStore();
+        if (localRec.length > 0) {
+            const nextLocalRec = localRec.filter((it) => !it || isLocalTempPhotoId(it.id) || liveIds.has(cleanStr(it.id)));
+            if (nextLocalRec.length !== localRec.length) {
+                writeRecentUploadsStore(nextLocalRec);
+                changed = true;
+            }
+        }
+
+        // 3) Depurar guardados de sesión (>15s) cuyo archivo ya fue borrado de Drive
+        const nowMs = Date.now();
+        let savedPruned = false;
+        state.sessionSavedBySku.forEach((meta, sku) => {
+            const fid = cleanStr(meta && (meta.fileId || extractDriveFileId(meta.newUrl)));
+            const ts = Number((meta && (meta.savedAt || meta.ts)) || 0);
+            if (fid && !isLocalTempPhotoId(fid) && !liveIds.has(fid) && (!ts || (nowMs - ts) > 15000)) {
+                state.sessionSavedBySku.delete(sku);
+                state.sessionSavedLogs = state.sessionSavedLogs.filter((l) => l.sku !== sku);
+                const prod = state.productBySku.get(sku);
+                if (prod && prod.photoFileId === fid) {
+                    prod.photoUrl = '';
+                    prod.photoFileId = '';
+                }
+                savedPruned = true;
+                changed = true;
+            }
+        });
+        if (savedPruned) saveSavedOverridesNow();
+
+        // 4) Si la foto seleccionada fue eliminada directamente en Drive, limpiar la selección
+        if (state.selectedPhotoItem && state.selectedPhotoItem.id && !isLocalTempPhotoId(state.selectedPhotoItem.id) && !liveIds.has(state.selectedPhotoItem.id)) {
+            state.selectedInboxFileId = '';
+            state.selectedPhotoItem = null;
+            changed = true;
+        }
+
+        if (changed) invalidateLoadedPhotosCache();
+        return changed;
     }
 
     function parseFotosDateSimple(rawStr) {
@@ -3379,6 +3542,10 @@
 
         const curOpenLink = document.getElementById('curPhotoOpenLink');
         const curTakeBtn = document.getElementById('curPhotoTakeBtn');
+        const curReturnBtn = document.getElementById('curPhotoReturnBtn');
+        const curUnlinkBtn = document.getElementById('curPhotoUnlinkBtn');
+        const curArchiveBtn = document.getElementById('curPhotoArchiveBtn');
+        const curCopyBtn = document.getElementById('curPhotoCopyBtn');
         const curDeleteBtn = document.getElementById('curPhotoDeleteBtn');
         const curCanvas = document.getElementById('curPhotoCanvas');
         const quickNameEl = document.getElementById('skuQuickName');
@@ -3408,6 +3575,10 @@
             if (sibList) sibList.innerHTML = '';
             if (curOpenLink) curOpenLink.classList.add('hidden');
             if (curTakeBtn) curTakeBtn.classList.add('hidden');
+            if (curReturnBtn) curReturnBtn.classList.add('hidden');
+            if (curUnlinkBtn) curUnlinkBtn.classList.add('hidden');
+            if (curArchiveBtn) curArchiveBtn.classList.add('hidden');
+            if (curCopyBtn) curCopyBtn.classList.add('hidden');
             if (curDeleteBtn) curDeleteBtn.classList.add('hidden');
             if (curCanvas) curCanvas.innerHTML = '<div class="photo-empty-placeholder">Sin foto</div>';
             renderNewPhotoStage();
@@ -3553,6 +3724,10 @@
                 curOpenLink.classList.remove('hidden');
             }
             if (curTakeBtn) curTakeBtn.classList.remove('hidden');
+            if (curReturnBtn) curReturnBtn.classList.remove('hidden');
+            if (curUnlinkBtn) curUnlinkBtn.classList.remove('hidden');
+            if (curArchiveBtn) curArchiveBtn.classList.remove('hidden');
+            if (curCopyBtn) curCopyBtn.classList.remove('hidden');
             if (curDeleteBtn) curDeleteBtn.classList.remove('hidden');
             if (curCanvas) {
                 curCanvas.innerHTML =
@@ -3564,6 +3739,10 @@
         } else {
             if (curOpenLink) curOpenLink.classList.add('hidden');
             if (curTakeBtn) curTakeBtn.classList.add('hidden');
+            if (curReturnBtn) curReturnBtn.classList.add('hidden');
+            if (curUnlinkBtn) curUnlinkBtn.classList.add('hidden');
+            if (curArchiveBtn) curArchiveBtn.classList.add('hidden');
+            if (curCopyBtn) curCopyBtn.classList.add('hidden');
             if (curDeleteBtn) curDeleteBtn.classList.add('hidden');
             if (curCanvas) {
                 curCanvas.innerHTML = '<div class="photo-empty-placeholder">Sin foto</div>';
@@ -3680,15 +3859,22 @@
     }
 
     window.setGalleryMode = function (mode) {
-        state.galleryMode = mode === 'LOADED' ? 'LOADED' : 'INBOX';
+        const nextMode = mode === 'LOADED' ? 'LOADED' : (mode === 'ARCHIVED' ? 'ARCHIVED' : 'INBOX');
+        state.galleryMode = nextMode;
+        state.galleryRenderLimit = 240;
         const tabInbox = document.getElementById('tabGalleryInbox');
         const tabLoaded = document.getElementById('tabGalleryLoaded');
+        const tabArchived = document.getElementById('tabGalleryArchived');
         if (tabInbox) tabInbox.classList.toggle('active', state.galleryMode === 'INBOX');
         if (tabLoaded) tabLoaded.classList.toggle('active', state.galleryMode === 'LOADED');
+        if (tabArchived) tabArchived.classList.toggle('active', state.galleryMode === 'ARCHIVED');
         renderInboxGallery();
         saveFotosUiCheckpointNow();
-        if (state.galleryMode === 'LOADED') {
+        if (state.galleryMode !== 'INBOX') {
             syncFotosBackNav('gallery_mode');
+            if (!state.loadedDriveFiles.length && state.unlocked && !state.inboxLoading) {
+                window.refreshInboxOnly(false, { silent: true, includeDriveInventory: true });
+            }
         }
     };
 
@@ -3698,6 +3884,7 @@
         if (inp) inp.value = '';
         if (clr) clr.classList.add('hidden');
         state.inboxSearchQuery = '';
+        state.galleryRenderLimit = 240;
         renderInboxGallery();
         saveFotosUiCheckpointNow();
         if (inp) {
@@ -3718,6 +3905,7 @@
             return;
         }
         state.inboxLoading = true;
+        state.driveInvPollCounter = (Number(state.driveInvPollCounter) || 0) + 1;
         const btnInb = document.getElementById('btnRefreshInbox');
         if (!isSilent && btnInb) { btnInb.disabled = true; btnInb.textContent = '↻...'; }
         const container = document.getElementById('inboxGalleryContainer');
@@ -3727,14 +3915,22 @@
 
         const loadedCountKnown = Object.keys(state.loadedFileNamesById || {}).length;
         const needLoadedNames = Boolean(forceRefresh || loadedCountKnown === 0 || !state.inboxRev || _backendSupportsInboxRev);
+        const wantDriveInventory = Boolean(
+            forceRefresh ||
+            (opts && opts.includeDriveInventory) ||
+            !state.loadedDriveFiles.length ||
+            state.galleryMode !== 'INBOX' ||
+            (state.driveInvPollCounter % 3 === 1)
+        );
         const inboxTimeoutMs = 75000;
         let res = null;
         try {
             const listPayload = Object.assign({
                 deviceId: getFotosPresenceDeviceId(),
-                sinceRev: forceRefresh ? '' : cleanStr(state.inboxRev),
+                sinceRev: (forceRefresh || wantDriveInventory) ? '' : cleanStr(state.inboxRev),
                 includeDocuments: true,
                 includeLoadedNames: needLoadedNames,
+                includeDriveInventory: wantDriveInventory,
                 forceRefresh: forceRefresh
             }, buildOwnerAuthPayload());
             res = await callWebAppPost('fotos_subir_list', listPayload, inboxTimeoutMs);
@@ -3786,16 +3982,32 @@
                 state.inboxRev = cleanStr(res.rev);
                 _backendSupportsInboxRev = true;
             }
+            if (cleanStr(res.archivedFolderId)) {
+                state.archivedFolderId = cleanStr(res.archivedFolderId);
+            }
             if (_liveSyncPendingCount <= 1) setFotosLiveStatus('live');
             const loadedNamesChanged = mergeLoadedFileNamesFromServer(res.loadedFileNames);
             const recentChanged = Array.isArray(res.recentUploads)
                 ? mergeSharedRecentUploadsFromServer(res.recentUploads)
                 : false;
+            const hasDriveInvArrays = Array.isArray(res.loadedDriveFiles) || Array.isArray(res.archivedFiles);
+            const driveInvChanged = hasDriveInvArrays
+                ? reconcileLiveDriveInventory(
+                    res.files,
+                    Array.isArray(res.loadedDriveFiles) ? res.loadedDriveFiles : state.loadedDriveFiles,
+                    Array.isArray(res.archivedFiles) ? res.archivedFiles : state.archivedFiles,
+                    Boolean(res.driveSyncComplete)
+                )
+                : false;
             reconcileDeletedQueueWithLiveState(res.files);
             state.rawInboxFromDrive = res.files;
             const nextInbox = filterAndMergeInboxFiles(res.files);
-            const nextFp = computeInboxFingerprint(nextInbox) + '::' + Object.keys(state.loadedFileNamesById || {}).length + '::' + cleanStr(state.inboxRev);
-            const inboxChanged = !isSilent || !_lastInboxFingerprint || nextFp !== _lastInboxFingerprint || loadedNamesChanged || recentChanged;
+            const nextFp = computeInboxFingerprint(nextInbox) + '::' +
+                Object.keys(state.loadedFileNamesById || {}).length + '::' +
+                (state.loadedDriveFiles || []).length + '::' +
+                (state.archivedFiles || []).length + '::' +
+                cleanStr(state.inboxRev);
+            const inboxChanged = !isSilent || !_lastInboxFingerprint || nextFp !== _lastInboxFingerprint || loadedNamesChanged || recentChanged || driveInvChanged;
             _lastInboxFingerprint = nextFp;
             state.inboxFiles = nextInbox;
             if (inboxChanged) {
@@ -3806,13 +4018,16 @@
                         state.selectedPhotoItem = null;
                     }
                 }
+                if (driveInvChanged) {
+                    applySkuFiltersAndRender();
+                }
                 renderInboxGallery();
                 renderSelectedProductStage();
                 updateAssignButtonState();
             }
             drainPendingDeletedQueueAsync();
             if (manualRefresh) {
-                showAssignFeedback('✅ Carpeta actualizada (' + state.inboxFiles.length + ').', true);
+                showAssignFeedback('✅ Drive sincronizado en vivo (' + state.inboxFiles.length + ' en SUBIR PREN · ' + getLoadedPhotosList().length + ' cargadas · ' + getArchivedPhotosList().length + ' archivadas).', true);
             }
             return;
         }
@@ -3918,14 +4133,22 @@
         window.takeLoadedPhotoForAssign(targetKeyRaw || '', fileIdRaw || '', ev);
     };
 
+    window.loadMoreGalleryItems = function (stepSize) {
+        const inc = Math.max(120, Number(stepSize) || 240);
+        state.galleryRenderLimit = Math.max(240, Number(state.galleryRenderLimit) || 240) + inc;
+        renderInboxGallery();
+    };
+
     function renderInboxGallery() {
         renderRecentUploadedStrip();
         const container = document.getElementById('inboxGalleryContainer');
         const inboxBadge = document.getElementById('inboxHeaderBadge');
         const loadedBadge = document.getElementById('loadedHeaderBadge');
+        const archivedBadge = document.getElementById('archivedHeaderBadge');
         if (!container) return;
 
         const loadedAll = getLoadedPhotosList();
+        const archivedAll = getArchivedPhotosList();
         const q = normalizeSearchText(state.inboxSearchQuery);
 
         const visibleInbox = q
@@ -3936,37 +4159,88 @@
             ? loadedAll.filter((it) => (it._searchNorm || '').indexOf(q) !== -1)
             : loadedAll;
 
+        const visibleArchived = q
+            ? archivedAll.filter((it) => (it._searchNorm || '').indexOf(q) !== -1)
+            : archivedAll;
+
         if (inboxBadge) inboxBadge.textContent = String(visibleInbox.length);
         if (loadedBadge) loadedBadge.textContent = String(visibleLoaded.length);
+        if (archivedBadge) archivedBadge.textContent = String(visibleArchived.length);
 
         const activePhoto = getActiveSelectedPhotoObject();
         const activeId = activePhoto ? activePhoto.id : '';
+        const renderLimit = Math.max(240, Number(state.galleryRenderLimit) || 240);
+
+        if (state.galleryMode === 'ARCHIVED') {
+            if (!visibleArchived.length) {
+                container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">' +
+                    (archivedAll.length ? '—' : 'FOTOS ARCHIVADAS vacía') + '</div>';
+                return;
+            }
+            const sliceArch = visibleArchived.slice(0, renderLimit);
+            const parts = new Array(sliceArch.length);
+            for (let i = 0; i < sliceArch.length; i++) {
+                const af = sliceArch[i];
+                const isSel = activeId === af.id && activePhoto && activePhoto.fromArchived;
+                const thumb = buildPhotoThumbUrl(af.id || af.viewUrl, 360);
+                const cardKey = 'A::' + af.id;
+                parts[i] =
+                    '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="take-archived" data-fid="' + escapeHtml(af.id || '') + '">' +
+                        '<div class="inbox-thumb-box">' +
+                            '<button type="button" class="card-del-btn" title="Eliminar de Drive" data-fotos-act="photo-op" data-op="delete" data-source="ARCHIVED" data-fid="' + escapeHtml(af.id || '') + '">🗑</button>' +
+                            '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" style="width:auto;height:auto;" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(af.id) + '" onerror="handlePhotoImgError(this)">' +
+                        '</div>' +
+                        '<div class="inbox-card-meta">' +
+                            '<div class="inbox-file-name" title="' + escapeHtml(af.name) + '">' + escapeHtml(af.name) + '</div>' +
+                            '<div class="inbox-file-sub">' +
+                                '<span>Archivada</span>' +
+                                '<span data-take-lbl="1" style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
+                            '</div>' +
+                            '<div class="card-quick-ops">' +
+                                '<button type="button" class="card-op-btn" title="Regresar a SUBIR PREN conservando nombre original" data-fotos-act="photo-op" data-op="return_to_inbox" data-source="ARCHIVED" data-fid="' + escapeHtml(af.id || '') + '">↩ Origen</button>' +
+                                '<button type="button" class="card-op-btn" title="Crear copia en SUBIR PREN" data-fotos-act="photo-op" data-op="copy" data-source="ARCHIVED" data-fid="' + escapeHtml(af.id || '') + '">📋 Copiar</button>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+            }
+            if (visibleArchived.length > sliceArch.length) {
+                parts.push(
+                    '<button type="button" class="gallery-load-more-btn" data-fotos-act="load-more-gallery">Mostrar más (' +
+                        (visibleArchived.length - sliceArch.length) + ' restantes de ' + visibleArchived.length +
+                    ')</button>'
+                );
+            }
+            container.innerHTML = parts.join('');
+            return;
+        }
 
         if (state.galleryMode === 'LOADED') {
-            const sliceLoaded = visibleLoaded.slice(0, 140);
-            if (!sliceLoaded.length) {
+            if (!visibleLoaded.length) {
                 container.innerHTML = '<div class="photo-empty-placeholder" style="grid-column:1/-1;">—</div>';
                 return;
             }
+            const sliceLoaded = visibleLoaded.slice(0, renderLimit);
             const parts = new Array(sliceLoaded.length);
             for (let i = 0; i < sliceLoaded.length; i++) {
                 const item = sliceLoaded[i];
-                const isSel = activeId === item.id && activePhoto && activePhoto.fromLoaded && activePhoto.skuOrigin === item.sku;
+                const isSel = activeId === item.id && activePhoto && activePhoto.fromLoaded && !activePhoto.fromArchived && (activePhoto.skuOrigin === (item.sku || ''));
                 const thumb = item.localDataUrl || buildPhotoThumbUrl(item.id || item.viewUrl, 360);
                 const cardKey = 'L::' + (item.sku || '') + '::' + item.id;
                 const primaryTitle = item.fileName || item.name || item.sku;
                 const isVisualItem = /^V(?:COV|FAB|WOD):/i.test(item.sku || '');
-                const displaySkuTag = isVisualItem ? (item.name || item.sku.replace(/^V(?:COV|FAB|WOD):/i, '')) : item.sku;
+                const hasSkuLink = Boolean(item.sku && !isVisualItem && !item.unlinkedInDrive);
+                const displaySkuTag = isVisualItem ? (item.name || item.sku.replace(/^V(?:COV|FAB|WOD):/i, '')) : (item.sku || 'Libre en Drive');
                 const subText = [displaySkuTag, item.shortFolder].filter(Boolean).join(' · ');
                 const titleTooltip = item.fileName
                     ? (item.fileName + (displaySkuTag ? (' · ' + displaySkuTag) : '') + (item.name && item.name !== item.fileName && item.name !== displaySkuTag ? (' · ' + item.name) : ''))
                     : (displaySkuTag ? (displaySkuTag + (item.name && item.name !== displaySkuTag ? (' · ' + item.name) : '')) : item.name);
+                const canDriveOps = !isLocalTempPhotoId(item.id);
 
                 parts[i] =
                     '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="take-loaded" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">' +
                         '<div class="inbox-thumb-box">' +
                             (!isVisualItem
-                                ? ('<button type="button" class="card-del-btn" title="Borrar" data-fotos-act="del-loaded-sku" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">🗑</button>')
+                                ? ('<button type="button" class="card-del-btn" title="Eliminar" data-fotos-act="del-loaded-sku" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">🗑</button>')
                                 : '') +
                             '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" style="width:auto;height:auto;" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
                         '</div>' +
@@ -3976,8 +4250,25 @@
                                 '<span>' + escapeHtml(subText) + '</span>' +
                                 '<span data-take-lbl="1" style="font-weight:800;color:' + (isSel ? '#CCA66B' : '#D0D9E4') + ';">' + (isSel ? '✓' : 'Tomar') + '</span>' +
                             '</div>' +
+                            (!isVisualItem && canDriveOps
+                                ? ('<div class="card-quick-ops">' +
+                                    '<button type="button" class="card-op-btn" title="Regresar al archivo origen (SUBIR PREN) conservando su nombre" data-fotos-act="photo-op" data-op="return_to_inbox" data-source="LOADED" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">↩ Origen</button>' +
+                                    (hasSkuLink
+                                        ? ('<button type="button" class="card-op-btn" title="Quitar del producto sin borrar de Drive" data-fotos-act="photo-op" data-op="unlink_sku" data-source="LOADED" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">🔗✕ Quitar</button>')
+                                        : '') +
+                                    '<button type="button" class="card-op-btn" title="Mover a FOTOS ARCHIVADAS" data-fotos-act="photo-op" data-op="archive" data-source="LOADED" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">📦 Archivar</button>' +
+                                    '<button type="button" class="card-op-btn" title="Crear copia en SUBIR PREN" data-fotos-act="photo-op" data-op="copy" data-source="LOADED" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">📋 Copiar</button>' +
+                                '</div>')
+                                : '') +
                         '</div>' +
                     '</div>';
+            }
+            if (visibleLoaded.length > sliceLoaded.length) {
+                parts.push(
+                    '<button type="button" class="gallery-load-more-btn" data-fotos-act="load-more-gallery">Mostrar más (' +
+                        (visibleLoaded.length - sliceLoaded.length) + ' restantes de ' + visibleLoaded.length +
+                    ')</button>'
+                );
             }
             container.innerHTML = parts.join('');
             return;
@@ -3993,12 +4284,13 @@
             return;
         }
 
-        const sliceInbox = visibleInbox.slice(0, 160);
+        const sliceInbox = visibleInbox.slice(0, renderLimit);
         const parts = new Array(sliceInbox.length);
         for (let i = 0; i < sliceInbox.length; i++) {
             const f = sliceInbox[i];
             const sz = f._sizeText || '';
             const cardKey = 'I::' + f.id;
+            const canDriveOps = !isLocalTempPhotoId(f.id);
 
             if (isDocumentInboxItem(f)) {
                 const docInfo = getDocumentBadgeInfo(f);
@@ -4023,6 +4315,12 @@
                                     ? ('<a class="inbox-doc-open-btn" href="' + escapeHtml(openHref) + '" target="_blank" rel="noopener">Abrir</a>')
                                     : ('<span class="inbox-doc-pending">' + (f.isOfflinePending ? 'Cola' : 'Subiendo...') + '</span>')) +
                             '</div>' +
+                            (canDriveOps
+                                ? ('<div class="card-quick-ops">' +
+                                    '<button type="button" class="card-op-btn" title="Archivar en FOTOS ARCHIVADAS" data-fotos-act="photo-op" data-op="archive" data-source="INBOX" data-fid="' + escapeHtml(f.id || '') + '" data-shortcut="' + escapeHtml(f.shortcutId || '') + '">📦 Archivar</button>' +
+                                    '<button type="button" class="card-op-btn" title="Crear copia en SUBIR PREN" data-fotos-act="photo-op" data-op="copy" data-source="INBOX" data-fid="' + escapeHtml(f.id || '') + '">📋 Copiar</button>' +
+                                '</div>')
+                                : '') +
                         '</div>' +
                     '</div>';
                 continue;
@@ -4035,7 +4333,7 @@
             parts[i] =
                 '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="select-inbox" data-fid="' + escapeHtml(f.id || '') + '">' +
                     '<div class="inbox-thumb-box">' +
-                        '<button type="button" class="card-del-btn" title="Borrar" data-fotos-act="del-inbox" data-fid="' + escapeHtml(f.id || '') + '">🗑</button>' +
+                        '<button type="button" class="card-del-btn" title="Eliminar" data-fotos-act="del-inbox" data-fid="' + escapeHtml(f.id || '') + '">🗑</button>' +
                         '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" style="width:auto;height:auto;" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
                     '</div>' +
                     '<div class="inbox-card-meta">' +
@@ -4047,8 +4345,21 @@
                         (suggestedSku
                             ? ('<button type="button" class="suggest-sku-btn" data-fotos-act="suggest-sku" data-fid="' + escapeHtml(f.id || '') + '" data-suggested-sku="' + escapeHtml(suggestedSku) + '">SKU ' + escapeHtml(suggestedSku) + '</button>')
                             : '') +
+                        (canDriveOps
+                            ? ('<div class="card-quick-ops">' +
+                                '<button type="button" class="card-op-btn" title="Archivar en FOTOS ARCHIVADAS" data-fotos-act="photo-op" data-op="archive" data-source="INBOX" data-fid="' + escapeHtml(f.id || '') + '" data-shortcut="' + escapeHtml(f.shortcutId || '') + '">📦 Archivar</button>' +
+                                '<button type="button" class="card-op-btn" title="Crear copia en SUBIR PREN" data-fotos-act="photo-op" data-op="copy" data-source="INBOX" data-fid="' + escapeHtml(f.id || '') + '">📋 Copiar</button>' +
+                            '</div>')
+                            : '') +
                     '</div>' +
                 '</div>';
+        }
+        if (visibleInbox.length > sliceInbox.length) {
+            parts.push(
+                '<button type="button" class="gallery-load-more-btn" data-fotos-act="load-more-gallery">Mostrar más (' +
+                    (visibleInbox.length - sliceInbox.length) + ' restantes de ' + visibleInbox.length +
+                ')</button>'
+            );
         }
         container.innerHTML = parts.join('');
     }
@@ -4058,7 +4369,9 @@
         const container = document.getElementById('inboxGalleryContainer');
         if (container) {
             const targetKey = activePhoto
-                ? (activePhoto.fromLoaded ? ('L::' + (activePhoto.skuOrigin || '') + '::' + activePhoto.id) : ('I::' + activePhoto.id))
+                ? (activePhoto.fromArchived
+                    ? ('A::' + activePhoto.id)
+                    : (activePhoto.fromLoaded ? ('L::' + (activePhoto.skuOrigin || '') + '::' + activePhoto.id) : ('I::' + activePhoto.id)))
                 : '';
 
             const cards = container.querySelectorAll('.inbox-photo-card');
@@ -4076,7 +4389,7 @@
 
         const rail = document.getElementById('recentUploadedPhotosRail');
         if (rail) {
-            const activeRecentId = (activePhoto && activePhoto.fromLoaded) ? activePhoto.id : '';
+            const activeRecentId = (activePhoto && activePhoto.fromLoaded && !activePhoto.fromArchived) ? activePhoto.id : '';
             const rCards = rail.querySelectorAll('.recent-upload-card');
             for (let i = 0; i < rCards.length; i++) {
                 const card = rCards[i];
@@ -4330,6 +4643,8 @@
         if (fid) {
             state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== fid);
             state.inboxFiles = state.inboxFiles.filter((f) => f.id !== fid);
+            state.loadedDriveFiles = (state.loadedDriveFiles || []).filter((f) => f.id !== fid);
+            state.archivedFiles = (state.archivedFiles || []).filter((f) => f.id !== fid);
             state.fotosNuevasSheetItems = state.fotosNuevasSheetItems.filter((f) => f.id !== fid);
         }
         if (
@@ -4373,6 +4688,280 @@
             if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
             unmarkSkuDeletedInQueue(sku, fid);
         }
+    };
+
+    window.selectArchivedPhotoForAssign = function (fileIdRaw, ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        const fid = cleanStr(fileIdRaw);
+        if (!fid) return;
+        const archItem = getArchivedPhotosList().find((a) => a.id === fid) || null;
+        const alreadySame = Boolean(state.selectedPhotoItem && state.selectedPhotoItem.id === fid && state.selectedPhotoItem.fromArchived);
+        if (alreadySame) {
+            state.selectedInboxFileId = '';
+            state.selectedPhotoItem = null;
+        } else {
+            const label = cleanStr((archItem && archItem.name) || (state.loadedFileNamesById && state.loadedFileNamesById[fid]) || fid);
+            state.selectedInboxFileId = fid;
+            state.selectedPhotoItem = {
+                id: fid,
+                name: label,
+                viewUrl: (archItem && archItem.viewUrl) || ('https://drive.google.com/file/d/' + fid + '/view?usp=sharing'),
+                thumbDataUrl: '',
+                localDataUrl: '',
+                fromLoaded: true,
+                fromArchived: true,
+                skuOrigin: ''
+            };
+        }
+        hideAssignFeedback();
+        updateGallerySelectionInDom();
+        renderSelectedProductStage();
+        if (typeof syncVisualStageSelectedGalleryPreview === 'function') {
+            syncVisualStageSelectedGalleryPreview();
+        }
+        updateAssignButtonState();
+        saveFotosUiCheckpointNow();
+        if (!alreadySame) {
+            syncFotosBackNav('selected_photo');
+        }
+    };
+
+    window.runFotosLifecycleAction = async function (opts, ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        const o = opts || {};
+        const op = cleanStr(o.op).toLowerCase();
+        const sku = cleanStr(o.sku).toUpperCase();
+        const prod = sku ? state.productBySku.get(sku) : null;
+        const saved = sku ? state.sessionSavedBySku.get(sku) : null;
+        const fid = cleanStr(o.fileId) ||
+            (prod ? (prod.photoFileId || extractDriveFileId(prod.photoUrl)) : '') ||
+            (saved ? (saved.fileId || extractDriveFileId(saved.newUrl)) : '');
+        const source = cleanStr(o.source || (sku ? 'LOADED' : 'INBOX')).toUpperCase();
+        const shortcutId = cleanStr(o.shortcutId);
+
+        if (!op) return;
+
+        if (op === 'delete') {
+            if (source === 'INBOX') {
+                return window.deleteInboxPhotoById(fid, ev);
+            }
+            if (source === 'ARCHIVED') {
+                markDeletedInQueue(fid, '');
+                state.archivedFiles = (state.archivedFiles || []).filter((f) => f && f.id !== fid);
+                if (state.selectedInboxFileId === fid || (state.selectedPhotoItem && state.selectedPhotoItem.id === fid)) {
+                    state.selectedInboxFileId = '';
+                    state.selectedPhotoItem = null;
+                }
+                renderInboxGallery();
+                renderSelectedProductStage();
+                updateAssignButtonState();
+                showAssignFeedback('🗑 Foto eliminada de FOTOS ARCHIVADAS.', true);
+                const delArchRes = await callWebAppPost('fotos_photo_action', Object.assign({
+                    op: 'delete',
+                    driveFileId: fid,
+                    source: 'ARCHIVED',
+                    skipListReturn: true
+                }, buildOwnerAuthPayload()), 25000);
+                if (delArchRes && delArchRes.ok) {
+                    if (cleanStr(delArchRes.rev)) state.inboxRev = cleanStr(delArchRes.rev);
+                    unmarkSkuDeletedInQueue('', fid);
+                }
+                return;
+            }
+            return window.deleteLoadedPhotoBySku(sku, fid, ev);
+        }
+
+        if (!fid && !sku) return;
+        if (fid && isLocalTempPhotoId(fid)) {
+            showAssignFeedback('⏳ Espera un segundo a que termine de sincronizarse la foto con Google Drive.', false);
+            return;
+        }
+
+        const clearLocalSkuLinkOnly = () => {
+            if (!sku) return;
+            if (prod) {
+                prod.photoUrl = '';
+                prod.photoFileId = '';
+            }
+            state.sessionSavedBySku.delete(sku);
+            state.sessionSavedLogs = state.sessionSavedLogs.filter((it) => it.sku !== sku);
+            saveSavedOverridesNow();
+            notifySplitPeerOfPhotoUpdate(sku, '', '', '');
+        };
+
+        // Optimistic UI feedback before server confirmation
+        if (op === 'unlink_sku') {
+            if (!sku) return;
+            const knownName = cleanStr((saved && saved.fileName) || (state.loadedFileNamesById && state.loadedFileNamesById[fid]) || sku);
+            if (fid && !(state.loadedDriveFiles || []).some((x) => x && x.id === fid)) {
+                state.loadedDriveFiles = [{
+                    id: fid,
+                    name: knownName,
+                    folderName: (prod && prod.destFolderName) || 'CATEGORIAS MUEBLES Y ACCESORIOS',
+                    viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing'
+                }].concat(state.loadedDriveFiles || []);
+            }
+            clearLocalSkuLinkOnly();
+            invalidateLoadedPhotosCache();
+            scheduleSaveFastCache();
+            renderSkuCategoryFilterRow();
+            renderSkuLocationFilterRow();
+            applySkuFiltersAndRender();
+            renderInboxGallery();
+            renderSelectedProductStage();
+            updateAssignButtonState();
+            showAssignFeedback('🔗✕ Foto quitada de <strong>' + escapeHtml(sku) + '</strong> (conservada en su carpeta de Drive).', true);
+        } else if (op === 'archive') {
+            const knownName = cleanStr(
+                (saved && saved.fileName) ||
+                (state.loadedFileNamesById && state.loadedFileNamesById[fid]) ||
+                ((state.inboxFiles.find((f) => f.id === fid) || {}).name) ||
+                fid
+            );
+            clearLocalSkuLinkOnly();
+            state.rawInboxFromDrive = state.rawInboxFromDrive.filter((f) => f.id !== fid);
+            state.inboxFiles = state.inboxFiles.filter((f) => f.id !== fid);
+            state.loadedDriveFiles = (state.loadedDriveFiles || []).filter((f) => f.id !== fid);
+            if (fid && !(state.archivedFiles || []).some((a) => a && a.id === fid)) {
+                state.archivedFiles = [{
+                    id: fid,
+                    name: knownName,
+                    kind: 'image',
+                    folderName: 'FOTOS ARCHIVADAS',
+                    viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing'
+                }].concat(state.archivedFiles || []);
+            }
+            if (state.selectedInboxFileId === fid || (state.selectedPhotoItem && state.selectedPhotoItem.id === fid)) {
+                state.selectedInboxFileId = '';
+                state.selectedPhotoItem = null;
+            }
+            invalidateLoadedPhotosCache();
+            scheduleSaveFastCache();
+            renderSkuCategoryFilterRow();
+            renderSkuLocationFilterRow();
+            applySkuFiltersAndRender();
+            renderInboxGallery();
+            renderSelectedProductStage();
+            updateAssignButtonState();
+            showAssignFeedback('📦 Archivada en <strong>FOTOS ARCHIVADAS</strong> (' + escapeHtml(knownName) + ').', true);
+        } else if (op === 'return_to_inbox') {
+            const knownName = cleanStr(
+                (saved && saved.fileName) ||
+                (state.loadedFileNamesById && state.loadedFileNamesById[fid]) ||
+                ((state.archivedFiles.find((f) => f.id === fid) || {}).name) ||
+                fid
+            );
+            clearLocalSkuLinkOnly();
+            state.archivedFiles = (state.archivedFiles || []).filter((f) => f.id !== fid);
+            const stillUsedByOther = fid ? state.products.some((p) => p && p.sku !== sku && p.photoFileId === fid) : false;
+            if (!stillUsedByOther) {
+                state.loadedDriveFiles = (state.loadedDriveFiles || []).filter((f) => f.id !== fid);
+            }
+            invalidateLoadedPhotosCache();
+            scheduleSaveFastCache();
+            renderSkuCategoryFilterRow();
+            renderSkuLocationFilterRow();
+            applySkuFiltersAndRender();
+            renderInboxGallery();
+            renderSelectedProductStage();
+            updateAssignButtonState();
+            showAssignFeedback('↩ Regresando <strong>' + escapeHtml(knownName) + '</strong> a <strong>SUBIR PREN</strong>...', true);
+        } else if (op === 'copy') {
+            showAssignFeedback('📋 Creando copia en <strong>SUBIR PREN</strong>...', true);
+        }
+
+        const res = await callWebAppPost('fotos_photo_action', Object.assign({
+            op: op,
+            sku: sku,
+            driveFileId: fid,
+            shortcutId: shortcutId,
+            source: source,
+            targetLocation: 'INBOX'
+        }, buildOwnerAuthPayload()), 30000);
+
+        if (!res || !res.ok) {
+            if (res && res.authRequired) {
+                window.lockFotosPortal();
+                return;
+            }
+            showAssignFeedback('❌ ' + escapeHtml(cleanStr(res && res.error) || 'No se pudo completar la acción en Google Drive.'), false);
+            window.refreshInboxOnly(false, { forceRefresh: true, includeDriveInventory: true });
+            loadSheetsCatalog({ silent: true });
+            return;
+        }
+
+        if (cleanStr(res.rev)) state.inboxRev = cleanStr(res.rev);
+        if (cleanStr(res.archivedFolderId)) state.archivedFolderId = cleanStr(res.archivedFolderId);
+        if (Array.isArray(res.recentUploads)) mergeSharedRecentUploadsFromServer(res.recentUploads);
+
+        if ((op === 'return_to_inbox' || op === 'copy') && res.file && res.file.id) {
+            const enriched = enrichInboxFileItem(res.file);
+            state.rawInboxFromDrive = [res.file].concat(state.rawInboxFromDrive.filter((x) => x && x.id !== res.file.id));
+            state.inboxFiles = filterAndMergeInboxFiles(state.rawInboxFromDrive);
+            if (op === 'copy') {
+                state.selectedInboxFileId = enriched.id;
+                state.selectedPhotoItem = {
+                    id: enriched.id,
+                    name: enriched.name,
+                    shortcutId: '',
+                    viewUrl: enriched.viewUrl || ('https://drive.google.com/file/d/' + enriched.id + '/view?usp=sharing'),
+                    thumbDataUrl: '',
+                    localDataUrl: '',
+                    fromLoaded: false,
+                    skuOrigin: ''
+                };
+                showAssignFeedback('📋 Copia lista en <strong>SUBIR PREN</strong>: <strong>' + escapeHtml(enriched.name) + '</strong>.', true);
+            } else {
+                showAssignFeedback('✅ Regresada a <strong>SUBIR PREN</strong> con su nombre original: <strong>' + escapeHtml(enriched.name) + '</strong>.', true);
+            }
+        } else if (op === 'archive' && res.file && res.file.id) {
+            state.archivedFiles = [res.file].concat((state.archivedFiles || []).filter((x) => x && x.id !== res.file.id && x.id !== fid));
+        }
+
+        invalidateLoadedPhotosCache();
+        scheduleSaveFastCache();
+        renderInboxGallery();
+        renderSelectedProductStage();
+        updateAssignButtonState();
+        notifyFotosInboxChanged('photo_op_' + op);
+    };
+
+    window.archivePhotoByContext = function (sku, fileId, source, shortcutId, ev) {
+        return window.runFotosLifecycleAction({ op: 'archive', sku: sku, fileId: fileId, source: source, shortcutId: shortcutId }, ev);
+    };
+    window.unlinkPhotoFromProduct = function (sku, fileId, ev) {
+        return window.runFotosLifecycleAction({ op: 'unlink_sku', sku: sku, fileId: fileId, source: 'LOADED' }, ev);
+    };
+    window.returnPhotoToInboxOrigin = function (sku, fileId, source, shortcutId, ev) {
+        return window.runFotosLifecycleAction({ op: 'return_to_inbox', sku: sku, fileId: fileId, source: source, shortcutId: shortcutId }, ev);
+    };
+    window.copyPhotoInDrive = function (sku, fileId, source, shortcutId, ev) {
+        return window.runFotosLifecycleAction({ op: 'copy', sku: sku, fileId: fileId, source: source, shortcutId: shortcutId }, ev);
+    };
+
+    window.returnCurrentProductPhotoToInbox = function () {
+        if (!state.selectedSku) return;
+        const prod = state.productBySku.get(state.selectedSku);
+        const fid = prod ? (prod.photoFileId || extractDriveFileId(prod.photoUrl)) : '';
+        window.runFotosLifecycleAction({ op: 'return_to_inbox', sku: state.selectedSku, fileId: fid, source: 'LOADED' });
+    };
+    window.unlinkCurrentProductPhoto = function () {
+        if (!state.selectedSku) return;
+        const prod = state.productBySku.get(state.selectedSku);
+        const fid = prod ? (prod.photoFileId || extractDriveFileId(prod.photoUrl)) : '';
+        window.runFotosLifecycleAction({ op: 'unlink_sku', sku: state.selectedSku, fileId: fid, source: 'LOADED' });
+    };
+    window.archiveCurrentProductPhoto = function () {
+        if (!state.selectedSku) return;
+        const prod = state.productBySku.get(state.selectedSku);
+        const fid = prod ? (prod.photoFileId || extractDriveFileId(prod.photoUrl)) : '';
+        window.runFotosLifecycleAction({ op: 'archive', sku: state.selectedSku, fileId: fid, source: 'LOADED' });
+    };
+    window.copyCurrentProductPhoto = function () {
+        if (!state.selectedSku) return;
+        const prod = state.productBySku.get(state.selectedSku);
+        const fid = prod ? (prod.photoFileId || extractDriveFileId(prod.photoUrl)) : '';
+        window.runFotosLifecycleAction({ op: 'copy', sku: state.selectedSku, fileId: fid, source: 'LOADED' });
     };
 
     window.deleteCurrentProductPhoto = function () {
@@ -7878,7 +8467,7 @@
                 },
                 {
                     id: 'gallery_mode',
-                    isActive: () => state.galleryMode === 'LOADED',
+                    isActive: () => state.galleryMode === 'LOADED' || state.galleryMode === 'ARCHIVED',
                     undo: () => window.setGalleryMode('INBOX'),
                     escapeAllowed: false,
                     toast: 'Volviendo a SUBIR PREN'
@@ -8050,7 +8639,25 @@
         if (!el) return;
         const act = el.getAttribute('data-fotos-act');
         if (!act) return;
-        if (act === 'cat-filter') {
+        if (act === 'load-more-gallery') {
+            ev.stopPropagation();
+            if (typeof window.loadMoreGalleryItems === 'function') window.loadMoreGalleryItems();
+        } else if (act === 'photo-op') {
+            ev.stopPropagation();
+            if (typeof window.runFotosLifecycleAction === 'function') {
+                window.runFotosLifecycleAction({
+                    op: el.getAttribute('data-op') || '',
+                    sku: el.getAttribute('data-sku') || '',
+                    fileId: el.getAttribute('data-fid') || '',
+                    source: el.getAttribute('data-source') || '',
+                    shortcutId: el.getAttribute('data-shortcut') || ''
+                }, ev);
+            }
+        } else if (act === 'take-archived') {
+            if (typeof window.selectArchivedPhotoForAssign === 'function') {
+                window.selectArchivedPhotoForAssign(el.getAttribute('data-fid') || '', ev);
+            }
+        } else if (act === 'cat-filter') {
             if (typeof window.setSkuCategoryFilter === 'function') window.setSkuCategoryFilter(el.getAttribute('data-cat-key') || 'ALL');
         } else if (act === 'loc-filter') {
             if (typeof window.setSkuLocationFilter === 'function') window.setSkuLocationFilter(el.getAttribute('data-loc-key') || 'ALL');

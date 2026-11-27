@@ -142,4 +142,100 @@ D) PROYECTO AUXILIAR EN DRIVE — PRESENTACION_DISENO (PYTHON / RESPALDO PC)
 [BLOQUEADO-6] NO borrar ni invalidar sesiones activas de usuarios ni .erp_session_cache.json.
 [BLOQUEADO-7] Para restaurar la base exacta previa a nuevas mejoras en cualquier
               momento: git checkout base-bloqueada-2026-11-13
+
+--------------------------------------------------------------------------------
+4. ACTUALIZACIÓN BLINDADA NOVIEMBRE 2026 — MÓDULOS, SEGURIDAD, ALERTAS Y FOTOS
+   (CONGELADO Y PROTEGIDO: PROHIBIDO REVERTIR O ALTERAR SIN ORDEN DE KEVIN)
+--------------------------------------------------------------------------------
+
+A) ARQUITECTURA MODULAR SIN DERIVA (31 MÓDULOS + ENSAMBLADOR DETERMINISTA)
+   - src/fotos/ (7 módulos)       -> ensambla fotos-productos-app.js
+   - src/apps-script/ (11 módulos)-> ensambla AppsScript_Creata_Drive_Sheets.gs
+   - src/inventario/ (13 módulos) -> ensambla inventario-app.js
+   - scripts/build-bundles.mjs    : Generador y verificador SHA-256 (--check --verify-syntax).
+   - AppsScript_Parche_Fotos_V2.gs: Sincronía 100% en acciones doPost con Código.gs
+                                    (cero const/let globales para coexistir sin conflicto).
+
+B) ENDURECIMIENTO RBAC BACKEND, SESIONES Y RENDIMIENTO WEBP (SEC-01..SEC-13)
+   - Hash iterado SHA-256 con sal en servidor para contraseñas y cero claves en texto
+     plano dentro de localStorage.
+   - Autorización estricta en backend por rol/sucursal en cotizaciones, seguimiento,
+     presencia, directorio de usuarios y overrides de productos.
+   - Deduplicación dinámica SHA-256 de imágenes .webp y precarga de orígenes críticos.
+
+C) RESPALDO INTERNO DE HISTORIAL Y CLASIFICACIÓN OFICIAL DE FALLOS
+   - Pestaña de respaldo dentro del mismo libro maestro Google Sheets
+     (1xewqWPOlR5LMEFQXq1KsqvObg9PPlTkRGqfZ_4Iiv-8):
+     * RESGUARDO_HISTORIAL (sheetId: 634939157): copia acumulativa no destructiva de
+       HISTORIAL sincronizada en handleHistArchiveAndAnalyzeKevin_ (jamás borra filas
+       históricas del respaldo).
+   - Clasificación oficial de eventos técnicos:
+     * CRÍTICOS (FALLO DE CÓDIGO + notificación en vivo a Kevin):
+       F1 (caída ERP en sync), F2 (SKU faltante en ERP), F3 (cola respaldo cotización WCF),
+       F4 (excepción cliente al cotizar), F5 (error alta cliente ERP), F6 (incidencia LPPT),
+       F7 (error JS real en cliente; corregido ReferenceError syncLiveData en historial-app.js),
+       F8 (excepción real en doPost), F9 (error permisos Drive en fotos), F10 (fallo PDF
+       original VisorReportes S Mueblería), F11 (error descompresión inventario inicial),
+       N1 (>= 5 intentos fallidos seguidos de contraseña), N2 (fallo al guardar en
+       COTIZACIONES BASE DE DATOS en Seguimiento).
+     * NORMALES (ALERTA TÉCNICA solo en hoja HISTORIAL, sin alarma push):
+       F13 (< 5 intentos de contraseña incorrecta), F15 (tope de descuento excedido),
+       N3 (cola offline IndexedDB de fotos atorada tras >= 3 reintentos).
+     * SILENCIADOS / ELIMINADOS (0 filas basura en HISTORIAL, 0 alertas):
+       F12 (rechazos benignos del navegador: play() interrumpido, Clipboard sin foco,
+       not allowed by the user agent, AbortError), F14 (respaldo portapapeles por aborto
+       de red), F16 (límite de 2 dispositivos de invitado) y esperas transitorias de
+       candado LockService en doPost (responden retryable: true).
+
+D) MOTOR UNIFICADO DE NOTIFICACIONES EN VIVO EXCLUSIVO DE KEVIN
+   - creata-live-alerts.js cargado en inventario.html, panel.html, fotos-productos.html
+     y seguimiento-manual.html.
+   - Exclusivo para kevin.reyna@grupoanipa.com (desactivado automáticamente para asesores,
+     invitados, iframes embebidos y modo vista previa de asesor).
+   - Dispara notificación nativa PWA / Service Worker + banner en pantalla en 4 eventos:
+     1. Nueva cotización creada.
+     2. Seguimiento registrado (WhatsApp, Teléfono, Correo, Cierre Ganada/Perdida/Cancelada).
+     3. Conexión y desconexión en vivo de usuarios e invitados (semilla silenciosa al abrir
+        sin ráfaga inicial).
+     4. Fallos críticos (FALLO DE CÓDIGO), ignorando alertas normales (ALERTA TÉCNICA).
+
+E) GESTOR DE FOTOS 1:1 CON GOOGLE DRIVE + CARPETA ARCHIVADAS + 5 ACCIONES
+   - Espejo real 1:1 con Google Drive sin topes fijos de 140/160 fotos (carga progresiva
+     completa de todos los archivos) y depuración automática en vivo: si se quita o manda
+     a papelera un archivo directamente en Drive, desaparece de SUBIR PREN, Cargadas,
+     Archivadas y Recién cargadas en la app.
+   - Carpeta oficial de archivo: FOTOS ARCHIVADAS creada/resuelta estrictamente dentro de
+     CATEGORIAS MUEBLES Y ACCESORIOS (1KZh-AzOejRbz9TdHYF52yaiuejPtT-sN), manteniendo
+     aislamiento absoluto respecto a Proyecto B (SUBIR PROPT / fotos odoo / TELAS / MADERAS).
+   - Pestaña "Archivadas" en galería junto a "SUBIR PREN" y "Cargadas".
+   - 5 acciones oficiales (endpoint fotos_photo_action en Código.gs y z_Parche_Fotos):
+     1. Eliminar (delete): envía a papelera en Drive (respetando uso compartido) y limpia
+        Columna D en Hoja "1".
+     2. Archivar (archive): mueve a FOTOS ARCHIVADAS conservando su nombre original y
+        limpia Columna D en Hoja "1".
+     3. Quitar del producto (unlink_sku): limpia únicamente Columna D en Hoja "1" dejando
+        el archivo intacto en su carpeta de categoría en Drive.
+     4. Regresar al archivo origen (return_to_inbox): limpia Columna D en Hoja "1" y
+        regresa la foto a SUBIR PREN (11_rR-qhgM02Sfx9zw7uHU5AwXvTpKD4p) conservando su
+        nombre original exacto (dejando copia en categoría si otro SKU aún la comparte).
+     5. Copiar (copy): crea una copia independiente en Drive conservando su nombre original
+        sin desvincular el producto actual.
+
+--------------------------------------------------------------------------------
+5. CANDADOS ADICIONALES (NOVIEMBRE 2026 — PROHIBIDO VIOLAR)
+--------------------------------------------------------------------------------
+[BLOQUEADO-8]  NO editar directamente los bundles raíz (fotos-productos-app.js,
+               AppsScript_Creata_Drive_Sheets.gs, inventario-app.js) sin editar sus
+               módulos en src/ y ejecutar node scripts/build-bundles.mjs; mantener
+               paridad 100% con AppsScript_Parche_Fotos_V2.gs.
+[BLOQUEADO-9]  NO debilitar validaciones RBAC en servidor (SEC-01..SEC-13), hashing
+               SHA-256 de contraseñas ni restricción exclusiva de kevin.reyna@grupoanipa.com.
+[BLOQUEADO-10] NO borrar filas históricas de HISTORIAL ni de RESGUARDO_HISTORIAL, ni
+               reactivar los ruidos silenciados (F12, F14, F16, LockService).
+[BLOQUEADO-11] NO enviar notificaciones en vivo de creata-live-alerts.js a cuentas
+               distintas de kevin.reyna@grupoanipa.com ni disparar ráfagas al iniciar.
+[BLOQUEADO-12] NO reintroducir límites fijos de galería en fotos-productos-app.js, NO
+               renombrar archivos al regresarlos a SUBIR PREN o archivarlos en FOTOS
+               ARCHIVADAS, y NO tocar jamás carpetas de Proyecto B (SUBIR PROPT / Odoo).
 ================================================================================
+

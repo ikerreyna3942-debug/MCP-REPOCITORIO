@@ -609,6 +609,7 @@ function doPost(e) {
       action === 'fotos_direct_upload_assign' ||
       action === 'fotos_upload_visual_override' ||
       action === 'fotos_reorganize_from_sheets' ||
+      action === 'fotos_photo_action' ||
       action === 'fotos_delete' ||
       action === 'fotos_subir_delete' ||
       action === 'fotos_sync_skus'
@@ -651,6 +652,7 @@ function doPost(e) {
       else if (action === 'fotos_upload_visual_override') fotosRes = handleFotosUploadVisualOverride_(body);
       else if (action === 'fotos_reorganize_from_sheets') fotosRes = handleFotosReorganizeFromSheets_(body);
       else if (action === 'fotos_sync_skus') fotosRes = handleFotosSyncSkus_(body);
+      else if (action === 'fotos_photo_action') fotosRes = handleFotosPhotoAction_(body);
       else fotosRes = handleFotosDelete_(body);
 
       if (shouldMintFreshToken && fotosRes && fotosRes.ok) {
