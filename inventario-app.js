@@ -4426,6 +4426,8 @@
         const loadingAttr = o.eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
         const enableOptFit = !!(o.card || o.compact);
         const boxRatio = Number(o.boxRatio) > 0.1 ? Number(o.boxRatio) : 1;
+        const imgW = o.compact ? 80 : 400;
+        const imgH = o.compact ? 80 : Math.max(100, Math.round(400 / boxRatio));
         const cardAttr = enableOptFit ? (' data-card-img="1" data-box-ratio="' + boxRatio.toFixed(4) + '"') : '';
         let inlineFitStyle = '';
         if (enableOptFit && fid) {
@@ -4444,7 +4446,7 @@
             }
         }
         return '<div class="inv-thumb"><div class="inv-thumb-stage">' +
-            '<img ' + loadingAttr + ' decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" alt=""' +
+            '<img width="' + imgW + '" height="' + imgH + '" ' + loadingAttr + ' decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" alt=""' +
             cardAttr + (fid ? (' data-fid="' + escapeHtml(fid) + '"') : '') + inlineFitStyle +
             ' src="' + escapeHtml(targetUrl) + '"' +
             (enableOptFit ? ' onload="window.__invOnCardImgLoad&&window.__invOnCardImgLoad(this)"' : '') +
@@ -6591,7 +6593,7 @@
                 const fabFid = extractDriveFileId(matchedFab.url);
                 fabricPillHtml =
                     '<div class="inv-var-fabric-pill" data-fabric-zoom-url="' + escapeHtml(matchedFab.url) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedFab.label) + '" title="Ver tela">' +
-                        '<img class="inv-var-fabric-thumb" src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedFab.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
+                        '<img class="inv-var-fabric-thumb" width="22" height="22" src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedFab.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                         (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
                         ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '<span class="inv-var-fabric-lbl">' + escapeHtml(matchedFab.label) + '</span>' +
@@ -6601,7 +6603,7 @@
                 const woodFid = extractDriveFileId(matchedWood.url);
                 fabricPillHtml =
                     '<div class="inv-var-fabric-pill is-wood" data-fabric-zoom-url="' + escapeHtml(matchedWood.url) + '" data-fabric-zoom-label="' + escapeHtml('Madera · ' + matchedWood.label) + '" title="Ver madera">' +
-                        '<img class="inv-var-fabric-thumb" src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedWood.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
+                        '<img class="inv-var-fabric-thumb" width="22" height="22" src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedWood.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                         (woodFid ? (' data-fid="' + escapeHtml(woodFid) + '"') : '') +
                         ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '<span class="inv-var-fabric-lbl">🪵 ' + escapeHtml(matchedWood.label) + '</span>' +
@@ -6692,7 +6694,7 @@
                         const subMeta = fb.colorHint ? (fb.colorHint + ' · ' + modCountTxt) : modCountTxt;
 
                         const stageInner = swatchSrc
-                            ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
+                            ? ('<img class="inv-fabric-choice-img" width="160" height="120" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
                                (swatchFid ? (' data-fid="' + escapeHtml(swatchFid) + '"') : '') +
                                ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                                '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + fb.label) + '" title="Ampliar foto de tela" aria-label="Ampliar foto de tela">🔍</button>')
@@ -6732,7 +6734,7 @@
                     const modCountTxt = selectedFb.items.length === 1 ? '1 módulo disponible' : (selectedFb.items.length + ' módulos disponibles');
                     const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + modCountTxt) : modCountTxt;
                     const swatchInner = swatchThumb
-                        ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
+                        ? '<img width="48" height="48" loading="lazy" decoding="async" src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
                           (swatchSelFid ? (' data-fid="' + escapeHtml(swatchSelFid) + '"') : '') +
                           ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">'
                         : '<span aria-hidden="true">🧵</span>';
@@ -6875,7 +6877,7 @@
                             : 'Piezas →';
 
                         const stageInner = photoSrc
-                            ? ('<img class="inv-bed-size-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(photoSrc) + '" alt="' + escapeHtml(grpHeadTitle + ' ' + sb.label) + '"' +
+                            ? ('<img class="inv-bed-size-img" width="160" height="120" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(photoSrc) + '" alt="' + escapeHtml(grpHeadTitle + ' ' + sb.label) + '"' +
                                (photoFid ? (' data-fid="' + escapeHtml(photoFid) + '"') : '') +
                                ' onerror="window.__invHandleCardImgError&&window.__invHandleCardImgError(this)">')
                             : ('<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🛏️</span><span>' + escapeHtml(sb.label) + '</span></div>');
@@ -6959,7 +6961,7 @@
                             const zoomPrefix = fb.isWood ? 'Madera · ' : 'Tela · ';
 
                             const stageInner = swatchSrc
-                                ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
+                                ? ('<img class="inv-fabric-choice-img" width="160" height="120" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
                                    (swatchFid ? (' data-fid="' + escapeHtml(swatchFid) + '"') : '') +
                                    ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                                    '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml(zoomPrefix + fb.label) + '" title="' + zoomTitle + '" aria-label="' + zoomTitle + '">🔍</button>')
@@ -7013,7 +7015,7 @@
                         const pzCountTxt = selectedFb.items.length === 1 ? '1 pieza disponible' : (selectedFb.items.length + ' piezas disponibles');
                         const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + pzCountTxt) : (selectedFb.isWood ? ('🪵 Acabado Madera · ' + pzCountTxt) : pzCountTxt);
                         const swatchInner = swatchThumb
-                            ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
+                            ? '<img width="48" height="48" loading="lazy" decoding="async" src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
                               (swatchSelFid ? (' data-fid="' + escapeHtml(swatchSelFid) + '"') : '') +
                               ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">'
                             : '<span aria-hidden="true">' + (selectedFb.isWood ? '🪵' : '🧵') + '</span>';
@@ -7610,7 +7612,7 @@
                 swatchCardsHtml +=
                     '<button type="button" class="inv-det-fabric-swatch-card inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailFabric.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedDetailFabric.label) + '" title="Toca para ampliar la tela">' +
                         '<span class="inv-det-fabric-swatch-img-wrap">' +
-                            '<img src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedDetailFabric.label) + '" loading="eager" decoding="async" referrerpolicy="no-referrer"' +
+                            '<img width="48" height="48" src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedDetailFabric.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                             (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
                             ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '</span>' +
@@ -7627,7 +7629,7 @@
                 swatchCardsHtml +=
                     '<button type="button" class="inv-det-fabric-swatch-card is-wood inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailWood.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Madera · ' + matchedDetailWood.label) + '" title="Toca para ampliar la madera">' +
                         '<span class="inv-det-fabric-swatch-img-wrap">' +
-                            '<img src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedDetailWood.label) + '" loading="eager" decoding="async" referrerpolicy="no-referrer"' +
+                            '<img width="48" height="48" src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedDetailWood.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                             (woodFid ? (' data-fid="' + escapeHtml(woodFid) + '"') : '') +
                             ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '</span>' +
@@ -8170,7 +8172,7 @@
             const url = URL.createObjectURL(file);
             uploadPhotoObjectUrls.push(url);
             return '<div class="inv-upload-tile">' +
-                '<img src="' + escapeHtml(url) + '" alt="">' +
+                '<img width="120" height="120" loading="lazy" decoding="async" src="' + escapeHtml(url) + '" alt="">' +
                 '<button type="button" class="inv-upload-tile-rm" onclick="removeUploadPhotoFileAt(' + idx + ')" aria-label="Quitar">✕</button>' +
             '</div>';
         }).join('');
@@ -8633,7 +8635,7 @@
             const isSel = fid && fid === uploadPhotoSelectedDriveFileId;
             const thumb = cleanStr(f.thumbDataUrl || f.thumbUrl) || ('https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w320');
             return '<button type="button" class="inv-subir-pren-item' + (isSel ? ' is-selected' : '') + '" data-inv-act="subir-pren-pick" data-fid="' + escapeHtml(fid) + '">' +
-                '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' +
+                '<img width="96" height="62" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' +
                 '<span class="inv-subir-pren-item-name">' + escapeHtml(f.name || fid) + '</span>' +
             '</button>';
         }).join('');
@@ -14544,7 +14546,7 @@
             return '<tr>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (idx + 1) + '</td>' +
                 '<td style="padding:6px;border-bottom:1px solid #E6E1D8;text-align:center;">' +
-                    (safePhotoUrl ? ('<img src="' + escapeHtml(safePhotoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E6E1D8;border-radius:6px;background:#FFF;">') : '') +
+                    (safePhotoUrl ? ('<img src="' + escapeHtml(safePhotoUrl) + '" width="64" height="64" loading="lazy" decoding="async" style="width:64px;height:64px;object-fit:contain;border:1px solid #E6E1D8;border-radius:6px;background:#FFF;">') : '') +
                 '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;font-weight:600;">' + escapeHtml(ln.name) +
                     (ln.measures ? ('<div style="font-size:10px;color:#6F6860;margin-top:2px;font-weight:400;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
@@ -14566,7 +14568,7 @@
             '.box{border:1px solid #E6E1D8;border-radius:10px;padding:12px 14px;margin-top:12px;background:#F8F6F2;} ' +
             '@media print{.no-print{display:none!important;}}</style></head><body>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;background:#1A1816;color:#FFF;padding:16px 20px;border-radius:12px;">' +
-                '<div>' + (safeLogoSrc ? ('<img src="' + escapeHtml(safeLogoSrc) + '" style="height:48px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+                '<div>' + (safeLogoSrc ? ('<img src="' + escapeHtml(safeLogoSrc) + '" width="138" height="48" decoding="async" fetchpriority="high" style="height:48px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                 '<div style="text-align:right;">' +
                     '<div style="font-size:15px;font-weight:800;letter-spacing:0.04em;">' + escapeHtml(docHeading) + '</div>' +
                     '<div style="color:#DFCCB2;font-size:11px;margin-top:3px;">Folio: <strong>' + escapeHtml(folioTxt) + '</strong></div>' +
@@ -15015,7 +15017,7 @@
                 return '<tr>' +
                     '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (idx + 1) + '</td>' +
                     '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' +
-                        (photoUrl ? ('<img src="' + escapeHtml(photoUrl) + '" style="width:60px;height:60px;object-fit:contain;border:1px solid #E6E1D8;border-radius:8px;background:#FFF;">') : '<span style="font-size:10px;color:#6F6860;">' + escapeHtml(sku) + '</span>') +
+                        (photoUrl ? ('<img src="' + escapeHtml(photoUrl) + '" width="60" height="60" loading="lazy" decoding="async" style="width:60px;height:60px;object-fit:contain;border:1px solid #E6E1D8;border-radius:8px;background:#FFF;">') : '<span style="font-size:10px;color:#6F6860;">' + escapeHtml(sku) + '</span>') +
                     '</td>' +
                     '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;font-weight:700;">' +
                         escapeHtml(name) +
@@ -15042,7 +15044,7 @@
                     '</div>' +
                     '<div style="background:#FFFFFF;border:1px solid #E6E1D8;border-radius:16px;padding:22px;">' +
                         '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:#1A1816;color:#FFF;padding:16px 20px;border-radius:12px;">' +
-                            '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:46px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+                            '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" width="133" height="46" decoding="async" fetchpriority="high" style="height:46px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                             '<div style="text-align:right;">' +
                                 '<div style="font-size:15px;font-weight:800;letter-spacing:0.04em;">' + escapeHtml(docHeading) + '</div>' +
                                 '<div style="color:#DFCCB2;font-size:12px;margin-top:3px;">Folio: <strong>' + escapeHtml(folioTxt) + '</strong></div>' +
@@ -21135,7 +21137,7 @@
             const existingQty = qtyBySku.get(sku) || 0;
             const btnLabel = existingQty > 0 ? ('+1 (en lista: ' + existingQty + ')') : '+ Agregar';
             return '<div class="inv-calc-res-row">' +
-                '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
+                '<div class="inv-calc-thumb">' + (thumbSrc ? '<img width="34" height="34" src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
                 '<div class="inv-calc-res-info">' +
                     '<div class="inv-calc-res-name">' + escapeHtml(entry.name) + '</div>' +
                     '<div class="inv-calc-res-meta">' +
@@ -21244,7 +21246,7 @@
             const hasDisc = ln.discountPct > 0.001;
             return '<div class="inv-calc-item-card" data-calc-sku="' + escapeHtml(ln.sku) + '">' +
                 '<div class="inv-calc-item-top">' +
-                    '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
+                    '<div class="inv-calc-thumb">' + (thumbSrc ? '<img width="34" height="34" src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
                     '<div class="inv-calc-res-info">' +
                         '<div class="inv-calc-res-name">' + escapeHtml(ln.name) + '</div>' +
                         '<div class="inv-calc-res-meta">' +

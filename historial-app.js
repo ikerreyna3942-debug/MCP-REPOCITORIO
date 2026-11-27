@@ -2202,7 +2202,7 @@
       <article class="cm-hist-photo-card" data-hist-open-photo="${idx}">
         <div class="cm-img-stage cm-hist-photo-stage">
           ${p.previewUrl
-            ? `<img src="${escapeHtml(p.previewUrl)}" alt="${escapeHtml(p.nombreProducto)}" loading="lazy" draggable="false" referrerpolicy="no-referrer">`
+            ? `<img width="240" height="240" src="${escapeHtml(p.previewUrl)}" alt="${escapeHtml(p.nombreProducto)}" loading="lazy" decoding="async" draggable="false" referrerpolicy="no-referrer">`
             : '<div class="cm-empty" style="border:none;">—</div>'}
           <span class="creata-img-shield" aria-hidden="true"></span>
         </div>
@@ -2469,7 +2469,7 @@
     bodyEl.innerHTML = `
       <div id="hist_photoCanvasHost" class="cm-img-stage cm-hist-lightbox-stage" style="margin-bottom:10px;">
         ${p.previewUrl
-          ? `<img src="${escapeHtml(p.previewUrl)}" alt="${escapeHtml(p.nombreProducto)}" draggable="false" referrerpolicy="no-referrer">`
+          ? `<img width="640" height="480" src="${escapeHtml(p.previewUrl)}" alt="${escapeHtml(p.nombreProducto)}" loading="lazy" decoding="async" draggable="false" referrerpolicy="no-referrer">`
           : '<div class="cm-empty" style="border:none;">—</div>'}
         <span class="creata-img-shield" aria-hidden="true"></span>
       </div>

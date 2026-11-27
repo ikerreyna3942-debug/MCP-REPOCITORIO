@@ -7,9 +7,9 @@
   <title>Manual de Uso: Asesores y Gerentes | CREATA Muebles</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- PptxGenJS para exportar a PowerPoint (.pptx) -->
-  <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -748,9 +748,13 @@
               </div>
 
               <div class="min-h-[160px] rounded-xl bg-white border border-slate-200 p-4 flex flex-col items-center justify-center gap-3 shadow-sm">
-                <img 
-                  src="${slide.imgUrl}" 
-                  alt="${slide.title}" 
+                <img
+                  src="${slide.imgUrl}"
+                  alt="${slide.title}"
+                  width="160"
+                  height="96"
+                  loading="lazy"
+                  decoding="async"
                   class="max-h-24 object-contain rounded"
                   onerror="this.style.display='none'"
                 />
@@ -978,7 +982,84 @@
       window.print();
     }
 
-    function exportToPPTX() {
+    const PPTXGEN_BUNDLE_URL = 'https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
+    let _pptxGenLoadPromise = null;
+
+    function ensurePptxGenLoaded(timeoutMs) {
+      if (typeof window !== 'undefined' && typeof window.PptxGenJS === 'function') {
+        return Promise.resolve(window.PptxGenJS);
+      }
+      if (_pptxGenLoadPromise) {
+        return _pptxGenLoadPromise;
+      }
+      const limitMs = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : 15000;
+      _pptxGenLoadPromise = new Promise((resolve, reject) => {
+        if (typeof document === 'undefined' || !document.createElement) {
+          _pptxGenLoadPromise = null;
+          reject(new Error('No se pudo cargar el generador de PowerPoint en este entorno.'));
+          return;
+        }
+        const script = document.createElement('script');
+        let settled = false;
+        let timerId = null;
+
+        const cleanup = () => {
+          if (timerId !== null) {
+            clearTimeout(timerId);
+            timerId = null;
+          }
+          script.onload = null;
+          script.onerror = null;
+        };
+
+        const fail = (message) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          if (script.parentNode) {
+            try { script.parentNode.removeChild(script); } catch (e) {}
+          }
+          _pptxGenLoadPromise = null;
+          reject(new Error(message));
+        };
+
+        script.src = PPTXGEN_BUNDLE_URL;
+        script.async = true;
+        script.crossOrigin = 'anonymous';
+
+        script.onload = () => {
+          if (settled) return;
+          if (typeof window !== 'undefined' && typeof window.PptxGenJS === 'function') {
+            settled = true;
+            cleanup();
+            resolve(window.PptxGenJS);
+          } else {
+            fail('La librería PowerPoint se cargó sin exponer PptxGenJS. Intenta de nuevo.');
+          }
+        };
+
+        script.onerror = () => {
+          fail('No se pudo descargar el generador de PowerPoint. Verifica tu conexión a internet e intenta nuevamente.');
+        };
+
+        timerId = setTimeout(() => {
+          fail('Tiempo de espera agotado al cargar el generador de PowerPoint. Verifica tu conexión e intenta nuevamente.');
+        }, limitMs);
+
+        const host = document.head || document.body || document.documentElement;
+        if (!host || typeof host.appendChild !== 'function') {
+          fail('No se encontró el contenedor del documento para cargar PowerPoint.');
+          return;
+        }
+        host.appendChild(script);
+      });
+      return _pptxGenLoadPromise;
+    }
+    if (typeof window !== 'undefined') {
+      window.ensurePptxGenLoaded = ensurePptxGenLoaded;
+    }
+
+    async function exportToPPTX() {
       persistActiveSlideEdits();
       const btn = document.getElementById('btnPptx');
       const resetPptxBtn = () => {
@@ -987,12 +1068,16 @@
         btn.disabled = false;
       };
       if (btn) {
-        btn.textContent = "⏳ Generando PowerPoint...";
+        btn.textContent = "⏳ Cargando PowerPoint...";
         btn.disabled = true;
       }
 
       try {
-        const pptx = new PptxGenJS();
+        const PptxCtor = await ensurePptxGenLoaded();
+        if (btn) {
+          btn.textContent = "⏳ Generando PowerPoint...";
+        }
+        const pptx = new PptxCtor();
         pptx.layout = 'LAYOUT_16x9';
         pptx.author = 'CREATA Muebles';
         pptx.company = 'Grupo Anipa Interiorismo';
@@ -1051,15 +1136,9 @@
           slide.addText(`"${s.goldenRule}"`, { x: 5.4, y: 5.95, w: 7.2, h: 0.75, fontSize: 10, italic: true, color: '78350F' });
         });
 
-        Promise.resolve(pptx.writeFile({ fileName: 'Manual_Asesores_y_Gerentes_CREATA.pptx' }))
-          .then(() => {
-            if (btn) btn.textContent = "✅ ¡PowerPoint Descargado!";
-            setTimeout(resetPptxBtn, 3000);
-          })
-          .catch((err) => {
-            alert("Error al generar PPTX: " + (err && err.message ? err.message : String(err || 'Error')));
-            resetPptxBtn();
-          });
+        await Promise.resolve(pptx.writeFile({ fileName: 'Manual_Asesores_y_Gerentes_CREATA.pptx' }));
+        if (btn) btn.textContent = "✅ ¡PowerPoint Descargado!";
+        setTimeout(resetPptxBtn, 3000);
       } catch (err) {
         alert("Error al generar PPTX: " + (err && err.message ? err.message : String(err || 'Error')));
         resetPptxBtn();

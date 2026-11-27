@@ -3260,7 +3260,7 @@
                 '<div class="sku-item' + (isSel ? ' selected' : '') + '" data-sku="' + escapeHtml(p.sku) + '" data-fotos-act="select-sku">' +
                     '<div class="sku-mini-thumb">' +
                         (thumb
-                            ? ('<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(safeDriveFid) + '" onerror="handlePhotoImgError(this)">')
+                            ? ('<img width="44" height="44" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(safeDriveFid) + '" onerror="handlePhotoImgError(this)">')
                             : '<span>—</span>') +
                     '</div>' +
                     '<div class="sku-item-info">' +
@@ -3449,7 +3449,7 @@
                 const swFull = resolveVisualThumbSrcInFotos(matchedSwatch.url, 900);
                 const swFid = extractDriveFileId(matchedSwatch.url);
                 linkedFabricChip.innerHTML =
-                    '<img src="' + escapeHtml(swThumb) + '" alt="' + escapeHtml(matchedSwatch.label) + '" referrerpolicy="no-referrer" ' +
+                    '<img width="22" height="22" loading="lazy" decoding="async" src="' + escapeHtml(swThumb) + '" alt="' + escapeHtml(matchedSwatch.label) + '" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(swFid) + '" onerror="handlePhotoImgError(this)">' +
                     '<span>' + matchedSwatch.prefix + escapeHtml(matchedSwatch.label) + '</span>';
                 linkedFabricChip.onclick = function () { openPhotoLightbox(swFull); };
@@ -3556,7 +3556,7 @@
             if (curDeleteBtn) curDeleteBtn.classList.remove('hidden');
             if (curCanvas) {
                 curCanvas.innerHTML =
-                    '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(prod.sku) + '" decoding="async" referrerpolicy="no-referrer" ' +
+                    '<img width="360" height="270" src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(prod.sku) + '" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(fid) + '" ' +
                     'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(previewSrc) + '" ' +
                     'onerror="handlePhotoImgError(this)">';
@@ -3602,7 +3602,7 @@
             const safeSelFid = isLocalTempPhotoId(selPhoto.id) ? '' : cleanStr(selPhoto.id);
             const previewUrl = selPhoto.localDataUrl || selPhoto.thumbDataUrl || buildPhotoThumbUrl(safeSelFid || selPhoto.viewUrl, 900);
             canvas.innerHTML =
-                '<img src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(selPhoto.name) + '" decoding="async" referrerpolicy="no-referrer" ' +
+                '<img width="360" height="270" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(selPhoto.name) + '" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(safeSelFid) + '" ' +
                 'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(previewUrl) + '" ' +
                 'onerror="handlePhotoImgError(this)">';
@@ -3620,7 +3620,7 @@
             const safeSavedFid = isLocalTempPhotoId(rawSavedFid) ? '' : (rawSavedFid || extractDriveFileId(savedSession.newUrl));
             const savedPreview = savedSession.localDataUrl || buildPhotoThumbUrl(safeSavedFid || savedSession.newUrl, 900);
             canvas.innerHTML =
-                '<img src="' + escapeHtml(savedPreview) + '" alt="' + escapeHtml(savedSession.sku) + '" decoding="async" referrerpolicy="no-referrer" ' +
+                '<img width="360" height="270" src="' + escapeHtml(savedPreview) + '" alt="' + escapeHtml(savedSession.sku) + '" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(safeSavedFid) + '" ' +
                 'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(savedPreview) + '" ' +
                 'onerror="handlePhotoImgError(this)">';
@@ -3891,7 +3891,7 @@
                 '<div class="recent-upload-card' + (isSel ? ' selected' : '') + '" data-recent-id="' + escapeHtml(it.id) + '" data-fotos-act="recent-select" data-fid="' + escapeHtml(it.id || '') + '" data-recent-key="' + escapeHtml(it.targetKey || '') + '" title="' + escapeHtml(tooltip) + '">' +
                     '<div class="recent-upload-thumb-wrap ' + kindClass + '">' +
                         '<button type="button" class="recent-upload-eye-btn" title="Ver en grande" aria-label="Ver foto" data-fotos-act="recent-preview" data-drive-id="' + escapeHtml(it.id || '') + '" data-lightbox-src="' + escapeHtml(fullSrc || '') + '">👁</button>' +
-                        '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(it.id) + '" onerror="handlePhotoImgError(this)">' +
+                        '<img width="120" height="78" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(it.id) + '" onerror="handlePhotoImgError(this)">' +
                         '<span class="recent-upload-kind-tag">' + escapeHtml(kindTag) + '</span>' +
                     '</div>' +
                     '<div class="recent-upload-meta">' +
@@ -3968,7 +3968,7 @@
                             (!isVisualItem
                                 ? ('<button type="button" class="card-del-btn" title="Borrar" data-fotos-act="del-loaded-sku" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">🗑</button>')
                                 : '') +
-                            '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
+                            '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
                         '</div>' +
                         '<div class="inbox-card-meta">' +
                             '<div class="inbox-file-name" title="' + escapeHtml(titleTooltip) + '">' + escapeHtml(primaryTitle) + '</div>' +
@@ -4036,7 +4036,7 @@
                 '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="select-inbox" data-fid="' + escapeHtml(f.id || '') + '">' +
                     '<div class="inbox-thumb-box">' +
                         '<button type="button" class="card-del-btn" title="Borrar" data-fotos-act="del-inbox" data-fid="' + escapeHtml(f.id || '') + '">🗑</button>' +
-                        '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
+                        '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
                     '</div>' +
                     '<div class="inbox-card-meta">' +
                         '<div class="inbox-file-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</div>' +
@@ -9617,7 +9617,7 @@
                 : ((item.subCat ? (item.subCat + ' · ') : '') + item.itemCount + ' pzas');
 
             const thumbInner = thumbSrc
-                ? ('<img src="' + escapeHtml(thumbSrc) + '" alt="' + escapeHtml(title) + '" loading="lazy" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)">')
+                ? ('<img width="44" height="44" src="' + escapeHtml(thumbSrc) + '" alt="' + escapeHtml(title) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)">')
                 : ('<span aria-hidden="true">' + (isFabric ? '🧵' : (isWood ? '🪵' : '🖼️')) + '</span>');
 
             return (
@@ -9655,7 +9655,7 @@
             if (badgeEl) badgeEl.textContent = 'Lista';
             curCanvas.onclick = null;
             curCanvas.innerHTML =
-                '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Vista') + '" referrerpolicy="no-referrer" ' +
+                '<img width="360" height="270" decoding="async" fetchpriority="high" src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Vista') + '" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)" ' +
                 'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '">';
         } else if (!canAssignGallery) {
@@ -9717,7 +9717,7 @@
                 if (badgeEl) badgeEl.textContent = 'Foto';
                 curCanvas.onclick = null;
                 curCanvas.innerHTML =
-                    '<img src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
+                    '<img width="360" height="270" decoding="async" fetchpriority="high" src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(curFid) + '" onerror="handlePhotoImgError(this)" ' +
                     'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
                     'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(curThumb) + '">';

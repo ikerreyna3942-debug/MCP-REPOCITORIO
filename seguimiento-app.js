@@ -3419,7 +3419,7 @@
 
       const thumbHtml = hasPhoto
         ? `<div class="cm-img-stage cm-seg-modal-item-thumb">
-             <img src="${escapeHtml(photo.thumbUrl || photo.fullUrl)}" alt="${escapeHtml(it.Nombre_Producto)}" draggable="false" referrerpolicy="no-referrer" loading="lazy">
+             <img width="42" height="42" src="${escapeHtml(photo.thumbUrl || photo.fullUrl)}" alt="${escapeHtml(it.Nombre_Producto)}" draggable="false" referrerpolicy="no-referrer" loading="lazy" decoding="async">
              <span class="creata-img-shield" aria-hidden="true"></span>
            </div>`
         : '';
