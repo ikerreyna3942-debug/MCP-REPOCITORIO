@@ -206,7 +206,10 @@
         if (!u) return '';
         if (/^data:image\//i.test(u)) return u;
         const fid = extractDriveFileId(u);
-        if (fid) return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + (Number(sizePx) || 400);
+        if (fid) {
+            const rev = extractDrivePhotoRevInFotos(u);
+            return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + (Number(sizePx) || 400) + (rev ? ('?v=' + encodeURIComponent(rev)) : '');
+        }
         return /^https?:\/\//i.test(u) ? u : '';
     }
 

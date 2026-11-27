@@ -405,11 +405,23 @@
         return m ? m[1] : '';
     }
 
+    function extractDrivePhotoRev(raw) {
+        const s = cleanStr(raw);
+        if (!s) return '';
+        const m = s.match(/[?&]v=([a-zA-Z0-9._-]{1,32})/);
+        return m ? m[1] : '';
+    }
+
+    function buildDriveLh3Url(fid, sizeToken, rev) {
+        if (!fid) return '';
+        return 'https://lh3.googleusercontent.com/d/' + fid + (sizeToken || '=w1000') + (rev ? ('?v=' + encodeURIComponent(rev)) : '');
+    }
+
     function resolveDriveOrImgUrl(raw) {
         const s = cleanStr(raw);
         if (!s) return '';
         const fid = extractDriveFileId(s);
-        if (fid) return 'https://lh3.googleusercontent.com/d/' + fid + '=w1000';
+        if (fid) return buildDriveLh3Url(fid, '=w1000', extractDrivePhotoRev(s));
         if (/^https?:\/\//i.test(s) || s.startsWith('data:image/')) return s;
         return '';
     }
@@ -3560,7 +3572,7 @@
         if (/^data:image\//i.test(allowed)) return allowed;
         const fid = extractDriveFileId(allowed);
         if (fid) {
-            return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + (Number(sizePx) || 400);
+            return buildDriveLh3Url(fid, '=w' + (Number(sizePx) || 400), extractDrivePhotoRev(allowed));
         }
         return allowed;
     }
@@ -4313,6 +4325,11 @@
         OPTFIT_TARGET_FILL: OPTFIT_TARGET_FILL
     };
 
+    function buildOptFitKey(fid, rev) {
+        if (!fid) return '';
+        return rev ? (fid + ':' + rev) : fid;
+    }
+
     function drainOptFitQueue() {
         optFitScheduled = false;
         const map = loadOptFitMap();
@@ -4322,13 +4339,15 @@
             const imgEl = optFitQueue.shift();
             if (!imgEl || !imgEl.isConnected) continue;
             const fid = imgEl.getAttribute('data-fid') || '';
-            if (fid && Object.prototype.hasOwnProperty.call(map, fid)) {
-                applyOptFitVars(imgEl, map[fid]);
+            const rev = imgEl.getAttribute('data-rev') || '';
+            const fitKey = buildOptFitKey(fid, rev);
+            if (fitKey && Object.prototype.hasOwnProperty.call(map, fitKey)) {
+                applyOptFitVars(imgEl, map[fitKey]);
                 continue;
             }
             const bbox = analyzeImageOpticalFit(imgEl);
-            if (fid) {
-                map[fid] = bbox;
+            if (fitKey) {
+                map[fitKey] = bbox;
                 dirty = true;
             }
             applyOptFitVars(imgEl, bbox);
@@ -4351,9 +4370,11 @@
     window.__invOnCardImgLoad = function (imgEl) {
         if (!imgEl || !imgEl.getAttribute('data-card-img')) return;
         const fid = imgEl.getAttribute('data-fid') || '';
+        const rev = imgEl.getAttribute('data-rev') || '';
+        const fitKey = buildOptFitKey(fid, rev);
         const map = loadOptFitMap();
-        if (fid && Object.prototype.hasOwnProperty.call(map, fid)) {
-            applyOptFitVars(imgEl, map[fid]);
+        if (fitKey && Object.prototype.hasOwnProperty.call(map, fitKey)) {
+            applyOptFitVars(imgEl, map[fitKey]);
             return;
         }
         optFitQueue.push(imgEl);
@@ -4363,25 +4384,27 @@
     window.__invHandleCardImgError = function (imgEl) {
         if (!imgEl) return;
         const fid = imgEl.getAttribute('data-fid') || '';
+        const rev = imgEl.getAttribute('data-rev') || '';
+        const revAmp = rev ? ('&v=' + encodeURIComponent(rev)) : '';
         const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
         if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid)) {
             if (step === 0) {
                 imgEl.setAttribute('data-fb-step', '1');
                 try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
                 imgEl.crossOrigin = null;
-                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w600';
+                imgEl.src = buildDriveLh3Url(encodeURIComponent(fid), '=w600', rev);
                 return;
             }
             if (step === 1) {
                 imgEl.setAttribute('data-fb-step', '2');
                 try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
-                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w800';
+                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w800' + revAmp;
                 return;
             }
             if (step === 2) {
                 imgEl.setAttribute('data-fb-step', '3');
                 try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
-                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid);
+                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid) + revAmp;
                 return;
             }
         }
@@ -4428,6 +4451,7 @@
         const o = opts || {};
         const url = photoUrlForItem(it);
         const fid = it ? extractDriveFileId(it.f) : '';
+        const rev = it ? extractDrivePhotoRev(it.f) : '';
         if (!url || (fid && failedDrivePhotoIds.has(fid))) {
             return '<div class="inv-thumb"><div class="inv-thumb-stage is-empty"><div class="inv-thumb-placeholder">' + THUMB_PLACEHOLDER_SVG + '</div></div></div>';
         }
@@ -4436,7 +4460,7 @@
             const sz = o.compact
                 ? '=w160'
                 : (o.card && typeof window !== 'undefined' && window.innerWidth >= 768 ? '=w600' : '=w400');
-            targetUrl = 'https://lh3.googleusercontent.com/d/' + fid + sz;
+            targetUrl = buildDriveLh3Url(fid, sz, rev);
         }
         const loadingAttr = o.eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
         const enableOptFit = !!(o.card || o.compact);
@@ -4446,7 +4470,8 @@
         const cardAttr = enableOptFit ? (' data-card-img="1" data-box-ratio="' + boxRatio.toFixed(4) + '"') : '';
         let inlineFitStyle = '';
         if (enableOptFit && fid) {
-            const cachedBbox = loadOptFitMap()[fid];
+            const fitKey = buildOptFitKey(fid, rev);
+            const cachedBbox = loadOptFitMap()[fitKey];
             if (cachedBbox && cachedBbox !== 'skip') {
                 const cachedFit = (typeof cachedBbox.uMin === 'number')
                     ? computeOpticalFitForBox(cachedBbox, boxRatio)
@@ -4462,7 +4487,7 @@
         }
         return '<div class="inv-thumb"><div class="inv-thumb-stage">' +
             '<img width="' + imgW + '" height="' + imgH + '" ' + loadingAttr + ' decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" alt=""' +
-            cardAttr + (fid ? (' data-fid="' + escapeHtml(fid) + '"') : '') + inlineFitStyle +
+            cardAttr + (fid ? (' data-fid="' + escapeHtml(fid) + '"') : '') + (rev ? (' data-rev="' + escapeHtml(rev) + '"') : '') + inlineFitStyle +
             ' src="' + escapeHtml(targetUrl) + '"' +
             (enableOptFit ? ' onload="window.__invOnCardImgLoad&&window.__invOnCardImgLoad(this)"' : '') +
             ' onerror="window.__invHandleCardImgError&&window.__invHandleCardImgError(this)">' +
@@ -4733,8 +4758,12 @@
                         if (!sk || savedBySku.has(sk)) continue;
                         const fid = cleanStr(ov.fileId || extractDriveFileId(cleanUrl));
                         if ((delSkus && delSkus[sk]) || (fid && delFiles && delFiles[fid])) continue;
+                        const versionedUrl = (fid && ov.ts && !extractDrivePhotoRev(cleanUrl))
+                            ? (cleanUrl + (cleanUrl.indexOf('?') !== -1 ? '&' : '?') + 'v=' + Math.trunc(Number(ov.ts)))
+                            : cleanUrl;
                         savedBySku.set(sk, {
-                            newUrl: cleanUrl,
+                            newUrl: versionedUrl,
+                            rawUrl: cleanUrl,
                             fileId: fid,
                             previousUrl: cleanStr(ov.previousUrl)
                         });
@@ -4764,7 +4793,11 @@
                 const ov = savedBySku.get(skuKey);
                 const savedFid = ov.fileId;
                 const prevFid = extractDriveFileId(ov.previousUrl);
-                if (!curFid || curFid === savedFid || (prevFid && curFid === prevFid)) {
+                const curRev = extractDrivePhotoRev(it.f);
+                const ovExplicitRev = extractDrivePhotoRev(ov.rawUrl);
+                const isPendingFidPropagation = !curFid || (prevFid && curFid === prevFid && curFid !== savedFid);
+                const canUpgradeSameFidRev = curFid === savedFid && (!curRev || (ovExplicitRev && curRev !== ovExplicitRev));
+                if (isPendingFidPropagation || canUpgradeSameFidRev) {
                     if (it.f !== ov.newUrl) {
                         it.f = ov.newUrl;
                         if (savedFid) failedDrivePhotoIds.delete(savedFid);
@@ -7504,7 +7537,8 @@
 
         // Cuadro de foto renderizado en canvas protegido con auto-encuadre parejo (78%)
         const driveId = extractDriveFileId(it.f);
-        const photoUrl = driveId ? ('https://lh3.googleusercontent.com/d/' + driveId + '=w1000') : resolveDriveOrImgUrl(it.f);
+        const driveRev = extractDrivePhotoRev(it.f);
+        const photoUrl = driveId ? buildDriveLh3Url(driveId, '=w1000', driveRev) : resolveDriveOrImgUrl(it.f);
         const stageEl = document.getElementById('detPhotoCanvasStage');
         const imgEl = document.getElementById('detPhotoImg');
         const emptyEl = document.getElementById('detPhotoEmpty');
@@ -7542,7 +7576,11 @@
                 imgEl.setAttribute('data-card-img', '1');
                 imgEl.setAttribute('data-box-ratio', (4 / 3).toFixed(4));
                 if (driveId) imgEl.setAttribute('data-fid', driveId);
-                else imgEl.removeAttribute('data-fid');
+                else if (typeof imgEl.removeAttribute === 'function') imgEl.removeAttribute('data-fid');
+                else imgEl.setAttribute('data-fid', '');
+                if (driveRev) imgEl.setAttribute('data-rev', driveRev);
+                else if (typeof imgEl.removeAttribute === 'function') imgEl.removeAttribute('data-rev');
+                else imgEl.setAttribute('data-rev', '');
                 imgEl.onload = function () {
                     if (typeof window.__invOnCardImgLoad === 'function') window.__invOnCardImgLoad(imgEl);
                 };
@@ -7550,21 +7588,22 @@
                 imgEl.classList.remove('hidden');
                 imgEl.onerror = function () {
                     const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
+                    const revAmp = driveRev ? ('&v=' + encodeURIComponent(driveRev)) : '';
                     if (driveId && step === 0) {
                         imgEl.setAttribute('data-fb-step', '1');
                         try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
                         imgEl.crossOrigin = null;
-                        imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId) + '=w1000';
+                        imgEl.src = buildDriveLh3Url(encodeURIComponent(driveId), '=w1000', driveRev);
                         return;
                     }
                     if (driveId && step === 1) {
                         imgEl.setAttribute('data-fb-step', '2');
-                        imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1000';
+                        imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1000' + revAmp;
                         return;
                     }
                     if (driveId && step === 2) {
                         imgEl.setAttribute('data-fb-step', '3');
-                        imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId);
+                        imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId) + revAmp;
                         return;
                     }
                     imgEl.onerror = null;
@@ -21831,6 +21870,11 @@
             getWoodSwatchPhotoUrl: getWoodSwatchPhotoUrl,
             findMatchingWoodSwatchForItem: findMatchingWoodSwatchForItem,
             resolveVisualImgSrc: resolveVisualImgSrc,
+            extractDrivePhotoRev: extractDrivePhotoRev,
+            buildDriveLh3Url: buildDriveLh3Url,
+            resolveDriveOrImgUrl: resolveDriveOrImgUrl,
+            buildThumbHtml: buildThumbHtml,
+            applyStoredFotosOverridesToItems: applyStoredFotosOverridesToItems,
             buildFabricSwatchOverrideKey: buildFabricSwatchOverrideKey,
             buildWoodSwatchOverrideKey: buildWoodSwatchOverrideKey,
             buildVisualCoverOverrideKey: buildVisualCoverOverrideKey,

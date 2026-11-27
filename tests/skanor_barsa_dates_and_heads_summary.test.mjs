@@ -37,3 +37,16 @@ test('Historial Store Heads Summary: historial-app.js exposes 1-click "📲 Resu
   assert.match(histCode, /data-hist-action="kevin-copy-heads-summary"/);
   assert.match(histCode, /else if \(action === 'kevin-copy-heads-summary'\)/);
 });
+
+test('In-place Drive photo revisions (&v=...): inventario-app.js and fotos-productos-app.js propagate ?v= on lh3 URLs and namespace optFit keys without altering unversioned URLs', () => {
+  const invBundle = readRepo('inventario-app.js');
+  const fotosBundle = readRepo('fotos-productos-app.js');
+
+  assert.match(invBundle, /function extractDrivePhotoRev\(raw\)/);
+  assert.match(invBundle, /function buildDriveLh3Url\(fid, sizeToken, rev\)/);
+  assert.match(invBundle, /function buildOptFitKey\(fid, rev\)/);
+  assert.match(invBundle, /data-rev="' \+ escapeHtml\(rev\)/);
+
+  assert.match(fotosBundle, /function extractDrivePhotoRevInFotos\(url\)/);
+  assert.match(fotosBundle, /\(rev \? \('\?v=' \+ encodeURIComponent\(rev\)\) : ''\)/);
+});

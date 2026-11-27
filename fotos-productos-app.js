@@ -277,6 +277,13 @@
         return '';
     }
 
+    function extractDrivePhotoRevInFotos(url) {
+        const s = cleanStr(url);
+        if (!s || isLocalTempPhotoId(s)) return '';
+        const m = s.match(/[?&]v=([a-zA-Z0-9._-]{1,32})/);
+        return m ? m[1] : '';
+    }
+
     function buildPhotoThumbUrl(urlOrFileId, widthPx) {
         const w = widthPx || 800;
         const raw = cleanStr(urlOrFileId);
@@ -284,7 +291,8 @@
         if (raw.startsWith('data:image/') || raw.startsWith('blob:')) return raw;
         const fid = extractDriveFileId(raw);
         if (fid) {
-            return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + w;
+            const rev = extractDrivePhotoRevInFotos(raw);
+            return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + w + (rev ? ('?v=' + encodeURIComponent(rev)) : '');
         }
         return raw;
     }
@@ -488,31 +496,35 @@
 
     window.handlePhotoImgError = function (imgEl) {
         if (!imgEl) return;
+        const curSrc = imgEl.getAttribute('src') || '';
         const rawDataFid = cleanStr(imgEl.getAttribute('data-drive-id'));
         const fid = (rawDataFid && !isLocalTempPhotoId(rawDataFid))
             ? rawDataFid
-            : extractDriveFileId(imgEl.getAttribute('src') || '');
+            : extractDriveFileId(curSrc);
+        const rev = extractDrivePhotoRevInFotos(curSrc);
+        const revQ = rev ? ('?v=' + encodeURIComponent(rev)) : '';
+        const revAmp = rev ? ('&v=' + encodeURIComponent(rev)) : '';
         const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
         if (fid && !isLocalTempPhotoId(fid) && /^[a-zA-Z0-9_-]{15,}$/.test(fid)) {
             try { imgEl.removeAttribute('crossorigin'); } catch (eCr) {}
             if (step === 0) {
                 imgEl.setAttribute('data-fb-step', '1');
-                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w800';
+                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w800' + revQ;
                 return;
             }
             if (step === 1) {
                 imgEl.setAttribute('data-fb-step', '2');
-                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w400';
+                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w400' + revQ;
                 return;
             }
             if (step === 2) {
                 imgEl.setAttribute('data-fb-step', '3');
-                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w800';
+                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w800' + revAmp;
                 return;
             }
             if (step === 3) {
                 imgEl.setAttribute('data-fb-step', '4');
-                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid);
+                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid) + revAmp;
                 return;
             }
         }
@@ -9335,7 +9347,10 @@
         if (!u) return '';
         if (/^data:image\//i.test(u)) return u;
         const fid = extractDriveFileId(u);
-        if (fid) return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + (Number(sizePx) || 400);
+        if (fid) {
+            const rev = extractDrivePhotoRevInFotos(u);
+            return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + (Number(sizePx) || 400) + (rev ? ('?v=' + encodeURIComponent(rev)) : '');
+        }
         return /^https?:\/\//i.test(u) ? u : '';
     }
 

@@ -1062,7 +1062,7 @@
         if (/^data:image\//i.test(allowed)) return allowed;
         const fid = extractDriveFileId(allowed);
         if (fid) {
-            return 'https://lh3.googleusercontent.com/d/' + fid + '=w' + (Number(sizePx) || 400);
+            return buildDriveLh3Url(fid, '=w' + (Number(sizePx) || 400), extractDrivePhotoRev(allowed));
         }
         return allowed;
     }

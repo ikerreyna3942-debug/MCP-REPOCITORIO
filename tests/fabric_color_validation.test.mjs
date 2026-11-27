@@ -195,6 +195,12 @@ test('sanitizeVisualOverrideUrl and override guards block blob:, data:, javascri
   assert.equal(api.resolveVisualImgSrc(brokenBlob, 400), '');
   assert.equal(api.resolveVisualImgSrc(sampleDataImg, 400), sampleDataImg);
   assert.equal(api.resolveVisualImgSrc(driveFloffy, 400), 'https://lh3.googleusercontent.com/d/1jMn-Bg7xdtTOgpQ5_Z320J1cIDs9g4uy=w400');
+  const citySofaCamaRevUrl = 'https://drive.google.com/file/d/19mZKSZNFj2BQbZiZV-Jni-m80XB64Ymr/view?usp=sharing&v=2026112719';
+  assert.equal(api.resolveVisualImgSrc(citySofaCamaRevUrl, 600), 'https://lh3.googleusercontent.com/d/19mZKSZNFj2BQbZiZV-Jni-m80XB64Ymr=w600?v=2026112719');
+  assert.equal(api.resolveDriveOrImgUrl(citySofaCamaRevUrl), 'https://lh3.googleusercontent.com/d/19mZKSZNFj2BQbZiZV-Jni-m80XB64Ymr=w1000?v=2026112719');
+  const thumbRevHtml = api.buildThumbHtml({ s: 'ARMCITSCDERNF', f: citySofaCamaRevUrl }, { card: true });
+  assert.match(thumbRevHtml, /data-rev="2026112719"/);
+  assert.match(thumbRevHtml, /lh3\.googleusercontent\.com\/d\/19mZKSZNFj2BQbZiZV-Jni-m80XB64Ymr=w(?:400|600)\?v=2026112719/);
 
   // Broken Row 7 blob: returns '' and never crashes lookup
   assert.equal(api.getVisualOverridePhotoUrl('VFAB:DISTRACTION NATURAL'), '');

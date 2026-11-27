@@ -300,6 +300,11 @@
         OPTFIT_TARGET_FILL: OPTFIT_TARGET_FILL
     };
 
+    function buildOptFitKey(fid, rev) {
+        if (!fid) return '';
+        return rev ? (fid + ':' + rev) : fid;
+    }
+
     function drainOptFitQueue() {
         optFitScheduled = false;
         const map = loadOptFitMap();
@@ -309,13 +314,15 @@
             const imgEl = optFitQueue.shift();
             if (!imgEl || !imgEl.isConnected) continue;
             const fid = imgEl.getAttribute('data-fid') || '';
-            if (fid && Object.prototype.hasOwnProperty.call(map, fid)) {
-                applyOptFitVars(imgEl, map[fid]);
+            const rev = imgEl.getAttribute('data-rev') || '';
+            const fitKey = buildOptFitKey(fid, rev);
+            if (fitKey && Object.prototype.hasOwnProperty.call(map, fitKey)) {
+                applyOptFitVars(imgEl, map[fitKey]);
                 continue;
             }
             const bbox = analyzeImageOpticalFit(imgEl);
-            if (fid) {
-                map[fid] = bbox;
+            if (fitKey) {
+                map[fitKey] = bbox;
                 dirty = true;
             }
             applyOptFitVars(imgEl, bbox);
@@ -338,9 +345,11 @@
     window.__invOnCardImgLoad = function (imgEl) {
         if (!imgEl || !imgEl.getAttribute('data-card-img')) return;
         const fid = imgEl.getAttribute('data-fid') || '';
+        const rev = imgEl.getAttribute('data-rev') || '';
+        const fitKey = buildOptFitKey(fid, rev);
         const map = loadOptFitMap();
-        if (fid && Object.prototype.hasOwnProperty.call(map, fid)) {
-            applyOptFitVars(imgEl, map[fid]);
+        if (fitKey && Object.prototype.hasOwnProperty.call(map, fitKey)) {
+            applyOptFitVars(imgEl, map[fitKey]);
             return;
         }
         optFitQueue.push(imgEl);
@@ -350,25 +359,27 @@
     window.__invHandleCardImgError = function (imgEl) {
         if (!imgEl) return;
         const fid = imgEl.getAttribute('data-fid') || '';
+        const rev = imgEl.getAttribute('data-rev') || '';
+        const revAmp = rev ? ('&v=' + encodeURIComponent(rev)) : '';
         const step = parseInt(imgEl.getAttribute('data-fb-step') || '0', 10);
         if (fid && /^[a-zA-Z0-9_-]{15,}$/.test(fid)) {
             if (step === 0) {
                 imgEl.setAttribute('data-fb-step', '1');
                 try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
                 imgEl.crossOrigin = null;
-                imgEl.src = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w600';
+                imgEl.src = buildDriveLh3Url(encodeURIComponent(fid), '=w600', rev);
                 return;
             }
             if (step === 1) {
                 imgEl.setAttribute('data-fb-step', '2');
                 try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
-                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w800';
+                imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(fid) + '&sz=w800' + revAmp;
                 return;
             }
             if (step === 2) {
                 imgEl.setAttribute('data-fb-step', '3');
                 try { imgEl.removeAttribute('crossorigin'); } catch (e) {}
-                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid);
+                imgEl.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(fid) + revAmp;
                 return;
             }
         }
@@ -415,6 +426,7 @@
         const o = opts || {};
         const url = photoUrlForItem(it);
         const fid = it ? extractDriveFileId(it.f) : '';
+        const rev = it ? extractDrivePhotoRev(it.f) : '';
         if (!url || (fid && failedDrivePhotoIds.has(fid))) {
             return '<div class="inv-thumb"><div class="inv-thumb-stage is-empty"><div class="inv-thumb-placeholder">' + THUMB_PLACEHOLDER_SVG + '</div></div></div>';
         }
@@ -423,7 +435,7 @@
             const sz = o.compact
                 ? '=w160'
                 : (o.card && typeof window !== 'undefined' && window.innerWidth >= 768 ? '=w600' : '=w400');
-            targetUrl = 'https://lh3.googleusercontent.com/d/' + fid + sz;
+            targetUrl = buildDriveLh3Url(fid, sz, rev);
         }
         const loadingAttr = o.eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
         const enableOptFit = !!(o.card || o.compact);
@@ -433,7 +445,8 @@
         const cardAttr = enableOptFit ? (' data-card-img="1" data-box-ratio="' + boxRatio.toFixed(4) + '"') : '';
         let inlineFitStyle = '';
         if (enableOptFit && fid) {
-            const cachedBbox = loadOptFitMap()[fid];
+            const fitKey = buildOptFitKey(fid, rev);
+            const cachedBbox = loadOptFitMap()[fitKey];
             if (cachedBbox && cachedBbox !== 'skip') {
                 const cachedFit = (typeof cachedBbox.uMin === 'number')
                     ? computeOpticalFitForBox(cachedBbox, boxRatio)
@@ -449,7 +462,7 @@
         }
         return '<div class="inv-thumb"><div class="inv-thumb-stage">' +
             '<img width="' + imgW + '" height="' + imgH + '" ' + loadingAttr + ' decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" alt=""' +
-            cardAttr + (fid ? (' data-fid="' + escapeHtml(fid) + '"') : '') + inlineFitStyle +
+            cardAttr + (fid ? (' data-fid="' + escapeHtml(fid) + '"') : '') + (rev ? (' data-rev="' + escapeHtml(rev) + '"') : '') + inlineFitStyle +
             ' src="' + escapeHtml(targetUrl) + '"' +
             (enableOptFit ? ' onload="window.__invOnCardImgLoad&&window.__invOnCardImgLoad(this)"' : '') +
             ' onerror="window.__invHandleCardImgError&&window.__invHandleCardImgError(this)">' +
@@ -720,8 +733,12 @@
                         if (!sk || savedBySku.has(sk)) continue;
                         const fid = cleanStr(ov.fileId || extractDriveFileId(cleanUrl));
                         if ((delSkus && delSkus[sk]) || (fid && delFiles && delFiles[fid])) continue;
+                        const versionedUrl = (fid && ov.ts && !extractDrivePhotoRev(cleanUrl))
+                            ? (cleanUrl + (cleanUrl.indexOf('?') !== -1 ? '&' : '?') + 'v=' + Math.trunc(Number(ov.ts)))
+                            : cleanUrl;
                         savedBySku.set(sk, {
-                            newUrl: cleanUrl,
+                            newUrl: versionedUrl,
+                            rawUrl: cleanUrl,
                             fileId: fid,
                             previousUrl: cleanStr(ov.previousUrl)
                         });
@@ -751,7 +768,11 @@
                 const ov = savedBySku.get(skuKey);
                 const savedFid = ov.fileId;
                 const prevFid = extractDriveFileId(ov.previousUrl);
-                if (!curFid || curFid === savedFid || (prevFid && curFid === prevFid)) {
+                const curRev = extractDrivePhotoRev(it.f);
+                const ovExplicitRev = extractDrivePhotoRev(ov.rawUrl);
+                const isPendingFidPropagation = !curFid || (prevFid && curFid === prevFid && curFid !== savedFid);
+                const canUpgradeSameFidRev = curFid === savedFid && (!curRev || (ovExplicitRev && curRev !== ovExplicitRev));
+                if (isPendingFidPropagation || canUpgradeSameFidRev) {
                     if (it.f !== ov.newUrl) {
                         it.f = ov.newUrl;
                         if (savedFid) failedDrivePhotoIds.delete(savedFid);

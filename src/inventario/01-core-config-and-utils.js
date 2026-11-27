@@ -401,11 +401,23 @@
         return m ? m[1] : '';
     }
 
+    function extractDrivePhotoRev(raw) {
+        const s = cleanStr(raw);
+        if (!s) return '';
+        const m = s.match(/[?&]v=([a-zA-Z0-9._-]{1,32})/);
+        return m ? m[1] : '';
+    }
+
+    function buildDriveLh3Url(fid, sizeToken, rev) {
+        if (!fid) return '';
+        return 'https://lh3.googleusercontent.com/d/' + fid + (sizeToken || '=w1000') + (rev ? ('?v=' + encodeURIComponent(rev)) : '');
+    }
+
     function resolveDriveOrImgUrl(raw) {
         const s = cleanStr(raw);
         if (!s) return '';
         const fid = extractDriveFileId(s);
-        if (fid) return 'https://lh3.googleusercontent.com/d/' + fid + '=w1000';
+        if (fid) return buildDriveLh3Url(fid, '=w1000', extractDrivePhotoRev(s));
         if (/^https?:\/\//i.test(s) || s.startsWith('data:image/')) return s;
         return '';
     }
