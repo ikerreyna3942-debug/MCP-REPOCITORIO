@@ -237,7 +237,7 @@ test('GAS backend: inv_register_demand_request saves auto-filled SKU, model, qty
   assert.equal(tabRows[2][3], 'SALA EN L PIERO');
   assert.equal(tabRows[2][6], 2);
   assert.ok(String(tabRows[2][7]).startsWith("'="), 'Leading = must be neutralized against spreadsheet formula injection');
-  assert.equal(tabRows[2][9], 'CREATA PUERTO CANCUN');
+  assert.equal(tabRows[2][9], 'PROYECTOS ANIPA INTERIOR', 'Non-admin demand request store must bind to verified assigned store (SEC-11)');
   assert.equal(tabRows[2][12], 'PENDIENTE');
   assert.ok(auditLogs.some((e) => e.modulo === 'Demanda sin stock' && e.referencia === 'PIERO001'), 'Must log demand request into HISTORIAL');
 

@@ -121,7 +121,8 @@ test('Cotizador, Historial & Panel fixes: no password self-lockout, ev.key guard
   const histJs = readRepo('historial-app.js');
   const panelJs = readRepo('panel-app.js');
 
-  assert.match(invJs, /pMap\[activeAdvisorSession\.correo\]\s*=\s*\{\s*newKey:\s*newPass,\s*prevKey:\s*currPass,\s*synced:\s*true/);
+  assert.ok(!/pMap\[activeAdvisorSession\.correo\]\s*=\s*\{\s*newKey:\s*newPass/.test(invJs), 'inventario-app.js must NOT persist plaintext passwords in localStorage (SEC-01)');
+  assert.match(invJs, /purgeLegacySyncedPendingKeys\(\)/);
   assert.match(invJs, /typeof ev\.key === 'string' && ev\.key\.length === 1/);
   assert.match(invJs, /btnSend\.textContent = 'Crear Cotización'/);
   assert.match(invJs, /window\.openInAppHistorial\s*=\s*function\s*\(\)[\s\S]{0,320}isEffectiveAdminSession\(\)[\s\S]{0,80}hasAdminPerm\('historial'\)/);

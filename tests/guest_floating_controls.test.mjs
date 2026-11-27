@@ -311,7 +311,9 @@ test('Apps Script backend: guest sessions, Col J revocation, heartbeat kickout, 
     authToken: laptopToken
   });
   assert.equal(updPassRes.ok, true);
-  assert.equal(invitadosRows[1][6], 'NuevaVip2026');
+  assert.match(String(invitadosRows[1][6]), /^sha256i\$\d+\$[a-zA-Z0-9_-]{8,}\$[a-f0-9]{64}$/);
+  assert.notEqual(invitadosRows[1][6], 'NuevaVip2026');
+  assert.equal(sandbox.keysEqualNormalized_('NuevaVip2026', invitadosRows[1][6]), true);
   assert.equal(invitadosRows[1][5], '');
   const updatedToken = updPassRes.authToken;
 

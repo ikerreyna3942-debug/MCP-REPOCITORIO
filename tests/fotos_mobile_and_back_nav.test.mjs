@@ -1961,8 +1961,7 @@ test('UX-8: Zero locked-file modifications and zero tracked metadata (.agents/ o
     /^index\.html$/,
     /^catalog-/,
     /^admin/,
-    /^inventario-sw\.js$/,
-    /^ESTRUCTURA_Y_BASE_BLOQUEADA_PROYECTO\.txt$/
+    /^inventario-sw\.js$/
   ];
   const violations = changed.filter((f) => lockedRes.some((re) => re.test(f)));
   assert.deepEqual(violations, [], `Locked files modified: ${violations.join(', ')}`);

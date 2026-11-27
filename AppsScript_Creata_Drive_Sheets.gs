@@ -100,16 +100,34 @@ function constantTimeEquals_(aRaw, bRaw) {
   return diff === 0;
 }
 
+const PASSWORD_HASH_DEFAULT_ITERS_ = 2500;
+const PASSWORD_HASH_MAX_ITERS_ = 20000;
+
 function isHashedPassword_(val) {
-  return /^sha256\$[a-zA-Z0-9_-]{8,}\$[a-f0-9]{64}$/i.test(String(val || '').trim());
+  const s = String(val || '').trim();
+  return /^sha256i\$\d+\$[a-zA-Z0-9_-]{8,}\$[a-f0-9]{64}$/i.test(s) ||
+    /^sha256\$[a-zA-Z0-9_-]{8,}\$[a-f0-9]{64}$/i.test(s);
 }
 
-function hashUserPassword_(plainKey, saltOpt) {
+function hashUserPassword_(plainKey, saltOpt, itersOpt) {
   const clean = String(plainKey || '').trim();
   if (!clean) return '';
-  const salt = String(saltOpt || (Utilities.getUuid().replace(/-/g, '').slice(0, 16))).trim();
-  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, salt + ':' + clean);
-  return 'sha256$' + salt + '$' + bytesToHex_(digest);
+  let salt = String(saltOpt || '').trim();
+  if (!salt) {
+    if (typeof Utilities !== 'undefined' && typeof Utilities.getUuid === 'function') {
+      salt = Utilities.getUuid().replace(/-/g, '').slice(0, 16);
+    } else {
+      salt = bytesToHex_(
+        Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(Date.now()) + ':' + String(Math.random()))
+      ).slice(0, 16);
+    }
+  }
+  const iters = Math.max(1, Math.min(PASSWORD_HASH_MAX_ITERS_, parseInt(String(itersOpt || PASSWORD_HASH_DEFAULT_ITERS_), 10) || PASSWORD_HASH_DEFAULT_ITERS_));
+  let hex = bytesToHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, salt + ':' + clean));
+  for (let r = 1; r < iters; r++) {
+    hex = bytesToHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, hex + ':' + salt + ':' + clean));
+  }
+  return 'sha256i$' + iters + '$' + salt + '$' + hex;
 }
 
 function getKeyEpochForEmail_(emailRaw) {
@@ -994,23 +1012,19 @@ function doGet(e) {
   }
 
   if (action === 'inv_presence_list') {
+    const reqKeyParam = String((e && e.parameter && e.parameter.accessKey) || '').trim();
+    if (reqKeyParam) {
+      return jsonResponse_({ ok: false, error: 'Por seguridad, accessKey solo se acepta vía POST.' });
+    }
     const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: false, rateBucket: 'pres_list', maxHits: 45, windowSec: 60 });
     const reqEmailNorm = String((e && e.parameter && (e.parameter.advisorEmail || e.parameter.email)) || '').trim().toLowerCase().replace(/,/g, '.');
-    const reqKeyParam = String((e && e.parameter && e.parameter.accessKey) || '').trim();
     if (!gate.ok) {
-      const hasKeyFallback = Boolean(reqEmailNorm && reqKeyParam);
-      if (!hasKeyFallback) {
-        return jsonResponse_({ ok: false, authRequired: true, error: 'Token de sesión inválido o expirado.' });
-      }
-      if (!checkRateLimitSilent_('get_pres_key:' + reqEmailNorm, 20, 60)) {
-        return jsonResponse_({ ok: false, error: 'Demasiadas solicitudes. Intenta en unos segundos.' });
-      }
+      return jsonResponse_({ ok: false, authRequired: true, error: 'Token de sesión inválido o expirado.' });
     }
     try {
       const reqBody = {
         authToken: extractAuthTokenFromRequest_(e, null),
         advisorEmail: reqEmailNorm,
-        accessKey: reqKeyParam,
         sheetTab: String((e && e.parameter && e.parameter.sheetTab) || '').trim(),
         erpStore: String((e && e.parameter && e.parameter.erpStore) || '').trim()
       };
@@ -1077,7 +1091,7 @@ function doGet(e) {
   }
 
   if (action === 'inv_plantilla_status') {
-    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: true, allowAdminPin: true, rateBucket: 'get_plantilla', maxHits: 45, windowSec: 60 });
+    const gate = authorizePrivateTokenOrPin_(e, null, { allowGuest: false, allowAdminPin: true, rateBucket: 'get_plantilla', maxHits: 45, windowSec: 60 });
     if (!gate.ok) return jsonResponse_({ ok: false });
     try {
       return jsonResponse_(handleInvPlantillaStatus_());
@@ -1177,7 +1191,7 @@ function doPost(e) {
     if (action === 'inv_log_event') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_log', maxHits: 60, windowSec: 60 });
       if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
-      return jsonResponse_(handleInvLogEvent_(body));
+      return jsonResponse_(handleInvLogEvent_(body, gate.tokenInfo || null, !!gate.viaPin));
     }
     if (action === 'seg_action') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_seg_act', maxHits: 45, windowSec: 60 });
@@ -1477,7 +1491,7 @@ function doPost(e) {
       return jsonResponse_(handleInvUploadProductPhoto_(body));
     }
     if (action === 'inv_plantilla_status') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_plantilla', maxHits: 45, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_plantilla', maxHits: 45, windowSec: 60 });
       if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       return jsonResponse_(handleInvPlantillaStatus_());
     }
@@ -1523,6 +1537,7 @@ function doPost(e) {
       action === 'fotos_direct_upload_assign' ||
       action === 'fotos_upload_visual_override' ||
       action === 'fotos_reorganize_from_sheets' ||
+      action === 'fotos_photo_action' ||
       action === 'fotos_delete' ||
       action === 'fotos_subir_delete' ||
       action === 'fotos_sync_skus'
@@ -1565,6 +1580,7 @@ function doPost(e) {
       else if (action === 'fotos_upload_visual_override') fotosRes = handleFotosUploadVisualOverride_(body);
       else if (action === 'fotos_reorganize_from_sheets') fotosRes = handleFotosReorganizeFromSheets_(body);
       else if (action === 'fotos_sync_skus') fotosRes = handleFotosSyncSkus_(body);
+      else if (action === 'fotos_photo_action') fotosRes = handleFotosPhotoAction_(body);
       else fotosRes = handleFotosDelete_(body);
 
       if (shouldMintFreshToken && fotosRes && fotosRes.ok) {
@@ -1607,6 +1623,14 @@ function doPost(e) {
     }
     return jsonResponse_({ ok: false, error: 'Acción no reconocida: ' + action });
   } catch (err) {
+    const errMsg = (err && err.message) ? err.message : String(err);
+    if (isTransientLockTimeoutError_(errMsg)) {
+      return jsonResponse_({
+        ok: false,
+        retryable: true,
+        error: 'Otro guardado está en curso, reintentando automáticamente...'
+      });
+    }
     if (parsedAction !== 'inv_log_event') {
       try {
         registrarEventoHistorial_(getSpreadsheet_(), {
@@ -1617,13 +1641,19 @@ function doPost(e) {
           usuario: String((parsedBody && (parsedBody.advisorEmail || parsedBody.email)) || 'WebApp'),
           sucursal: String((parsedBody && (parsedBody.erpStore || parsedBody.sheetTab)) || ''),
           referencia: parsedAction || 'doPost',
-          detalle: (err && err.message) ? err.message : String(err),
+          detalle: errMsg,
           analisis: analizarCausaFalloCodigo_(err, 'AppsScript · doPost', parsedAction)
         });
       } catch (eHistIgnore) {}
     }
-    return jsonResponse_({ ok: false, error: err.message || String(err) });
+    return jsonResponse_({ ok: false, error: errMsg });
   }
+}
+
+function isTransientLockTimeoutError_(errOrMsg) {
+  const txt = String((errOrMsg && (errOrMsg.message || errOrMsg)) || '').trim();
+  if (!txt) return false;
+  return /obtener el candado ha expirado|Lock timeout|Timed out waiting for lock|waitLock/i.test(txt);
 }
 
 function readAllCatalogRows_(includePrivate) {
@@ -3323,17 +3353,6 @@ function checkAndRegisterGuestDevice_(ss, guestUser, rawDeviceId, rawDeviceLabel
     if (existingIdx === -1 && devices.length >= maxAllowedPlaces) {
       const placesDesc = devices.map((d, idx) => 'Lugar ' + (idx + 1) + ': ' + (d.label || 'Dispositivo')).join(' · ');
       const pluralLbl = maxAllowedPlaces === 1 ? '1 dispositivo permitido' : (maxAllowedPlaces + ' dispositivos permitidos');
-      registrarEventoHistorial_(ss || getSpreadsheet_(), {
-        clasificacion: 'ALERTA TÉCNICA',
-        modulo: 'AppsScript · INVITADOS (Límite ' + maxAllowedPlaces + ' Dispositivos)',
-        evento: 'ACCESO BLOQUEADO POR LÍMITE DE DISPOSITIVOS PERMITIDOS (' + maxAllowedPlaces + ')',
-        estado: '⚠️ BLOQUEADO',
-        usuario: (guestUser.nombre || email) + ' (' + email + ')',
-        sucursal: 'INVITADOS (SOLO VER)',
-        referencia: 'Intento en dispositivo extra: ' + devLabel + ' [ID:' + devId + ']',
-        detalle: 'El correo ' + email + ' ya tiene sus ' + maxAllowedPlaces + ' lugares ocupados (' + placesDesc + ').',
-        analisis: 'Regla activa en hoja INVITADOS (Columna H = ' + maxAllowedPlaces + '): para liberar lugares, borrar la celda de Dispositivos Autorizados (Columna J) o aumentar Dispositivos Permitidos (Columna H).'
-      });
       return {
         ok: false,
         limitReached: true,
@@ -3686,12 +3705,15 @@ function checkLoginThrottle_(email) {
 function recordLoginFailure_(email) {
   try {
     const clean = String(email || '').trim().toLowerCase();
-    if (!clean) return;
+    if (!clean) return 1;
     const cache = CacheService.getScriptCache();
     const key = makeShortCacheKey_('lf_', clean);
     const fails = (parseInt(cache.get(key) || '0', 10) || 0) + 1;
-    cache.put(key, String(fails), 600);
-  } catch (e) {}
+    cache.put(key, String(fails), 900);
+    return fails;
+  } catch (e) {
+    return 1;
+  }
 }
 
 function clearLoginFailures_(email) {
@@ -4335,10 +4357,17 @@ function keysEqualNormalized_(inputVal, storedVal) {
   const a = String(inputVal || '').trim();
   const b = String(storedVal || '').trim();
   if (!a || !b) return false;
-  if (isHashedPassword_(b)) {
-    const parts = b.split('$');
-    const candidateHash = hashUserPassword_(a, parts[1]);
+  const iterMatch = /^sha256i\$(\d+)\$([a-zA-Z0-9_-]{8,})\$([a-f0-9]{64})$/i.exec(b);
+  if (iterMatch) {
+    const iters = Math.max(1, Math.min(PASSWORD_HASH_MAX_ITERS_, parseInt(iterMatch[1], 10) || PASSWORD_HASH_DEFAULT_ITERS_));
+    const candidateHash = hashUserPassword_(a, iterMatch[2], iters);
     return constantTimeEquals_(candidateHash, b);
+  }
+  const legacyMatch = /^sha256\$([a-zA-Z0-9_-]{8,})\$([a-f0-9]{64})$/i.exec(b);
+  if (legacyMatch) {
+    const legacyDigest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, legacyMatch[1] + ':' + a);
+    const candidateLegacy = 'sha256$' + legacyMatch[1] + '$' + bytesToHex_(legacyDigest);
+    return constantTimeEquals_(candidateLegacy, b);
   }
   if (constantTimeEquals_(a, b)) return true;
   const aCompact = a.replace(/\s+/g, '');
@@ -4377,16 +4406,28 @@ function handleInvLogin_(body) {
     return { ok: false, error: 'El correo ingresado no está registrado en ninguna hoja de sucursal ni en INVITADOS.' };
   }
 
+  const keyMatchCache = Object.create(null);
+  const matchesInputKey = (storedHash) => {
+    const k = String(storedHash || '');
+    if (!k) return false;
+    if (Object.prototype.hasOwnProperty.call(keyMatchCache, k)) {
+      return keyMatchCache[k];
+    }
+    const matched = keysEqualNormalized_(inputKey, k);
+    keyMatchCache[k] = matched;
+    return matched;
+  };
+
   const validMatches = emailMatches.filter((u) => {
     if (u.isGuest && u.noPasswordRequired) {
       return true;
     }
     if (!inputKey) return false;
     if (u.defKey) {
-      return keysEqualNormalized_(inputKey, u.defKey);
+      return matchesInputKey(u.defKey);
     }
     if (u.tempKey) {
-      return keysEqualNormalized_(inputKey, u.tempKey);
+      return matchesInputKey(u.tempKey);
     }
     return false;
   });
@@ -4395,18 +4436,33 @@ function handleInvLogin_(body) {
     if (!inputKey) {
       return { ok: false, error: 'Ingresa tu contraseña para acceder con tu cuenta.' };
     }
-    recordLoginFailure_(email);
-    registrarEventoHistorial_(ss, {
-      clasificacion: 'ALERTA TÉCNICA',
-      modulo: 'AppsScript · handleInvLogin_',
-      evento: 'INTENTO DE ACCESO CON CONTRASEÑA INCORRECTA',
-      estado: '⚠️ RECHAZADO',
-      usuario: email,
-      sucursal: selectedTab || (emailMatches[0] && emailMatches[0].erpStore) || 'INVENTARIO WEB',
-      referencia: 'Autenticación',
-      detalle: 'Contraseña ingresada no coincide con la clave activa del usuario (' + email + ').',
-      analisis: 'Validación de acceso ejecutada sin alterar la sesión ni las claves almacenadas.'
-    });
+    const failCount = recordLoginFailure_(email) || 1;
+    const targetBranch = selectedTab || (emailMatches[0] && emailMatches[0].erpStore) || 'INVENTARIO WEB';
+    if (failCount >= 5) {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript · handleInvLogin_',
+        evento: 'INTENTOS REPETIDOS DE ACCESO SOSPECHOSO',
+        estado: '❌ BLOQUEO',
+        usuario: email,
+        sucursal: targetBranch,
+        referencia: 'Autenticación (' + failCount + ' intentos)',
+        detalle: 'Se detectaron ' + failCount + ' intentos seguidos con contraseña incorrecta para la cuenta (' + email + ').',
+        analisis: 'Alerta crítica de seguridad N1 por intentos repetidos de contraseña en ventana corta.'
+      });
+    } else {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'ALERTA TÉCNICA',
+        modulo: 'AppsScript · handleInvLogin_',
+        evento: 'INTENTO DE ACCESO CON CONTRASEÑA INCORRECTA',
+        estado: '⚠️ RECHAZADO',
+        usuario: email,
+        sucursal: targetBranch,
+        referencia: 'Autenticación',
+        detalle: 'Contraseña ingresada no coincide con la clave activa del usuario (' + email + ').',
+        analisis: 'Validación de acceso ejecutada sin alterar la sesión ni las claves almacenadas.'
+      });
+    }
     return { ok: false, error: 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.' };
   }
 
@@ -4418,7 +4474,7 @@ function handleInvLogin_(body) {
   const candidateMatches = hasValidNonGuestMatch
     ? emailMatches.filter((u) => !isGuestReadOnlyUser_(u))
     : validMatches;
-  const matchedViaDefKey = validMatches.some((u) => !!u.defKey && keysEqualNormalized_(inputKey, u.defKey));
+  const matchedViaDefKey = validMatches.some((u) => !!u.defKey && matchesInputKey(u.defKey));
   const hasAnyDefKeyForEmail = candidateMatches.some((u) => !!u.defKey);
 
   // Si la cuenta que inicia sesión pertenece a INVITADOS, verificar y registrar el límite de dispositivos configurado en Columna H
@@ -4446,7 +4502,7 @@ function handleInvLogin_(body) {
 
   // Emitir tokens firmados para todas las ubicaciones autorizadas de este correo
   const authorizedLocs = checkedMatches.map((u) => {
-    const usedTemp = !matchedViaDefKey && !hasAnyDefKeyForEmail && !u.defKey && ((!!u.tempKey && keysEqualNormalized_(inputKey, u.tempKey)) || (u.isGuest && u.noPasswordRequired));
+    const usedTemp = !matchedViaDefKey && !hasAnyDefKeyForEmail && !u.defKey && ((!!u.tempKey && matchesInputKey(u.tempKey)) || (u.isGuest && u.noPasswordRequired));
     const sanitized = sanitizeUserForClient_(u, true);
     sanitized.mustChangeKey = usedTemp;
     if (sanitized.isManager && !sanitized.isAdmin && !sanitized.isGuest) {
@@ -4531,8 +4587,8 @@ function handleInvUpdateKey_(body) {
   if (!email || !newKey) {
     return { ok: false, error: 'Datos incompletos para actualizar la contraseña.' };
   }
-  if (newKey.length < 4) {
-    return { ok: false, error: 'La nueva contraseña debe tener al menos 4 caracteres.' };
+  if (newKey.length < 8) {
+    return { ok: false, error: 'La nueva contraseña debe tener al menos 8 caracteres.' };
   }
   if (!checkLoginThrottle_(email)) {
     return { ok: false };
@@ -4593,7 +4649,7 @@ function handleInvUpdateKey_(body) {
   }
   clearLoginFailures_(email);
 
-  const hashEnabled = getProp_('HASH_USER_PASSWORDS') === '1';
+  const hashEnabled = getProp_('HASH_USER_PASSWORDS') !== '0';
   const storedKeyVal = hashEnabled ? hashUserPassword_(newKey) : newKey;
   bumpKeyEpochForEmail_(email);
 
@@ -4657,7 +4713,7 @@ function resolveAuthenticatedAdvisor_(ss, erpAdvisors, body) {
     targetEmail = verifiedToken.email;
     tokenTab = verifiedToken.sheetTab;
   } else {
-    const reqEmail = String((body && body.advisorEmail) || '').trim().toLowerCase();
+    const reqEmail = String((body && (body.advisorEmail || body.email || body.correo)) || '').trim().toLowerCase().replace(/,/g, '.');
     const reqKey = String((body && body.accessKey) || '').trim();
     if (reqEmail) {
       const matchByKey = allUsers.find((u) => {
@@ -5299,9 +5355,17 @@ function handleInvMyQuotes_(body) {
       recentQuotes: []
     };
   }
+  if (!userHasEffectivePerm_(u, 'cotizador')) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Tu cuenta tiene desactivado el permiso VER_COTIZADOR en CUENTAS ADMINISTRATIVAS.'
+    };
+  }
   const shQuotes = ss.getSheetByName(TAB_QUOTES_LIVE_);
   const folioSnap = computeLiveErpFoliosAndQuotes_(ss, erpMeta.advisors);
-  const targetStore = (u.isAdmin && body && body.erpStore) ? String(body.erpStore).trim() : u.erpStore;
+  const canSwitchStore = userHasAdminPerm_(u, 'cambiarTienda');
+  const targetStore = (canSwitchStore && body && body.erpStore) ? String(body.erpStore).trim() : u.erpStore;
   const nextOrderCode = peekNextStoreErpFolio_(targetStore, u.orderPrefix, folioSnap);
   const allowedSnap = readAllowedGeneratedQuotesForUser_(ss, shQuotes, u, authCheck.allUsers, targetStore);
   const sanitizedAdv = sanitizeUserForClient_(u, false);
@@ -6240,7 +6304,7 @@ function escapeSheetPlainText_(v) {
 
 function safeSheetCellText_(raw, maxLen) {
   let s = String(raw === null || raw === undefined ? '' : raw).replace(/[\r\n\t]+/g, ' ').trim();
-  if (maxLen && s.length > maxLen) s = s.slice(0, maxLen);
+  if (maxLen && s.length > maxLen) s = s.slice(0, maxLen).trim();
   if (/^[=+\-@]/.test(s)) s = "'" + s;
   return s;
 }
@@ -6275,7 +6339,7 @@ function handleInvSubmitQuote_(body) {
         error: 'Acceso de Solo Lectura (Hoja INVITADOS): tu correo tiene permiso únicamente para ver el inventario; no puede generar cotizaciones ni aplicar descuentos.'
       };
     }
-    if (verifiedUser.isAdmin && verifiedUser.adminPermissions && verifiedUser.adminPermissions.cotizador === false) {
+    if (!userHasEffectivePerm_(verifiedUser, 'cotizador')) {
       return {
         ok: false,
         forbidden: true,
@@ -6296,7 +6360,7 @@ function handleInvSubmitQuote_(body) {
     let erpStore = verifiedUser.erpStore;
     let idUsuarioNum = parseInt(String(verifiedUser.erpAdvisorId || '').trim(), 10) || 0;
     let erpAdvisorLabel = verifiedUser.erpAdvisorLabel || '';
-    const canAdminSwitchStore = Boolean(verifiedUser.isAdmin && (!verifiedUser.adminPermissions || verifiedUser.adminPermissions.cambiarTienda !== false));
+    const canAdminSwitchStore = userHasAdminPerm_(verifiedUser, 'cambiarTienda');
 
     if (canAdminSwitchStore) {
       const reqStore = String(body.erpStore || '').trim();
@@ -6563,7 +6627,10 @@ function handleInvSubmitQuote_(body) {
           }
         }
         if (precioOrig <= 0) {
-          precioOrig = Number(reqItem.unitList || 0) || 0;
+          return {
+            ok: false,
+            error: 'El SKU ' + sku + ' no tiene precio de lista válido en S Mueblería.'
+          };
         }
 
         const precioUnit = Math.round(precioOrig * (1 - discFrac) * 10000) / 10000;
@@ -7360,6 +7427,13 @@ function handleInvDownloadErpQuotePdf_(body) {
       error: 'Acceso de Solo Lectura (Hoja INVITADOS): tu cuenta no tiene permisos para consultar ni descargar cotizaciones.'
     };
   }
+  if (!userHasEffectivePerm_(verifiedUser, 'cotizador')) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Tu cuenta tiene desactivado el permiso VER_COTIZADOR en CUENTAS ADMINISTRATIVAS.'
+    };
+  }
 
   try {
     const resolved = resolveErpQuoteMetadataForPdf_(ss, body || {});
@@ -7508,10 +7582,10 @@ function handleInvDownloadErpQuotePdf_(body) {
 
     const failMsg = lastErrMsg || 'No fue posible obtener el PDF original desde VisorReportes.aspx en S Mueblería.';
     registrarEventoHistorial_(ss, {
-      clasificacion: 'ALERTA TÉCNICA',
+      clasificacion: 'FALLO DE CÓDIGO',
       modulo: 'AppsScript · VisorReportes S Mueblería',
       evento: 'AVISO AL DESCARGAR PDF ORIGINAL S MUEBLERÍA',
-      estado: '⚠️ ALERTA',
+      estado: '❌ ERROR',
       usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
       sucursal: resolved.erpStore || verifiedUser.erpStore || '',
       referencia: (resolved.folio || '') + ' (ID ERP ' + resolved.quoteIdNum + ')',
@@ -8355,10 +8429,10 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     } catch (lpptErr) {
       Logger.log('Aviso lectura LPPT solo lectura: ' + lpptErr);
       registrarEventoHistorial_(ss, {
-        clasificacion: 'ALERTA TÉCNICA',
+        clasificacion: 'FALLO DE CÓDIGO',
         modulo: 'AppsScript · sincronizarInventarioEnVivoDesdeERP',
         evento: 'LECTURA LPPT PROVEEDORES CON INCIDENCIA',
-        estado: '⚠️ ALERTA',
+        estado: '❌ ERROR',
         usuario: 'Sincronizador Automático',
         sucursal: 'INVENTARIO_EN_VIVO',
         referencia: 'LPPT Proveedores',
@@ -9919,6 +9993,13 @@ function handleInvSearchErpClients_(body) {
   if (isGuestReadOnlyUser_(authCheck.advisor)) {
     return { ok: false, error: 'Tu cuenta de Invitado (Solo Ver) no tiene permisos para consultar clientes ni cotizar.' };
   }
+  if (!userHasEffectivePerm_(authCheck.advisor, 'cotizador')) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Tu cuenta tiene desactivado el permiso VER_COTIZADOR en CUENTAS ADMINISTRATIVAS.'
+    };
+  }
 
   const rawQuery = String((body && (body.query || body.q)) || '').trim();
   if (rawQuery.length < 2) {
@@ -10100,10 +10181,17 @@ function handleInvCreateErpClient_(body) {
     if (isGuestReadOnlyUser_(verifiedUser)) {
       return { ok: false, error: 'Tu cuenta de Invitado (Solo Ver) no tiene permisos para dar de alta clientes ni cotizar.' };
     }
+    if (!userHasEffectivePerm_(verifiedUser, 'cotizador')) {
+      return {
+        ok: false,
+        forbidden: true,
+        error: 'Tu cuenta tiene desactivado el permiso VER_COTIZADOR en CUENTAS ADMINISTRATIVAS.'
+      };
+    }
     const cfg = getErpRuntimeConfig_();
 
     let idAgente = parseInt(String(verifiedUser.erpAdvisorId || '').trim(), 10) || 0;
-    if (verifiedUser.isAdmin && body && body.erpAdvisorId) {
+    if (userHasAdminPerm_(verifiedUser, 'cambiarTienda') && body && body.erpAdvisorId) {
       idAgente = parseInt(String(body.erpAdvisorId).trim(), 10) || idAgente;
     }
     if (!idAgente || idAgente <= 0) {
@@ -10552,9 +10640,87 @@ const FORBIDDEN_PROJECT_B_FOLDER_IDS_ = {
   '1Jq2u1A6-xKi1YigUYSIzLauUww_RJ5Lx': 'MADERAS'
 };
 
+const FOTOS_ARCHIVADAS_FOLDER_NAME_ = 'FOTOS ARCHIVADAS';
+const FOTOS_ARCHIVADAS_PROP_KEY_ = 'PROJECT_A_ARCHIVED_FOLDER_ID_V1';
+const PROJECT_A_DRIVE_INV_CACHE_KEY_ = 'PROJECT_A_DRIVE_INV_CACHE_V1';
+
 function isForbiddenProjectBFolderId_(folderId) {
   const fid = String(folderId || '').trim();
   return !!(fid && Object.prototype.hasOwnProperty.call(FORBIDDEN_PROJECT_B_FOLDER_IDS_, fid));
+}
+
+function getProjectAArchivedFolderIdFast_() {
+  try {
+    const cached = CacheService.getScriptCache().get(FOTOS_ARCHIVADAS_PROP_KEY_);
+    if (cached && !isForbiddenProjectBFolderId_(cached)) return String(cached).trim();
+  } catch (eC) {}
+  try {
+    const prop = PropertiesService.getScriptProperties().getProperty(FOTOS_ARCHIVADAS_PROP_KEY_);
+    if (prop && !isForbiddenProjectBFolderId_(prop)) {
+      const cleanProp = String(prop).trim();
+      try { CacheService.getScriptCache().put(FOTOS_ARCHIVADAS_PROP_KEY_, cleanProp, 600); } catch (eC2) {}
+      return cleanProp;
+    }
+  } catch (eP) {}
+  return '';
+}
+
+function resolveOrCreateProjectAArchivedFolder_(createIfMissing) {
+  const persistArchId = function (fid) {
+    const clean = String(fid || '').trim();
+    if (!clean) return;
+    try { PropertiesService.getScriptProperties().setProperty(FOTOS_ARCHIVADAS_PROP_KEY_, clean); } catch (eP) {}
+    try { CacheService.getScriptCache().put(FOTOS_ARCHIVADAS_PROP_KEY_, clean, 600); } catch (eC) {}
+  };
+
+  const knownId = getProjectAArchivedFolderIdFast_();
+  if (knownId) {
+    try {
+      const fKnown = DriveApp.getFolderById(knownId);
+      if (fKnown && (!fKnown.isTrashed || !fKnown.isTrashed()) && !isForbiddenProjectBFolderId_(knownId)) {
+        let hasCatRootParent = false;
+        const pIt = fKnown.getParents();
+        while (pIt && pIt.hasNext()) {
+          const pf = pIt.next();
+          if (pf && String(pf.getId() || '').trim() === CATEGORIAS_DEST_ROOT_FOLDER_ID_) {
+            hasCatRootParent = true;
+            break;
+          }
+        }
+        if (hasCatRootParent) {
+          return { id: knownId, name: FOTOS_ARCHIVADAS_FOLDER_NAME_, folder: fKnown };
+        }
+      }
+    } catch (eKnown) {}
+  }
+
+  try {
+    const rootFld = DriveApp.getFolderById(CATEGORIAS_DEST_ROOT_FOLDER_ID_);
+    if (!rootFld || (rootFld.isTrashed && rootFld.isTrashed())) return null;
+    const subIt = rootFld.getFolders();
+    while (subIt && subIt.hasNext()) {
+      const sub = subIt.next();
+      if (!sub || (sub.isTrashed && sub.isTrashed())) continue;
+      const subId = String(sub.getId() || '').trim();
+      if (!subId || isForbiddenProjectBFolderId_(subId)) continue;
+      const subNameUpper = String(sub.getName() || '').trim().toUpperCase();
+      if (subNameUpper === FOTOS_ARCHIVADAS_FOLDER_NAME_) {
+        ensurePublicSharingItem_(sub);
+        persistArchId(subId);
+        return { id: subId, name: FOTOS_ARCHIVADAS_FOLDER_NAME_, folder: sub };
+      }
+    }
+    if (createIfMissing !== false && typeof rootFld.createFolder === 'function') {
+      const created = rootFld.createFolder(FOTOS_ARCHIVADAS_FOLDER_NAME_);
+      if (created) {
+        ensurePublicSharingItem_(created);
+        const createdId = String(created.getId() || '').trim();
+        persistArchId(createdId);
+        return { id: createdId, name: FOTOS_ARCHIVADAS_FOLDER_NAME_, folder: created };
+      }
+    }
+  } catch (eArch) {}
+  return null;
 }
 
 function isDestCategoryFolderId_(folderId) {
@@ -10564,6 +10730,8 @@ function isDestCategoryFolderId_(folderId) {
   for (let i = 0; i < CATEGORIAS_DEST_FOLDERS_.length; i++) {
     if (CATEGORIAS_DEST_FOLDERS_[i].id === fid) return true;
   }
+  const archId = getProjectAArchivedFolderIdFast_();
+  if (archId && fid === archId) return true;
   return false;
 }
 
@@ -11409,7 +11577,155 @@ function collectLoadedFileNamesMap_(forceRefresh) {
 }
 
 function invalidateLoadedFileNamesCache_() {
-  try { CacheService.getScriptCache().remove(PROJECT_A_LOADED_NAMES_CACHE_KEY_); } catch (e) {}
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove(PROJECT_A_LOADED_NAMES_CACHE_KEY_);
+    cache.remove(PROJECT_A_DRIVE_INV_CACHE_KEY_);
+  } catch (e) {}
+}
+
+function buildDriveFileItemDto_(f, folderMeta) {
+  if (!f) return null;
+  try {
+    const fid = String(f.getId() || '').trim();
+    const name = String(f.getName() || '').trim();
+    const mime = String((f.getMimeType && f.getMimeType()) || '').toLowerCase();
+    const classified = classifySubirInboxFileType_(mime, name);
+    if (!fid || !classified.ok) return null;
+    const isImg = classified.kind === 'image';
+    const updated = f.getLastUpdated ? f.getLastUpdated() : null;
+    return {
+      id: fid,
+      name: name,
+      kind: classified.kind,
+      ext: classified.ext,
+      mimeType: classified.mime,
+      sizeBytes: Number((f.getSize && f.getSize()) || 0) || 0,
+      updatedAt: updated ? updated.toISOString() : '',
+      folderId: folderMeta && folderMeta.id ? String(folderMeta.id) : '',
+      folderName: folderMeta && folderMeta.name ? String(folderMeta.name) : '',
+      viewUrl: 'https://drive.google.com/file/d/' + fid + '/view?usp=sharing',
+      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + fid,
+      thumbUrl: isImg ? ('https://lh3.googleusercontent.com/d/' + fid + '=w800') : ''
+    };
+  } catch (eDto) {
+    return null;
+  }
+}
+
+function collectProjectADriveInventory_(forceRefresh) {
+  try {
+    if (!forceRefresh) {
+      const cachedRaw = CacheService.getScriptCache().get(PROJECT_A_DRIVE_INV_CACHE_KEY_);
+      if (cachedRaw) {
+        const parsed = JSON.parse(cachedRaw);
+        if (parsed && Array.isArray(parsed.loadedDriveFiles) && Array.isArray(parsed.archivedFiles)) {
+          return parsed;
+        }
+      }
+    }
+  } catch (eCacheInv) {}
+
+  const startMs = Date.now();
+  const MAX_INV_MS = 18000;
+  const loadedDriveFiles = [];
+  const archivedFiles = [];
+  const loadedFileNames = {};
+  const seenLoaded = {};
+  const seenArch = {};
+  let complete = true;
+
+  const folderSpecs = CATEGORIAS_DEST_FOLDERS_.map((c) => ({ id: c.id, name: c.name }));
+  folderSpecs.push({ id: CATEGORIAS_DEST_ROOT_FOLDER_ID_, name: 'CATEGORIAS MUEBLES Y ACCESORIOS' });
+  folderSpecs.push({ id: FOTOS_NUEVAS_CARGADO_FOLDER_ID_, name: 'FOTOS NUEVAS CARGADO' });
+
+  for (let i = 0; i < folderSpecs.length; i++) {
+    if ((Date.now() - startMs) > MAX_INV_MS) { complete = false; break; }
+    const spec = folderSpecs[i];
+    if (!spec || !spec.id || isForbiddenProjectBFolderId_(spec.id)) continue;
+    try {
+      const fld = DriveApp.getFolderById(spec.id);
+      if (!fld || (fld.isTrashed && fld.isTrashed())) continue;
+      const it = fld.getFiles();
+      while (it && it.hasNext()) {
+        if ((Date.now() - startMs) > MAX_INV_MS) { complete = false; break; }
+        const f = it.next();
+        if (!f || (f.isTrashed && f.isTrashed())) continue;
+        const dto = buildDriveFileItemDto_(f, spec);
+        if (!dto || seenLoaded[dto.id]) continue;
+        seenLoaded[dto.id] = true;
+        loadedFileNames[dto.id] = dto.name;
+        loadedDriveFiles.push(dto);
+      }
+    } catch (eScanCat) {}
+  }
+
+  let archivedFolderId = '';
+  const archMeta = resolveOrCreateProjectAArchivedFolder_(false);
+  if (archMeta && archMeta.folder && complete) {
+    archivedFolderId = archMeta.id;
+    try {
+      const archIt = archMeta.folder.getFiles();
+      while (archIt && archIt.hasNext()) {
+        if ((Date.now() - startMs) > MAX_INV_MS) { complete = false; break; }
+        const af = archIt.next();
+        if (!af || (af.isTrashed && af.isTrashed())) continue;
+        const dto = buildDriveFileItemDto_(af, { id: archMeta.id, name: archMeta.name });
+        if (!dto || seenArch[dto.id]) continue;
+        seenArch[dto.id] = true;
+        loadedFileNames[dto.id] = dto.name;
+        archivedFiles.push(dto);
+      }
+    } catch (eScanArch) {}
+  }
+
+  loadedDriveFiles.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+  archivedFiles.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+
+  const result = {
+    loadedDriveFiles: loadedDriveFiles,
+    archivedFiles: archivedFiles,
+    archivedFolderId: archivedFolderId,
+    loadedFileNames: loadedFileNames,
+    complete: complete
+  };
+
+  try {
+    const cache = CacheService.getScriptCache();
+    const namesJson = JSON.stringify(loadedFileNames);
+    const namesLen = (typeof utf8ByteLength_ === 'function') ? utf8ByteLength_(namesJson) : namesJson.length;
+    if (namesLen < 95000) cache.put(PROJECT_A_LOADED_NAMES_CACHE_KEY_, namesJson, 120);
+    const invJson = JSON.stringify(result);
+    const invLen = (typeof utf8ByteLength_ === 'function') ? utf8ByteLength_(invJson) : invJson.length;
+    if (invLen < 95000) cache.put(PROJECT_A_DRIVE_INV_CACHE_KEY_, invJson, 20);
+  } catch (ePutInv) {}
+
+  return result;
+}
+
+function pruneTrashedFotosRecentUploads_(recentList) {
+  const arr = Array.isArray(recentList) ? recentList : [];
+  if (!arr.length) return arr;
+  const kept = [];
+  let changed = false;
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const fid = item && String(item.id || item.fileId || '').trim();
+    if (!fid) continue;
+    let alive = true;
+    try {
+      const f = DriveApp.getFileById(fid);
+      if (!f || (f.isTrashed && f.isTrashed())) alive = false;
+    } catch (eMiss) {
+      alive = false;
+    }
+    if (alive) {
+      kept.push(item);
+    } else {
+      changed = true;
+    }
+  }
+  return changed ? writeFotosRecentUploads_(kept) : arr;
 }
 
 function resolveSubirInboxFolders_(ancestorMemo) {
@@ -11676,16 +11992,17 @@ function handleFotosSubirList_(body) {
   }
 
   const currentRev = getFotosInboxRev_();
-  const recentUploads = readFotosRecentUploads_();
+  let recentUploads = readFotosRecentUploads_();
   const sinceRev = String((body && body.sinceRev) || '').trim();
   const forceRefresh = !!(body && body.forceRefresh);
   const includeThumbs = !!(body && body.includeThumbs);
   const includeLoadedNames = !!(body && body.includeLoadedNames);
+  const includeDriveInventory = !!(body && body.includeDriveInventory);
   const metaCacheKey = 'FOTOS_INBOX_META_V1_' + currentRev;
   const snapCacheKey = 'FOTOS_INBOX_SNAP_' + (includeThumbs ? 'T' : 'F') + '_V1_' + currentRev;
 
   // Fast path cero DriveApp: si sinceRev coincide con la revisión actual y la caché de 15s está fresca
-  if (sinceRev && sinceRev === currentRev && !forceRefresh && !hadPendingDeletes && !(body && body.syncSkus) && !includeLoadedNames) {
+  if (sinceRev && sinceRev === currentRev && !forceRefresh && !hadPendingDeletes && !(body && body.syncSkus) && !includeLoadedNames && !includeDriveInventory) {
     try {
       const metaRaw = CacheService.getScriptCache().get(metaCacheKey);
       if (metaRaw) {
@@ -11713,7 +12030,7 @@ function handleFotosSubirList_(body) {
   }
 
   // Snapshot cache hit (15s keyed by rev) para múltiples dispositivos simultáneos sin repetir DriveApp
-  if (!forceRefresh && !hadPendingDeletes) {
+  if (!forceRefresh && !hadPendingDeletes && !includeDriveInventory) {
     try {
       const snapRaw = CacheService.getScriptCache().get(snapCacheKey);
       if (snapRaw) {
@@ -11764,7 +12081,15 @@ function handleFotosSubirList_(body) {
     }
   } catch (eSnapPut) {}
 
-  const loadedFileNames = includeLoadedNames ? collectLoadedFileNamesMap_(false) : undefined;
+  let driveInv = null;
+  if (includeDriveInventory || forceRefresh) {
+    driveInv = collectProjectADriveInventory_(forceRefresh);
+    recentUploads = pruneTrashedFotosRecentUploads_(recentUploads);
+  }
+  const loadedFileNames = driveInv
+    ? driveInv.loadedFileNames
+    : (includeLoadedNames ? collectLoadedFileNamesMap_(false) : undefined);
+
   return {
     ok: true,
     unchanged: false,
@@ -11777,10 +12102,14 @@ function handleFotosSubirList_(body) {
     destRootFolderId: CATEGORIAS_DEST_ROOT_FOLDER_ID_,
     destRootFolderUrl: 'https://drive.google.com/drive/folders/' + CATEGORIAS_DEST_ROOT_FOLDER_ID_,
     destFolders: CATEGORIAS_DEST_FOLDERS_,
+    archivedFolderId: driveInv ? (driveInv.archivedFolderId || '') : getProjectAArchivedFolderIdFast_(),
     hoja1SkusAdded: skuSync.added || 0,
     hoja1TotalSkus: skuSync.totalHoja1 || 0,
     files: files,
-    loadedFileNames: loadedFileNames
+    loadedFileNames: loadedFileNames,
+    loadedDriveFiles: driveInv ? driveInv.loadedDriveFiles : undefined,
+    archivedFiles: driveInv ? driveInv.archivedFiles : undefined,
+    driveSyncComplete: driveInv ? !!driveInv.complete : undefined
   };
 }
 
@@ -12925,6 +13254,328 @@ function handleFotosDelete_(body) {
   }
 }
 
+function handleFotosPhotoAction_(body) {
+  try {
+    const b = body || {};
+    const ss = getSpreadsheet_();
+    const auth = verifyExclusiveKevinOwner_(ss, b);
+    if (!auth.ok) return auth;
+    const actorEmail = String((auth.advisor && auth.advisor.correo) || OWNER_FOTOS_EMAIL_).trim();
+    const actorName = String((auth.advisor && auth.advisor.nombre) || 'Kevin Reyna').trim();
+
+    const op = String(b.op || '').trim().toLowerCase();
+    if (op !== 'delete' && op !== 'archive' && op !== 'unlink_sku' && op !== 'return_to_inbox' && op !== 'copy') {
+      return { ok: false, error: 'Operación de foto no reconocida: ' + op };
+    }
+
+    if (op === 'delete') {
+      const delRes = handleFotosDelete_(b);
+      if (delRes && typeof delRes === 'object') delRes.op = 'delete';
+      return delRes;
+    }
+
+    const skuUpper = String(b.sku || '').trim().toUpperCase();
+    let driveFileId = String(b.driveFileId || '').trim();
+    const shortcutId = String(b.shortcutId || '').trim();
+
+    if (op === 'unlink_sku') {
+      if (!skuUpper) {
+        return { ok: false, error: 'Falta indicar el SKU del cual quitar la fotografía.' };
+      }
+      if (driveFileId) {
+        if (isForbiddenProjectBFolderId_(driveFileId)) {
+          return { ok: false, forbiddenFolder: true, error: 'Aislamiento Proyecto A/B: carpeta no permitida.' };
+        }
+        let checkUnlinkFile = null;
+        try { checkUnlinkFile = DriveApp.getFileById(driveFileId); } catch (eU) { checkUnlinkFile = null; }
+        if (checkUnlinkFile) {
+          const chk = validateProjectASourceFile_(checkUnlinkFile, 'fotos_photo_action:unlink_sku');
+          if (!chk.ok) return chk;
+        }
+      }
+      const unlRes = handleFotosDelete_(Object.assign({}, b, { keepDriveFile: true }));
+      if (unlRes && unlRes.ok) {
+        unlRes.op = 'unlink_sku';
+        unlRes.keptInDrive = true;
+        unlRes.driveTrashed = false;
+      }
+      return unlRes;
+    }
+
+    const sh1 = ss.getSheetByName('1');
+    const rowsToClear = [];
+    const clearedRows = [];
+    let previousUrl = '';
+    let usedByOtherSku = false;
+    let usedByVisualOverride = false;
+
+    if (sh1 && sh1.getLastRow() >= 3) {
+      const maxScanRows = Math.max(sh1.getLastRow(), 3);
+      const vals1 = sh1.getRange(1, 1, maxScanRows, 4).getDisplayValues();
+      if (skuUpper) {
+        for (let i = 2; i < vals1.length; i++) {
+          const rowNum = i + 1;
+          const cellSku = String(vals1[i][0] || '').trim().toUpperCase();
+          const cellUrl = String(vals1[i][3] || '').trim();
+          if (cellSku === skuUpper && cellUrl) {
+            if (!previousUrl) previousUrl = cellUrl;
+            if (!driveFileId) {
+              const mId = cellUrl.match(/\/d\/([a-zA-Z0-9_-]{15,})/) || cellUrl.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+              if (mId && mId[1]) driveFileId = mId[1];
+            }
+            rowsToClear.push(rowNum);
+          }
+        }
+      }
+      if (driveFileId) {
+        for (let j = 2; j < vals1.length; j++) {
+          const otherSku = String(vals1[j][0] || '').trim().toUpperCase();
+          const otherUrl = String(vals1[j][3] || '').trim();
+          if (otherUrl && otherUrl.indexOf(driveFileId) !== -1 && (!skuUpper || otherSku !== skuUpper)) {
+            usedByOtherSku = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!driveFileId) {
+      return { ok: false, error: 'Falta ID de archivo en Google Drive para la acción ' + op + '.' };
+    }
+    if (isForbiddenProjectBFolderId_(driveFileId)) {
+      return {
+        ok: false,
+        forbiddenFolder: true,
+        error: 'Aislamiento Proyecto A/B: no se permite operar sobre carpetas exclusivas de Prompts/Odoo.'
+      };
+    }
+
+    if (driveFileId) {
+      try {
+        const ovMap = readProductOverridesMap_(ss);
+        const ovKeys = Object.keys(ovMap);
+        for (let oi = 0; oi < ovKeys.length; oi++) {
+          const ov = ovMap[ovKeys[oi]];
+          if (!ov || ov.status === 'ELIMINADO' || ov.status === 'ARCHIVADO') continue;
+          const ovNote = String(ov.note || '');
+          if (ovNote && ovNote.indexOf(driveFileId) !== -1) {
+            usedByVisualOverride = true;
+            break;
+          }
+        }
+      } catch (eOvAct) {}
+    }
+
+    let srcFile = null;
+    try {
+      srcFile = DriveApp.getFileById(driveFileId);
+    } catch (eGetSrc) {
+      return { ok: false, error: 'El archivo ya no existe o no es accesible en Google Drive.' };
+    }
+    if (!srcFile || (srcFile.isTrashed && srcFile.isTrashed())) {
+      return { ok: false, error: 'El archivo se encuentra en la papelera de Google Drive.' };
+    }
+
+    const srcValidation = validateProjectASourceFile_(srcFile, 'fotos_photo_action:' + op);
+    if (!srcValidation.ok) return srcValidation;
+
+    if (String((srcFile.getMimeType && srcFile.getMimeType()) || '').toLowerCase() === 'application/vnd.google-apps.shortcut') {
+      const targetId = String((srcFile.getTargetId && srcFile.getTargetId()) || '').trim();
+      srcFile = DriveApp.getFileById(targetId);
+      driveFileId = String(srcFile.getId() || '').trim();
+    }
+
+    const origName = String(srcFile.getName() || 'foto.jpg').trim();
+
+    if (op === 'copy') {
+      const targetLoc = String(b.targetLocation || 'INBOX').trim().toUpperCase();
+      const reqFolderId = String(b.targetFolderId || '').trim();
+      let destFldId = SUBIR_INBOX_FOLDER_ID_;
+      let destFldName = 'SUBIR PREN';
+      if (targetLoc === 'CATEGORY' && reqFolderId && isDestCategoryFolderId_(reqFolderId) && !isForbiddenProjectBFolderId_(reqFolderId)) {
+        destFldId = reqFolderId;
+        const foundMeta = CATEGORIAS_DEST_FOLDERS_.find((f) => f.id === reqFolderId);
+        destFldName = (foundMeta && foundMeta.name) || 'CATEGORIAS MUEBLES Y ACCESORIOS';
+      }
+      const destFld = DriveApp.getFolderById(destFldId);
+      ensurePublicSharingItem_(destFld);
+      const copiedFile = srcFile.makeCopy(origName, destFld);
+      ensurePublicSharingItem_(copiedFile);
+      invalidateLoadedFileNamesCache_();
+      const nextRev = bumpFotosInboxRev_();
+      const copiedDto = buildDriveFileItemDto_(copiedFile, { id: destFldId, name: destFldName });
+
+      try {
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'MOVIMIENTO',
+          modulo: 'AppsScript · Gestor Fotos Hoja "1"',
+          evento: 'COPIA DE FOTO CREADA EN DRIVE',
+          estado: '✅ OK',
+          usuario: actorName + ' (' + actorEmail + ')',
+          sucursal: 'ADMINISTRACIÓN GENERAL',
+          referencia: skuUpper || origName,
+          detalle: 'Copia creada en "' + destFldName + '" conservando nombre "' + origName + '" (ID: ' + copiedFile.getId() + ').',
+          analisis: 'Vínculo actual en Hoja "1" intacto.'
+        });
+      } catch (eHistCopy) {}
+
+      return {
+        ok: true,
+        op: 'copy',
+        rev: nextRev,
+        sourceFileId: driveFileId,
+        fileId: String(copiedFile.getId() || ''),
+        fileName: origName,
+        destFolderId: destFldId,
+        destFolderName: destFldName,
+        file: copiedDto,
+        timestamp: formatCancunNow_()
+      };
+    }
+
+    const clearSkuLinkIfNeeded = function () {
+      if (!sh1 || !skuUpper || !rowsToClear.length) return { ok: true };
+      const lockState = acquireScriptLockSafe_(15000);
+      if (!lockState.ok) {
+        return { ok: false, retryable: true, error: 'Otro guardado está en curso, reintentando...' };
+      }
+      const lock = lockState.lock;
+      try {
+        const curLast = Math.max(sh1.getLastRow(), 3);
+        const curVals = sh1.getRange(1, 1, curLast, 4).getDisplayValues();
+        for (let i = 2; i < curVals.length; i++) {
+          const rowNum = i + 1;
+          const cellSku = String(curVals[i][0] || '').trim().toUpperCase();
+          const cellUrl = String(curVals[i][3] || '').trim();
+          if (cellSku === skuUpper && cellUrl) {
+            sh1.getRange(rowNum, 4).clearContent();
+            clearedRows.push(rowNum);
+          }
+        }
+        if (clearedRows.length > 0) SpreadsheetApp.flush();
+        return { ok: true };
+      } finally {
+        try { lock.releaseLock(); } catch (eRelAct) {}
+      }
+    };
+
+    if (op === 'archive') {
+      const archMeta = resolveOrCreateProjectAArchivedFolder_(true);
+      if (!archMeta || !archMeta.folder) {
+        return { ok: false, error: 'No se pudo crear o acceder a la carpeta FOTOS ARCHIVADAS en Google Drive.' };
+      }
+      const clrState = clearSkuLinkIfNeeded();
+      if (!clrState.ok) return clrState;
+
+      let archivedFile = null;
+      const isShared = !!(usedByOtherSku || usedByVisualOverride);
+      if (isShared) {
+        archivedFile = srcFile.makeCopy(origName, archMeta.folder);
+        ensurePublicSharingItem_(archivedFile);
+      } else {
+        srcFile.moveTo(archMeta.folder);
+        ensurePublicSharingItem_(srcFile);
+        cleanDuplicatesInSubirInbox_(srcFile, origName, shortcutId, null);
+        archivedFile = srcFile;
+      }
+
+      invalidateLoadedFileNamesCache_();
+      const nextRev = bumpFotosInboxRev_();
+      const recentUploads = isShared ? readFotosRecentUploads_() : removeFotosRecentUploadByFileId_(driveFileId);
+      const archDto = buildDriveFileItemDto_(archivedFile, { id: archMeta.id, name: archMeta.name });
+
+      try {
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'MOVIMIENTO',
+          modulo: 'AppsScript · Gestor Fotos Hoja "1"',
+          evento: 'FOTO ARCHIVADA EN FOTOS ARCHIVADAS',
+          estado: '✅ OK',
+          usuario: actorName + ' (' + actorEmail + ')',
+          sucursal: 'ADMINISTRACIÓN GENERAL',
+          referencia: skuUpper || origName,
+          detalle: 'Archivada en "' + archMeta.name + '" conservando nombre "' + origName + '"' + (skuUpper ? (' y limpiada de SKU ' + skuUpper) : '') + '.',
+          analisis: isShared ? 'Copiada a archivo porque otro SKU/Portada aún usa el archivo.' : 'Movida a FOTOS ARCHIVADAS dentro de CATEGORIAS MUEBLES Y ACCESORIOS.'
+        });
+      } catch (eHistArch) {}
+
+      return {
+        ok: true,
+        op: 'archive',
+        rev: nextRev,
+        recentUploads: recentUploads,
+        fileId: String(archivedFile.getId() || ''),
+        fileName: origName,
+        archivedFolderId: archMeta.id,
+        archivedFolderName: archMeta.name,
+        clearedSku: skuUpper,
+        clearedRows: clearedRows,
+        keptCopyForOtherSku: isShared,
+        file: archDto,
+        timestamp: formatCancunNow_()
+      };
+    }
+
+    if (op === 'return_to_inbox') {
+      const inboxFld = DriveApp.getFolderById(SUBIR_INBOX_FOLDER_ID_);
+      ensurePublicSharingItem_(inboxFld);
+      const clrState = clearSkuLinkIfNeeded();
+      if (!clrState.ok) return clrState;
+
+      let returnedFile = null;
+      const isShared = !!(usedByOtherSku || usedByVisualOverride);
+      if (isShared) {
+        returnedFile = srcFile.makeCopy(origName, inboxFld);
+        ensurePublicSharingItem_(returnedFile);
+      } else {
+        srcFile.moveTo(inboxFld);
+        ensurePublicSharingItem_(srcFile);
+        returnedFile = srcFile;
+      }
+
+      invalidateLoadedFileNamesCache_();
+      const nextRev = bumpFotosInboxRev_();
+      const recentUploads = isShared ? readFotosRecentUploads_() : removeFotosRecentUploadByFileId_(driveFileId);
+      const retDto = buildDriveFileItemDto_(returnedFile, { id: SUBIR_INBOX_FOLDER_ID_, name: 'SUBIR PREN' });
+
+      try {
+        registrarEventoHistorial_(ss, {
+          clasificacion: 'MOVIMIENTO',
+          modulo: 'AppsScript · Gestor Fotos Hoja "1"',
+          evento: 'FOTO REGRESADA A ARCHIVO ORIGEN (SUBIR PREN)',
+          estado: '✅ OK',
+          usuario: actorName + ' (' + actorEmail + ')',
+          sucursal: 'ADMINISTRACIÓN GENERAL',
+          referencia: skuUpper || origName,
+          detalle: 'Regresada a SUBIR PREN conservando nombre original "' + origName + '"' + (skuUpper ? (' y desvinculada de SKU ' + skuUpper) : '') + '.',
+          analisis: isShared ? 'Otro SKU seguía usando la foto: se conservó en categoría y se colocó ejemplar original en SUBIR PREN.' : 'Archivo movido de vuelta a SUBIR PREN sin renombrar.'
+        });
+      } catch (eHistRet) {}
+
+      return {
+        ok: true,
+        op: 'return_to_inbox',
+        rev: nextRev,
+        recentUploads: recentUploads,
+        fileId: String(returnedFile.getId() || ''),
+        fileName: origName,
+        inboxFolderId: SUBIR_INBOX_FOLDER_ID_,
+        clearedSku: skuUpper,
+        clearedRows: clearedRows,
+        keptCopyForOtherSku: isShared,
+        file: retDto,
+        timestamp: formatCancunNow_()
+      };
+    }
+
+    return { ok: false, error: 'Operación no soportada.' };
+  } catch (errAct) {
+    return {
+      ok: false,
+      error: (errAct && errAct.message) ? errAct.message : String(errAct)
+    };
+  }
+}
+
 // ============================================================================
 // MOTOR EXCLUSIVO DE AUDITORÍA DE MOVIMIENTOS Y ANÁLISIS DE FALLOS DE CÓDIGO
 // ÚNICAMENTE EN LA HOJA "HISTORIAL" (CERO PESTAÑAS ADICIONALES DE BITÁCORA)
@@ -13034,23 +13685,119 @@ function registrarEventoHistorial_(ss, opts) {
   }
 }
 
-function handleInvLogEvent_(body) {
+function handleInvLogEvent_(body, tokenInfo, viaPin) {
   const b = body || {};
   const ss = getSpreadsheet_();
-  const clasif = String(b.classification || 'FALLO DE CÓDIGO').trim().toUpperCase();
-  const mod = String(b.module || 'inventario-app.js').trim();
-  const ev = String(b.event || 'EVENTO CLIENTE WEB').trim();
-  const det = String(b.detail || '').trim();
-  const ana = String(b.analysis || '').trim() || analizarCausaFalloCodigo_(det, mod, ev);
+  const resolvedTok = (tokenInfo && tokenInfo.email)
+    ? tokenInfo
+    : (b.authToken ? verifyInvAuthToken_(b.authToken) : null);
+  const tokEmail = resolvedTok && resolvedTok.email
+    ? String(resolvedTok.email).trim().toLowerCase()
+    : '';
+  let isGuestCaller = false;
+  let isAdminCaller = false;
+  let callerUserMatches = [];
+  let callerAdvisor = null;
+  if (tokEmail) {
+    const tokSt = lookupTokenUserStatus_(resolvedTok);
+    const tabNorm = String(resolvedTok.sheetTab || '').trim().toUpperCase();
+    isGuestCaller = /^INVITADOS?$/.test(tabNorm) || Boolean(tokSt && tokSt.isGuest);
+    if (!isGuestCaller) {
+      try {
+        const authSs = typeof getAuthSpreadsheet_ === 'function' ? getAuthSpreadsheet_(ss) : ss;
+        const allU = readAllBranchUsers_(authSs, []);
+        if (Array.isArray(allU)) {
+          callerUserMatches = allU.filter(function (u) {
+            return u && u.correo === tokEmail && !isGuestReadOnlyUser_(u);
+          });
+          if (callerUserMatches.length) {
+            callerAdvisor = callerUserMatches.find(function (u) {
+              return String(u.sheetTab || '').trim().toUpperCase() === tabNorm;
+            }) || callerUserMatches[0];
+          }
+        }
+      } catch (eAdmLog) {}
+      if (ADMIN_MASTER_EMAILS_ && ADMIN_MASTER_EMAILS_[tokEmail]) {
+        isAdminCaller = true;
+      } else {
+        isAdminCaller = callerUserMatches.some(function (u) {
+          return !!u.isAdmin;
+        });
+      }
+    }
+  } else if (viaPin === true) {
+    // PIN-authenticated admin call (only when explicitly verified by gate.viaPin === true)
+    isAdminCaller = true;
+  } else {
+    return {
+      ok: false,
+      authRequired: true,
+      error: 'Sesión requerida para registrar eventos.'
+    };
+  }
+
+  const rawModStr = String(b.module || 'inventario-app.js').trim();
+  const rawEvStr = String(b.event || 'EVENTO CLIENTE WEB').trim();
+  const mod = safeSheetCellText_(rawModStr || 'inventario-app.js', 120).trim();
+  const ev = safeSheetCellText_(rawEvStr || 'EVENTO CLIENTE WEB', 160).trim();
+  const modCanonRaw = rawModStr.replace(/^[\s'=+\-@]+/, '').trim().toUpperCase();
+  const modCanonSafe = mod.replace(/^[\s'=+\-@]+/, '').trim().toUpperCase();
+  const evCanonRaw = rawEvStr.replace(/^[\s'=+\-@]+/, '').trim();
+  const evCanonSafe = ev.replace(/^[\s'=+\-@]+/, '').trim();
+  const isSegEventPayload = (
+    modCanonRaw === 'SEGUIMIENTO_COTIZACIONES' ||
+    modCanonSafe === 'SEGUIMIENTO_COTIZACIONES' ||
+    /^SEG_/i.test(evCanonRaw) ||
+    /^SEG_/i.test(evCanonSafe)
+  );
+  if (isSegEventPayload && (!isAdminCaller || (callerAdvisor && !userHasEffectivePerm_(callerAdvisor, 'seguimiento')))) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Usa el endpoint seg_action para registrar eventos de Seguimiento.'
+    };
+  }
+
+  const rawClasif = String(b.classification || 'FALLO DE CÓDIGO').trim().toUpperCase();
+  let safeClasif;
+  if (isAdminCaller) {
+    safeClasif = (rawClasif === 'MOVIMIENTO' || rawClasif === 'ALERTA TÉCNICA' || rawClasif === 'FALLO DE CÓDIGO')
+      ? rawClasif
+      : 'FALLO DE CÓDIGO';
+  } else {
+    safeClasif = (rawClasif === 'ALERTA TÉCNICA' || rawClasif === 'FALLO DE CÓDIGO')
+      ? rawClasif
+      : 'FALLO DE CÓDIGO';
+  }
+
+  const det = safeSheetCellText_(String(b.detail || '').trim(), 1000);
+  const anaRaw = String(b.analysis || '').trim() || analizarCausaFalloCodigo_(det, mod, ev);
+  const ana = safeSheetCellText_(anaRaw, 600);
+  const usuarioResolved = isAdminCaller
+    ? String(b.user || tokEmail || 'Cliente Web').trim()
+    : (tokEmail || 'Cliente Web');
+  let sucursalResolved;
+  if (isAdminCaller) {
+    sucursalResolved = callerAdvisor
+      ? (resolveAuthorizedUserStoreForLog_(callerAdvisor, callerUserMatches, b.branch) || 'INVENTARIO WEB')
+      : String(b.branch || 'INVENTARIO WEB').trim();
+  } else if (isGuestCaller) {
+    sucursalResolved = 'SOLO LECTURA';
+  } else if (callerAdvisor) {
+    sucursalResolved = resolveAuthorizedUserStoreForLog_(callerAdvisor, callerUserMatches, b.branch);
+  } else {
+    sucursalResolved = String((resolvedTok && resolvedTok.sheetTab) || 'INVENTARIO WEB').trim() || 'INVENTARIO WEB';
+  }
+  const estadoRaw = String(b.status || (safeClasif === 'MOVIMIENTO' ? '✅ OK' : '❌ ERROR')).trim();
 
   const ok = registrarEventoHistorial_(ss, {
-    clasificacion: (clasif === 'MOVIMIENTO' || clasif === 'ALERTA TÉCNICA' || clasif === 'FALLO DE CÓDIGO') ? clasif : 'FALLO DE CÓDIGO',
+    clasificacion: safeClasif,
     modulo: mod,
     evento: ev,
-    estado: String(b.status || (clasif === 'MOVIMIENTO' ? '✅ OK' : '❌ ERROR')).trim(),
-    usuario: String(b.user || 'Cliente Web').trim(),
-    sucursal: String(b.branch || 'INVENTARIO WEB').trim(),
-    referencia: String(b.ref || '—').trim(),
+    estado: safeSheetCellText_(estadoRaw, 60),
+    usuario: safeSheetCellText_(usuarioResolved, 140),
+    sucursal: safeSheetCellText_(sucursalResolved, 100),
+    referencia: safeSheetCellText_(String(b.ref || '—').trim(), 120),
     detalle: det,
     analisis: ana
   });
@@ -13481,6 +14228,26 @@ function handleSegAction_(body) {
     return { ok: false, authRequired: true };
   }
   const verifiedUser = authCheck.advisor;
+  if (!userHasEffectivePerm_(verifiedUser, 'seguimiento')) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Tu cuenta tiene desactivado el permiso VER_SEGUIMIENTO en CUENTAS ADMINISTRATIVAS.'
+    };
+  }
+  const ALLOWED_SEG_SUBACTIONS = {
+    SEG_NUEVA_COTIZACION_APP: true,
+    SEG_CIERRE: true,
+    SEG_TELEFONO: true,
+    SEG_WHATSAPP: true,
+    SEG_EMAIL: true
+  };
+  if (!sub || !ALLOWED_SEG_SUBACTIONS[sub]) {
+    return {
+      ok: false,
+      error: 'Acción de seguimiento no permitida.'
+    };
+  }
   const scope = buildSegRoleScopeInfo_(verifiedUser);
   const userEmail = String(verifiedUser.correo || '').trim().toLowerCase();
   const userBranch = mapErpStoreToSeguimientoBranch_(verifiedUser.erpStore || verifiedUser.sheetTab, '');
@@ -13500,14 +14267,59 @@ function handleSegAction_(body) {
     ? (reqBranchRaw || userBranch || 'TODAS')
     : ((reqBranchNorm && scope.allowedBranches[reqBranchNorm]) ? reqBranchRaw : (userBranch || ''));
 
-  // Control estricto de propiedad/alcance del folio (previene IDOR entre asesores y sucursales)
-  if (folio && (sub === 'SEG_CIERRE' || sub === 'SEG_TELEFONO' || sub === 'SEG_WHATSAPP' || sub === 'SEG_EMAIL')) {
+  // Control estricto de propiedad/alcance del folio (previene IDOR e inyección de folios falsos)
+  let histRefFolio = folio || 'SEGUIMIENTO';
+  if (sub === 'SEG_NUEVA_COTIZACION_APP') {
+    const reqItems = (payload && Array.isArray(payload.items)) ? payload.items : [];
+    if (!reqItems.length) {
+      return { ok: false, error: 'Agrega al menos una partida válida para registrar la cotización en Seguimiento.' };
+    }
+    if (reqItems.length > 15) {
+      return { ok: false, error: 'Máximo 15 partidas permitidas por cotización en Seguimiento.' };
+    }
+    const targetFolio = String((payload && payload.folio) || folio || '').trim().toUpperCase();
+    if (!targetFolio) {
+      return { ok: false, error: 'Folio requerido para registrar la cotización en Seguimiento.' };
+    }
+    if (!scope.isAdmin) {
+      let ownedInLive = false;
+      const shLive = ssInv ? ssInv.getSheetByName(TAB_QUOTES_LIVE_) : null;
+      if (shLive && shLive.getLastRow() >= 2) {
+        const liveVals = shLive.getRange(2, 1, shLive.getLastRow() - 1, Math.min(shLive.getLastColumn(), 10)).getDisplayValues();
+        for (let i = 0; i < liveVals.length; i++) {
+          const r = liveVals[i] || [];
+          const f1 = String(r[0] || '').trim().toUpperCase();
+          const f2 = String(r[1] || '').trim().toUpperCase();
+          if (f1 !== targetFolio && f2 !== targetFolio) continue;
+          const rowOwnerEmail = String(r[7] || '').trim().toLowerCase();
+          if (scope.isManager ? matchesSegScope_(scope, r[7], r[8], r[6], targetFolio) : (rowOwnerEmail === userEmail)) {
+            ownedInLive = true;
+            break;
+          }
+        }
+      }
+      if (!ownedInLive) {
+        return {
+          ok: false,
+          forbidden: true,
+          error: 'No tienes permiso para registrar o modificar el folio ' + targetFolio + ' en Seguimiento.'
+        };
+      }
+    }
+    histRefFolio = targetFolio;
+  } else {
+    if (!folio) {
+      return { ok: false, error: 'Folio requerido para esta acción de seguimiento.' };
+    }
     if (!scope.isAdmin && !isFolioAllowedForSegScope_(ssSeg, ssInv, folio, scope)) {
       return {
         ok: false,
         forbidden: true,
         error: 'No tienes permiso para modificar el folio ' + folio + '.'
       };
+    }
+    if (payload && typeof payload === 'object' && payload.folio) {
+      payload.folio = histRefFolio;
     }
   }
 
@@ -13519,7 +14331,7 @@ function handleSegAction_(body) {
     estado: '✅ OK',
     usuario: actorName,
     sucursal: actorBranch || 'TODAS',
-    referencia: folio || 'SEGUIMIENTO',
+    referencia: histRefFolio,
     detalle: JSON.stringify(payload),
     analisis: 'Evento sincronizado en vivo desde Seguimiento de Cotizaciones.'
   });
@@ -13688,7 +14500,7 @@ function handleSegAction_(body) {
         safeSheetCellText_(actorName, 140),
         safeSheetCellText_(actorEmail, 140),
         safeSheetCellText_(actorBranch, 80),
-        safeSheetCellText_(payload.accion || (sub + ' Folio ' + folio), 200),
+        safeSheetCellText_(payload.accion || (sub + ' Folio ' + histRefFolio), 200),
         safeSheetCellText_(payload.detalle || JSON.stringify(payload), 1000),
         'Web-App',
         safeSheetCellText_(payload.status || 'EXITOSO', 40)
@@ -13696,6 +14508,24 @@ function handleSegAction_(body) {
     }
   } catch (eSegAct) {
     Logger.log('Aviso handleSegAction_: ' + eSegAct);
+    const segErrMsg = (eSegAct && eSegAct.message) ? eSegAct.message : String(eSegAct);
+    try {
+      registrarEventoHistorial_(ssInv, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript · handleSegAction_',
+        evento: 'FALLA AL GUARDAR EN SEGUIMIENTO DE COTIZACIONES',
+        estado: '❌ ERROR',
+        usuario: actorName + (actorEmail ? (' (' + actorEmail + ')') : ''),
+        sucursal: actorBranch || 'TODAS',
+        referencia: histRefFolio || sub,
+        detalle: segErrMsg.slice(0, 400),
+        analisis: analizarCausaFalloCodigo_(eSegAct, 'AppsScript · handleSegAction_', sub)
+      });
+    } catch (eHistSegErr) {}
+    return {
+      ok: false,
+      error: 'No se pudo guardar el evento en COTIZACIONES BASE DE DATOS: ' + segErrMsg
+    };
   } finally {
     if (gotLock) {
       try { lock.releaseLock(); } catch (eRel) {}
@@ -13888,25 +14718,34 @@ function handleSegGetState_(body) {
   if (isGuestReadOnlyUser_(verifiedUser)) {
     return { ok: false };
   }
+  const canSeg = userHasEffectivePerm_(verifiedUser, 'seguimiento');
+  const canHist = userHasEffectivePerm_(verifiedUser, 'historial');
+  if (!canSeg && !canHist) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Tu cuenta tiene desactivados los permisos VER_SEGUIMIENTO y VER_HISTORIAL en CUENTAS ADMINISTRATIVAS.'
+    };
+  }
 
   const scope = buildSegRoleScopeInfo_(verifiedUser);
   const ssSeg = getSpreadsheetSeguimiento_();
-  const cotCreataRaw = readSheetDisplayMatrixSafe_(ssSeg, 'COTIZACIONES_CREATA', 0);
-  const cotArchRaw = readSheetDisplayMatrixSafe_(ssSeg, TAB_COTIZACIONES_ARCHIVADAS_, 0);
-  const cotVivoRaw = readSheetDisplayMatrixSafe_(ssInv, TAB_QUOTES_LIVE_, 0);
-  const cierresRaw = readSheetDisplayMatrixSafe_(ssSeg, 'CIERRES_COTIZACIONES', 0);
+  const cotCreataRaw = canSeg ? readSheetDisplayMatrixSafe_(ssSeg, 'COTIZACIONES_CREATA', 0) : [];
+  const cotArchRaw = canSeg ? readSheetDisplayMatrixSafe_(ssSeg, TAB_COTIZACIONES_ARCHIVADAS_, 0) : [];
+  const cotVivoRaw = canSeg ? readSheetDisplayMatrixSafe_(ssInv, TAB_QUOTES_LIVE_, 0) : [];
+  const cierresRaw = canSeg ? readSheetDisplayMatrixSafe_(ssSeg, 'CIERRES_COTIZACIONES', 0) : [];
   const configCreata = filterSafeSegConfigMatrix_(readSheetDisplayMatrixSafe_(ssSeg, 'CONFIG_CREATA', 0));
-  const histMovRaw = readSheetDisplayMatrixSafe_(ssSeg, 'HISTORIAL_MOVIMIENTOS', 500);
+  const histMovRaw = canHist ? readSheetDisplayMatrixSafe_(ssSeg, 'HISTORIAL_MOVIMIENTOS', 500) : [];
 
-  const cotCreata = filterSegMatrixByScope_(cotCreataRaw, scope, { email: 5, name: 4, branch: 3, folio: 1 }, true);
-  const cotArch = filterSegMatrixByScope_(cotArchRaw, scope, { email: 5, name: 4, branch: 3, folio: 1 }, true);
-  const cotVivo = filterSegMatrixByScope_(cotVivoRaw, scope, { email: 7, name: 8, branch: 6, folio: 1 }, true);
-  const cierres = filterSegMatrixByScope_(cierresRaw, scope, { email: 4, name: 3, branch: 2, folio: 1 }, true);
-  const histMov = filterSegMatrixByScope_(histMovRaw, scope, { email: 3, name: 2, branch: 4, folio: -1 }, true);
+  const cotCreata = canSeg ? filterSegMatrixByScope_(cotCreataRaw, scope, { email: 5, name: 4, branch: 3, folio: 1 }, true) : [];
+  const cotArch = canSeg ? filterSegMatrixByScope_(cotArchRaw, scope, { email: 5, name: 4, branch: 3, folio: 1 }, true) : [];
+  const cotVivo = canSeg ? filterSegMatrixByScope_(cotVivoRaw, scope, { email: 7, name: 8, branch: 6, folio: 1 }, true) : [];
+  const cierres = canSeg ? filterSegMatrixByScope_(cierresRaw, scope, { email: 4, name: 3, branch: 2, folio: 1 }, true) : [];
+  const histMov = canHist ? filterSegMatrixByScope_(histMovRaw, scope, { email: 3, name: 2, branch: 4, folio: -1 }, true) : [];
 
   let histSeg = [];
-  const shHistInv = ssInv.getSheetByName(TAB_HISTORIAL_);
-  if (shHistInv && shHistInv.getLastRow() >= 6) {
+  const shHistInv = canHist ? ssInv.getSheetByName(TAB_HISTORIAL_) : null;
+  if (canHist && shHistInv && shHistInv.getLastRow() >= 6) {
     const lastR = shHistInv.getLastRow();
     const lastC = Math.min(shHistInv.getLastColumn(), 10);
     const hdrRow = shHistInv.getRange(6, 1, 1, lastC).getDisplayValues()[0];
@@ -13915,6 +14754,7 @@ function handleSegGetState_(body) {
     const matchedSeg = [];
     for (let i = 0; i < dataRows.length; i++) {
       const r = dataRows[i] || [];
+      if (String(r[1] || '').trim().toUpperCase() !== 'MOVIMIENTO') continue;
       if (String(r[2] || '').trim().toUpperCase() !== 'SEGUIMIENTO_COTIZACIONES') continue;
       if (!scope.isAdmin && !matchesSegScope_(scope, r[5], r[5], r[6], r[7])) continue;
       matchedSeg.push(r);
@@ -13987,6 +14827,15 @@ function handleSegGetDelta_(body) {
   if (isGuestReadOnlyUser_(verifiedUser)) {
     return { ok: false };
   }
+  const canSeg = userHasEffectivePerm_(verifiedUser, 'seguimiento');
+  const canHist = userHasEffectivePerm_(verifiedUser, 'historial');
+  if (!canSeg && !canHist) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Tu cuenta tiene desactivados los permisos VER_SEGUIMIENTO y VER_HISTORIAL en CUENTAS ADMINISTRATIVAS.'
+    };
+  }
 
   const scope = buildSegRoleScopeInfo_(verifiedUser);
   const deltaState = readSegDeltaState_();
@@ -13996,12 +14845,12 @@ function handleSegGetDelta_(body) {
   const forceFull = Boolean(b.forceFull);
 
   const ssSeg = getSpreadsheetSeguimiento_();
-  const shCotCreata = ssSeg ? ssSeg.getSheetByName('COTIZACIONES_CREATA') : null;
-  const shCotArch = ssSeg ? ssSeg.getSheetByName(TAB_COTIZACIONES_ARCHIVADAS_) : null;
-  const shCotVivo = ssInv ? ssInv.getSheetByName(TAB_QUOTES_LIVE_) : null;
-  const shCierres = ssSeg ? ssSeg.getSheetByName('CIERRES_COTIZACIONES') : null;
-  const shHistMov = ssSeg ? ssSeg.getSheetByName('HISTORIAL_MOVIMIENTOS') : null;
-  const shHistInv = ssInv ? ssInv.getSheetByName(TAB_HISTORIAL_) : null;
+  const shCotCreata = canSeg && ssSeg ? ssSeg.getSheetByName('COTIZACIONES_CREATA') : null;
+  const shCotArch = canSeg && ssSeg ? ssSeg.getSheetByName(TAB_COTIZACIONES_ARCHIVADAS_) : null;
+  const shCotVivo = canSeg && ssInv ? ssInv.getSheetByName(TAB_QUOTES_LIVE_) : null;
+  const shCierres = canSeg && ssSeg ? ssSeg.getSheetByName('CIERRES_COTIZACIONES') : null;
+  const shHistMov = canHist && ssSeg ? ssSeg.getSheetByName('HISTORIAL_MOVIMIENTOS') : null;
+  const shHistInv = canHist && ssInv ? ssInv.getSheetByName(TAB_HISTORIAL_) : null;
 
   const curWatermarks = {
     cotCreata: shCotCreata ? shCotCreata.getLastRow() : 0,
@@ -14028,13 +14877,15 @@ function handleSegGetDelta_(body) {
   const prevCierres = parseInt(String(wm.cierres || 0), 10) || 0;
   const prevHistMov = parseInt(String(wm.histMov || 0), 10) || 0;
 
-  const hasClientWatermarks = (prevCotCreata > 0 || prevCotArch > 0 || prevCotVivo > 0 || prevCierres > 0) &&
+  const hasClientWatermarks = (prevCotCreata > 0 || prevCotArch > 0 || prevCotVivo > 0 || prevCierres > 0 || prevHistMov > 0) &&
     (b.sinceVersion !== undefined && b.sinceVersion !== null && String(b.sinceVersion).trim() !== '');
   const oldestLoggedV = deltaState.changes.length ? Number(deltaState.changes[0].v || 0) : deltaState.version;
-  const anyShrunk = (curWatermarks.cotCreata < prevCotCreata) ||
+  const anyShrunk = (canSeg && (
+    (curWatermarks.cotCreata < prevCotCreata) ||
     (curWatermarks.cotArchivadas < prevCotArch) ||
     (curWatermarks.cotVivo < prevCotVivo) ||
-    (curWatermarks.cierres < prevCierres);
+    (curWatermarks.cierres < prevCierres)
+  )) || (canHist && (curWatermarks.histMov < prevHistMov));
   const bufferOverflowed = (sinceVersion > 0 && sinceVersion < deltaState.version && deltaState.changes.length >= SEG_DELTA_MAX_LOG_ && sinceVersion < oldestLoggedV - 1);
   const needsFull = forceFull || !hasClientWatermarks || anyShrunk || bufferOverflowed;
 
@@ -14060,11 +14911,12 @@ function handleSegGetDelta_(body) {
 
   const versionChanged = deltaState.version !== sinceVersion;
   const invChanged = Boolean(liveInvBanner && liveInvBanner !== sinceInvVersion);
-  const rowsAppended = (curWatermarks.cotCreata > prevCotCreata) ||
+  const rowsAppended = (canSeg && (
+    (curWatermarks.cotCreata > prevCotCreata) ||
     (curWatermarks.cotArchivadas > prevCotArch) ||
     (curWatermarks.cotVivo > prevCotVivo) ||
-    (curWatermarks.cierres > prevCierres) ||
-    (curWatermarks.histMov > prevHistMov);
+    (curWatermarks.cierres > prevCierres)
+  )) || (canHist && (curWatermarks.histMov > prevHistMov));
 
   // FAST PATH: Nada cambió => 0 lecturas de matrices
   if (!versionChanged && !invChanged && !rowsAppended) {
@@ -14084,7 +14936,7 @@ function handleSegGetDelta_(body) {
 
   // DELTA PATH: Leer únicamente cambios nuevos después de los watermarks
   const filteredChanges = [];
-  if (versionChanged) {
+  if (canSeg && versionChanged) {
     for (let i = 0; i < deltaState.changes.length; i++) {
       const ch = deltaState.changes[i];
       if (!ch || Number(ch.v || 0) <= sinceVersion) continue;
@@ -14116,25 +14968,25 @@ function handleSegGetDelta_(body) {
     }
   }
 
-  const appCotCreata = curWatermarks.cotCreata > prevCotCreata
+  const appCotCreata = (canSeg && curWatermarks.cotCreata > prevCotCreata)
     ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, 'COTIZACIONES_CREATA', prevCotCreata).rows, scope, { email: 5, name: 4, branch: 3, folio: 1 }, false)
     : [];
-  const appCotArch = curWatermarks.cotArchivadas > prevCotArch
+  const appCotArch = (canSeg && curWatermarks.cotArchivadas > prevCotArch)
     ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, TAB_COTIZACIONES_ARCHIVADAS_, prevCotArch).rows, scope, { email: 5, name: 4, branch: 3, folio: 1 }, false)
     : [];
-  const appCotVivo = curWatermarks.cotVivo > prevCotVivo
+  const appCotVivo = (canSeg && curWatermarks.cotVivo > prevCotVivo)
     ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssInv, TAB_QUOTES_LIVE_, prevCotVivo).rows, scope, { email: 7, name: 8, branch: 6, folio: 1 }, false)
     : [];
-  const appCierres = curWatermarks.cierres > prevCierres
+  const appCierres = (canSeg && curWatermarks.cierres > prevCierres)
     ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, 'CIERRES_COTIZACIONES', prevCierres).rows, scope, { email: 4, name: 3, branch: 2, folio: 1 }, false)
     : [];
-  const appHistMov = curWatermarks.histMov > prevHistMov
+  const appHistMov = (canHist && curWatermarks.histMov > prevHistMov)
     ? filterSegMatrixByScope_(readSheetAppendedRowsSafe_(ssSeg, 'HISTORIAL_MOVIMIENTOS', prevHistMov).rows, scope, { email: 3, name: 2, branch: 4, folio: -1 }, false)
     : [];
 
   // Stock delta solo para los SKUs activos que sigue el usuario + SKUs recién agregados
   const activeSkusSet = {};
-  if (Array.isArray(b.activeSkus)) {
+  if (canSeg && Array.isArray(b.activeSkus)) {
     for (let i = 0; i < b.activeSkus.length && i < 600; i++) {
       const sk = String(b.activeSkus[i] || '').trim().toUpperCase();
       if (sk) activeSkusSet[sk] = true;
@@ -14160,7 +15012,7 @@ function handleSegGetDelta_(body) {
   const newClosuresCount = appCierres.length;
   const updatedQuotesCount = filteredChanges.filter(function (c) { return c.kind !== 'CIERRE'; }).length;
   const stockUpdatesCount = Object.keys(stockDeltaBySku).length;
-  const totalChanges = newQuotesCount + newClosuresCount + updatedQuotesCount + (invChanged && stockUpdatesCount > 0 ? 1 : 0);
+  const totalChanges = newQuotesCount + newClosuresCount + updatedQuotesCount + appHistMov.length + (invChanged && stockUpdatesCount > 0 ? 1 : 0);
 
   return {
     ok: true,
@@ -16316,7 +17168,7 @@ function handleInvRegisterDemandRequest_(body) {
     return { ok: false, error: 'Escribe un comentario con lo que solicita el cliente.' };
   }
 
-  const storeRaw = String(b.erpStore || b.sucursal || advisor.erpStore || advisor.branchLabel || advisor.sheetTab || '').trim();
+  const storeRaw = resolveAuthorizedUserStoreForLog_(advisor, auth.userMatches, b.erpStore || b.sucursal);
   const storeSafe = sanitizeOverrideTextCell_(storeRaw || 'SIN ASIGNAR', 80);
   const advisorNameSafe = sanitizeOverrideTextCell_(String(advisor.nombre || advisor.correo || 'Asesor').trim(), 100);
   const advisorEmailSafe = sanitizeOverrideTextCell_(String(advisor.correo || '').trim().toLowerCase(), 120);
@@ -16396,6 +17248,43 @@ function handleInvRegisterDemandRequest_(body) {
   }
 }
 
+function resolveAuthorizedUserStoreForLog_(advisor, userMatches, requestedStoreRaw) {
+  const verifiedDefault = String(
+    (advisor && (advisor.erpStore || advisor.branchLabel || advisor.sheetTab)) || ''
+  ).trim();
+  const reqStr = String(requestedStoreRaw || '').trim();
+  if (!advisor || isGuestReadOnlyUser_(advisor)) {
+    return verifiedDefault || 'SOLO LECTURA';
+  }
+  if (advisor.isAdmin) {
+    if (userHasAdminPerm_(advisor, 'cambiarTienda')) {
+      return reqStr || verifiedDefault || 'CEDIS';
+    }
+    return verifiedDefault || 'CEDIS';
+  }
+  if (reqStr && Array.isArray(userMatches) && userMatches.length > 0) {
+    const reqNorm = normPlainUpper_(reqStr).replace(/COLOSIO/g, 'COLOCIO');
+    const reqQuoteStore = typeof normalizeQuoteErpStore_ === 'function'
+      ? normPlainUpper_(normalizeQuoteErpStore_(reqStr, reqStr)).replace(/COLOSIO/g, 'COLOCIO')
+      : reqNorm;
+    for (let i = 0; i < userMatches.length; i++) {
+      const m = userMatches[i];
+      if (!m || isGuestReadOnlyUser_(m)) continue;
+      const candidates = [m.erpStore, m.sheetTab, m.branchKey, m.branchLabel];
+      if (typeof normalizeQuoteErpStore_ === 'function') {
+        candidates.push(normalizeQuoteErpStore_(m.erpStore, m.sheetTab));
+      }
+      for (let j = 0; j < candidates.length; j++) {
+        const cNorm = normPlainUpper_(candidates[j] || '').replace(/COLOSIO/g, 'COLOCIO');
+        if (cNorm && (cNorm === reqNorm || (reqQuoteStore && cNorm === reqQuoteStore))) {
+          return String(m.erpStore || m.branchLabel || m.sheetTab || reqStr).trim();
+        }
+      }
+    }
+  }
+  return verifiedDefault || 'SIN ASIGNAR';
+}
+
 // ============================================================================
 // REGISTRO DE SUGERENCIAS DE COMPRA DE PRODUCTOS (SUGERENCIAS_DE_COMPRA)
 // ============================================================================
@@ -16469,7 +17358,7 @@ function handleInvRegisterPurchaseSuggestion_(body) {
     return { ok: false, error: 'Escribe tus comentarios sobre el producto sugerido.' };
   }
 
-  const storeRaw = String(b.erpStore || b.sucursal || advisor.erpStore || advisor.branchLabel || advisor.sheetTab || '').trim();
+  const storeRaw = resolveAuthorizedUserStoreForLog_(advisor, auth.userMatches, b.erpStore || b.sucursal);
   const storeSafe = sanitizeOverrideTextCell_(storeRaw || 'SIN ASIGNAR', 80);
   const advisorNameSafe = sanitizeOverrideTextCell_(String(advisor.nombre || advisor.correo || 'Usuario').trim(), 100);
   const advisorRoleRaw = advisor.isGuest
@@ -16558,6 +17447,50 @@ const TAB_HISTORIAL_SEG_ARCHIVO_ = 'HISTORIAL_SEG_ARCHIVO';
 const TAB_RESGUARDO_COTIZACIONES_APP_ = 'RESGUARDO_COTIZACIONES_APP';
 const TAB_RESGUARDO_STOCK_SUG_ = 'RESGUARDO_STOCK_Y_SUGERENCIAS';
 const TAB_ANALISIS_VENTAS_KEVIN_ = 'ANALISIS_VENTAS_KEVIN';
+const TAB_RESGUARDO_HISTORIAL_ = 'RESGUARDO_HISTORIAL';
+
+function backupHistorialToResguardoSheet_(ssInv) {
+  if (!ssInv) return { totalRows: 0, inserted: 0 };
+  try {
+    const shHist = ssInv.getSheetByName(TAB_HISTORIAL_);
+    if (!shHist || shHist.getLastRow() < 7) return { totalRows: 0, inserted: 0 };
+    let shBk = ssInv.getSheetByName(TAB_RESGUARDO_HISTORIAL_);
+    if (!shBk) {
+      shBk = shHist.copyTo(ssInv);
+      shBk.setName(TAB_RESGUARDO_HISTORIAL_);
+      return { totalRows: Math.max(0, shBk.getLastRow() - 6), inserted: Math.max(0, shBk.getLastRow() - 6) };
+    }
+    const srcLast = shHist.getLastRow();
+    const srcRows = shHist.getRange(7, 1, srcLast - 6, 10).getValues();
+    const bkLast = shBk.getLastRow();
+    const seen = {};
+    if (bkLast >= 7) {
+      const existing = shBk.getRange(7, 1, bkLast - 6, 10).getValues();
+      for (let i = 0; i < existing.length; i++) {
+        const er = existing[i] || [];
+        const sig = [er[0], er[1], er[2], er[3], er[7], String(er[8] || '').slice(0, 120)].join('|');
+        seen[sig] = true;
+      }
+    }
+    const toAdd = [];
+    for (let j = 0; j < srcRows.length; j++) {
+      const sr = srcRows[j] || [];
+      if (!sr[0] && !sr[3] && !sr[8]) continue;
+      const sig = [sr[0], sr[1], sr[2], sr[3], sr[7], String(sr[8] || '').slice(0, 120)].join('|');
+      if (seen[sig]) continue;
+      seen[sig] = true;
+      toAdd.push(sr.slice(0, 10));
+    }
+    if (toAdd.length > 0) {
+      const startRow = Math.max(7, shBk.getLastRow() + 1);
+      ensureSheetGridCapacity_(shBk, startRow + toAdd.length + 5, 10);
+      shBk.getRange(startRow, 1, toAdd.length, 10).setValues(toAdd);
+    }
+    return { totalRows: Math.max(0, shBk.getLastRow() - 6), inserted: toAdd.length };
+  } catch (eBkHist) {
+    return { totalRows: 0, inserted: 0 };
+  }
+}
 
 function canonicalKevinBranch_(raw) {
   const u = normPlainUpper_(raw || '').replace(/[^A-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -17334,6 +18267,7 @@ function handleHistArchiveAndAnalyzeKevin_(body) {
     ];
     const shStockSugBackup = ensureStyledBackupSheet_(ssInv, TAB_RESGUARDO_STOCK_SUG_, stockSugHeaders);
     const upStockSug = upsertRowsByKeyCol_(shStockSugBackup, stockSugHeaders, 3, stockSugBackupRows);
+    const upHistorialBackup = backupHistorialToResguardoSheet_(ssInv);
 
     // ------------------------------------------------------------------------
     // 5. MOTOR DE ANÁLISIS: ¿POR QUÉ NO SE CIERRAN LAS VENTAS? + GERENTES + ASESORES

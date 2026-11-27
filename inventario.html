@@ -21,6 +21,10 @@
     <title>CREATA — Inventario</title>
     <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
     <link rel="dns-prefetch" href="https://lh3.googleusercontent.com">
+    <link rel="preconnect" href="https://script.google.com" crossorigin>
+    <link rel="dns-prefetch" href="https://script.google.com">
+    <link rel="preconnect" href="https://docs.google.com" crossorigin>
+    <link rel="dns-prefetch" href="https://docs.google.com">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -35,7 +39,7 @@
             <div class="inv-top-row">
                 <div class="inv-logo-cell">
                     <button type="button" id="headerLogoBtn" class="inv-logo-btn" onclick="goHomeFromLogo()" aria-label="Inicio CREATA" title="Inicio">
-                        <img id="headerLogoImg" src="" alt="CREATA MUEBLES" class="logo-img" draggable="false">
+                        <img id="headerLogoImg" src="" alt="CREATA MUEBLES" width="127" height="44" decoding="async" fetchpriority="high" class="logo-img" draggable="false">
                     </button>
                     <script src="creata-logo.js"></script>
                     <script>if(window.CREATA_LOGO_B64){document.getElementById("headerLogoImg").src=window.CREATA_LOGO_B64;}</script>
@@ -283,7 +287,7 @@
                 <div id="detPhotoWrap" class="inv-det-photo-stage w-full rounded-xl border flex items-center justify-center overflow-hidden relative"
                      style="background:#FFFFFF; border-color:#E1DBC5;">
                     <div id="detPhotoCanvasStage" class="inv-det-canvas-stage hidden"></div>
-                    <img id="detPhotoImg" src="" alt="" draggable="false" referrerpolicy="no-referrer" class="w-full h-full object-contain hidden">
+                    <img id="detPhotoImg" src="" alt="" width="600" height="600" decoding="async" fetchpriority="high" draggable="false" referrerpolicy="no-referrer" class="w-full h-full object-contain hidden">
                     <div id="detPhotoEmpty" class="flex items-center justify-center select-none">
                         <div class="w-12 h-12 rounded-full flex items-center justify-center border"
                              style="border-color:#E1DBC5; background:#E8E4DE; color:#A38251;">
@@ -739,7 +743,7 @@
     <div id="authModal" class="modal-backdrop" style="z-index:96; background:rgba(37, 44, 50, 0.90);">
         <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-6 py-5 text-center border-b" style="background:#252C32; border-color:#A38251;">
-                <img id="authLogoImg" src="" alt="CREATA MUEBLES" class="h-14 mx-auto object-contain mb-2" style="filter:brightness(0) invert(1);" draggable="false">
+                <img id="authLogoImg" src="" alt="CREATA MUEBLES" width="162" height="56" decoding="async" fetchpriority="high" class="h-14 w-auto mx-auto object-contain mb-2" style="filter:brightness(0) invert(1);" draggable="false">
                 <script>if(window.CREATA_LOGO_B64){document.getElementById("authLogoImg").src=window.CREATA_LOGO_B64;}</script>
                 <div class="text-[12px] font-extrabold uppercase tracking-widest text-white">Acceso de Asesores, Cotizaciones e Invitados</div>
             </div>
@@ -829,7 +833,7 @@
         <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border" style="border-color:#E1DBC5;">
             <div class="px-5 py-3.5 flex items-center justify-between gap-2" style="background:#252C32; color:#FFFFFF;">
                 <div class="flex items-center gap-2.5 min-w-0">
-                    <img src="inventario-icon-192.png" alt="CREATA App" class="w-8 h-8 rounded-lg border shrink-0" style="border-color:#A38251;">
+                    <img src="inventario-icon-192.png" alt="CREATA App" width="32" height="32" loading="lazy" decoding="async" class="w-8 h-8 rounded-lg border shrink-0" style="border-color:#A38251;">
                     <div>
                         <h3 class="text-[12px] font-extrabold uppercase tracking-wider break-words">App CREATA para Teléfono / PC</h3>
                         <div class="text-[11px] font-semibold" style="color:#E1DBC5;">Inventario en Vivo + Cotizador S Mueblería</div>
@@ -1272,7 +1276,7 @@
             </div>
             <div class="inv-modal-body space-y-3">
                 <div id="visualPhotoPreviewWrap" class="inv-visual-preview-wrap hidden">
-                    <img id="visualPhotoPreviewImg" src="" alt="" referrerpolicy="no-referrer" crossorigin="anonymous" class="inv-visual-preview-img">
+                    <img id="visualPhotoPreviewImg" src="" alt="" width="288" height="216" fetchpriority="high" decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" class="inv-visual-preview-img w-auto">
                 </div>
                 <p id="visualPhotoPickerHint" class="text-[11px] leading-relaxed" style="color:#5B554D;">
                     Esta imagen es únicamente visual y se sincroniza automáticamente para todo el equipo.
@@ -1307,7 +1311,7 @@
                 <button type="button" class="inv-modal-close" onclick="closeVisualPhotoLightbox()" aria-label="Cerrar">✕</button>
             </div>
             <div class="inv-visual-lightbox-stage">
-                <img id="visualPhotoLightboxImg" src="" alt="" referrerpolicy="no-referrer" crossorigin="anonymous">
+                <img id="visualPhotoLightboxImg" src="" alt="" width="560" height="420" fetchpriority="high" decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" class="w-auto h-auto">
             </div>
         </div>
     </div>
@@ -1524,6 +1528,7 @@
     <script src="inventario-data-2.js?v=45"></script>
     <script src="inventario-data-3.js?v=45"></script>
     <script src="./creata-back-nav.js?v=2"></script>
+    <script src="./creata-live-alerts.js"></script>
     <script src="./seguimiento-app.js?v=17"></script>
     <script src="./historial-app.js?v=15"></script>
     <script src="inventario-app.js?v=119"></script>

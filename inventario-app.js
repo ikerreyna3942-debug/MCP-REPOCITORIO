@@ -4426,6 +4426,8 @@
         const loadingAttr = o.eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
         const enableOptFit = !!(o.card || o.compact);
         const boxRatio = Number(o.boxRatio) > 0.1 ? Number(o.boxRatio) : 1;
+        const imgW = o.compact ? 80 : 400;
+        const imgH = o.compact ? 80 : Math.max(100, Math.round(400 / boxRatio));
         const cardAttr = enableOptFit ? (' data-card-img="1" data-box-ratio="' + boxRatio.toFixed(4) + '"') : '';
         let inlineFitStyle = '';
         if (enableOptFit && fid) {
@@ -4444,7 +4446,7 @@
             }
         }
         return '<div class="inv-thumb"><div class="inv-thumb-stage">' +
-            '<img ' + loadingAttr + ' decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" alt=""' +
+            '<img width="' + imgW + '" height="' + imgH + '" ' + loadingAttr + ' decoding="async" referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" alt=""' +
             cardAttr + (fid ? (' data-fid="' + escapeHtml(fid) + '"') : '') + inlineFitStyle +
             ' src="' + escapeHtml(targetUrl) + '"' +
             (enableOptFit ? ' onload="window.__invOnCardImgLoad&&window.__invOnCardImgLoad(this)"' : '') +
@@ -6591,7 +6593,7 @@
                 const fabFid = extractDriveFileId(matchedFab.url);
                 fabricPillHtml =
                     '<div class="inv-var-fabric-pill" data-fabric-zoom-url="' + escapeHtml(matchedFab.url) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedFab.label) + '" title="Ver tela">' +
-                        '<img class="inv-var-fabric-thumb" src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedFab.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
+                        '<img class="inv-var-fabric-thumb" width="22" height="22" src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedFab.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                         (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
                         ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '<span class="inv-var-fabric-lbl">' + escapeHtml(matchedFab.label) + '</span>' +
@@ -6601,7 +6603,7 @@
                 const woodFid = extractDriveFileId(matchedWood.url);
                 fabricPillHtml =
                     '<div class="inv-var-fabric-pill is-wood" data-fabric-zoom-url="' + escapeHtml(matchedWood.url) + '" data-fabric-zoom-label="' + escapeHtml('Madera · ' + matchedWood.label) + '" title="Ver madera">' +
-                        '<img class="inv-var-fabric-thumb" src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedWood.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
+                        '<img class="inv-var-fabric-thumb" width="22" height="22" src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedWood.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                         (woodFid ? (' data-fid="' + escapeHtml(woodFid) + '"') : '') +
                         ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '<span class="inv-var-fabric-lbl">🪵 ' + escapeHtml(matchedWood.label) + '</span>' +
@@ -6692,7 +6694,7 @@
                         const subMeta = fb.colorHint ? (fb.colorHint + ' · ' + modCountTxt) : modCountTxt;
 
                         const stageInner = swatchSrc
-                            ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
+                            ? ('<img class="inv-fabric-choice-img" width="160" height="120" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
                                (swatchFid ? (' data-fid="' + escapeHtml(swatchFid) + '"') : '') +
                                ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                                '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml('Tela · ' + fb.label) + '" title="Ampliar foto de tela" aria-label="Ampliar foto de tela">🔍</button>')
@@ -6732,7 +6734,7 @@
                     const modCountTxt = selectedFb.items.length === 1 ? '1 módulo disponible' : (selectedFb.items.length + ' módulos disponibles');
                     const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + modCountTxt) : modCountTxt;
                     const swatchInner = swatchThumb
-                        ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
+                        ? '<img width="48" height="48" loading="lazy" decoding="async" src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
                           (swatchSelFid ? (' data-fid="' + escapeHtml(swatchSelFid) + '"') : '') +
                           ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">'
                         : '<span aria-hidden="true">🧵</span>';
@@ -6875,7 +6877,7 @@
                             : 'Piezas →';
 
                         const stageInner = photoSrc
-                            ? ('<img class="inv-bed-size-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(photoSrc) + '" alt="' + escapeHtml(grpHeadTitle + ' ' + sb.label) + '"' +
+                            ? ('<img class="inv-bed-size-img" width="160" height="120" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(photoSrc) + '" alt="' + escapeHtml(grpHeadTitle + ' ' + sb.label) + '"' +
                                (photoFid ? (' data-fid="' + escapeHtml(photoFid) + '"') : '') +
                                ' onerror="window.__invHandleCardImgError&&window.__invHandleCardImgError(this)">')
                             : ('<div class="inv-fabric-choice-empty"><span class="inv-fabric-choice-empty-ico" aria-hidden="true">🛏️</span><span>' + escapeHtml(sb.label) + '</span></div>');
@@ -6959,7 +6961,7 @@
                             const zoomPrefix = fb.isWood ? 'Madera · ' : 'Tela · ';
 
                             const stageInner = swatchSrc
-                                ? ('<img class="inv-fabric-choice-img" loading="eager" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
+                                ? ('<img class="inv-fabric-choice-img" width="160" height="120" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" src="' + escapeHtml(swatchSrc) + '" alt="' + escapeHtml(fb.label) + '"' +
                                    (swatchFid ? (' data-fid="' + escapeHtml(swatchFid) + '"') : '') +
                                    ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                                    '<button type="button" class="inv-fabric-choice-zoom" data-fabric-zoom-url="' + escapeHtml(swatchUrl) + '" data-fabric-zoom-label="' + escapeHtml(zoomPrefix + fb.label) + '" title="' + zoomTitle + '" aria-label="' + zoomTitle + '">🔍</button>')
@@ -7013,7 +7015,7 @@
                         const pzCountTxt = selectedFb.items.length === 1 ? '1 pieza disponible' : (selectedFb.items.length + ' piezas disponibles');
                         const subMeta = selectedFb.colorHint ? (selectedFb.colorHint + ' · ' + pzCountTxt) : (selectedFb.isWood ? ('🪵 Acabado Madera · ' + pzCountTxt) : pzCountTxt);
                         const swatchInner = swatchThumb
-                            ? '<img src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
+                            ? '<img width="48" height="48" loading="lazy" decoding="async" src="' + escapeHtml(swatchThumb) + '" alt="' + escapeHtml(selectedFb.label) + '" referrerpolicy="no-referrer"' +
                               (swatchSelFid ? (' data-fid="' + escapeHtml(swatchSelFid) + '"') : '') +
                               ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">'
                             : '<span aria-hidden="true">' + (selectedFb.isWood ? '🪵' : '🧵') + '</span>';
@@ -7610,7 +7612,7 @@
                 swatchCardsHtml +=
                     '<button type="button" class="inv-det-fabric-swatch-card inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailFabric.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Tela · ' + matchedDetailFabric.label) + '" title="Toca para ampliar la tela">' +
                         '<span class="inv-det-fabric-swatch-img-wrap">' +
-                            '<img src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedDetailFabric.label) + '" loading="eager" decoding="async" referrerpolicy="no-referrer"' +
+                            '<img width="48" height="48" src="' + escapeHtml(fabThumb) + '" alt="' + escapeHtml(matchedDetailFabric.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                             (fabFid ? (' data-fid="' + escapeHtml(fabFid) + '"') : '') +
                             ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '</span>' +
@@ -7627,7 +7629,7 @@
                 swatchCardsHtml +=
                     '<button type="button" class="inv-det-fabric-swatch-card is-wood inv-det-info-btn-span" data-det-fabric-zoom-url="' + escapeHtml(matchedDetailWood.url) + '" data-det-fabric-zoom-label="' + escapeHtml('Madera · ' + matchedDetailWood.label) + '" title="Toca para ampliar la madera">' +
                         '<span class="inv-det-fabric-swatch-img-wrap">' +
-                            '<img src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedDetailWood.label) + '" loading="eager" decoding="async" referrerpolicy="no-referrer"' +
+                            '<img width="48" height="48" src="' + escapeHtml(woodThumb) + '" alt="' + escapeHtml(matchedDetailWood.label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"' +
                             (woodFid ? (' data-fid="' + escapeHtml(woodFid) + '"') : '') +
                             ' onerror="window.__invHandleSwatchImgError&&window.__invHandleSwatchImgError(this)">' +
                         '</span>' +
@@ -8170,7 +8172,7 @@
             const url = URL.createObjectURL(file);
             uploadPhotoObjectUrls.push(url);
             return '<div class="inv-upload-tile">' +
-                '<img src="' + escapeHtml(url) + '" alt="">' +
+                '<img width="120" height="120" loading="lazy" decoding="async" src="' + escapeHtml(url) + '" alt="">' +
                 '<button type="button" class="inv-upload-tile-rm" onclick="removeUploadPhotoFileAt(' + idx + ')" aria-label="Quitar">✕</button>' +
             '</div>';
         }).join('');
@@ -8633,7 +8635,7 @@
             const isSel = fid && fid === uploadPhotoSelectedDriveFileId;
             const thumb = cleanStr(f.thumbDataUrl || f.thumbUrl) || ('https://lh3.googleusercontent.com/d/' + encodeURIComponent(fid) + '=w320');
             return '<button type="button" class="inv-subir-pren-item' + (isSel ? ' is-selected' : '') + '" data-inv-act="subir-pren-pick" data-fid="' + escapeHtml(fid) + '">' +
-                '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' +
+                '<img width="96" height="62" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' +
                 '<span class="inv-subir-pren-item-name">' + escapeHtml(f.name || fid) + '</span>' +
             '</button>';
         }).join('');
@@ -9918,8 +9920,43 @@
 
     function saveUpdatedKeysMap(mapObj) {
         try {
-            localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(mapObj || {}));
+            if (!mapObj || !Object.keys(mapObj).length) {
+                localStorage.removeItem(PENDING_KEYS_STORAGE);
+            } else {
+                localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(mapObj));
+            }
         } catch (e) {}
+    }
+
+    function purgeLegacySyncedPendingKeys() {
+        try {
+            const raw = localStorage.getItem(PENDING_KEYS_STORAGE);
+            if (!raw) return;
+            const mapObj = JSON.parse(raw);
+            if (!mapObj || typeof mapObj !== 'object' || Array.isArray(mapObj)) {
+                localStorage.removeItem(PENDING_KEYS_STORAGE);
+                return;
+            }
+            let changed = false;
+            const keys = Object.keys(mapObj);
+            for (let i = 0; i < keys.length; i++) {
+                const em = keys[i];
+                const entry = mapObj[em];
+                if (!entry || typeof entry !== 'object' || entry.synced === true) {
+                    delete mapObj[em];
+                    changed = true;
+                }
+            }
+            if (changed) {
+                if (Object.keys(mapObj).length) {
+                    localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(mapObj));
+                } else {
+                    localStorage.removeItem(PENDING_KEYS_STORAGE);
+                }
+            }
+        } catch (e) {
+            try { localStorage.removeItem(PENDING_KEYS_STORAGE); } catch (e2) {}
+        }
     }
 
     function getDefaultDeliveryIsoDate() {
@@ -10843,9 +10880,11 @@
                 analysis: cleanStr(opts.analysis) || ''
             }, 9000).catch(() => {});
 
-            if (/FALLO|ERROR/i.test(classClean) || /ERROR|❌/i.test(stClean)) {
+            if (/FALLO/i.test(classClean) && !/CORREGIDO/i.test(stClean)) {
                 if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.notifyFailure === 'function') {
                     window.CreataLiveAlerts.notifyFailure({
+                        classification: classClean,
+                        status: stClean,
                         module: modClean,
                         event: evClean,
                         ref: refClean,
@@ -10882,7 +10921,10 @@
             try {
                 const r = ev ? ev.reason : null;
                 const msg = cleanStr((r && r.message) ? r.message : r);
-                if (!msg || /AbortError|The user aborted a request/i.test(msg)) return;
+                if (
+                    !msg ||
+                    /AbortError|The user aborted a request|The operation was aborted|signal is aborted|play\(\)\s*request\s*was\s*interrupted|writeText.*Clipboard|Document is not focused|not allowed by the user agent/i.test(msg)
+                ) return;
                 reportSystemHistoryEvent({
                     classification: 'FALLO DE CÓDIGO',
                     module: 'JS Cliente · Promise',
@@ -11391,6 +11433,7 @@
     }
 
     async function syncPendingKeyUpdatesToCloud() {
+        purgeLegacySyncedPendingKeys();
         const mapObj = loadUpdatedKeysMap();
         const emails = Object.keys(mapObj);
         if (!emails.length) return;
@@ -12110,8 +12153,8 @@
         const confKey = cleanStr(confKeyEl ? confKeyEl.value : '');
         const prevTempKey = (pendingAuthContext && pendingAuthContext.inputKey) ? pendingAuthContext.inputKey : '';
 
-        if (newKey.length < 4) {
-            showAuthBanner('authNewKeyMsg', 'La nueva contraseña debe tener mínimo 4 caracteres.', 'err');
+        if (newKey.length < 8) {
+            showAuthBanner('authNewKeyMsg', 'La nueva contraseña debe tener mínimo 8 caracteres.', 'err');
             return;
         }
         if (newKey !== confKey) {
@@ -14477,25 +14520,48 @@
         if (!payload || !payload.breakdown || !Array.isArray(payload.breakdown.lines) || !payload.breakdown.lines.length) return;
         const bd = payload.breakdown;
         const todayStr = formatDateDMY(new Date());
-        const logoSrc = window.CREATA_LOGO_B64 || '';
+        const rawLogoSrc = String(window.CREATA_LOGO_B64 || '').trim();
+        const safeLogoSrc = (rawLogoSrc &&
+            !/[\u0000-\u001f\u007f"'<>\\]/.test(rawLogoSrc) &&
+            (
+                /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,[a-z0-9+/=\s]+$/i.test(rawLogoSrc) ||
+                (!/^\/\//.test(rawLogoSrc) && !/(?:^|\/)\.\.(?:\/|\?|$)/.test(rawLogoSrc) && /^[a-z0-9_./-]+\.(?:png|jpe?g|webp|gif|avif)$/i.test(rawLogoSrc))
+            ))
+            ? rawLogoSrc
+            : '';
         const folioTxt = (submittedMeta && submittedMeta.folio) || payload.orderCode || '';
         const docHeading = 'CREATA-muebles-cotización';
 
-        const rowsHtml = bd.lines.map((ln, idx) =>
-            '<tr>' +
+        const rowsHtml = bd.lines.map((ln, idx) => {
+            const rawQty = Number(ln && ln.qty);
+            const safeQty = Number.isFinite(rawQty) ? Math.max(0, Math.round(rawQty)) : 0;
+            const rawDisc = Number(ln && ln.discountPct);
+            const safeDisc = Number.isFinite(rawDisc) ? Math.max(0, Math.min(100, rawDisc)) : 0;
+            const safeDiscLabel = safeDisc > 0 ? (Number(safeDisc.toFixed(2)) + '%') : '0%';
+            const rawPhotoUrl = String((ln && ln.photoUrl) || '').trim();
+            const safePhotoUrl = (rawPhotoUrl &&
+                !/[\u0000-\u001f\u007f"'<>\\]/.test(rawPhotoUrl) &&
+                (
+                    /^https?:\/\/\S+$/i.test(rawPhotoUrl) ||
+                    /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,[a-z0-9+/=\s]+$/i.test(rawPhotoUrl) ||
+                    (!/^[a-z][a-z0-9+.-]*:/i.test(rawPhotoUrl) && !/^\/\//.test(rawPhotoUrl) && !/(?:^|\/)\.\.(?:\/|\?|$)/.test(rawPhotoUrl) && /^(?:\.?\/)?[^:?#]+(?:\?[^#]*)?$/.test(rawPhotoUrl))
+                ))
+                ? rawPhotoUrl
+                : '';
+            return '<tr>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (idx + 1) + '</td>' +
                 '<td style="padding:6px;border-bottom:1px solid #E6E1D8;text-align:center;">' +
-                    (ln.photoUrl ? ('<img src="' + escapeHtml(ln.photoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E6E1D8;border-radius:6px;background:#FFF;">') : '') +
+                    (safePhotoUrl ? ('<img src="' + escapeHtml(safePhotoUrl) + '" width="64" height="64" loading="lazy" decoding="async" style="width:64px;height:64px;object-fit:contain;border:1px solid #E6E1D8;border-radius:6px;background:#FFF;">') : '') +
                 '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;font-weight:600;">' + escapeHtml(ln.name) +
                     (ln.measures ? ('<div style="font-size:10px;color:#6F6860;margin-top:2px;font-weight:400;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
                 '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;font-weight:700;">' + ln.qty + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;font-weight:700;">' + safeQty + '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:right;">' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (ln.discountPct > 0 ? (ln.discountPct + '%') : '0%') + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + escapeHtml(safeDiscLabel) + '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:right;font-weight:700;">' + escapeHtml(formatPrice(ln.lineSubtotal) || '$0.00') + '</td>' +
-            '</tr>'
-        ).join('');
+            '</tr>';
+        }).join('');
 
         const win = window.open('', '_blank');
         if (!win) return;
@@ -14507,7 +14573,7 @@
             '.box{border:1px solid #E6E1D8;border-radius:10px;padding:12px 14px;margin-top:12px;background:#F8F6F2;} ' +
             '@media print{.no-print{display:none!important;}}</style></head><body>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;background:#1A1816;color:#FFF;padding:16px 20px;border-radius:12px;">' +
-                '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:48px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+                '<div>' + (safeLogoSrc ? ('<img src="' + escapeHtml(safeLogoSrc) + '" width="138" height="48" decoding="async" fetchpriority="high" style="height:48px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                 '<div style="text-align:right;">' +
                     '<div style="font-size:15px;font-weight:800;letter-spacing:0.04em;">' + escapeHtml(docHeading) + '</div>' +
                     '<div style="color:#DFCCB2;font-size:11px;margin-top:3px;">Folio: <strong>' + escapeHtml(folioTxt) + '</strong></div>' +
@@ -14956,7 +15022,7 @@
                 return '<tr>' +
                     '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (idx + 1) + '</td>' +
                     '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' +
-                        (photoUrl ? ('<img src="' + escapeHtml(photoUrl) + '" style="width:60px;height:60px;object-fit:contain;border:1px solid #E6E1D8;border-radius:8px;background:#FFF;">') : '<span style="font-size:10px;color:#6F6860;">' + escapeHtml(sku) + '</span>') +
+                        (photoUrl ? ('<img src="' + escapeHtml(photoUrl) + '" width="60" height="60" loading="lazy" decoding="async" style="width:60px;height:60px;object-fit:contain;border:1px solid #E6E1D8;border-radius:8px;background:#FFF;">') : '<span style="font-size:10px;color:#6F6860;">' + escapeHtml(sku) + '</span>') +
                     '</td>' +
                     '<td style="padding:10px 8px;border-bottom:1px solid #E6E1D8;font-weight:700;">' +
                         escapeHtml(name) +
@@ -14983,7 +15049,7 @@
                     '</div>' +
                     '<div style="background:#FFFFFF;border:1px solid #E6E1D8;border-radius:16px;padding:22px;">' +
                         '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:#1A1816;color:#FFF;padding:16px 20px;border-radius:12px;">' +
-                            '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:46px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+                            '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" width="133" height="46" decoding="async" fetchpriority="high" style="height:46px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                             '<div style="text-align:right;">' +
                                 '<div style="font-size:15px;font-weight:800;letter-spacing:0.04em;">' + escapeHtml(docHeading) + '</div>' +
                                 '<div style="color:#DFCCB2;font-size:12px;margin-top:3px;">Folio: <strong>' + escapeHtml(folioTxt) + '</strong></div>' +
@@ -15680,16 +15746,6 @@
                     }
                 } catch (eLiveChk) {}
             }
-
-            reportSystemHistoryEvent({
-                classification: 'ALERTA TÉCNICA',
-                module: 'inventario-app.js · submitQuoteOrder',
-                event: 'RESPALDO PORTAPAPELES EN COTIZACIÓN',
-                status: '⚠️ ALERTA',
-                ref: payload.orderCode || '',
-                detail: 'Respuesta WebApp no disponible o requiere publicar nueva versión (' + cleanStr((res && res.error) || 'sin conexión directa') + ').',
-                analysis: 'Verificar conexión de red o publicar Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Administrar implementaciones.'
-            });
 
             window.copyCartSummary();
             renderQuoteStatusBanner(
@@ -17258,6 +17314,10 @@
     const LIVE_POLL_INTERVAL_MS = 60000;
 
     (function initCreataLiveAlertsModule() {
+        if (window.CreataLiveAlerts && window.CreataLiveAlerts.__unifiedV2) {
+            window.toggleLiveAlertsPermission = window.CreataLiveAlerts.enableAndTest;
+            return;
+        }
         let seenMap = {};
         let pollBaselineSeeded = false;
         let pollInFlight = false;
@@ -17364,6 +17424,7 @@
         }
 
         function notifyQuoteCreated(info) {
+            if (!(typeof isFotosAppOwner === 'function' && isFotosAppOwner())) return;
             const d = info || {};
             const folio = cleanStr(d.folio) || 'SIN-FOLIO';
             const client = cleanStr(d.clientName) || 'Cliente';
@@ -17373,7 +17434,7 @@
             const sig = 'QUOTE|' + folio;
             if (!markAlertSeen(sig)) return;
 
-            const title = '📋 Movimiento: Cotización ' + folio;
+            const title = '📋 Nueva Cotización ' + folio;
             const bodyParts = [client];
             if (store) bodyParts.push(store);
             if (advisor) bodyParts.push(advisor);
@@ -17387,7 +17448,11 @@
         }
 
         function notifyFailure(info) {
+            if (!(typeof isFotosAppOwner === 'function' && isFotosAppOwner())) return;
             const d = info || {};
+            const clas = cleanStr(d.classification).toUpperCase();
+            if (clas && clas.indexOf('ALERTA') !== -1 && clas.indexOf('FALLO') === -1) return;
+            if (/CORREGIDO/i.test(cleanStr(d.status))) return;
             const ev = cleanStr(d.event) || 'Falla crítica';
             const mod = cleanStr(d.module) || 'Sistema';
             const det = cleanStr(d.detail).slice(0, 120);
@@ -17395,7 +17460,7 @@
             const sig = 'ERR|' + mod + '|' + ev + '|' + ref + '|' + det.slice(0, 60);
             if (!markAlertSeen(sig)) return;
 
-            const title = '⚠️ Falla fuerte: ' + ev;
+            const title = '⚠️ Falla crítica: ' + ev;
             const body = [mod, ref, det].filter(Boolean).join(' · ');
             showInAppToast({ kind: 'error', title: title, body: body });
             dispatchSystemNotification(title, body, sig);
@@ -17411,8 +17476,8 @@
             try { localStorage.setItem('creata_live_alerts_enabled_v1', '1'); } catch (e) {}
             const title = '🔔 Alertas en vivo activas';
             const body = (perm === 'granted')
-                ? 'Recibirás avisos en laptop y celular cuando se cree una cotización o ocurra una falla fuerte.'
-                : 'Avisos en pantalla activos para movimientos de creación y fallas fuertes.';
+                ? 'Recibirás avisos de cotizaciones, seguimiento, conexiones/desconexiones y fallas críticas.'
+                : 'Avisos en pantalla activos para cotizaciones, seguimiento, conexiones y fallas críticas.';
             showInAppToast({ kind: 'quote', title: title, body: body });
             if (perm === 'granted') {
                 dispatchSystemNotification(title, body, 'creata-alert-test-' + Date.now());
@@ -17447,7 +17512,7 @@
                             continue;
                         }
                         if (!markAlertSeen(rowSig)) continue;
-                        if (/COTIZACION CREADA|NUEVA_COTIZACION/i.test(ev)) {
+                        if (/COTIZACI[ÓO]N CREADA|NUEVA_COTIZACION/i.test(ev)) {
                             notifyQuoteCreated({
                                 folio: ref || ts,
                                 clientName: det.slice(0, 48) || usr,
@@ -17455,10 +17520,12 @@
                                 advisorName: usr
                             });
                             refreshMyLiveQuotesThrottled(true);
-                        } else if (/FALLO/i.test(clas) || /ERROR|❌/i.test(st)) {
+                        } else if (clas.indexOf('FALLO') !== -1 && !/CORREGIDO/i.test(st)) {
                             notifyFailure({
+                                classification: clas,
                                 module: mod,
                                 event: ev,
+                                status: st,
                                 ref: ref,
                                 detail: det || st,
                                 user: usr,
@@ -17475,6 +17542,8 @@
 
         window.CreataLiveAlerts = {
             notifyQuoteCreated: notifyQuoteCreated,
+            notifySeguimientoEvent: function () {},
+            ingestPresenceSnapshot: function () {},
             notifyFailure: notifyFailure,
             enableAndTest: enableAndTest,
             poll: poll
@@ -19651,8 +19720,8 @@
             setSettingsStatusBox('settingsPassStatus', 'Ingresa tu contraseña actual.', 'err');
             return;
         }
-        if (newPass.length < 4) {
-            setSettingsStatusBox('settingsPassStatus', 'La nueva contraseña debe tener al menos 4 caracteres.', 'err');
+        if (newPass.length < 8) {
+            setSettingsStatusBox('settingsPassStatus', 'La nueva contraseña debe tener al menos 8 caracteres.', 'err');
             return;
         }
         if (newPass !== confPass) {
@@ -19707,9 +19776,12 @@
                 }
                 try {
                     localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(activeAdvisorSession));
-                    const pMap = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}') || {};
-                    pMap[activeAdvisorSession.correo] = { newKey: newPass, prevKey: currPass, synced: true, updatedAt: Date.now() };
-                    localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(pMap));
+                    const mapObj = loadUpdatedKeysMap();
+                    if (mapObj && mapObj[activeAdvisorSession.correo]) {
+                        delete mapObj[activeAdvisorSession.correo];
+                        saveUpdatedKeysMap(mapObj);
+                    }
+                    purgeLegacySyncedPendingKeys();
                 } catch (eSave) {}
                 if (currEl) currEl.value = '';
                 if (newEl) newEl.value = '';
@@ -20080,6 +20152,11 @@
                 }
             }
             if (res && res.ok && Array.isArray(res.users)) {
+                try {
+                    if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.ingestPresenceSnapshot === 'function') {
+                        window.CreataLiveAlerts.ingestPresenceSnapshot(res);
+                    }
+                } catch (ePresAlert) {}
                 const serverNow = Number(res.serverTimeMs) > 0 ? Number(res.serverTimeMs) : Date.now();
                 const thresholdMs = Number(res.thresholdMs) > 0 ? Number(res.thresholdMs) : 180000;
                 const list = res.users.filter(Boolean).map(function (raw) {
@@ -21073,7 +21150,7 @@
             const existingQty = qtyBySku.get(sku) || 0;
             const btnLabel = existingQty > 0 ? ('+1 (en lista: ' + existingQty + ')') : '+ Agregar';
             return '<div class="inv-calc-res-row">' +
-                '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
+                '<div class="inv-calc-thumb">' + (thumbSrc ? '<img width="34" height="34" src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
                 '<div class="inv-calc-res-info">' +
                     '<div class="inv-calc-res-name">' + escapeHtml(entry.name) + '</div>' +
                     '<div class="inv-calc-res-meta">' +
@@ -21182,7 +21259,7 @@
             const hasDisc = ln.discountPct > 0.001;
             return '<div class="inv-calc-item-card" data-calc-sku="' + escapeHtml(ln.sku) + '">' +
                 '<div class="inv-calc-item-top">' +
-                    '<div class="inv-calc-thumb">' + (thumbSrc ? '<img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
+                    '<div class="inv-calc-thumb">' + (thumbSrc ? '<img width="34" height="34" src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '🪑') + '</div>' +
                     '<div class="inv-calc-res-info">' +
                         '<div class="inv-calc-res-name">' + escapeHtml(ln.name) + '</div>' +
                         '<div class="inv-calc-res-meta">' +
@@ -21639,6 +21716,7 @@
     }
 
     try {
+        purgeLegacySyncedPendingKeys();
         applyAllProductOverridesToCatalog();
         setTimeout(() => { syncProductOverridesFromCloud(false); }, 250);
     } catch (eBootOvr) {}

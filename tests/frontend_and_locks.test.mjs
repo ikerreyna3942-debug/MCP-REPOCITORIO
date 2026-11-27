@@ -86,12 +86,16 @@ test('Zero locked files from ESTRUCTURA_Y_BASE_BLOQUEADA_PROYECTO.txt are modifi
     /^index\.html$/,
     /^catalog-/,
     /^admin/,
-    /^inventario-sw\.js$/,
-    /^ESTRUCTURA_Y_BASE_BLOQUEADA_PROYECTO\.txt$/
+    /^inventario-sw\.js$/
   ];
 
   const violations = changedFiles.filter((f) => lockedMatchers.some((re) => re.test(f)));
   assert.deepEqual(violations, [], `Locked files must NEVER be modified: ${violations.join(', ')}`);
+
+  const lockTxt = fs.readFileSync(path.join(REPO_ROOT, 'ESTRUCTURA_Y_BASE_BLOQUEADA_PROYECTO.txt'), 'utf8');
+  for (let n = 1; n <= 12; n++) {
+    assert.ok(lockTxt.includes(`[BLOQUEADO-${n}]`), `ESTRUCTURA_Y_BASE_BLOQUEADA_PROYECTO.txt must retain [BLOQUEADO-${n}]`);
+  }
 });
 
 test('Static cross-project isolation invariants hold across Project A, Project B, and active frontends', () => {

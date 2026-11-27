@@ -25,6 +25,7 @@ jobs:
           const jsFiles = [
             'creata-cloud.js',
             'creata-back-nav.js',
+            'creata-live-alerts.js',
             'panel-app.js',
             'panel-sw.js',
             'fotos-productos-app.js',
@@ -47,6 +48,9 @@ jobs:
             }
           }
           "
+
+      - name: Verify modular source bundles (zero drift & module syntax)
+        run: node scripts/build-bundles.mjs --check --verify-syntax
 
       - name: Run unit & security regression tests
         run: node --test tests/*.test.mjs

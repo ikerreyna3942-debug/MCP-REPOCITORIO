@@ -324,7 +324,8 @@ test('GAS Unified CUENTAS ADMINISTRATIVAS (ZERO legacy store tabs): admins, sing
   assert.equal(mariaUpd.ok, true);
   assert.equal(mariaUpd.updatedRows, 1);
   assert.equal(sheetsData['CUENTAS ADMINISTRATIVAS'][5][5], '', 'Col F tempKey must be cleared');
-  assert.equal(sheetsData['CUENTAS ADMINISTRATIVAS'][5][6], 'MariaNueva2026!', 'Col G defKey must be updated');
+  assert.match(String(sheetsData['CUENTAS ADMINISTRATIVAS'][5][6]), /^sha256i\$\d+\$[a-zA-Z0-9_-]{8,}\$[a-f0-9]{64}$/, 'Col G defKey must be stored hashed (SEC-10)');
+  assert.notEqual(sheetsData['CUENTAS ADMINISTRATIVAS'][5][6], 'MariaNueva2026!');
   for (const expectedTab of ['CUENTAS ADMINISTRATIVAS', 'COLOCIO', 'PLAYA', 'PTC', 'CASA CREATA', 'PROYECTOS']) {
     assert.ok(mariaUpd.tokensByTab[expectedTab], `tokensByTab must include refreshed token for ${expectedTab}`);
   }
@@ -430,7 +431,8 @@ test('GAS Unified CUENTAS ADMINISTRATIVAS (ZERO legacy store tabs): admins, sing
   for (const legacyTab of ['COLOCIO', 'PLAYA', 'PTC', 'CASA CREATA', 'PROYECTOS']) {
     assert.equal(sheetsMap.has(legacyTab), false, `Setup safeguard must NOT recreate deleted tab ${legacyTab}`);
   }
-  assert.equal(sheetsData['CUENTAS ADMINISTRATIVAS'][5][6], 'MariaNueva2026!', 'Setup safeguard must preserve passwords');
+  assert.match(String(sheetsData['CUENTAS ADMINISTRATIVAS'][5][6]), /^sha256i\$\d+\$[a-zA-Z0-9_-]{8,}\$[a-f0-9]{64}$/, 'Setup safeguard must preserve hashed passwords');
+  assert.equal(ctx.keysEqualNormalized_('MariaNueva2026!', sheetsData['CUENTAS ADMINISTRATIVAS'][5][6]), true, 'Setup safeguard must preserve Maria password validity');
 });
 
 test('Frontend Unified Directory Contracts: inventario-app.js, seguimiento-app.js, fotos-productos-app.js, panel-app.js, historial-app.js', () => {
@@ -553,7 +555,8 @@ test('Single private auth workbook (CREATA_AUTH_PRIVADO_NO_COMPARTIR) default ro
   // Verify Col F cleared & Col G saved strictly in CREATA_AUTH_PRIVADO_NO_COMPARTIR
   const privSheet = privateAuthBook.getSheetByName('CUENTAS ADMINISTRATIVAS');
   assert.equal(privSheet.getRange(4, 6).getValue(), '', 'Col F (temp key) must be cleared in private auth workbook');
-  assert.equal(privSheet.getRange(4, 7).getValue(), 'PaulaFirme2026!', 'Col G (definitive key) must be saved in private auth workbook');
+  assert.match(String(privSheet.getRange(4, 7).getValue()), /^sha256i\$\d+\$[a-zA-Z0-9_-]{8,}\$[a-f0-9]{64}$/, 'Col G (definitive key) must be stored hashed in private auth workbook (SEC-10)');
+  assert.notEqual(privSheet.getRange(4, 7).getValue(), 'PaulaFirme2026!');
 
   // 3) Old temp key now fails, new definitive password logs in cleanly with mustChangeKey=false
   const oldKeyAttempt = post({ action: 'inv_login', email: 'paula.bri@creatamuebles.com', accessKey: '123', deviceId: 'dev_paula_1' });
@@ -574,8 +577,14 @@ test('Single private auth workbook (CREATA_AUTH_PRIVADO_NO_COMPARTIR) default ro
   assert.equal(myDirRes.users[0].tempKey, undefined);
   assert.equal(myDirRes.users[0].defKey, undefined);
 
+  const segDeniedRes = post({ action: 'seg_get_state', authToken: newKeyLogin.user.authToken });
+  assert.equal(segDeniedRes.ok, false, 'Paula with VER_SEGUIMIENTO=NO & VER_HISTORIAL=NO must be blocked on seg_get_state (SEC-03)');
+  assert.equal(segDeniedRes.forbidden, true);
+
+  privSheet.getRange(4, 11).setValue('SI'); // Grant VER_SEGUIMIENTO in private auth workbook
+  env.context.invalidateBranchUsersCache_();
   const segRes = post({ action: 'seg_get_state', authToken: newKeyLogin.user.authToken });
-  assert.equal(segRes.ok, true, 'seg_get_state must succeed from private auth workbook');
+  assert.equal(segRes.ok, true, 'seg_get_state must succeed from private auth workbook once VER_SEGUIMIENTO=SI');
   assert.equal(segRes.advisorsDirectory.length, 1);
   assert.equal(segRes.advisorsDirectory[0].correo, 'paula.bri@creatamuebles.com');
   assert.equal(segRes.advisorsDirectory[0].defKey, undefined);
