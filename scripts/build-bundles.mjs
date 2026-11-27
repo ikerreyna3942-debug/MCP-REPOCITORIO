@@ -68,6 +68,32 @@ export const BUNDLES = [
       '11-kevin-archive-and-sales-analysis.gs',
     ],
   },
+  {
+    id: 'inventario',
+    outputFile: 'inventario-app.js',
+    srcDir: 'src/inventario',
+    moduleExtension: '.js',
+    syntaxMode: 'iife-body',
+    header:
+      "(function () {\n    'use strict';\n    if (window.CreataGuard && (window.CreataGuard.blocked || window.CreataGuard.isBlocked)) return;\n\n",
+    separator: '\n',
+    footer: '})();\n',
+    modules: [
+      '01-core-config-and-utils.js',
+      '02-fabric-vocab-and-normalization.js',
+      '03-categories-visual-swatches-and-ranking.js',
+      '04-optfit-indexing-and-catalog-grid.js',
+      '05-scanner-variants-and-detail-modal.js',
+      '06-photo-upload-and-related-items.js',
+      '07-auth-presence-fab-and-modules.js',
+      '08a-quotes-roles-and-drafts.js',
+      '08b-clients-cart-pdf-and-submit.js',
+      '09-bt-wedge-live-sync-checkpoint-alerts-pwa.js',
+      '10-split-dock-and-back-nav.js',
+      '11-settings-visual-picker-demand-and-suggestions.js',
+      '12-price-calculator-and-audit-exports.js',
+    ],
+  },
 ];
 
 export function sha256(content) {
