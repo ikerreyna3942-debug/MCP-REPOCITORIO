@@ -45,6 +45,29 @@ export const BUNDLES = [
       '07-visual-covers-fabrics-woods-and-bootstrap.js',
     ],
   },
+  {
+    id: 'apps-script',
+    outputFile: 'AppsScript_Creata_Drive_Sheets.gs',
+    srcDir: 'src/apps-script',
+    moduleExtension: '.gs',
+    syntaxMode: 'global',
+    header: '',
+    separator: '\n',
+    footer: '',
+    modules: [
+      '01-config-auth-bootstrap-and-catalog-sync.gs',
+      '02-web-entrypoints-and-catalog-crud.gs',
+      '03-inventory-setup-users-and-invitados.gs',
+      '04-auth-tokens-directory-and-quotes-ledger.gs',
+      '05-erp-wcf-client-submit-quote-and-pdf.gs',
+      '06-erp-inventory-sync-autocomplete-and-clients.gs',
+      '07-fotos-project-a-manager.gs',
+      '08-audit-historial-and-seguimiento-sync.gs',
+      '09-presence-sessions-and-product-overrides.gs',
+      '10-demand-and-purchase-suggestions.gs',
+      '11-kevin-archive-and-sales-analysis.gs',
+    ],
+  },
 ];
 
 export function sha256(content) {
