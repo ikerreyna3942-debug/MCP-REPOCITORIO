@@ -1191,7 +1191,7 @@ function doPost(e) {
     if (action === 'inv_log_event') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_log', maxHits: 60, windowSec: 60 });
       if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
-      return jsonResponse_(handleInvLogEvent_(body, gate.tokenInfo || null));
+      return jsonResponse_(handleInvLogEvent_(body, gate.tokenInfo || null, !!gate.viaPin));
     }
     if (action === 'seg_action') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_seg_act', maxHits: 45, windowSec: 60 });
@@ -4398,16 +4398,28 @@ function handleInvLogin_(body) {
     return { ok: false, error: 'El correo ingresado no está registrado en ninguna hoja de sucursal ni en INVITADOS.' };
   }
 
+  const keyMatchCache = Object.create(null);
+  const matchesInputKey = (storedHash) => {
+    const k = String(storedHash || '');
+    if (!k) return false;
+    if (Object.prototype.hasOwnProperty.call(keyMatchCache, k)) {
+      return keyMatchCache[k];
+    }
+    const matched = keysEqualNormalized_(inputKey, k);
+    keyMatchCache[k] = matched;
+    return matched;
+  };
+
   const validMatches = emailMatches.filter((u) => {
     if (u.isGuest && u.noPasswordRequired) {
       return true;
     }
     if (!inputKey) return false;
     if (u.defKey) {
-      return keysEqualNormalized_(inputKey, u.defKey);
+      return matchesInputKey(u.defKey);
     }
     if (u.tempKey) {
-      return keysEqualNormalized_(inputKey, u.tempKey);
+      return matchesInputKey(u.tempKey);
     }
     return false;
   });
@@ -4439,7 +4451,7 @@ function handleInvLogin_(body) {
   const candidateMatches = hasValidNonGuestMatch
     ? emailMatches.filter((u) => !isGuestReadOnlyUser_(u))
     : validMatches;
-  const matchedViaDefKey = validMatches.some((u) => !!u.defKey && keysEqualNormalized_(inputKey, u.defKey));
+  const matchedViaDefKey = validMatches.some((u) => !!u.defKey && matchesInputKey(u.defKey));
   const hasAnyDefKeyForEmail = candidateMatches.some((u) => !!u.defKey);
 
   // Si la cuenta que inicia sesión pertenece a INVITADOS, verificar y registrar el límite de dispositivos configurado en Columna H
@@ -13087,7 +13099,7 @@ function registrarEventoHistorial_(ss, opts) {
   }
 }
 
-function handleInvLogEvent_(body, tokenInfo) {
+function handleInvLogEvent_(body, tokenInfo, viaPin) {
   const b = body || {};
   const ss = getSpreadsheet_();
   const resolvedTok = (tokenInfo && tokenInfo.email)
@@ -13098,43 +13110,90 @@ function handleInvLogEvent_(body, tokenInfo) {
     : '';
   let isGuestCaller = false;
   let isAdminCaller = false;
+  let callerUserMatches = [];
+  let callerAdvisor = null;
   if (tokEmail) {
     const tokSt = lookupTokenUserStatus_(resolvedTok);
     const tabNorm = String(resolvedTok.sheetTab || '').trim().toUpperCase();
     isGuestCaller = /^INVITADOS?$/.test(tabNorm) || Boolean(tokSt && tokSt.isGuest);
     if (!isGuestCaller) {
+      try {
+        const authSs = typeof getAuthSpreadsheet_ === 'function' ? getAuthSpreadsheet_(ss) : ss;
+        const allU = readAllBranchUsers_(authSs, []);
+        if (Array.isArray(allU)) {
+          callerUserMatches = allU.filter(function (u) {
+            return u && u.correo === tokEmail && !isGuestReadOnlyUser_(u);
+          });
+          if (callerUserMatches.length) {
+            callerAdvisor = callerUserMatches.find(function (u) {
+              return String(u.sheetTab || '').trim().toUpperCase() === tabNorm;
+            }) || callerUserMatches[0];
+          }
+        }
+      } catch (eAdmLog) {}
       if (ADMIN_MASTER_EMAILS_ && ADMIN_MASTER_EMAILS_[tokEmail]) {
         isAdminCaller = true;
       } else {
-        try {
-          const allU = readAllBranchUsers_(ss, []);
-          isAdminCaller = Array.isArray(allU) && allU.some(function (u) {
-            return u && u.correo === tokEmail && !isGuestReadOnlyUser_(u) && !!u.isAdmin;
-          });
-        } catch (eAdmLog) {}
+        isAdminCaller = callerUserMatches.some(function (u) {
+          return !!u.isAdmin;
+        });
       }
     }
-  } else {
-    // PIN-authenticated admin call (when gate.viaPin === true)
+  } else if (viaPin === true) {
+    // PIN-authenticated admin call (only when explicitly verified by gate.viaPin === true)
     isAdminCaller = true;
+  } else {
+    return {
+      ok: false,
+      authRequired: true,
+      error: 'Sesión requerida para registrar eventos.'
+    };
+  }
+
+  const rawModStr = String(b.module || 'inventario-app.js').trim();
+  const rawEvStr = String(b.event || 'EVENTO CLIENTE WEB').trim();
+  const isSegEventPayload = (
+    rawModStr.toUpperCase() === 'SEGUIMIENTO_COTIZACIONES' ||
+    /^SEG_/i.test(rawEvStr)
+  );
+  if (isSegEventPayload && (!isAdminCaller || (callerAdvisor && !userHasEffectivePerm_(callerAdvisor, 'seguimiento')))) {
+    return {
+      ok: false,
+      forbidden: true,
+      error: 'Usa el endpoint seg_action para registrar eventos de Seguimiento.'
+    };
   }
 
   const rawClasif = String(b.classification || 'FALLO DE CÓDIGO').trim().toUpperCase();
-  let safeClasif = (rawClasif === 'MOVIMIENTO' || rawClasif === 'ALERTA TÉCNICA' || rawClasif === 'FALLO DE CÓDIGO')
-    ? rawClasif
-    : 'FALLO DE CÓDIGO';
-  if (isGuestCaller && safeClasif === 'MOVIMIENTO') {
-    safeClasif = 'FALLO DE CÓDIGO';
+  let safeClasif;
+  if (isAdminCaller) {
+    safeClasif = (rawClasif === 'MOVIMIENTO' || rawClasif === 'ALERTA TÉCNICA' || rawClasif === 'FALLO DE CÓDIGO')
+      ? rawClasif
+      : 'FALLO DE CÓDIGO';
+  } else {
+    safeClasif = (rawClasif === 'ALERTA TÉCNICA' || rawClasif === 'FALLO DE CÓDIGO')
+      ? rawClasif
+      : 'FALLO DE CÓDIGO';
   }
 
-  const mod = safeSheetCellText_(String(b.module || 'inventario-app.js').trim(), 120);
-  const ev = safeSheetCellText_(String(b.event || 'EVENTO CLIENTE WEB').trim(), 160);
+  const mod = safeSheetCellText_(rawModStr || 'inventario-app.js', 120);
+  const ev = safeSheetCellText_(rawEvStr || 'EVENTO CLIENTE WEB', 160);
   const det = safeSheetCellText_(String(b.detail || '').trim(), 1000);
   const anaRaw = String(b.analysis || '').trim() || analizarCausaFalloCodigo_(det, mod, ev);
   const ana = safeSheetCellText_(anaRaw, 600);
   const usuarioResolved = isAdminCaller
     ? String(b.user || tokEmail || 'Cliente Web').trim()
     : (tokEmail || 'Cliente Web');
+  let sucursalResolved;
+  if (isAdminCaller) {
+    sucursalResolved = String(b.branch || 'INVENTARIO WEB').trim();
+  } else if (isGuestCaller) {
+    sucursalResolved = 'SOLO LECTURA';
+  } else if (callerAdvisor) {
+    sucursalResolved = resolveAuthorizedUserStoreForLog_(callerAdvisor, callerUserMatches, b.branch);
+  } else {
+    sucursalResolved = String((resolvedTok && resolvedTok.sheetTab) || 'INVENTARIO WEB').trim() || 'INVENTARIO WEB';
+  }
   const estadoRaw = String(b.status || (safeClasif === 'MOVIMIENTO' ? '✅ OK' : '❌ ERROR')).trim();
 
   const ok = registrarEventoHistorial_(ss, {
@@ -13143,7 +13202,7 @@ function handleInvLogEvent_(body, tokenInfo) {
     evento: ev,
     estado: safeSheetCellText_(estadoRaw, 60),
     usuario: safeSheetCellText_(usuarioResolved, 140),
-    sucursal: safeSheetCellText_(String(b.branch || 'INVENTARIO WEB').trim(), 100),
+    sucursal: safeSheetCellText_(sucursalResolved, 100),
     referencia: safeSheetCellText_(String(b.ref || '—').trim(), 120),
     detalle: det,
     analisis: ana
@@ -13615,6 +13674,7 @@ function handleSegAction_(body) {
     : ((reqBranchNorm && scope.allowedBranches[reqBranchNorm]) ? reqBranchRaw : (userBranch || ''));
 
   // Control estricto de propiedad/alcance del folio (previene IDOR e inyección de folios falsos)
+  let histRefFolio = folio || 'SEGUIMIENTO';
   if (sub === 'SEG_NUEVA_COTIZACION_APP') {
     const reqItems = (payload && Array.isArray(payload.items)) ? payload.items : [];
     if (!reqItems.length) {
@@ -13652,6 +13712,7 @@ function handleSegAction_(body) {
         };
       }
     }
+    histRefFolio = targetFolio;
   } else {
     if (!folio) {
       return { ok: false, error: 'Folio requerido para esta acción de seguimiento.' };
@@ -13673,7 +13734,7 @@ function handleSegAction_(body) {
     estado: '✅ OK',
     usuario: actorName,
     sucursal: actorBranch || 'TODAS',
-    referencia: folio || 'SEGUIMIENTO',
+    referencia: histRefFolio,
     detalle: JSON.stringify(payload),
     analisis: 'Evento sincronizado en vivo desde Seguimiento de Cotizaciones.'
   });
@@ -14078,6 +14139,7 @@ function handleSegGetState_(body) {
     const matchedSeg = [];
     for (let i = 0; i < dataRows.length; i++) {
       const r = dataRows[i] || [];
+      if (String(r[1] || '').trim().toUpperCase() !== 'MOVIMIENTO') continue;
       if (String(r[2] || '').trim().toUpperCase() !== 'SEGUIMIENTO_COTIZACIONES') continue;
       if (!scope.isAdmin && !matchesSegScope_(scope, r[5], r[5], r[6], r[7])) continue;
       matchedSeg.push(r);
@@ -16580,7 +16642,10 @@ function resolveAuthorizedUserStoreForLog_(advisor, userMatches, requestedStoreR
     return verifiedDefault || 'SOLO LECTURA';
   }
   if (advisor.isAdmin) {
-    return reqStr || verifiedDefault || 'CEDIS';
+    if (userHasAdminPerm_(advisor, 'cambiarTienda')) {
+      return reqStr || verifiedDefault || 'CEDIS';
+    }
+    return verifiedDefault || 'CEDIS';
   }
   if (reqStr && Array.isArray(userMatches) && userMatches.length > 0) {
     const reqNorm = normPlainUpper_(reqStr).replace(/COLOSIO/g, 'COLOCIO');

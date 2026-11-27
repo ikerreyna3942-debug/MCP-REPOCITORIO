@@ -9931,7 +9931,7 @@
             const raw = localStorage.getItem(PENDING_KEYS_STORAGE);
             if (!raw) return;
             const mapObj = JSON.parse(raw);
-            if (!mapObj || typeof mapObj !== 'object') {
+            if (!mapObj || typeof mapObj !== 'object' || Array.isArray(mapObj)) {
                 localStorage.removeItem(PENDING_KEYS_STORAGE);
                 return;
             }
@@ -14521,13 +14521,25 @@
         const docHeading = 'CREATA-muebles-cotización';
 
         const rowsHtml = bd.lines.map((ln, idx) => {
-            const safeQty = Math.max(0, Math.round(Number(ln && ln.qty) || 0));
-            const safeDisc = Math.max(0, Math.min(100, Number(ln && ln.discountPct) || 0));
+            const rawQty = Number(ln && ln.qty);
+            const safeQty = Number.isFinite(rawQty) ? Math.max(0, Math.round(rawQty)) : 0;
+            const rawDisc = Number(ln && ln.discountPct);
+            const safeDisc = Number.isFinite(rawDisc) ? Math.max(0, Math.min(100, rawDisc)) : 0;
             const safeDiscLabel = safeDisc > 0 ? (Number(safeDisc.toFixed(2)) + '%') : '0%';
+            const rawPhotoUrl = String((ln && ln.photoUrl) || '').trim();
+            const safePhotoUrl = (rawPhotoUrl &&
+                !/[\u0000-\u001f\u007f"'<>\\]/.test(rawPhotoUrl) &&
+                (
+                    /^https?:\/\/\S+$/i.test(rawPhotoUrl) ||
+                    /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(rawPhotoUrl) ||
+                    (!/^[a-z][a-z0-9+.-]*:/i.test(rawPhotoUrl) && !/^\/\//.test(rawPhotoUrl) && /^(?:\.?\/)?[^:?#]+(?:\?[^#]*)?$/.test(rawPhotoUrl))
+                ))
+                ? rawPhotoUrl
+                : '';
             return '<tr>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (idx + 1) + '</td>' +
                 '<td style="padding:6px;border-bottom:1px solid #E6E1D8;text-align:center;">' +
-                    (ln.photoUrl ? ('<img src="' + escapeHtml(ln.photoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E6E1D8;border-radius:6px;background:#FFF;">') : '') +
+                    (safePhotoUrl ? ('<img src="' + escapeHtml(safePhotoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E6E1D8;border-radius:6px;background:#FFF;">') : '') +
                 '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;font-weight:600;">' + escapeHtml(ln.name) +
                     (ln.measures ? ('<div style="font-size:10px;color:#6F6860;margin-top:2px;font-weight:400;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
