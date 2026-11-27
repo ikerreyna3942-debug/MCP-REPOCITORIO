@@ -48,5 +48,8 @@ jobs:
           }
           "
 
+      - name: Verify modular source bundles (zero drift & module syntax)
+        run: node scripts/build-bundles.mjs --check --verify-syntax
+
       - name: Run unit & security regression tests
         run: node --test tests/*.test.mjs
