@@ -161,6 +161,9 @@ function buildSecurityRuntime(extraOpts = {}) {
   }
 
   env.loadScript(CREATA_GS);
+  if (extraOpts.withParche) {
+    env.loadScript(PARCHE_GS);
+  }
   env.context.ensureLiveErpSyncTrigger_ = () => {};
 
   const post = (payload) => JSON.parse(env.context.doPost({
@@ -938,4 +941,282 @@ test('SEC-12 (R2 defense-in-depth): targetFolio alignment, admin cambiarTienda s
   assert.ok(writtenHtml.includes('https://lh3.googleusercontent.com/d/abc123=w400'), 'Safe HTTPS photoUrl must render');
   assert.ok(writtenHtml.includes('fotos/silla_ok.webp'), 'Safe relative photoUrl must render');
 });
+
+test('SEC-13 (R3 final hardening): inv_log_event canonicalization/truncation/apostrophe bypasses (CREATA_ONLY & CREATA+PARCHE), restricted admin branch binding, historial MOVIMIENTO guard, seg_action folio alignment, tempKey memoization, and printable SVG/path blocking', () => {
+  // 1) Truncation + double-trim (121-char space & CRLF) and leading apostrophe/formula prefix bypasses blocked in BOTH CREATA_ONLY and CREATA+PARCHE
+  for (const withParche of [false, true]) {
+    const mode = withParche ? 'CREATA+PARCHE' : 'CREATA_ONLY';
+    const rt = buildSecurityRuntime({ withParche });
+    const kevinTok = rt.login('kevin.reyna@grupoanipa.com', 'KevinSec2026!');
+    const guestTok = rt.login('invitado.sec@cliente.com', 'InvSec2026!');
+    const luisTok = rt.login('luis.noperm@grupoanipa.com', 'LuisNoPerm26!');
+    const adminLimTok = rt.login('admin.limited@grupoanipa.com', 'AdminLim2026!');
+    const shHist = rt.ssInv.getSheetByName('HISTORIAL');
+
+    const segBefore = rt.post({ action: 'seg_get_state', authToken: kevinTok });
+    assert.equal(segBefore.ok, true);
+    const histSegBefore = (segBefore.sheets.HISTORIAL_SEG || []).length;
+    const histRowsBefore = shHist.getLastRow();
+
+    const payloads = [
+      { label: '121-char space-padded module', module: 'SEGUIMIENTO_COTIZACIONES' + ' '.repeat(96) + 'X', event: 'CIERRE_FORGED' },
+      { label: 'CRLF-padded 120+ module', module: 'SEGUIMIENTO_COTIZACIONES\r\n' + ' '.repeat(96) + 'Z', event: 'NOT_SEG_PREFIX' },
+      { label: 'leading apostrophe module', module: "'SEGUIMIENTO_COTIZACIONES", event: 'CUSTOM_EV' },
+      { label: 'leading apostrophe SEG_ event', module: 'inventario-app.js', event: "'SEG_CIERRE" },
+      { label: 'leading formula =SEG_ event', module: 'inventario-app.js', event: '=SEG_CIERRE' },
+      { label: 'leading apostrophe module + event', module: "'SEGUIMIENTO_COTIZACIONES", event: "'SEG_CIERRE" }
+    ];
+    const callers = [
+      { label: 'guest', tok: guestTok },
+      { label: 'VER_SEGUIMIENTO=NO advisor', tok: luisTok },
+      { label: 'VER_SEGUIMIENTO=NO restricted admin', tok: adminLimTok }
+    ];
+
+    for (const caller of callers) {
+      for (const p of payloads) {
+        const res = rt.post({
+          action: 'inv_log_event',
+          authToken: caller.tok,
+          classification: 'MOVIMIENTO',
+          module: p.module,
+          event: p.event,
+          user: 'Kevin Reyna',
+          branch: 'PLAYA',
+          ref: 'PL-100',
+          detail: '{"estatus":"PERDIDA","motivo":"BYPASS_ATTEMPT"}'
+        });
+        assert.equal(res.ok, false, `[${mode}] ${caller.label} MUST be blocked for ${p.label}`);
+        assert.equal(res.forbidden, true, `[${mode}] ${caller.label} MUST receive forbidden:true for ${p.label}`);
+      }
+    }
+
+    assert.equal(shHist.getLastRow(), histRowsBefore, `[${mode}] Blocked canonicalization/truncation attacks MUST write 0 rows to HISTORIAL`);
+    const segAfter = rt.post({ action: 'seg_get_state', authToken: kevinTok });
+    assert.equal(segAfter.ok, true);
+    assert.equal((segAfter.sheets.HISTORIAL_SEG || []).length, histSegBefore, `[${mode}] Kevin HISTORIAL_SEG MUST remain completely untouched`);
+
+    // 2) Restricted admin (VER_CAMBIAR_TIENDA = NO) calling inv_log_event has branch bound to verified store (CREATA LIVING PLAYA)
+    const adminLimLog = rt.post({
+      action: 'inv_log_event',
+      authToken: adminLimTok,
+      classification: 'MOVIMIENTO',
+      module: 'inventario-app.js',
+      event: 'AUDIT_NON_SEG_EVENT',
+      branch: 'CASA CREATA BONAMPAK',
+      ref: 'REF-1',
+      detail: 'Normal audit log'
+    });
+    assert.equal(adminLimLog.ok, true, `[${mode}] Restricted admin non-Seguimiento log should succeed`);
+    const lastRow = shHist.getRange(shHist.getLastRow(), 1, 1, 10).getValues()[0];
+    assert.equal(lastRow[6], 'CREATA LIVING PLAYA', `[${mode}] Restricted admin with VER_CAMBIAR_TIENDA=NO MUST have inv_log_event branch bound to CREATA LIVING PLAYA`);
+
+    // Full admin (VER_CAMBIAR_TIENDA = SI) can still specify branch
+    const kevinLog = rt.post({
+      action: 'inv_log_event',
+      authToken: kevinTok,
+      classification: 'MOVIMIENTO',
+      module: 'inventario-app.js',
+      event: 'AUDIT_KEVIN_BRANCH',
+      branch: 'CASA CREATA BONAMPAK',
+      ref: 'REF-2',
+      detail: 'Full admin branch override'
+    });
+    assert.equal(kevinLog.ok, true);
+    const kevinRow = shHist.getRange(shHist.getLastRow(), 1, 1, 10).getValues()[0];
+    assert.equal(kevinRow[6], 'CASA CREATA BONAMPAK', `[${mode}] Full admin with VER_CAMBIAR_TIENDA=SI may select branch`);
+  }
+
+  // 3) historial-app.js enforces h.normKind !== 'MOVIMIENTO' at the SEGUIMIENTO_COTIZACIONES replay loop
+  const histJs = readRepo('historial-app.js');
+  assert.ok(
+    histJs.includes("if (!h || h.normKind !== 'MOVIMIENTO' || h.modulo !== 'SEGUIMIENTO_COTIZACIONES') continue;"),
+    'historial-app.js MUST guard h.normKind !== MOVIMIENTO before replaying SEGUIMIENTO_COTIZACIONES rows'
+  );
+  const fnStart = histJs.indexOf('function buildUnifiedSeguimientoData(');
+  const hEnd = histJs.indexOf('\n  function parsePhotosSheetRows(', fnStart);
+  assert.ok(fnStart > 0 && hEnd > fnStart, 'buildUnifiedSeguimientoData must exist in historial-app.js');
+  const histCtx = {
+    SEG_CLOSURES_CACHE_KEY: 'k_closures',
+    SEG_AUDIT_CACHE_KEY: 'k_audit',
+    readJsonStorage: (_k, def) => def,
+    cleanStr: (v) => String(v === null || v === undefined ? '' : v).trim(),
+    normalizeEmail: (v) => String(v || '').trim().toLowerCase(),
+    normalizeSearchText: (v) => String(v || '').trim().toLowerCase(),
+    parseMxDateTime: () => 1700000000000,
+    Object, Array, JSON, Set, String
+  };
+  vm.runInNewContext(`${histJs.slice(fnStart, hEnd)}\nthis.buildUnifiedSeguimientoData = buildUnifiedSeguimientoData;`, histCtx);
+  const quotes = [
+    { folioErp: 'PL-100', segStatus: 'ABIERTA', segMotivo: '', segComentarios: '', segLastContact: '', _search: 'pl-100' },
+    { folioErp: 'PL-200', segStatus: 'ABIERTA', segMotivo: '', segComentarios: '', segLastContact: '', _search: 'pl-200' }
+  ];
+  const timeline = histCtx.buildUnifiedSeguimientoData(quotes, [], [], [
+    {
+      normKind: 'FALLO',
+      modulo: 'SEGUIMIENTO_COTIZACIONES',
+      evento: 'SEG_CIERRE',
+      fecha: '27/11/2026 08:00',
+      referencia: 'PL-100',
+      sucursal: 'PLAYA',
+      usuario: 'invitado.sec@cliente.com',
+      detalle: JSON.stringify({ folio: 'PL-100', estatus: 'PERDIDA', motivo: 'FORGED_GUEST' })
+    },
+    {
+      normKind: 'ALERTA',
+      modulo: 'SEGUIMIENTO_COTIZACIONES',
+      evento: 'SEG_CIERRE',
+      fecha: '27/11/2026 08:01',
+      referencia: 'PL-100',
+      sucursal: 'PLAYA',
+      usuario: 'luis.noperm@grupoanipa.com',
+      detalle: JSON.stringify({ folio: 'PL-100', estatus: 'PERDIDA', motivo: 'FORGED_ALERT' })
+    },
+    {
+      normKind: 'MOVIMIENTO',
+      modulo: 'SEGUIMIENTO_COTIZACIONES',
+      evento: 'SEG_CIERRE',
+      fecha: '27/11/2026 08:02',
+      referencia: 'PL-200',
+      sucursal: 'PLAYA',
+      usuario: 'Kevin Reyna',
+      detalle: JSON.stringify({ folio: 'PL-200', estatus: 'GANADA', motivo: 'VALID_CLOSURE' })
+    }
+  ]);
+  assert.equal(quotes[0].segStatus, 'ABIERTA', 'Non-MOVIMIENTO (FALLO/ALERTA) HISTORIAL rows MUST NOT mutate quote closure status in historial-app.js');
+  assert.equal(quotes[1].segStatus, 'GANADA', 'Legitimate MOVIMIENTO HISTORIAL row MUST still replay in historial-app.js');
+  assert.equal(timeline.length, 1, 'Only legitimate MOVIMIENTO SEGUIMIENTO_COTIZACIONES row should enter timeline');
+  assert.equal(timeline[0].folio, 'PL-200');
+
+  // 4) handleSegAction_ SEG_NUEVA_COTIZACION_APP with mismatched body.folio vs payload.folio logs targetFolio (PL-100) in HISTORIAL_MOVIMIENTOS, HISTORIAL & COTIZACIONES_CREATA
+  const rtSeg = buildSecurityRuntime({ withParche: true });
+  const anaTok = rtSeg.login('ana.playa@grupoanipa.com', 'AnaPlaya2026!');
+  const shHistSeg = rtSeg.ssInv.getSheetByName('HISTORIAL');
+  const shHistMov = rtSeg.ssSeg.getSheetByName('HISTORIAL_MOVIMIENTOS');
+  const shCotSeg = rtSeg.ssSeg.getSheetByName('COTIZACIONES_CREATA');
+  const segMismatch = rtSeg.post({
+    action: 'seg_action',
+    authToken: anaTok,
+    subAction: 'SEG_NUEVA_COTIZACION_APP',
+    folio: 'CO-200', // Luis's foreign folio
+    payload: { folio: 'PL-100', clientName: 'Cliente Ana', items: [{ sku: 'SKU-ZERO', qty: 1, price: 100 }] }
+  });
+  assert.equal(segMismatch.ok, true, 'Ana owns PL-100 so SEG_NUEVA_COTIZACION_APP should succeed with targetFolio PL-100');
+  const lastHistRow = shHistSeg.getRange(shHistSeg.getLastRow(), 1, 1, 10).getValues()[0];
+  const lastMovRow = shHistMov.getRange(shHistMov.getLastRow(), 1, 1, 9).getValues()[0];
+  const lastCotRow = shCotSeg.getRange(shCotSeg.getLastRow(), 1, 1, 10).getValues()[0];
+  assert.equal(lastHistRow[7], 'PL-100', 'HISTORIAL ref must be targetFolio PL-100');
+  assert.equal(lastCotRow[1], 'PL-100', 'COTIZACIONES_CREATA folio must be targetFolio PL-100');
+  assert.ok(String(lastMovRow[5]).includes('Folio PL-100'), `HISTORIAL_MOVIMIENTOS desc must log targetFolio PL-100, got: ${lastMovRow[5]}`);
+  assert.ok(!String(lastMovRow[5]).includes('CO-200'), `HISTORIAL_MOVIMIENTOS desc MUST NOT log mismatched body.folio CO-200, got: ${lastMovRow[5]}`);
+
+  // Also verify non-SEG_NUEVA_COTIZACION_APP aligns payload.folio to validated folio before serializing detalle
+  const segCierreMismatch = rtSeg.post({
+    action: 'seg_action',
+    authToken: anaTok,
+    subAction: 'SEG_CIERRE',
+    folio: 'PL-100',
+    payload: { folio: 'CO-200', estatus: 'GANADA', motivo: 'OK' }
+  });
+  assert.equal(segCierreMismatch.ok, true);
+  const cierreHistRow = shHistSeg.getRange(shHistSeg.getLastRow(), 1, 1, 10).getValues()[0];
+  const cierreDetailParsed = JSON.parse(cierreHistRow[8]);
+  assert.equal(cierreDetailParsed.folio, 'PL-100', 'Non-SEG_NUEVA_COTIZACION_APP serialized payload.folio MUST be aligned with validated histRefFolio');
+
+  // 5) handleInvLogin_ with multi-store hashed tempKey calls keysEqualNormalized_ once (calls === 1)
+  const rtTemp = buildSecurityRuntime({ withParche: true });
+  const hashedTemp = rtTemp.env.context.hashUserPassword_('MultiTemp26!');
+  const shUsers = rtTemp.ssInv.getSheetByName('CUENTAS ADMINISTRATIVAS');
+  // Row 9 is multi.tienda@grupoanipa.com (assigned to PLAYA & COLOCIO): col 6 = CLAVE TEMPORAL, col 7 = CLAVE DEFINITIVA
+  shUsers.getRange(9, 6).setValue(hashedTemp);
+  shUsers.getRange(9, 7).setValue('');
+  let tempKeyCalls = 0;
+  const origKeysEq = rtTemp.env.context.keysEqualNormalized_;
+  rtTemp.env.context.keysEqualNormalized_ = function (rawKey, storedKey) {
+    tempKeyCalls++;
+    return origKeysEq.call(this, rawKey, storedKey);
+  };
+  const tempLogin = rtTemp.post({
+    action: 'inv_login',
+    email: 'multi.tienda@grupoanipa.com',
+    accessKey: 'MultiTemp26!',
+    deviceId: 'dev_temp_memo'
+  });
+  rtTemp.env.context.keysEqualNormalized_ = origKeysEq;
+  assert.equal(tempLogin.ok, true, 'Multi-store hashed tempKey login should succeed');
+  assert.equal(tempLogin.chooseBranch, true);
+  assert.ok(tempLogin.locations.every((loc) => loc.mustChangeKey === true), 'All tempKey locations must flag mustChangeKey === true');
+  assert.equal(tempKeyCalls, 1, `Expected 1 memoized keysEqualNormalized_ call for multi-store hashed tempKey, got ${tempKeyCalls}`);
+
+  // 6) openPrintableQuoteWindow() blocks data:image/svg+xml (both photoUrl & CREATA_LOGO_B64), //evil.com/logo.png, and ../../../evil.png while allowing valid PNG data URI & fotos/logo-creata.webp
+  const invJs = readRepo('inventario-app.js');
+  const printStart = invJs.indexOf('function openPrintableQuoteWindow(');
+  let qDepth = 0, qStarted = false, qEnd = printStart;
+  for (let i = printStart; i < invJs.length; i++) {
+    if (invJs[i] === '{') { qDepth++; qStarted = true; }
+    else if (invJs[i] === '}') { qDepth--; if (qStarted && qDepth === 0) { qEnd = i + 1; break; } }
+  }
+  const runPrint = (logoSrc, photoUrls) => {
+    let html = '';
+    const ctx = {
+      window: {
+        CREATA_LOGO_B64: logoSrc,
+        open: () => ({ document: { write: (h) => { html += h; }, close: () => {} } })
+      },
+      formatDateDMY: () => '27/11/2026',
+      formatPrice: (n) => '$' + String(n || 0),
+      escapeHtml: (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+      Number, Math, String, Array, Date
+    };
+    vm.runInNewContext(`${invJs.slice(printStart, qEnd)}\nthis.openPrintableQuoteWindow = openPrintableQuoteWindow;`, ctx);
+    ctx.openPrintableQuoteWindow({
+      clientName: 'Cliente SVG Test',
+      erpStore: 'PLAYA',
+      deliveryDate: '2026-12-27',
+      advisorName: 'Ana',
+      breakdown: {
+        subtotalNet: 100,
+        extraDiscountAmt: 0,
+        iva: 16,
+        total: 116,
+        lines: photoUrls.map((u, idx) => ({ name: 'Item ' + idx, qty: 1, discountPct: 0, unitList: 100, lineSubtotal: 100, photoUrl: u }))
+      }
+    }, { folio: 'PL-SVG-1' });
+    return html;
+  };
+
+  const svgB64 = 'data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9ImFsZXJ0KDEpIj48L3N2Zz4=';
+  const svgUpper = 'data:image/SVG+XML;base64,PHN2Zy8+';
+  const pngB64 = 'data:image/png;base64,iVBORw0KGgo=';
+
+  const htmlBlockedLogos = [
+    runPrint(svgB64, ['']),
+    runPrint(svgUpper, ['']),
+    runPrint('//evil.com/logo.png', ['']),
+    runPrint('../../../evil.png', ['']),
+    runPrint('fotos/logo.svg', [''])
+  ];
+  for (const h of htmlBlockedLogos) {
+    assert.ok(h.includes('Cliente SVG Test'), 'Printable HTML must render even when logoSrc is rejected');
+    assert.ok(!/<img\b/i.test(h), `Blocked logoSrc MUST NOT render any <img> tag, got HTML snippet: ${h.slice(0, 400)}`);
+  }
+
+  const htmlMixedPhotos = runPrint('fotos/logo-creata.webp', [
+    svgB64,
+    svgUpper,
+    '//evil.com/logo.png',
+    '../../../evil.png',
+    'fotos/../secret.png',
+    pngB64
+  ]);
+  assert.ok(htmlMixedPhotos.includes('src="fotos/logo-creata.webp"'), 'Valid fotos/logo-creata.webp logo MUST render');
+  assert.ok(htmlMixedPhotos.includes(`src="${pngB64}"`), 'Valid raster data:image/png;base64,... photoUrl MUST render');
+  assert.ok(!/svg\+xml/i.test(htmlMixedPhotos), 'data:image/svg+xml;base64,... MUST be stripped');
+  assert.ok(!htmlMixedPhotos.includes('//evil.com/logo.png'), 'Protocol-relative //evil.com MUST be stripped');
+  assert.ok(!htmlMixedPhotos.includes('../../../evil.png'), 'Path traversal ../../../evil.png MUST be stripped');
+  assert.ok(!htmlMixedPhotos.includes('fotos/../secret.png'), 'Mid-path traversal fotos/../secret.png MUST be stripped');
+
+  const htmlPngLogo = runPrint(pngB64, ['fotos/silla_ok.webp']);
+  assert.ok(htmlPngLogo.includes(`src="${pngB64}"`), 'Valid raster data:image/png;base64,... CREATA_LOGO_B64 MUST render');
+});
+
 

@@ -556,7 +556,7 @@ function escapeSheetPlainText_(v) {
 
 function safeSheetCellText_(raw, maxLen) {
   let s = String(raw === null || raw === undefined ? '' : raw).replace(/[\r\n\t]+/g, ' ').trim();
-  if (maxLen && s.length > maxLen) s = s.slice(0, maxLen);
+  if (maxLen && s.length > maxLen) s = s.slice(0, maxLen).trim();
   if (/^[=+\-@]/.test(s)) s = "'" + s;
   return s;
 }

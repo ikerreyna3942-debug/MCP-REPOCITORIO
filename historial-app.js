@@ -794,7 +794,7 @@
     // 3) HISTORIAL (1xew...) SEGUIMIENTO_COTIZACIONES events
     for (let i = 0; i < (histInvRows || []).length; i++) {
       const h = histInvRows[i];
-      if (!h || h.modulo !== 'SEGUIMIENTO_COTIZACIONES') continue;
+      if (!h || h.normKind !== 'MOVIMIENTO' || h.modulo !== 'SEGUIMIENTO_COTIZACIONES') continue;
       const ev = cleanStr(h.evento).toUpperCase();
       let payload = null;
       try {

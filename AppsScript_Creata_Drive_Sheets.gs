@@ -4479,7 +4479,7 @@ function handleInvLogin_(body) {
 
   // Emitir tokens firmados para todas las ubicaciones autorizadas de este correo
   const authorizedLocs = checkedMatches.map((u) => {
-    const usedTemp = !matchedViaDefKey && !hasAnyDefKeyForEmail && !u.defKey && ((!!u.tempKey && keysEqualNormalized_(inputKey, u.tempKey)) || (u.isGuest && u.noPasswordRequired));
+    const usedTemp = !matchedViaDefKey && !hasAnyDefKeyForEmail && !u.defKey && ((!!u.tempKey && matchesInputKey(u.tempKey)) || (u.isGuest && u.noPasswordRequired));
     const sanitized = sanitizeUserForClient_(u, true);
     sanitized.mustChangeKey = usedTemp;
     if (sanitized.isManager && !sanitized.isAdmin && !sanitized.isGuest) {
@@ -6281,7 +6281,7 @@ function escapeSheetPlainText_(v) {
 
 function safeSheetCellText_(raw, maxLen) {
   let s = String(raw === null || raw === undefined ? '' : raw).replace(/[\r\n\t]+/g, ' ').trim();
-  if (maxLen && s.length > maxLen) s = s.slice(0, maxLen);
+  if (maxLen && s.length > maxLen) s = s.slice(0, maxLen).trim();
   if (/^[=+\-@]/.test(s)) s = "'" + s;
   return s;
 }
@@ -13152,9 +13152,17 @@ function handleInvLogEvent_(body, tokenInfo, viaPin) {
 
   const rawModStr = String(b.module || 'inventario-app.js').trim();
   const rawEvStr = String(b.event || 'EVENTO CLIENTE WEB').trim();
+  const mod = safeSheetCellText_(rawModStr || 'inventario-app.js', 120).trim();
+  const ev = safeSheetCellText_(rawEvStr || 'EVENTO CLIENTE WEB', 160).trim();
+  const modCanonRaw = rawModStr.replace(/^[\s'=+\-@]+/, '').trim().toUpperCase();
+  const modCanonSafe = mod.replace(/^[\s'=+\-@]+/, '').trim().toUpperCase();
+  const evCanonRaw = rawEvStr.replace(/^[\s'=+\-@]+/, '').trim();
+  const evCanonSafe = ev.replace(/^[\s'=+\-@]+/, '').trim();
   const isSegEventPayload = (
-    rawModStr.toUpperCase() === 'SEGUIMIENTO_COTIZACIONES' ||
-    /^SEG_/i.test(rawEvStr)
+    modCanonRaw === 'SEGUIMIENTO_COTIZACIONES' ||
+    modCanonSafe === 'SEGUIMIENTO_COTIZACIONES' ||
+    /^SEG_/i.test(evCanonRaw) ||
+    /^SEG_/i.test(evCanonSafe)
   );
   if (isSegEventPayload && (!isAdminCaller || (callerAdvisor && !userHasEffectivePerm_(callerAdvisor, 'seguimiento')))) {
     return {
@@ -13176,8 +13184,6 @@ function handleInvLogEvent_(body, tokenInfo, viaPin) {
       : 'FALLO DE CÓDIGO';
   }
 
-  const mod = safeSheetCellText_(rawModStr || 'inventario-app.js', 120);
-  const ev = safeSheetCellText_(rawEvStr || 'EVENTO CLIENTE WEB', 160);
   const det = safeSheetCellText_(String(b.detail || '').trim(), 1000);
   const anaRaw = String(b.analysis || '').trim() || analizarCausaFalloCodigo_(det, mod, ev);
   const ana = safeSheetCellText_(anaRaw, 600);
@@ -13186,7 +13192,9 @@ function handleInvLogEvent_(body, tokenInfo, viaPin) {
     : (tokEmail || 'Cliente Web');
   let sucursalResolved;
   if (isAdminCaller) {
-    sucursalResolved = String(b.branch || 'INVENTARIO WEB').trim();
+    sucursalResolved = callerAdvisor
+      ? (resolveAuthorizedUserStoreForLog_(callerAdvisor, callerUserMatches, b.branch) || 'INVENTARIO WEB')
+      : String(b.branch || 'INVENTARIO WEB').trim();
   } else if (isGuestCaller) {
     sucursalResolved = 'SOLO LECTURA';
   } else if (callerAdvisor) {
@@ -13724,6 +13732,9 @@ function handleSegAction_(body) {
         error: 'No tienes permiso para modificar el folio ' + folio + '.'
       };
     }
+    if (payload && typeof payload === 'object' && payload.folio) {
+      payload.folio = histRefFolio;
+    }
   }
 
   // Siempre respaldar también en HISTORIAL de 1xew para sincronización cruzada inmediata
@@ -13903,7 +13914,7 @@ function handleSegAction_(body) {
         safeSheetCellText_(actorName, 140),
         safeSheetCellText_(actorEmail, 140),
         safeSheetCellText_(actorBranch, 80),
-        safeSheetCellText_(payload.accion || (sub + ' Folio ' + folio), 200),
+        safeSheetCellText_(payload.accion || (sub + ' Folio ' + histRefFolio), 200),
         safeSheetCellText_(payload.detalle || JSON.stringify(payload), 1000),
         'Web-App',
         safeSheetCellText_(payload.status || 'EXITOSO', 40)

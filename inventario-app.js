@@ -14514,7 +14514,12 @@
         const bd = payload.breakdown;
         const todayStr = formatDateDMY(new Date());
         const rawLogoSrc = String(window.CREATA_LOGO_B64 || '').trim();
-        const safeLogoSrc = (/^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(rawLogoSrc) || /^[a-z0-9_./-]+\.(?:png|jpe?g|webp|svg)$/i.test(rawLogoSrc))
+        const safeLogoSrc = (rawLogoSrc &&
+            !/[\u0000-\u001f\u007f"'<>\\]/.test(rawLogoSrc) &&
+            (
+                /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,[a-z0-9+/=\s]+$/i.test(rawLogoSrc) ||
+                (!/^\/\//.test(rawLogoSrc) && !/(?:^|\/)\.\.(?:\/|\?|$)/.test(rawLogoSrc) && /^[a-z0-9_./-]+\.(?:png|jpe?g|webp|gif|avif)$/i.test(rawLogoSrc))
+            ))
             ? rawLogoSrc
             : '';
         const folioTxt = (submittedMeta && submittedMeta.folio) || payload.orderCode || '';
@@ -14531,8 +14536,8 @@
                 !/[\u0000-\u001f\u007f"'<>\\]/.test(rawPhotoUrl) &&
                 (
                     /^https?:\/\/\S+$/i.test(rawPhotoUrl) ||
-                    /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(rawPhotoUrl) ||
-                    (!/^[a-z][a-z0-9+.-]*:/i.test(rawPhotoUrl) && !/^\/\//.test(rawPhotoUrl) && /^(?:\.?\/)?[^:?#]+(?:\?[^#]*)?$/.test(rawPhotoUrl))
+                    /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,[a-z0-9+/=\s]+$/i.test(rawPhotoUrl) ||
+                    (!/^[a-z][a-z0-9+.-]*:/i.test(rawPhotoUrl) && !/^\/\//.test(rawPhotoUrl) && !/(?:^|\/)\.\.(?:\/|\?|$)/.test(rawPhotoUrl) && /^(?:\.?\/)?[^:?#]+(?:\?[^#]*)?$/.test(rawPhotoUrl))
                 ))
                 ? rawPhotoUrl
                 : '';
