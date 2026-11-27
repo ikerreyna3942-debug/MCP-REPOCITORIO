@@ -426,6 +426,13 @@
                     undo: function () { window.closeQuoteGeneratedPdfsModal(); },
                     escapeAllowed: true
                 },
+                // Priority 8c: Catalog Gear Sort & Filter Modal (z-index: 68)
+                {
+                    id: 'catalog_filter_modal',
+                    isActive: function () { return isModalOpenById('catalogFilterModal'); },
+                    undo: function () { window.closeCatalogFilterModal(); },
+                    escapeAllowed: true
+                },
                 // Priority 9: Floating Action Button Menu (z-index: 40)
                 {
                     id: 'fab_menu',
@@ -573,6 +580,22 @@
                     undo: function () { window.clearInvSearch(); },
                     escapeAllowed: false,
                     toast: 'Búsqueda limpiada'
+                },
+                // Priority 16a2: Home View Gear Sort / Finish / Size Filters
+                {
+                    id: 'inv_adv_filters',
+                    isActive: function () {
+                        return activeInAppModule === 'home' &&
+                            typeof hasNonCategoryAdvancedFiltersOrSort === 'function' &&
+                            hasNonCategoryAdvancedFiltersOrSort();
+                    },
+                    undo: function () {
+                        if (typeof clearNonCategoryAdvancedFiltersAndSort === 'function') {
+                            clearNonCategoryAdvancedFiltersAndSort();
+                        }
+                    },
+                    escapeAllowed: false,
+                    toast: 'Filtros restablecidos'
                 },
                 // Priority 16b: Home View Subcategory Filter
                 {

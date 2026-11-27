@@ -913,6 +913,20 @@
             resolveDriveOrImgUrl: resolveDriveOrImgUrl,
             buildThumbHtml: buildThumbHtml,
             applyStoredFotosOverridesToItems: applyStoredFotosOverridesToItems,
+            shortWarehouseCardLabel: shortWarehouseCardLabel,
+            getGroupPriceSummary: getGroupPriceSummary,
+            getAvailableWarehousesForItems: getAvailableWarehousesForItems,
+            extractItemFinishTokens: extractItemFinishTokens,
+            extractItemSizeTokens: extractItemSizeTokens,
+            getCatalogFilterState: function () {
+                return {
+                    sort: activeCatalogSort,
+                    category: activeCategory,
+                    subCategory: activeSubCategory,
+                    finish: activeAdvFinish,
+                    size: activeAdvSize
+                };
+            },
             buildFabricSwatchOverrideKey: buildFabricSwatchOverrideKey,
             buildWoodSwatchOverrideKey: buildWoodSwatchOverrideKey,
             buildVisualCoverOverrideKey: buildVisualCoverOverrideKey,

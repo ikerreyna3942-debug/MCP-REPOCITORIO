@@ -1454,11 +1454,13 @@
         window.closeFabMenu();
         closeProductDetail();
         closeCartModal();
+        if (typeof window.closeCatalogFilterModal === 'function') window.closeCatalogFilterModal();
         if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
         if (typeof window.closeBarcodeScanner === 'function') window.closeBarcodeScanner();
         window.closeInAppModules({ skipCheckpoint: true });
         activeCategory = 'ALL';
         activeSubCategory = 'ALL';
+        if (typeof resetNonCategoryAdvancedStateVars === 'function') resetNonCategoryAdvancedStateVars();
         const inp = document.getElementById('invSearchInput');
         if (inp) inp.value = '';
         _invPrevSearchNonEmpty = false;

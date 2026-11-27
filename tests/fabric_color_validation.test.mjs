@@ -431,3 +431,113 @@ test('validateAndNormalizeFabricColorAgainstName default mode is pure and normal
   assert.equal(liveIt.tl, 'BRAXTON SNOW');
   assert.match(liveIt.vr, /BRAXTON SNOW/);
 });
+
+test('Main-view price & available-only warehouse stock (>0 incl. LPPT) + Search Gear Sort & Filter (A-Z, Z-A, Mayor/Menor precio, Categoría, Tela/Acabado, Tamaño)', () => {
+  const invHtml = fs.readFileSync('inventario.html', 'utf8');
+  assert.match(invHtml, /id="invSearchInput"[\s\S]{0,900}?id="invFilterGearBtn"/, 'Gear button must sit right beside #invSearchInput inside .inv-search-cell');
+  assert.match(invHtml, /id="catalogFilterModal"/, 'inventario.html must include #catalogFilterModal');
+  assert.match(invHtml, /data-sort-val="AZ"[^>]*>De la A a la Z</);
+  assert.match(invHtml, /data-sort-val="ZA"[^>]*>De la Z a la A</);
+  assert.match(invHtml, /data-sort-val="PRICE_DESC"[^>]*>Mayor precio</);
+  assert.match(invHtml, /data-sort-val="PRICE_ASC"[^>]*>Menor precio</);
+  assert.match(invHtml, /id="invAdvFilterCat"/);
+  assert.match(invHtml, /id="invAdvFilterFinish"/);
+  assert.match(invHtml, /id="invAdvFilterSize"/);
+
+  const { win, api } = createAuditHarness();
+
+  // 1) Price summary & available-only warehouse stock (>0 only, physical first then LPPT)
+  // WAREHOUSES indices: 0=LPPT, 1=CEDIS (BODEGA), 2=CEDIS (PISO), ..., 10=PLAYA (PISO)
+  const itemA = {
+    s: 'TEST-ALPHA',
+    tp: 'MESA DE COMEDOR',
+    mo: 'ALPHA',
+    n: 'MESA DE COMEDOR ALPHA PAROTA 240X120X75 CM',
+    c: 'COMEDORES',
+    md: 'PAROTA',
+    cm: 'NATURAL',
+    m: '240X120X75 CM',
+    pr: '$28,500.00',
+    st: [4, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  };
+  const itemB = {
+    s: 'TEST-ZETA',
+    tp: 'CAMA',
+    mo: 'ZETA',
+    n: 'CAMA ZETA KING SIZE NIZA FOSSIL',
+    c: 'RECÁMARAS',
+    tl: 'NIZA FOSSIL',
+    ct: 'FOSSIL',
+    m: '200X200 CM',
+    pr: '$14,200.00',
+    lt: 45,
+    st: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+  };
+  const itemC = {
+    s: 'TEST-BETA',
+    tp: 'SILLON',
+    mo: 'BETA',
+    n: 'SILLON BETA NIZA FOSSIL',
+    c: 'SILLONES',
+    tl: 'NIZA FOSSIL',
+    ct: 'FOSSIL',
+    m: '90X85X80 CM',
+    pr: '$9,900.00',
+    st: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  };
+
+  assert.equal(api.getGroupPriceSummary([itemA]).label, '$28,500.00');
+  assert.equal(api.getGroupPriceSummary([itemB, itemA]).label, 'Desde $14,200.00');
+
+  const availA = Array.from(api.getAvailableWarehousesForItems([itemA]));
+  assert.deepEqual(
+    availA.map((e) => ({ label: e.label, qty: e.qty, isLppt: e.isLppt })),
+    [
+      { label: 'CEDIS Bod', qty: 3, isLppt: false },
+      { label: 'Playa Piso', qty: 1, isLppt: false },
+      { label: 'LPPT', qty: 4, isLppt: true }
+    ],
+    'Must include ONLY locations > 0 (Bodega, Piso, and LPPT) and omit all 0-stock locations'
+  );
+  assert.deepEqual(
+    Array.from(api.getAvailableWarehousesForItems([{ st: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }])),
+    [],
+    'Zero-stock items must return empty warehouse list'
+  );
+
+  // 2) Runtime sort & filter behavior on custom catalog
+  api.setAllItems([
+    api.normalizeInventoryItemLive(itemA),
+    api.normalizeInventoryItemLive(itemB),
+    api.normalizeInventoryItemLive(itemC)
+  ]);
+  api.indexItemsAndGroups();
+
+  win.setCatalogSortMode('AZ');
+  assert.deepEqual(Array.from(api.getFilteredGroups()).map((g) => g.items[0].s), ['TEST-ZETA', 'TEST-ALPHA', 'TEST-BETA']);
+
+  win.setCatalogSortMode('ZA');
+  assert.deepEqual(Array.from(api.getFilteredGroups()).map((g) => g.items[0].s), ['TEST-BETA', 'TEST-ALPHA', 'TEST-ZETA']);
+
+  win.setCatalogSortMode('PRICE_DESC');
+  assert.deepEqual(Array.from(api.getFilteredGroups()).map((g) => g.items[0].s), ['TEST-ALPHA', 'TEST-ZETA', 'TEST-BETA']);
+
+  win.setCatalogSortMode('PRICE_ASC');
+  assert.deepEqual(Array.from(api.getFilteredGroups()).map((g) => g.items[0].s), ['TEST-BETA', 'TEST-ZETA', 'TEST-ALPHA']);
+
+  // Filter by Color de tela o acabado: NIZA FOSSIL
+  win.setCatalogAdvFinish('NIZA FOSSIL');
+  assert.deepEqual(Array.from(api.getFilteredGroups()).map((g) => g.items[0].s), ['TEST-BETA', 'TEST-ZETA']);
+
+  // Combine with Tamaño: BED:KING_SIZE
+  win.setCatalogAdvSize('BED:KING_SIZE');
+  assert.deepEqual(Array.from(api.getFilteredGroups()).map((g) => g.items[0].s), ['TEST-ZETA']);
+
+  // Reset restores all 3 products and DEFAULT sort
+  win.resetCatalogAdvancedFilters();
+  assert.equal(api.getCatalogFilterState().sort, 'DEFAULT');
+  assert.equal(api.getCatalogFilterState().finish, 'ALL');
+  assert.equal(api.getCatalogFilterState().size, 'ALL');
+  assert.equal(api.getFilteredGroups().length, 3);
+});
+

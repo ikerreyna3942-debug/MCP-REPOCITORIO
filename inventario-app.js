@@ -5425,6 +5425,517 @@
     }
 
     // ------------------------------------------------------------------------
+    // PRECIO EN VISTA PRINCIPAL, STOCK SOLO EN UBICACIONES DISPONIBLES (> 0)
+    // Y ENGRANAJE DE ORDENAMIENTO / FILTROS AVANZADOS JUNTO AL BUSCADOR
+    // ------------------------------------------------------------------------
+    const SHORT_CARD_WAREHOUSE_LABELS = {
+        'LPPT': 'LPPT',
+        'CEDIS (BODEGA)': 'CEDIS Bod',
+        'CEDIS (PISO)': 'CEDIS Piso',
+        'CASA CREATA (BODEGA)': 'Casa Creata Bod',
+        'CASA CREATA (PISO)': 'Casa Creata Piso',
+        'PUERTO CANCUN (BODEGA)': 'Pto. Cancún Bod',
+        'PUERTO CANCUN (PISO)': 'Pto. Cancún Piso',
+        'COLOSIO (BODEGA)': 'Colosio Bod',
+        'COLOSIO (PISO)': 'Colosio Piso',
+        'PLAYA (BODEGA)': 'Playa Bod',
+        'PLAYA (PISO)': 'Playa Piso'
+    };
+
+    function shortWarehouseCardLabel(whRaw) {
+        const key = String(whRaw || '').trim().toUpperCase();
+        if (SHORT_CARD_WAREHOUSE_LABELS[key]) return SHORT_CARD_WAREHOUSE_LABELS[key];
+        return String(whRaw || '').trim()
+            .replace(/\(BODEGA\)/gi, 'Bod')
+            .replace(/\(PISO\)/gi, 'Piso')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function getEffectiveItemPriceNum(it) {
+        if (!it) return 0;
+        const direct = parsePriceNum(it.pr);
+        if (direct > 0) return direct;
+        const skuKey = String(it.s || '').trim().toUpperCase();
+        if (!skuKey) return 0;
+        return parsePriceNum(liveErpPricesBySku.get(skuKey));
+    }
+
+    function getGroupPriceSummary(itemsOrItem) {
+        const list = Array.isArray(itemsOrItem) ? itemsOrItem : (itemsOrItem ? [itemsOrItem] : []);
+        let min = Infinity;
+        let max = 0;
+        let count = 0;
+        for (let i = 0; i < list.length; i++) {
+            const p = getEffectiveItemPriceNum(list[i]);
+            if (p > 0) {
+                if (p < min) min = p;
+                if (p > max) max = p;
+                count++;
+            }
+        }
+        if (count === 0 || !isFinite(min) || min <= 0) {
+            return { min: 0, max: 0, label: '' };
+        }
+        if (Math.abs(max - min) < 0.01) {
+            return { min: min, max: max, label: formatPrice(min) };
+        }
+        return { min: min, max: max, label: 'Desde ' + formatPrice(min) };
+    }
+
+    function getAvailableWarehousesForItems(itemsOrItem) {
+        const list = Array.isArray(itemsOrItem) ? itemsOrItem : (itemsOrItem ? [itemsOrItem] : []);
+        if (list.length === 0) return [];
+        const sums = new Array(WAREHOUSES.length).fill(0);
+        for (let i = 0; i < list.length; i++) {
+            const it = list[i];
+            if (!it || !Array.isArray(it.st)) continue;
+            for (let w = 0; w < WAREHOUSES.length; w++) {
+                const q = Math.max(0, Math.round(Number(it.st[w]) || 0));
+                if (q > 0) sums[w] += q;
+            }
+        }
+        const phys = [];
+        const lppt = [];
+        for (let w = 0; w < WAREHOUSES.length; w++) {
+            if (sums[w] <= 0) continue;
+            const whName = WAREHOUSES[w];
+            const isLppt = isLpptWarehouse(whName);
+            const entry = {
+                index: w,
+                warehouse: whName,
+                label: shortWarehouseCardLabel(whName),
+                qty: sums[w],
+                isLppt: isLppt
+            };
+            if (isLppt) lppt.push(entry);
+            else phys.push(entry);
+        }
+        return phys.concat(lppt);
+    }
+
+    function buildCardAvailableStockInnerHtml(itemsOrItem) {
+        const avail = getAvailableWarehousesForItems(itemsOrItem);
+        if (avail.length === 0) return '';
+        const parts = new Array(avail.length);
+        for (let i = 0; i < avail.length; i++) {
+            const e = avail[i];
+            parts[i] = '<span class="inv-card-wh-pill' + (e.isLppt ? ' is-lppt' : '') + '">' +
+                escapeHtml(e.label + ': ' + e.qty) +
+                '</span>';
+        }
+        return parts.join('');
+    }
+
+    function buildCardPriceHtml(itemsOrItem) {
+        const ps = getGroupPriceSummary(itemsOrItem);
+        return '<div class="inv-card-price' + (ps.label ? '' : ' hidden') + '" data-card-price="1">' +
+            escapeHtml(ps.label) +
+            '</div>';
+    }
+
+    function buildCardAvailableStockHtml(itemsOrItem) {
+        const inner = buildCardAvailableStockInnerHtml(itemsOrItem);
+        return '<div class="inv-card-wh-list' + (inner ? '' : ' hidden') + '" data-card-wh-list="1">' +
+            inner +
+            '</div>';
+    }
+
+    let activeCatalogSort = 'DEFAULT';
+    let activeAdvFinish = 'ALL';
+    let activeAdvSize = 'ALL';
+    let advFinishSearchText = '';
+    let _advFacetCacheKey = '';
+    let _advCachedFinishes = [];
+    let _advCachedSizes = [];
+    let _advModalBackdropBound = false;
+
+    const CATALOG_SORT_LABELS = {
+        'DEFAULT': 'Predeterminado',
+        'AZ': 'De la A a la Z',
+        'ZA': 'De la Z a la A',
+        'PRICE_DESC': 'Mayor precio',
+        'PRICE_ASC': 'Menor precio'
+    };
+
+    function hasNonCategoryAdvancedFiltersOrSort() {
+        return activeCatalogSort !== 'DEFAULT' || activeAdvFinish !== 'ALL' || activeAdvSize !== 'ALL';
+    }
+
+    function hasActiveAdvancedFiltersOrSort() {
+        return hasNonCategoryAdvancedFiltersOrSort() || (activeCategory && activeCategory !== 'ALL');
+    }
+
+    function resetNonCategoryAdvancedStateVars() {
+        activeCatalogSort = 'DEFAULT';
+        activeAdvFinish = 'ALL';
+        activeAdvSize = 'ALL';
+        advFinishSearchText = '';
+        const fSearch = document.getElementById('invAdvFinishSearch');
+        if (fSearch) fSearch.value = '';
+    }
+
+    function clearNonCategoryAdvancedFiltersAndSort() {
+        resetNonCategoryAdvancedStateVars();
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+    }
+
+    function extractItemFinishTokens(it, grp) {
+        if (!it) return [];
+        const map = new Map();
+        const addTok = (rawTxt) => {
+            const cleaned = cleanFabricVariationName(rawTxt);
+            if (!cleaned || cleaned === 'ESTANDAR' || cleaned === 'ESTÁNDAR' || cleaned.length < 2) return;
+            const key = plainModelToken(cleaned);
+            if (!key || key === 'ESTANDAR') return;
+            if (!map.has(key)) map.set(key, { key: key, label: cleaned });
+        };
+
+        const fab = resolveItemFabricVariation(it, grp || null);
+        if (fab && fab.key && fab.key !== 'ESTANDAR') {
+            const fKey = plainModelToken(fab.key);
+            if (fKey && !map.has(fKey)) map.set(fKey, { key: fKey, label: fab.label || fab.key });
+        }
+        if (cleanStr(it.ct)) addTok(it.ct);
+        const mdClean = cleanFabricVariationName(it.md);
+        const cmClean = cleanFabricVariationName(it.cm);
+        if (mdClean && cmClean) {
+            if (cmClean.indexOf(mdClean) === -1 && mdClean.indexOf(cmClean) === -1) {
+                addTok(mdClean + ' ' + cmClean);
+            }
+        }
+        if (mdClean) addTok(mdClean);
+        if (cmClean) addTok(cmClean);
+        return Array.from(map.values());
+    }
+
+    function extractItemSizeTokens(it) {
+        if (!it) return [];
+        const out = [];
+        const seen = new Set();
+        const bedSz = resolveItemBedSize(it);
+        if (bedSz && bedSz.key && bedSz.key !== 'UNSPECIFIED') {
+            const k = 'BED:' + bedSz.key;
+            seen.add(k);
+            out.push({ key: k, label: bedSz.label, kind: 'bed', rank: bedSz.rank || 50 });
+        }
+        const rawDim = cleanStr(it.m);
+        if (rawDim) {
+            const dimNorm = cleanStr(normalizeExtractedDimLive(rawDim) || rawDim).toUpperCase();
+            if (dimNorm && dimNorm.length >= 2) {
+                const k = 'DIM:' + dimNorm;
+                if (!seen.has(k)) {
+                    seen.add(k);
+                    out.push({ key: k, label: dimNorm, kind: 'dim', rank: 100 });
+                }
+            }
+        }
+        return out;
+    }
+
+    function itemMatchesAdvancedFilters(it, grp) {
+        if (!it) return false;
+        if (activeAdvFinish && activeAdvFinish !== 'ALL') {
+            const fToks = extractItemFinishTokens(it, grp);
+            let hitF = false;
+            for (let i = 0; i < fToks.length; i++) {
+                if (fToks[i].key === activeAdvFinish) {
+                    hitF = true;
+                    break;
+                }
+            }
+            if (!hitF) return false;
+        }
+        if (activeAdvSize && activeAdvSize !== 'ALL') {
+            const sToks = extractItemSizeTokens(it);
+            let hitS = false;
+            for (let i = 0; i < sToks.length; i++) {
+                if (sToks[i].key === activeAdvSize) {
+                    hitS = true;
+                    break;
+                }
+            }
+            if (!hitS) return false;
+        }
+        return true;
+    }
+
+    function ensureCatalogAdvancedFacets() {
+        const sig = String(allItems.length) + '::' + String(lastLiveSignature ? lastLiveSignature.length : 0) + '::' + String(activeCategory || 'ALL') + '::' + String(activeSubCategory || 'ALL');
+        if (_advFacetCacheKey === sig && (_advCachedFinishes.length > 0 || _advCachedSizes.length > 0)) {
+            return;
+        }
+        const finishMap = new Map();
+        const sizeMap = new Map();
+        for (let i = 0; i < allItems.length; i++) {
+            const it = allItems[i];
+            if (!itemMatchesActiveFilter(it, activeCategory, activeSubCategory)) continue;
+            const grp = it._groupKey ? groupsByKey.get(it._groupKey) : null;
+            const fToks = extractItemFinishTokens(it, grp);
+            for (let f = 0; f < fToks.length; f++) {
+                const tok = fToks[f];
+                const cur = finishMap.get(tok.key);
+                if (cur) cur.count++;
+                else finishMap.set(tok.key, { key: tok.key, label: tok.label, count: 1 });
+            }
+            const sToks = extractItemSizeTokens(it);
+            for (let s = 0; s < sToks.length; s++) {
+                const tok = sToks[s];
+                const cur = sizeMap.get(tok.key);
+                if (cur) cur.count++;
+                else sizeMap.set(tok.key, { key: tok.key, label: tok.label, kind: tok.kind, rank: tok.rank, count: 1 });
+            }
+        }
+        _advCachedFinishes = Array.from(finishMap.values()).sort((a, b) =>
+            compareAlphaEs(a.label, b.label) || (b.count - a.count)
+        );
+        _advCachedSizes = Array.from(sizeMap.values()).sort((a, b) => {
+            if (a.kind !== b.kind) return a.kind === 'bed' ? -1 : 1;
+            if (a.kind === 'bed' && a.rank !== b.rank) return a.rank - b.rank;
+            return compareAlphaEs(a.label, b.label);
+        });
+        _advFacetCacheKey = sig;
+    }
+
+    function getActiveFinishDisplayLabel() {
+        if (!activeAdvFinish || activeAdvFinish === 'ALL') return '';
+        ensureCatalogAdvancedFacets();
+        for (let i = 0; i < _advCachedFinishes.length; i++) {
+            if (_advCachedFinishes[i].key === activeAdvFinish) return _advCachedFinishes[i].label;
+        }
+        return activeAdvFinish;
+    }
+
+    function getActiveSizeDisplayLabel() {
+        if (!activeAdvSize || activeAdvSize === 'ALL') return '';
+        ensureCatalogAdvancedFacets();
+        for (let i = 0; i < _advCachedSizes.length; i++) {
+            if (_advCachedSizes[i].key === activeAdvSize) return _advCachedSizes[i].label;
+        }
+        return activeAdvSize.replace(/^(?:BED|DIM):/, '');
+    }
+
+    function populateCatalogFilterModalControls() {
+        const modal = document.getElementById('catalogFilterModal');
+        if (!modal) return;
+        ensureCatalogAdvancedFacets();
+
+        const sortWrap = document.getElementById('invAdvSortOptions');
+        if (sortWrap) {
+            sortWrap.querySelectorAll('[data-sort-val]').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-sort-val') === activeCatalogSort);
+            });
+        }
+
+        const catSel = document.getElementById('invAdvFilterCat');
+        if (catSel) {
+            const catOpts = ['<option value="ALL">Todas las categorías</option>'];
+            MAIN_CATEGORY_ORDER.forEach(c => {
+                catOpts.push('<option value="' + escapeHtml(c) + '"' + (activeCategory === c ? ' selected' : '') + '>' + escapeHtml(c) + '</option>');
+            });
+            AVAILABILITY_FILTERS.forEach(af => {
+                catOpts.push('<option value="' + escapeHtml(af.key) + '"' + (activeCategory === af.key ? ' selected' : '') + '>' + escapeHtml(af.label) + '</option>');
+            });
+            catSel.innerHTML = catOpts.join('');
+            catSel.value = activeCategory || 'ALL';
+        }
+
+        const subWrap = document.getElementById('invAdvSubCatWrap');
+        const subSel = document.getElementById('invAdvFilterSubCat');
+        if (subWrap && subSel) {
+            if (SUBCATEGORIES_BY_MAIN[activeCategory]) {
+                const subOpts = ['<option value="ALL">Todo ' + escapeHtml(activeCategory) + '</option>'];
+                SUBCATEGORIES_BY_MAIN[activeCategory].forEach(sc => {
+                    subOpts.push('<option value="' + escapeHtml(sc) + '"' + (activeSubCategory === sc ? ' selected' : '') + '>' + escapeHtml(sc) + '</option>');
+                });
+                subSel.innerHTML = subOpts.join('');
+                subSel.value = activeSubCategory || 'ALL';
+                subWrap.classList.remove('hidden');
+            } else if (activeCategory === 'STOCK') {
+                const subOpts = ['<option value="ALL">Todo STOCK</option>'];
+                MAIN_CATEGORY_ORDER.forEach(mc => {
+                    subOpts.push('<option value="' + escapeHtml(mc) + '"' + (activeSubCategory === mc ? ' selected' : '') + '>' + escapeHtml(mc) + '</option>');
+                });
+                subSel.innerHTML = subOpts.join('');
+                subSel.value = activeSubCategory || 'ALL';
+                subWrap.classList.remove('hidden');
+            } else if (activeCategory === 'LPPT') {
+                const subOpts = ['<option value="ALL">Todo LPPT</option>'];
+                LPPT_DAY_RANGES.forEach(r => {
+                    subOpts.push('<option value="' + escapeHtml(r.key) + '"' + (activeSubCategory === r.key ? ' selected' : '') + '>' + escapeHtml(r.label + ' días') + '</option>');
+                });
+                subSel.innerHTML = subOpts.join('');
+                subSel.value = activeSubCategory || 'ALL';
+                subWrap.classList.remove('hidden');
+            } else {
+                subSel.innerHTML = '<option value="ALL">Todas las subcategorías</option>';
+                subWrap.classList.add('hidden');
+            }
+        }
+
+        const finSel = document.getElementById('invAdvFilterFinish');
+        if (finSel) {
+            const qNorm = plainModelToken(advFinishSearchText || '');
+            const finOpts = ['<option value="ALL">Todos los colores / telas / acabados</option>'];
+            let sawSelected = activeAdvFinish === 'ALL';
+            for (let i = 0; i < _advCachedFinishes.length; i++) {
+                const f = _advCachedFinishes[i];
+                const isSel = f.key === activeAdvFinish;
+                if (qNorm && !isSel && plainModelToken(f.label).indexOf(qNorm) === -1) continue;
+                if (isSel) sawSelected = true;
+                finOpts.push('<option value="' + escapeHtml(f.key) + '"' + (isSel ? ' selected' : '') + '>' + escapeHtml(f.label + ' (' + f.count + ')') + '</option>');
+            }
+            if (!sawSelected && activeAdvFinish && activeAdvFinish !== 'ALL') {
+                finOpts.push('<option value="' + escapeHtml(activeAdvFinish) + '" selected>' + escapeHtml(activeAdvFinish) + '</option>');
+            }
+            finSel.innerHTML = finOpts.join('');
+            finSel.value = activeAdvFinish || 'ALL';
+        }
+
+        const szSel = document.getElementById('invAdvFilterSize');
+        if (szSel) {
+            const bedOpts = [];
+            const dimOpts = [];
+            let sawSz = activeAdvSize === 'ALL';
+            for (let i = 0; i < _advCachedSizes.length; i++) {
+                const s = _advCachedSizes[i];
+                const isSel = s.key === activeAdvSize;
+                if (isSel) sawSz = true;
+                const optHtml = '<option value="' + escapeHtml(s.key) + '"' + (isSel ? ' selected' : '') + '>' + escapeHtml(s.label + ' (' + s.count + ')') + '</option>';
+                if (s.kind === 'bed') bedOpts.push(optHtml);
+                else dimOpts.push(optHtml);
+            }
+            const szParts = ['<option value="ALL">Todos los tamaños</option>'];
+            if (bedOpts.length > 0) szParts.push('<optgroup label="Tamaños">' + bedOpts.join('') + '</optgroup>');
+            if (dimOpts.length > 0) szParts.push('<optgroup label="Medidas (cm)">' + dimOpts.join('') + '</optgroup>');
+            if (!sawSz && activeAdvSize && activeAdvSize !== 'ALL') {
+                szParts.push('<option value="' + escapeHtml(activeAdvSize) + '" selected>' + escapeHtml(getActiveSizeDisplayLabel()) + '</option>');
+            }
+            szSel.innerHTML = szParts.join('');
+            szSel.value = activeAdvSize || 'ALL';
+        }
+
+        const applyTxt = document.getElementById('btnAdvFilterApplyText');
+        if (applyTxt) {
+            const total = Array.isArray(filteredGroups) ? filteredGroups.length : 0;
+            applyTxt.textContent = 'Ver ' + total + (total === 1 ? ' producto' : ' productos');
+        }
+    }
+
+    function syncCatalogFilterGearUi() {
+        let activeCount = 0;
+        if (activeCatalogSort !== 'DEFAULT') activeCount++;
+        if (activeCategory && activeCategory !== 'ALL') activeCount++;
+        if (activeAdvFinish && activeAdvFinish !== 'ALL') activeCount++;
+        if (activeAdvSize && activeAdvSize !== 'ALL') activeCount++;
+
+        const gearBtn = document.getElementById('invFilterGearBtn');
+        if (gearBtn) gearBtn.classList.toggle('is-active', activeCount > 0);
+        const gearBadge = document.getElementById('invFilterGearBadge');
+        if (gearBadge) {
+            gearBadge.textContent = String(activeCount);
+            gearBadge.classList.toggle('hidden', activeCount <= 0);
+        }
+
+        const bar = document.getElementById('invActiveAdvFiltersBar');
+        if (bar) {
+            const chips = [];
+            if (activeCatalogSort !== 'DEFAULT') {
+                chips.push('<button type="button" class="inv-adv-chip" onclick="setCatalogSortMode(\'DEFAULT\')" title="Quitar orden">Orden: ' + escapeHtml(CATALOG_SORT_LABELS[activeCatalogSort] || activeCatalogSort) + ' <span aria-hidden="true">✕</span></button>');
+            }
+            if (activeAdvFinish && activeAdvFinish !== 'ALL') {
+                chips.push('<button type="button" class="inv-adv-chip" onclick="setCatalogAdvFinish(\'ALL\')" title="Quitar filtro de acabado">Acabado: ' + escapeHtml(getActiveFinishDisplayLabel()) + ' <span aria-hidden="true">✕</span></button>');
+            }
+            if (activeAdvSize && activeAdvSize !== 'ALL') {
+                chips.push('<button type="button" class="inv-adv-chip" onclick="setCatalogAdvSize(\'ALL\')" title="Quitar filtro de tamaño">Tamaño: ' + escapeHtml(getActiveSizeDisplayLabel()) + ' <span aria-hidden="true">✕</span></button>');
+            }
+            if (chips.length > 0) {
+                chips.push('<button type="button" class="inv-adv-chip inv-adv-chip-clear" onclick="resetCatalogAdvancedFilters()">Limpiar todo</button>');
+                bar.innerHTML = chips.join('');
+                bar.classList.remove('hidden');
+            } else {
+                bar.innerHTML = '';
+                bar.classList.add('hidden');
+            }
+        }
+
+        const modal = document.getElementById('catalogFilterModal');
+        if (modal && modal.classList.contains('open')) {
+            populateCatalogFilterModalControls();
+        }
+    }
+
+    window.openCatalogFilterModal = function () {
+        const modal = document.getElementById('catalogFilterModal');
+        if (!modal) return;
+        if (!_advModalBackdropBound) {
+            _advModalBackdropBound = true;
+            modal.addEventListener('click', function (ev) {
+                if (ev.target === modal) window.closeCatalogFilterModal();
+            });
+        }
+        populateCatalogFilterModalControls();
+        modal.classList.add('open');
+        notifyInvBackStatePush('catalog_filter_modal');
+    };
+
+    window.closeCatalogFilterModal = function () {
+        const modal = document.getElementById('catalogFilterModal');
+        if (modal) modal.classList.remove('open');
+    };
+
+    window.setCatalogSortMode = function (mode) {
+        const next = (mode && CATALOG_SORT_LABELS[mode]) ? mode : 'DEFAULT';
+        activeCatalogSort = next;
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+        if (activeCatalogSort !== 'DEFAULT') notifyInvBackStatePush('inv_adv_filters');
+    };
+
+    window.setCatalogAdvCategory = function (cat) {
+        activeCategory = cat || 'ALL';
+        activeSubCategory = 'ALL';
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+        if (activeCategory !== 'ALL') notifyInvBackStatePush('inv_category');
+    };
+
+    window.setCatalogAdvSubCategory = function (sub) {
+        activeSubCategory = sub || 'ALL';
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+        if (activeSubCategory !== 'ALL') notifyInvBackStatePush('inv_subcategory');
+    };
+
+    window.filterCatalogAdvFinishOptions = function (txt) {
+        advFinishSearchText = String(txt || '');
+        populateCatalogFilterModalControls();
+    };
+
+    window.setCatalogAdvFinish = function (val) {
+        activeAdvFinish = cleanStr(val) || 'ALL';
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+        if (activeAdvFinish !== 'ALL') notifyInvBackStatePush('inv_adv_filters');
+    };
+
+    window.setCatalogAdvSize = function (val) {
+        activeAdvSize = cleanStr(val) || 'ALL';
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+        if (activeAdvSize !== 'ALL') notifyInvBackStatePush('inv_adv_filters');
+    };
+
+    window.resetCatalogAdvancedFilters = function () {
+        resetNonCategoryAdvancedStateVars();
+        activeCategory = 'ALL';
+        activeSubCategory = 'ALL';
+        const inp = document.getElementById('invSearchInput');
+        applyFilter(inp ? inp.value : '');
+    };
+
+    // ------------------------------------------------------------------------
     // FILTRADO: EN TODOS AGRUPADO POR TIPO + MODELO; EN CATEGORÍAS SEPARADO PIEZA POR PIEZA
     // EXCEPTO CAMAS, BASES Y CABECERAS (POR TAMAÑO) QUE SE MANTIENEN AGRUPADAS EN RECÁMARAS
     // (BOTÓN STOCK: PIEZAS CON MAYOR CANTIDAD FÍSICA SIN CONTAR LPPT)
@@ -5439,7 +5950,7 @@
             clearBtn.classList.toggle('hidden', !rawTrim);
         }
 
-        isMainCoverActive = (!rawTrim && activeCategory === 'ALL');
+        isMainCoverActive = (!rawTrim && activeCategory === 'ALL' && !hasNonCategoryAdvancedFiltersOrSort());
         activeFilteredGroupsByKey.clear();
 
         const exactSkuUpper = rawTrim ? rawTrim.toUpperCase() : '';
@@ -5588,8 +6099,56 @@
             }
         }
 
-        // En STOCK: mayor a menor cantidad física; en búsquedas: relevancia + orden comercial; en TODOS y CATEGORÍAS: foto arriba + jerarquía comercial + A-Z
-        if (activeCategory === 'STOCK' && !isExactSkuHit) {
+        // Aplicar filtros adicionales del engranaje (Color de tela/acabado y Tamaño)
+        if ((activeAdvFinish && activeAdvFinish !== 'ALL') || (activeAdvSize && activeAdvSize !== 'ALL')) {
+            const advNext = [];
+            for (let i = 0; i < filteredGroups.length; i++) {
+                const grp = filteredGroups[i];
+                const matched = grp.items.filter(it => itemMatchesAdvancedFilters(it, grp));
+                if (matched.length === 0) continue;
+                if (matched.length === grp.items.length) {
+                    advNext.push(grp);
+                } else {
+                    const viewGrp = buildFilteredGroupView(grp, matched);
+                    if (viewGrp) {
+                        activeFilteredGroupsByKey.set(viewGrp.key, viewGrp);
+                        advNext.push(viewGrp);
+                    }
+                }
+            }
+            filteredGroups = advNext;
+        }
+
+        // Ordenamiento explícito del engranaje o jerarquía comercial estándar
+        if (activeCatalogSort === 'AZ') {
+            filteredGroups.sort((a, b) =>
+                compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                String(a.key || '').localeCompare(String(b.key || ''))
+            );
+        } else if (activeCatalogSort === 'ZA') {
+            filteredGroups.sort((a, b) =>
+                compareAlphaEs(b.displayTitle || b.title, a.displayTitle || a.title) ||
+                String(b.key || '').localeCompare(String(a.key || ''))
+            );
+        } else if (activeCatalogSort === 'PRICE_DESC') {
+            filteredGroups.sort((a, b) => {
+                const pa = getGroupPriceSummary(a.items).max;
+                const pb = getGroupPriceSummary(b.items).max;
+                if ((pa > 0) !== (pb > 0)) return pb > 0 ? 1 : -1;
+                if (Math.abs(pb - pa) >= 0.01) return pb - pa;
+                return compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                    String(a.key || '').localeCompare(String(b.key || ''));
+            });
+        } else if (activeCatalogSort === 'PRICE_ASC') {
+            filteredGroups.sort((a, b) => {
+                const pa = getGroupPriceSummary(a.items).min;
+                const pb = getGroupPriceSummary(b.items).min;
+                if ((pa > 0) !== (pb > 0)) return pb > 0 ? 1 : -1;
+                if (Math.abs(pa - pb) >= 0.01) return pa - pb;
+                return compareAlphaEs(a.displayTitle || a.title, b.displayTitle || b.title) ||
+                    String(a.key || '').localeCompare(String(b.key || ''));
+            });
+        } else if (activeCategory === 'STOCK' && !isExactSkuHit) {
             if (rawTrim && scoreByKey.size > 0) {
                 filteredGroups.sort((a, b) => {
                     const sa = scoreByKey.get(a.key) || { matched: 0, score: 0 };
@@ -5624,6 +6183,7 @@
         }
 
         renderCategoryBar();
+        syncCatalogFilterGearUi();
 
         const initialCap = getAdaptivePageSize();
         const minWanted = (typeof explicitMinCount === 'number' && explicitMinCount > 0)
@@ -5652,6 +6212,18 @@
                             const titleEl = cardEl.querySelector('[data-card-title]');
                             const subEl = cardEl.querySelector('[data-card-sub]');
                             const stockEl = cardEl.querySelector('[data-card-stock]');
+                            const priceEl = cardEl.querySelector('[data-card-price]');
+                            const whListEl = cardEl.querySelector('[data-card-wh-list]');
+                            const nextPriceLbl = getGroupPriceSummary(grp.items).label;
+                            if (priceEl) {
+                                if (priceEl.textContent !== nextPriceLbl) priceEl.textContent = nextPriceLbl;
+                                priceEl.classList.toggle('hidden', !nextPriceLbl);
+                            }
+                            const nextWhHtml = buildCardAvailableStockInnerHtml(grp.items);
+                            if (whListEl) {
+                                if (whListEl.innerHTML !== nextWhHtml) whListEl.innerHTML = nextWhHtml;
+                                whListEl.classList.toggle('hidden', !nextWhHtml);
+                            }
                             if (grp.items.length > 1) {
                                 const nextTitle = grp.displayTitle || grp.title || '';
                                 if (titleEl && titleEl.textContent !== nextTitle) titleEl.textContent = nextTitle;
@@ -5664,24 +6236,7 @@
                                 if (titleEl && titleEl.textContent !== nextTitle) titleEl.textContent = nextTitle;
                                 const nextSub = it.s || '';
                                 if (subEl && subEl.textContent !== nextSub) subEl.textContent = nextSub;
-                                const ownPhysQty = getBodegaPisoStock(it);
-                                if (activeCategory === 'STOCK' && ownPhysQty > 0) {
-                                    const badgeTxt = ownPhysQty + ' pz';
-                                    if (stockEl) {
-                                        if (stockEl.textContent !== badgeTxt) stockEl.textContent = badgeTxt;
-                                    } else {
-                                        const metaEl = cardEl.querySelector('.inv-card-meta');
-                                        if (metaEl) {
-                                            const sp = document.createElement('span');
-                                            sp.className = 'inv-card-stock';
-                                            sp.setAttribute('data-card-stock', '1');
-                                            sp.textContent = badgeTxt;
-                                            metaEl.appendChild(sp);
-                                        }
-                                    }
-                                } else if (stockEl) {
-                                    stockEl.remove();
-                                }
+                                if (stockEl) stockEl.remove();
                             }
                         }
                         const moreWrap = document.getElementById('invLoadMoreWrap');
@@ -6072,16 +6627,14 @@
                     buildThumbHtml(visualCoverUrl ? { f: visualCoverUrl } : firstPhotoItem(grp.items), { card: true, eager: i < eagerCount, boxRatio: 1 }) +
                     '<div class="inv-card-body">' +
                         '<div class="inv-card-title" data-card-title="1">' + escapeHtml(grp.displayTitle || grp.title) + '</div>' +
+                        buildCardPriceHtml(grp.items) +
+                        buildCardAvailableStockHtml(grp.items) +
                     '</div>';
             } else {
                 const it = grp.items[0];
                 const skuKey = String(it.s || '').toUpperCase();
                 row.setAttribute('data-card-sku', skuKey);
                 row.setAttribute('data-sku', String(it.s || ''));
-                const ownPhysQty = getBodegaPisoStock(it);
-                const stockBadgeHtml = (activeCategory === 'STOCK' && ownPhysQty > 0)
-                    ? '<span class="inv-card-stock" data-card-stock="1">' + ownPhysQty + ' pz</span>'
-                    : '';
                 row.onclick = function () {
                     openProductDetail(it.s, false);
                 };
@@ -6090,7 +6643,9 @@
                     buildThumbHtml(it, { card: true, eager: i < eagerCount, boxRatio: 1 }) +
                     '<div class="inv-card-body">' +
                         '<div class="inv-card-title" data-card-title="1">' + escapeHtml(grp.displayTitle || stripDimensionsFromProductText(it.n) || grp.title || it.s) + '</div>' +
-                        '<div class="inv-card-meta"><span data-card-sub="1">' + escapeHtml(it.s) + '</span>' + stockBadgeHtml + '</div>' +
+                        buildCardPriceHtml(grp.items) +
+                        '<div class="inv-card-meta"><span data-card-sub="1">' + escapeHtml(it.s) + '</span></div>' +
+                        buildCardAvailableStockHtml(grp.items) +
                     '</div>';
 
                 const ctrlWrap = row.querySelector('[data-sku-ctrl]');
@@ -10829,11 +11384,13 @@
         window.closeFabMenu();
         closeProductDetail();
         closeCartModal();
+        if (typeof window.closeCatalogFilterModal === 'function') window.closeCatalogFilterModal();
         if (typeof window.closeUploadPhotoModal === 'function') window.closeUploadPhotoModal();
         if (typeof window.closeBarcodeScanner === 'function') window.closeBarcodeScanner();
         window.closeInAppModules({ skipCheckpoint: true });
         activeCategory = 'ALL';
         activeSubCategory = 'ALL';
+        if (typeof resetNonCategoryAdvancedStateVars === 'function') resetNonCategoryAdvancedStateVars();
         const inp = document.getElementById('invSearchInput');
         if (inp) inp.value = '';
         _invPrevSearchNonEmpty = false;
@@ -18511,6 +19068,13 @@
                     undo: function () { window.closeQuoteGeneratedPdfsModal(); },
                     escapeAllowed: true
                 },
+                // Priority 8c: Catalog Gear Sort & Filter Modal (z-index: 68)
+                {
+                    id: 'catalog_filter_modal',
+                    isActive: function () { return isModalOpenById('catalogFilterModal'); },
+                    undo: function () { window.closeCatalogFilterModal(); },
+                    escapeAllowed: true
+                },
                 // Priority 9: Floating Action Button Menu (z-index: 40)
                 {
                     id: 'fab_menu',
@@ -18658,6 +19222,22 @@
                     undo: function () { window.clearInvSearch(); },
                     escapeAllowed: false,
                     toast: 'Búsqueda limpiada'
+                },
+                // Priority 16a2: Home View Gear Sort / Finish / Size Filters
+                {
+                    id: 'inv_adv_filters',
+                    isActive: function () {
+                        return activeInAppModule === 'home' &&
+                            typeof hasNonCategoryAdvancedFiltersOrSort === 'function' &&
+                            hasNonCategoryAdvancedFiltersOrSort();
+                    },
+                    undo: function () {
+                        if (typeof clearNonCategoryAdvancedFiltersAndSort === 'function') {
+                            clearNonCategoryAdvancedFiltersAndSort();
+                        }
+                    },
+                    escapeAllowed: false,
+                    toast: 'Filtros restablecidos'
                 },
                 // Priority 16b: Home View Subcategory Filter
                 {
@@ -21875,6 +22455,20 @@
             resolveDriveOrImgUrl: resolveDriveOrImgUrl,
             buildThumbHtml: buildThumbHtml,
             applyStoredFotosOverridesToItems: applyStoredFotosOverridesToItems,
+            shortWarehouseCardLabel: shortWarehouseCardLabel,
+            getGroupPriceSummary: getGroupPriceSummary,
+            getAvailableWarehousesForItems: getAvailableWarehousesForItems,
+            extractItemFinishTokens: extractItemFinishTokens,
+            extractItemSizeTokens: extractItemSizeTokens,
+            getCatalogFilterState: function () {
+                return {
+                    sort: activeCatalogSort,
+                    category: activeCategory,
+                    subCategory: activeSubCategory,
+                    finish: activeAdvFinish,
+                    size: activeAdvSize
+                };
+            },
             buildFabricSwatchOverrideKey: buildFabricSwatchOverrideKey,
             buildWoodSwatchOverrideKey: buildWoodSwatchOverrideKey,
             buildVisualCoverOverrideKey: buildVisualCoverOverrideKey,
