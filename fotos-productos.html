@@ -507,7 +507,7 @@
 
     <div id="photoLightbox" class="lightbox-backdrop hidden" onclick="closePhotoLightbox()">
         <button type="button" id="btnClosePhotoLightbox" class="lightbox-close-btn" aria-label="Cerrar vista previa" onclick="event.stopPropagation(); closePhotoLightbox()">✕ Cerrar</button>
-        <img id="photoLightboxImg" src="" alt="Vista" width="800" height="600" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" data-drive-id="" onerror="handlePhotoImgError(this)" onclick="event.stopPropagation()">
+        <img id="photoLightboxImg" src="" alt="Vista" width="800" height="600" fetchpriority="high" decoding="async" style="width:auto;height:auto;" referrerpolicy="no-referrer" draggable="false" data-drive-id="" onerror="handlePhotoImgError(this)" onclick="event.stopPropagation()">
     </div>
 
     <script src="./creata-logo.js?v=33"></script>

@@ -867,6 +867,8 @@ input,
 }
 
 .photo-stage-canvas img {
+    width: auto;
+    height: auto;
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
@@ -1034,6 +1036,8 @@ input,
 }
 
 .inbox-thumb-box img {
+    width: auto;
+    height: auto;
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
@@ -1247,7 +1251,9 @@ input,
 }
 
 .lightbox-backdrop img {
-    max-width: 94vw;
+    width: auto;
+    height: auto;
+    max-width: min(94vw, 100%);
     max-height: calc(100dvh - 96px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
     object-fit: contain;
     border-radius: 12px;

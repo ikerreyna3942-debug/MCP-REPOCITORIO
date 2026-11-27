@@ -234,7 +234,9 @@ test('seguimiento-manual.html removes render-blocking pptxgen.bundle.js and lazy
     };
 
     const activeTimers = new Set();
+    const recordedTimeouts = [];
     const trackedSetTimeout = (fn, ms) => {
+      recordedTimeouts.push(ms);
       const id = setTimeout(() => {
         activeTimers.delete(id);
         fn();
@@ -264,7 +266,7 @@ test('seguimiento-manual.html removes render-blocking pptxgen.bundle.js and lazy
     };
     vm.createContext(sandbox);
     vm.runInContext(scriptSrc, sandbox);
-    return { sandbox, windowObj, head, appendedScripts, alerts, btnPptx, cleanupTimers };
+    return { sandbox, windowObj, document, head, appendedScripts, alerts, btnPptx, activeTimers, recordedTimeouts, cleanupTimers };
   }
 
   // Case A: Already-loaded fast path
@@ -415,6 +417,126 @@ test('seguimiento-manual.html removes render-blocking pptxgen.bundle.js and lazy
       cleanupTimers();
     }
   }
+
+  // Case G: Missing DOM hosts (head/body/documentElement all null) rejects without poisoning cache; retry succeeds once host returns
+  {
+    const { windowObj, document, head, appendedScripts, activeTimers, cleanupTimers } = createManualSandbox(undefined);
+    try {
+      const origBody = document.body;
+      const origDocEl = document.documentElement;
+      document.head = null;
+      document.body = null;
+      document.documentElement = null;
+
+      const p1 = windowObj.ensurePptxGenLoaded();
+      await assert.rejects(p1, /contenedor del documento/i);
+      assert.equal(appendedScripts.length, 0, 'Missing host must not append any script');
+      assert.equal(activeTimers.size, 0, 'Missing host must not leak any timer');
+
+      // Restore host and retry — must NOT return stale cached rejection
+      document.head = head;
+      document.body = origBody;
+      document.documentElement = origDocEl;
+
+      const p2 = windowObj.ensurePptxGenLoaded();
+      assert.notEqual(p1, p2, 'Retry after missing DOM host must create a fresh Promise');
+      assert.equal(appendedScripts.length, 1, 'Retry after missing DOM host must inject <script>');
+
+      const RecoveredCtor = function RecoveredAfterMissingHost() {};
+      windowObj.PptxGenJS = RecoveredCtor;
+      appendedScripts[0].onload();
+      assert.equal(await p2, RecoveredCtor);
+      assert.equal(activeTimers.size, 0);
+    } finally {
+      cleanupTimers();
+    }
+  }
+
+  // Case H: Synchronous host.appendChild throw rejects cleanly, clears timer & cache, and allows immediate retry
+  {
+    const { windowObj, head, appendedScripts, activeTimers, cleanupTimers } = createManualSandbox(undefined);
+    try {
+      const realAppendChild = head.appendChild.bind(head);
+      let shouldThrow = true;
+      head.appendChild = (node) => {
+        if (shouldThrow) {
+          shouldThrow = false;
+          throw new Error('Simulated CSP/DOM append failure');
+        }
+        return realAppendChild(node);
+      };
+
+      const p1 = windowObj.ensurePptxGenLoaded();
+      // Even a synchronous retry before microtask flush must NOT receive the rejected p1
+      const p2 = windowObj.ensurePptxGenLoaded();
+      assert.notEqual(p1, p2, 'Synchronous appendChild throw must never poison _pptxGenLoadPromise');
+
+      await assert.rejects(p1, /Simulated CSP\/DOM append failure/);
+      assert.equal(appendedScripts.length, 1, 'Retry after sync appendChild throw must inject <script>');
+      assert.equal(activeTimers.size, 1, 'Only the active retry timer should exist');
+
+      const SyncThrowRetryCtor = function SyncThrowRetryPptx() {};
+      windowObj.PptxGenJS = SyncThrowRetryCtor;
+      appendedScripts[0].onload();
+      assert.equal(await p2, SyncThrowRetryCtor);
+      assert.equal(activeTimers.size, 0, 'No timers may leak after retry completes');
+    } finally {
+      cleanupTimers();
+    }
+  }
+
+  // Case I: Synchronous script.onerror() invoked inside host.appendChild removes script, clears timer & cache, and allows retry
+  {
+    const { windowObj, head, appendedScripts, activeTimers, cleanupTimers } = createManualSandbox(undefined);
+    try {
+      const realAppendChild = head.appendChild.bind(head);
+      let triggerSyncError = true;
+      head.appendChild = (node) => {
+        const res = realAppendChild(node);
+        if (triggerSyncError) {
+          triggerSyncError = false;
+          node.onerror();
+        }
+        return res;
+      };
+
+      const p1 = windowObj.ensurePptxGenLoaded();
+      assert.equal(head.children.length, 0, 'Synchronous onerror must immediately remove script from DOM');
+      assert.equal(activeTimers.size, 0, 'Synchronous onerror must immediately clear timer');
+
+      const p2 = windowObj.ensurePptxGenLoaded();
+      assert.notEqual(p1, p2, 'Synchronous onerror must never poison _pptxGenLoadPromise');
+      assert.equal(appendedScripts.length, 2, 'Retry after sync onerror must inject a second <script>');
+
+      await assert.rejects(p1, /No se pudo descargar el generador de PowerPoint/i);
+
+      const SyncErrRetryCtor = function SyncErrRetryPptx() {};
+      windowObj.PptxGenJS = SyncErrRetryCtor;
+      appendedScripts[1].onload();
+      assert.equal(await p2, SyncErrRetryCtor);
+      assert.equal(activeTimers.size, 0);
+    } finally {
+      cleanupTimers();
+    }
+  }
+
+  // Case J: Non-finite timeoutMs (Infinity) falls back safely to default 15000ms
+  {
+    const { windowObj, appendedScripts, recordedTimeouts, activeTimers, cleanupTimers } = createManualSandbox(undefined);
+    try {
+      const p = windowObj.ensurePptxGenLoaded(Infinity);
+      assert.equal(recordedTimeouts.length, 1);
+      assert.equal(recordedTimeouts[0], 15000, 'timeoutMs = Infinity must fall back to default 15000ms');
+
+      const FiniteCtor = function FinitePptx() {};
+      windowObj.PptxGenJS = FiniteCtor;
+      appendedScripts[0].onload();
+      assert.equal(await p, FiniteCtor);
+      assert.equal(activeTimers.size, 0);
+    } finally {
+      cleanupTimers();
+    }
+  }
 });
 
 test('All static and dynamic <img> tags across modifiable pages/apps declare dimensions, async decoding, and conflict-free loading/fetchpriority', () => {
@@ -499,4 +621,106 @@ test('All static and dynamic <img> tags across modifiable pages/apps declare dim
     /const\s+imgH\s*=\s*o\.compact\s*\?\s*80\s*:\s*Math\.max\(100,\s*Math\.round\(400\s*\/\s*boxRatio\)\);/,
     'buildThumbHtml must compute explicit imgH matching boxRatio'
   );
+});
+
+test('Max-dimension-constrained <img> elements preserve auto box-sizing in CSS, HTML, and dynamic templates with balanced CSS braces', () => {
+  function assertBalancedCssBraces(relPath, css) {
+    const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '');
+    let depth = 0;
+    for (let i = 0; i < stripped.length; i++) {
+      if (stripped[i] === '{') depth++;
+      else if (stripped[i] === '}') {
+        depth--;
+        assert.ok(depth >= 0, `Unmatched closing brace in ${relPath} near offset ${i}`);
+      }
+    }
+    assert.equal(depth, 0, `Unclosed CSS brace(s) in ${relPath} (final depth=${depth})`);
+  }
+
+  function extractCssRuleBody(css, selector) {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm');
+    const m = css.match(re);
+    assert.ok(m, `Missing CSS rule block for selector: ${selector}`);
+    return m[1];
+  }
+
+  // 1) fotos-productos-styles.css
+  const fotosCss = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos-styles.css'), 'utf8');
+  assertBalancedCssBraces('fotos-productos-styles.css', fotosCss);
+  for (const sel of ['.photo-stage-canvas img', '.inbox-thumb-box img', '.lightbox-backdrop img']) {
+    const body = extractCssRuleBody(fotosCss, sel);
+    assert.match(body, /\bwidth\s*:\s*auto\s*;/i, `${sel} must declare width: auto;`);
+    assert.match(body, /\bheight\s*:\s*auto\s*;/i, `${sel} must declare height: auto;`);
+  }
+  const lightboxBody = extractCssRuleBody(fotosCss, '.lightbox-backdrop img');
+  assert.match(
+    lightboxBody,
+    /\bmax-width\s*:\s*min\(\s*94vw\s*,\s*100%\s*\)\s*;/i,
+    '.lightbox-backdrop img must clamp max-width: min(94vw, 100%) for split-screen safety'
+  );
+
+  // 2) inventario-ui.css
+  const invCss = fs.readFileSync(path.join(REPO_ROOT, 'inventario-ui.css'), 'utf8');
+  assertBalancedCssBraces('inventario-ui.css', invCss);
+  for (const sel of ['.inv-visual-preview-img', '.inv-visual-lightbox-stage img']) {
+    const body = extractCssRuleBody(invCss, sel);
+    assert.match(body, /\bwidth\s*:\s*auto\s*;/i, `${sel} must declare width: auto;`);
+    assert.match(body, /\bheight\s*:\s*auto\s*;/i, `${sel} must declare height: auto;`);
+  }
+
+  // 3) fotos-productos.html (#photoLightboxImg)
+  const fotosHtml = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos.html'), 'utf8');
+  const photoLightboxImg = fotosHtml.match(/<img\b[^>]*id="photoLightboxImg"[^>]*>/i);
+  assert.ok(photoLightboxImg, 'Missing #photoLightboxImg in fotos-productos.html');
+  assert.match(photoLightboxImg[0], /style="[^"]*width\s*:\s*auto\s*;\s*height\s*:\s*auto\s*;[^"]*"/i);
+  assert.match(photoLightboxImg[0], /\bfetchpriority="high"/i);
+  assert.doesNotMatch(photoLightboxImg[0], /\bloading="lazy"/i);
+
+  // 4) inventario.html (#visualPhotoPreviewImg & #visualPhotoLightboxImg)
+  const invHtml = fs.readFileSync(path.join(REPO_ROOT, 'inventario.html'), 'utf8');
+  const visualPreviewImg = invHtml.match(/<img\b[^>]*id="visualPhotoPreviewImg"[^>]*>/i);
+  assert.ok(visualPreviewImg, 'Missing #visualPhotoPreviewImg in inventario.html');
+  assert.match(visualPreviewImg[0], /class="[^"]*\binv-visual-preview-img\b[^"]*\bw-auto\b[^"]*"/i);
+  assert.match(visualPreviewImg[0], /\bfetchpriority="high"/i);
+  assert.doesNotMatch(visualPreviewImg[0], /\bloading="lazy"/i);
+
+  const visualLightboxImg = invHtml.match(/<img\b[^>]*id="visualPhotoLightboxImg"[^>]*>/i);
+  assert.ok(visualLightboxImg, 'Missing #visualPhotoLightboxImg in inventario.html');
+  assert.match(visualLightboxImg[0], /class="[^"]*\bw-auto\b[^"]*\bh-auto\b[^"]*"/i);
+  assert.match(visualLightboxImg[0], /\bfetchpriority="high"/i);
+  assert.doesNotMatch(visualLightboxImg[0], /\bloading="lazy"/i);
+
+  // 5) seguimiento-manual.html (slide preview <img>)
+  const manualHtml = fs.readFileSync(path.join(REPO_ROOT, 'seguimiento-manual.html'), 'utf8');
+  const manualImg = manualHtml.match(/<img\b[^>]*src="\$\{slide\.imgUrl\}"[^>]*>/i);
+  assert.ok(manualImg, 'Missing slide preview <img> in seguimiento-manual.html');
+  assert.match(manualImg[0], /class="[^"]*\bw-auto\b[^"]*\bmax-h-24\b[^"]*\bobject-contain\b[^"]*"/i);
+
+  // 6) fotos-productos-app.js dynamic <img> tags (.photo-stage-canvas, .inbox-thumb-box, .visual-single-canvas !isSwatch)
+  const fotosJs = fs.readFileSync(path.join(REPO_ROOT, 'fotos-productos-app.js'), 'utf8');
+  const stageAndInboxImgs = fotosJs.match(/<img\s+width="(?:360|160)"\s+height="(?:270|120)"[^>]*>/gi) || [];
+  assert.equal(stageAndInboxImgs.length, 7, 'Expected 7 constrained dynamic <img> tags in fotos-productos-app.js');
+
+  let plainAutoCount = 0;
+  let visualTernaryCount = 0;
+  for (const tag of stageAndInboxImgs) {
+    if (tag.includes('isSwatch')) {
+      visualTernaryCount++;
+      assert.match(
+        tag,
+        /'width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain;'/,
+        `Visual stage !isSwatch branch must declare width:auto;height:auto: ${tag}`
+      );
+    } else {
+      plainAutoCount++;
+      assert.match(
+        tag,
+        /style="width:auto;height:auto;"/i,
+        `Stage/inbox <img> must declare inline style="width:auto;height:auto;": ${tag}`
+      );
+    }
+  }
+  assert.equal(plainAutoCount, 5, 'Expected 3 .photo-stage-canvas + 2 .inbox-thumb-box <img> tags with style="width:auto;height:auto;"');
+  assert.equal(visualTernaryCount, 2, 'Expected 2 .visual-single-canvas <img> tags with width:auto;height:auto on !isSwatch branch');
 });

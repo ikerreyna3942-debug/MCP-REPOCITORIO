@@ -3556,7 +3556,7 @@
             if (curDeleteBtn) curDeleteBtn.classList.remove('hidden');
             if (curCanvas) {
                 curCanvas.innerHTML =
-                    '<img width="360" height="270" src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(prod.sku) + '" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" ' +
+                    '<img width="360" height="270" src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(prod.sku) + '" decoding="async" fetchpriority="high" style="width:auto;height:auto;" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(fid) + '" ' +
                     'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(previewSrc) + '" ' +
                     'onerror="handlePhotoImgError(this)">';
@@ -3602,7 +3602,7 @@
             const safeSelFid = isLocalTempPhotoId(selPhoto.id) ? '' : cleanStr(selPhoto.id);
             const previewUrl = selPhoto.localDataUrl || selPhoto.thumbDataUrl || buildPhotoThumbUrl(safeSelFid || selPhoto.viewUrl, 900);
             canvas.innerHTML =
-                '<img width="360" height="270" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(selPhoto.name) + '" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" ' +
+                '<img width="360" height="270" src="' + escapeHtml(previewUrl) + '" alt="' + escapeHtml(selPhoto.name) + '" decoding="async" fetchpriority="high" style="width:auto;height:auto;" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(safeSelFid) + '" ' +
                 'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(previewUrl) + '" ' +
                 'onerror="handlePhotoImgError(this)">';
@@ -3620,7 +3620,7 @@
             const safeSavedFid = isLocalTempPhotoId(rawSavedFid) ? '' : (rawSavedFid || extractDriveFileId(savedSession.newUrl));
             const savedPreview = savedSession.localDataUrl || buildPhotoThumbUrl(safeSavedFid || savedSession.newUrl, 900);
             canvas.innerHTML =
-                '<img width="360" height="270" src="' + escapeHtml(savedPreview) + '" alt="' + escapeHtml(savedSession.sku) + '" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" ' +
+                '<img width="360" height="270" src="' + escapeHtml(savedPreview) + '" alt="' + escapeHtml(savedSession.sku) + '" decoding="async" fetchpriority="high" style="width:auto;height:auto;" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(safeSavedFid) + '" ' +
                 'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(savedPreview) + '" ' +
                 'onerror="handlePhotoImgError(this)">';
@@ -3968,7 +3968,7 @@
                             (!isVisualItem
                                 ? ('<button type="button" class="card-del-btn" title="Borrar" data-fotos-act="del-loaded-sku" data-sku="' + escapeHtml(item.sku || '') + '" data-fid="' + escapeHtml(item.id || '') + '">🗑</button>')
                                 : '') +
-                            '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
+                            '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" style="width:auto;height:auto;" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(item.id) + '" onerror="handlePhotoImgError(this)">' +
                         '</div>' +
                         '<div class="inbox-card-meta">' +
                             '<div class="inbox-file-name" title="' + escapeHtml(titleTooltip) + '">' + escapeHtml(primaryTitle) + '</div>' +
@@ -4036,7 +4036,7 @@
                 '<div class="inbox-photo-card' + (isSel ? ' selected' : '') + '" data-card-key="' + escapeHtml(cardKey) + '" data-fotos-act="select-inbox" data-fid="' + escapeHtml(f.id || '') + '">' +
                     '<div class="inbox-thumb-box">' +
                         '<button type="button" class="card-del-btn" title="Borrar" data-fotos-act="del-inbox" data-fid="' + escapeHtml(f.id || '') + '">🗑</button>' +
-                        '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
+                        '<img width="160" height="120" src="' + escapeHtml(thumb) + '" alt="" loading="lazy" decoding="async" style="width:auto;height:auto;" referrerpolicy="no-referrer" data-drive-id="' + escapeHtml(f.id) + '" onerror="handlePhotoImgError(this)">' +
                     '</div>' +
                     '<div class="inbox-card-meta">' +
                         '<div class="inbox-file-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</div>' +
@@ -9657,7 +9657,7 @@
             curCanvas.innerHTML =
                 '<img width="360" height="270" decoding="async" fetchpriority="high" src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(selPhoto.name || 'Vista') + '" referrerpolicy="no-referrer" ' +
                 'data-drive-id="' + escapeHtml(fid) + '" onerror="handlePhotoImgError(this)" ' +
-                'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '">';
+                'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain;') + '">';
         } else if (!canAssignGallery) {
             renderVisualTargetStage(true);
         }
@@ -9719,7 +9719,7 @@
                 curCanvas.innerHTML =
                     '<img width="360" height="270" decoding="async" fetchpriority="high" src="' + escapeHtml(curThumb) + '" alt="' + escapeHtml(label) + '" referrerpolicy="no-referrer" ' +
                     'data-drive-id="' + escapeHtml(curFid) + '" onerror="handlePhotoImgError(this)" ' +
-                    'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
+                    'style="' + (isSwatch ? 'width:100%;height:100%;object-fit:cover;' : 'width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain;') + '" ' +
                     'data-fotos-act="lightbox" data-lightbox-src="' + escapeHtml(curThumb) + '">';
             } else {
                 if (badgeEl) badgeEl.textContent = 'Sin foto';
