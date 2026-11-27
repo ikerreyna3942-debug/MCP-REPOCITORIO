@@ -36,20 +36,24 @@ function runBuildCli(args, cwd = REPO_ROOT) {
   }
 }
 
-function createIsolatedWorkspaceFixture() {
+function withIsolatedWorkspace(fn) {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'creata-modular-test-'));
-  for (const bundle of BUNDLES) {
-    fs.copyFileSync(
-      path.join(REPO_ROOT, bundle.outputFile),
-      path.join(tmpRoot, bundle.outputFile)
-    );
-    fs.cpSync(
-      path.join(REPO_ROOT, bundle.srcDir),
-      path.join(tmpRoot, bundle.srcDir),
-      { recursive: true }
-    );
+  try {
+    for (const bundle of BUNDLES) {
+      fs.copyFileSync(
+        path.join(REPO_ROOT, bundle.outputFile),
+        path.join(tmpRoot, bundle.outputFile)
+      );
+      fs.cpSync(
+        path.join(REPO_ROOT, bundle.srcDir),
+        path.join(tmpRoot, bundle.srcDir),
+        { recursive: true }
+      );
+    }
+    return fn(tmpRoot);
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
-  return tmpRoot;
 }
 
 test('Modular manifest declares 31 cohesive modules (7 fotos, 11 apps-script, 13 inventario) with zero duplicates or orphans', () => {
@@ -143,50 +147,50 @@ test('Per-module & bundle syntax validation: --verify-syntax exits 0 for all 31 
   }
 });
 
-test('Domain symbol placement: every one of the 31 source modules houses its designated domain entrypoints', () => {
+test('Domain symbol placement: every one of the 31 source modules declares its designated domain entrypoints', () => {
   const expectedSymbolsByModule = {
     // src/fotos (7)
     'src/fotos/01-core-state-live-poll-and-api.js': [
-      'FOTOS_WAREHOUSES',
-      'CATEGORIAS_DEST_FOLDERS',
-      'runSilentFotosLiveTick',
-      'resolveCategoryDestFolderForProduct',
-      'enqueueFotosWriteTask',
+      'const FOTOS_WAREHOUSES =',
+      'const CATEGORIAS_DEST_FOLDERS =',
+      'async function runSilentFotosLiveTick(',
+      'function resolveCategoryDestFolderForProduct(',
+      'function enqueueFotosWriteTask(',
     ],
     'src/fotos/02-cache-auth-and-inbox-catalog.js': [
-      'DELETED_QUEUE_TTL_MS',
-      'saveFastCacheNow',
-      'unlockFotosPortal',
-      'loadSheetsCatalog',
+      'const DELETED_QUEUE_TTL_MS =',
+      'function saveFastCacheNow(',
+      'function unlockFotosPortal(',
+      'async function loadSheetsCatalog(',
     ],
     'src/fotos/03-sku-list-stage-and-gallery-ui.js': [
-      'applySkuFiltersAndRender',
-      'renderSkuResultsList',
-      'renderSelectedProductStage',
-      'renderInboxGallery',
+      'function applySkuFiltersAndRender(',
+      'function renderSkuResultsList(',
+      'function renderSelectedProductStage(',
+      'function renderInboxGallery(',
     ],
     'src/fotos/04-upload-framing-local-folder-and-assign.js': [
-      'autoFrameStudioProductToDataUrl',
-      'uploadLocalFilesToSubir',
-      'assignSelectedPhotoToProduct',
+      'function autoFrameStudioProductToDataUrl(',
+      'window.uploadLocalFilesToSubir =',
+      'window.assignSelectedPhotoToProduct =',
     ],
     'src/fotos/05-offline-idb-outbox-and-checkpoint.js': [
-      'openFotosOfflineIdb',
-      'flushFotosOfflineOutbox',
-      'saveFotosUiCheckpointNow',
-      'hydrateFromLocalCompressedBundleIfEmpty',
+      'function openFotosOfflineIdb(',
+      'async function flushFotosOfflineOutbox(',
+      'function saveFotosUiCheckpointNow(',
+      'async function hydrateFromLocalCompressedBundleIfEmpty(',
     ],
     'src/fotos/06-split-dock-back-nav-and-init.js': [
-      'applyFotosSplitDomState',
-      'initFotosBackNav',
-      '__CREATA_FOTOS_BACK_NAV__',
-      'initFotosApp',
+      'function applyFotosSplitDomState(',
+      'function initFotosBackNav(',
+      'window.__CREATA_FOTOS_BACK_NAV__ =',
+      'function initFotosApp(',
     ],
     'src/fotos/07-visual-covers-fabrics-woods-and-bootstrap.js': [
-      'visualState',
-      'findMatchingUploadedFabricForProduct',
-      'findMatchingUploadedWoodForProduct',
-      '__CREATA_FOTOS_VISUAL_TEST__',
+      'const visualState =',
+      'function findMatchingUploadedFabricForProduct(',
+      'function findMatchingUploadedWoodForProduct(',
+      'window.__CREATA_FOTOS_VISUAL_TEST__ =',
     ],
 
     // src/apps-script (11)
@@ -204,9 +208,9 @@ test('Domain symbol placement: every one of the 31 source modules houses its des
     ],
     'src/apps-script/03-inventory-setup-users-and-invitados.gs': [
       'function dejarTodoListoSinFotos(',
-      'ADMIN_PERM_COLUMNS_',
-      'crearVerificarHojaAdministrativos',
-      'crearVerificarHojaInvitados',
+      'const ADMIN_PERM_COLUMNS_ =',
+      'function crearVerificarHojaAdministrativos(',
+      'function crearVerificarHojaInvitados(',
     ],
     'src/apps-script/04-auth-tokens-directory-and-quotes-ledger.gs': [
       'function issueInvAuthToken_(',
@@ -227,7 +231,7 @@ test('Domain symbol placement: every one of the 31 source modules houses its des
       'function handleInvUploadProductPhoto_(',
     ],
     'src/apps-script/07-fotos-project-a-manager.gs': [
-      'FORBIDDEN_PROJECT_B_FOLDER_IDS_',
+      'const FORBIDDEN_PROJECT_B_FOLDER_IDS_ =',
       'function handleFotosSubirAssign_(',
       'function handleFotosUploadVisualOverride_(',
       'function handleFotosDelete_(',
@@ -239,116 +243,115 @@ test('Domain symbol placement: every one of the 31 source modules houses its des
       'function sincronizarCotizacionesSeguimientoDesdeERP(',
     ],
     'src/apps-script/09-presence-sessions-and-product-overrides.gs': [
-      'INV_PRESENCE_STATE_KEY_',
+      'const INV_PRESENCE_STATE_KEY_ =',
       'function handleInvMySessions_(',
       'function handleInvRevokeSession_(',
       'function handleInvProductOverrideSave_(',
     ],
     'src/apps-script/10-demand-and-purchase-suggestions.gs': [
-      'TAB_DEMANDA_SIN_STOCK_',
+      'const TAB_DEMANDA_SIN_STOCK_ =',
       'function handleInvRegisterDemandRequest_(',
       'function handleInvRegisterPurchaseSuggestion_(',
     ],
     'src/apps-script/11-kevin-archive-and-sales-analysis.gs': [
-      'KEVIN_EXCLUSIVE_EMAIL_',
+      'const KEVIN_EXCLUSIVE_EMAIL_ =',
       'function handleHistArchiveAndAnalyzeKevin_(',
       'function computeKevinExecutiveSalesAnalysis_(',
     ],
 
     // src/inventario (13)
     'src/inventario/01-core-config-and-utils.js': [
-      'DEFAULT_WAREHOUSES',
+      'const DEFAULT_WAREHOUSES =',
       'function normSearch(',
       'function stemEs(',
       'function scoreTokenInGroup(',
     ],
     'src/inventario/02-fabric-vocab-and-normalization.js': [
-      'validateAndNormalizeFabricColorAgainstName',
-      'rebuildLiveAutoVocab',
-      'normalizeInventoryItemLive',
-      'computeCategoryGroupIdentity',
+      'function validateAndNormalizeFabricColorAgainstName(',
+      'function rebuildLiveAutoVocab(',
+      'function normalizeInventoryItemLive(',
+      'function computeCategoryGroupIdentity(',
     ],
     'src/inventario/03-categories-visual-swatches-and-ranking.js': [
-      'MAIN_CATEGORY_ORDER',
-      'matchFabricTextAgainstUploadedSwatches',
-      'matchWoodTextAgainstUploadedSwatches',
-      'compareCommercialGroupOrder',
+      'const MAIN_CATEGORY_ORDER =',
+      'function matchFabricTextAgainstUploadedSwatches(',
+      'function matchWoodTextAgainstUploadedSwatches(',
+      'function compareCommercialGroupOrder(',
     ],
     'src/inventario/04-optfit-indexing-and-catalog-grid.js': [
-      'detectStudioContentBounds',
-      '__CREATA_OPTFIT_TEST__',
-      'indexItemsAndGroups',
+      'function detectStudioContentBounds(',
+      'window.__CREATA_OPTFIT_TEST__ =',
+      'function indexItemsAndGroups(',
       'function applyFilter(',
-      'window.clearInvSearch',
+      'window.clearInvSearch =',
     ],
     'src/inventario/05-scanner-variants-and-detail-modal.js': [
-      'resolveScannedBarcode',
-      'startLiveBarcodeCamera',
-      '__creataBtScanner',
-      'renderGroupVariantsStep',
-      'buildCleanProductSpecRows',
+      'function resolveScannedBarcode(',
+      'async function startLiveBarcodeCamera(',
+      'window.__creataBtScanner =',
+      'function renderGroupVariantsStep(',
+      'function buildCleanProductSpecRows(',
     ],
     'src/inventario/06-photo-upload-and-related-items.js': [
-      'extractAdminPermissionsFromRowClient',
-      'canManageProductPhotos',
-      'submitMultiProductPhotos',
-      'getRelatedInStockItems',
+      'function extractAdminPermissionsFromRowClient(',
+      'function canManageProductPhotos(',
+      'window.submitMultiProductPhotos =',
+      'function getRelatedInStockItems(',
     ],
     'src/inventario/07-auth-presence-fab-and-modules.js': [
-      'AUTH_SESSION_KEY',
-      'openInAppSeguimiento',
-      'openInAppHistorial',
-      'submitAdvisorLogin',
-      'logoutAdvisorSession',
+      'const AUTH_SESSION_KEY =',
+      'window.openInAppSeguimiento =',
+      'window.openInAppHistorial =',
+      'window.submitAdvisorLogin =',
+      'window.logoutAdvisorSession =',
     ],
     'src/inventario/08a-quotes-roles-and-drafts.js': [
-      'renderMyRecentQuotes',
-      'getAdvisorRoleInfo',
-      'getMaxDiscountPct',
-      'initQuoteDraftsSystem',
+      'function renderMyRecentQuotes(',
+      'function getAdvisorRoleInfo(',
+      'function getMaxDiscountPct(',
+      'function initQuoteDraftsSystem(',
     ],
     'src/inventario/08b-clients-cart-pdf-and-submit.js': [
-      'renderSelectedErpClientBadge',
-      'downloadOriginalErpQuotePdf',
-      'submitQuoteToSystem',
+      'function renderSelectedErpClientBadge(',
+      'window.downloadOriginalErpQuotePdf =',
+      'window.submitQuoteToSystem =',
     ],
     'src/inventario/09-bt-wedge-live-sync-checkpoint-alerts-pwa.js': [
-      'resetGlobalScanBuffer',
-      'applyLiveGvizTable',
-      'refreshLiveSheetNow',
-      'initCreataLiveAlertsModule',
+      'function resetGlobalScanBuffer(',
+      'function applyLiveGvizTable(',
+      'window.refreshLiveSheetNow =',
+      'function initCreataLiveAlertsModule(',
     ],
     'src/inventario/10-split-dock-and-back-nav.js': [
-      'applyInvSplitDomState',
-      'initInventarioBackNav',
-      '__CREATA_INV_BACK_NAV__',
-      'handleIncomingFotosPeerMessageInCotizador',
+      'function applyInvSplitDomState(',
+      'function initInventarioBackNav(',
+      'window.__CREATA_INV_BACK_NAV__ =',
+      'function handleIncomingFotosPeerMessageInCotizador(',
     ],
     'src/inventario/11-settings-visual-picker-demand-and-suggestions.js': [
-      'openSettingsModal',
-      'submitOutOfStockRequest',
-      'submitPurchaseSuggestion',
+      'window.openSettingsModal =',
+      'window.submitOutOfStockRequest =',
+      'window.submitPurchaseSuggestion =',
     ],
     'src/inventario/12-price-calculator-and-audit-exports.js': [
-      'computePriceCalcBreakdown',
-      'renderPriceCalculator',
-      '__creataPriceCalc',
-      '__CREATA_INV_AUDIT__',
+      'function computePriceCalcBreakdown(',
+      'function renderPriceCalculator(',
+      'window.__creataPriceCalc =',
+      'window.__CREATA_INV_AUDIT__ =',
     ],
   };
 
   assert.equal(Object.keys(expectedSymbolsByModule).length, 31);
-  for (const [relPath, symbols] of Object.entries(expectedSymbolsByModule)) {
+  for (const [relPath, declarations] of Object.entries(expectedSymbolsByModule)) {
     const content = fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8');
-    for (const sym of symbols) {
-      assert.ok(content.includes(sym), `Expected symbol "${sym}" inside ${relPath}`);
+    for (const decl of declarations) {
+      assert.ok(content.includes(decl), `Expected declaration "${decl}" inside ${relPath}`);
     }
   }
 });
 
 test('Negative gates (isolated tmpdir): detects 1-byte drift, detects orphan file, re-syncs on build, and rejects syntax errors', () => {
-  const tmpRoot = createIsolatedWorkspaceFixture();
-  try {
+  withIsolatedWorkspace((tmpRoot) => {
     // Baseline in isolated copy must pass cleanly
     const baseline = runBuildCli(['--root', tmpRoot, '--check', '--verify-syntax']);
     assert.equal(baseline.status, 0, baseline.stderr);
@@ -384,9 +387,132 @@ test('Negative gates (isolated tmpdir): detects 1-byte drift, detects orphan fil
       brokenSyntax.stderr,
       /Syntax error in module src\/fotos\/01-core-state-live-poll-and-api\.js/
     );
-  } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-  }
+  });
+});
+
+test('Negative gates (vm.Script grammar): rejects bare top-level return; and new.target across all 3 bundle families', () => {
+  withIsolatedWorkspace((tmpRoot) => {
+    const targets = [
+      'src/apps-script/01-config-auth-bootstrap-and-catalog-sync.gs',
+      'src/fotos/01-core-state-live-poll-and-api.js',
+      'src/inventario/01-core-config-and-utils.js',
+    ];
+
+    for (const relMod of targets) {
+      const modPath = path.join(tmpRoot, relMod);
+      const orig = fs.readFileSync(modPath, 'utf8');
+      try {
+        fs.writeFileSync(modPath, orig + '\nreturn;\n', 'utf8');
+        const res = runBuildCli(['--root', tmpRoot, '--verify-syntax']);
+        assert.notEqual(res.status, 0, `Expected bare top-level return; in ${relMod} to fail`);
+        assert.match(res.stderr, /Illegal return statement/i);
+        assert.ok(res.stderr.includes(relMod), `Expected stderr to mention ${relMod}`);
+
+        fs.writeFileSync(modPath, orig + '\nconst illegalTarget = new.target;\n', 'utf8');
+        const ntRes = runBuildCli(['--root', tmpRoot, '--verify-syntax']);
+        assert.notEqual(ntRes.status, 0, `Expected bare top-level new.target in ${relMod} to fail`);
+        assert.match(ntRes.stderr, /new\.target/i);
+      } finally {
+        fs.writeFileSync(modPath, orig, 'utf8');
+      }
+    }
+
+    const clean = runBuildCli(['--root', tmpRoot, '--check', '--verify-syntax']);
+    assert.equal(clean.status, 0, clean.stderr);
+  });
+});
+
+test('Negative gates (src/ tree orphans): rejects stray src/ file, stray src/ subdir, symlink, and empty dir', () => {
+  withIsolatedWorkspace((tmpRoot) => {
+    // 1) Stray file directly in src/
+    const strayFile = path.join(tmpRoot, 'src/orphan.js');
+    fs.writeFileSync(strayFile, '// stray root src file\n', 'utf8');
+    const r1 = runBuildCli(['--root', tmpRoot, '--check']);
+    assert.notEqual(r1.status, 0, 'Expected --check to fail for src/orphan.js');
+    assert.match(r1.stderr, /src\/orphan\.js/);
+    const r1Syn = runBuildCli(['--root', tmpRoot, '--verify-syntax']);
+    assert.notEqual(r1Syn.status, 0, 'Expected --verify-syntax to fail for src/orphan.js');
+    fs.rmSync(strayFile);
+
+    // 2) Stray undeclared subdirectory under src/
+    const strayDir = path.join(tmpRoot, 'src/rogue-bundle');
+    fs.mkdirSync(strayDir, { recursive: true });
+    fs.writeFileSync(path.join(strayDir, 'orphan.js'), '// stray subdir file\n', 'utf8');
+    const r2 = runBuildCli(['--root', tmpRoot, '--check']);
+    assert.notEqual(r2.status, 0, 'Expected --check to fail for src/rogue-bundle/');
+    assert.match(r2.stderr, /src\/rogue-bundle\//);
+    fs.rmSync(strayDir, { recursive: true, force: true });
+
+    // 3) Symlink inside src/fotos/
+    const symlinkPath = path.join(tmpRoot, 'src/fotos/99-symlink-orphan.js');
+    fs.symlinkSync(
+      path.join(tmpRoot, 'src/fotos/01-core-state-live-poll-and-api.js'),
+      symlinkPath
+    );
+    const r3 = runBuildCli(['--root', tmpRoot, '--check']);
+    assert.notEqual(r3.status, 0, 'Expected --check to fail for symlink in src/fotos/');
+    assert.match(r3.stderr, /src\/fotos\/99-symlink-orphan\.js/);
+    fs.rmSync(symlinkPath);
+
+    // 4) Empty directory inside src/fotos/
+    const emptyDirPath = path.join(tmpRoot, 'src/fotos/empty-orphan-dir');
+    fs.mkdirSync(emptyDirPath);
+    const r4 = runBuildCli(['--root', tmpRoot, '--check']);
+    assert.notEqual(r4.status, 0, 'Expected --check to fail for empty dir in src/fotos/');
+    assert.match(r4.stderr, /src\/fotos\/empty-orphan-dir\//);
+    fs.rmSync(emptyDirPath, { recursive: true, force: true });
+
+    const clean = runBuildCli(['--root', tmpRoot, '--check', '--verify-syntax']);
+    assert.equal(clean.status, 0, clean.stderr);
+  });
+});
+
+test('Negative gates (CLI safety & atomic buildBundles): rejects --root --check, handles bad --root cleanly, and prevents partial writes', () => {
+  withIsolatedWorkspace((tmpRoot) => {
+    // 1) --root followed by a flag must exit 2 without writing any files
+    const badFlag = runBuildCli(['--root', '--check'], tmpRoot);
+    assert.equal(badFlag.status, 2, `Expected exit 2 for --root --check, got ${badFlag.status}`);
+    assert.match(badFlag.stderr, /ERROR: Missing value for --root/);
+
+    // 2) Non-existent --root in build mode must exit 1 with clean ERROR: and zero stack trace
+    const missingRoot = path.join(tmpRoot, 'does-not-exist-workspace');
+    const badRoot = runBuildCli(['--root', missingRoot]);
+    assert.equal(badRoot.status, 1, `Expected exit 1 for non-existent --root, got ${badRoot.status}`);
+    assert.match(badRoot.stderr, /^ERROR: Root directory does not exist:/m);
+    assert.doesNotMatch(badRoot.stderr, /at file:\/\//);
+    assert.doesNotMatch(badRoot.stderr, /^\s+at\s+/m);
+
+    // 3) Atomic buildBundles(): modifying bundle 1 while bundle 2 has a missing module must NOT overwrite bundle 1
+    const fotosMod = path.join(tmpRoot, 'src/fotos/01-core-state-live-poll-and-api.js');
+    const gsMod = path.join(tmpRoot, 'src/apps-script/01-config-auth-bootstrap-and-catalog-sync.gs');
+    const fotosBundle = path.join(tmpRoot, 'fotos-productos-app.js');
+
+    const origFotosMod = fs.readFileSync(fotosMod, 'utf8');
+    const origGsMod = fs.readFileSync(gsMod, 'utf8');
+    const fotosBundleShaBefore = sha256(fs.readFileSync(fotosBundle, 'utf8'));
+
+    fs.writeFileSync(fotosMod, origFotosMod + '\n// pending edit\n', 'utf8');
+    fs.rmSync(gsMod);
+
+    const atomicFail = runBuildCli(['--root', tmpRoot]);
+    assert.equal(atomicFail.status, 1, 'Expected build to fail when bundle 2 has missing module');
+    assert.match(atomicFail.stderr, /^ERROR: \[apps-script\] Missing module file:/m);
+    assert.doesNotMatch(atomicFail.stderr, /at file:\/\//);
+
+    const fotosBundleShaAfter = sha256(fs.readFileSync(fotosBundle, 'utf8'));
+    assert.equal(
+      fotosBundleShaAfter,
+      fotosBundleShaBefore,
+      'Atomic build failure must leave bundle 1 (fotos-productos-app.js) untouched on disk'
+    );
+
+    // 4) Restore bundle 2 (bundle 1 still drifted vs root) -> --check --verify-syntax fails exit 1 but prints SYNTAX SUMMARY
+    fs.writeFileSync(gsMod, origGsMod, 'utf8');
+    const combo = runBuildCli(['--root', tmpRoot, '--check', '--verify-syntax']);
+    assert.equal(combo.status, 1, 'Expected exit 1 when --check detects drift');
+    assert.match(combo.stderr, /CHECK FAIL: \[fotos\] Drift detected/);
+    assert.match(combo.stdout, /SYNTAX SUMMARY: 31 modules \+ 3 bundles passed/);
+  });
 });
 
 test('CI workflow enforces build-bundles.mjs --check --verify-syntax and robots.txt disallows /src/ and /scripts/', () => {
