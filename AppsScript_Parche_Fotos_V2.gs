@@ -81,7 +81,7 @@ function doPost(e) {
     if (action === 'inv_log_event') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_log', maxHits: 60, windowSec: 60 });
       if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
-      return jsonResponse_(handleInvLogEvent_(body));
+      return jsonResponse_(handleInvLogEvent_(body, gate.tokenInfo || null));
     }
     if (action === 'seg_action') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_seg_act', maxHits: 45, windowSec: 60 });
@@ -288,6 +288,19 @@ function doPost(e) {
         return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : 'Error al registrar sugerencia de compra.' });
       }
     }
+    if (action === 'hist_archive_and_analyze_kevin' && typeof handleHistArchiveAndAnalyzeKevin_ === 'function') {
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: false, rateBucket: 'post_kevin_arch', maxHits: 15, windowSec: 60 });
+      if (!gate.ok) {
+        if (gate.rateLimited) return jsonResponse_(rateLimitErrPayload);
+        return jsonResponse_({ ok: false, authRequired: true, error: 'Sesión no válida.' });
+      }
+      try {
+        if (!body.authToken) body.authToken = extractAuthTokenFromRequest_(e, body);
+        return jsonResponse_(handleHistArchiveAndAnalyzeKevin_(body));
+      } catch (err) {
+        return jsonResponse_({ ok: false, error: (err && err.message) ? err.message : 'Error al archivar y analizar ventas.' });
+      }
+    }
     if (action === 'inv_ensure_invitados') {
       const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, requireAdmin: true, allowAdminPin: true, rateBucket: 'post_maint', maxHits: 20, windowSec: 60 });
       if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
@@ -370,7 +383,7 @@ function doPost(e) {
       return jsonResponse_(handleInvUploadProductPhoto_(body));
     }
     if (action === 'inv_plantilla_status') {
-      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: true, allowAdminPin: true, rateBucket: 'post_plantilla', maxHits: 45, windowSec: 60 });
+      const gate = authorizePrivateTokenOrPin_(e, body, { allowGuest: false, allowAdminPin: true, rateBucket: 'post_plantilla', maxHits: 45, windowSec: 60 });
       if (!gate.ok) return jsonResponse_(gate.rateLimited ? rateLimitErrPayload : { ok: false });
       return jsonResponse_(handleInvPlantillaStatus_());
     }
