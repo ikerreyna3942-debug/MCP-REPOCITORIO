@@ -459,22 +459,30 @@ test('SEC-06: AppsScript_Parche_Fotos_V2.gs has 100% doPost route parity with Cr
   const parcheActions = getActions(parcheDoPost);
 
   const missingInParche = creataActions.filter((a) => !parcheActions.includes(a));
+  const extraInParche = parcheActions.filter((a) => !creataActions.includes(a));
   assert.deepEqual(missingInParche, [], `AppsScript_Parche_Fotos_V2.gs doPost is missing routes: ${missingInParche.join(', ')}`);
+  assert.deepEqual(extraInParche, [], `AppsScript_Parche_Fotos_V2.gs doPost has unexpected extra routes: ${extraInParche.join(', ')}`);
+  assert.equal(creataActions.length, 52, 'Expected 52 doPost routes in AppsScript_Creata_Drive_Sheets.gs');
+  assert.equal(parcheActions.length, 52, 'Expected 52 doPost routes in AppsScript_Parche_Fotos_V2.gs');
   assert.ok(parcheActions.includes('hist_archive_and_analyze_kevin'), 'Parche doPost must route hist_archive_and_analyze_kevin');
 
-  // Ensure auth gate parity on SEC-07 & SEC-09 inside Parche doPost
-  assert.match(parcheDoPost, /handleInvLogEvent_\(body,\s*gate\.tokenInfo/, 'Parche doPost must forward gate.tokenInfo into handleInvLogEvent_');
+  // Ensure auth gate parity on SEC-07 & SEC-09 inside BOTH Creata and Parche doPost
+  assert.match(creataDoPost, /handleInvLogEvent_\(body,\s*gate\.tokenInfo \|\| null,\s*!!gate\.viaPin\)/, 'Creata doPost must forward gate.tokenInfo || null and !!gate.viaPin into handleInvLogEvent_');
+  assert.match(parcheDoPost, /handleInvLogEvent_\(body,\s*gate\.tokenInfo \|\| null,\s*!!gate\.viaPin\)/, 'Parche doPost must forward gate.tokenInfo || null and !!gate.viaPin into handleInvLogEvent_');
   const plantMatch = parcheDoPost.match(/if \(action === 'inv_plantilla_status'\)[\s\S]{0,260}/);
   assert.ok(plantMatch && /allowGuest:\s*false/.test(plantMatch[0]), 'Parche doPost inv_plantilla_status must enforce allowGuest: false');
 });
 
-test('SEC-07: inv_log_event binds non-admin usuario to verified tokenInfo.email, blocks guest MOVIMIENTO forgery, and sanitizes cells', () => {
+test('SEC-07: inv_log_event binds non-admin usuario & branch, restricts classification, blocks SEGUIMIENTO_COTIZACIONES/SEG_* injection, and fails closed without viaPin', () => {
   const rt = buildSecurityRuntime();
+  const kevinTok = rt.login('kevin.reyna@grupoanipa.com', 'KevinSec2026!');
+  const adminLimTok = rt.login('admin.limited@grupoanipa.com', 'AdminLim2026!');
   const anaTok = rt.login('ana.playa@grupoanipa.com', 'AnaPlaya2026!');
+  const luisTok = rt.login('luis.noperm@grupoanipa.com', 'LuisNoPerm26!');
   const guestTok = rt.login('invitado.sec@cliente.com', 'InvSec2026!');
   const shHist = rt.ssInv.getSheetByName('HISTORIAL');
 
-  // 1) Non-admin tries to spoof user = "Kevin Reyna" and inject formula in detail/event
+  // 1) Non-admin tries to spoof user = "Kevin Reyna", branch = "CEDIS", classification = "MOVIMIENTO", and inject formulas
   const anaLog = rt.post({
     action: 'inv_log_event',
     authToken: anaTok,
@@ -488,13 +496,30 @@ test('SEC-07: inv_log_event binds non-admin usuario to verified tokenInfo.email,
   });
   assert.equal(anaLog.ok, true);
   const lastAnaRow = shHist.getRange(shHist.getLastRow(), 1, 1, 10).getValues()[0];
+  assert.equal(lastAnaRow[1], 'FALLO DE CÓDIGO', 'Non-admin inv_log_event MUST NOT spoof MOVIMIENTO classification');
   assert.equal(lastAnaRow[5], 'ana.playa@grupoanipa.com', 'Non-admin inv_log_event MUST force usuario to verified tokenInfo.email');
+  assert.equal(lastAnaRow[6], 'CREATA LIVING PLAYA', 'Non-admin inv_log_event MUST bind branch to verified assigned store');
   assert.ok(String(lastAnaRow[2]).startsWith("'="), 'Module formula injection must be neutralized');
   assert.ok(String(lastAnaRow[3]).startsWith("'+"), 'Event formula injection must be neutralized');
   assert.ok(String(lastAnaRow[7]).startsWith("'="), 'Ref formula injection must be neutralized');
   assert.ok(String(lastAnaRow[8]).startsWith("'@"), 'Detail formula injection must be neutralized');
 
-  // 2) Guest tries to forge MOVIMIENTO as Kevin Reyna -> forced to guest email & non-MOVIMIENTO classification
+  // Legitimate non-admin ALERTA TÉCNICA telemetry stays allowed and store-bound
+  const anaAlert = rt.post({
+    action: 'inv_log_event',
+    authToken: anaTok,
+    classification: 'ALERTA TÉCNICA',
+    module: 'inventario-app.js',
+    event: 'ERROR_RED_CARGA',
+    branch: 'CASA CREATA BONAMPAK',
+    detail: 'Timeout cargando foto'
+  });
+  assert.equal(anaAlert.ok, true);
+  const lastAnaAlertRow = shHist.getRange(shHist.getLastRow(), 1, 1, 10).getValues()[0];
+  assert.equal(lastAnaAlertRow[1], 'ALERTA TÉCNICA');
+  assert.equal(lastAnaAlertRow[6], 'CREATA LIVING PLAYA');
+
+  // 2) Guest tries to forge MOVIMIENTO as Kevin Reyna -> forced to guest email, SOLO LECTURA branch, & non-MOVIMIENTO classification
   const guestLog = rt.post({
     action: 'inv_log_event',
     authToken: guestTok,
@@ -502,13 +527,98 @@ test('SEC-07: inv_log_event binds non-admin usuario to verified tokenInfo.email,
     module: 'inventario-app.js',
     event: 'FAKE_QUOTE_APPROVED',
     user: 'Kevin Reyna',
+    branch: 'PLAYA',
     detail: 'Spoofed movement'
   });
   assert.equal(guestLog.ok, true);
   const lastGuestRow = shHist.getRange(shHist.getLastRow(), 1, 1, 10).getValues()[0];
   assert.equal(lastGuestRow[5], 'invitado.sec@cliente.com', 'Guest inv_log_event MUST force usuario to verified guest email');
+  assert.equal(lastGuestRow[6], 'SOLO LECTURA', 'Guest inv_log_event MUST bind branch to SOLO LECTURA');
   assert.notEqual(lastGuestRow[1], 'MOVIMIENTO', 'Read-only guest MUST NOT write MOVIMIENTO entries to HISTORIAL');
   assert.ok(lastGuestRow[1] === 'FALLO DE CÓDIGO' || lastGuestRow[1] === 'ALERTA TÉCNICA');
+
+  // 3) CRITICAL REGRESSION: Guest & VER_SEGUIMIENTO=NO advisor & VER_SEGUIMIENTO=NO admin CANNOT inject SEGUIMIENTO_COTIZACIONES or SEG_* via inv_log_event
+  const kevinBefore = rt.post({ action: 'seg_get_state', authToken: kevinTok });
+  assert.equal(kevinBefore.ok, true);
+  const histSegCountBefore = (kevinBefore.sheets.HISTORIAL_SEG || []).length;
+  const histRowsBefore = shHist.getLastRow();
+
+  const guestSegAttack = rt.post({
+    action: 'inv_log_event',
+    authToken: guestTok,
+    classification: 'MOVIMIENTO',
+    module: 'SEGUIMIENTO_COTIZACIONES',
+    event: 'SEG_CIERRE',
+    branch: 'PLAYA',
+    ref: 'PL-100',
+    detail: '{"estatus":"PERDIDA","motivo":"HIJACKED_BY_GUEST","asesor":"Kevin Reyna"}'
+  });
+  assert.equal(guestSegAttack.ok, false, 'Guest MUST be blocked from logging SEGUIMIENTO_COTIZACIONES via inv_log_event');
+  assert.equal(guestSegAttack.forbidden, true);
+
+  const luisSegNewAttack = rt.post({
+    action: 'inv_log_event',
+    authToken: luisTok,
+    classification: 'MOVIMIENTO',
+    module: 'SEGUIMIENTO_COTIZACIONES',
+    event: 'SEG_NUEVA_COTIZACION_APP',
+    branch: 'PLAYA',
+    ref: 'PL-FORGED-999',
+    detail: '{"folio":"PL-FORGED-999","clientName":"Injected","items":[{"sku":"X","qty":1,"price":1}]}'
+  });
+  assert.equal(luisSegNewAttack.ok, false, 'VER_SEGUIMIENTO=NO advisor MUST be blocked from logging SEG_NUEVA_COTIZACION_APP via inv_log_event');
+  assert.equal(luisSegNewAttack.forbidden, true);
+
+  const luisSegPrefixOnly = rt.post({
+    action: 'inv_log_event',
+    authToken: luisTok,
+    classification: 'FALLO DE CÓDIGO',
+    module: 'inventario-app.js',
+    event: 'seg_cierre',
+    ref: 'PL-100',
+    detail: '{}'
+  });
+  assert.equal(luisSegPrefixOnly.ok, false, 'Non-admin MUST be blocked on /^SEG_/i event prefix even with different module');
+  assert.equal(luisSegPrefixOnly.forbidden, true);
+
+  const adminNoSegAttack = rt.post({
+    action: 'inv_log_event',
+    authToken: adminLimTok,
+    classification: 'MOVIMIENTO',
+    module: 'SEGUIMIENTO_COTIZACIONES',
+    event: 'SEG_CIERRE',
+    ref: 'PL-100',
+    detail: '{"estatus":"PERDIDA"}'
+  });
+  assert.equal(adminNoSegAttack.ok, false, 'Admin with VER_SEGUIMIENTO=NO MUST also be blocked from injecting Seguimiento events via inv_log_event');
+  assert.equal(adminNoSegAttack.forbidden, true);
+
+  assert.equal(shHist.getLastRow(), histRowsBefore, 'Blocked Seguimiento injection attempts must write 0 rows to HISTORIAL');
+  const kevinAfterAttacks = rt.post({ action: 'seg_get_state', authToken: kevinTok });
+  assert.equal(kevinAfterAttacks.ok, true);
+  assert.equal((kevinAfterAttacks.sheets.HISTORIAL_SEG || []).length, histSegCountBefore, 'Kevin HISTORIAL_SEG must contain 0 injected rows after guest/advisor attacks');
+
+  // 4) Direct handleInvLogEvent_ call with tokenInfo=null and viaPin=false/omitted MUST fail closed (authRequired: true)
+  const failClosedFalse = rt.env.context.handleInvLogEvent_({ module: 'inventario-app.js', event: 'UNAUTH_TEST' }, null, false);
+  assert.equal(failClosedFalse.ok, false, 'handleInvLogEvent_(body, null, false) MUST fail closed');
+  assert.equal(failClosedFalse.authRequired, true);
+  const failClosedOmitted = rt.env.context.handleInvLogEvent_({ module: 'inventario-app.js', event: 'UNAUTH_TEST' }, null);
+  assert.equal(failClosedOmitted.ok, false, 'handleInvLogEvent_(body, null) without viaPin MUST fail closed');
+  assert.equal(failClosedOmitted.authRequired, true);
+  assert.equal(shHist.getLastRow(), histRowsBefore, 'Fail-closed handleInvLogEvent_ calls must write 0 rows');
+
+  // Explicitly verified viaPin === true succeeds
+  const pinAllowed = rt.env.context.handleInvLogEvent_({ classification: 'MOVIMIENTO', module: 'inventario-app.js', event: 'ADMIN_PIN_AUDIT', user: 'Admin PIN', branch: 'CEDIS' }, null, true);
+  assert.equal(pinAllowed.ok, true, 'handleInvLogEvent_ with explicit viaPin === true must succeed');
+
+  // 5) Defense-in-depth in handleSegGetState_: non-MOVIMIENTO rows in HISTORIAL are NEVER replayed into HISTORIAL_SEG even if MODULO === SEGUIMIENTO_COTIZACIONES
+  shHist.appendRow(['27/11/2026 08:00', 'FALLO DE CÓDIGO', 'SEGUIMIENTO_COTIZACIONES', 'SEG_CIERRE', '❌ ERROR', 'invitado.sec@cliente.com', 'PLAYA', 'PL-100', '{"estatus":"PERDIDA"}', 'Injected non-movimiento']);
+  shHist.appendRow(['27/11/2026 08:01', 'ALERTA TÉCNICA', 'SEGUIMIENTO_COTIZACIONES', 'SEG_TELEFONO', '⚠️ ALERTA', 'ana.playa@grupoanipa.com', 'PLAYA', 'PL-100', '{"telefono":"000"}', 'Injected alert']);
+  const kevinAfterNonMov = rt.post({ action: 'seg_get_state', authToken: kevinTok });
+  assert.equal(kevinAfterNonMov.ok, true);
+  const segRowsAfter = kevinAfterNonMov.sheets.HISTORIAL_SEG || [];
+  assert.equal(segRowsAfter.length, histSegCountBefore, 'handleSegGetState_ MUST ignore non-MOVIMIENTO rows in HISTORIAL even when MODULO === SEGUIMIENTO_COTIZACIONES');
+  assert.ok(segRowsAfter.slice(1).every((r) => String(r[1] || '').trim().toUpperCase() === 'MOVIMIENTO'), 'Every replayed HISTORIAL_SEG row must have classification === MOVIMIENTO');
 });
 
 test('SEC-08: doGet inv_presence_list rejects accessKey in URL query parameters (POST-only for key fallback)', () => {
@@ -708,3 +818,124 @@ test('SEC-11: seguimiento-app.js tightens isKevinReyna() & master list, GAS bind
   assert.ok(!/' \+ ln\.qty \+ '/.test(printSlice), 'openPrintableQuoteWindow must coerce ln.qty numerically instead of raw concatenation');
   assert.ok(!/' \+ logoSrc \+ '/.test(printSlice), 'openPrintableQuoteWindow must validate & escape logoSrc before injecting into img src');
 });
+
+test('SEC-12 (R2 defense-in-depth): targetFolio alignment, admin cambiarTienda store gate, multi-store hash memoization, array purge, and printable quote Infinity/photoUrl hardening', () => {
+  const rt = buildSecurityRuntime();
+  const kevinTok = rt.login('kevin.reyna@grupoanipa.com', 'KevinSec2026!');
+  const adminLimTok = rt.login('admin.limited@grupoanipa.com', 'AdminLim2026!');
+
+  // 1) handleSegAction_ SEG_NUEVA_COTIZACION_APP uses validated targetFolio (payload.folio) in HISTORIAL referencia
+  const shHist = rt.ssInv.getSheetByName('HISTORIAL');
+  const segAlign = rt.post({
+    action: 'seg_action',
+    authToken: kevinTok,
+    subAction: 'SEG_NUEVA_COTIZACION_APP',
+    folio: 'RAW-MISMATCH-999',
+    payload: { folio: 'PL-ALIGN-777', clientName: 'Cliente Align', items: [{ sku: 'SKU-ZERO', qty: 1, price: 100 }] }
+  });
+  assert.equal(segAlign.ok, true);
+  const lastHistRow = shHist.getRange(shHist.getLastRow(), 1, 1, 10).getValues()[0];
+  assert.equal(lastHistRow[7], 'PL-ALIGN-777', 'HISTORIAL referencia must match validated targetFolio instead of mismatched raw folio');
+
+  // 2) resolveAuthorizedUserStoreForLog_ enforces VER_CAMBIAR_TIENDA for admins (admin.limited has VER_CAMBIAR_TIENDA=NO)
+  const adminLimDemand = rt.post({
+    action: 'inv_register_demand_request',
+    authToken: adminLimTok,
+    erpStore: 'CASA CREATA BONAMPAK',
+    sku: 'SKU-ZERO',
+    modelName: 'SILLA ZERO',
+    comments: 'Admin sin permiso cambiarTienda'
+  });
+  assert.equal(adminLimDemand.ok, true);
+  assert.notEqual(
+    String(adminLimDemand.record.store || '').toUpperCase(),
+    'CASA CREATA BONAMPAK',
+    'Admin with VER_CAMBIAR_TIENDA=NO must NOT override store on inv_register_demand_request'
+  );
+
+  // 3) handleInvLogin_ memoizes keysEqualNormalized_ per stored hash across multi-store rows (5 stores = 1 hash verification, not 6)
+  const hashedMulti = rt.env.context.hashUserPassword_('KevinSec2026!');
+  const shUsers = rt.ssInv.getSheetByName('CUENTAS ADMINISTRATIVAS');
+  shUsers.getRange(3, 7).setValue(hashedMulti); // Kevin is assigned to all 5 stores (PLAYA..PROYECTOS)
+  let keysEqCalls = 0;
+  const origKeysEq = rt.env.context.keysEqualNormalized_;
+  rt.env.context.keysEqualNormalized_ = function (rawKey, storedKey) {
+    keysEqCalls++;
+    return origKeysEq.call(this, rawKey, storedKey);
+  };
+  const multiLogin = rt.post({
+    action: 'inv_login',
+    email: 'kevin.reyna@grupoanipa.com',
+    accessKey: 'KevinSec2026!',
+    deviceId: 'dev_memo_test'
+  });
+  rt.env.context.keysEqualNormalized_ = origKeysEq;
+  assert.equal(multiLogin.ok, true);
+  assert.equal(keysEqCalls, 1, `Expected 1 memoized keysEqualNormalized_ call for 5-store user sharing 1 hash, got ${keysEqCalls}`);
+
+  // 4) inventario-app.js: purgeLegacySyncedPendingKeys() removes array-corrupted "[]" entry
+  const invJs = readRepo('inventario-app.js');
+  const purgeStart = invJs.indexOf('function purgeLegacySyncedPendingKeys(');
+  let pDepth = 0, pStarted = false, pEnd = purgeStart;
+  for (let i = purgeStart; i < invJs.length; i++) {
+    if (invJs[i] === '{') { pDepth++; pStarted = true; }
+    else if (invJs[i] === '}') { pDepth--; if (pStarted && pDepth === 0) { pEnd = i + 1; break; } }
+  }
+  const store = new Map([['creata_inv_updated_keys_v1', '[]']]);
+  vm.runInNewContext(`${invJs.slice(purgeStart, pEnd)}\npurgeLegacySyncedPendingKeys();`, {
+    PENDING_KEYS_STORAGE: 'creata_inv_updated_keys_v1',
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k)
+    },
+    JSON, Object, Array, String, Boolean
+  });
+  assert.equal(store.has('creata_inv_updated_keys_v1'), false, 'Array-corrupted "[]" PENDING_KEYS_STORAGE entry MUST be removed cleanly');
+
+  // 5) inventario-app.js: openPrintableQuoteWindow() guards Infinity qty/discountPct and blocks javascript:/vbscript: photoUrl
+  const printStart = invJs.indexOf('function openPrintableQuoteWindow(');
+  let qDepth = 0, qStarted = false, qEnd = printStart;
+  for (let i = printStart; i < invJs.length; i++) {
+    if (invJs[i] === '{') { qDepth++; qStarted = true; }
+    else if (invJs[i] === '}') { qDepth--; if (qStarted && qDepth === 0) { qEnd = i + 1; break; } }
+  }
+  let writtenHtml = '';
+  const printCtx = {
+    window: {
+      CREATA_LOGO_B64: 'fotos/logo-creata.webp',
+      open: () => ({
+        document: { write: (h) => { writtenHtml += h; }, close: () => {} }
+      })
+    },
+    formatDateDMY: () => '27/11/2026',
+    formatPrice: (n) => '$' + String(n || 0),
+    escapeHtml: (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+    Number, Math, String, Array, Date
+  };
+  vm.runInNewContext(`${invJs.slice(printStart, qEnd)}\nthis.openPrintableQuoteWindow = openPrintableQuoteWindow;`, printCtx);
+  printCtx.openPrintableQuoteWindow({
+    clientName: 'Cliente Seguro',
+    erpStore: 'PLAYA',
+    deliveryDate: '2026-12-27',
+    advisorName: 'Ana',
+    breakdown: {
+      subtotalNet: 1000,
+      extraDiscountAmt: 0,
+      iva: 160,
+      total: 1160,
+      lines: [
+        { name: 'Attack Line', qty: 'Infinity', discountPct: 'Infinity', unitList: 100, lineSubtotal: 100, photoUrl: 'javascript:alert(1)' },
+        { name: 'VBScript Line', qty: -3, discountPct: 150, unitList: 100, lineSubtotal: 100, photoUrl: 'vbscript:msgbox(1)' },
+        { name: 'Safe HTTPS', qty: 2, discountPct: 10, unitList: 500, lineSubtotal: 900, photoUrl: 'https://lh3.googleusercontent.com/d/abc123=w400' },
+        { name: 'Safe Relative', qty: 1, discountPct: 0, unitList: 100, lineSubtotal: 100, photoUrl: 'fotos/silla_ok.webp' }
+      ]
+    }
+  }, { folio: 'PL-SAFE-1' });
+  assert.ok(!writtenHtml.includes('>Infinity<'), 'Non-finite qty MUST NOT render as Infinity');
+  assert.ok(!/javascript:/i.test(writtenHtml), 'javascript: photoUrl MUST be stripped');
+  assert.ok(!/vbscript:/i.test(writtenHtml), 'vbscript: photoUrl MUST be stripped');
+  assert.ok(writtenHtml.includes('https://lh3.googleusercontent.com/d/abc123=w400'), 'Safe HTTPS photoUrl must render');
+  assert.ok(writtenHtml.includes('fotos/silla_ok.webp'), 'Safe relative photoUrl must render');
+});
+
