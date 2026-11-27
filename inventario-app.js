@@ -9918,8 +9918,43 @@
 
     function saveUpdatedKeysMap(mapObj) {
         try {
-            localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(mapObj || {}));
+            if (!mapObj || !Object.keys(mapObj).length) {
+                localStorage.removeItem(PENDING_KEYS_STORAGE);
+            } else {
+                localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(mapObj));
+            }
         } catch (e) {}
+    }
+
+    function purgeLegacySyncedPendingKeys() {
+        try {
+            const raw = localStorage.getItem(PENDING_KEYS_STORAGE);
+            if (!raw) return;
+            const mapObj = JSON.parse(raw);
+            if (!mapObj || typeof mapObj !== 'object') {
+                localStorage.removeItem(PENDING_KEYS_STORAGE);
+                return;
+            }
+            let changed = false;
+            const keys = Object.keys(mapObj);
+            for (let i = 0; i < keys.length; i++) {
+                const em = keys[i];
+                const entry = mapObj[em];
+                if (!entry || typeof entry !== 'object' || entry.synced === true) {
+                    delete mapObj[em];
+                    changed = true;
+                }
+            }
+            if (changed) {
+                if (Object.keys(mapObj).length) {
+                    localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(mapObj));
+                } else {
+                    localStorage.removeItem(PENDING_KEYS_STORAGE);
+                }
+            }
+        } catch (e) {
+            try { localStorage.removeItem(PENDING_KEYS_STORAGE); } catch (e2) {}
+        }
     }
 
     function getDefaultDeliveryIsoDate() {
@@ -11391,6 +11426,7 @@
     }
 
     async function syncPendingKeyUpdatesToCloud() {
+        purgeLegacySyncedPendingKeys();
         const mapObj = loadUpdatedKeysMap();
         const emails = Object.keys(mapObj);
         if (!emails.length) return;
@@ -12110,8 +12146,8 @@
         const confKey = cleanStr(confKeyEl ? confKeyEl.value : '');
         const prevTempKey = (pendingAuthContext && pendingAuthContext.inputKey) ? pendingAuthContext.inputKey : '';
 
-        if (newKey.length < 4) {
-            showAuthBanner('authNewKeyMsg', 'La nueva contraseña debe tener mínimo 4 caracteres.', 'err');
+        if (newKey.length < 8) {
+            showAuthBanner('authNewKeyMsg', 'La nueva contraseña debe tener mínimo 8 caracteres.', 'err');
             return;
         }
         if (newKey !== confKey) {
@@ -14477,12 +14513,18 @@
         if (!payload || !payload.breakdown || !Array.isArray(payload.breakdown.lines) || !payload.breakdown.lines.length) return;
         const bd = payload.breakdown;
         const todayStr = formatDateDMY(new Date());
-        const logoSrc = window.CREATA_LOGO_B64 || '';
+        const rawLogoSrc = String(window.CREATA_LOGO_B64 || '').trim();
+        const safeLogoSrc = (/^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(rawLogoSrc) || /^[a-z0-9_./-]+\.(?:png|jpe?g|webp|svg)$/i.test(rawLogoSrc))
+            ? rawLogoSrc
+            : '';
         const folioTxt = (submittedMeta && submittedMeta.folio) || payload.orderCode || '';
         const docHeading = 'CREATA-muebles-cotización';
 
-        const rowsHtml = bd.lines.map((ln, idx) =>
-            '<tr>' +
+        const rowsHtml = bd.lines.map((ln, idx) => {
+            const safeQty = Math.max(0, Math.round(Number(ln && ln.qty) || 0));
+            const safeDisc = Math.max(0, Math.min(100, Number(ln && ln.discountPct) || 0));
+            const safeDiscLabel = safeDisc > 0 ? (Number(safeDisc.toFixed(2)) + '%') : '0%';
+            return '<tr>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (idx + 1) + '</td>' +
                 '<td style="padding:6px;border-bottom:1px solid #E6E1D8;text-align:center;">' +
                     (ln.photoUrl ? ('<img src="' + escapeHtml(ln.photoUrl) + '" style="width:64px;height:64px;object-fit:contain;border:1px solid #E6E1D8;border-radius:6px;background:#FFF;">') : '') +
@@ -14490,12 +14532,12 @@
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;font-weight:600;">' + escapeHtml(ln.name) +
                     (ln.measures ? ('<div style="font-size:10px;color:#6F6860;margin-top:2px;font-weight:400;">Medidas: ' + escapeHtml(ln.measures) + '</div>') : '') +
                 '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;font-weight:700;">' + ln.qty + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;font-weight:700;">' + safeQty + '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:right;">' + escapeHtml(formatPrice(ln.unitList) || '$0.00') + '</td>' +
-                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + (ln.discountPct > 0 ? (ln.discountPct + '%') : '0%') + '</td>' +
+                '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:center;">' + escapeHtml(safeDiscLabel) + '</td>' +
                 '<td style="padding:8px;border-bottom:1px solid #E6E1D8;text-align:right;font-weight:700;">' + escapeHtml(formatPrice(ln.lineSubtotal) || '$0.00') + '</td>' +
-            '</tr>'
-        ).join('');
+            '</tr>';
+        }).join('');
 
         const win = window.open('', '_blank');
         if (!win) return;
@@ -14507,7 +14549,7 @@
             '.box{border:1px solid #E6E1D8;border-radius:10px;padding:12px 14px;margin-top:12px;background:#F8F6F2;} ' +
             '@media print{.no-print{display:none!important;}}</style></head><body>' +
             '<div style="display:flex;align-items:center;justify-content:space-between;background:#1A1816;color:#FFF;padding:16px 20px;border-radius:12px;">' +
-                '<div>' + (logoSrc ? ('<img src="' + logoSrc + '" style="height:48px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
+                '<div>' + (safeLogoSrc ? ('<img src="' + escapeHtml(safeLogoSrc) + '" style="height:48px;object-fit:contain;filter:brightness(0) invert(1);">') : '<strong>CREATA MUEBLES</strong>') + '</div>' +
                 '<div style="text-align:right;">' +
                     '<div style="font-size:15px;font-weight:800;letter-spacing:0.04em;">' + escapeHtml(docHeading) + '</div>' +
                     '<div style="color:#DFCCB2;font-size:11px;margin-top:3px;">Folio: <strong>' + escapeHtml(folioTxt) + '</strong></div>' +
@@ -19651,8 +19693,8 @@
             setSettingsStatusBox('settingsPassStatus', 'Ingresa tu contraseña actual.', 'err');
             return;
         }
-        if (newPass.length < 4) {
-            setSettingsStatusBox('settingsPassStatus', 'La nueva contraseña debe tener al menos 4 caracteres.', 'err');
+        if (newPass.length < 8) {
+            setSettingsStatusBox('settingsPassStatus', 'La nueva contraseña debe tener al menos 8 caracteres.', 'err');
             return;
         }
         if (newPass !== confPass) {
@@ -19707,9 +19749,12 @@
                 }
                 try {
                     localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(activeAdvisorSession));
-                    const pMap = JSON.parse(localStorage.getItem(PENDING_KEYS_STORAGE) || '{}') || {};
-                    pMap[activeAdvisorSession.correo] = { newKey: newPass, prevKey: currPass, synced: true, updatedAt: Date.now() };
-                    localStorage.setItem(PENDING_KEYS_STORAGE, JSON.stringify(pMap));
+                    const mapObj = loadUpdatedKeysMap();
+                    if (mapObj && mapObj[activeAdvisorSession.correo]) {
+                        delete mapObj[activeAdvisorSession.correo];
+                        saveUpdatedKeysMap(mapObj);
+                    }
+                    purgeLegacySyncedPendingKeys();
                 } catch (eSave) {}
                 if (currEl) currEl.value = '';
                 if (newEl) newEl.value = '';
@@ -21639,6 +21684,7 @@
     }
 
     try {
+        purgeLegacySyncedPendingKeys();
         applyAllProductOverridesToCatalog();
         setTimeout(() => { syncProductOverridesFromCloud(false); }, 250);
     } catch (eBootOvr) {}

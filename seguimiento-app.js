@@ -441,7 +441,7 @@
     const c = normalizeEmail(correo);
     const p = normalizeText(puesto);
     const s = normalizeText(sucursal);
-    if (['kevin.reyna@grupoanipa.com', 'santiago.torres@grupoanipa.com', 'preci3942@gmail.com'].includes(c)) {
+    if (['kevin.reyna@grupoanipa.com', 'santiago.torres@grupoanipa.com'].includes(c)) {
       return true;
     }
     if (s.includes('ADMINISTRATIV') || s === 'TODAS') return true;
@@ -460,9 +460,7 @@
   function isKevinReyna(user) {
     if (!user) return false;
     const c = normalizeEmail(user.correo);
-    const n = normalizeText(user.nombre);
-    const p = normalizeText(user.puesto);
-    return c === 'kevin.reyna@grupoanipa.com' || n.includes('KEVIN REYNA') || p === 'IMPLEMENTACION';
+    return c === 'kevin.reyna@grupoanipa.com';
   }
 
   function isGuestSession(s) {
