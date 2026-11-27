@@ -32,6 +32,8 @@
 
   let activeInspectedQuote = null;
   let activeInspectedPhoto = null;
+  let activeKevinAnalysisReport = null;
+  let kevinArchiveInFlight = false;
   let historyPdfDownloadInFlight = false;
   let tabHistory = [];
   let _histPrevSearchNonEmpty = false;
@@ -286,11 +288,22 @@
       branches,
       authToken: cleanStr(s.authToken || ''),
       accessKey: '',
+      forceAdvisorPreview: forcedPreview,
+      isExclusiveKevin: Boolean(!forcedPreview && correo === OWNER_EMAIL),
       isAdmin,
       isManager,
       adminPermissions: (s.adminPermissions && typeof s.adminPermissions === 'object') ? s.adminPermissions : null,
       role: isAdmin ? 'admin' : (isManager ? 'manager' : 'advisor')
     };
+  }
+
+  function isExclusiveKevinSession() {
+    return Boolean(
+      state.session &&
+      state.session.isExclusiveKevin === true &&
+      normalizeEmail(state.session.correo) === OWNER_EMAIL &&
+      !state.session.forceAdvisorPreview
+    );
   }
 
   function isRecordInRoleScope(rec) {
@@ -1496,6 +1509,7 @@
 
   function buildModuleMarkup() {
     const isAdmin = Boolean(state.session && state.session.isAdmin);
+    const isKevinExclusive = isExclusiveKevinSession();
     const tabsHtml = isAdmin
       ? `
         <button type="button" id="hist_tabBtn_overview" class="cm-hist-tab" data-hist-tab="overview">Resumen</button>
@@ -1520,6 +1534,7 @@
           </div>
           <div class="cm-topbar-right">
             <span id="hist_liveSyncText" class="cm-subtitle-chip cm-mono"></span>
+            ${isKevinExclusive ? `<button type="button" id="hist_btnKevinArchiveAnalyze" class="cm-btn cm-btn-primary" data-hist-action="kevin-archive-analyze" title="Archivar cerradas/canceladas, respaldar hojas y llenar correo con análisis de por qué no se cierran las ventas">📦 Archivar y Analizar</button>` : ''}
             <button type="button" id="hist_btnLiveAlerts" class="cm-btn" data-hist-action="live-alerts" title="Activar avisos en vivo de cotizaciones y fallas">🔔 Alertas</button>
             <button type="button" id="hist_btnRefreshLive" class="cm-btn cm-btn-icon" data-hist-action="refresh" aria-label="Actualizar"><span id="hist_syncIcon">↻</span></button>
             <button type="button" class="cm-btn" data-hist-action="export-csv">CSV</button>
@@ -1714,6 +1729,18 @@
           <div id="hist_photoPreviewBody"></div>
         </div>
       </div>
+
+      ${isKevinExclusive ? `
+      <!-- MODAL EXCLUSIVO KEVIN: CORTE, RESGUARDO Y ANÁLISIS DE NO CIERRE DE VENTAS -->
+      <div id="hist_kevinArchiveModal" class="cm-modal-backdrop cm-hidden" data-hist-backdrop="kevin-archive">
+        <div class="cm-modal-card cm-modal-lg cm-hist-exec-modal-card" role="dialog" aria-modal="true" aria-labelledby="hist_kevinArchiveTitle">
+          <div class="cm-modal-head">
+            <h2 id="hist_kevinArchiveTitle" class="cm-modal-title">📦 Corte de Resguardo y Análisis: ¿Por qué no se cierran las ventas?</h2>
+            <button type="button" class="cm-modal-close" data-hist-action="close-modal" data-modal="kevin-archive" aria-label="Cerrar">&times;</button>
+          </div>
+          <div id="hist_kevinArchiveBody" class="cm-hist-exec-body"></div>
+        </div>
+      </div>` : ''}
 
       <div id="hist_toast" class="cm-toast is-hidden" role="status" aria-live="polite">
         <span id="hist_toastMsg"></span>
@@ -2475,8 +2502,842 @@
     } else if (kind === 'photo') {
       $('hist_photoPreviewModal')?.classList.add('cm-hidden');
       activeInspectedPhoto = null;
+    } else if (kind === 'kevin-archive') {
+      $('hist_kevinArchiveModal')?.classList.add('cm-hidden');
     }
     saveHistCheckpointNow();
+  }
+
+  // ============================================================================
+  // CORTE DE RESGUARDO Y ANÁLISIS DE NO CIERRE DE VENTAS (EXCLUSIVO KEVIN)
+  // ============================================================================
+  const DEFAULT_BRANCH_MANAGERS = {
+    'PLAYA': { name: 'ROCIO ESQUIVEL', email: 'rocio.esquivel@creatamuebles.com' },
+    'COLOSIO': { name: 'JANINE MEDINA', email: 'janine.medina@creatamuebles.com' },
+    'OUTLET COLOSIO': { name: 'JANINE MEDINA', email: 'janine.medina@creatamuebles.com' },
+    'PUERTO CANCUN': { name: 'ALEXA PADILLA RIQUELME', email: 'alexa.padilla@creatamuebles.com' },
+    'CASA CREATA': { name: 'GUADALUPE SANCHEZ', email: 'lupita.sanchez@creatamuebles.com' },
+    'PROYECTOS': { name: 'NELSON HERNANDEZ RODRIGUEZ', email: 'gte.proyectos@creatamuebles.com' }
+  };
+
+  function copyTextSilent(txt) {
+    const str = String(txt || '');
+    if (!str) return;
+    const fallbackCopy = () => {
+      try {
+        if (typeof document === 'undefined' || !document.body) return;
+        const ta = document.createElement('textarea');
+        ta.value = str;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        if (typeof ta.setSelectionRange === 'function') ta.setSelectionRange(0, str.length);
+        if (typeof document.execCommand === 'function') document.execCommand('copy');
+        if (ta.parentNode) ta.parentNode.removeChild(ta);
+      } catch (eCopy) {}
+    };
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(str).catch(fallbackCopy);
+      } else {
+        fallbackCopy();
+      }
+    } catch (e) {
+      fallbackCopy();
+    }
+  }
+
+  function buildFallbackClientSideKevinAnalysis(demandRawRows, sugRawRows) {
+    const nowDt = new Date();
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const stamp = `${nowDt.getFullYear()}${pad2(nowDt.getMonth() + 1)}${pad2(nowDt.getDate())}-${pad2(nowDt.getHours())}${pad2(nowDt.getMinutes())}${pad2(nowDt.getSeconds())}`;
+    const cutId = `CORTE-${stamp}`;
+    const cutDateStr = `${pad2(nowDt.getDate())}/${pad2(nowDt.getMonth() + 1)}/${nowDt.getFullYear()} ${pad2(nowDt.getHours())}:${pad2(nowDt.getMinutes())}`;
+
+    const mgrByBranch = Object.assign({}, DEFAULT_BRANCH_MANAGERS);
+    (state.presenceUsers || []).forEach(u => {
+      if (!u || u.isGuest) return;
+      const bk = canonicalBranchKey(u.sucursal || '');
+      if (bk && bk !== 'TODAS' && /GERENTE|DIRECT/i.test(cleanStr(u.rol))) {
+        mgrByBranch[bk] = { name: cleanStr(u.nombre), email: '' };
+      }
+    });
+    const getMgr = (bkRaw) => {
+      const bk = canonicalBranchKey(bkRaw) || 'SIN SUCURSAL';
+      return mgrByBranch[bk] || { name: 'SIN GERENTE ASIGNADO', email: '' };
+    };
+
+    const managerMap = {};
+    const advisorMap = {};
+    const lossReasonsMap = {};
+    const skuDemandMap = {};
+    const sugTypeMap = {};
+
+    const ensureMgr = (bkRaw) => {
+      const bk = canonicalBranchKey(bkRaw) || 'SIN SUCURSAL';
+      if (!managerMap[bk]) {
+        const m = getMgr(bk);
+        managerMap[bk] = {
+          branchKey: bk, branchLabel: bk, managerName: m.name, managerEmail: m.email,
+          quotesCount: 0, totalMxn: 0, wonCount: 0, wonMxn: 0, lostCount: 0, lostMxn: 0,
+          cancelledCount: 0, contactedCount: 0, uncontactedCount: 0, uncontactedMxn: 0,
+          demandCount: 0, demandPieces: 0, suggestionCount: 0, reasons: {}
+        };
+      }
+      return managerMap[bk];
+    };
+
+    const ensureAdv = (nameRaw, emailRaw, bkRaw, roleRaw) => {
+      const em = normalizeEmail(emailRaw);
+      const key = em || normalizeUpper(nameRaw || 'SIN ASESOR');
+      const bk = canonicalBranchKey(bkRaw) || 'SIN SUCURSAL';
+      if (!advisorMap[key]) {
+        const m = getMgr(bk);
+        advisorMap[key] = {
+          advisorName: cleanStr(nameRaw) || em || 'SIN ASESOR',
+          advisorEmail: em,
+          role: cleanStr(roleRaw) || 'Asesor',
+          branchLabel: bk,
+          managerName: m.name,
+          quotesCount: 0, totalMxn: 0, wonCount: 0, wonMxn: 0, lostCount: 0, lostMxn: 0,
+          cancelledCount: 0, contactedCount: 0, uncontactedCount: 0, uncontactedMxn: 0,
+          demandCount: 0, demandPieces: 0, suggestionCount: 0, reasons: {}
+        };
+      }
+      return advisorMap[key];
+    };
+
+    Object.keys(DEFAULT_BRANCH_MANAGERS).forEach(ensureMgr);
+    (state.presenceUsers || []).forEach(u => {
+      if (u && !u.isGuest && !/ADMIN/i.test(cleanStr(u.rol))) {
+        ensureAdv(u.nombre, '', u.sucursal, u.rol);
+      }
+    });
+
+    let totalMxn = 0, wonCount = 0, wonMxn = 0, lostCount = 0, lostMxn = 0, cancelledCount = 0, cancelledMxn = 0;
+    let contactedOpenCount = 0, contactedOpenMxn = 0, uncontactedOpenCount = 0, uncontactedOpenMxn = 0;
+
+    (state.quoteRows || []).forEach(q => {
+      const amt = Number(q.totalNum) || 0;
+      totalMxn += amt;
+      const st = cleanStr(q.segStatus || 'ABIERTA').toUpperCase();
+      const mg = ensureMgr(q.tiendaErp || q.hojaUbicacion);
+      const av = ensureAdv(q.nombreAsesor, q.correoAsesor, q.tiendaErp || q.hojaUbicacion, 'Asesor');
+      mg.quotesCount++; mg.totalMxn += amt;
+      av.quotesCount++; av.totalMxn += amt;
+
+      if (st === 'GANADA') {
+        wonCount++; wonMxn += amt;
+        mg.wonCount++; mg.wonMxn += amt;
+        av.wonCount++; av.wonMxn += amt;
+      } else if (st === 'PERDIDA') {
+        lostCount++; lostMxn += amt;
+        mg.lostCount++; mg.lostMxn += amt;
+        av.lostCount++; av.lostMxn += amt;
+        const mot = cleanStr(q.segMotivo) || 'Perdida sin motivo especificado';
+        lossReasonsMap[mot] = lossReasonsMap[mot] || { reason: mot, count: 0, amountMxn: 0 };
+        lossReasonsMap[mot].count++; lossReasonsMap[mot].amountMxn += amt;
+        mg.reasons[mot] = (mg.reasons[mot] || 0) + 1;
+        av.reasons[mot] = (av.reasons[mot] || 0) + 1;
+      } else if (st === 'CANCELADA') {
+        cancelledCount++; cancelledMxn += amt;
+        mg.cancelledCount++;
+        av.cancelledCount++;
+        const motC = cleanStr(q.segMotivo) || 'Cancelada sin motivo especificado';
+        lossReasonsMap[motC] = lossReasonsMap[motC] || { reason: motC, count: 0, amountMxn: 0 };
+        lossReasonsMap[motC].count++; lossReasonsMap[motC].amountMxn += amt;
+        mg.reasons[motC] = (mg.reasons[motC] || 0) + 1;
+        av.reasons[motC] = (av.reasons[motC] || 0) + 1;
+      } else if (st === 'CONTACTADA') {
+        contactedOpenCount++; contactedOpenMxn += amt;
+        mg.contactedCount++;
+        av.contactedCount++;
+      } else {
+        uncontactedOpenCount++; uncontactedOpenMxn += amt;
+        mg.uncontactedCount++; mg.uncontactedMxn += amt;
+        av.uncontactedCount++; av.uncontactedMxn += amt;
+      }
+    });
+
+    let demandCount = 0, demandPieces = 0;
+    const dRows = Array.isArray(demandRawRows) ? demandRawRows : [];
+    const dStart = (dRows.length >= 2 && /FECHA_HORA/i.test(cleanStr(dRows[1] && dRows[1][0]))) ? 2 : 1;
+    for (let i = dStart; i < dRows.length; i++) {
+      const r = dRows[i] || [];
+      const sku = cleanStr(r[2]).toUpperCase();
+      const model = cleanStr(r[3]);
+      if (!sku && !model && !cleanStr(r[0])) continue;
+      const pzs = Math.max(1, parseInt(cleanStr(r[6]), 10) || 1);
+      demandCount++;
+      demandPieces += pzs;
+      const mg = ensureMgr(r[9]);
+      const av = ensureAdv(r[10], r[11], r[9], 'Asesor');
+      mg.demandCount++; mg.demandPieces += pzs;
+      av.demandCount++; av.demandPieces += pzs;
+      const skKey = sku || model || 'SIN-SKU';
+      skuDemandMap[skKey] = skuDemandMap[skKey] || { sku: sku || 'S/SKU', model: model || sku, requests: 0, pieces: 0, source: 'Solicitud sin stock' };
+      skuDemandMap[skKey].requests++;
+      skuDemandMap[skKey].pieces += pzs;
+    }
+
+    let suggestionCount = 0, sugInterior = 0, sugExterior = 0;
+    const sRows = Array.isArray(sugRawRows) ? sugRawRows : [];
+    const sStart = (sRows.length >= 2 && /FECHA_HORA/i.test(cleanStr(sRows[1] && sRows[1][0]))) ? 2 : 1;
+    for (let i = sStart; i < sRows.length; i++) {
+      const r = sRows[i] || [];
+      const tipoProd = cleanStr(r[3]);
+      if (!tipoProd && !cleanStr(r[0])) continue;
+      suggestionCount++;
+      const amb = cleanStr(r[2]).toUpperCase() === 'EXTERIOR' ? 'EXTERIOR' : 'INTERIOR';
+      if (amb === 'EXTERIOR') sugExterior++; else sugInterior++;
+      const mg = ensureMgr(r[7]);
+      const av = ensureAdv(r[5], '', r[7], r[6]);
+      mg.suggestionCount++;
+      av.suggestionCount++;
+      const tKey = `${amb} · ${tipoProd}`.toUpperCase();
+      sugTypeMap[tKey] = sugTypeMap[tKey] || { label: `${amb} · ${tipoProd}`, count: 0, sampleComment: cleanStr(r[4]) };
+      sugTypeMap[tKey].count++;
+    }
+
+    const totalQuotes = (state.quoteRows || []).length;
+    const closedTotal = wonCount + lostCount + cancelledCount;
+    const nonWonTotal = Math.max(0, totalQuotes - wonCount);
+    const winRateClosedPct = closedTotal > 0 ? Math.round((wonCount / closedTotal) * 100) : 0;
+    const winRateTotalPct = totalQuotes > 0 ? Math.round((wonCount / totalQuotes) * 100) : 0;
+
+    const lossReasons = Object.values(lossReasonsMap).sort((a, b) => (b.amountMxn - a.amountMxn) || (b.count - a.count));
+    const topStockoutSkus = Object.values(skuDemandMap).sort((a, b) => (b.pieces - a.pieces) || (b.requests - a.requests)).slice(0, 10);
+    const topSuggestions = Object.values(sugTypeMap).sort((a, b) => b.count - a.count).slice(0, 10);
+
+    const whyNotClosing = [];
+    if (uncontactedOpenCount > 0) {
+      whyNotClosing.push({
+        code: 'SIN_SEGUIMIENTO',
+        title: 'Falta de seguimiento comercial (cotizaciones abiertas sin contacto)',
+        count: uncontactedOpenCount,
+        amountMxn: uncontactedOpenMxn,
+        sharePct: nonWonTotal > 0 ? Math.round((uncontactedOpenCount / nonWonTotal) * 100) : 0,
+        detail: `${uncontactedOpenCount} cotización(es) (${formatMoneyMXN(uncontactedOpenMxn)}) nunca han recibido WhatsApp, llamada ni correo registrado.`,
+        recommendation: 'Exigir primer toque el mismo día de la cotización y revisión diaria del gerente.'
+      });
+    }
+    if (contactedOpenCount > 0) {
+      whyNotClosing.push({
+        code: 'SEGUIMIENTO_SIN_CIERRE',
+        title: 'Cotizaciones contactadas estancadas sin cierre definido',
+        count: contactedOpenCount,
+        amountMxn: contactedOpenMxn,
+        sharePct: nonWonTotal > 0 ? Math.round((contactedOpenCount / nonWonTotal) * 100) : 0,
+        detail: `${contactedOpenCount} cotización(es) (${formatMoneyMXN(contactedOpenMxn)}) tienen contacto previo pero siguen sin concretarse.`,
+        recommendation: 'Dar segundo seguimiento con opción de entrega inmediata o descuento autorizado.'
+      });
+    }
+    lossReasons.forEach((item, idx) => {
+      whyNotClosing.push({
+        code: 'MOTIVO_' + (idx + 1),
+        title: 'Cierre no logrado por: ' + item.reason,
+        count: item.count,
+        amountMxn: item.amountMxn,
+        sharePct: nonWonTotal > 0 ? Math.round((item.count / nonWonTotal) * 100) : 0,
+        detail: `${item.count} cotización(es) perdidas/canceladas (${formatMoneyMXN(item.amountMxn)}).`,
+        recommendation: /inventario|agotad|stock/i.test(item.reason)
+          ? 'Priorizar reposición de SKUs agotados y ofrecer sustitutos disponibles.'
+          : 'Revisar argumento comercial, tiempos y escalón de descuento con gerencia.'
+      });
+    });
+    if (demandCount > 0) {
+      whyNotClosing.push({
+        code: 'QUIEBRE_DE_STOCK',
+        title: 'Freno por falta de stock solicitada en piso',
+        count: demandCount,
+        amountMxn: 0,
+        sharePct: 0,
+        detail: `${demandCount} solicitud(es) sin stock (${demandPieces} piezas pedidas por clientes).`,
+        recommendation: topStockoutSkus.length
+          ? `Atacar reposición de: ${topStockoutSkus.slice(0, 3).map(s => `${s.sku} (${s.pieces} pzas)`).join(', ')}.`
+          : 'Cruzar contra llegadas LPPT.'
+      });
+    }
+    if (suggestionCount > 0) {
+      whyNotClosing.push({
+        code: 'SUGERENCIAS_CATALOGO',
+        title: 'Productos pedidos fuera de línea (Sugerencias de compra)',
+        count: suggestionCount,
+        amountMxn: 0,
+        sharePct: 0,
+        detail: `${suggestionCount} sugerencia(s) registradas (${sugInterior} Interior · ${sugExterior} Exterior).`,
+        recommendation: topSuggestions.length
+          ? `Evaluar compra de: ${topSuggestions.slice(0, 3).map(s => `${s.label} (${s.count})`).join(', ')}.`
+          : 'Revisar sugerencias con compras.'
+      });
+    }
+    whyNotClosing.sort((a, b) => (b.amountMxn - a.amountMxn) || (b.count - a.count));
+
+    const summarizeDiag = (ent, zeroCheck) => {
+      if (zeroCheck && ent.quotesCount === 0) {
+        return {
+          topReason: 'Sin cotizaciones registradas',
+          diagnosis: ent.demandCount > 0 || ent.suggestionCount > 0
+            ? `0 cotizaciones · ${ent.demandCount} falta(s) stock · ${ent.suggestionCount} sugerencia(s).`
+            : 'Sin cotizaciones registradas en el periodo.'
+        };
+      }
+      const topLoss = Object.entries(ent.reasons).sort((a, b) => b[1] - a[1])[0] || null;
+      const parts = [];
+      let main = 'En seguimiento normal';
+      if (ent.uncontactedCount > 0 && (!topLoss || ent.uncontactedCount >= topLoss[1])) {
+        main = `Sin seguimiento (${ent.uncontactedCount} sin contacto)`;
+        parts.push(`${ent.uncontactedCount} cot. sin contacto (${formatMoneyMXN(ent.uncontactedMxn)})`);
+      }
+      if (topLoss) {
+        if (main === 'En seguimiento normal') main = topLoss[0];
+        parts.push(`Motivo pérdida #1: ${topLoss[0]} (${topLoss[1]})`);
+      }
+      if (ent.contactedCount > 0) parts.push(`${ent.contactedCount} en negociación`);
+      if (ent.demandCount > 0) parts.push(`${ent.demandCount} falta(s) stock (${ent.demandPieces} pzas)`);
+      if (ent.suggestionCount > 0) parts.push(`${ent.suggestionCount} sugerencia(s)`);
+      if (!parts.length) parts.push(ent.wonCount > 0 ? '100% ganadas' : 'Sin incidencias');
+      return { topReason: main, diagnosis: parts.join(' · ') };
+    };
+
+    const byManager = Object.values(managerMap).map(m => {
+      const dg = summarizeDiag(m, false);
+      const cl = m.wonCount + m.lostCount + m.cancelledCount;
+      return Object.assign({}, m, {
+        winRatePct: m.quotesCount > 0 ? Math.round((m.wonCount / m.quotesCount) * 100) : 0,
+        winRateClosedPct: cl > 0 ? Math.round((m.wonCount / cl) * 100) : 0,
+        topReason: dg.topReason,
+        diagnosis: dg.diagnosis
+      });
+    }).sort((a, b) => (b.totalMxn - a.totalMxn) || (b.quotesCount - a.quotesCount));
+
+    const byAdvisor = Object.values(advisorMap).map(a => {
+      const dg = summarizeDiag(a, true);
+      const cl = a.wonCount + a.lostCount + a.cancelledCount;
+      return Object.assign({}, a, {
+        winRatePct: a.quotesCount > 0 ? Math.round((a.wonCount / a.quotesCount) * 100) : 0,
+        winRateClosedPct: cl > 0 ? Math.round((a.wonCount / cl) * 100) : 0,
+        topReason: dg.topReason,
+        diagnosis: dg.diagnosis
+      });
+    }).sort((a, b) => (b.totalMxn - a.totalMxn) || (b.quotesCount - a.quotesCount));
+
+    const executiveHeadline = `Cotizado: ${formatMoneyMXN(totalMxn)} (${totalQuotes} cot.) · Ganadas: ${wonCount} (${winRateTotalPct}%) · Sin contacto: ${uncontactedOpenCount} (${formatMoneyMXN(uncontactedOpenMxn)}) · Perd/Canc: ${lostCount + cancelledCount} · Falta stock: ${demandCount} (${demandPieces} pzas) · Sugerencias: ${suggestionCount}.`;
+    const subject = `Corte y Análisis de No Cierre de Ventas CREATA · ${cutDateStr.slice(0, 10)} (${cutId})`;
+    const bodyLines = [
+      'REPORTE EJECUTIVO DE VENTAS, SEGUIMIENTO Y CAUSAS DE NO CIERRE — CREATA MUEBLES',
+      `Corte: ${cutId} · Fecha: ${cutDateStr}`,
+      '========================================================================',
+      '',
+      '1) RESUMEN GLOBAL',
+      `• Total cotizado: ${formatMoneyMXN(totalMxn)} (${totalQuotes} cotizaciones)`,
+      `• Ventas ganadas: ${wonCount} (${formatMoneyMXN(wonMxn)}) — Cierre: ${winRateTotalPct}% global (${winRateClosedPct}% sobre cerradas)`,
+      `• Perdidas: ${lostCount} (${formatMoneyMXN(lostMxn)}) | Canceladas: ${cancelledCount} (${formatMoneyMXN(cancelledMxn)})`,
+      `• Abiertas SIN contacto: ${uncontactedOpenCount} (${formatMoneyMXN(uncontactedOpenMxn)}) | En seguimiento: ${contactedOpenCount} (${formatMoneyMXN(contactedOpenMxn)})`,
+      `• Falta de Stock: ${demandCount} solicitud(es) (${demandPieces} pzas) | Sugerencias de Piezas: ${suggestionCount} (${sugInterior} Int / ${sugExterior} Ext)`,
+      '',
+      '2) ¿POR QUÉ NO SE ESTÁN CERRANDO LAS VENTAS?'
+    ];
+    if (!whyNotClosing.length) bodyLines.push('• Sin fugas registradas.');
+    whyNotClosing.forEach((c, idx) => {
+      bodyLines.push(`${idx + 1}. ${c.title}`);
+      bodyLines.push(`   - Impacto: ${c.detail}`);
+      bodyLines.push(`   - Acción: ${c.recommendation}`);
+    });
+    bodyLines.push('', '3) RESULTADO POR GERENTE / SUCURSAL');
+    byManager.forEach(m => {
+      bodyLines.push(`• ${m.branchLabel} (Gerente: ${m.managerName}): ${m.quotesCount} cot. (${formatMoneyMXN(m.totalMxn)}) | Gan: ${m.wonCount} (${m.winRatePct}%) | Perd/Canc: ${m.lostCount + m.cancelledCount} | Sin contacto: ${m.uncontactedCount} | Stock: ${m.demandCount} (${m.demandPieces} pzas) | Sug: ${m.suggestionCount} -> ${m.diagnosis}`);
+    });
+    bodyLines.push('', '4) RESULTADO POR ASESOR');
+    byAdvisor.forEach(a => {
+      bodyLines.push(`• ${a.advisorName} [${a.branchLabel} · Gte: ${a.managerName}]: ${a.quotesCount} cot. (${formatMoneyMXN(a.totalMxn)}) | Gan: ${a.wonCount} (${a.winRatePct}%) | Perd/Canc: ${a.lostCount + a.cancelledCount} | Sin contacto: ${a.uncontactedCount} | Stock: ${a.demandCount} (${a.demandPieces} pzas) | Sug: ${a.suggestionCount} -> ${a.diagnosis}`);
+    });
+
+    const shortBody = [
+      `CORTE Y ANÁLISIS DE NO CIERRE CREATA (${cutId} · ${cutDateStr})`,
+      executiveHeadline,
+      '',
+      '¿POR QUÉ NO SE CIERRAN LAS VENTAS?',
+      ...whyNotClosing.slice(0, 4).map((c, idx) => `${idx + 1}) ${c.title} -> ${c.detail}`),
+      '',
+      'POR GERENTE:',
+      ...byManager.map(m => `- ${m.branchLabel} (${m.managerName}): ${m.quotesCount} cot (${formatMoneyMXN(m.totalMxn)}), Gan:${m.wonCount}, SinCont:${m.uncontactedCount}, Stock:${m.demandCount}, Sug:${m.suggestionCount}`),
+      '',
+      '(El reporte detallado completo quedó copiado en tu portapapeles).'
+    ].join('\n');
+
+    return {
+      ok: true,
+      localFallbackUsed: true,
+      cutId,
+      cutDateStr,
+      archiveSummary: {
+        segNewlyArchivedPartidas: closedTotal,
+        segActiveRemainingPartidas: uncontactedOpenCount + contactedOpenCount,
+        segBackedUpAllStatesCount: totalQuotes,
+        segHistMovArchivedCount: 0,
+        quotesBackedUpCount: totalQuotes,
+        stockAndSugBackedUpCount: demandCount + suggestionCount
+      },
+      executiveHeadline,
+      kpis: {
+        totalQuotes, totalMxn, wonCount, wonMxn, lostCount, lostMxn, cancelledCount, cancelledMxn,
+        contactedOpenCount, contactedOpenMxn, uncontactedOpenCount, uncontactedOpenMxn,
+        winRateClosedPct, winRateTotalPct, demandCount, demandPieces, suggestionCount, sugInterior, sugExterior
+      },
+      whyNotClosing,
+      lossReasons,
+      topStockoutSkus,
+      topSuggestions,
+      byManager,
+      byAdvisor,
+      emailDraft: {
+        to: OWNER_EMAIL,
+        subject,
+        body: bodyLines.join('\n'),
+        shortMailtoBody: shortBody
+      }
+    };
+  }
+
+  function openPrefilledKevinMailDraft(autoTriggered) {
+    if (!isExclusiveKevinSession() || !activeKevinAnalysisReport) return;
+    const toInp = $('hist_kevinMailTo');
+    const subInp = $('hist_kevinMailSubject');
+    const bodyInp = $('hist_kevinMailBody');
+    const statusEl = $('hist_kevinMailStatus');
+
+    const to = cleanStr(toInp ? toInp.value : (activeKevinAnalysisReport.emailDraft && activeKevinAnalysisReport.emailDraft.to)) || OWNER_EMAIL;
+    const subject = cleanStr(subInp ? subInp.value : (activeKevinAnalysisReport.emailDraft && activeKevinAnalysisReport.emailDraft.subject)) || 'Análisis de Ventas CREATA';
+    const fullBody = cleanStr(bodyInp ? bodyInp.value : (activeKevinAnalysisReport.emailDraft && activeKevinAnalysisReport.emailDraft.body)) || '';
+    const shortBody = cleanStr(activeKevinAnalysisReport.emailDraft && activeKevinAnalysisReport.emailDraft.shortMailtoBody) || fullBody.slice(0, 1100);
+
+    copyTextSilent(fullBody);
+
+    let mailtoUrl = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(fullBody)}`;
+    let usedShort = false;
+    if (mailtoUrl.length > 1850) {
+      usedShort = true;
+      mailtoUrl = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(shortBody)}`;
+      if (mailtoUrl.length > 1950) {
+        mailtoUrl = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(shortBody.slice(0, 950))}`;
+      }
+    }
+
+    try {
+      global.location.href = mailtoUrl;
+    } catch (eMail) {}
+
+    if (statusEl) {
+      statusEl.className = 'cm-hist-pdf-status is-ok';
+      statusEl.innerHTML = usedShort
+        ? `✉️ Borrador de correo abierto para <strong>${escapeHtml(to)}</strong> con el resumen ejecutivo. <strong>El análisis completo detallado ya quedó copiado en tu portapapeles</strong> (puedes pegarlo o usar <em>Abrir en Gmail Web</em>).`
+        : `✉️ Borrador de correo pre-llenado abierto para <strong>${escapeHtml(to)}</strong> (también copiado al portapapeles).`;
+    }
+    if (!autoTriggered) {
+      showToast('Borrador de correo abierto');
+    }
+  }
+
+  function openGmailWebComposeKevin() {
+    if (!isExclusiveKevinSession() || !activeKevinAnalysisReport) return;
+    const to = cleanStr($('hist_kevinMailTo')?.value) || OWNER_EMAIL;
+    const subject = cleanStr($('hist_kevinMailSubject')?.value) || 'Análisis de Ventas CREATA';
+    const fullBody = cleanStr($('hist_kevinMailBody')?.value) || '';
+    copyTextSilent(fullBody);
+    const trimmedForUrl = fullBody.length > 5500 ? (fullBody.slice(0, 5500) + '\n\n[Reporte completo copiado en portapapeles]') : fullBody;
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(trimmedForUrl)}`;
+    try {
+      const w = global.open(gmailUrl, '_blank');
+      if (w) {
+        try { w.opener = null; } catch (eOp) {}
+      } else {
+        global.location.href = gmailUrl;
+      }
+    } catch (e) {}
+    showToast('Abriendo Gmail con el análisis pre-llenado');
+  }
+
+  function copyKevinAnalysisReport() {
+    if (!isExclusiveKevinSession() || !activeKevinAnalysisReport) return;
+    const subject = cleanStr($('hist_kevinMailSubject')?.value);
+    const fullBody = cleanStr($('hist_kevinMailBody')?.value);
+    copyTextSilent((subject ? (subject + '\n\n') : '') + fullBody);
+    const statusEl = $('hist_kevinMailStatus');
+    if (statusEl) {
+      statusEl.className = 'cm-hist-pdf-status is-ok';
+      statusEl.textContent = '✓ Análisis completo copiado al portapapeles.';
+    }
+    showToast('Análisis copiado al portapapeles');
+  }
+
+  function downloadKevinAnalysisCsv() {
+    if (!isExclusiveKevinSession() || !activeKevinAnalysisReport) return;
+    const rep = activeKevinAnalysisReport;
+    const esc = (v) => {
+      let s = String(v === null || v === undefined ? '' : v);
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return /[",\n\r]/.test(s) ? ('"' + s.replace(/"/g, '""') + '"') : s;
+    };
+    const headers = [
+      'CORTE', 'FECHA', 'NIVEL', 'SUCURSAL', 'GERENTE', 'ASESOR', 'CORREO',
+      'COTIZACIONES', 'MONTO_COTIZADO', 'GANADAS', 'MONTO_GANADO', 'PERDIDAS', 'MONTO_PERDIDO',
+      'CANCELADAS', 'SIN_SEGUIMIENTO', 'EN_SEGUIMIENTO', 'PCT_CIERRE',
+      'FALTA_STOCK_SOLICITUDES', 'FALTA_STOCK_PIEZAS', 'SUGERENCIAS_COMPRA',
+      'CAUSA_PRINCIPAL_NO_CIERRE', 'DIAGNOSTICO'
+    ];
+    const k = rep.kpis || {};
+    const rows = [[
+      rep.cutId, rep.cutDateStr, 'GLOBAL', 'TODAS', 'DIRECCIÓN GENERAL', 'CONSOLIDADO', OWNER_EMAIL,
+      k.totalQuotes || 0, (k.totalMxn || 0).toFixed(2), k.wonCount || 0, (k.wonMxn || 0).toFixed(2),
+      k.lostCount || 0, (k.lostMxn || 0).toFixed(2), k.cancelledCount || 0,
+      k.uncontactedOpenCount || 0, k.contactedOpenCount || 0, (k.winRateTotalPct || 0) + '%',
+      k.demandCount || 0, k.demandPieces || 0, k.suggestionCount || 0,
+      (rep.whyNotClosing && rep.whyNotClosing[0] && rep.whyNotClosing[0].title) || '',
+      rep.executiveHeadline || ''
+    ]];
+    (rep.byManager || []).forEach(m => {
+      rows.push([
+        rep.cutId, rep.cutDateStr, 'GERENTE', m.branchLabel, m.managerName, 'EQUIPO ' + m.branchLabel, m.managerEmail || '',
+        m.quotesCount, (m.totalMxn || 0).toFixed(2), m.wonCount, (m.wonMxn || 0).toFixed(2),
+        m.lostCount, (m.lostMxn || 0).toFixed(2), m.cancelledCount,
+        m.uncontactedCount, m.contactedCount, m.winRatePct + '%',
+        m.demandCount, m.demandPieces, m.suggestionCount, m.topReason, m.diagnosis
+      ]);
+    });
+    (rep.byAdvisor || []).forEach(a => {
+      rows.push([
+        rep.cutId, rep.cutDateStr, 'ASESOR', a.branchLabel, a.managerName, a.advisorName, a.advisorEmail || '',
+        a.quotesCount, (a.totalMxn || 0).toFixed(2), a.wonCount, (a.wonMxn || 0).toFixed(2),
+        a.lostCount, (a.lostMxn || 0).toFixed(2), a.cancelledCount,
+        a.uncontactedCount, a.contactedCount, a.winRatePct + '%',
+        a.demandCount, a.demandPieces, a.suggestionCount, a.topReason, a.diagnosis
+      ]);
+    });
+
+    const csvContent = '\uFEFF' + [headers].concat(rows).map(r => r.map(esc).join(',')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `CREATA_Analisis_No_Cierre_${cleanStr(rep.cutId) || 'Corte'}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showToast('Respaldo CSV descargado');
+  }
+
+  function renderKevinArchiveModalContent(rep) {
+    const modal = $('hist_kevinArchiveModal');
+    const bodyEl = $('hist_kevinArchiveBody');
+    if (!modal || !bodyEl || !rep) return;
+
+    const k = rep.kpis || {};
+    const arch = rep.archiveSummary || {};
+    const causes = Array.isArray(rep.whyNotClosing) ? rep.whyNotClosing : [];
+    const managers = Array.isArray(rep.byManager) ? rep.byManager : [];
+    const advisors = Array.isArray(rep.byAdvisor) ? rep.byAdvisor : [];
+    const topSkus = Array.isArray(rep.topStockoutSkus) ? rep.topStockoutSkus : [];
+    const topSugs = Array.isArray(rep.topSuggestions) ? rep.topSuggestions : [];
+    const draft = rep.emailDraft || { to: OWNER_EMAIL, subject: '', body: '' };
+
+    const archiveBannerHtml = rep.localFallbackUsed
+      ? `<div class="cm-hist-pdf-status is-warn">
+           <strong>Análisis generado con hojas en vivo (${escapeHtml(rep.cutId)})</strong> · Para escribir automáticamente las pestañas nuevas de resguardo en Google Sheets, actualiza el despliegue WebApp de Apps Script cuando gustes (puedes descargar el respaldo CSV aquí mismo).
+         </div>`
+      : `<div class="cm-hist-pdf-status is-ok">
+           <strong>✓ Corte ${escapeHtml(rep.cutId)} archivado y resguardado (${escapeHtml(rep.cutDateStr)}):</strong>
+           ${arch.segNewlyArchivedPartidas || 0} partida(s) cerradas/canceladas movidas a <span class="cm-mono">COTIZACIONES_ARCHIVADAS</span> (dejando ${arch.segActiveRemainingPartidas || 0} abiertas activas para seguimiento) ·
+           Resguardadas: ${arch.segBackedUpAllStatesCount || 0} en <span class="cm-mono">RESGUARDO_SEGUIMIENTO</span>,
+           ${arch.quotesBackedUpCount || 0} en <span class="cm-mono">RESGUARDO_COTIZACIONES_APP</span>,
+           ${arch.stockAndSugBackedUpCount || 0} en <span class="cm-mono">RESGUARDO_STOCK_Y_SUGERENCIAS</span> y resumen en <span class="cm-mono">ANALISIS_VENTAS_KEVIN</span>.
+         </div>`;
+
+    bodyEl.innerHTML = `
+      ${archiveBannerHtml}
+
+      <!-- KPIs EJECUTIVOS DE CONVERSIÓN Y FUGA -->
+      <div class="cm-hist-exec-kpis">
+        <div class="cm-hist-kv">
+          <div class="cm-hist-kv-label">Total Cotizado</div>
+          <div class="cm-hist-kv-val cm-tabular">${escapeHtml(formatMoneyMXN(k.totalMxn || 0))}</div>
+          <div class="cm-hist-exec-sub">${k.totalQuotes || 0} cotizaciones</div>
+        </div>
+        <div class="cm-hist-kv">
+          <div class="cm-hist-kv-label">Cerradas Ganadas</div>
+          <div class="cm-hist-kv-val cm-tabular cm-hist-tone-ok">${k.wonCount || 0} · ${escapeHtml(formatMoneyMXN(k.wonMxn || 0))}</div>
+          <div class="cm-hist-exec-sub">${k.winRateTotalPct || 0}% global (${k.winRateClosedPct || 0}% de cerradas)</div>
+        </div>
+        <div class="cm-hist-kv">
+          <div class="cm-hist-kv-label">Sin Seguimiento (Fuga)</div>
+          <div class="cm-hist-kv-val cm-tabular cm-hist-tone-err">${k.uncontactedOpenCount || 0} · ${escapeHtml(formatMoneyMXN(k.uncontactedOpenMxn || 0))}</div>
+          <div class="cm-hist-exec-sub">${k.contactedOpenCount || 0} abiertas en seguimiento</div>
+        </div>
+        <div class="cm-hist-kv">
+          <div class="cm-hist-kv-label">Perdidas / Canceladas</div>
+          <div class="cm-hist-kv-val cm-tabular cm-hist-tone-warn">${(k.lostCount || 0) + (k.cancelledCount || 0)} (${k.lostCount || 0}P / ${k.cancelledCount || 0}C)</div>
+          <div class="cm-hist-exec-sub">Falta stock: ${k.demandCount || 0} (${k.demandPieces || 0} pzas) · Sug: ${k.suggestionCount || 0}</div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN DE CORREO PRE-LLENADO LISTA PARA ENVIAR -->
+      <div class="cm-hist-section cm-hist-exec-mail-box">
+        <div class="cm-hist-mcard-row">
+          <h3 class="cm-hist-section-title" style="margin:0;">✉️ Correo pre-llenado con el análisis y resultados</h3>
+          <div class="cm-hist-exec-actions">
+            <button type="button" class="cm-btn cm-btn-primary" data-hist-action="kevin-open-mailto">✉️ Abrir en Correo</button>
+            <button type="button" class="cm-btn" data-hist-action="kevin-open-gmail">📧 Abrir en Gmail</button>
+            <button type="button" class="cm-btn" data-hist-action="kevin-copy-report">📋 Copiar análisis</button>
+            <button type="button" class="cm-btn" data-hist-action="kevin-download-csv">📥 CSV Resguardo</button>
+          </div>
+        </div>
+        <div id="hist_kevinMailStatus" class="cm-hist-pdf-status cm-hidden"></div>
+        <div class="cm-hist-exec-mail-fields">
+          <div>
+            <label class="cm-hist-kv-label" for="hist_kevinMailTo">Para:</label>
+            <input id="hist_kevinMailTo" type="email" class="cm-input" value="${escapeHtml(draft.to || OWNER_EMAIL)}">
+          </div>
+          <div>
+            <label class="cm-hist-kv-label" for="hist_kevinMailSubject">Asunto:</label>
+            <input id="hist_kevinMailSubject" type="text" class="cm-input" value="${escapeHtml(draft.subject || '')}">
+          </div>
+        </div>
+        <div>
+          <label class="cm-hist-kv-label" for="hist_kevinMailBody">Contenido del análisis (listo para revisar o editar antes de enviar):</label>
+          <textarea id="hist_kevinMailBody" rows="7" class="cm-textarea cm-hist-exec-textarea">${escapeHtml(draft.body || '')}</textarea>
+        </div>
+      </div>
+
+      <!-- DIAGNÓSTICO PRINCIPAL: ¿POR QUÉ NO SE CIERRAN LAS VENTAS? -->
+      <div class="cm-hist-section">
+        <h3 class="cm-hist-section-title">🔍 Diagnóstico Principal: ¿Por qué no se están cerrando las ventas?</h3>
+        <div class="cm-hist-exec-causes">
+          ${causes.length ? causes.map((c, idx) => `
+            <div class="cm-hist-exec-cause-card">
+              <div class="cm-hist-mcard-row">
+                <strong>${idx + 1}. ${escapeHtml(c.title)}</strong>
+                <span class="cm-pill ${idx === 0 ? 'cm-pill-rose' : 'cm-pill-amber'}">${c.count} caso(s)${c.amountMxn > 0 ? ' · ' + escapeHtml(formatMoneyMXN(c.amountMxn)) : ''}</span>
+              </div>
+              <div class="cm-hist-exec-cause-detail">${escapeHtml(c.detail)}</div>
+              <div class="cm-hist-exec-cause-rec"><strong>Acción:</strong> ${escapeHtml(c.recommendation)}</div>
+            </div>
+          `).join('') : '<div class="cm-empty">Sin fugas ni pérdidas registradas en este corte.</div>'}
+        </div>
+      </div>
+
+      <!-- RESULTADO POR GERENTE Y SUCURSAL -->
+      <div class="cm-hist-section">
+        <h3 class="cm-hist-section-title">🏢 Resultado y Diagnóstico por Gerente / Sucursal</h3>
+        <div class="cm-hist-table-wrap">
+          <table class="cm-hist-table">
+            <thead>
+              <tr>
+                <th>Sucursal / Gerente</th>
+                <th>Cot.</th>
+                <th style="text-align:right;">Monto</th>
+                <th>Ganadas</th>
+                <th>Perd/Canc</th>
+                <th>Sin Cont.</th>
+                <th>Falta Stock</th>
+                <th>Suger.</th>
+                <th>Por qué no cierra</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${managers.map(m => `
+                <tr>
+                  <td><strong>${escapeHtml(m.branchLabel)}</strong><div class="cm-hist-exec-sub">${escapeHtml(m.managerName)}</div></td>
+                  <td class="cm-tabular">${m.quotesCount}</td>
+                  <td class="cm-tabular" style="text-align:right;"><strong>${escapeHtml(formatMoneyMXN(m.totalMxn))}</strong></td>
+                  <td class="cm-tabular">${m.wonCount} (${m.winRatePct}%)</td>
+                  <td class="cm-tabular">${m.lostCount + m.cancelledCount}</td>
+                  <td class="cm-tabular">${m.uncontactedCount}</td>
+                  <td class="cm-tabular">${m.demandCount} (${m.demandPieces} pz)</td>
+                  <td class="cm-tabular">${m.suggestionCount}</td>
+                  <td>${escapeHtml(m.diagnosis)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="cm-hist-mobile-list">
+          ${managers.map(m => `
+            <div class="cm-hist-mcard">
+              <div class="cm-hist-mcard-row">
+                <span class="cm-hist-mcard-title">${escapeHtml(m.branchLabel)} · ${escapeHtml(m.managerName)}</span>
+                <strong class="cm-tabular">${escapeHtml(formatMoneyMXN(m.totalMxn))}</strong>
+              </div>
+              <div class="cm-hist-mcard-meta">
+                <span>${m.quotesCount} cot.</span>
+                <span>Gan: ${m.wonCount} (${m.winRatePct}%)</span>
+                <span>Perd/Canc: ${m.lostCount + m.cancelledCount}</span>
+                <span>Sin contacto: ${m.uncontactedCount}</span>
+                <span>Stock: ${m.demandCount} (${m.demandPieces} pz)</span>
+                <span>Sug: ${m.suggestionCount}</span>
+              </div>
+              <div class="cm-hist-exec-sub">${escapeHtml(m.diagnosis)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- RESULTADO POR ASESOR -->
+      <div class="cm-hist-section">
+        <h3 class="cm-hist-section-title">👤 Resultado y Diagnóstico por Asesor</h3>
+        <div class="cm-hist-table-wrap">
+          <table class="cm-hist-table">
+            <thead>
+              <tr>
+                <th>Asesor</th>
+                <th>Sucursal / Gerente</th>
+                <th>Cot.</th>
+                <th style="text-align:right;">Monto</th>
+                <th>Ganadas</th>
+                <th>Perd/Canc</th>
+                <th>Sin Cont.</th>
+                <th>Falta Stock</th>
+                <th>Suger.</th>
+                <th>Diagnóstico de no cierre</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${advisors.map(a => `
+                <tr>
+                  <td><strong>${escapeHtml(a.advisorName)}</strong></td>
+                  <td>${escapeHtml(a.branchLabel)}<div class="cm-hist-exec-sub">Gte: ${escapeHtml(a.managerName)}</div></td>
+                  <td class="cm-tabular">${a.quotesCount}</td>
+                  <td class="cm-tabular" style="text-align:right;"><strong>${escapeHtml(formatMoneyMXN(a.totalMxn))}</strong></td>
+                  <td class="cm-tabular">${a.wonCount} (${a.winRatePct}%)</td>
+                  <td class="cm-tabular">${a.lostCount + a.cancelledCount}</td>
+                  <td class="cm-tabular">${a.uncontactedCount}</td>
+                  <td class="cm-tabular">${a.demandCount} (${a.demandPieces} pz)</td>
+                  <td class="cm-tabular">${a.suggestionCount}</td>
+                  <td>${escapeHtml(a.diagnosis)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="cm-hist-mobile-list">
+          ${advisors.map(a => `
+            <div class="cm-hist-mcard">
+              <div class="cm-hist-mcard-row">
+                <span class="cm-hist-mcard-title">${escapeHtml(a.advisorName)}</span>
+                <strong class="cm-tabular">${escapeHtml(formatMoneyMXN(a.totalMxn))}</strong>
+              </div>
+              <div class="cm-hist-mcard-meta">
+                <span>${escapeHtml(a.branchLabel)} (Gte: ${escapeHtml(a.managerName)})</span>
+                <span>${a.quotesCount} cot.</span>
+                <span>Gan: ${a.wonCount} (${a.winRatePct}%)</span>
+                <span>Sin cont: ${a.uncontactedCount}</span>
+                <span>Stock: ${a.demandCount} (${a.demandPieces} pz)</span>
+                <span>Sug: ${a.suggestionCount}</span>
+              </div>
+              <div class="cm-hist-exec-sub">${escapeHtml(a.diagnosis)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- TOP FALTA DE STOCK Y SUGERENCIAS DE PIEZAS -->
+      ${(topSkus.length || topSugs.length) ? `
+      <div class="cm-hist-overview-grid">
+        <div class="cm-hist-section">
+          <h3 class="cm-hist-section-title">🚨 Top Falta de Stock que frena ventas</h3>
+          ${topSkus.length ? `<div class="cm-hist-exec-causes">${topSkus.map(s => `
+            <div class="cm-hist-exec-cause-card">
+              <div class="cm-hist-mcard-row">
+                <strong class="cm-mono">${escapeHtml(s.sku)}</strong>
+                <span class="cm-pill cm-pill-rose">${s.pieces} pza(s) · ${s.requests} reg.</span>
+              </div>
+              <div class="cm-hist-exec-sub">${escapeHtml(s.model)} · ${escapeHtml(s.source)}</div>
+            </div>`).join('')}</div>` : '<div class="cm-empty">Sin reportes de falta de stock.</div>'}
+        </div>
+        <div class="cm-hist-section">
+          <h3 class="cm-hist-section-title">💡 Sugerencias de Piezas Solicitadas</h3>
+          ${topSugs.length ? `<div class="cm-hist-exec-causes">${topSugs.map(g => `
+            <div class="cm-hist-exec-cause-card">
+              <div class="cm-hist-mcard-row">
+                <strong>${escapeHtml(g.label)}</strong>
+                <span class="cm-pill cm-pill-bronze">${g.count} solicitud(es)</span>
+              </div>
+              ${g.sampleComment ? `<div class="cm-hist-exec-sub">“${escapeHtml(g.sampleComment)}”</div>` : ''}
+            </div>`).join('')}</div>` : '<div class="cm-empty">Sin sugerencias registradas.</div>'}
+        </div>
+      </div>` : ''}
+    `;
+
+    modal.classList.remove('cm-hidden');
+    if (!_histRestoringCheckpoint) notifyHistBackStatePush('hist_kevin_archive_modal');
+  }
+
+  async function runKevinArchiveAndSalesAnalysis() {
+    if (!isExclusiveKevinSession() || kevinArchiveInFlight) return;
+    kevinArchiveInFlight = true;
+    const btn = $('hist_btnKevinArchiveAnalyze');
+    const prevTxt = btn ? btn.textContent : '📦 Archivar y Analizar';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Archivando y analizando...';
+    }
+    showToast('Archivando cerradas/canceladas, respaldando hojas y generando análisis...');
+
+    try {
+      let token = tryRecoverSessionAuthToken();
+      const fallbackKey = readStoredAccessKeyFallback(state.session.correo);
+      if (!token && fallbackKey) {
+        token = await renewSessionAuthToken(false);
+      }
+
+      const buildReqPayload = (tok, includeKey) => {
+        const p = {
+          authToken: tok || '',
+          advisorEmail: state.session.correo,
+          sheetTab: state.session.sheetTab || 'CUENTAS ADMINISTRATIVAS'
+        };
+        if (includeKey && fallbackKey) p.accessKey = fallbackKey;
+        return p;
+      };
+
+      let res = await callWebAppPost('hist_archive_and_analyze_kevin', buildReqPayload(token, !token), 45000);
+      if (res && !res.ok && res.authRequired) {
+        const renewed = await renewSessionAuthToken(true);
+        if (renewed || fallbackKey) {
+          res = await callWebAppPost('hist_archive_and_analyze_kevin', buildReqPayload(renewed || token, true), 45000);
+        }
+      }
+
+      if (!res || !res.ok) {
+        if (res && res.forbidden) {
+          showToast(cleanStr(res.error) || 'Acceso exclusivo para kevin.reyna@grupoanipa.com');
+          return;
+        }
+        // Respaldo inmediato en cliente si el WebApp aún no tiene redesplegada la nueva acción o no hay red
+        const [demRows, sugRows] = await Promise.all([
+          fetchSheetRows('DEMANDA_SIN_STOCK', 'A:M', SHEET_ID).catch(() => null),
+          fetchSheetRows('SUGERENCIAS_DE_COMPRA', 'A:I', SHEET_ID).catch(() => null)
+        ]);
+        res = buildFallbackClientSideKevinAnalysis(demRows, sugRows);
+      }
+
+      activeKevinAnalysisReport = res;
+      renderKevinArchiveModalContent(res);
+      openPrefilledKevinMailDraft(true);
+      if (!res.localFallbackUsed) {
+        syncAllProjectHistory(true);
+      }
+    } finally {
+      kevinArchiveInFlight = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = prevTxt;
+      }
+    }
   }
 
   // ============================================================================
@@ -2814,6 +3675,16 @@
         closeModal(actBtn.getAttribute('data-modal'));
       } else if (action === 'download-pdf') {
         downloadHistoryQuoteOriginalPdf();
+      } else if (action === 'kevin-archive-analyze') {
+        runKevinArchiveAndSalesAnalysis();
+      } else if (action === 'kevin-open-mailto') {
+        openPrefilledKevinMailDraft(false);
+      } else if (action === 'kevin-open-gmail') {
+        openGmailWebComposeKevin();
+      } else if (action === 'kevin-copy-report') {
+        copyKevinAnalysisReport();
+      } else if (action === 'kevin-download-csv') {
+        downloadKevinAnalysisCsv();
       }
     };
 
@@ -2884,7 +3755,8 @@
     const onKeyDown = (ev) => {
       if (!mounted || ev.key !== 'Escape' || ev.__creataEscapeHandled) return;
       if ((mountOpts && mountOpts.backNavManaged) || Boolean(global.__CREATA_INV_BACK_NAV__)) return;
-      if (!$('hist_photoPreviewModal')?.classList.contains('cm-hidden')) closeModal('photo');
+      if (!$('hist_kevinArchiveModal')?.classList.contains('cm-hidden')) closeModal('kevin-archive');
+      else if (!$('hist_photoPreviewModal')?.classList.contains('cm-hidden')) closeModal('photo');
       else if (!$('hist_quoteInspectModal')?.classList.contains('cm-hidden')) closeModal('quote');
     };
 
@@ -2941,6 +3813,8 @@
     state.activeQuoteForModal = null;
     activeInspectedQuote = null;
     activeInspectedPhoto = null;
+    activeKevinAnalysisReport = null;
+    kevinArchiveInFlight = false;
     tabHistory = [];
     _histPrevSearchNonEmpty = false;
   }
@@ -2952,7 +3826,9 @@
 
   function hasActiveOverlay() {
     if (!mounted) return false;
-    return isHistModalVisible('hist_photoPreviewModal') || isHistModalVisible('hist_quoteInspectModal');
+    return isHistModalVisible('hist_kevinArchiveModal') ||
+      isHistModalVisible('hist_photoPreviewModal') ||
+      isHistModalVisible('hist_quoteInspectModal');
   }
 
   function hasActiveTabFilters() {
@@ -3048,6 +3924,10 @@
     const phase = options.phase || 'all';
 
     if (phase === 'overlay' || phase === 'all') {
+      if (isHistModalVisible('hist_kevinArchiveModal')) {
+        closeModal('kevin-archive');
+        return { handled: true, action: 'hist_kevin_archive_modal' };
+      }
       if (isHistModalVisible('hist_photoPreviewModal')) {
         closeModal('photo');
         return { handled: true, action: 'hist_photo_modal' };

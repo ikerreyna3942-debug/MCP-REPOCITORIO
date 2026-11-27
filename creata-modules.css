@@ -2240,6 +2240,119 @@
 }
 
 /* ============================================================================
+ * Modal Exclusivo Kevin: Corte de Resguardo y Análisis de No Cierre de Ventas
+ * ============================================================================ */
+#inAppHistorialRoot .cm-hist-exec-modal-card {
+  max-width: 960px;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#inAppHistorialRoot .cm-hist-exec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+
+#inAppHistorialRoot .cm-hist-exec-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (min-width: 768px) {
+  #inAppHistorialRoot .cm-hist-exec-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+#inAppHistorialRoot .cm-hist-exec-sub {
+  font-size: var(--cm-ui-font);
+  color: var(--cm-muted);
+  line-height: 1.35;
+}
+
+#inAppHistorialRoot .cm-hist-tone-ok {
+  color: var(--cm-emerald-ink);
+}
+
+#inAppHistorialRoot .cm-hist-tone-err {
+  color: var(--cm-rose-ink);
+}
+
+#inAppHistorialRoot .cm-hist-tone-warn {
+  color: var(--cm-amber-ink);
+}
+
+#inAppHistorialRoot .cm-hist-exec-mail-box {
+  background: #FAF8F4;
+  border-color: var(--cm-accent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#inAppHistorialRoot .cm-hist-exec-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+#inAppHistorialRoot .cm-hist-exec-mail-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  #inAppHistorialRoot .cm-hist-exec-mail-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  }
+}
+
+#inAppHistorialRoot .cm-hist-exec-textarea {
+  width: 100%;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--cm-ui-font);
+  line-height: 1.45;
+  min-height: 140px;
+}
+
+#inAppHistorialRoot .cm-hist-exec-causes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#inAppHistorialRoot .cm-hist-exec-cause-card {
+  padding: 9px 11px;
+  border-radius: var(--cm-radius-sm);
+  border: 1px solid var(--cm-border-subtle);
+  background: var(--cm-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#inAppHistorialRoot .cm-hist-exec-cause-detail {
+  font-size: var(--cm-ui-font);
+  color: var(--cm-ink-2);
+  line-height: 1.4;
+}
+
+#inAppHistorialRoot .cm-hist-exec-cause-rec {
+  font-size: var(--cm-ui-font);
+  color: var(--cm-emerald-ink);
+  line-height: 1.35;
+}
+
+/* ============================================================================
  * Tipografía Unificada Autoritativa — Seguimiento de Cotizaciones e Historial
  * - Garantiza el mismo tamaño de letra en TODOS los botones y TODAS las
  *   ventanas/modales abiertos (#seg_previewModal, #seg_modalCerrarCotizacion,

@@ -489,7 +489,7 @@ test('Static Contracts: 24/7 ERP sync hook in GAS, zero 25-day commercial cycle 
   assert.match(css, /\.cm-seg-card\.is-archived\s*\{/);
 
   // Cache versions in inventario.html
-  assert.ok(invHtml.includes('./creata-modules.css?v=12'));
+  assert.ok(invHtml.includes('./creata-modules.css?v=13'));
   assert.ok(invHtml.includes('./inventario-ui.css?v=33'));
   assert.ok(invHtml.includes('./seguimiento-app.js?v=17'));
   assert.ok(invHtml.includes('inventario-app.js?v=119'));
