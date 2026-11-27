@@ -130,10 +130,10 @@ test('P0-01: Salted SHA-256 hashing, private AUTH_SPREADSHEET_ID migration, cons
   const PRIVATE_AUTH_ID = '1PRIVATE_AUTH_BOOK_AUDIT_999999';
   const rt = buildCreataRuntime({ authSheetId: PRIVATE_AUTH_ID });
 
-  // 1) hashUserPassword_ creates salted sha256$salt$hex verified by keysEqualNormalized_
+  // 1) hashUserPassword_ creates salted iterated sha256i$iters$salt$hex verified by keysEqualNormalized_
   const h1 = rt.env.context.hashUserPassword_('ClaveSecreta2026!');
   const h2 = rt.env.context.hashUserPassword_('ClaveSecreta2026!');
-  assert.match(h1, /^sha256\$[a-f0-9]+\$[a-f0-9]{64}$/);
+  assert.match(h1, /^sha256i\$\d+\$[a-f0-9]+\$[a-f0-9]{64}$/);
   assert.notEqual(h1, h2, 'Each password hash must use a unique random salt');
   assert.equal(rt.env.context.keysEqualNormalized_('ClaveSecreta2026!', h1), true);
   assert.equal(rt.env.context.keysEqualNormalized_('ClaveSecreta2026!', h2), true);
@@ -153,7 +153,7 @@ test('P0-01: Salted SHA-256 hashing, private AUTH_SPREADSHEET_ID migration, cons
   const privAdmin = rt.ssAuth.getSheetByName('CUENTAS ADMINISTRATIVAS');
   assert.ok(privAdmin, 'Private auth workbook must receive CUENTAS ADMINISTRATIVAS');
   const kevinHashed = privAdmin.getRange(3, 7).getValue();
-  assert.match(String(kevinHashed), /^sha256\$/, 'Kevin password must be stored as salted SHA-256 hash');
+  assert.match(String(kevinHashed), /^sha256i?\$/, 'Kevin password must be stored as salted SHA-256 hash');
   assert.notEqual(String(kevinHashed), 'KevinAudit2026!');
 
   // 3) Delete CUENTAS ADMINISTRATIVAS from public workbook, activate private workbook via activarLibroAuthPrivado,
@@ -463,10 +463,10 @@ test('P1-02, P1-17, P1-18, P1-22, P1-23, P1-24: Internal _skipLock blocked exter
   // P1-18: {TOKEN} replacement restricted to <ClaveServicio>{TOKEN}</ClaveServicio> (prevents SOAP injection from client fields)
   assert.ok(creataSrc.includes('/<ClaveServicio>\\{TOKEN\\}<\\/ClaveServicio>/g'), 'callSmuebleriaWcf_ must scope {TOKEN} replacement strictly to <ClaveServicio>');
 
-  // P1-22: handleInvSubmitQuote_ does not let client reqItem.unitList override ERP price
-  const submitFnStart = creataSrc.indexOf('function handleInvSubmitQuote_(');
-  const submitFnSlice = creataSrc.slice(submitFnStart, submitFnStart + 9000);
-  assert.ok(!/reqItem\.unitList/.test(submitFnSlice), 'handleInvSubmitQuote_ must ignore client-supplied reqItem.unitList (P1-22)');
+  // P1-22 / SEC-02: handleInvSubmitQuote_ inspects ENTIRE body and NEVER lets client reqItem.unitList override ERP price
+  const submitFnMatch = /^function handleInvSubmitQuote_\([^\n]*\{[\s\S]*?^\}/m.exec(creataSrc);
+  assert.ok(submitFnMatch && submitFnMatch[0].length > 15000, 'Must extract complete handleInvSubmitQuote_ body');
+  assert.ok(!/reqItem\.unitList/.test(submitFnMatch[0]), 'handleInvSubmitQuote_ must ignore client-supplied reqItem.unitList across ENTIRE body (P1-22 / SEC-02)');
 
   // P1-23: Parche avoids top-level const redeclaration collision with Creata GAS
   assert.match(parcheSrc, /function getProjectAPublicFoldersCacheKey_\(/);
