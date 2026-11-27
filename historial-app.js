@@ -1439,6 +1439,9 @@
       state.seguimientoEntries = allTimeline.filter(isRecordInRoleScope);
       state.historialRows = isAdmin ? parsedHist : [];
       ingestPresencePayload(presenceRes);
+      if (global.CreataLiveAlerts && typeof global.CreataLiveAlerts.ingestPresenceSnapshot === 'function') {
+        try { global.CreataLiveAlerts.ingestPresenceSnapshot(presenceRes); } catch (ePresAlert) {}
+      }
 
       if (isAdmin) {
         const basePhotos = Array.isArray(photosRaw) ? parsePhotosSheetRows(photosRaw) : [];
@@ -3746,7 +3749,7 @@
       if (document.visibilityState === 'hidden') saveHistCheckpointNow();
       else if (document.visibilityState === 'visible') {
         sendHistPresenceHeartbeat(false);
-        if (!state.syncInFlight) syncLiveData(true);
+        if (!state.syncInFlight) syncAllProjectHistory(true);
       }
     };
     const onWindowFocus = () => {

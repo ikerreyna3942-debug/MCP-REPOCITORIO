@@ -25,6 +25,7 @@ jobs:
           const jsFiles = [
             'creata-cloud.js',
             'creata-back-nav.js',
+            'creata-live-alerts.js',
             'panel-app.js',
             'panel-sw.js',
             'fotos-productos-app.js',

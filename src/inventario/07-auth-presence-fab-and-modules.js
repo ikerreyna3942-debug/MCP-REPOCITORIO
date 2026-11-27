@@ -1582,9 +1582,11 @@
                 analysis: cleanStr(opts.analysis) || ''
             }, 9000).catch(() => {});
 
-            if (/FALLO|ERROR/i.test(classClean) || /ERROR|❌/i.test(stClean)) {
+            if (/FALLO/i.test(classClean) && !/CORREGIDO/i.test(stClean)) {
                 if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.notifyFailure === 'function') {
                     window.CreataLiveAlerts.notifyFailure({
+                        classification: classClean,
+                        status: stClean,
                         module: modClean,
                         event: evClean,
                         ref: refClean,
@@ -1621,7 +1623,10 @@
             try {
                 const r = ev ? ev.reason : null;
                 const msg = cleanStr((r && r.message) ? r.message : r);
-                if (!msg || /AbortError|The user aborted a request/i.test(msg)) return;
+                if (
+                    !msg ||
+                    /AbortError|The user aborted a request|The operation was aborted|signal is aborted|play\(\)\s*request\s*was\s*interrupted|writeText.*Clipboard|Document is not focused|not allowed by the user agent/i.test(msg)
+                ) return;
                 reportSystemHistoryEvent({
                     classification: 'FALLO DE CÓDIGO',
                     module: 'JS Cliente · Promise',

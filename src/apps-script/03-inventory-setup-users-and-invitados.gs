@@ -1199,17 +1199,6 @@ function checkAndRegisterGuestDevice_(ss, guestUser, rawDeviceId, rawDeviceLabel
     if (existingIdx === -1 && devices.length >= maxAllowedPlaces) {
       const placesDesc = devices.map((d, idx) => 'Lugar ' + (idx + 1) + ': ' + (d.label || 'Dispositivo')).join(' · ');
       const pluralLbl = maxAllowedPlaces === 1 ? '1 dispositivo permitido' : (maxAllowedPlaces + ' dispositivos permitidos');
-      registrarEventoHistorial_(ss || getSpreadsheet_(), {
-        clasificacion: 'ALERTA TÉCNICA',
-        modulo: 'AppsScript · INVITADOS (Límite ' + maxAllowedPlaces + ' Dispositivos)',
-        evento: 'ACCESO BLOQUEADO POR LÍMITE DE DISPOSITIVOS PERMITIDOS (' + maxAllowedPlaces + ')',
-        estado: '⚠️ BLOQUEADO',
-        usuario: (guestUser.nombre || email) + ' (' + email + ')',
-        sucursal: 'INVITADOS (SOLO VER)',
-        referencia: 'Intento en dispositivo extra: ' + devLabel + ' [ID:' + devId + ']',
-        detalle: 'El correo ' + email + ' ya tiene sus ' + maxAllowedPlaces + ' lugares ocupados (' + placesDesc + ').',
-        analisis: 'Regla activa en hoja INVITADOS (Columna H = ' + maxAllowedPlaces + '): para liberar lugares, borrar la celda de Dispositivos Autorizados (Columna J) o aumentar Dispositivos Permitidos (Columna H).'
-      });
       return {
         ok: false,
         limitReached: true,

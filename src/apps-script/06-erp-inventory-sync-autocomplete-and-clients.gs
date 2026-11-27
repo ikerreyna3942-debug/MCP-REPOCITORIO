@@ -477,10 +477,10 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     } catch (lpptErr) {
       Logger.log('Aviso lectura LPPT solo lectura: ' + lpptErr);
       registrarEventoHistorial_(ss, {
-        clasificacion: 'ALERTA TÉCNICA',
+        clasificacion: 'FALLO DE CÓDIGO',
         modulo: 'AppsScript · sincronizarInventarioEnVivoDesdeERP',
         evento: 'LECTURA LPPT PROVEEDORES CON INCIDENCIA',
-        estado: '⚠️ ALERTA',
+        estado: '❌ ERROR',
         usuario: 'Sincronizador Automático',
         sucursal: 'INVENTARIO_EN_VIVO',
         referencia: 'LPPT Proveedores',

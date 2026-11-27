@@ -7,6 +7,50 @@ const TAB_HISTORIAL_SEG_ARCHIVO_ = 'HISTORIAL_SEG_ARCHIVO';
 const TAB_RESGUARDO_COTIZACIONES_APP_ = 'RESGUARDO_COTIZACIONES_APP';
 const TAB_RESGUARDO_STOCK_SUG_ = 'RESGUARDO_STOCK_Y_SUGERENCIAS';
 const TAB_ANALISIS_VENTAS_KEVIN_ = 'ANALISIS_VENTAS_KEVIN';
+const TAB_RESGUARDO_HISTORIAL_ = 'RESGUARDO_HISTORIAL';
+
+function backupHistorialToResguardoSheet_(ssInv) {
+  if (!ssInv) return { totalRows: 0, inserted: 0 };
+  try {
+    const shHist = ssInv.getSheetByName(TAB_HISTORIAL_);
+    if (!shHist || shHist.getLastRow() < 7) return { totalRows: 0, inserted: 0 };
+    let shBk = ssInv.getSheetByName(TAB_RESGUARDO_HISTORIAL_);
+    if (!shBk) {
+      shBk = shHist.copyTo(ssInv);
+      shBk.setName(TAB_RESGUARDO_HISTORIAL_);
+      return { totalRows: Math.max(0, shBk.getLastRow() - 6), inserted: Math.max(0, shBk.getLastRow() - 6) };
+    }
+    const srcLast = shHist.getLastRow();
+    const srcRows = shHist.getRange(7, 1, srcLast - 6, 10).getValues();
+    const bkLast = shBk.getLastRow();
+    const seen = {};
+    if (bkLast >= 7) {
+      const existing = shBk.getRange(7, 1, bkLast - 6, 10).getValues();
+      for (let i = 0; i < existing.length; i++) {
+        const er = existing[i] || [];
+        const sig = [er[0], er[1], er[2], er[3], er[7], String(er[8] || '').slice(0, 120)].join('|');
+        seen[sig] = true;
+      }
+    }
+    const toAdd = [];
+    for (let j = 0; j < srcRows.length; j++) {
+      const sr = srcRows[j] || [];
+      if (!sr[0] && !sr[3] && !sr[8]) continue;
+      const sig = [sr[0], sr[1], sr[2], sr[3], sr[7], String(sr[8] || '').slice(0, 120)].join('|');
+      if (seen[sig]) continue;
+      seen[sig] = true;
+      toAdd.push(sr.slice(0, 10));
+    }
+    if (toAdd.length > 0) {
+      const startRow = Math.max(7, shBk.getLastRow() + 1);
+      ensureSheetGridCapacity_(shBk, startRow + toAdd.length + 5, 10);
+      shBk.getRange(startRow, 1, toAdd.length, 10).setValues(toAdd);
+    }
+    return { totalRows: Math.max(0, shBk.getLastRow() - 6), inserted: toAdd.length };
+  } catch (eBkHist) {
+    return { totalRows: 0, inserted: 0 };
+  }
+}
 
 function canonicalKevinBranch_(raw) {
   const u = normPlainUpper_(raw || '').replace(/[^A-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -783,6 +827,7 @@ function handleHistArchiveAndAnalyzeKevin_(body) {
     ];
     const shStockSugBackup = ensureStyledBackupSheet_(ssInv, TAB_RESGUARDO_STOCK_SUG_, stockSugHeaders);
     const upStockSug = upsertRowsByKeyCol_(shStockSugBackup, stockSugHeaders, 3, stockSugBackupRows);
+    const upHistorialBackup = backupHistorialToResguardoSheet_(ssInv);
 
     // ------------------------------------------------------------------------
     // 5. MOTOR DE ANÁLISIS: ¿POR QUÉ NO SE CIERRAN LAS VENTAS? + GERENTES + ASESORES

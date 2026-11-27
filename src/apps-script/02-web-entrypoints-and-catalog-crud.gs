@@ -693,6 +693,14 @@ function doPost(e) {
     }
     return jsonResponse_({ ok: false, error: 'Acción no reconocida: ' + action });
   } catch (err) {
+    const errMsg = (err && err.message) ? err.message : String(err);
+    if (isTransientLockTimeoutError_(errMsg)) {
+      return jsonResponse_({
+        ok: false,
+        retryable: true,
+        error: 'Otro guardado está en curso, reintentando automáticamente...'
+      });
+    }
     if (parsedAction !== 'inv_log_event') {
       try {
         registrarEventoHistorial_(getSpreadsheet_(), {
@@ -703,13 +711,19 @@ function doPost(e) {
           usuario: String((parsedBody && (parsedBody.advisorEmail || parsedBody.email)) || 'WebApp'),
           sucursal: String((parsedBody && (parsedBody.erpStore || parsedBody.sheetTab)) || ''),
           referencia: parsedAction || 'doPost',
-          detalle: (err && err.message) ? err.message : String(err),
+          detalle: errMsg,
           analisis: analizarCausaFalloCodigo_(err, 'AppsScript · doPost', parsedAction)
         });
       } catch (eHistIgnore) {}
     }
-    return jsonResponse_({ ok: false, error: err.message || String(err) });
+    return jsonResponse_({ ok: false, error: errMsg });
   }
+}
+
+function isTransientLockTimeoutError_(errOrMsg) {
+  const txt = String((errOrMsg && (errOrMsg.message || errOrMsg)) || '').trim();
+  if (!txt) return false;
+  return /obtener el candado ha expirado|Lock timeout|Timed out waiting for lock|waitLock/i.test(txt);
 }
 
 function readAllCatalogRows_(includePrivate) {

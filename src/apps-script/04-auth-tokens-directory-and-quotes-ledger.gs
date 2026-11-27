@@ -103,12 +103,15 @@ function checkLoginThrottle_(email) {
 function recordLoginFailure_(email) {
   try {
     const clean = String(email || '').trim().toLowerCase();
-    if (!clean) return;
+    if (!clean) return 1;
     const cache = CacheService.getScriptCache();
     const key = makeShortCacheKey_('lf_', clean);
     const fails = (parseInt(cache.get(key) || '0', 10) || 0) + 1;
-    cache.put(key, String(fails), 600);
-  } catch (e) {}
+    cache.put(key, String(fails), 900);
+    return fails;
+  } catch (e) {
+    return 1;
+  }
 }
 
 function clearLoginFailures_(email) {
@@ -831,18 +834,33 @@ function handleInvLogin_(body) {
     if (!inputKey) {
       return { ok: false, error: 'Ingresa tu contraseña para acceder con tu cuenta.' };
     }
-    recordLoginFailure_(email);
-    registrarEventoHistorial_(ss, {
-      clasificacion: 'ALERTA TÉCNICA',
-      modulo: 'AppsScript · handleInvLogin_',
-      evento: 'INTENTO DE ACCESO CON CONTRASEÑA INCORRECTA',
-      estado: '⚠️ RECHAZADO',
-      usuario: email,
-      sucursal: selectedTab || (emailMatches[0] && emailMatches[0].erpStore) || 'INVENTARIO WEB',
-      referencia: 'Autenticación',
-      detalle: 'Contraseña ingresada no coincide con la clave activa del usuario (' + email + ').',
-      analisis: 'Validación de acceso ejecutada sin alterar la sesión ni las claves almacenadas.'
-    });
+    const failCount = recordLoginFailure_(email) || 1;
+    const targetBranch = selectedTab || (emailMatches[0] && emailMatches[0].erpStore) || 'INVENTARIO WEB';
+    if (failCount >= 5) {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript · handleInvLogin_',
+        evento: 'INTENTOS REPETIDOS DE ACCESO SOSPECHOSO',
+        estado: '❌ BLOQUEO',
+        usuario: email,
+        sucursal: targetBranch,
+        referencia: 'Autenticación (' + failCount + ' intentos)',
+        detalle: 'Se detectaron ' + failCount + ' intentos seguidos con contraseña incorrecta para la cuenta (' + email + ').',
+        analisis: 'Alerta crítica de seguridad N1 por intentos repetidos de contraseña en ventana corta.'
+      });
+    } else {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'ALERTA TÉCNICA',
+        modulo: 'AppsScript · handleInvLogin_',
+        evento: 'INTENTO DE ACCESO CON CONTRASEÑA INCORRECTA',
+        estado: '⚠️ RECHAZADO',
+        usuario: email,
+        sucursal: targetBranch,
+        referencia: 'Autenticación',
+        detalle: 'Contraseña ingresada no coincide con la clave activa del usuario (' + email + ').',
+        analisis: 'Validación de acceso ejecutada sin alterar la sesión ni las claves almacenadas.'
+      });
+    }
     return { ok: false, error: 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.' };
   }
 

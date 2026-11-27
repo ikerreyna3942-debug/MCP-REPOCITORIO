@@ -1530,6 +1530,10 @@
     const LIVE_POLL_INTERVAL_MS = 60000;
 
     (function initCreataLiveAlertsModule() {
+        if (window.CreataLiveAlerts && window.CreataLiveAlerts.__unifiedV2) {
+            window.toggleLiveAlertsPermission = window.CreataLiveAlerts.enableAndTest;
+            return;
+        }
         let seenMap = {};
         let pollBaselineSeeded = false;
         let pollInFlight = false;
@@ -1636,6 +1640,7 @@
         }
 
         function notifyQuoteCreated(info) {
+            if (!(typeof isFotosAppOwner === 'function' && isFotosAppOwner())) return;
             const d = info || {};
             const folio = cleanStr(d.folio) || 'SIN-FOLIO';
             const client = cleanStr(d.clientName) || 'Cliente';
@@ -1645,7 +1650,7 @@
             const sig = 'QUOTE|' + folio;
             if (!markAlertSeen(sig)) return;
 
-            const title = '📋 Movimiento: Cotización ' + folio;
+            const title = '📋 Nueva Cotización ' + folio;
             const bodyParts = [client];
             if (store) bodyParts.push(store);
             if (advisor) bodyParts.push(advisor);
@@ -1659,7 +1664,11 @@
         }
 
         function notifyFailure(info) {
+            if (!(typeof isFotosAppOwner === 'function' && isFotosAppOwner())) return;
             const d = info || {};
+            const clas = cleanStr(d.classification).toUpperCase();
+            if (clas && clas.indexOf('ALERTA') !== -1 && clas.indexOf('FALLO') === -1) return;
+            if (/CORREGIDO/i.test(cleanStr(d.status))) return;
             const ev = cleanStr(d.event) || 'Falla crítica';
             const mod = cleanStr(d.module) || 'Sistema';
             const det = cleanStr(d.detail).slice(0, 120);
@@ -1667,7 +1676,7 @@
             const sig = 'ERR|' + mod + '|' + ev + '|' + ref + '|' + det.slice(0, 60);
             if (!markAlertSeen(sig)) return;
 
-            const title = '⚠️ Falla fuerte: ' + ev;
+            const title = '⚠️ Falla crítica: ' + ev;
             const body = [mod, ref, det].filter(Boolean).join(' · ');
             showInAppToast({ kind: 'error', title: title, body: body });
             dispatchSystemNotification(title, body, sig);
@@ -1683,8 +1692,8 @@
             try { localStorage.setItem('creata_live_alerts_enabled_v1', '1'); } catch (e) {}
             const title = '🔔 Alertas en vivo activas';
             const body = (perm === 'granted')
-                ? 'Recibirás avisos en laptop y celular cuando se cree una cotización o ocurra una falla fuerte.'
-                : 'Avisos en pantalla activos para movimientos de creación y fallas fuertes.';
+                ? 'Recibirás avisos de cotizaciones, seguimiento, conexiones/desconexiones y fallas críticas.'
+                : 'Avisos en pantalla activos para cotizaciones, seguimiento, conexiones y fallas críticas.';
             showInAppToast({ kind: 'quote', title: title, body: body });
             if (perm === 'granted') {
                 dispatchSystemNotification(title, body, 'creata-alert-test-' + Date.now());
@@ -1719,7 +1728,7 @@
                             continue;
                         }
                         if (!markAlertSeen(rowSig)) continue;
-                        if (/COTIZACION CREADA|NUEVA_COTIZACION/i.test(ev)) {
+                        if (/COTIZACI[ÓO]N CREADA|NUEVA_COTIZACION/i.test(ev)) {
                             notifyQuoteCreated({
                                 folio: ref || ts,
                                 clientName: det.slice(0, 48) || usr,
@@ -1727,10 +1736,12 @@
                                 advisorName: usr
                             });
                             refreshMyLiveQuotesThrottled(true);
-                        } else if (/FALLO/i.test(clas) || /ERROR|❌/i.test(st)) {
+                        } else if (clas.indexOf('FALLO') !== -1 && !/CORREGIDO/i.test(st)) {
                             notifyFailure({
+                                classification: clas,
                                 module: mod,
                                 event: ev,
+                                status: st,
                                 ref: ref,
                                 detail: det || st,
                                 user: usr,
@@ -1747,6 +1758,8 @@
 
         window.CreataLiveAlerts = {
             notifyQuoteCreated: notifyQuoteCreated,
+            notifySeguimientoEvent: function () {},
+            ingestPresenceSnapshot: function () {},
             notifyFailure: notifyFailure,
             enableAndTest: enableAndTest,
             poll: poll

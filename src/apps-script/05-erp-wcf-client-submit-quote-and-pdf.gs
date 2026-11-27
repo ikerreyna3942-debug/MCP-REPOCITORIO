@@ -2195,10 +2195,10 @@ function handleInvDownloadErpQuotePdf_(body) {
 
     const failMsg = lastErrMsg || 'No fue posible obtener el PDF original desde VisorReportes.aspx en S Mueblería.';
     registrarEventoHistorial_(ss, {
-      clasificacion: 'ALERTA TÉCNICA',
+      clasificacion: 'FALLO DE CÓDIGO',
       modulo: 'AppsScript · VisorReportes S Mueblería',
       evento: 'AVISO AL DESCARGAR PDF ORIGINAL S MUEBLERÍA',
-      estado: '⚠️ ALERTA',
+      estado: '❌ ERROR',
       usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
       sucursal: resolved.erpStore || verifiedUser.erpStore || '',
       referencia: (resolved.folio || '') + ' (ID ERP ' + resolved.quoteIdNum + ')',

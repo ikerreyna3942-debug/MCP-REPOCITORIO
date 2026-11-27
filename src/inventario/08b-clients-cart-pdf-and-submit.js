@@ -2166,16 +2166,6 @@
                 } catch (eLiveChk) {}
             }
 
-            reportSystemHistoryEvent({
-                classification: 'ALERTA TÉCNICA',
-                module: 'inventario-app.js · submitQuoteOrder',
-                event: 'RESPALDO PORTAPAPELES EN COTIZACIÓN',
-                status: '⚠️ ALERTA',
-                ref: payload.orderCode || '',
-                detail: 'Respuesta WebApp no disponible o requiere publicar nueva versión (' + cleanStr((res && res.error) || 'sin conexión directa') + ').',
-                analysis: 'Verificar conexión de red o publicar Nueva versión de AppsScript_Creata_Drive_Sheets.gs en Administrar implementaciones.'
-            });
-
             window.copyCartSummary();
             renderQuoteStatusBanner(
                 'warn',

@@ -309,6 +309,21 @@
             const remaining = [];
             let syncedAny = false;
             let syncedVisualAny = false;
+            const reportStalledOutboxEntry = function (stalledEntry, errTxt) {
+                if (!stalledEntry || Number(stalledEntry.retryCount) !== 3 || stalledEntry._stalledAlertSent) return;
+                stalledEntry._stalledAlertSent = true;
+                try {
+                    callWebAppPost('inv_log_event', Object.assign({
+                        classification: 'ALERTA TÉCNICA',
+                        module: 'fotos-productos-app.js · Cola Offline',
+                        event: 'COLA SIN CONEXIÓN ATORADA EN SUBIDA DE FOTOS',
+                        status: '⚠️ ALERTA',
+                        ref: cleanStr(stalledEntry.sku || stalledEntry.overrideKey || stalledEntry.fileName || stalledEntry.id),
+                        detail: 'Archivo pendiente tras 3 reintentos (' + cleanStr(stalledEntry.fileName || stalledEntry.type) + '): ' + cleanStr(errTxt || 'sin respuesta'),
+                        analysis: 'Alerta normal N3: foto guardada en IndexedDB pendiente de sincronizar con Google Drive.'
+                    }, buildOwnerAuthPayload()), 9000).catch(function () {});
+                } catch (eN3) {}
+            };
 
             for (let i = 0; i < queue.length; i++) {
                 const entry = queue[i];
@@ -400,6 +415,7 @@
                     } else {
                         entry.retryCount = (Number(entry.retryCount) || 0) + 1;
                         entry.lastError = cleanStr(res && res.error);
+                        reportStalledOutboxEntry(entry, entry.lastError);
                         if (entry.retryCount < 10) {
                             remaining.push(entry);
                         } else if (entry.localFileId) {
@@ -523,6 +539,7 @@
                     } else {
                         entry.retryCount = (Number(entry.retryCount) || 0) + 1;
                         entry.lastError = cleanStr(res && res.error);
+                        reportStalledOutboxEntry(entry, entry.lastError);
                         if (entry.retryCount < 10) {
                             remaining.push(entry);
                         } else if (entry.localFileId) {
@@ -595,6 +612,7 @@
                     } else {
                         entry.retryCount = (Number(entry.retryCount) || 0) + 1;
                         entry.lastError = cleanStr(res && res.error);
+                        reportStalledOutboxEntry(entry, entry.lastError);
                         if (entry.retryCount < 10) {
                             remaining.push(entry);
                         } else {
@@ -684,6 +702,7 @@
                         entry.driveFileId = resolvedFid;
                         entry.retryCount = (Number(entry.retryCount) || 0) + 1;
                         entry.lastError = cleanStr(res && res.error);
+                        reportStalledOutboxEntry(entry, entry.lastError);
                         if (entry.retryCount < 10) {
                             remaining.push(entry);
                         } else if (String(entry.driveFileId || '').indexOf('local_inb_') === 0) {

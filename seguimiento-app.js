@@ -3956,13 +3956,33 @@
       return;
     }
 
+    const notifySegLiveIfOwner = () => {
+      try {
+        const evUp = String(eventCode || '').trim().toUpperCase();
+        if (!/^SEG_(?:WHATSAPP|TELEFONO|EMAIL|CIERRE)$/.test(evUp)) return;
+        if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.notifySeguimientoEvent === 'function') {
+          window.CreataLiveAlerts.notifySeguimientoEvent({
+            ts: new Date().toLocaleString('es-MX'),
+            event: evUp,
+            folio: refFolio,
+            user: (payload && payload.usuario) || (APP_STATE.user && APP_STATE.user.nombre) || 'Usuario',
+            branch: (payload && payload.sucursal) || (APP_STATE.user && APP_STATE.user.sucursal) || '',
+            rawDetail: JSON.stringify(payload || {})
+          });
+        }
+      } catch (eLiveSeg) {}
+    };
+
     const res = await callWebAppPost({
       action: 'seg_action',
       subAction: eventCode,
       folio: refFolio,
       payload
     }, 10000, opts);
-    if (res && res.ok) return;
+    if (res && res.ok) {
+      notifySegLiveIfOwner();
+      return;
+    }
     if (res && res.forbidden === true) return;
     if (res && res.retryable === true) {
       enqueueSegOfflineOutbox({ type: 'seg_event', eventCode, refFolio, payload, queuedAt: Date.now() });
@@ -3982,6 +4002,8 @@
     }, 10000, opts);
     if (!resFallback || !resFallback.ok) {
       enqueueSegOfflineOutbox({ type: 'seg_event', eventCode, refFolio, payload, queuedAt: Date.now() });
+    } else {
+      notifySegLiveIfOwner();
     }
   }
 

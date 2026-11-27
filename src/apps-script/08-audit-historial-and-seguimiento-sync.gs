@@ -930,6 +930,24 @@ function handleSegAction_(body) {
     }
   } catch (eSegAct) {
     Logger.log('Aviso handleSegAction_: ' + eSegAct);
+    const segErrMsg = (eSegAct && eSegAct.message) ? eSegAct.message : String(eSegAct);
+    try {
+      registrarEventoHistorial_(ssInv, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript · handleSegAction_',
+        evento: 'FALLA AL GUARDAR EN SEGUIMIENTO DE COTIZACIONES',
+        estado: '❌ ERROR',
+        usuario: actorName + (actorEmail ? (' (' + actorEmail + ')') : ''),
+        sucursal: actorBranch || 'TODAS',
+        referencia: histRefFolio || sub,
+        detalle: segErrMsg.slice(0, 400),
+        analisis: analizarCausaFalloCodigo_(eSegAct, 'AppsScript · handleSegAction_', sub)
+      });
+    } catch (eHistSegErr) {}
+    return {
+      ok: false,
+      error: 'No se pudo guardar el evento en COTIZACIONES BASE DE DATOS: ' + segErrMsg
+    };
   } finally {
     if (gotLock) {
       try { lock.releaseLock(); } catch (eRel) {}

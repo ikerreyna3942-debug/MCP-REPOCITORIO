@@ -1248,6 +1248,11 @@
                 }
             }
             if (res && res.ok && Array.isArray(res.users)) {
+                try {
+                    if (window.CreataLiveAlerts && typeof window.CreataLiveAlerts.ingestPresenceSnapshot === 'function') {
+                        window.CreataLiveAlerts.ingestPresenceSnapshot(res);
+                    }
+                } catch (ePresAlert) {}
                 const serverNow = Number(res.serverTimeMs) > 0 ? Number(res.serverTimeMs) : Date.now();
                 const thresholdMs = Number(res.thresholdMs) > 0 ? Number(res.thresholdMs) : 180000;
                 const list = res.users.filter(Boolean).map(function (raw) {

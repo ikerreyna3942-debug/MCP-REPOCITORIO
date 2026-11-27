@@ -1621,6 +1621,14 @@ function doPost(e) {
     }
     return jsonResponse_({ ok: false, error: 'Acción no reconocida: ' + action });
   } catch (err) {
+    const errMsg = (err && err.message) ? err.message : String(err);
+    if (isTransientLockTimeoutError_(errMsg)) {
+      return jsonResponse_({
+        ok: false,
+        retryable: true,
+        error: 'Otro guardado está en curso, reintentando automáticamente...'
+      });
+    }
     if (parsedAction !== 'inv_log_event') {
       try {
         registrarEventoHistorial_(getSpreadsheet_(), {
@@ -1631,13 +1639,19 @@ function doPost(e) {
           usuario: String((parsedBody && (parsedBody.advisorEmail || parsedBody.email)) || 'WebApp'),
           sucursal: String((parsedBody && (parsedBody.erpStore || parsedBody.sheetTab)) || ''),
           referencia: parsedAction || 'doPost',
-          detalle: (err && err.message) ? err.message : String(err),
+          detalle: errMsg,
           analisis: analizarCausaFalloCodigo_(err, 'AppsScript · doPost', parsedAction)
         });
       } catch (eHistIgnore) {}
     }
-    return jsonResponse_({ ok: false, error: err.message || String(err) });
+    return jsonResponse_({ ok: false, error: errMsg });
   }
+}
+
+function isTransientLockTimeoutError_(errOrMsg) {
+  const txt = String((errOrMsg && (errOrMsg.message || errOrMsg)) || '').trim();
+  if (!txt) return false;
+  return /obtener el candado ha expirado|Lock timeout|Timed out waiting for lock|waitLock/i.test(txt);
 }
 
 function readAllCatalogRows_(includePrivate) {
@@ -3337,17 +3351,6 @@ function checkAndRegisterGuestDevice_(ss, guestUser, rawDeviceId, rawDeviceLabel
     if (existingIdx === -1 && devices.length >= maxAllowedPlaces) {
       const placesDesc = devices.map((d, idx) => 'Lugar ' + (idx + 1) + ': ' + (d.label || 'Dispositivo')).join(' · ');
       const pluralLbl = maxAllowedPlaces === 1 ? '1 dispositivo permitido' : (maxAllowedPlaces + ' dispositivos permitidos');
-      registrarEventoHistorial_(ss || getSpreadsheet_(), {
-        clasificacion: 'ALERTA TÉCNICA',
-        modulo: 'AppsScript · INVITADOS (Límite ' + maxAllowedPlaces + ' Dispositivos)',
-        evento: 'ACCESO BLOQUEADO POR LÍMITE DE DISPOSITIVOS PERMITIDOS (' + maxAllowedPlaces + ')',
-        estado: '⚠️ BLOQUEADO',
-        usuario: (guestUser.nombre || email) + ' (' + email + ')',
-        sucursal: 'INVITADOS (SOLO VER)',
-        referencia: 'Intento en dispositivo extra: ' + devLabel + ' [ID:' + devId + ']',
-        detalle: 'El correo ' + email + ' ya tiene sus ' + maxAllowedPlaces + ' lugares ocupados (' + placesDesc + ').',
-        analisis: 'Regla activa en hoja INVITADOS (Columna H = ' + maxAllowedPlaces + '): para liberar lugares, borrar la celda de Dispositivos Autorizados (Columna J) o aumentar Dispositivos Permitidos (Columna H).'
-      });
       return {
         ok: false,
         limitReached: true,
@@ -3700,12 +3703,15 @@ function checkLoginThrottle_(email) {
 function recordLoginFailure_(email) {
   try {
     const clean = String(email || '').trim().toLowerCase();
-    if (!clean) return;
+    if (!clean) return 1;
     const cache = CacheService.getScriptCache();
     const key = makeShortCacheKey_('lf_', clean);
     const fails = (parseInt(cache.get(key) || '0', 10) || 0) + 1;
-    cache.put(key, String(fails), 600);
-  } catch (e) {}
+    cache.put(key, String(fails), 900);
+    return fails;
+  } catch (e) {
+    return 1;
+  }
 }
 
 function clearLoginFailures_(email) {
@@ -4428,18 +4434,33 @@ function handleInvLogin_(body) {
     if (!inputKey) {
       return { ok: false, error: 'Ingresa tu contraseña para acceder con tu cuenta.' };
     }
-    recordLoginFailure_(email);
-    registrarEventoHistorial_(ss, {
-      clasificacion: 'ALERTA TÉCNICA',
-      modulo: 'AppsScript · handleInvLogin_',
-      evento: 'INTENTO DE ACCESO CON CONTRASEÑA INCORRECTA',
-      estado: '⚠️ RECHAZADO',
-      usuario: email,
-      sucursal: selectedTab || (emailMatches[0] && emailMatches[0].erpStore) || 'INVENTARIO WEB',
-      referencia: 'Autenticación',
-      detalle: 'Contraseña ingresada no coincide con la clave activa del usuario (' + email + ').',
-      analisis: 'Validación de acceso ejecutada sin alterar la sesión ni las claves almacenadas.'
-    });
+    const failCount = recordLoginFailure_(email) || 1;
+    const targetBranch = selectedTab || (emailMatches[0] && emailMatches[0].erpStore) || 'INVENTARIO WEB';
+    if (failCount >= 5) {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript · handleInvLogin_',
+        evento: 'INTENTOS REPETIDOS DE ACCESO SOSPECHOSO',
+        estado: '❌ BLOQUEO',
+        usuario: email,
+        sucursal: targetBranch,
+        referencia: 'Autenticación (' + failCount + ' intentos)',
+        detalle: 'Se detectaron ' + failCount + ' intentos seguidos con contraseña incorrecta para la cuenta (' + email + ').',
+        analisis: 'Alerta crítica de seguridad N1 por intentos repetidos de contraseña en ventana corta.'
+      });
+    } else {
+      registrarEventoHistorial_(ss, {
+        clasificacion: 'ALERTA TÉCNICA',
+        modulo: 'AppsScript · handleInvLogin_',
+        evento: 'INTENTO DE ACCESO CON CONTRASEÑA INCORRECTA',
+        estado: '⚠️ RECHAZADO',
+        usuario: email,
+        sucursal: targetBranch,
+        referencia: 'Autenticación',
+        detalle: 'Contraseña ingresada no coincide con la clave activa del usuario (' + email + ').',
+        analisis: 'Validación de acceso ejecutada sin alterar la sesión ni las claves almacenadas.'
+      });
+    }
     return { ok: false, error: 'Contraseña incorrecta. Verifica tu contraseña temporal o personal.' };
   }
 
@@ -7559,10 +7580,10 @@ function handleInvDownloadErpQuotePdf_(body) {
 
     const failMsg = lastErrMsg || 'No fue posible obtener el PDF original desde VisorReportes.aspx en S Mueblería.';
     registrarEventoHistorial_(ss, {
-      clasificacion: 'ALERTA TÉCNICA',
+      clasificacion: 'FALLO DE CÓDIGO',
       modulo: 'AppsScript · VisorReportes S Mueblería',
       evento: 'AVISO AL DESCARGAR PDF ORIGINAL S MUEBLERÍA',
-      estado: '⚠️ ALERTA',
+      estado: '❌ ERROR',
       usuario: (verifiedUser.nombre || verifiedUser.correo) + ' (' + verifiedUser.correo + ')',
       sucursal: resolved.erpStore || verifiedUser.erpStore || '',
       referencia: (resolved.folio || '') + ' (ID ERP ' + resolved.quoteIdNum + ')',
@@ -8406,10 +8427,10 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
     } catch (lpptErr) {
       Logger.log('Aviso lectura LPPT solo lectura: ' + lpptErr);
       registrarEventoHistorial_(ss, {
-        clasificacion: 'ALERTA TÉCNICA',
+        clasificacion: 'FALLO DE CÓDIGO',
         modulo: 'AppsScript · sincronizarInventarioEnVivoDesdeERP',
         evento: 'LECTURA LPPT PROVEEDORES CON INCIDENCIA',
-        estado: '⚠️ ALERTA',
+        estado: '❌ ERROR',
         usuario: 'Sincronizador Automático',
         sucursal: 'INVENTARIO_EN_VIVO',
         referencia: 'LPPT Proveedores',
@@ -13922,6 +13943,24 @@ function handleSegAction_(body) {
     }
   } catch (eSegAct) {
     Logger.log('Aviso handleSegAction_: ' + eSegAct);
+    const segErrMsg = (eSegAct && eSegAct.message) ? eSegAct.message : String(eSegAct);
+    try {
+      registrarEventoHistorial_(ssInv, {
+        clasificacion: 'FALLO DE CÓDIGO',
+        modulo: 'AppsScript · handleSegAction_',
+        evento: 'FALLA AL GUARDAR EN SEGUIMIENTO DE COTIZACIONES',
+        estado: '❌ ERROR',
+        usuario: actorName + (actorEmail ? (' (' + actorEmail + ')') : ''),
+        sucursal: actorBranch || 'TODAS',
+        referencia: histRefFolio || sub,
+        detalle: segErrMsg.slice(0, 400),
+        analisis: analizarCausaFalloCodigo_(eSegAct, 'AppsScript · handleSegAction_', sub)
+      });
+    } catch (eHistSegErr) {}
+    return {
+      ok: false,
+      error: 'No se pudo guardar el evento en COTIZACIONES BASE DE DATOS: ' + segErrMsg
+    };
   } finally {
     if (gotLock) {
       try { lock.releaseLock(); } catch (eRel) {}
@@ -16843,6 +16882,50 @@ const TAB_HISTORIAL_SEG_ARCHIVO_ = 'HISTORIAL_SEG_ARCHIVO';
 const TAB_RESGUARDO_COTIZACIONES_APP_ = 'RESGUARDO_COTIZACIONES_APP';
 const TAB_RESGUARDO_STOCK_SUG_ = 'RESGUARDO_STOCK_Y_SUGERENCIAS';
 const TAB_ANALISIS_VENTAS_KEVIN_ = 'ANALISIS_VENTAS_KEVIN';
+const TAB_RESGUARDO_HISTORIAL_ = 'RESGUARDO_HISTORIAL';
+
+function backupHistorialToResguardoSheet_(ssInv) {
+  if (!ssInv) return { totalRows: 0, inserted: 0 };
+  try {
+    const shHist = ssInv.getSheetByName(TAB_HISTORIAL_);
+    if (!shHist || shHist.getLastRow() < 7) return { totalRows: 0, inserted: 0 };
+    let shBk = ssInv.getSheetByName(TAB_RESGUARDO_HISTORIAL_);
+    if (!shBk) {
+      shBk = shHist.copyTo(ssInv);
+      shBk.setName(TAB_RESGUARDO_HISTORIAL_);
+      return { totalRows: Math.max(0, shBk.getLastRow() - 6), inserted: Math.max(0, shBk.getLastRow() - 6) };
+    }
+    const srcLast = shHist.getLastRow();
+    const srcRows = shHist.getRange(7, 1, srcLast - 6, 10).getValues();
+    const bkLast = shBk.getLastRow();
+    const seen = {};
+    if (bkLast >= 7) {
+      const existing = shBk.getRange(7, 1, bkLast - 6, 10).getValues();
+      for (let i = 0; i < existing.length; i++) {
+        const er = existing[i] || [];
+        const sig = [er[0], er[1], er[2], er[3], er[7], String(er[8] || '').slice(0, 120)].join('|');
+        seen[sig] = true;
+      }
+    }
+    const toAdd = [];
+    for (let j = 0; j < srcRows.length; j++) {
+      const sr = srcRows[j] || [];
+      if (!sr[0] && !sr[3] && !sr[8]) continue;
+      const sig = [sr[0], sr[1], sr[2], sr[3], sr[7], String(sr[8] || '').slice(0, 120)].join('|');
+      if (seen[sig]) continue;
+      seen[sig] = true;
+      toAdd.push(sr.slice(0, 10));
+    }
+    if (toAdd.length > 0) {
+      const startRow = Math.max(7, shBk.getLastRow() + 1);
+      ensureSheetGridCapacity_(shBk, startRow + toAdd.length + 5, 10);
+      shBk.getRange(startRow, 1, toAdd.length, 10).setValues(toAdd);
+    }
+    return { totalRows: Math.max(0, shBk.getLastRow() - 6), inserted: toAdd.length };
+  } catch (eBkHist) {
+    return { totalRows: 0, inserted: 0 };
+  }
+}
 
 function canonicalKevinBranch_(raw) {
   const u = normPlainUpper_(raw || '').replace(/[^A-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -17619,6 +17702,7 @@ function handleHistArchiveAndAnalyzeKevin_(body) {
     ];
     const shStockSugBackup = ensureStyledBackupSheet_(ssInv, TAB_RESGUARDO_STOCK_SUG_, stockSugHeaders);
     const upStockSug = upsertRowsByKeyCol_(shStockSugBackup, stockSugHeaders, 3, stockSugBackupRows);
+    const upHistorialBackup = backupHistorialToResguardoSheet_(ssInv);
 
     // ------------------------------------------------------------------------
     // 5. MOTOR DE ANÁLISIS: ¿POR QUÉ NO SE CIERRAN LAS VENTAS? + GERENTES + ASESORES
