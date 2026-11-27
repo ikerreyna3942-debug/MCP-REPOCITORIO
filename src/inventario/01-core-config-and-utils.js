@@ -787,3 +787,8 @@
     const liveCuratedFabrics = new Set();
     let liveFabricsListSorted = [];
     const liveSkuPrefixProv = new Map();
+
+    const COMPRAS_DATE_NOTICE = 'Solicitar información con compras';
+    function isComprasManagedDateProvider(provRaw) {
+        return /\b(?:SKANOR|BARSA)\b/i.test(cleanStr(provRaw));
+    }

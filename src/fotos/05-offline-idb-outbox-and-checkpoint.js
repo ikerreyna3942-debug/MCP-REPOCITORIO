@@ -1076,7 +1076,9 @@
                     locSummary: locMeta.locSummary,
                     locSearchTokens: locMeta.locSearchTokens,
                     precio: formatListPriceText(it.pr),
-                    fe: feRaw === 'Sin piezas solicitadas' ? '' : feRaw,
+                    fe: isComprasManagedDateProvider(it.p || it.proveedor)
+                        ? COMPRAS_DATE_NOTICE
+                        : (feRaw === 'Sin piezas solicitadas' ? '' : feRaw),
                     destFolderId: dest.id,
                     destFolderName: dest.name,
                     searchSkuNorm: normalizeSearchText(sku),

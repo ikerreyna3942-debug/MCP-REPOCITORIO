@@ -528,9 +528,25 @@
         return dayNum + ' de ' + monthName;
     }
 
+    function itemRequiresComprasDateNotice(it) {
+        if (!it) return false;
+        if (isComprasManagedDateProvider(it.p)) return true;
+        const feNorm = cleanStr(it.fe).toLowerCase();
+        if (feNorm && feNorm === COMPRAS_DATE_NOTICE.toLowerCase()) return true;
+        const skuU = cleanStr(it.s).toUpperCase();
+        if (skuU && !cleanStr(it.p)) {
+            const lpptArr = liveLpptBySku.get(skuU);
+            if (lpptArr && lpptArr.length > 0 && lpptArr.some(e => isComprasManagedDateProvider(e && e.prov))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Días restantes para la llegada de la pieza en LPPT (null si no hay dato o no tiene piezas en LPPT)
     function getItemLpptRemainingDays(it) {
         if (!it || getLpptStock(it) <= 0) return null;
+        if (itemRequiresComprasDateNotice(it)) return null;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -575,6 +591,11 @@
         const qty = Math.max(0, Number(lpptQty) || 0);
         if (qty <= 0) return '';
 
+        const dispWord = qty === 1 ? 'disponible' : 'disponibles';
+        if (itemRequiresComprasDateNotice(it)) {
+            return 'LPPT: ' + qty + ' ' + dispWord + ' · ' + COMPRAS_DATE_NOTICE;
+        }
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -594,7 +615,6 @@
             arrivalDate = d;
         }
 
-        const dispWord = qty === 1 ? 'disponible' : 'disponibles';
         const parts = ['LPPT: ' + qty + ' ' + dispWord];
 
         if (remDays !== null) {

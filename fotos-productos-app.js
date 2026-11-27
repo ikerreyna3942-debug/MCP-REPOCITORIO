@@ -1048,6 +1048,11 @@
         return payload;
     }
 
+    const COMPRAS_DATE_NOTICE = 'Solicitar información con compras';
+    function isComprasManagedDateProvider(provRaw) {
+        return /\b(?:SKANOR|BARSA)\b/i.test(cleanStr(provRaw));
+    }
+
     const DELETED_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
     let _drainingDeletedQueue = false;
 
@@ -2711,8 +2716,15 @@
 
                 let cur = map.get(sku);
                 if (!cur) {
-                    cur = { qty: 0, bestDate: null, nom: r.length > 8 ? cleanStr(r[8]) : '' };
+                    cur = {
+                        qty: 0,
+                        bestDate: null,
+                        nom: r.length > 8 ? cleanStr(r[8]) : '',
+                        prov: r.length > 1 ? cleanStr(r[1]) : ''
+                    };
                     map.set(sku, cur);
+                } else if (!cur.prov && r.length > 1 && cleanStr(r[1])) {
+                    cur.prov = cleanStr(r[1]);
                 }
                 cur.qty += freeQty;
                 if (bufferedDate) {
@@ -2822,11 +2834,16 @@
                         let feText = (colFeIdx !== -1 && colFeIdx < r.length) ? cleanStr(r[colFeIdx]) : '';
                         if (feText === 'Sin piezas solicitadas') feText = '';
                         const liveLppt = lpptMap ? lpptMap.get(sku) : null;
+                        const isComprasProvFotos = isComprasManagedDateProvider(prov || (liveLppt && liveLppt.prov));
                         if (liveLppt && liveLppt.qty > 0) {
                             st[0] = liveLppt.qty;
-                            if (liveLppt.bestDate) {
+                            if (isComprasProvFotos) {
+                                feText = COMPRAS_DATE_NOTICE;
+                            } else if (liveLppt.bestDate) {
                                 feText = formatFotosDateDMY(liveLppt.bestDate);
                             }
+                        } else if (isComprasProvFotos) {
+                            feText = COMPRAS_DATE_NOTICE;
                         }
 
                         const precioFmt = (colPrecioIdx !== -1 && colPrecioIdx < r.length)
@@ -8163,7 +8180,9 @@
                     locSummary: locMeta.locSummary,
                     locSearchTokens: locMeta.locSearchTokens,
                     precio: formatListPriceText(it.pr),
-                    fe: feRaw === 'Sin piezas solicitadas' ? '' : feRaw,
+                    fe: isComprasManagedDateProvider(it.p || it.proveedor)
+                        ? COMPRAS_DATE_NOTICE
+                        : (feRaw === 'Sin piezas solicitadas' ? '' : feRaw),
                     destFolderId: dest.id,
                     destFolderName: dest.name,
                     searchSkuNorm: normalizeSearchText(sku),

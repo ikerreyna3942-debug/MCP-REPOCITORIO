@@ -2965,6 +2965,51 @@
     showToast('Abriendo Gmail con el análisis pre-llenado');
   }
 
+  function buildKevinStoreHeadsSummaryText(rep) {
+    if (!rep) return '';
+    const k = rep.kpis || {};
+    const managers = (Array.isArray(rep.byManager) ? rep.byManager : [])
+      .filter(m => (Number(m.quotesCount) || 0) > 0 || (Number(m.demandCount) || 0) > 0 || (Number(m.suggestionCount) || 0) > 0);
+    const closedTotal = (Number(k.wonCount) || 0) + (Number(k.lostCount) || 0) + (Number(k.cancelledCount) || 0);
+    const lines = [
+      `📊 *CORTE EJECUTIVO DE TIENDAS — CREATA MUEBLES*`,
+      `🗓️ *Corte:* ${cleanStr(rep.cutDateStr) || cleanStr(rep.cutId)}`,
+      '',
+      `*Resumen General:*`,
+      `• Cotizaciones registradas: *${k.totalQuotes || 0}* (${formatMoneyMXN(k.totalMxn || 0)})`,
+      `• Cerradas / resguardadas: *${closedTotal}* -> ✅ *${k.wonCount || 0} ganadas* (${formatMoneyMXN(k.wonMxn || 0)} · ${k.winRateTotalPct || 0}% conversión) | ⚠️ ${(k.lostCount || 0) + (k.cancelledCount || 0)} perdidas/canceladas`,
+      `• Abiertas activas: *${(k.uncontactedOpenCount || 0) + (k.contactedOpenCount || 0)}* -> 🔴 *${k.uncontactedOpenCount || 0} sin seguimiento registrado* (${formatMoneyMXN(k.uncontactedOpenMxn || 0)}) | 🟡 ${k.contactedOpenCount || 0} en negociación`,
+      `• Reportes en piso: *${k.demandCount || 0}* falta(s) de stock (${k.demandPieces || 0} pzas) · *${k.suggestionCount || 0}* sugerencia(s) de compra`,
+      '',
+      `*Corte por Tienda / Cabeza de Sucursal:*`
+    ];
+    managers.forEach(m => {
+      const perdCanc = (Number(m.lostCount) || 0) + (Number(m.cancelledCount) || 0);
+      lines.push(
+        `📍 *${m.branchLabel}* (${m.managerName}): *${m.quotesCount} cot.* (${formatMoneyMXN(m.totalMxn || 0)}) · ✅ Ganadas: *${m.wonCount}* (${m.winRatePct || 0}%) · 🔴 Sin contacto: *${m.uncontactedCount}*${perdCanc > 0 ? ` · Perd/Canc: ${perdCanc}` : ''}`
+      );
+    });
+    lines.push(
+      '',
+      `*Acción prioritaria para cabezas de tienda:*`,
+      `1. Las cotizaciones ya ganadas/cerradas quedaron resguardadas para dejar limpio el tablero activo.`,
+      `2. Revisar hoy con cada asesor sus cotizaciones abiertas *sin contacto registrado* y actualizar estatus en Seguimiento.`
+    );
+    return lines.join('\n');
+  }
+
+  function copyKevinStoreHeadsSummary() {
+    if (!isExclusiveKevinSession() || !activeKevinAnalysisReport) return;
+    const msg = buildKevinStoreHeadsSummaryText(activeKevinAnalysisReport);
+    copyTextSilent(msg);
+    const statusEl = $('hist_kevinMailStatus');
+    if (statusEl) {
+      statusEl.className = 'cm-hist-pdf-status is-ok';
+      statusEl.textContent = '✓ Resumen ejecutivo para Cabezas de Tienda copiado al portapapeles (listo para pegar en WhatsApp).';
+    }
+    showToast('Resumen para Cabezas de Tienda copiado');
+  }
+
   function copyKevinAnalysisReport() {
     if (!isExclusiveKevinSession() || !activeKevinAnalysisReport) return;
     const subject = cleanStr($('hist_kevinMailSubject')?.value);
@@ -3093,7 +3138,8 @@
         <div class="cm-hist-mcard-row">
           <h3 class="cm-hist-section-title" style="margin:0;">✉️ Correo pre-llenado con el análisis y resultados</h3>
           <div class="cm-hist-exec-actions">
-            <button type="button" class="cm-btn cm-btn-primary" data-hist-action="kevin-open-mailto">✉️ Abrir en Correo</button>
+            <button type="button" class="cm-btn cm-btn-primary" data-hist-action="kevin-copy-heads-summary">📲 Resumen Cabezas de Tienda</button>
+            <button type="button" class="cm-btn" data-hist-action="kevin-open-mailto">✉️ Abrir en Correo</button>
             <button type="button" class="cm-btn" data-hist-action="kevin-open-gmail">📧 Abrir en Gmail</button>
             <button type="button" class="cm-btn" data-hist-action="kevin-copy-report">📋 Copiar análisis</button>
             <button type="button" class="cm-btn" data-hist-action="kevin-download-csv">📥 CSV Resguardo</button>
@@ -3684,6 +3730,8 @@
         openPrefilledKevinMailDraft(false);
       } else if (action === 'kevin-open-gmail') {
         openGmailWebComposeKevin();
+      } else if (action === 'kevin-copy-heads-summary') {
+        copyKevinStoreHeadsSummary();
       } else if (action === 'kevin-copy-report') {
         copyKevinAnalysisReport();
       } else if (action === 'kevin-download-csv') {

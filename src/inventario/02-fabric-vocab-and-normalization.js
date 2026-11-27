@@ -871,6 +871,11 @@
             it.mt = cleanStr(it.mt);
             it.p = cleanStr(it.p);
             it.f = cleanStr(it.f);
+            if (isComprasManagedDateProvider(it.p)) {
+                it.fe = COMPRAS_DATE_NOTICE;
+                it.fcomp = '';
+                it.lt = '';
+            }
             if (!cleanStr(it.pr)) {
                 const liveErpRef = skuUpper ? liveErpCatalogBySku.get(skuUpper) : null;
                 if (liveErpRef && liveErpRef.pr) it.pr = liveErpRef.pr;
@@ -1057,6 +1062,11 @@
         it.mt = mt;
         it.p = prov;
         it.f = cleanStr(it.f);
+        if (isComprasManagedDateProvider(it.p)) {
+            it.fe = COMPRAS_DATE_NOTICE;
+            it.fcomp = '';
+            it.lt = '';
+        }
         if (!cleanStr(it.pr) && erpRef && erpRef.pr) {
             it.pr = erpRef.pr;
         }

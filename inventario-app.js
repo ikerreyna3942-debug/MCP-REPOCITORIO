@@ -792,6 +792,11 @@
     let liveFabricsListSorted = [];
     const liveSkuPrefixProv = new Map();
 
+    const COMPRAS_DATE_NOTICE = 'Solicitar información con compras';
+    function isComprasManagedDateProvider(provRaw) {
+        return /\b(?:SKANOR|BARSA)\b/i.test(cleanStr(provRaw));
+    }
+
     // ------------------------------------------------------------------------
     // VALIDACIÓN Y RECONCILIACIÓN DE TELA Y COLOR DE TELA CONTRA NOMBRE (REQ 2A)
     // ------------------------------------------------------------------------
@@ -1665,6 +1670,11 @@
             it.mt = cleanStr(it.mt);
             it.p = cleanStr(it.p);
             it.f = cleanStr(it.f);
+            if (isComprasManagedDateProvider(it.p)) {
+                it.fe = COMPRAS_DATE_NOTICE;
+                it.fcomp = '';
+                it.lt = '';
+            }
             if (!cleanStr(it.pr)) {
                 const liveErpRef = skuUpper ? liveErpCatalogBySku.get(skuUpper) : null;
                 if (liveErpRef && liveErpRef.pr) it.pr = liveErpRef.pr;
@@ -1851,6 +1861,11 @@
         it.mt = mt;
         it.p = prov;
         it.f = cleanStr(it.f);
+        if (isComprasManagedDateProvider(it.p)) {
+            it.fe = COMPRAS_DATE_NOTICE;
+            it.fcomp = '';
+            it.lt = '';
+        }
         if (!cleanStr(it.pr) && erpRef && erpRef.pr) {
             it.pr = erpRef.pr;
         }
@@ -4526,9 +4541,25 @@
         return dayNum + ' de ' + monthName;
     }
 
+    function itemRequiresComprasDateNotice(it) {
+        if (!it) return false;
+        if (isComprasManagedDateProvider(it.p)) return true;
+        const feNorm = cleanStr(it.fe).toLowerCase();
+        if (feNorm && feNorm === COMPRAS_DATE_NOTICE.toLowerCase()) return true;
+        const skuU = cleanStr(it.s).toUpperCase();
+        if (skuU && !cleanStr(it.p)) {
+            const lpptArr = liveLpptBySku.get(skuU);
+            if (lpptArr && lpptArr.length > 0 && lpptArr.some(e => isComprasManagedDateProvider(e && e.prov))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Días restantes para la llegada de la pieza en LPPT (null si no hay dato o no tiene piezas en LPPT)
     function getItemLpptRemainingDays(it) {
         if (!it || getLpptStock(it) <= 0) return null;
+        if (itemRequiresComprasDateNotice(it)) return null;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -4573,6 +4604,11 @@
         const qty = Math.max(0, Number(lpptQty) || 0);
         if (qty <= 0) return '';
 
+        const dispWord = qty === 1 ? 'disponible' : 'disponibles';
+        if (itemRequiresComprasDateNotice(it)) {
+            return 'LPPT: ' + qty + ' ' + dispWord + ' · ' + COMPRAS_DATE_NOTICE;
+        }
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -4592,7 +4628,6 @@
             arrivalDate = d;
         }
 
-        const dispWord = qty === 1 ? 'disponible' : 'disponibles';
         const parts = ['LPPT: ' + qty + ' ' + dispWord];
 
         if (remDays !== null) {
@@ -7586,9 +7621,12 @@
                     '</div>'
                 );
             } else {
+                const whLabelOut = (isLppt && itemRequiresComprasDateNotice(it))
+                    ? (whName + ' · ' + COMPRAS_DATE_NOTICE)
+                    : whName;
                 whHtml.push(
                     '<div class="inv-det-info-btn ' + semClass + spanClass + '">' +
-                        '<span class="inv-det-info-lbl"><span class="inv-det-dot" style="background:' + dotColor + ';"></span><span>' + escapeHtml(whName) + '</span></span>' +
+                        '<span class="inv-det-info-lbl"><span class="inv-det-dot" style="background:' + dotColor + ';"></span><span>' + escapeHtml(whLabelOut) + '</span></span>' +
                         '<span class="inv-det-info-val">' + qty + '</span>' +
                     '</div>'
                 );
@@ -16379,10 +16417,33 @@
         return s;
     }
 
-    function computeLpptAndLeadTime(skuUpper, baseLtRaw, invLpptVal, invFeStr, prevItem) {
+    function computeLpptAndLeadTime(skuUpper, baseLtRaw, invLpptVal, invFeStr, prevItem, provHint) {
         const baseLtNum = Number(baseLtRaw);
         const validBaseLt = (!isNaN(baseLtNum) && isFinite(baseLtNum) && baseLtNum > 0) ? Math.round(baseLtNum) : '';
         const entries = liveLpptBySku.get(skuUpper);
+        const resolvedProv = cleanStr(provHint)
+            || cleanStr(prevItem && prevItem.p)
+            || (entries && entries.length > 0 ? cleanStr(entries[0] && entries[0].prov) : '');
+        const isComprasDateProv = isComprasManagedDateProvider(resolvedProv)
+            || (entries && entries.length > 0 && !cleanStr(provHint) && !cleanStr(prevItem && prevItem.p) && entries.some(e => isComprasManagedDateProvider(e && e.prov)));
+
+        if (isComprasDateProv) {
+            let lpptQty = 0;
+            if (entries && entries.length > 0) {
+                for (let k = 0; k < entries.length; k++) {
+                    lpptQty += (entries[k] && entries[k].free) || 0;
+                }
+            } else {
+                lpptQty = Math.max(0, Number(invLpptVal) || 0);
+            }
+            return {
+                lpptQty: lpptQty,
+                lt: '',
+                baseLt: validBaseLt,
+                fe: COMPRAS_DATE_NOTICE,
+                fcomp: ''
+            };
+        }
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -16566,7 +16627,8 @@
 
             const baseLtVal = normalizeLeadTimeVal(gvizCellRaw(rowCells, colLt));
             const rawFe = colFe !== -1 ? cleanStr(gvizCellFormatted(rowCells, colFe)) : '';
-            const lpptInfo = computeLpptAndLeadTime(skuUpper, baseLtVal, st[0], rawFe, prevIt);
+            const rawProvLive = colProv >= 0 ? cleanStr(gvizCellRaw(rowCells, colProv)) : cleanStr(prevIt && prevIt.p);
+            const lpptInfo = computeLpptAndLeadTime(skuUpper, baseLtVal, st[0], rawFe, prevIt, rawProvLive);
 
             if (isLpptWarehouse(WAREHOUSES[0])) {
                 st[0] = lpptInfo.lpptQty;

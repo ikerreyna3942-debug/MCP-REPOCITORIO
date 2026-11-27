@@ -1524,9 +1524,12 @@
                     '</div>'
                 );
             } else {
+                const whLabelOut = (isLppt && itemRequiresComprasDateNotice(it))
+                    ? (whName + ' · ' + COMPRAS_DATE_NOTICE)
+                    : whName;
                 whHtml.push(
                     '<div class="inv-det-info-btn ' + semClass + spanClass + '">' +
-                        '<span class="inv-det-info-lbl"><span class="inv-det-dot" style="background:' + dotColor + ';"></span><span>' + escapeHtml(whName) + '</span></span>' +
+                        '<span class="inv-det-info-lbl"><span class="inv-det-dot" style="background:' + dotColor + ';"></span><span>' + escapeHtml(whLabelOut) + '</span></span>' +
                         '<span class="inv-det-info-val">' + qty + '</span>' +
                     '</div>'
                 );

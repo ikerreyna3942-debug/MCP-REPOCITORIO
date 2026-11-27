@@ -8411,6 +8411,10 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
         }
 
         Object.keys(lpptLibre).forEach((sk) => {
+          if (/\b(?:SKANOR|BARSA)\b/i.test(String(lpptProvBySku[sk] || ''))) {
+            fechaLlegadaMap[sk] = 'Solicitar información con compras';
+            return;
+          }
           const cands = fechasCandidatas[sk] || [];
           if (lpptLibre[sk] > 0 && cands.length > 0) {
             const vigentes = cands.filter((d) => d >= todayMidnight);
@@ -8492,14 +8496,17 @@ function sincronizarInventarioEnVivoDesdeERP(opts) {
         outMatrix.push(blank);
         continue;
       }
-      const provHoja = String(r[13] || '').trim() || (metaErpSku[sku] && metaErpSku[sku].PROVEEDOR) || '';
+      const provHoja = String(r[13] || '').trim() || (metaErpSku[sku] && metaErpSku[sku].PROVEEDOR) || lpptProvBySku[sku] || '';
+      const isComprasDateProv = /\b(?:SKANOR|BARSA)\b/i.test(provHoja);
       const dias = resolveSupplierDays_(provHoja, tiemposInf, tiemposBackup);
       const colDias = dias !== '' ? dias : (r[14] !== '' ? r[14] : '');
 
       const cantLppt = lpptOk ? (lpptLibre[sku] || 0) : (Number(r[15]) || 0);
-      const fechaEst = lpptOk
-        ? (cantLppt > 0 ? (fechaLlegadaMap[sku] || 'Sin piezas solicitadas') : 'Sin piezas solicitadas')
-        : (r[16] || 'Sin piezas solicitadas');
+      const fechaEst = isComprasDateProv
+        ? 'Solicitar información con compras'
+        : (lpptOk
+            ? (cantLppt > 0 ? (fechaLlegadaMap[sku] || 'Sin piezas solicitadas') : 'Sin piezas solicitadas')
+            : (r[16] || 'Sin piezas solicitadas'));
 
       if (!erpOk) {
         const pr = (prevOAw && prevOAw[i]) || new Array(35).fill('');

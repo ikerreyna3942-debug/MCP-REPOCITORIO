@@ -595,10 +595,33 @@
         return s;
     }
 
-    function computeLpptAndLeadTime(skuUpper, baseLtRaw, invLpptVal, invFeStr, prevItem) {
+    function computeLpptAndLeadTime(skuUpper, baseLtRaw, invLpptVal, invFeStr, prevItem, provHint) {
         const baseLtNum = Number(baseLtRaw);
         const validBaseLt = (!isNaN(baseLtNum) && isFinite(baseLtNum) && baseLtNum > 0) ? Math.round(baseLtNum) : '';
         const entries = liveLpptBySku.get(skuUpper);
+        const resolvedProv = cleanStr(provHint)
+            || cleanStr(prevItem && prevItem.p)
+            || (entries && entries.length > 0 ? cleanStr(entries[0] && entries[0].prov) : '');
+        const isComprasDateProv = isComprasManagedDateProvider(resolvedProv)
+            || (entries && entries.length > 0 && !cleanStr(provHint) && !cleanStr(prevItem && prevItem.p) && entries.some(e => isComprasManagedDateProvider(e && e.prov)));
+
+        if (isComprasDateProv) {
+            let lpptQty = 0;
+            if (entries && entries.length > 0) {
+                for (let k = 0; k < entries.length; k++) {
+                    lpptQty += (entries[k] && entries[k].free) || 0;
+                }
+            } else {
+                lpptQty = Math.max(0, Number(invLpptVal) || 0);
+            }
+            return {
+                lpptQty: lpptQty,
+                lt: '',
+                baseLt: validBaseLt,
+                fe: COMPRAS_DATE_NOTICE,
+                fcomp: ''
+            };
+        }
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -782,7 +805,8 @@
 
             const baseLtVal = normalizeLeadTimeVal(gvizCellRaw(rowCells, colLt));
             const rawFe = colFe !== -1 ? cleanStr(gvizCellFormatted(rowCells, colFe)) : '';
-            const lpptInfo = computeLpptAndLeadTime(skuUpper, baseLtVal, st[0], rawFe, prevIt);
+            const rawProvLive = colProv >= 0 ? cleanStr(gvizCellRaw(rowCells, colProv)) : cleanStr(prevIt && prevIt.p);
+            const lpptInfo = computeLpptAndLeadTime(skuUpper, baseLtVal, st[0], rawFe, prevIt, rawProvLive);
 
             if (isLpptWarehouse(WAREHOUSES[0])) {
                 st[0] = lpptInfo.lpptQty;
