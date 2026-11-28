@@ -544,6 +544,28 @@
     return list;
   }
 
+  function isCommercialHistorialEntry(entry) {
+    if (!entry) return false;
+    if (entry.normKind === 'FALLO' || entry.normKind === 'ALERTA') return true;
+
+    const modNorm = normalizeUpper(entry.modulo);
+    const evNorm = normalizeUpper(entry.evento);
+
+    if (/\b(GESTOR FOTOS|FOTOS NUEVAS|FOTOS PRODUCTOS|HANDLEINVLOGIN|HANDLEINVUPDATEKEY|SINCRONIZARINVENTARIO|INVITADOS|CONFIGURACION|DEMANDA SIN STOCK|SUGERENCIAS DE COMPRA|ANALISIS VENTAS)\b/.test(modNorm)) {
+      return false;
+    }
+    if (modNorm.includes('SEGUIMIENTO') || /^SEG(\s|$)/.test(evNorm)) {
+      return true;
+    }
+    if (/\b(INSERTARCOTIZACION|INSERTARCLIENTE|INSERTARLEAD|VISORREPORTES|SERVICIO EN VIVO|PLANTILLA|HANDLEINVSUBMITQUOTE|HANDLEDOWNLOADERPQUOTEPDF)\b/.test(modNorm)) {
+      return true;
+    }
+    if (/\b(COTIZACION|COTIZADA|ALTA DE CLIENTE|ALTA DE PROSPECTO|DESCARGA DE PDF ORIGINAL)\b/.test(evNorm)) {
+      return true;
+    }
+    return false;
+  }
+
   function parseQuotesSheetRows(rawRows) {
     if (!Array.isArray(rawRows) || rawRows.length < 2) return [];
     let headerIdx = 0;
@@ -1437,7 +1459,7 @@
       // Enforce strict role scoping (Admin = all, Manager = branch, Advisor = own)
       state.quoteRows = allQuotes.filter(isRecordInRoleScope);
       state.seguimientoEntries = allTimeline.filter(isRecordInRoleScope);
-      state.historialRows = isAdmin ? parsedHist : [];
+      state.historialRows = isAdmin ? parsedHist.filter(isCommercialHistorialEntry) : [];
       ingestPresencePayload(presenceRes);
       if (global.CreataLiveAlerts && typeof global.CreataLiveAlerts.ingestPresenceSnapshot === 'function') {
         try { global.CreataLiveAlerts.ingestPresenceSnapshot(presenceRes); } catch (ePresAlert) {}
