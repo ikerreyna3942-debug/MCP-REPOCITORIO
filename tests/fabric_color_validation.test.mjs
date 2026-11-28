@@ -493,11 +493,39 @@ test('Main-view price & available-only warehouse stock (>0 incl. LPPT) + Search 
   assert.deepEqual(
     availA.map((e) => ({ label: e.label, qty: e.qty, isLppt: e.isLppt })),
     [
-      { label: 'CEDIS Bod', qty: 3, isLppt: false },
-      { label: 'Playa Piso', qty: 1, isLppt: false },
-      { label: 'LPPT', qty: 4, isLppt: true }
+      { label: 'Cedis Bd', qty: 3, isLppt: false },
+      { label: 'Pl Piso', qty: 1, isLppt: false },
+      { label: 'Lppt', qty: 4, isLppt: true }
     ],
     'Must include ONLY locations > 0 (Bodega, Piso, and LPPT) and omit all 0-stock locations'
+  );
+  assert.deepEqual(
+    [
+      'PUERTO CANCUN (PISO)',
+      'PUERTO CANCUN (BODEGA)',
+      'COLOSIO (PISO)',
+      'COLOSIO (BODEGA)',
+      'PLAYA (PISO)',
+      'PLAYA (BODEGA)',
+      'LPPT',
+      'CEDIS (PISO)',
+      'CEDIS (BODEGA)',
+      'CASA CREATA (PISO)',
+      'CASA CREATA (BODEGA)'
+    ].map((w) => api.shortWarehouseCardLabel(w)),
+    [
+      'Ptc Piso',
+      'Ptc Bd',
+      'Col Piso',
+      'Col Bd',
+      'Pl Piso',
+      'Pl Bd',
+      'Lppt',
+      'Cedis Piso',
+      'Cedis Bd',
+      'C.Creata Piso',
+      'C.Creata Bd'
+    ]
   );
   assert.deepEqual(
     Array.from(api.getAvailableWarehousesForItems([{ st: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }])),

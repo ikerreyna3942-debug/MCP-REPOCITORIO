@@ -1404,24 +1404,27 @@
     // Y ENGRANAJE DE ORDENAMIENTO / FILTROS AVANZADOS JUNTO AL BUSCADOR
     // ------------------------------------------------------------------------
     const SHORT_CARD_WAREHOUSE_LABELS = {
-        'LPPT': 'LPPT',
-        'CEDIS (BODEGA)': 'CEDIS Bod',
-        'CEDIS (PISO)': 'CEDIS Piso',
-        'CASA CREATA (BODEGA)': 'Casa Creata Bod',
-        'CASA CREATA (PISO)': 'Casa Creata Piso',
-        'PUERTO CANCUN (BODEGA)': 'Pto. Cancún Bod',
-        'PUERTO CANCUN (PISO)': 'Pto. Cancún Piso',
-        'COLOSIO (BODEGA)': 'Colosio Bod',
-        'COLOSIO (PISO)': 'Colosio Piso',
-        'PLAYA (BODEGA)': 'Playa Bod',
-        'PLAYA (PISO)': 'Playa Piso'
+        'LPPT': 'Lppt',
+        'LLPT': 'Lppt',
+        'CEDIS (BODEGA)': 'Cedis Bd',
+        'CEDIS (PISO)': 'Cedis Piso',
+        'CASA CREATA (BODEGA)': 'C.Creata Bd',
+        'CASA CREATA (PISO)': 'C.Creata Piso',
+        'PUERTO CANCUN (BODEGA)': 'Ptc Bd',
+        'PUERTO CANCÚN (BODEGA)': 'Ptc Bd',
+        'PUERTO CANCUN (PISO)': 'Ptc Piso',
+        'PUERTO CANCÚN (PISO)': 'Ptc Piso',
+        'COLOSIO (BODEGA)': 'Col Bd',
+        'COLOSIO (PISO)': 'Col Piso',
+        'PLAYA (BODEGA)': 'Pl Bd',
+        'PLAYA (PISO)': 'Pl Piso'
     };
 
     function shortWarehouseCardLabel(whRaw) {
         const key = String(whRaw || '').trim().toUpperCase();
         if (SHORT_CARD_WAREHOUSE_LABELS[key]) return SHORT_CARD_WAREHOUSE_LABELS[key];
         return String(whRaw || '').trim()
-            .replace(/\(BODEGA\)/gi, 'Bod')
+            .replace(/\(BODEGA\)/gi, 'Bd')
             .replace(/\(PISO\)/gi, 'Piso')
             .replace(/\s+/g, ' ')
             .trim();
