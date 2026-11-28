@@ -65,8 +65,8 @@
                         id="invFilterGearBtn"
                         class="inv-search-gear-btn"
                         onclick="openCatalogFilterModal()"
-                        title="Ordenar y filtrar productos"
-                        aria-label="Ordenar y filtrar productos"
+                        title="Ordenar productos"
+                        aria-label="Ordenar productos"
                         aria-haspopup="dialog"
                     >
                         <svg class="inv-search-gear-ico" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -1537,11 +1537,11 @@
         </div>
     </div>
 
-    <!-- MODAL DE ORDENAMIENTO Y FILTROS AVANZADOS (ENGRANAJE JUNTO A BUSCADOR) -->
+    <!-- MODAL DE ORDENAMIENTO DE PRODUCTOS (ENGRANAJE JUNTO A BUSCADOR) -->
     <div id="catalogFilterModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="catalogFilterModalTitle">
         <div class="inv-modal-card inv-adv-filter-card">
             <div class="inv-modal-head inv-adv-filter-head">
-                <h2 id="catalogFilterModalTitle" class="inv-modal-title">Ordenar y filtrar productos</h2>
+                <h2 id="catalogFilterModalTitle" class="inv-modal-title">Ordenar productos</h2>
                 <button type="button" class="inv-modal-close" aria-label="Cerrar" onclick="closeCatalogFilterModal()">✕</button>
             </div>
 
@@ -1556,44 +1556,10 @@
                         <button type="button" class="inv-adv-sort-pill" data-sort-val="PRICE_ASC" onclick="setCatalogSortMode('PRICE_ASC')">Menor precio</button>
                     </div>
                 </div>
-
-                <div class="inv-adv-filter-group">
-                    <label class="inv-adv-filter-label" for="invAdvFilterCat">Categoría</label>
-                    <select id="invAdvFilterCat" class="inv-adv-select" onchange="setCatalogAdvCategory(this.value)">
-                        <option value="ALL">Todas las categorías</option>
-                    </select>
-                    <div id="invAdvSubCatWrap" class="inv-adv-subcat-wrap hidden">
-                        <select id="invAdvFilterSubCat" class="inv-adv-select" aria-label="Subcategoría" onchange="setCatalogAdvSubCategory(this.value)">
-                            <option value="ALL">Todas las subcategorías</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="inv-adv-filter-group">
-                    <label class="inv-adv-filter-label" for="invAdvFilterFinish">Color de tela o acabado</label>
-                    <input
-                        type="search"
-                        id="invAdvFinishSearch"
-                        class="inv-adv-search-inp"
-                        placeholder="Buscar tela, color o acabado..."
-                        autocomplete="off"
-                        oninput="filterCatalogAdvFinishOptions(this.value)"
-                    >
-                    <select id="invAdvFilterFinish" class="inv-adv-select" onchange="setCatalogAdvFinish(this.value)">
-                        <option value="ALL">Todos los colores / telas / acabados</option>
-                    </select>
-                </div>
-
-                <div class="inv-adv-filter-group">
-                    <label class="inv-adv-filter-label" for="invAdvFilterSize">Tamaño</label>
-                    <select id="invAdvFilterSize" class="inv-adv-select" onchange="setCatalogAdvSize(this.value)">
-                        <option value="ALL">Todos los tamaños</option>
-                    </select>
-                </div>
             </div>
 
             <div class="inv-modal-foot inv-adv-filter-foot">
-                <button type="button" id="btnAdvFilterReset" onclick="resetCatalogAdvancedFilters()" class="inv-btn-secondary">Limpiar todo</button>
+                <button type="button" id="btnAdvFilterReset" onclick="resetCatalogAdvancedFilters()" class="inv-btn-secondary">Restablecer</button>
                 <button type="button" id="btnAdvFilterApply" onclick="closeCatalogFilterModal()" class="inv-btn-primary">
                     <span id="btnAdvFilterApplyText">Ver productos</span>
                 </button>

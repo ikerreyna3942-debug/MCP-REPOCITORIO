@@ -432,7 +432,7 @@ test('validateAndNormalizeFabricColorAgainstName default mode is pure and normal
   assert.match(liveIt.vr, /BRAXTON SNOW/);
 });
 
-test('Main-view price & available-only warehouse stock (>0 incl. LPPT) + Search Gear Sort & Filter (A-Z, Z-A, Mayor/Menor precio, Categoría, Tela/Acabado, Tamaño)', () => {
+test('Main-view price & available-only warehouse stock (>0 incl. LPPT) + Search Gear Sort Modal (A-Z, Z-A, Mayor/Menor precio only; Categoría, Color de tela o acabado, and Tamaño removed)', () => {
   const invHtml = fs.readFileSync('inventario.html', 'utf8');
   assert.match(invHtml, /id="invSearchInput"[\s\S]{0,900}?id="invFilterGearBtn"/, 'Gear button must sit right beside #invSearchInput inside .inv-search-cell');
   assert.match(invHtml, /id="catalogFilterModal"/, 'inventario.html must include #catalogFilterModal');
@@ -440,9 +440,9 @@ test('Main-view price & available-only warehouse stock (>0 incl. LPPT) + Search 
   assert.match(invHtml, /data-sort-val="ZA"[^>]*>De la Z a la A</);
   assert.match(invHtml, /data-sort-val="PRICE_DESC"[^>]*>Mayor precio</);
   assert.match(invHtml, /data-sort-val="PRICE_ASC"[^>]*>Menor precio</);
-  assert.match(invHtml, /id="invAdvFilterCat"/);
-  assert.match(invHtml, /id="invAdvFilterFinish"/);
-  assert.match(invHtml, /id="invAdvFilterSize"/);
+  assert.doesNotMatch(invHtml, /id="invAdvFilterCat"|id="invAdvSubCatWrap"|Todas las categorías/, 'Categoría block must be removed from #catalogFilterModal');
+  assert.doesNotMatch(invHtml, /id="invAdvFinishSearch"|id="invAdvFilterFinish"|Color de tela o acabado|Todos los colores \/ telas \/ acabados/, 'Color de tela o acabado block must be removed from #catalogFilterModal');
+  assert.doesNotMatch(invHtml, /id="invAdvFilterSize"|Todos los tamaños/, 'Tamaño block must be removed from #catalogFilterModal');
 
   const { win, api } = createAuditHarness();
 

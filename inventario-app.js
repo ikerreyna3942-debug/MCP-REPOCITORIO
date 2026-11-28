@@ -5829,7 +5829,6 @@
     function syncCatalogFilterGearUi() {
         let activeCount = 0;
         if (activeCatalogSort !== 'DEFAULT') activeCount++;
-        if (activeCategory && activeCategory !== 'ALL') activeCount++;
         if (activeAdvFinish && activeAdvFinish !== 'ALL') activeCount++;
         if (activeAdvSize && activeAdvSize !== 'ALL') activeCount++;
 
